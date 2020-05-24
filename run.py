@@ -1,10 +1,11 @@
 import argparse
 import importlib
+from datetime import datetime
 
 from colorama import init
 
-import classes
 import examples
+from grid_classes import solver
 
 init()
 
@@ -16,16 +17,20 @@ group.add_argument("-f", "--file", type=str, help="load puzzle from module file"
 parser.add_argument("-d", "--detail", type=int, help="detail of log output", default=-1)
 args = parser.parse_args()
 
+startTime = datetime.now()
+
 if args.file:
     x = importlib.import_module(args.file)
     print(list(x.g.rules))
-    classes.Solver(x.g, args.detail).solve_full(False, False)
+    solver.solve_full(x.g, args.detail, False)
     exit(0)
 
 if not args.choice:
-    args.choice = "d"
+    args.choice = "b"
 
 g = examples.get_example(args)
 
 print(list(g.rules))
-classes.Solver(g, args.detail).solve_full(False, False)
+solver.solve_full(g, args.detail, False)
+
+print(f"Took {datetime.now() - startTime} to execute.")

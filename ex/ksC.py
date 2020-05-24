@@ -1,4 +1,4 @@
-from classes import *
+from grid_classes.classes import *
 
 g = KillerSudoku()
 

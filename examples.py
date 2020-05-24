@@ -1,7 +1,12 @@
-from classes import *
+from grid_classes.classes import *
+from grid_classes.futoshiki import *
+from grid_classes.killer_sudoku import *
+from rules.uneq import *
 
 
 def get_example(args) -> Grid:
+    g = Sudoku()
+
     if args.choice == "s":
         g = Sudoku()
 
