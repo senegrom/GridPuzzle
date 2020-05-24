@@ -6,9 +6,7 @@ from rules.unique import ElementsAtMostOnce
 
 
 class SumRule(Rule):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]],
-                 mysum: int):
+    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         Rule.__init__(self, gsz, sorted(cells), None)
         self.sum: int = mysum
         self._sum_possibles: Optional[Tuple[Set[int]]] = None
@@ -115,9 +113,7 @@ class SumRule(Rule):
 
 
 class SumAndElementsAtMostOnce(ElementsAtMostOnce):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]],
-                 mysum: int):
+    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         Rule.__init__(self, gsz, sorted(cells), None)
         self.sum: int = mysum
         self._sum_possibles: Optional[Tuple[Set[int]]] = None
@@ -243,7 +239,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce):
         return False, None, new_gts
 
     @classmethod
-    def _filter_new_sum_possibles(self, new_cells: Sequence[int], new_possible: Sequence[Set[int]],
+    def _filter_new_sum_possibles(cls, new_cells: Sequence[int], new_possible: Sequence[Set[int]],
                                   new_sum_possibles: Iterable[FrozenSet[int]], gts: Iterable[Guarantee]) \
             -> List[Guarantee]:
 

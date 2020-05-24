@@ -1,6 +1,6 @@
-from grid_classes.classes import *
+from grid_classes import killer_sudoku
 
-g = KillerSudoku()
+g = killer_sudoku.KillerSudoku()
 
 g.ext_sum_cells_from_str(
     """

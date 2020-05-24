@@ -22,7 +22,7 @@ startTime = datetime.now()
 if args.file:
     x = importlib.import_module(args.file)
     print(list(x.g.rules))
-    solver.solve_full(x.g, args.detail, False)
+    solver.solve(x.g, args.detail, False)
     exit(0)
 
 if not args.choice:
@@ -31,6 +31,6 @@ if not args.choice:
 g = examples.get_example(args)
 
 print(list(g.rules))
-solver.solve_full(g, args.detail, False)
+solver.solve(g, args.detail, False)
 
 print(f"Took {datetime.now() - startTime} to execute.")

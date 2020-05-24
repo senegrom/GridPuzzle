@@ -6,6 +6,10 @@ from typing import *
 
 import util
 
+IdxType = Union[int, Tuple[int, int]]
+IdxTypeSlice = Union[int, Tuple[int, int], slice]
+CellCreatorType = Callable[['Rule'], Iterable[IdxType]]
+
 
 class InvalidGrid(Exception):
     pass
@@ -27,9 +31,8 @@ class Rule(ABC):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', '_lcells')
 
     def __init__(self, gsz: util.GridSizeContainer,
-                 cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]] = None,
-                 cell_creator: Callable[
-                     ['Rule'], Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]]] = None):
+                 cells: Optional[Iterable[IdxType]] = None,
+                 cell_creator: Optional[CellCreatorType] = None):
 
         self.cells: ArrayType
         self._rows: int = gsz.rows
@@ -47,8 +50,7 @@ class Rule(ABC):
         self.cells = array('i', (cell for cell in cells if 0 <= cell < rc))
         self.len_cells: int = len(self.cells)
 
-    def cells_as_row_or_column(self, idx: int, row_wise: bool) -> Iterable[
-        Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]]:
+    def cells_as_row_or_column(self, idx: int, row_wise: bool) -> Iterable[IdxType]:
         if row_wise:
             return (idx + col * self._rows for col in range(self._cols))
         else:

@@ -5,9 +5,7 @@ from rules.rules import *
 
 
 class ElementsAtMostOnce(Rule):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]] = None,
-                 cell_creator=None):
+    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType] = None, cell_creator=None):
         Rule.__init__(self, gsz, sorted(cells) if cells is not None else None, cell_creator)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
@@ -109,9 +107,7 @@ class ElementsAtMostOnce(Rule):
 
 
 class ElementsAtLeastOnce(Rule):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]] = None,
-                 cell_creator=None):
+    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType] = None, cell_creator=None):
         Rule.__init__(self, gsz, sorted(cells) if cells is not None else None, cell_creator)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):

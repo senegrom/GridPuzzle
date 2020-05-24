@@ -124,7 +124,6 @@ def __box_str(data: List[Iterable[str]], rows: int, cols: int, args: PrettyPrint
     ffirst = list(ffirst)
     mylen = [len(s) if s != iv else -1 for s in ffirst]
     first = chain([ffirst], first)
-    # noinspection PyTypeChecker
     new_rows = chain([first], new_rows)
 
     def sep_row(sep: str):
@@ -218,8 +217,6 @@ def peek(it: Iterable[__T]) -> (__T, Iterable[__T]):
 
 
 class GridSizeContainer:
-    # __slots__ = ("__rows", "__cols", "__max_elem", "__len")
-
     def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
         if cols is None:
             cols = rows

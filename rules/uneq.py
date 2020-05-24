@@ -2,9 +2,7 @@ from rules.rules import *
 
 
 class IneqRule(Rule):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 gt_cell: Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]],
-                 lt_cell: Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]):
+    def __init__(self, gsz: util.GridSizeContainer, gt_cell: IdxType, lt_cell: IdxType):
         Rule.__init__(self, gsz, [gt_cell, lt_cell], None)
         self._gt_cell, self._lt_cell = self.cells
 
@@ -20,10 +18,8 @@ class IneqRule(Rule):
         return False, None, None
 
 
-class SingleRelationRule(Rule):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 origin_cell: Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]],
-                 rel_cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]]):
+class SingleRelationRule(Rule, ABC):
+    def __init__(self, gsz: util.GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
         rel_cells = list(rel_cells)
         Rule.__init__(self, gsz, [origin_cell] + sorted(rel_cells), None)
         self.origin_cell: int = self.cells[0]
@@ -31,9 +27,7 @@ class SingleRelationRule(Rule):
 
 
 class UneqRule(SingleRelationRule):
-    def __init__(self, gsz: util.GridSizeContainer,
-                 origin_cell: Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]],
-                 rel_cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]]):
+    def __init__(self, gsz: util.GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
         SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
@@ -70,8 +64,8 @@ class UneqRule(SingleRelationRule):
 
 class DiffGe2Rule(SingleRelationRule):
     def __init__(self, gsz: util.GridSizeContainer,
-                 origin_cell: Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]],
-                 rel_cells: Iterable[Union[numbers.Integral, Tuple[numbers.Integral, numbers.Integral]]]):
+                 origin_cell: IdxType,
+                 rel_cells: Iterable[IdxType]):
         SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
