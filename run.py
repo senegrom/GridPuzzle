@@ -7,30 +7,32 @@ from colorama import init
 import examples
 from grid_classes import solver
 
-init()
+if __name__ == "__main__":
 
-parser = argparse.ArgumentParser(description="Solve grid puzzle")
-group = parser.add_mutually_exclusive_group()
-group.add_argument("-c", "--choice", choices=("a", "b", "c", "d", "f", "m", "s", "t"), help="choose default puzzle",
-                   type=str)
-group.add_argument("-f", "--file", type=str, help="load puzzle from module file")
-parser.add_argument("-d", "--detail", type=int, help="detail of log output", default=-1)
-args = parser.parse_args()
+    init()
 
-startTime = datetime.now()
+    parser = argparse.ArgumentParser(description="Solve grid puzzle")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-c", "--choice", choices=("a", "b", "c", "d", "f", "m", "s", "t"), help="choose default puzzle",
+                       type=str)
+    group.add_argument("-f", "--file", type=str, help="load puzzle from module file")
+    parser.add_argument("-d", "--detail", type=int, help="detail of log output", default=-1)
+    args = parser.parse_args()
 
-if args.file:
-    x = importlib.import_module(args.file)
-    print(list(x.g.rules))
-    solver.solve(x.g, args.detail, False)
-    exit(0)
+    startTime = datetime.now()
 
-if not args.choice:
-    args.choice = "b"
+    if args.file:
+        x = importlib.import_module(args.file)
+        print(list(x.g.rules))
+        solver.solve(x.g, args.detail, False)
+        exit(0)
 
-g = examples.get_example(args)
+    if not args.choice:
+        args.choice = "b"
 
-print(list(g.rules))
-solver.solve(g, args.detail, False)
+    g = examples.get_example(args)
 
-print(f"Took {datetime.now() - startTime} to execute.")
+    print(list(g.rules))
+    solver.solve(g, args.detail, False)
+
+    print(f"Took {datetime.now() - startTime} to execute.")

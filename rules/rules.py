@@ -4,6 +4,8 @@ from abc import abstractmethod, ABC
 from array import array, ArrayType
 from typing import *
 
+
+
 import util
 
 IdxType = Union[int, Tuple[int, int]]
