@@ -8,7 +8,7 @@ class Futoshiki(UniqueSquare):
     """A (normally 5x5) grid with unique row/column entries and inequality constraints."""
 
     def __init__(self, n: int, ineqs: Iterable):
-        UniqueSquare.__init__(self, n)
+        super().__init__(n)
         self.ext_ineqs(ineqs)
 
     def ext_ineqs(self, ineqs: Iterable) -> None:

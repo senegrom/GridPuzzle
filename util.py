@@ -6,29 +6,27 @@ import numpy as np
 
 
 class PrettyPrintArgs:
+
+    @staticmethod
+    def _none_alternate(arg1, arg2, default):
+        return (default if arg2 is None else arg2) if arg1 is None else arg1
+
     def __init__(self, sep_up: int = None, print_possible: bool = None, sep_lo: int = None, sep_ri: int = None,
                  sep_le: int = None, inner_grid_row: int = None, inner_grid_col: int = None, sep_in_ve: int = None,
                  sep_in_ho: int = None, detail_rule: bool = False, args: 'PrettyPrintArgs' = None):
-        self.sep_up: int = (2 if args is None or args.sep_up is None else args.sep_up) if sep_up is None else sep_up
-        self.sep_lo: int = (2 if args is None or args.sep_lo is None else args.sep_lo) if sep_lo is None else sep_lo
-        self.sep_le: int = (2 if args is None or args.sep_le is None else args.sep_le) if sep_le is None else sep_le
-        self.sep_ri: int = (2 if args is None or args.sep_ri is None else args.sep_ri) if sep_ri is None else sep_ri
-        self.sep_in_ve: int = (
-            3 if args is None or args.sep_in_ve is None else args.sep_in_ve) if sep_in_ve is None else sep_in_ve
-        self.sep_in_ho: int = (
-            0 if args is None or args.sep_in_ho is None else args.sep_in_ho) if sep_in_ho is None else sep_in_ho
-        self.print_possible: bool = (
-            False if args is None or args.print_possible is None else args.print_possible) \
-            if print_possible is None else print_possible
-        self.detail_rule: bool = (
-            False if args is None or args.detail_rule is None else args.detail_rule) \
-            if detail_rule is None else detail_rule
-        self.inner_grid_row: int = (
-            0 if args is None or args.inner_grid_row is None else args.inner_grid_row) \
-            if inner_grid_row is None else inner_grid_row
-        self.inner_grid_col: int = (
-            0 if args is None or args.inner_grid_col is None else args.inner_grid_col) \
-            if inner_grid_col is None else inner_grid_col
+        self.sep_up: int = PrettyPrintArgs._none_alternate(sep_up, args.sep_up if args else None, 2)
+        self.sep_lo: int = PrettyPrintArgs._none_alternate(sep_lo, args.sep_lo if args else None, 2)
+        self.sep_le: int = PrettyPrintArgs._none_alternate(sep_le, args.sep_le if args else None, 2)
+        self.sep_ri: int = PrettyPrintArgs._none_alternate(sep_ri, args.sep_ri if args else None, 2)
+        self.sep_in_ve: int = PrettyPrintArgs._none_alternate(sep_in_ve, args.sep_in_ve if args else None, 3)
+        self.sep_in_ho: int = PrettyPrintArgs._none_alternate(sep_in_ho, args.sep_in_ho if args else None, 0)
+        self.print_possible: bool = PrettyPrintArgs._none_alternate(print_possible,
+                                                                    args.print_possible if args else None, False)
+        self.detail_rule: bool = PrettyPrintArgs._none_alternate(detail_rule, args.detail_rule if args else None, False)
+        self.inner_grid_row: int = PrettyPrintArgs._none_alternate(inner_grid_row,
+                                                                   args.inner_grid_row if args else None, 0)
+        self.inner_grid_col: int = PrettyPrintArgs._none_alternate(inner_grid_col,
+                                                                   args.inner_grid_col if args else None, 0)
 
     def __copy__(self):
         return PrettyPrintArgs(args=self)
@@ -36,8 +34,8 @@ class PrettyPrintArgs:
     def __deepcopy__(self):
         return PrettyPrintArgs(args=self)
 
-    @classmethod
-    def blank(cls) -> 'PrettyPrintArgs':
+    @staticmethod
+    def blank() -> 'PrettyPrintArgs':
         return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_possible=False,
                                inner_grid_col=0, inner_grid_row=0, detail_rule=False)
 
@@ -145,18 +143,18 @@ def __box_str(data: List[Iterable[str]], rows: int, cols: int, args: PrettyPrint
 
 
 __BOX_DRAW_DIC = {
-    (None, None, "│", "─"): "┌", (None, None, "┃", "━"): "┏", (None, None, "│", "━"): "┍", (None, None, "┃", "─"): "┎",
-    ("│", "─", None, None): "┘", ("┃", "━", None, None): "┛", ("│", "━", None, None): "┙", ("┃", "─", None, None): "┚",
-    ("│", None, None, "─"): "└", ("┃", None, None, "━"): "┗", ("│", None, None, "━"): "┕", ("┃", None, None, "─"): "┖",
-    (None, "─", "│", None): "┐", (None, "━", "┃", None): "┓", (None, "━", "│", None): "┑", (None, "─", "┃", None): "┒",
-    ("│", None, "│", "─"): "├", ("│", None, "┃", "━"): "┢", ("│", None, "│", "━"): "┝", ("│", None, "┃", "─"): "┟",
-    ("┃", None, "│", "─"): "┞", ("┃", None, "┃", "━"): "┣", ("┃", None, "│", "━"): "┡", ("┃", None, "┃", "─"): "┠",
-    ("│", "─", "│", None): "┤", ("│", "━", "┃", None): "┪", ("│", "━", "│", None): "┥", ("│", "─", "┃", None): "┧",
-    ("┃", "─", "│", None): "┦", ("┃", "━", "┃", None): "┫", ("┃", "━", "│", None): "┩", ("┃", "─", "┃", None): "┨",
-    (None, "─", "│", "─"): "┬", (None, "━", "┃", "─"): "┱", (None, "━", "│", "─"): "┭", (None, "─", "┃", "─"): "┰",
-    (None, "─", "│", "━"): "┮", (None, "━", "┃", "━"): "┳", (None, "━", "│", "━"): "┯", (None, "─", "┃", "━"): "┲",
-    ("│", "─", None, "─"): "┴", ("┃", "━", None, "─"): "┹", ("│", "━", None, "─"): "┵", ("┃", "─", None, "─"): "┸",
-    ("│", "─", None, "━"): "┶", ("┃", "━", None, "━"): "┻", ("│", "━", None, "━"): "┷", ("┃", "─", None, "━"): "┺",
+    (" ", " ", "│", "─"): "┌", (" ", " ", "┃", "━"): "┏", (" ", " ", "│", "━"): "┍", (" ", " ", "┃", "─"): "┎",
+    ("│", "─", " ", " "): "┘", ("┃", "━", " ", " "): "┛", ("│", "━", " ", " "): "┙", ("┃", "─", " ", " "): "┚",
+    ("│", " ", " ", "─"): "└", ("┃", " ", " ", "━"): "┗", ("│", " ", " ", "━"): "┕", ("┃", " ", " ", "─"): "┖",
+    (" ", "─", "│", " "): "┐", (" ", "━", "┃", " "): "┓", (" ", "━", "│", " "): "┑", (" ", "─", "┃", " "): "┒",
+    ("│", " ", "│", "─"): "├", ("│", " ", "┃", "━"): "┢", ("│", " ", "│", "━"): "┝", ("│", " ", "┃", "─"): "┟",
+    ("┃", " ", "│", "─"): "┞", ("┃", " ", "┃", "━"): "┣", ("┃", " ", "│", "━"): "┡", ("┃", " ", "┃", "─"): "┠",
+    ("│", "─", "│", " "): "┤", ("│", "━", "┃", " "): "┪", ("│", "━", "│", " "): "┥", ("│", "─", "┃", " "): "┧",
+    ("┃", "─", "│", " "): "┦", ("┃", "━", "┃", " "): "┫", ("┃", "━", "│", " "): "┩", ("┃", "─", "┃", " "): "┨",
+    (" ", "─", "│", "─"): "┬", (" ", "━", "┃", "─"): "┱", (" ", "━", "│", "─"): "┭", (" ", "─", "┃", "─"): "┰",
+    (" ", "─", "│", "━"): "┮", (" ", "━", "┃", "━"): "┳", (" ", "━", "│", "━"): "┯", (" ", "─", "┃", "━"): "┲",
+    ("│", "─", " ", "─"): "┴", ("┃", "━", " ", "─"): "┹", ("│", "━", " ", "─"): "┵", ("┃", "─", " ", "─"): "┸",
+    ("│", "─", " ", "━"): "┶", ("┃", "━", " ", "━"): "┻", ("│", "━", " ", "━"): "┷", ("┃", "─", " ", "━"): "┺",
     ("│", "─", "│", "─"): "┼", ("┃", "━", "│", "─"): "╃", ("│", "━", "│", "─"): "┽", ("┃", "─", "│", "─"): "╀",
     ("│", "─", "│", "━"): "┾", ("┃", "━", "│", "━"): "╇", ("│", "━", "│", "━"): "┿", ("┃", "─", "│", "━"): "╄",
     ("│", "─", "┃", "─"): "╁", ("┃", "━", "┃", "─"): "╉", ("│", "━", "┃", "─"): "╅", ("┃", "─", "┃", "─"): "╂",
@@ -173,10 +171,10 @@ def __fix_crossings(data: MutableSequence[str]) -> None:
         last_col = len(row) - 1
         for j, char in enumerate(row):
             if char == CORNER_MARKER:
-                top = None
-                bot = None
-                lef = None
-                rig = None
+                top = " "
+                bot = " "
+                lef = " "
+                rig = " "
                 if i < last_row:
                     bot = data_s[i + 1][j]
                 if i > 0:

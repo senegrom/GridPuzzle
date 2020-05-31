@@ -1,7 +1,7 @@
 import gc
 import itertools
 
-from grid_classes.classes import Grid, SolveStatus
+from grid_classes.classes import Grid, ImmutableGrid, SolveStatus
 from rules import unique, uneq, sumrules
 from rules.rules import *
 from util import PrettyPrintArgs
@@ -10,8 +10,8 @@ GC_LEN_PARAM: int = 22
 
 
 def solve(grid: Grid, print_info: int = 0, max_sols: int = -1,
-          return_solutions: bool = True) -> Optional[Set[Grid]]:
-    sols: Set[Grid]
+          return_solutions: bool = True) -> Optional[Set[ImmutableGrid]]:
+    sols: Set[ImmutableGrid]
     rulehelpers: List[Callable[['Grid'], None]] = []
     any_unique = any(isinstance(rule, unique.ElementsAtMostOnce) for rule in grid.rules)
     any_sum = any(isinstance(rule, sumrules.SumAndElementsAtMostOnce) or isinstance(rule, sumrules.SumRule) for rule in
@@ -89,7 +89,7 @@ def __update_known_from_possible(setitem: Callable[[int, int], None], possible: 
 def __refresh_possible_from_known(possible: Tuple[Set[int]], known: ArrayType) -> None:
     for p, k in zip(possible, known):
         if k > 0 and len(p) > 1:
-            p.intersection_update({k})
+            p &= {k}
 
 
 def __update_from_rules(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
@@ -118,14 +118,13 @@ def __filter_guarantees(grid: Grid, possible: Tuple[Set[int]], known: ArrayType)
 
     gts = [(gt.val, frozenset(gt.cells), gt) for gt in grid.guarantees]
     for val in range(1, grid.max_elem + 1):
-        for (_, cells1, gt1), (_, cells2, gt2) in itertools.combinations((x for x in gts if x[0] == val), 2):
-            if cells1.issubset(cells2) and gt1 in grid.guarantees and gt2 in grid.guarantees:
+        for (_, cells1, gt1), (_, cells2, gt2) in itertools.combinations((gt for gt in gts if gt[0] == val), 2):
+            if cells1 <= cells2 and gt1 in grid.guarantees and gt2 in grid.guarantees:
                 grid.deactivate_gtee(gt2)
-            elif cells2.issubset(cells1) and gt1 in grid.guarantees and gt2 in grid.guarantees:
+            elif cells2 <= cells1 and gt1 in grid.guarantees and gt2 in grid.guarantees:
                 grid.deactivate_gtee(gt1)
 
-    gts = grid.guarantees.copy()
-    for gt in gts:
+    for gt in grid.guarantees.copy():
         __update_from_guarantee(grid, gt, possible, known)
 
 
@@ -159,10 +158,7 @@ def __update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]]
     if any(known[cell] > 0 or gt.val not in possible[cell] for cell in gt.cells):
         grid.deactivate_gtee(gt)
 
-        new_cells = []
-        for cell in gt.cells:
-            if known[cell] == 0 and gt.val in possible[cell]:
-                new_cells.append(cell)
+        new_cells = [cell for cell in gt.cells if known[cell] == 0 and gt.val in possible[cell]]
 
         if not new_cells:
             possible[gt.cells[0]].clear()
@@ -183,31 +179,31 @@ def __update_step(grid: Grid) -> None:
 
 
 def __solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
-                 solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None) -> (Set[Grid], Set[Grid]):
+                 solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None
+                 ) -> (Set[ImmutableGrid], Set[ImmutableGrid]):
     steps.append(0)
     print_all: bool = print_info < 0
     mylen = len(steps)
-    if mylen == grid.len - GC_LEN_PARAM:
+    if mylen == len(grid) - GC_LEN_PARAM:
         gc.collect()
     solved: SolveStatus = __solve_atomic(grid, print_all, steps, solve_iter_hooks)
     if solved == SolveStatus.SOLVED:
         steps.pop()
-        return {grid}, set()
+        return {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}, set()
     if solved == SolveStatus.INVALID:
         steps.pop()
-        return set(), {grid}
+        return set(), {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}
 
     test_i, p = grid.get_least_possible_set()
     test_gt = grid.get_least_possible_guarantee()
     tests = list(p)
 
-    # todo: this could yield same solution twice for multiple elements in same guarantee
-    is_test_gt = not test_gt and len(test_gt.cells) < len(tests)
+    is_test_gt = test_gt and len(test_gt.cells) < len(tests)
     if is_test_gt:
         tests = None
 
-    sols: Set[Grid] = set()
-    wrongs: Set[Grid] = set()
+    sols: Set[ImmutableGrid] = set()
+    wrongs: Set[ImmutableGrid] = set()
     for test_val_cell in tests or test_gt.cells:
         if print_all or mylen <= print_info:
             if is_test_gt:
@@ -225,8 +221,8 @@ def __solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
         else:
             clone[test_i] = test_val_cell
 
-        sols_x: Set[Grid]
-        wrongs_x: Set[Grid]
+        sols_x: Set[ImmutableGrid]
+        wrongs_x: Set[ImmutableGrid]
         new_max: int = -1 if max_sols == -1 else max_sols - len(sols)
         sols_x, wrongs_x = __solve_full(clone, print_info, steps, new_max)
         steps[mylen - 1] = steps[mylen - 1] + 1
@@ -254,14 +250,14 @@ def rulehelper_uneq_atmostonce(grid: Grid) -> None:
 
     uneq_rule_cells = [rule for rule in grid.rules if isinstance(rule, uneq.UneqRule)]
 
-    for oc in range(grid.len):
+    for oc in range(len(grid)):
         uneq_rule_cells_oc = {(frozenset(rule.rel_cells), rule) for rule in uneq_rule_cells if
                               rule.origin_cell == oc}
         if len(uneq_rule_cells_oc) > 1:
             uni = frozenset.union(*(cells for cells, rl in uneq_rule_cells_oc))
 
             for cells, rl in uneq_rule_cells_oc.copy():
-                if cells.issubset(uni) and uni != cells:
+                if cells < uni:
                     grid.deactivate_rule(rl)
                     uneq_rule_cells_oc.remove((cells, rl))
 
@@ -278,16 +274,14 @@ def rulehelper_sum_atmostonce(grid: Grid) -> None:
     sum_once_rules = [rule for rule in grid.rules if isinstance(rule, sumrules.SumAndElementsAtMostOnce)]
 
     set_dic: Dict[sumrules.SumAndElementsAtMostOnce, FrozenSet[int]] = {}
-    rule_cntn_dic: Dict[FrozenSet[int], List[sumrules.SumAndElementsAtMostOnce]] = {}
-
-    for rule_most_cells in most_one_rule_cells:
-        rule_cntn_dic[rule_most_cells] = []
+    rule_cntn_dic: Dict[FrozenSet[int], List[sumrules.SumAndElementsAtMostOnce]] = {key: [] for key in
+                                                                                    most_one_rule_cells}
 
     for rule_sum in sum_once_rules:
         cells = frozenset(rule_sum.cells)
         set_dic[rule_sum] = cells
         for rule_most_cells in most_one_rule_cells:
-            if cells.issubset(rule_most_cells):
+            if cells <= rule_most_cells:
                 rule_cntn_dic[rule_most_cells].append(rule_sum)
 
     for rule_most_cells in most_one_rule_cells:
@@ -305,10 +299,11 @@ def rulehelper_sum_atmostonce(grid: Grid) -> None:
                 grid.add_rule_checked(new_rule)
 
     for rule_most_cells in most_one_rule_cells:
+        lrmc = len(rule_most_cells)
         for rule in rule_cntn_dic[rule_most_cells]:
             cells = set_dic[rule]
             lc = len(cells)
-            if lc != len(rule_most_cells) and grid.max_elem == len(rule_most_cells):
+            if lc != len(rule_most_cells) and grid.max_elem == lrmc:
                 new_sum = int(grid.max_elem * (grid.max_elem + 1) / 2) - rule.sum
                 new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=rule_most_cells - cells, mysum=new_sum)
                 grid.add_rule_checked(new_rule)

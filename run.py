@@ -22,17 +22,17 @@ if __name__ == "__main__":
     startTime = datetime.now()
 
     if args.file:
+        print(f"Importing grid puzzle from {args.file}")
         x = importlib.import_module(args.file)
         print(list(x.g.rules))
         solver.solve(x.g, args.detail, False)
-        exit(0)
+    else:
+        if not args.choice:
+            args.choice = "b"
 
-    if not args.choice:
-        args.choice = "b"
+        g = examples.get_example(args)
 
-    g = examples.get_example(args)
-
-    print(list(g.rules))
-    solver.solve(g, args.detail, False)
+        print(list(g.rules))
+        solver.solve(g, args.detail, False)
 
     print(f"Took {datetime.now() - startTime} to execute.")

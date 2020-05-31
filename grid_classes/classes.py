@@ -17,12 +17,10 @@ class SolveStatus(Enum):
 
 class RuleContainer:
     def __init__(self):
-        self.rules: SortedSet[Rule] = SortedSet(
-            key=lambda rule: (rule.cells, type(rule).__name__))
-        self._rules_ia: SortedSet[Rule] = SortedSet(
-            key=lambda rule: (rule.cells, type(rule).__name__))
-        self.guarantees: SortedSet[Guarantee] = SortedSet()
-        self._guarantees_ia: SortedSet[Guarantee] = SortedSet()
+        self.rules: SortedSet[Rule] = SortedSet(key=RuleContainer._rule_key)
+        self._rules_ia: SortedSet[Rule] = SortedSet(key=RuleContainer._rule_key)
+        self.guarantees: SortedSet[Guarantee] = SortedSet(key=RuleContainer._grt_kee)
+        self._guarantees_ia: SortedSet[Guarantee] = SortedSet(key=RuleContainer._grt_kee)
 
     def __eq__(self, other: 'RuleContainer') -> bool:
         if not isinstance(other, type(self)):
@@ -33,20 +31,40 @@ class RuleContainer:
     def __ne__(self, other: 'RuleContainer') -> bool:
         return not self == other
 
+    @staticmethod
+    def _rule_key(rule: Rule) -> Tuple:
+        return rule.cells, type(rule).__name__
 
-class Grid(Dict[IdxType, int], Iterable[int], util.GridSizeContainer, RuleContainer):
-    def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
+    @staticmethod
+    def _grt_kee(gt: Guarantee) -> Tuple:
+        return gt.val, gt.cells
+
+
+class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
+    def __init__(self, known: Sequence[int], rows: int, cols: Optional[int] = None,
+                 max_elem: Optional[int] = None, type_info=None):
         util.GridSizeContainer.__init__(self, rows, cols, max_elem)
-        RuleContainer.__init__(self)
-        self._known: ArrayType = array('i', [0] * self.len)
-        possible_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(self.len))
-        self._possible: Tuple[Set[int]] = tuple(possible_gen)
-        self.__hash: Optional[int] = None
-        self.__has_been_filled = False
+        self._known: ArrayType = array('i', known)
+        self.__hash: int = hash((bytes(self._known)))
         self.format_args = util.PrettyPrintArgs()
-        self.presolved_not_yet_once: bool = True
+        self._type_info = type_info
 
-    def __get_index_from_key(self, key: IdxTypeSlice) -> Union[int, slice]:
+    def __eq__(self, other: 'ImmutableGrid') -> bool:
+        if not isinstance(other, type(self)):
+            return False
+        return self._known == other._known
+
+    def __ne__(self, other: 'ImmutableGrid') -> bool:
+        return not self == other
+
+    def __hash__(self):
+        return self.__hash
+
+    @property
+    def known(self) -> ArrayType:
+        return self._known
+
+    def _get_index_from_key(self, key: IdxTypeSlice) -> Union[int, slice]:
         if isinstance(key, int):
             return key
         if isinstance(key, numbers.Integral):
@@ -61,50 +79,104 @@ class Grid(Dict[IdxType, int], Iterable[int], util.GridSizeContainer, RuleContai
             return key[0] + key[1] * self.rows
         raise TypeError(f"Index {key!r} must be integral or integral tuple of length 1 or 2.")
 
-    def __getitem__(self, key: IdxTypeSlice) -> int:
-        return self._known[self.__get_index_from_key(key)]
+    @overload
+    def __getitem__(self, i: int) -> int:
+        ...
 
-    def __setitem__(self, key: IdxType, val: int) -> None:
-        self.__has_been_filled = True
-        self.__hash = None
-        idx = self.__get_index_from_key(key)
-        if isinstance(idx, slice):
-            raise TypeError("Index slices not supported for setting.")
-        self._known[idx] = val
-        p = self._possible[idx]
-        if val > 0:
-            p.intersection_update({val})
+    @overload
+    def __getitem__(self, i: slice) -> int:
+        ...
+
+    @overload
+    def __getitem__(self, i: Tuple[int, int]) -> int:
+        ...
+
+    @overload
+    def __getitem__(self, i: IdxTypeSlice) -> int:
+        ...
+
+    def __getitem__(self, key: IdxTypeSlice) -> int:
+        return self._known[self._get_index_from_key(key)]
 
     def __iter__(self) -> Iterator[int]:
         return iter(self._known)
+
+    def _str_header(self, detailed=False):
+
+        s = f"{self._type_info or self.__class__.__name__}({self.rows},{self.cols})"
+
+        return s
 
     def __str__(self) -> str:
         return self.to_str(util.PrettyPrintArgs(print_possible=False, args=self.format_args))
 
     def __repr__(self) -> str:
-        return self.to_str(util.PrettyPrintArgs(print_possible=True, args=self.format_args))
+        return self.to_str(util.PrettyPrintArgs(print_possible=False, args=self.format_args))
 
     def to_str(self, args: util.PrettyPrintArgs = None) -> str:
+        possible = None
+        try:
+            # noinspection PyUnresolvedReferences
+            possible = self._possible
+        except AttributeError:
+            pass
+
         return self._str_header(args.detail_rule) + "\n" + util.pretty_print(self.rows, self.cols, self.max_elem,
-                                                                             self._known, self._possible, args)
+                                                                             self._known, possible, args)
+
+
+class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
+    def __delitem__(self, i: int) -> None:
+        raise TypeError("Grid.__delitem__ not supported")
+
+    def insert(self, index: int, obj) -> None:
+        raise TypeError("Grid.insert not supported")
+
+    def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
+        ImmutableGrid.__init__(self, array('i', [0] * (rows * rows)), rows, cols, max_elem)
+        RuleContainer.__init__(self)
+        possible_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
+        self._possible: Tuple[Set[int]] = tuple(possible_gen)
+        self.__has_been_filled = False
+        self.presolved_not_yet_once: bool = True
+
+    @overload
+    def __setitem__(self, i: int, val: int) -> None:
+        ...
+
+    @overload
+    def __setitem__(self, i: Tuple[int, int], val: int) -> None:
+        ...
+
+    @overload
+    def __setitem__(self, i: IdxType, val: int) -> None:
+        ...
+
+    def __setitem__(self, key: IdxType, val: int) -> None:
+        self.__has_been_filled = True
+        idx = self._get_index_from_key(key)
+        if isinstance(idx, slice):
+            raise TypeError("Index slices not supported for setting.")
+        self._known[idx] = val
+        p = self._possible[idx]
+        if val > 0:
+            p &= {val}
+
+    def __repr__(self) -> str:
+        return self.to_str(util.PrettyPrintArgs(print_possible=True, args=self.format_args))
 
     def __eq__(self, other: 'Grid') -> bool:
-        if not isinstance(other, type(self)) or len(other) != len(self):
+        if not isinstance(other, type(self)):
             return False
         return self._known == other._known and self._possible == other._possible and RuleContainer.__eq__(self, other)
 
     def all_but_rule_equal(self, other: 'Grid') -> bool:
-        if not isinstance(other, type(self)) or len(other) != len(self):
+        if not isinstance(other, type(self)):
             return False
         return self._known == other._known and self._possible == other._possible
 
     def __ne__(self, other: 'Grid') -> bool:
         return not self == other
-
-    def __hash__(self):
-        if self.__hash is None:
-            self.__hash = hash((bytes(self._known), len(self.rules), len(self._rules_ia)))
-        return self.__hash
 
     # noinspection PyArgumentList
     def __deepcopy__(self, memo: MutableMapping = None) -> 'Grid':
@@ -123,7 +195,6 @@ class Grid(Dict[IdxType, int], Iterable[int], util.GridSizeContainer, RuleContai
         setattr(result, "_rules_ia", copy.copy(self._rules_ia))
         setattr(result, "guarantees", copy.copy(self.guarantees))
         setattr(result, "_guarantees_ia", copy.copy(self._guarantees_ia))
-        setattr(result, "_Grid__hash", self.__hash)
         setattr(result, "presolved_not_yet_once", self.presolved_not_yet_once)
         setattr(result, "format_args", copy.copy(self.format_args))
         return result
@@ -140,7 +211,7 @@ class Grid(Dict[IdxType, int], Iterable[int], util.GridSizeContainer, RuleContai
         return all(self._possible)
 
     def get_possible(self, key: IdxType) -> Set[int]:
-        return self._possible[self.__get_index_from_key(key)]
+        return self._possible[self._get_index_from_key(key)]
 
     def get_least_possible_set(self) -> Tuple[int, Set[int]]:
         possible_where_len_gt1 = ((i, pp) for i, pp in enumerate(self._possible) if len(pp) > 1)
@@ -236,7 +307,7 @@ class UniqueSquare(Grid):
     """Square grid with uniqueness contraints for rows and columns"""
 
     def __init__(self, n: int):
-        Grid.__init__(self, n)
+        super().__init__(n)
 
         self.ext_rules(ElementsAtMostOnce, None, self.row_rule_applicators)
         self.ext_rules(ElementsAtMostOnce, None, self.col_rule_applicators)

@@ -3,7 +3,7 @@ from rules.rules import *
 
 class IneqRule(Rule):
     def __init__(self, gsz: util.GridSizeContainer, gt_cell: IdxType, lt_cell: IdxType):
-        Rule.__init__(self, gsz, [gt_cell, lt_cell], None)
+        super().__init__(gsz, [gt_cell, lt_cell], None)
         self._gt_cell, self._lt_cell = self.cells
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
@@ -21,30 +21,30 @@ class IneqRule(Rule):
 class SingleRelationRule(Rule, ABC):
     def __init__(self, gsz: util.GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
         rel_cells = list(rel_cells)
-        Rule.__init__(self, gsz, [origin_cell] + sorted(rel_cells), None)
+        super().__init__(gsz, [origin_cell] + sorted(rel_cells), None)
         self.origin_cell: int = self.cells[0]
         self.rel_cells: ArrayType = array('i', self.cells[1:])
 
 
 class UneqRule(SingleRelationRule):
     def __init__(self, gsz: util.GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
-        SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)
+        super().__init__(gsz, origin_cell, rel_cells)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
         k = known[self.origin_cell]
 
         if k > 0:
-            kk = {k}
+            p: Set[int]
             for p in (possible[cell] for cell in self.rel_cells):
-                p.difference_update(kk)
+                p.discard(k)
                 if not p:
                     raise InvalidGrid()
 
-        por = possible[self.origin_cell]
+        por: Set[int] = possible[self.origin_cell]
         removed_values = set()
         for kre in (known[cell] for cell in self.rel_cells):
             if kre > 0 and kre not in removed_values:
-                por.difference_update({kre})
+                por.discard(kre)
                 removed_values.add(kre)
                 if not por:
                     raise InvalidGrid()
@@ -52,7 +52,7 @@ class UneqRule(SingleRelationRule):
         rcs = frozenset(self.rel_cells)
         for gt in guarantees:
             if gt.val not in removed_values and rcs.issuperset(gt.cells):
-                por.difference_update({gt.val})
+                por.discard(gt.val)
                 removed_values.add(gt.val)
                 if not por:
                     raise InvalidGrid()
@@ -87,7 +87,7 @@ class DiffGe2Rule(SingleRelationRule):
         kk = get_diff_set(k, por)
         if kk:
             for p in (possible[cell] for cell in self.rel_cells):
-                p.difference_update(kk)
+                p -= kk
                 if not p:
                     raise InvalidGrid()
 
@@ -96,7 +96,7 @@ class DiffGe2Rule(SingleRelationRule):
                 raise InvalidGrid()
             kk = get_diff_set(kre, pre)
             if kk:
-                por.difference_update(kk)
+                por -= kk
                 if not por:
                     raise InvalidGrid()
 
@@ -106,14 +106,14 @@ class DiffGe2Rule(SingleRelationRule):
         rcso = frozenset([self.origin_cell, *self.rel_cells])
         for gt in guarantees:
             gtcs = frozenset(gt.cells)
-            if gt.val not in removed_values1 and rcs.issuperset(gtcs):
-                por.difference_update({gt.val - 1, gt.val, gt.val + 1})
+            if gt.val not in removed_values1 and rcs >= gtcs:
+                por -= {gt.val - 1, gt.val, gt.val + 1}
                 removed_values1.add(gt.val)
                 removed_values2.add(gt.val)
                 if not por:
                     raise InvalidGrid()
-            elif gt.val not in removed_values2 and rcso.issuperset(gtcs):
-                por.difference_update({gt.val - 1, gt.val + 1})
+            elif gt.val not in removed_values2 and rcso >= gtcs:
+                por -= {gt.val - 1, gt.val + 1}
                 removed_values2.add(gt.val)
                 if not por:
                     raise InvalidGrid()
