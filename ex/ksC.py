@@ -4,15 +4,15 @@ g = killer_sudoku.KillerSudoku()
 
 g.ext_sum_cells_from_str(
     """
-    aaabbbccc
-    defffgghi
-    dejkkklhi
-    dejjkllhi
-    mennnoohp
-    mqrrsttup
-    mqqrstuup
-    vvvwwwxxx
-    yyywwwzzz
-    """, {"a": 6, "b": 24, "c": 15, "d": 12, "e": 24, "f": 19, "g": 3, "h": 20,
-          "i": 6, "j": 15, "k": 16, "l": 23, "m": 23, "n": 17, "o": 10, "p": 18, "q": 22, "r": 9,
-          "s": 4, "t": 18, "u": 11, "v": 12, "w": 33, "x": 18, "y": 10, "z": 17})
+    aaabcccdd
+    efgbchhhd
+    efgbijjjk
+    efgiijllk
+    mnooopplk
+    mnnqrrstu
+    mqqqrvstu
+    wxxxyvstu
+    wwyyyvzzz
+    """, {"a": 8, "b": 11, "c": 20, "d": 18, "e": 18, "f": 21, "g": 11, "h": 10,
+          "i": 16, "j": 29, "k": 6, "l": 22, "m": 15, "n": 22, "o": 17, "p": 9, "q": 14, "r": 13,
+          "s": 7, "t": 15, "u": 18, "v": 16, "w": 16, "x": 14, "y": 20, "z": 19})
