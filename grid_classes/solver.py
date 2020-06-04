@@ -46,9 +46,7 @@ def __solve_atomic(grid: Grid, is_print: bool = False, upsteps: Sequence[int] = 
     steps: int = 0
     old: Optional[Grid] = None
 
-    while True:
-        if not grid.is_valid:
-            break
+    while grid.is_valid:
         all_but_rule_equal = grid.all_but_rule_equal(old)
         if grid == old:
             for hook in solve_iter_hooks or []:
@@ -93,9 +91,7 @@ def __refresh_possible_from_known(possible: Tuple[Set[int]], known: ArrayType) -
 
 
 def __update_from_rules(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
-    rule: Rule
-    rules = grid.rules.copy()
-    for rule in rules:
+    for rule in grid.rules.copy():
         try:
             do_refresh, new_rules, new_gts = rule.apply(known, possible, grid.guarantees)
             if do_refresh:
@@ -127,6 +123,8 @@ def __filter_guarantees(grid: Grid, possible: Tuple[Set[int]], known: ArrayType)
     for gt in grid.guarantees.copy():
         __update_from_guarantee(grid, gt, possible, known)
 
+
+# todo combine guarantees like AtLeastOnce
 
 def __update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]], known: ArrayType):
     first_idx = -1

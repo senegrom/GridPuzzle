@@ -1,5 +1,6 @@
 import collections
 import itertools
+import functools
 
 from rules.rules import *
 from rules.unique import ElementsAtMostOnce
@@ -8,6 +9,9 @@ from rules.unique import ElementsAtMostOnce
 class SumRule(Rule):
     def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         super().__init__(gsz, sorted(cells), None)
+        self.sum: int = mysum
+        self._sum_possibles: Optional[Tuple[Set[int]]] = None
+        self._possibles = None
         raise NotImplementedError()
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None) -> \
@@ -15,6 +19,9 @@ class SumRule(Rule):
                 bool, Optional[Iterable['Rule']], Optional[Iterable[Guarantee]]]:
         pass
 
+
+# todo combine to sum rules for large areas
+# todo subtract from guarantees to make new subrules
 
 class SumAndElementsAtMostOnce(ElementsAtMostOnce):
     def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):

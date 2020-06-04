@@ -67,8 +67,7 @@ class ElementsAtMostOnce(Rule):
         pct_items = possible_ct.items()
 
         for key, count in pct_items:
-            lk = len(key)
-            if count == lk:
+            if count == (lk := len(key)):
                 for p in possible:
                     if not p <= key:
                         p -= key

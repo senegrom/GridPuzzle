@@ -2,7 +2,7 @@ from collections import deque
 from itertools import chain
 from typing import *
 
-import numpy as np
+import math
 
 
 class PrettyPrintArgs:
@@ -42,7 +42,7 @@ class PrettyPrintArgs:
 
 def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], possible: Tuple[Set[int]] = None,
                  args: PrettyPrintArgs = None) -> str:
-    max_dgt = np.int(np.floor(np.log10(max_elem))) + 1
+    max_dgt = math.floor(math.log10(max_elem)) + 1
     if args is None:
         args = PrettyPrintArgs()
     if possible is not None and args.print_possible:
@@ -64,8 +64,8 @@ def __simple_square(rows: int, cols: int, max_dgt: int, content: Iterable[int],
 
 def __show_possible_square(rows: int, cols: int, max_dgt: int, max_elem: int, possible: Iterable[Set[int]],
                            args: PrettyPrintArgs) -> str:
-    pb_w = int(np.ceil(np.sqrt(max_elem)))
-    pb_h = int(np.ceil(max_elem / pb_w))
+    pb_w = math.ceil(math.sqrt(max_elem))
+    pb_h = math.ceil(max_elem / pb_w)
     pb_wh = pb_w * pb_h
     blank_args = PrettyPrintArgs.blank()
     args = PrettyPrintArgs(args=args, inner_grid_row=1, inner_grid_col=1, sep_in_ve=1, sep_in_ho=1)
