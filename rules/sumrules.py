@@ -1,6 +1,5 @@
 import collections
 import itertools
-import functools
 
 from rules.rules import *
 from rules.unique import ElementsAtMostOnce

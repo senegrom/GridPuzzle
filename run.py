@@ -1,6 +1,6 @@
 import argparse
 import importlib
-from datetime import datetime
+import time
 
 from colorama import init
 
@@ -19,7 +19,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--detail", type=int, help="detail of log output", default=-1)
     args = parser.parse_args()
 
-    startTime = datetime.now()
+    start_time = time.process_time()
 
     if args.file:
         print(f"Importing grid puzzle from {args.file}")
@@ -35,4 +35,5 @@ if __name__ == "__main__":
         print(list(g.rules))
         solver.solve(g, args.detail, False)
 
-    print(f"Took {datetime.now() - startTime} to execute.")
+    elapsed_time = time.process_time() - start_time
+    print(f"Took {elapsed_time:.4f}s to execute.")
