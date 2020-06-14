@@ -1,3 +1,3 @@
-from grid_classes import sudoku
+from grid_classes.sudoku import Sudoku
 
-g = sudoku.Sudoku()
+g = Sudoku()

@@ -2,14 +2,10 @@ import argparse
 import importlib
 import time
 
-from colorama import init
-
 import examples
 from grid_classes import solver
 
 if __name__ == "__main__":
-
-    init()
 
     parser = argparse.ArgumentParser(description="Solve grid puzzle")
     group = parser.add_mutually_exclusive_group()
