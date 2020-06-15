@@ -1,6 +1,6 @@
-import itertools
-import numbers
-from typing import *
+from itertools import chain
+from numbers import Integral
+from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence
 
 from grid_classes.sudoku import Sudoku
 from rules.sumrules import SumAndElementsAtMostOnce
@@ -24,8 +24,8 @@ class KillerSudoku(Sudoku):
     def ext_sum_cells(self, sum_cells: Iterable[_SumCellPair]) -> None:
         """Add sum cells. Accepts a list of pairs."""
         first, *sum_cells = sum_cells
-        sum_cells = itertools.chain([first], sum_cells)
-        if isinstance(first[1][0], numbers.Integral):
+        sum_cells = chain([first], sum_cells)
+        if isinstance(first[1][0], Integral):
             self.ext_rules(SumAndElementsAtMostOnce,
                            [{"mysum": mysum, "cells": KillerSudoku._pairs(cells)} for mysum, cells in sum_cells],
                            None)

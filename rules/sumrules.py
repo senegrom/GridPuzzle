@@ -1,7 +1,11 @@
 import collections
 import itertools
+import reprlib
+from array import array
+from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
-from rules.rules import *
+import util
+from rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType
 from rules.unique import ElementsAtMostOnce
 
 
@@ -15,7 +19,7 @@ class SumRule(Rule):
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None) -> \
             Tuple[
-                bool, Optional[Iterable['Rule']], Optional[Iterable[Guarantee]]]:
+                bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
         pass
 
 

@@ -2,7 +2,7 @@ import numbers
 import reprlib
 from abc import abstractmethod, ABC
 from array import array, ArrayType
-from typing import *
+from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional
 
 import util
 
@@ -69,8 +69,8 @@ class Rule(ABC):
     def __eq__(self, other: 'Rule') -> bool:
         if type(other) != type(self) or len(self.cells) != len(other.cells):
             return False
-        return self._rows == other._rows and self._cols == other._cols and self._max_elem == other._max_elem and \
-               self.cells == other.cells
+        return self._rows == other._rows and self._cols == other._cols and \
+               self._max_elem == other._max_elem and self.cells == other.cells
 
     def __hash__(self):
         return hash((type(self), bytes(self.cells), self._rows, self._cols, self._max_elem, self.len_cells))

@@ -1,7 +1,9 @@
 import collections
 import itertools
+from typing import Tuple, Set, Sequence, Iterable, MutableSequence, List, Counter, FrozenSet
 
-from rules.rules import *
+import util
+from rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
 
 
 class ElementsAtMostOnce(Rule):

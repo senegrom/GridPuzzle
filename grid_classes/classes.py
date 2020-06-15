@@ -1,11 +1,16 @@
 import copy
 import itertools
+from array import ArrayType, array
 from enum import Enum
 from functools import partial
+from numbers import Integral
+from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Callable, Optional, Iterator, \
+    MutableMapping, Generator, overload, List, Type, Dict, Any
 
 from sortedcontainers import SortedSet
 
-from rules.rules import *
+import util
+from rules.rules import Rule, Guarantee, IdxType, IdxTypeSlice
 from rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
 
 
@@ -67,15 +72,15 @@ class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
     def _get_index_from_key(self, key: IdxTypeSlice) -> Union[int, slice]:
         if isinstance(key, int):
             return key
-        if isinstance(key, numbers.Integral):
+        if isinstance(key, Integral):
             return int(key)
         if isinstance(key, slice):
             return key
         if not isinstance(key, Sequence):
             raise TypeError(f"Index {key!r} must be integral or integral tuple.")
-        if len(key) == 1 and isinstance(key[0], numbers.Integral):
+        if len(key) == 1 and isinstance(key[0], Integral):
             return key[0]
-        if len(key) == 2 and isinstance(key[0], numbers.Integral) and isinstance(key[1], numbers.Integral):
+        if len(key) == 2 and isinstance(key[0], Integral) and isinstance(key[1], Integral):
             return key[0] + key[1] * self.rows
         raise TypeError(f"Index {key!r} must be integral or integral tuple of length 1 or 2.")
 

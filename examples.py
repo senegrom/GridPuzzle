@@ -1,7 +1,7 @@
-from grid_classes.classes import *
-from grid_classes.futoshiki import *
-from grid_classes.killer_sudoku import *
-from rules.uneq import *
+from grid_classes.classes import Grid
+from grid_classes.futoshiki import Futoshiki
+from grid_classes.killer_sudoku import Sudoku, KillerSudoku
+from rules.uneq import UneqRule, DiffGe2Rule
 
 
 def get_example(args) -> Grid:

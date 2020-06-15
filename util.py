@@ -1,8 +1,7 @@
+import math
 from collections import deque
 from itertools import chain
-from typing import *
-
-import math
+from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, TypeVar
 
 
 class PrettyPrintArgs:
@@ -206,7 +205,7 @@ def flatten(lst, ltypes=(list, tuple)):
     return ltype(lst)
 
 
-__T = TypeVar("T")
+__T = TypeVar("__T")
 
 
 def peek(it: Iterable[__T]) -> (__T, Iterable[__T]):
