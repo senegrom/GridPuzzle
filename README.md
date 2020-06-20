@@ -1,9 +1,8 @@
 # GridPuzzle
 Solver for grid puzzles, e.g. Sudokus, Futoshiki, Killer Sudoku etc.
+Input puzzles are read as modules that define the variable `g`.
 
-Execute the solver by running `run.py`. Input puzzles are read as modules that define the variable `g`.
-
-E.g., execute  `run.py ex.exampleSudoku` to solve the Sudoku that is stored as `g` in the `ex/exampleSudoku.py` file.
+Execute  `run.py ex.exampleSudoku` to solve the Sudoku that is stored as `g` in the `ex/exampleSudoku.py` file.
 Additional options exist to print intermediate steps or to run one of the built in examples.
 Try `run.py -v ex.exampleSudoku` for all intermediate steps when solving the example Sudoku.
 
