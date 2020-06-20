@@ -7,9 +7,11 @@ Additional options exist to print intermediate steps or to run one of the built 
 Try `run.py -v ex.exampleSudoku` for all intermediate steps when solving the example Sudoku.
 
 ## Puzzle types
-Default implementations for arbitrary sizes exist for Sudoku,
-_Killer Sudoku_ (has additional sum constraints on areas of the puzzle), and _Futoshiki_.
+Default implementations for arbitrary sizes exist for _Sudoku_,
+_Killer Sudoku_ (has additional sum constraints on areas of the puzzle),
+and _Futoshiki_ (has inequality constraints).
 They can be extended using the built in rules.
+
 An example is the puzzle called _Miracle Sudoku_ given in `ex/miracleSudoku.py`.
 Here in addition to normal Sudoku rules adjacent and knight-move distant fields must not be equal.
 Also, fields that are adjacent horizontally or vertically must not have difference exactly 1.
