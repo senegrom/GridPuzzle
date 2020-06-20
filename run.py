@@ -9,27 +9,32 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Solve grid puzzle")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("-c", "--choice", choices=("a", "b", "c", "d", "f", "m", "s", "t"), help="choose default puzzle",
-                       type=str)
-    group.add_argument("-f", "--file", type=str, help="load puzzle from module file")
-    parser.add_argument("-d", "--detail", type=int, help="detail of log output", default=-1)
+    group.add_argument("file", help="module file to load puzzle from", type=str, nargs="?")
+    group.add_argument("-c", "--choice", choices=("a", "b", "c", "d", "f", "m", "s", "t"),
+                       help="Choose one of the default example puzzles and do not load from module file",
+                       type=str, required=False)
+    parser.add_argument("-d", "--detail", type=int,
+                        help="Detail of log output (higher means more intermediate steps are shown)", required=False)
+    parser.add_argument("-v", "--verbose", action="store_true", help="Print very detailed log output (every step)")
     args = parser.parse_args()
+
+    detail = 0
+    if args.detail:
+        detail = args.detail
+    if args.verbose:
+        detail = -1
 
     start_time = time.process_time()
 
     if args.file:
         print(f"Importing grid puzzle from {args.file}")
         x = importlib.import_module(args.file)
-        print(list(x.g.rules))
-        solver.solve(x.g, args.detail, False)
-    else:
-        if not args.choice:
-            args.choice = "b"
-
+        solver.solve(x.g, detail)
+    elif args.choice:
         g = examples.get_example(args)
-
-        print(list(g.rules))
-        solver.solve(g, args.detail, False)
+        solver.solve(g, detail)
+    else:
+        raise RuntimeError("Must define input puzzle either via module file or example choice. Run -h to see details.")
 
     elapsed_time = time.process_time() - start_time
     print(f"Took {elapsed_time:.4f}s to execute.")

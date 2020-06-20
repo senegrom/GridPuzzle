@@ -11,8 +11,7 @@ from util import PrettyPrintArgs
 GC_LEN_PARAM: int = 22
 
 
-def solve(grid: Grid, print_info: int = 0, max_sols: int = -1,
-          return_solutions: bool = True) -> Optional[Set[ImmutableGrid]]:
+def solve(grid: Grid, print_info: int = 0, max_sols: int = -1) -> Optional[Set[ImmutableGrid]]:
     sols: Set[ImmutableGrid]
     rulehelpers: List[Callable[['Grid'], None]] = []
     any_unique = any(isinstance(rule, unique.ElementsAtMostOnce) for rule in grid.rules)
@@ -35,7 +34,7 @@ def solve(grid: Grid, print_info: int = 0, max_sols: int = -1,
     if len(sols) == 0:
         print("No solution found.")
 
-    return sols if return_solutions else None
+    return sols
 
 
 def __solve_atomic(grid: Grid, is_print: bool = False, upsteps: Sequence[int] = None,

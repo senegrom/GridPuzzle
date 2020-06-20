@@ -251,8 +251,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         assert len(new_known) == len(self._known)
         if row_wise:
             for i, nk in enumerate(new_known):
-                col = i % self.rows
-                row = i // self.rows
+                row, col = divmod(i, self.rows)
                 self[(row, col)] = nk
         else:
             for i, nk in enumerate(new_known):

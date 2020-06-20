@@ -10,6 +10,7 @@ from rules.unique import ElementsAtMostOnce
 
 
 class SumRule(Rule):
+    # todo
     def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         super().__init__(gsz, sorted(cells), None)
         self.sum: int = mysum
