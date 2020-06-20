@@ -7,7 +7,7 @@ E.g., execute  `run.py ex.exampleSudoku` to solve the Sudoku that is stored as `
 Additional options exist to print intermediate steps or to run one of the built in examples.
 Try `run.py -v ex.exampleSudoku` for all intermediate steps when solving the example Sudoku.
 
-##Puzzle types
+## Puzzle types
 Default implementations for arbitrary sizes exist for Sudoku,
 _Killer Sudoku_ (has additional sum constraints on areas of the puzzle), and _Futoshiki_.
 They can be extended using the built in rules.
@@ -16,7 +16,7 @@ Here in addition to normal Sudoku rules adjacent and knight-move distant fields 
 Also, fields that are adjacent horizontally or vertically must not have difference exactly 1.
 
 
-##Arguments
+## Arguments
 
 ```
 usage: run.py [-h] [-c {a,b,c,d,f,m,s,t}] [-d DETAIL] [-v] [file]
@@ -33,23 +33,23 @@ optional arguments:
   -v, --verbose         Print very detailed log output (every step)
 ```
 
-##Rule types
+## Rule types
 The following rules have been implemented so far and can be combined to create puzzles.
 
-####`ElementsAtMostOnce`
+#### `ElementsAtMostOnce`
 In the set of cells associated with the rule, all numbers may occur at most once.
 
-####`ElementsAtLeastOnce`
+#### `ElementsAtLeastOnce`
 In the set of cells associated with the rule, all numbers in the puzzle range must occur at least once.
 
-####`SumAndElementsAtMostOnce`
+#### `SumAndElementsAtMostOnce`
 In the set of cells associated with the rule, all numbers may occur at most once
 and must sum to a given constant (used in Killer Sudoku).
 
-####`IneqRule`
+#### `IneqRule`
 One cell must be stricly smaller or larger than the other one (used in Futoshiki).
 
-####`UneqRule`
+#### `UneqRule`
 One special cell must have a different value than all the other rule cells.
 
 #### `DiffGe2Rule`
