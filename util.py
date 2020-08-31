@@ -3,10 +3,13 @@ from collections import deque
 from itertools import chain
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, TypeVar
 
+from numba import njit
+
 
 class PrettyPrintArgs:
 
     @staticmethod
+    @njit
     def _none_alternate(arg1, arg2, default):
         return (default if arg2 is None else arg2) if arg1 is None else arg1
 
@@ -34,6 +37,7 @@ class PrettyPrintArgs:
         return PrettyPrintArgs(args=self)
 
     @staticmethod
+    @njit
     def blank() -> 'PrettyPrintArgs':
         return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_possible=False,
                                inner_grid_col=0, inner_grid_row=0, detail_rule=False)
@@ -54,7 +58,8 @@ def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], poss
 
 def __simple_square(rows: int, cols: int, max_dgt: int, content: Iterable[int],
                     args: PrettyPrintArgs) -> str:
-    data: List[Tuple[str]] = [(f"{x:{max_dgt}d}" if x > 0 else " " * max_dgt,) for x in content]
+    format_str = "{" + "0:{0}d".format(max_dgt) + "}"
+    data: List[Tuple[str]] = [(format_str.format(x) if x > 0 else " " * max_dgt,) for x in content]
     mybox = __box_str(data, rows, cols, args)
     __fix_crossings(mybox)
     mybox.append("")
@@ -73,12 +78,13 @@ def __show_possible_square(rows: int, cols: int, max_dgt: int, max_elem: int, po
         ll = len(p)
         if ll == 0:
             return [("╳" * max_dgt,) for _ in range(pb_wh)]
+        format_str = "{" + "0:{0}d".format(max_dgt) + "}"
         if ll == 1 and pb_wh > 2:
             bdry = pb_w // 2 * pb_h + ((pb_h - 1) // 2)
             return [(" " * max_dgt,) for _ in range(bdry)] + \
-                   [(f"{x:{max_dgt}d}",) for x in p] + [("=" * max_dgt,)] + \
+                   [(format_str.format(x),) for x in p] + [("=" * max_dgt,)] + \
                    [(" " * max_dgt,) for _ in range(bdry + 2, pb_wh)]
-        return [(f"{x:{max_dgt}d}",) if x in p else (" " * max_dgt,) for x in range(1, pb_wh + 1)]
+        return [(format_str.format(x),) if x in p else (" " * max_dgt,) for x in range(1, pb_wh + 1)]
 
     myl: List[Deque[str]] = [__box_str(show_possible_str(p), pb_h, pb_w, blank_args) for p in possible]
     mybox = __box_str(myl, rows, cols, args)
@@ -189,6 +195,7 @@ def __fix_crossings(data: MutableSequence[str]) -> None:
         data[i] = "".join(row)
 
 
+@njit
 def flatten(lst, ltypes=(list, tuple)):
     ltype = type(lst)
     lst = list(lst)
