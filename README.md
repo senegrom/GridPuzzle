@@ -14,7 +14,7 @@ They can be extended using the built in rules.
 
 An example is the puzzle called _Miracle Sudoku_ given in `ex/miracleSudoku.py`.
 Here in addition to normal Sudoku rules adjacent and knight-move distant fields must not be equal.
-Also, fields that are adjacent horizontally or vertically must not have difference exactly 1.
+In addition, fields that are adjacent horizontally or vertically must not have difference exactly 1.
 
 
 ## Arguments
