@@ -131,3 +131,6 @@ dmypy.json
 # custom
 # *.txt
 .idea/
+
+test.py
+mypuz/

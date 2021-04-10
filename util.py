@@ -37,7 +37,6 @@ class PrettyPrintArgs:
         return PrettyPrintArgs(args=self)
 
     @staticmethod
-    @njit
     def blank() -> 'PrettyPrintArgs':
         return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_possible=False,
                                inner_grid_col=0, inner_grid_row=0, detail_rule=False)
