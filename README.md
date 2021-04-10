@@ -3,14 +3,14 @@ Solver for grid puzzles, e.g. Sudokus, Futoshiki, Killer Sudoku etc.
 Input puzzles are read as modules that define the variable `g`.
 
 Execute  `run.py ex.exampleSudoku` to solve the Sudoku that is stored as `g` in the `ex/exampleSudoku.py` file.
-Additional options exist to print intermediate steps or to run one of the built in examples.
+Additional options exist to print intermediate steps or to run one of the built-in examples.
 Try `run.py -v ex.exampleSudoku` for all intermediate steps when solving the example Sudoku.
 
 ## Puzzle types
 Default implementations for arbitrary sizes exist for _Sudoku_,
 _Killer Sudoku_ (has additional sum constraints on areas of the puzzle),
 and _Futoshiki_ (has inequality constraints).
-They can be extended using the built in rules.
+They can be extended using the built-in rules.
 
 An example is the puzzle called _Miracle Sudoku_ given in `ex/miracleSudoku.py`.
 Here in addition to normal Sudoku rules adjacent and knight-move distant fields must not be equal.
