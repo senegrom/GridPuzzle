@@ -245,17 +245,20 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.remove(gtee)
         self._guarantees_ia.add(gtee)
 
-    def update_fill(self, new_known: Union[List[int], List[List[int]]], row_wise=False):
+    def update_fill(self, new_known: Union[Iterable[int], Iterable[Iterable[int]]], row_wise=False):
         assert not self.__has_been_filled, "Grid can only be filled once; or be used in individual access mode"
-        new_known = util.flatten(new_known)
-        assert len(new_known) == len(self._known)
+        if isinstance(new_known, str):
+            new_known = new_known.strip().replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")
+        else:
+            new_known = util.flatten(new_known)
+        assert len(new_known) == len(self._known), f"len: {len(new_known)} != {len(self._known)}"
         if row_wise:
             for i, nk in enumerate(new_known):
                 row, col = divmod(i, self.rows)
-                self[(row, col)] = nk
+                self[(row, col)] = int(nk)
         else:
             for i, nk in enumerate(new_known):
-                self[i] = nk
+                self[i] = int(nk)
         self.__has_been_filled = True
 
     def presolve_hook_once(self):

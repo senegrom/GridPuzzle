@@ -194,7 +194,7 @@ def __fix_crossings(data: MutableSequence[str]) -> None:
         data[i] = "".join(row)
 
 
-@njit
+#@njit
 def flatten(lst, ltypes=(list, tuple)):
     ltype = type(lst)
     lst = list(lst)
