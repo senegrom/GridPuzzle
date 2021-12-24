@@ -2,8 +2,8 @@ import collections
 import itertools
 from typing import Tuple, Set, Sequence, Iterable, MutableSequence, List, Counter, FrozenSet
 
-import util
-from rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
+from gridsolver import util
+from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
 
 
 class ElementsAtMostOnce(Rule):

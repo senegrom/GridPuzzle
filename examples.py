@@ -1,16 +1,15 @@
-from grid_classes.classes import Grid
-from grid_classes.futoshiki import Futoshiki
-from grid_classes.killer_sudoku import Sudoku, KillerSudoku
-from rules.uneq import UneqRule, DiffGe2Rule
+from gridsolver.grid_classes.classes import Grid
+from gridsolver.grid_classes.futoshiki import Futoshiki
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 
 
 def get_example(args) -> Grid:
-    g = Sudoku()
-
     if args.choice == "s":
         g = Sudoku()
 
-        g.update_fill(
+        g.load(
             [[0, 0, 2, 9, 0, 6, 0, 0, 0], [0, 0, 0, 1, 0, 8, 3, 0, 0], [0, 9, 6, 0, 7, 0, 0, 0, 0],
              [9, 0, 0, 0, 5, 0, 0, 0, 0],
              [2, 0, 0, 0, 0, 9, 0, 3, 1], [0, 1, 0, 0, 8, 0, 5, 0, 0], [0, 0, 8, 0, 0, 0, 0, 0, 0],
@@ -19,10 +18,10 @@ def get_example(args) -> Grid:
 
         print(g)
 
-    if args.choice == "t":
+    elif args.choice == "t":
         g = Sudoku()
 
-        g.update_fill(
+        g.load(
             [[8, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 3, 6, 0, 0, 0, 0, 0], [0, 7, 0, 0, 9, 0, 2, 0, 0],
              [0, 5, 0, 0, 0, 7, 0, 0, 0],
              [0, 0, 0, 0, 4, 5, 7, 0, 0], [0, 0, 0, 1, 0, 0, 0, 3, 0], [0, 0, 1, 0, 0, 0, 0, 6, 8],
@@ -31,7 +30,7 @@ def get_example(args) -> Grid:
 
         print(g)
 
-    if args.choice == "f":
+    elif args.choice == "f":
         n = 5
         g = Futoshiki(n, [((1, 0), (1, 1)), ((2, 3), (3, 3)), ((4, 4), (3, 4)), ((3, 4), (3, 3)), ((2, 2), (3, 2)),
                           ((4, 3), (4, 4))])
@@ -46,7 +45,7 @@ def get_example(args) -> Grid:
 
         print(g)
 
-    if args.choice == "b":
+    elif args.choice == "b":
         g = KillerSudoku()
         g.ext_sum_cells([
             (22, (0, 0, 0, 1, 1, 1, 1, 2)),
@@ -78,7 +77,7 @@ def get_example(args) -> Grid:
             (12, (5, 8, 6, 8, 7, 8))
         ])
 
-    if args.choice == "a":
+    elif args.choice == "a":
         g = KillerSudoku()
 
         g.ext_sum_cells([
@@ -114,10 +113,10 @@ def get_example(args) -> Grid:
             (10, (8, 3, 8, 4)),
         ])
 
-    if args.choice == "c":
+    elif args.choice == "c":
         g = KillerSudoku()
 
-        g.ext_sum_cells_from_str(
+        g.load(
             """
             aaabbbccc
             defffgghi
@@ -132,10 +131,10 @@ def get_example(args) -> Grid:
                   "i": 6, "j": 15, "k": 16, "l": 23, "m": 23, "n": 17, "o": 10, "p": 18, "q": 22, "r": 9,
                   "s": 4, "t": 18, "u": 11, "v": 12, "w": 33, "x": 18, "y": 10, "z": 17})
 
-    if args.choice == "d":
+    elif args.choice == "d":
         g = KillerSudoku()
 
-        g.ext_sum_cells_from_str(
+        g.load(
             """
             aabbccdde
             afbgchhde
@@ -150,7 +149,7 @@ def get_example(args) -> Grid:
                   "i": 7, "j": 16, "k": 16, "l": 12, "m": 17, "n": 17, "o": 17, "p": 10, "q": 20, "r": 7,
                   "s": 6, "t": 9, "u": 7, "v": 26, "w": 23, "x": 12, "y": 26, "z": 21, "0": 12, "1": 10})
 
-    if args.choice == "m":
+    elif args.choice == "m":
         n = 9
         g = Sudoku()
         g[4, 2] = 1
@@ -164,5 +163,8 @@ def get_example(args) -> Grid:
         g.ext_rules(DiffGe2Rule, [{"origin_cell": (r, c),
                                    "rel_cells": [(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)]} for r in
                                   range(n) for c in range(n)], None)
+
+    else:
+        raise Exception("Example choice not supported: " + str(args.choice))
 
     return g

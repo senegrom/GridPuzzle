@@ -4,7 +4,7 @@ from abc import abstractmethod, ABC
 from array import array, ArrayType
 from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional
 
-import util
+from gridsolver import util
 
 IdxType = Union[int, Tuple[int, int]]
 IdxTypeSlice = Union[int, Tuple[int, int], slice]

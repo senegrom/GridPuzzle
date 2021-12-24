@@ -1,8 +1,8 @@
-from grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 
 g = KillerSudoku()
 
-g.ext_sum_cells_from_str(
+g.load(
     """
     aaabcccdd
     efgbchhhd

@@ -1,4 +1,4 @@
-from grid_classes.futoshiki import Futoshiki
+from gridsolver.grid_classes.futoshiki import Futoshiki
 
 n = 5
 g = Futoshiki(n, [((1, 0), (1, 1)), ((2, 3), (3, 3)), ((4, 4), (3, 4)), ((3, 4), (3, 3)), ((2, 2), (3, 2)),

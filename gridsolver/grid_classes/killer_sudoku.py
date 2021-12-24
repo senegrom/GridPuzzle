@@ -2,8 +2,8 @@ from itertools import chain
 from numbers import Integral
 from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence
 
-from grid_classes.sudoku import Sudoku
-from rules.sumrules import SumAndElementsAtMostOnce
+from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
 
 class _SumCellPair(NamedTuple):
@@ -44,7 +44,7 @@ class KillerSudoku(Sudoku):
         except StopIteration:
             pass
 
-    def ext_sum_cells_from_str(self, sum_cells: str, dic: Mapping[str, int]) -> None:
+    def load(self, sum_cells: str, dic: Mapping[str, int]) -> None:
         """Input grid with single char per "group" as multiline string. Plus a dictionary for the sums"""
         if not isinstance(dic, Mapping):
             dic = dict(dic)

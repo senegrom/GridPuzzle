@@ -4,13 +4,13 @@ import reprlib
 from array import array
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
-import util
-from rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType
-from rules.unique import ElementsAtMostOnce
+from gridsolver import util
+from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType
+from gridsolver.rules.unique import ElementsAtMostOnce
 
 
 class SumRule(Rule):
-    # todo
+
     def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         super().__init__(gsz, sorted(cells), None)
         self.sum: int = mysum

@@ -1,7 +1,7 @@
 from typing import Iterable
 
-from grid_classes.classes import UniqueSquare
-from rules.uneq import IneqRule
+from gridsolver.grid_classes.classes import UniqueSquare
+from gridsolver.rules.uneq import IneqRule
 
 
 class Futoshiki(UniqueSquare):

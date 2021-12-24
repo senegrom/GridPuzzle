@@ -3,10 +3,10 @@ import itertools
 from array import ArrayType, array
 from typing import Tuple, Set, Sequence, List, Dict, FrozenSet, Optional, Callable
 
-from grid_classes.classes import Grid, ImmutableGrid, SolveStatus
-from rules import unique, uneq, sumrules
-from rules.rules import Guarantee, RuleAlwaysSatisfied, InvalidGrid
-from util import PrettyPrintArgs
+from gridsolver.grid_classes.classes import Grid, ImmutableGrid, SolveStatus
+from gridsolver.rules import unique, uneq, sumrules
+from gridsolver.rules.rules import Guarantee, RuleAlwaysSatisfied, InvalidGrid
+from gridsolver.util import PrettyPrintArgs
 
 GC_LEN_PARAM: int = 22
 

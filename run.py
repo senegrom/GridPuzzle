@@ -3,7 +3,7 @@ import importlib
 import time
 
 import examples
-from grid_classes import solver
+from gridsolver.grid_classes import solver
 
 if __name__ == "__main__":
 

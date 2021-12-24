@@ -1,5 +1,5 @@
-from grid_classes.classes import UniqueSquare
-from rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
+from gridsolver.grid_classes.classes import UniqueSquare
+from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
 
 
 class Sudoku(UniqueSquare):

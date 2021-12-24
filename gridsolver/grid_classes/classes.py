@@ -9,9 +9,9 @@ from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Calla
 
 from sortedcontainers import SortedSet
 
-import util
-from rules.rules import Rule, Guarantee, IdxType, IdxTypeSlice
-from rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
+from gridsolver import util
+from gridsolver.rules.rules import Rule, Guarantee, IdxType, IdxTypeSlice
+from gridsolver.rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
 
 
 class SolveStatus(Enum):
@@ -245,10 +245,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.remove(gtee)
         self._guarantees_ia.add(gtee)
 
-    def update_fill(self, new_known: Union[Iterable[int], Iterable[Iterable[int]]], row_wise=False):
+    def load(self, new_known: Union[Iterable[int], Iterable[Iterable[int]]], row_wise=False):
         assert not self.__has_been_filled, "Grid can only be filled once; or be used in individual access mode"
         if isinstance(new_known, str):
-            new_known = new_known.strip().replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")
+            new_known = new_known.strip().replace(" ", "") \
+                .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
         else:
             new_known = util.flatten(new_known)
         assert len(new_known) == len(self._known), f"len: {len(new_known)} != {len(self._known)}"

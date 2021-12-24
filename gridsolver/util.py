@@ -3,13 +3,10 @@ from collections import deque
 from itertools import chain
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, TypeVar
 
-#from numba import njit
-
 
 class PrettyPrintArgs:
 
     @staticmethod
-    #@njit
     def _none_alternate(arg1, arg2, default):
         return (default if arg2 is None else arg2) if arg1 is None else arg1
 
@@ -194,9 +191,9 @@ def __fix_crossings(data: MutableSequence[str]) -> None:
         data[i] = "".join(row)
 
 
-#@njit
+# @njit
 
-def flatten(lst, ltypes=(list, tuple)):
+def flatten(lst, ltypes=(list, tuple, Sequence)):
     ltype = type(lst)
     lst = list(lst)
     i = 0

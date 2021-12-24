@@ -1,5 +1,5 @@
-from grid_classes.sudoku import Sudoku
-from rules.uneq import UneqRule, DiffGe2Rule
+from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 
 n = 9
 g = Sudoku()
