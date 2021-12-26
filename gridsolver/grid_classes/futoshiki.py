@@ -1,6 +1,6 @@
 from typing import Iterable
 
-from gridsolver.grid_classes.classes import UniqueSquare
+from gridsolver.grid_classes.grid import UniqueSquare
 from gridsolver.rules.uneq import IneqRule
 
 

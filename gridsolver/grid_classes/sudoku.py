@@ -1,4 +1,4 @@
-from gridsolver.grid_classes.classes import UniqueSquare
+from gridsolver.grid_classes.grid import UniqueSquare
 from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
 
 

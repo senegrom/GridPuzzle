@@ -3,7 +3,7 @@ import itertools
 from array import ArrayType, array
 from typing import Tuple, Set, Sequence, List, Dict, FrozenSet, Optional, Callable
 
-from gridsolver.grid_classes.classes import Grid, ImmutableGrid, SolveStatus
+from gridsolver.grid_classes.grid import Grid, ImmutableGrid, SolveStatus
 from gridsolver.rules import unique, uneq, sumrules
 from gridsolver.rules.rules import Guarantee, RuleAlwaysSatisfied, InvalidGrid
 from gridsolver.util import PrettyPrintArgs
@@ -14,6 +14,7 @@ GC_LEN_PARAM: int = 22
 def solve(grid: Grid, print_info: int = 0, max_sols: int = -1) -> Optional[Set[ImmutableGrid]]:
     sols: Set[ImmutableGrid]
     rulehelpers: List[Callable[['Grid'], None]] = []
+    grid.has_been_filled = True
     any_unique = any(isinstance(rule, unique.ElementsAtMostOnce) for rule in grid.rules)
     any_sum = any(isinstance(rule, sumrules.SumAndElementsAtMostOnce) or isinstance(rule, sumrules.SumRule) for rule in
                   grid.rules)

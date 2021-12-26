@@ -1,4 +1,4 @@
-from gridsolver.grid_classes.classes import Grid
+from gridsolver.grid_classes.grid import Grid
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -135,7 +135,7 @@ def get_example(args) -> Grid:
     elif args.example == "d":
         g = KillerSudoku()
 
-        g.load(
+        g.load_with_dic(
             """
             aabbccdde
             afbgchhde
@@ -166,6 +166,6 @@ def get_example(args) -> Grid:
                                   range(n) for c in range(n)], None)
 
     else:
-        raise Exception("Example choice not supported: " + str(args.choice))
+        raise ValueError("Example choice not supported: " + str(args.choice))
 
     return g
