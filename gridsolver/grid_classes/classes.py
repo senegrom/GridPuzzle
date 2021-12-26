@@ -243,6 +243,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.remove(gtee)
         self._guarantees_ia.add(gtee)
 
+    @staticmethod
+    def _load_preprocess_str(values: str):
+        return values.strip().replace(" ", "") \
+            .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
+
     def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]]):
         assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
         flattened_once = False
@@ -252,25 +257,32 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             flattened_once = True
 
         if isinstance(values, str):
-            values = values.strip().replace(" ", "") \
-                .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
+            values = self._load_preprocess_str(values)
 
         assert len(values) == len(self._known), f"len: {len(values)} != {len(self._known)}"
         self.has_been_filled = True
         return values
 
     @overload
-    def load(self, new_known: str, row_wise=True) -> None:
+    def load(self, values: str, row_wise=True) -> None:
         ...
 
-    def load(self, new_known: Union[Iterable[int], Iterable[Iterable[int]]], row_wise=False):
-        new_known = self._load_preprocess_sequence(new_known)
+    @overload
+    def load(self, values: Iterable[int], row_wise=True) -> None:
+        ...
+
+    @overload
+    def load(self, values: Iterable[Iterable[int]], row_wise=True) -> None:
+        ...
+
+    def load(self, values: Any, row_wise=False):
+        values = self._load_preprocess_sequence(values)
         if row_wise:
-            for i, nk in enumerate(new_known):
+            for i, nk in enumerate(values):
                 row, col = divmod(i, self.rows)
                 self[(row, col)] = int(nk)
         else:
-            for i, nk in enumerate(new_known):
+            for i, nk in enumerate(values):
                 self[i] = int(nk)
 
     def presolve_hook_once(self):

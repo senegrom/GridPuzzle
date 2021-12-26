@@ -4,9 +4,9 @@ import time
 
 import examples
 from gridsolver.grid_classes import solver
-from gridsolver.grid_classes.sudoku import Sudoku
-from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.futoshiki import Futoshiki
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.sudoku import Sudoku
 
 if __name__ == "__main__":
 
@@ -47,6 +47,8 @@ if __name__ == "__main__":
             g = Futoshiki()
         elif args.class_.strip().lower() == "killersudoku":
             g = KillerSudoku()
+        else:
+            raise ValueError(f"Puzzle class {args.class_} not supported.")
         g.load(args.str)
         solver.solve(g, detail)
     else:

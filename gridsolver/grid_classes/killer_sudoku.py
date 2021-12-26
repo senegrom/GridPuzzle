@@ -1,6 +1,6 @@
 from itertools import chain
 from numbers import Integral
-from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence, overload
+from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence
 
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
@@ -43,13 +43,28 @@ class KillerSudoku(Sudoku):
         except StopIteration:
             pass
 
-    @overload
     def load(self, sum_cells_and_dic: str, row_wise=True) -> None:
         """Input grid with single char per "group" as multiline string.
         Plus a dictionary for the sums seperated by colons with a single character for the cell values"""
-        ...
+        sum_cells_and_dic = self._load_preprocess_str(sum_cells_and_dic)
+        sum_cells: str
+        str_dic: str
+        sum_cells, str_dic = sum_cells_and_dic.split(":")
+        idx = 0
+        dic = {}
+        while idx < len(str_dic):
+            char = str_dic[idx]
+            idx += 1
+            start = idx
+            while (str_dic[idx].isnumeric()):
+                idx += 1
+            if idx == start:
+                raise ValueError("KillerSudoku string format invalid")
+            val = int(str_dic[start:idx])
+            dic[char] = val
+        self.load_with_dic(sum_cells, dic)
 
-    def load(self, sum_cells: str, dic: Mapping[str, int], row_wise=True) -> None:
+    def load_with_dic(self, sum_cells: str, dic: Mapping[str, int], row_wise=True) -> None:
         """Input grid with single char per "group" as multiline string. Plus a dictionary for the sums"""
 
         sum_cells = self._load_preprocess_sequence(sum_cells)

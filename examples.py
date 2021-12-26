@@ -128,9 +128,9 @@ def get_example(args) -> Grid:
             mqqrstuup
             vvvwwwxxx
             yyywwwzzz
-            """, {"a": 6, "b": 24, "c": 15, "d": 12, "e": 24, "f": 19, "g": 3, "h": 20,
-                  "i": 6, "j": 15, "k": 16, "l": 23, "m": 23, "n": 17, "o": 10, "p": 18, "q": 22, "r": 9,
-                  "s": 4, "t": 18, "u": 11, "v": 12, "w": 33, "x": 18, "y": 10, "z": 17})
+            :
+            a6b24c15d12e24f19g3h20i6j15k16l23m23n17o10p18q22r9s4t18u11v12w33x18y10z17
+            """)
 
     elif args.example == "d":
         g = KillerSudoku()

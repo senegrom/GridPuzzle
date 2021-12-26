@@ -2,7 +2,7 @@ from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 
 g = KillerSudoku()
 
-g.load(
+g.load_with_dic(
     """
     aaabcccdd
     efgbchhhd
