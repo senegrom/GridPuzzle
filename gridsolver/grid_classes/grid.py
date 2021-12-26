@@ -107,9 +107,7 @@ class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
         return iter(self._known)
 
     def _str_header(self, detailed=False):
-
         s = f"{self.name or self.__class__.__name__}({self.rows},{self.cols})"
-
         return s
 
     def __str__(self) -> str:
@@ -160,9 +158,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if isinstance(idx, slice):
             raise TypeError("Index slices not supported for setting.")
         self._known[idx] = val
-        p = self._candidates[idx]
         if val > 0:
-            p &= {val}
+            self._candidates[idx].intersection_update([val])
 
     def __repr__(self) -> str:
         return self.to_str(util.PrettyPrintArgs(print_possible=True, args=self.format_args))
@@ -275,7 +272,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def load(self, values: Iterable[Iterable[int]], row_wise=True) -> None:
         ...
 
-    def load(self, values: Any, row_wise=False):
+    def load(self, values: Any, row_wise=True):
         values = self._load_preprocess_sequence(values)
         if row_wise:
             for i, nk in enumerate(values):
