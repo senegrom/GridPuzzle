@@ -214,11 +214,11 @@ def _solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
         if print_all or mylen <= print_info:
             if is_test_gt:
                 print(
-                    f"Step {steps} - Testing gt [{test_val_cell % grid.rows},{test_val_cell // grid.rows}] " +
+                    f"Step {steps} - Trial (guarantee) [{test_val_cell % grid.rows},{test_val_cell // grid.rows}] " +
                     f"== {test_gt.val} with {len(sols)} previous solutions")
             else:
                 print(
-                    f"Step {steps} - Testing [{test_i % grid.rows},{test_i // grid.rows}] " +
+                    f"Step {steps} - Trial [{test_i % grid.rows},{test_i // grid.rows}] " +
                     f"== {test_val_cell} with {len(sols)} previous solutions")
         clone: Grid = grid.deepcopy()
 

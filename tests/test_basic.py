@@ -1,6 +1,6 @@
 from gridsolver.abstract_grids import solver
-from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.abstract_grids.grid_loading import create_from_str
+from gridsolver.grid_classes.sudoku import Sudoku
 
 
 def test_sudo0():
@@ -45,6 +45,12 @@ def test_sudo_nonsq():
     g.load("123456654321........................", row_wise=False)
     sol = solver.solve(g, print_info=-1)
     assert len(sol) == 16
+
+
+def test_sudo_mith():
+    g = create_from_str("...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...", Sudoku)
+    sol = solver.solve(g, print_info=-1)
+    assert len(sol) == 1
 
 
 def test_sudo_m10():
