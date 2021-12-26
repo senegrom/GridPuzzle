@@ -56,10 +56,10 @@ class KillerSudoku(Sudoku):
             char = str_dic[idx]
             idx += 1
             start = idx
-            while (str_dic[idx].isnumeric()):
+            while idx < len(str_dic) and str_dic[idx].isnumeric():
                 idx += 1
             if idx == start:
-                raise ValueError("KillerSudoku string format invalid")
+                raise ValueError("KillerSudoku string format invalid.")
             val = int(str_dic[start:idx])
             dic[char] = val
         self.load_with_dic(sum_cells, dic)
