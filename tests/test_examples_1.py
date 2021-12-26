@@ -2,13 +2,13 @@ from argparse import Namespace
 
 from pytest import raises
 
-import examples
+import examples2
 from gridsolver.abstract_grids import solver
 
 
 def _example_test(x: str):
     args = Namespace(example=x)
-    g = examples.get_example(args)
+    g = examples2.get_example(args)
     sol = solver.solve(g)
     assert len(sol) == 1
 
