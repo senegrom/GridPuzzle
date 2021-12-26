@@ -9,9 +9,8 @@ from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Calla
 
 from sortedcontainers import SortedSet
 
-from gridsolver import util
 from gridsolver.rules.rules import Rule, Guarantee, IdxType, IdxTypeSlice
-from gridsolver.rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
+from gridsolver.util import PrettyPrintArgs, pretty_print, flatten
 
 
 class SolveStatus(Enum):
@@ -51,7 +50,7 @@ class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
         util.GridSizeContainer.__init__(self, rows, cols, max_elem)
         self._known: ArrayType = array('i', known)
         self.__hash: int = hash((bytes(self._known)))
-        self.format_args = util.PrettyPrintArgs()
+        self.format_args = PrettyPrintArgs()
         self.name = name
 
     def __eq__(self, other: 'ImmutableGrid') -> bool:
@@ -111,17 +110,17 @@ class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
         return s
 
     def __str__(self) -> str:
-        return self.to_str(util.PrettyPrintArgs(print_possible=False, args=self.format_args))
+        return self.to_str(PrettyPrintArgs(print_possible=False, args=self.format_args))
 
     def __repr__(self) -> str:
-        return self.to_str(util.PrettyPrintArgs(print_possible=False, args=self.format_args))
+        return self.to_str(PrettyPrintArgs(print_possible=False, args=self.format_args))
 
-    def to_str(self, args: util.PrettyPrintArgs = None) -> str:
+    def to_str(self, args: PrettyPrintArgs = None) -> str:
         candidates = None
         if hasattr(self, "_candidates"):
             candidates = self._candidates
 
-        return self._str_header(args.detail_rule) + "\n" + util.pretty_print(self.rows, self.cols, self.max_elem,
+        return self._str_header(args.detail_rule) + "\n" + pretty_print(self.rows, self.cols, self.max_elem,
                                                                              self._known, candidates, args)
 
 
@@ -162,7 +161,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._candidates[idx].intersection_update([val])
 
     def __repr__(self) -> str:
-        return self.to_str(util.PrettyPrintArgs(print_possible=True, args=self.format_args))
+        return self.to_str(PrettyPrintArgs(print_possible=True, args=self.format_args))
 
     def __eq__(self, other: 'Grid') -> bool:
         if not isinstance(other, type(self)):
@@ -250,7 +249,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         flattened_once = False
 
         while not isinstance(values, str) and not flattened_once:
-            values = util.flatten(values)
+            values = flatten(values)
             flattened_once = True
 
         if isinstance(values, str):
@@ -260,19 +259,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.has_been_filled = True
         return values
 
-    @overload
-    def load(self, values: str, row_wise=True) -> None:
-        ...
-
-    @overload
-    def load(self, values: Iterable[int], row_wise=True) -> None:
-        ...
-
-    @overload
-    def load(self, values: Iterable[Iterable[int]], row_wise=True) -> None:
-        ...
-
-    def load(self, values: Any, row_wise=True):
+    def load(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]], /, row_wise=True):
         values = self._load_preprocess_sequence(values)
         if row_wise:
             for i, nk in enumerate(values):
@@ -329,15 +316,3 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def col_rule_applicators(self) -> Iterator[Callable[[Rule], Iterable]]:
         # noinspection PyTypeChecker
         return (partial(Rule.cells_as_row_or_column, idx=i, row_wise=False) for i in range(self.rows))
-
-
-class UniqueSquare(Grid):
-    """Square grid with uniqueness contraints for rows and columns"""
-
-    def __init__(self, n: int):
-        super().__init__(n)
-
-        self.ext_rules(ElementsAtMostOnce, None, self.row_rule_applicators)
-        self.ext_rules(ElementsAtMostOnce, None, self.col_rule_applicators)
-        self.ext_rules(ElementsAtLeastOnce, None, self.row_rule_applicators)
-        self.ext_rules(ElementsAtLeastOnce, None, self.col_rule_applicators)
