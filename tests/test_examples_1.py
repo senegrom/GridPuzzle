@@ -5,7 +5,7 @@ from gridsolver.grid_classes import solver
 
 
 def _example_test(x: str):
-    args = Namespace(choice=x)
+    args = Namespace(example=x)
     g = examples.get_example(args)
     sol = solver.solve(g)
     assert len(sol) == 1

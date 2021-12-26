@@ -169,10 +169,10 @@ def __update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]]
 
 # noinspection PyProtectedMember
 def __update_step(grid: Grid) -> None:
-    __update_known_from_possible(grid.__setitem__, grid._possible, grid._known)
+    __update_known_from_possible(grid.__setitem__, grid._candidates, grid._known)
     try:
-        __update_from_rules(grid, grid._possible, grid._known)
-        __filter_guarantees(grid, grid._possible, grid._known)
+        __update_from_rules(grid, grid._candidates, grid._known)
+        __filter_guarantees(grid, grid._candidates, grid._known)
     except InvalidGrid:
         pass
 
@@ -193,8 +193,8 @@ def __solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
         steps.pop()
         return set(), {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}
 
-    test_i, p = grid.get_least_possible_set()
-    test_gt = grid.get_least_possible_guarantee()
+    test_i, p = grid.get_smallest_candidate_set_gt1()
+    test_gt = grid.get_smallest_guarantee()
     tests = list(p)
 
     is_test_gt = test_gt and len(test_gt.cells) < len(tests)

@@ -6,7 +6,7 @@ from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 
 
 def get_example(args) -> Grid:
-    if args.choice == "s":
+    if args.example == "s":
         g = Sudoku()
 
         g.load(
@@ -18,7 +18,7 @@ def get_example(args) -> Grid:
 
         print(g)
 
-    elif args.choice == "t":
+    elif args.example == "t":
         g = Sudoku()
 
         g.load(
@@ -30,10 +30,11 @@ def get_example(args) -> Grid:
 
         print(g)
 
-    elif args.choice == "f":
+    elif args.example == "f":
         n = 5
-        g = Futoshiki(n, [((1, 0), (1, 1)), ((2, 3), (3, 3)), ((4, 4), (3, 4)), ((3, 4), (3, 3)), ((2, 2), (3, 2)),
-                          ((4, 3), (4, 4))])
+        g = Futoshiki(n)
+        g.ext_ineqs([((1, 0), (1, 1)), ((2, 3), (3, 3)), ((4, 4), (3, 4)), ((3, 4), (3, 3)), ((2, 2), (3, 2)),
+                     ((4, 3), (4, 4))])
 
         g[0, 0] = 1
         g[0, 1] = 2
@@ -45,7 +46,7 @@ def get_example(args) -> Grid:
 
         print(g)
 
-    elif args.choice == "b":
+    elif args.example == "b":
         g = KillerSudoku()
         g.ext_sum_cells([
             (22, (0, 0, 0, 1, 1, 1, 1, 2)),
@@ -77,7 +78,7 @@ def get_example(args) -> Grid:
             (12, (5, 8, 6, 8, 7, 8))
         ])
 
-    elif args.choice == "a":
+    elif args.example == "a":
         g = KillerSudoku()
 
         g.ext_sum_cells([
@@ -113,7 +114,7 @@ def get_example(args) -> Grid:
             (10, (8, 3, 8, 4)),
         ])
 
-    elif args.choice == "c":
+    elif args.example == "c":
         g = KillerSudoku()
 
         g.load(
@@ -131,7 +132,7 @@ def get_example(args) -> Grid:
                   "i": 6, "j": 15, "k": 16, "l": 23, "m": 23, "n": 17, "o": 10, "p": 18, "q": 22, "r": 9,
                   "s": 4, "t": 18, "u": 11, "v": 12, "w": 33, "x": 18, "y": 10, "z": 17})
 
-    elif args.choice == "d":
+    elif args.example == "d":
         g = KillerSudoku()
 
         g.load(
@@ -149,7 +150,7 @@ def get_example(args) -> Grid:
                   "i": 7, "j": 16, "k": 16, "l": 12, "m": 17, "n": 17, "o": 17, "p": 10, "q": 20, "r": 7,
                   "s": 6, "t": 9, "u": 7, "v": 26, "w": 23, "x": 12, "y": 26, "z": 21, "0": 12, "1": 10})
 
-    elif args.choice == "m":
+    elif args.example == "m":
         n = 9
         g = Sudoku()
         g[4, 2] = 1

@@ -47,12 +47,12 @@ class RuleContainer:
 
 class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
     def __init__(self, known: Sequence[int], rows: int, cols: Optional[int] = None,
-                 max_elem: Optional[int] = None, type_info=None):
+                 max_elem: Optional[int] = None, name: Optional[str] = None):
         util.GridSizeContainer.__init__(self, rows, cols, max_elem)
         self._known: ArrayType = array('i', known)
         self.__hash: int = hash((bytes(self._known)))
         self.format_args = util.PrettyPrintArgs()
-        self._type_info = type_info
+        self.name = name
 
     def __eq__(self, other: 'ImmutableGrid') -> bool:
         if not isinstance(other, type(self)):
@@ -108,7 +108,7 @@ class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
 
     def _str_header(self, detailed=False):
 
-        s = f"{self._type_info or self.__class__.__name__}({self.rows},{self.cols})"
+        s = f"{self.name or self.__class__.__name__}({self.rows},{self.cols})"
 
         return s
 
@@ -119,15 +119,12 @@ class ImmutableGrid(util.GridSizeContainer, Sequence[int]):
         return self.to_str(util.PrettyPrintArgs(print_possible=False, args=self.format_args))
 
     def to_str(self, args: util.PrettyPrintArgs = None) -> str:
-        possible = None
-        try:
-            # noinspection PyUnresolvedReferences
-            possible = self._possible
-        except AttributeError:
-            pass
+        candidates = None
+        if hasattr(self, "_candidates"):
+            candidates = self._candidates
 
         return self._str_header(args.detail_rule) + "\n" + util.pretty_print(self.rows, self.cols, self.max_elem,
-                                                                             self._known, possible, args)
+                                                                             self._known, candidates, args)
 
 
 class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
@@ -140,9 +137,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
         ImmutableGrid.__init__(self, array('i', [0] * (rows * rows)), rows, cols, max_elem)
         RuleContainer.__init__(self)
-        possible_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
-        self._possible: Tuple[Set[int]] = tuple(possible_gen)
-        self.__has_been_filled = False
+        candidates_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
+        self._candidates: Tuple[Set[int]] = tuple(candidates_gen)
+        self.has_been_filled = False
         self.presolved_not_yet_once: bool = True
 
     @overload
@@ -158,12 +155,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         ...
 
     def __setitem__(self, key: IdxType, val: int) -> None:
-        self.__has_been_filled = True
+        self.has_been_filled = True
         idx = self._get_index_from_key(key)
         if isinstance(idx, slice):
             raise TypeError("Index slices not supported for setting.")
         self._known[idx] = val
-        p = self._possible[idx]
+        p = self._candidates[idx]
         if val > 0:
             p &= {val}
 
@@ -173,12 +170,13 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def __eq__(self, other: 'Grid') -> bool:
         if not isinstance(other, type(self)):
             return False
-        return self._known == other._known and self._possible == other._possible and RuleContainer.__eq__(self, other)
+        return self._known == other._known and self._candidates == other._candidates and RuleContainer.__eq__(self,
+                                                                                                              other)
 
     def all_but_rule_equal(self, other: 'Grid') -> bool:
         if not isinstance(other, type(self)):
             return False
-        return self._known == other._known and self._possible == other._possible
+        return self._known == other._known and self._candidates == other._candidates
 
     def __ne__(self, other: 'Grid') -> bool:
         return not self == other
@@ -195,7 +193,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         setattr(result, "_GridSizeContainer__max_elem", self.max_elem)
         setattr(result, "_GridSizeContainer__len", self.len)
         setattr(result, "_known", copy.deepcopy(self._known, memo=memo))
-        setattr(result, "_possible", copy.deepcopy(self._possible, memo=memo))
+        setattr(result, "_candidates", copy.deepcopy(self._candidates, memo=memo))
         setattr(result, "rules", copy.copy(self.rules))
         setattr(result, "_rules_ia", copy.copy(self._rules_ia))
         setattr(result, "guarantees", copy.copy(self.guarantees))
@@ -209,21 +207,21 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @property
     def is_solved(self) -> bool:
-        return all(0 < k in p for p, k in zip(self._possible, self._known))
+        return all(0 < k in p for p, k in zip(self._candidates, self._known))
 
     @property
     def is_valid(self) -> bool:
-        return all(self._possible)
+        return all(self._candidates)
 
-    def get_possible(self, key: IdxType) -> Set[int]:
-        return self._possible[self._get_index_from_key(key)]
+    def get_candidates(self, key: IdxType) -> Set[int]:
+        return self._candidates[self._get_index_from_key(key)]
 
-    def get_least_possible_set(self) -> Tuple[int, Set[int]]:
-        possible_where_len_gt1 = ((i, pp) for i, pp in enumerate(self._possible) if len(pp) > 1)
+    def get_smallest_candidate_set_gt1(self) -> Tuple[int, Set[int]]:
+        possible_where_len_gt1 = ((i, pp) for i, pp in enumerate(self._candidates) if len(pp) > 1)
         mysorted = min(possible_where_len_gt1, key=lambda x: len(x[1]))
         return mysorted
 
-    def get_least_possible_guarantee(self) -> Optional[Guarantee]:
+    def get_smallest_guarantee(self) -> Optional[Guarantee]:
         if not self.guarantees:
             return None
         mysorted = min(self.guarantees, key=lambda gt: len(gt.cells))
@@ -245,14 +243,28 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.remove(gtee)
         self._guarantees_ia.add(gtee)
 
-    def load(self, new_known: Union[Iterable[int], Iterable[Iterable[int]]], row_wise=False):
-        assert not self.__has_been_filled, "Grid can only be filled once; or be used in individual access mode"
-        if isinstance(new_known, str):
-            new_known = new_known.strip().replace(" ", "") \
+    def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]]):
+        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
+        flattened_once = False
+
+        while not isinstance(values, str) and not flattened_once:
+            values = util.flatten(values)
+            flattened_once = True
+
+        if isinstance(values, str):
+            values = values.strip().replace(" ", "") \
                 .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
-        else:
-            new_known = util.flatten(new_known)
-        assert len(new_known) == len(self._known), f"len: {len(new_known)} != {len(self._known)}"
+
+        assert len(values) == len(self._known), f"len: {len(values)} != {len(self._known)}"
+        self.has_been_filled = True
+        return values
+
+    @overload
+    def load(self, new_known: str, row_wise=True) -> None:
+        ...
+
+    def load(self, new_known: Union[Iterable[int], Iterable[Iterable[int]]], row_wise=False):
+        new_known = self._load_preprocess_sequence(new_known)
         if row_wise:
             for i, nk in enumerate(new_known):
                 row, col = divmod(i, self.rows)
@@ -260,7 +272,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         else:
             for i, nk in enumerate(new_known):
                 self[i] = int(nk)
-        self.__has_been_filled = True
 
     def presolve_hook_once(self):
         pass

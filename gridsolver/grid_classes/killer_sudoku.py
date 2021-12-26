@@ -1,6 +1,6 @@
 from itertools import chain
 from numbers import Integral
-from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence
+from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence, overload
 
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
@@ -15,8 +15,7 @@ class KillerSudoku(Sudoku):
     """Sudoku with additional areas that have a sum and uniquencess condition"""
 
     def __init__(self, sum_cells: Iterable[_SumCellPair] = None, rows_in_box: int = 3, cols_in_box: int = 3,
-                 box_rows: int = 3,
-                 box_cols: int = 3):
+                 box_rows: int = 3, box_cols: int = 3):
         super().__init__(rows_in_box, cols_in_box, box_rows, box_cols)
         if sum_cells is not None:
             self.ext_sum_cells(sum_cells)
@@ -44,22 +43,23 @@ class KillerSudoku(Sudoku):
         except StopIteration:
             pass
 
-    def load(self, sum_cells: str, dic: Mapping[str, int]) -> None:
+    @overload
+    def load(self, sum_cells_and_dic: str, row_wise=True) -> None:
+        """Input grid with single char per "group" as multiline string.
+        Plus a dictionary for the sums seperated by colons with a single character for the cell values"""
+        ...
+
+    def load(self, sum_cells: str, dic: Mapping[str, int], row_wise=True) -> None:
         """Input grid with single char per "group" as multiline string. Plus a dictionary for the sums"""
+
+        sum_cells = self._load_preprocess_sequence(sum_cells)
         if not isinstance(dic, Mapping):
             dic = dict(dic)
-        lines = sum_cells.split("\n")
         final_dic: Dict[str, _SumCellPair] = {}
-        row = 0
-        for line in lines:
-            if not line or line.isspace():
-                continue
-            col = 0
-            for char in line:
-                if char.isspace():
-                    continue
+        char_iter = iter(sum_cells)
+        for c1 in range(self.cols if row_wise else self.rows):
+            for c2 in range(self.rows if row_wise else self.cols):
+                char = next(char_iter)
                 entry = final_dic.setdefault(char, _SumCellPair(mysum=dic[char], cells=[]))
-                entry.cells.append((row, col))
-                col += 1
-            row += 1
+                entry.cells.append((c2, c1) if row_wise else (c1, c2))
         self.ext_sum_cells(final_dic.values())
