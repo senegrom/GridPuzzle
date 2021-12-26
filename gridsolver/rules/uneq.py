@@ -2,12 +2,13 @@ from abc import ABC
 from array import ArrayType, array
 from typing import Tuple, Set, Sequence, Iterable, MutableSequence
 
-from gridsolver import util
+import gridsolver.abstract_grids.gridsize_container
 from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
 
 
 class IneqRule(Rule):
-    def __init__(self, gsz: util.GridSizeContainer, gt_cell: IdxType, lt_cell: IdxType):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, gt_cell: IdxType,
+                 lt_cell: IdxType):
         super().__init__(gsz, [gt_cell, lt_cell], None)
         self._gt_cell, self._lt_cell = self.cells
 
@@ -24,7 +25,8 @@ class IneqRule(Rule):
 
 
 class SingleRelationRule(Rule, ABC):
-    def __init__(self, gsz: util.GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, origin_cell: IdxType,
+                 rel_cells: Iterable[IdxType]):
         rel_cells = list(rel_cells)
         super().__init__(gsz, [origin_cell] + sorted(rel_cells), None)
         self.origin_cell: int = self.cells[0]
@@ -32,7 +34,8 @@ class SingleRelationRule(Rule, ABC):
 
 
 class UneqRule(SingleRelationRule):
-    def __init__(self, gsz: util.GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, origin_cell: IdxType,
+                 rel_cells: Iterable[IdxType]):
         super().__init__(gsz, origin_cell, rel_cells)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
@@ -68,7 +71,7 @@ class UneqRule(SingleRelationRule):
 
 
 class DiffGe2Rule(SingleRelationRule):
-    def __init__(self, gsz: util.GridSizeContainer,
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  origin_cell: IdxType,
                  rel_cells: Iterable[IdxType]):
         SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)

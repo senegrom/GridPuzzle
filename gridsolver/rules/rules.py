@@ -4,6 +4,7 @@ from abc import abstractmethod, ABC
 from array import array, ArrayType
 from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional
 
+import gridsolver.abstract_grids.gridsize_container
 from gridsolver import util
 
 IdxType = Union[int, Tuple[int, int]]
@@ -30,7 +31,7 @@ class Guarantee(NamedTuple):
 class Rule(ABC):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', '_lcells')
 
-    def __init__(self, gsz: util.GridSizeContainer,
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Optional[Iterable[IdxType]] = None,
                  cell_creator: Optional[CellCreatorType] = None):
 

@@ -1,8 +1,8 @@
-from gridsolver.grid_classes.grid import UniqueSquare
+from gridsolver.abstract_grids.unique_square_grid import UniqueSquareGrid
 from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
 
 
-class Sudoku(UniqueSquare):
+class Sudoku(UniqueSquareGrid):
     def __init__(self, rows_in_box: int = 3, cols_in_box: int = 3, box_rows: int = 3, box_cols: int = 3):
         n: int = rows_in_box * box_rows
         assert n == cols_in_box * box_cols

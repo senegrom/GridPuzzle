@@ -3,10 +3,8 @@ import importlib
 import time
 
 import examples
-from gridsolver.grid_classes import solver
-from gridsolver.grid_classes.futoshiki import Futoshiki
-from gridsolver.grid_classes.killer_sudoku import KillerSudoku
-from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.abstract_grids import solver
+from gridsolver.abstract_grids.grid_loading import create_from_str
 
 if __name__ == "__main__":
 
@@ -14,7 +12,7 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group()
     group_str = group.add_argument_group()
     group.add_argument("-f", help="module file to load puzzle from", type=str, nargs="?")
-    group_str.add_argument("-s", "--str", help="string to load puzzle from", type=str, nargs="?")
+    group_str.add_argument("-s", "--str", help="string to load puzzle from", type=str)
     group_str.add_argument("-c", "--class_", help="puzzle class", choices=("sudoku", "killersudoku", "futoshiki"),
                            type=str)
     group.add_argument("-e", "--example", choices=("a", "b", "c", "d", "f", "m", "s", "t"),
@@ -41,15 +39,7 @@ if __name__ == "__main__":
         g = examples.get_example(args)
         solver.solve(g, detail)
     elif args.str:
-        if args.class_.strip().lower() == "sudoku":
-            g = Sudoku()
-        elif args.class_.strip().lower() == "futoshiki":
-            g = Futoshiki()
-        elif args.class_.strip().lower() == "killersudoku":
-            g = KillerSudoku()
-        else:
-            raise ValueError(f"Puzzle class {args.class_} not supported.")
-        g.load(args.str)
+        g = create_from_str(args.str, args.class_)
         solver.solve(g, detail)
     else:
         raise RuntimeError("Must define input puzzle either via module file or example choice. Run -h to see details.")

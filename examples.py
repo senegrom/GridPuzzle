@@ -1,4 +1,5 @@
-from gridsolver.grid_classes.grid import Grid
+from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid_loading import create_from_str
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -7,27 +8,17 @@ from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 
 def get_example(args) -> Grid:
     if args.example == "s":
-        g = Sudoku()
-
-        g.load(
-            [[0, 0, 2, 9, 0, 6, 0, 0, 0], [0, 0, 0, 1, 0, 8, 3, 0, 0], [0, 9, 6, 0, 7, 0, 0, 0, 0],
-             [9, 0, 0, 0, 5, 0, 0, 0, 0],
-             [2, 0, 0, 0, 0, 9, 0, 3, 1], [0, 1, 0, 0, 8, 0, 5, 0, 0], [0, 0, 8, 0, 0, 0, 0, 0, 0],
-             [0, 0, 0, 0, 0, 5, 7, 0, 0],
-             [0, 0, 0, 7, 0, 0, 0, 2, 0]])
-
+        g = create_from_str("..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2.", Sudoku)
         print(g)
 
     elif args.example == "t":
         g = Sudoku()
-
         g.load(
             [[8, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 3, 6, 0, 0, 0, 0, 0], [0, 7, 0, 0, 9, 0, 2, 0, 0],
              [0, 5, 0, 0, 0, 7, 0, 0, 0],
              [0, 0, 0, 0, 4, 5, 7, 0, 0], [0, 0, 0, 1, 0, 0, 0, 3, 0], [0, 0, 1, 0, 0, 0, 0, 6, 8],
              [0, 0, 8, 5, 0, 0, 0, 1, 0],
              [0, 9, 0, 0, 0, 0, 4, 0, 0]], row_wise=True)
-
         print(g)
 
     elif args.example == "f":
@@ -166,6 +157,6 @@ def get_example(args) -> Grid:
                                   range(n) for c in range(n)], None)
 
     else:
-        raise ValueError("Example choice not supported: " + str(args.choice))
+        raise ValueError("Example choice not supported: " + str(args.example))
 
     return g

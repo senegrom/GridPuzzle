@@ -1,7 +1,9 @@
 from argparse import Namespace
 
+from pytest import raises
+
 import examples
-from gridsolver.grid_classes import solver
+from gridsolver.abstract_grids import solver
 
 
 def _example_test(x: str):
@@ -41,3 +43,8 @@ def test_ex_s():
 
 def test_ex_t():
     _example_test("t")
+
+
+def test_ex_x():
+    with raises(ValueError):
+        _example_test("x")

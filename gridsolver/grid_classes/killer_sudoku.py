@@ -43,7 +43,7 @@ class KillerSudoku(Sudoku):
         except StopIteration:
             pass
 
-    def load(self, sum_cells_and_dic: str, row_wise=True) -> None:
+    def load(self, sum_cells_and_dic: str, /, row_wise=True) -> None:
         """Input grid with single char per "group" as multiline string.
         Plus a dictionary for the sums seperated by colons with a single character for the cell values"""
         sum_cells_and_dic = self._load_preprocess_str(sum_cells_and_dic)

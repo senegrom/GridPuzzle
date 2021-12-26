@@ -2,12 +2,13 @@ import collections
 import itertools
 from typing import Tuple, Set, Sequence, Iterable, MutableSequence, List, Counter, FrozenSet
 
-from gridsolver import util
+import gridsolver.abstract_grids.gridsize_container
 from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
 
 
 class ElementsAtMostOnce(Rule):
-    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType] = None, cell_creator=None):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
+                 cells: Iterable[IdxType] = None, cell_creator=None):
         super().__init__(gsz, sorted(cells) if cells is not None else None, cell_creator)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
@@ -108,7 +109,8 @@ class ElementsAtMostOnce(Rule):
 
 
 class ElementsAtLeastOnce(Rule):
-    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType] = None, cell_creator=None):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
+                 cells: Iterable[IdxType] = None, cell_creator=None):
         super().__init__(gsz, sorted(cells) if cells is not None else None, cell_creator)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):

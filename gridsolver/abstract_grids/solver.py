@@ -3,10 +3,11 @@ import itertools
 from array import ArrayType, array
 from typing import Tuple, Set, Sequence, List, Dict, FrozenSet, Optional, Callable
 
-from gridsolver.grid_classes.grid import Grid, ImmutableGrid, SolveStatus
+from gridsolver.abstract_grids.grid import Grid, SolveStatus
+from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
+from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
 from gridsolver.rules import unique, uneq, sumrules
 from gridsolver.rules.rules import Guarantee, RuleAlwaysSatisfied, InvalidGrid
-from gridsolver.util import PrettyPrintArgs
 
 GC_LEN_PARAM: int = 22
 
@@ -26,7 +27,7 @@ def solve(grid: Grid, print_info: int = 0, max_sols: int = -1) -> Optional[Set[I
     if any_sum and any_uniq_ns:
         rulehelpers.append(rulehelper_sum_atmostonce)
 
-    sols, _ = __solve_full(grid.deepcopy(), print_info, [], max_sols, rulehelpers)
+    sols, _ = _solve_full(grid.deepcopy(), print_info, [], max_sols, rulehelpers)
 
     for idx, sol in enumerate(sols):
         print("Solution " + str(idx))
@@ -68,8 +69,13 @@ def __solve_atomic(grid: Grid, is_print: bool = False, upsteps: Sequence[int] = 
         steps = steps + 1
         __update_step(grid)
 
-    status: SolveStatus = SolveStatus.INVALID if not grid.is_valid else (
-        SolveStatus.SOLVED if grid.is_solved else SolveStatus.NONE)
+    status: SolveStatus
+    if not grid.is_valid:
+        status = SolveStatus.INVALID
+    elif grid.is_solved:
+        status = SolveStatus.SOLVED
+    else:
+        status = SolveStatus.NONE
 
     if is_print:
         print(f"Done after {steps} steps: \t{status}")
@@ -123,12 +129,12 @@ def __filter_guarantees(grid: Grid, possible: Tuple[Set[int]], known: ArrayType)
                 grid.deactivate_gtee(gt1)
 
     for gt in grid.guarantees.copy():
-        __update_from_guarantee(grid, gt, possible, known)
+        _update_from_guarantee(grid, gt, possible, known)
 
 
 # todo combine guarantees like AtLeastOnce
 
-def __update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]], known: ArrayType):
+def _update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]], known: ArrayType):
     first_idx = -1
     is_single = True
     for cell in gt.cells:
@@ -178,9 +184,9 @@ def __update_step(grid: Grid) -> None:
         pass
 
 
-def __solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
-                 solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None
-                 ) -> (Set[ImmutableGrid], Set[ImmutableGrid]):
+def _solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
+                solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None
+                ) -> (Set[ImmutableGrid], Set[ImmutableGrid]):
     steps.append(0)
     print_all: bool = print_info < 0
     mylen = len(steps)
@@ -224,7 +230,7 @@ def __solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
         sols_x: Set[ImmutableGrid]
         wrongs_x: Set[ImmutableGrid]
         new_max: int = -1 if max_sols == -1 else max_sols - len(sols)
-        sols_x, wrongs_x = __solve_full(clone, print_info, steps, new_max)
+        sols_x, wrongs_x = _solve_full(clone, print_info, steps, new_max)
         steps[mylen - 1] = steps[mylen - 1] + 1
         sols.update(sols_x)
         wrongs.update(wrongs_x)

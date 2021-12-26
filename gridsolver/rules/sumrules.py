@@ -4,18 +4,19 @@ import reprlib
 from array import array
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
-from gridsolver import util
+import gridsolver.abstract_grids.gridsize_container
 from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType
 from gridsolver.rules.unique import ElementsAtMostOnce
 
 
 class SumRule(Rule):
 
-    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, cells: Iterable[IdxType],
+                 mysum: int):
         super().__init__(gsz, sorted(cells), None)
         self.sum: int = mysum
         self._sum_possibles: Optional[Tuple[Set[int]]] = None
-        self._possibles = None
+        self._candidates = None
         raise NotImplementedError()
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None) -> \
@@ -28,7 +29,8 @@ class SumRule(Rule):
 # todo subtract from guarantees to make new subrules
 
 class SumAndElementsAtMostOnce(ElementsAtMostOnce):
-    def __init__(self, gsz: util.GridSizeContainer, cells: Iterable[IdxType], mysum: int):
+    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, cells: Iterable[IdxType],
+                 mysum: int):
         super().__init__(gsz, sorted(cells), None)
         self.sum: int = mysum
         self._sum_possibles: Optional[Tuple[Set[int]]] = None
@@ -148,8 +150,10 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce):
         SumAndElementsAtMostOnce._update_from_guarantees(possible, new_possible_cells, guarantees)
 
         if lk:
-            return False, [SumAndElementsAtMostOnce(gsz=util.GridSizeContainer(self._rows, self._cols, self._max_elem),
-                                                    cells=new_possible_cells, mysum=self.sum - sum(my_known))], new_gts
+            return False, [SumAndElementsAtMostOnce(
+                gsz=gridsolver.abstract_grids.gridsize_container.GridSizeContainer(self._rows, self._cols,
+                                                                                   self._max_elem),
+                cells=new_possible_cells, mysum=self.sum - sum(my_known))], new_gts
 
         return False, None, new_gts
 

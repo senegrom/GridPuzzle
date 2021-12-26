@@ -1,25 +1,33 @@
-from gridsolver.grid_classes import solver
+from gridsolver.abstract_grids import solver
 
 
 def test_ex_sudoku():
-    from gridsolver.examples import exampleSudoku
+    from examples import exampleSudoku
     sol = solver.solve(exampleSudoku.g)
     assert len(sol) == 1
 
 
+def test_ex_blank_sudoku():
+    pass
+    # todo
+    # from gridsolver.examples import blankSudoku
+    # sol = solver.solve(blankSudoku.g, 2)
+    # assert len(sol) == 2
+
+
 def test_ex_futoshiki():
-    from gridsolver.examples import exampleFutoshiki
+    from examples import exampleFutoshiki
     sol = solver.solve(exampleFutoshiki.g)
     assert len(sol) == 1
 
 
 def test_ex_killer_sudoku():
-    from gridsolver.examples import killerSudoku
+    from examples import killerSudoku
     sol = solver.solve(killerSudoku.g)
     assert len(sol) == 1
 
 
 def test_ex_miracle_sudoku():
-    from gridsolver.examples import miracleSudoku
+    from examples import miracleSudoku
     sol = solver.solve(miracleSudoku.g)
     assert len(sol) == 1

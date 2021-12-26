@@ -1,10 +1,10 @@
 from typing import Iterable
 
-from gridsolver.grid_classes.grid import UniqueSquare
+from gridsolver.abstract_grids.unique_square_grid import UniqueSquareGrid
 from gridsolver.rules.uneq import IneqRule
 
 
-class Futoshiki(UniqueSquare):
+class Futoshiki(UniqueSquareGrid):
     """A (normally 5x5) grid with unique row/column entries and inequality constraints."""
 
     def __init__(self, n: int = 5):
