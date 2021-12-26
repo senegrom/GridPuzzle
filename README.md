@@ -2,9 +2,11 @@
 Solver for grid puzzles, e.g. Sudokus, Futoshiki, Killer Sudoku etc.
 Input puzzles are read as modules that define the variable `g`.
 
-Execute  `run.py ex.exampleSudoku` to solve the Sudoku that is stored as `g` in the `ex/exampleSudoku.py` file.
+Execute  `python run.py -f examples.exampleSudoku` to solve the Sudoku that is stored as `g` in the `examples/exampleSudoku.py` file.
 Additional options exist to print intermediate steps or to run one of the built-in examples.
-Try `run.py -v ex.exampleSudoku` for all intermediate steps when solving the example Sudoku.
+Try `python run.py -v -f examples.exampleSudoku` for all intermediate steps when solving the example Sudoku.
+
+Try `python run.py -s ..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2. -c sudoku` to solve a Sudoku from an arbitrary string.
 
 ## Puzzle types
 Default implementations for arbitrary sizes exist for _Sudoku_,
@@ -12,7 +14,7 @@ _Killer Sudoku_ (has additional sum constraints on areas of the puzzle),
 and _Futoshiki_ (has inequality constraints).
 They can be extended using the built-in rules.
 
-An example is the puzzle called _Miracle Sudoku_ given in `ex/miracleSudoku.py`.
+An example is the puzzle called _Miracle Sudoku_ given in `examples/miracleSudoku.py`.
 Here in addition to normal Sudoku rules adjacent and knight-move distant fields must not be equal.
 In addition, fields that are adjacent horizontally or vertically must not have difference exactly 1.
 
@@ -20,14 +22,18 @@ In addition, fields that are adjacent horizontally or vertically must not have d
 ## Arguments
 
 ```
-usage: run.py [-h] [-c {a,b,c,d,f,m,s,t}] [-d DETAIL] [-v] [file]
+usage: run.py [-h] [-f [FILE]] [-s STR] [-c {sudoku,killersudoku,futoshiki}] [-e {a,b,c,d,f,m,s,t}] [-d DETAIL] [-v]
 
-positional arguments:
-  file                  module file to load puzzle from
+Solve grid puzzle
 
 optional arguments:
   -h, --help            show this help message and exit
-  -c {a,b,c,d,f,m,s,t}, --choice {a,b,c,d,f,m,s,t}
+  -f [FILE], --file [FILE]
+                        module file to load puzzle from
+  -s STR, --str STR     string to load puzzle from
+  -c {sudoku,killersudoku,futoshiki}, --class_ {sudoku,killersudoku,futoshiki}
+                        puzzle class
+  -e {a,b,c,d,f,m,s,t}, --example {a,b,c,d,f,m,s,t}
                         Choose one of the default example puzzles and do not load from module file
   -d DETAIL, --detail DETAIL
                         Detail of log output (higher means more intermediate steps are shown)
