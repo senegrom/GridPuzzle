@@ -61,3 +61,10 @@ One special cell must have a different value than all the other rule cells.
 
 #### `DiffGe2Rule`
 One special cell must have a difference of at least 2 to all the other rule cells.
+
+## Acknowledgements
+
+I have taken many examples from Denis Berthier / https://github.com/denis-berthier/CSP-Rules-V2.1/tree/master/Examples
+
+## License
+The software is distributed under the GNU AGPL v3.0 license.
