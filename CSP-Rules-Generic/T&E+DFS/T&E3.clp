@@ -3,6 +3,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;;                              CSP-RULES / GENERIC
 ;;;                              TRIAL & ERROR depth 3
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -15,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;              January 2006 - June 2020              ;;;
+               ;;;             January 2006 - April 2021              ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -27,12 +28,12 @@
 
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; CONTEXT INITIALIZATION
-;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; CONTEXT INITIALISATION
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defrule TE3-init-non-first-context-c-values
 	"copy all the c-values from the parent context"
@@ -63,13 +64,87 @@
 
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; CONTEXT CLEANING
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defrule TE3-dummy-rule
+    (init-context 0)
+    (technique 0)
+    (csp-linked 0)
+    (exists-link 0)
+=>
+)
+
+
+(defrule TE3-clean-context
+    (declare (salience ?*clean-context-salience*))
+    (technique 0 TE3)
+    (context (name ?cont&~0))
+    (clean-and-retract ?cont)
+=>
+    (do-for-all-facts
+        ((?f candidate))
+        (eq ?f:context ?cont)
+        (retract ?f)
+    )
+    (do-for-all-facts
+        ((?f chain))
+        (eq ?f:context ?cont)
+        (retract ?f)
+    )
+    (do-for-all-facts
+        ((?f init-context))
+        (eq (nth$ 1 ?f:implied) ?cont)
+        (retract ?f)
+    )
+    (do-for-all-facts
+        ((?f technique))
+        (eq (nth$ 1 ?f:implied) ?cont)
+        (retract ?f)
+    )
+    (do-for-all-facts
+        ((?f csp-linked))
+        (eq (nth$ 1 ?f:implied) ?cont)
+        (retract ?f)
+    )
+    (do-for-all-facts
+        ((?f exists-link))
+        (eq (nth$ 1 ?f:implied) ?cont)
+        (retract ?f)
+    )
+)
+
+
+
+
+(defrule TE3-clean-context-end
+    (declare (salience ?*clean-context-salience*))
+    (technique 0 TE3)
+    ?ctx <- (context (name ?cont&~0) (parent ?par))
+    ?rr <- (clean-and-retract ?cont)
+    (not (init-context ?cont))
+    (not (candidate (context ?cont)))
+    (not (csp-linked ?cont $?))
+    (not (exists-link ?cont $?))
+    (not (chain (context ?cont)))
+=>
+    (retract ?rr)
+    (retract ?ctx)
+    (if (or ?*print-actions* ?*print-hypothesis*) then
+        (printout t "BACK IN CONTEXT " ?par " with " ?*nb-csp-variables-solved* " csp-variables solved and " ?*nb-candidates* " candidates remaining." crlf crlf)
+    )
+)
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; DETECTION OF CONTRADICTION IN CONTEXT 
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (defrule TE3-detect-contradiction-in-non-first-context
 	(declare (salience ?*contradiction-in-context-salience*))
@@ -100,95 +175,12 @@
 
 
 
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; CLEANING OF CONTRADICTORY CONTEXT 
-;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-(defrule TE3-clean-context-technique
-	(declare (salience ?*clean-context-salience*))
-    (technique 0 TE3)
-	(clean-and-retract ?cont)
-	?xx <- (technique ?cont $?)
-=>
-	(retract ?xx)
-)
-
-
-(defrule TE3-clean-context-candidates
-	(declare (salience ?*clean-context-salience*))
-    (technique 0 TE3)
-	(clean-and-retract ?cont)
-	?cand <- (candidate (context ?cont))
-=>
-	(retract ?cand)
-)
-
-
-(defrule TE3-clean-context-csp-linked
-	(declare (salience ?*clean-context-salience*))
-    (technique 0 TE3)
-	(clean-and-retract ?cont)
-	?xx <- (csp-linked ?cont $?)
-=>
-	(retract ?xx)
-)
-
-
-(defrule TE3-clean-context-exists-link
-	(declare (salience ?*clean-context-salience*))
-    (technique 0 TE3)
-	(clean-and-retract ?cont)
-	?xx <- (exists-link ?cont $?)
-=>
-	(retract ?xx)
-)
-
-
-(defrule TE3-clean-context-chains
-	(declare (salience ?*clean-context-salience*))
-    (technique 0 TE3)
-	(clean-and-retract ?cont)
-	?xx <- (chain (context ?cont))
-=>
-	(retract ?xx)
-)
-
-
-
-(defrule TE3-clean-context-end
-	(declare (salience ?*clean-context-salience*))
-    (technique 0 TE3)
-	?ctx <- (context (name ?cont&~0) (parent ?par))
-	?rr <- (clean-and-retract ?cont)
-	(not (init-context ?cont))
-	(not (candidate (context ?cont)))
-    (not (csp-linked ?cont $?))
-    (not (exists-link ?cont $?))
-    (not (chain (context ?cont)))
-=>
-	(retract ?rr)
-	(retract ?ctx)
-	(if (or ?*print-actions* ?*print-hypothesis*) then
-		(printout t "BACK IN CONTEXT " ?par " with " ?*nb-csp-variables-solved* " csp-variables solved and " ?*nb-candidates* " candidates remaining." crlf crlf)
-	)
-)
-
-
-
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; DETECTION OF NO CONTRADICTION, CONTEXT GENERATION AND PHASE ITERATION IN A CONTEXT 
 ;;; - level 3
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (defrule TE3-no-contradiction-found-in-context-level3
 	(declare (salience ?*level3-no-contrad-found-in-context-salience*))
@@ -274,14 +266,12 @@
 
 
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; DETECTION OF NO CONTRADICTION, CONTEXT GENERATION AND PHASE ITERATATION IN A CONTEXT 
 ;;; - level 2
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (defrule TE3-no-contradiction-found-in-context-level2
 	(declare (salience ?*level2-no-contrad-found-in-context-salience*))
@@ -373,7 +363,6 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
 (defrule TE3-no-contradiction-found-in-context-level1
 	(declare (salience ?*level1-no-contrad-found-in-context-salience*))
 	;;; after all the resolution rules have been applied in the context
@@ -406,12 +395,16 @@
 (defrule TE3-generate-context-level1
 	(declare (salience ?*level1-generate-context-salience*))
     (technique 0 TE3)
-	(context (name ?par) (depth ?depth&0))
+	(context (name ?par&0) (depth ?depth&0))
 	(not (context (name ?cont&~?par) (parent ?par))) ;;; only one context with parent ?par will be considered at a time
 	;;; each remaining cand of ?par will be re-tried in each phase, but not re-tried in the same phase
 	(phase ?par ?ph) 
     ?gen <- (candidate (context ?par) (status cand) (label ?gen-cand))
 	(not (TE3-tried ?par ?ph ?gen-cand))
+    
+    ;;; if the focus list is not empty, the following condition restricts the search to the candidates in it
+    ;;; t-whips should not be used if the focus list is not empty (this would restrict them improperly)
+    (or (not (candidate-in-focus (context ?par))) (candidate-in-focus (context ?par) (label ?zzz)))
 =>
 	;;; choose ?gen-cand as a hypothesis	
 	(bind ?*context-counter* (+ ?*context-counter* 1))
@@ -452,6 +445,40 @@
 	(assert (phase ?par (+ ?ph 1)))
 	(retract ?ce)
 	(retract ?phase)
+)
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; CLEAN WHAT'S LEFT BY T&E
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defrule TE3-clean-1
+    (declare (salience ?*TE-clean-salience*))
+    ?t <- (technique 0 TE2)
+=>
+    (retract ?t)
+)
+
+
+(defrule TE3-clean-2
+    (declare (salience ?*TE-clean-salience*))
+    (not (technique 0 TE2))
+    ?ph <- (phase ?x ?y)
+=>
+    (retract ?ph)
+)
+
+
+(defrule TE3-clean-3
+    (declare (salience ?*TE-clean-salience*))
+    (not (technique 0 TE2))
+    (not (phase ? ?))
+    ?b <- (TE1-tried ?par&0 ?ph ?gen-cand)
+=>
+    (retract ?b)
 )
 
 

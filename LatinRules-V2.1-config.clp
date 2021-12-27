@@ -28,35 +28,39 @@
 
 
 
+(clear)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; INSTALLATION ONLY:
-;;; Define environment variables: OS, installation directory and inference engine
+;;; Define environment variables: OS and installation directory
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; default setting is for Unix and MacOS:
+;;; Default setting is for Unix and MacOS:
 (defglobal ?*Directory-symbol* = "/")
-
 ;;; for Windows, un-comment this line:
-; (bind ?*Directory-symbol* "\") ;                                           <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+; (bind ?*Directory-symbol* "\") ;                                           <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-;;; define your general CSP-Rules installation directory (including the ending directory symbol / or \)
-;;; CSP-Rules-V2.1 will be installed inside this general CSP-Rules installation directory
-(defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; Define your general CSP-Rules installation directory (including the ending directory symbol / or \).
+;;; This is the directory in which the CSP-Rules-V2.1 version is installed, not the CSP-Rules-V2.1 directory.
+;;; This way, you will be able to launch CSP-Rules-V2.1 from anywhere.
+;;; You need to write something as follows.
+;;; For Unix (including MacOS):
+ (defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/")   ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; For Windows:
+; (defglobal ?*CSP-Rules* = "c:\Users\berthier\Documents\Projets\CSP-Rules\") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 ;;; compatibility with JESS is no longer guaranteed and CLIPS is the default inference engine
 ;;; the version of CLIPS used may be defined here (used only for displaying it in the banner)
-(defglobal ?*Clips-version* = "6.32-r770");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+(defglobal ?*Clips-version* = "6.32-r813");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 ;;; Description of the computer used for the resolution
 (defglobal ?*Computer-description* =
-    "MacBookPro Retina Mid-2012 i7 2.7GHz 16GB, 1600MHz DDR3, MacOS 10.15.4"
+    "MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.7"
 )                                                                            <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
 
 
 
@@ -70,10 +74,12 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; an ?*Application* must be defined as the name of the application (here, LatinRules), not as the name of the puzzle (LatinSquares)
+;;; an ?*Application* must be defined as the name of the application (here, SudoRules), not as the name of the puzzle (Sudoku)
 ;;; this name must coincide with the leading part of the name of the directory for the application inside the CSP-Rules-V2.1 directory
 ;;; the version number of the ?*Application* must also be defined
 ;;; this allows to have several versions of the same application based on the same version of CSP-Rules
+;;; for historical reasons, SudoRules version number inside CSP-Rules-V2.1 is not 2.1 but 20.1
+;;; (there were many versions of SudoRules before the development of a generic CSP-Rules core)
 (defglobal ?*Application* = "LatinRules")
 (defglobal ?*Application-VersionNumber* = 2.1)
 
@@ -84,28 +90,31 @@
 (defglobal ?*Application-Dir* = (str-cat ?*CSP-Rules-current-version* ?*Application* "-V" ?*Application-VersionNumber* ?*Directory-symbol*))
 (defglobal ?*Application-Loader* = (str-cat ?*Application-Dir* ?*Application* "-Loader.clp"))
 
-;;; load declarations for the global variables necessary for the upcoming choices
+;;; load definitions for the global variables necessary for the upcoming choices
 (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "globals.clp"))
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "globals.clp"))
 
 
 
 
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; General application-specific choices
 ;;; Definition of grid size and related parameters
+;;; Choice of variants
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; by default, gird size is 9, as in Sudoku
-;;; if needed, change grid size here
-;;; contrary to Sudoku, grid-size doesn't have to be a square
+;;; By default, gird size is 9, as in Sudoku.
+;;; If needed, change grid size here (grid-size can be any integer)
 
-; (bind ?*grid-size* 12) ;                                               <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+; (bind ?*grid-size* 13) ;                                               <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-
+;;; By default, Latin Squares is the classical version. But Pandiagonal constraints can be added.
+;;; Notice that, in this case, ?*grid-size* may not be divisible by 2 or 3.
+; (bind ?*Pandiagonal* TRUE) ;                                            <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 
@@ -125,6 +134,7 @@
 ;;;                                                                                                      ;;;
 
 ;;; Remember that there are no g-whips or g-braids in Latin Squares
+;;; But there are in the Pandiagonal variant. However, g-labels are not (yet?) coded 
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -145,14 +155,23 @@
 
 ;;; In the previous standard behaviour of CSP-Rules, when a pattern could have produced more than one elimination,
 ;;; the activation of a simpler rule by the first elimination could prevent further potential eliminations.
-;;; This default behaviour is now changed for Whips[1], bivalue-chains (typed or not), t-Whips (typed or not) and Subsets.
-;;; But CSP-Rules allows to revert to the previous behaviour,
-;;; independently for Whips[1], for bivalue-chains and t-Whips of any length and for Subsets.
-;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as the other chain rules:
+;;; This default behaviour is now changed:
+;;; - for Whips[1],
+;;; - for Subsets,
+;;; - for bivalue-chains (typed or not), z-chains (typed or not) and t-Whips (typed or not),
+;;; - for Oddagons.
+;;; However, CSP-Rules allows to revert to the previous behaviour,
+;;; independently for each of the above four groups of rules.
+;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as all the other rules.
+;;; Notice that ?*blocked-Subsets* = TRUE, ?*blocked-chains* = TRUE or ?*blocked-oddagons* = TRUE
+;;; will imply ?*blocked-Whips[1]* = TRUE
 ; (bind ?*blocked-Whips[1]* FALSE)
-; (bind ?*blocked-bivalue-chains* FALSE)
-; (bind ?*blocked-t-Whips* FALSE)
 ; (bind ?*blocked-Subsets* FALSE)
+; (bind ?*blocked-chains* FALSE) ; i.e. bivalue-chains, z-chains and t-Whips (typed or not)
+; (bind ?*blocked-oddagons* FALSE)
+;;; The old interrupted behaviour can be globally selected by ?*unblocked-behaviour* to TRUE;
+;;; (equivalent to setting the above four values to FALSE):
+; (bind ?*unblocked-behaviour* TRUE)
 
 
 ;;; Choose what's printed as the output.
@@ -161,8 +180,12 @@
 ; (bind ?*print-init-details* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+ (bind ?*print-levels* TRUE)
 ; (bind ?*print-solution* FALSE)
+
+;;; The resolution state after BRT is printed by default.
+;;; Un-comment this if you do not want to print it.
+; (bind ?*print-RS-after-Singles* FALSE)
 
 
 
@@ -179,21 +202,20 @@
 ;;; My standard config and its usual variants
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;; Because there are so many Subsets in the Pandiagonal variant,
+;;; it may be useful to allow only Subsets[3] in this case.
+; (bind ?*Subsets[2]* TRUE)
+; (bind ?*Subsets[3]* TRUE)
  (bind ?*Subsets* TRUE)
  (bind ?*Bivalue-Chains* TRUE)
  (bind ?*Whips* TRUE)
 
-; (bind ?*bivalue-chains-max-length* 20)
-; (bind ?*whips-max-length* 36)
-; (bind ?*braids-max-length* 36)
-
-
 ;;; Some additional rules I use frequently:
-; (bind ?*t-Whips* TRUE)
+ (bind ?*z-Chains* TRUE)
+ (bind ?*t-Whips* TRUE)
 
 
 ;;; Some additional rules I use occasionally:
-; (bind ?*z-Chains* TRUE)
 ; (bind ?*Braids* TRUE)
 ; (bind ?*Oddagons* TRUE)
 
@@ -223,15 +245,20 @@
 ;;; Change the default maximal lengths of the chain patterns
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; Don't change these lengths unless you have some reason:
+;;; Don't change these lengths unless you have some reason.
 
+;;; The maximum length of all the generic chains can be lowered at once:
+; (defglobal ?*all-chains-max-length* = 36)
+
+;;; Maximum lengths can also be lowered individually:
 ; (bind ?*bivalue-chains-max-length* 20)
+; (bind ?*z-chains-max-length* 20)
 ; (bind ?*t-whips-max-length* 36)
 ; (bind ?*whips-max-length* 36)
-; (bind ?*g2whips-max-length* 36)
 ; (bind ?*braids-max-length* 36)
 
 ; (bind ?*typed-bivalue-chains-max-length* 20)
+; (bind ?*typed-z-chains-max-length* 20)
 ; (bind ?*typed-t-whips-max-length* 36)
 ; (bind ?*typed-whips-max-length* 36)
 
@@ -253,7 +280,7 @@
 
 ;;; Un-comment the proper line below to change the level of details you want to be printed:
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
@@ -266,6 +293,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Choose one of the following 3 depths of T&E:
+;;; - depth 2 is enough for all the 9x9 Sudokus
+;;; - but deeper T&E is often required for larger Sudokus or for Sukakus
 
 ; (bind ?*TE1* TRUE) ;;; for T&E at level 1
 ; (bind ?*TE2* TRUE) ;;; for T&E at level 2
@@ -280,19 +309,16 @@
 ;;; 2b) For computing the SpB classification
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; Remember that whips[1] are always activated before Subsets,
-;;; even if you don’t activate them explicitly here.
-
-;;; choose which Subsets[p] and FinnedFish[p] are activated:
-; (bind ?*Subsets* TRUE)
-; (bind ?*Subsets[2]* TRUE)
-; (bind ?*Subsets[3]* TRUE)
-; (bind ?*Subsets[4]* TRUE)
-
-;;; choose one of the following forms of T&E(1, Sp or SpFin)
+;;; Choose one of the following forms of T&E(1, Sp or SpFin)
 ; (bind ?*TE1* TRUE) ;;; for T&E at level 1
 ;;; For T&E at level 1, with priority for bivalue variables, add the following:
 ; (bind ?*special-TE* TRUE)
+
+;;; Choose which Subsets[p] and FinnedFish[p] are activated:
+; (bind ?*Subsets[2]* TRUE)
+; (bind ?*Subsets[3]* TRUE)
+; (bind ?*Subsets[4]* TRUE)
+; (bind ?*Subsets* TRUE)
 
 
 
@@ -300,24 +326,51 @@
 ;;; 2c) for computing the BpB classification
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; choose p (here p = 3):
+;;; Choose one of the following forms of T&E(1)
+; (bind ?*TE1* TRUE) ;;; for T&E at level 1
+;;; For T&E at level 1, with priority for bivalue variables, add the following:
+; (bind ?*special-TE* TRUE)
+
+;;; Choose p (here p = 3):
 ; (bind ?*Whips* TRUE)
 ; (bind ?*Braids* TRUE)
 ; (bind ?*whips-max-length* 3)
 ; (bind ?*braids-max-length* 3)
 
-;;; choose one of the following forms of T&E(1)
-; (bind ?*TE1* TRUE) ;;; for T&E at level 1
-;;; For T&E at level 1, with priority for bivalue variables, add the following:
-; (bind ?*special-TE* TRUE)
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 2d) for looking for backdoors, anti-backdoors or anti-backdoor pairs
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Choose one or several of backdoors, anti-backdoors and anti-backdoor pairs:
+; (bind ?*Backdoors* TRUE)
+; (bind ?*Anti-backdoors* TRUE)
+; (bind ?*Anti-backdoor-pairs* TRUE)
+
+;;; for S-backdoors, S-anti-backdoors or S-anti-backdoor pairs, add the following:
+; (bind ?*Subsets* TRUE)
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 2e) for solving with Forcing-T&E
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; For Forcing T&E OR Forcing{3} T&E, activate only one of the following
+;;; The possibility of activating both together is not yet available
+; (bind ?*Forcing-TE* TRUE)
+; (bind ?*Forcing{3}-TE* TRUE)
+
+;;; For Forcing-T&E(S) or Forcing{3}-T&E(S), add:
+; (bind ?*Subsets* TRUE)
 
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; 3) Choose DFS (dept-first search) options
+;;; 3) Choose DFS (depth-first search) options
 ;;;
 ;;; DO NOT FORGET TO DISABLE ALL THE RULES IN THE OTHER SECTIONS BEFORE ACTIVATING DFS
 ;;;
@@ -327,7 +380,7 @@
 ;;; DFS can be used to provide a relatively fast solution
 
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
@@ -373,4 +426,8 @@
 
 ;;; now, load all
 ;;; Notice that the generic loader also loads the application-specific files
-(batch ?*CSP-Rules-Generic-Loader*)
+(if (and ?*Pandiagonal* (or (evenp ?*grid-size*) (eq (mod ?*grid-size* 3) 0)))
+    then (printout t "Pandiagonal Latin Squares can only be defined on grids of size not divisible by 2 or 3" crlf crlf)
+    else (redefine-all-chains-max-length)
+         (batch ?*CSP-Rules-Generic-Loader*)
+)

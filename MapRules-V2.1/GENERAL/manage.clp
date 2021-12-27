@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;            January 2006 - August 2020              ;;;
+               ;;;              January 2006 - May 2021               ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -55,28 +55,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; PRINT FINAL STATE IF NO SOLUTION FOUND 
-;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-(defrule print-unsolved-final-state
-	(declare (salience ?*print-final-state-salience*))
-	(grid ?g)
-	(context (name ?cont&0))
-	(not (solution-found ?cont))
-=>
-	(printout t "MAP " ?g " NOT SOLVED. " (- ?*nb-csp-variables*  ?*nb-csp-variables-solved*) " VALUES MISSING." crlf)
-	(if ?*add-instance-to-solved-list* then
-		(bind ?*not-solved-list* (union$ ?*not-solved-list* (create$ ?g)))
-	)
-	(halt)
-)
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
 ;;; DETECT AND PRINT SOLUTION 
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -102,7 +80,7 @@
 )
 
 
-(defrule record-number-of-facts
+(defrule prepare-printing-of-solution
 	(declare (salience ?*solution-found-salience*))
 	(grid ?g)
 	?sol <- (solution-found ?cont)

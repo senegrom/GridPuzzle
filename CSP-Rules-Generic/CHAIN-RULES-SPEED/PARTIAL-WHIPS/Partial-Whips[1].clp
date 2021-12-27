@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;             January 2006 - August 2020             ;;;
+               ;;;             January 2006 - August 2021             ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -36,13 +36,12 @@
 (defrule partial-whip[1]
     (declare (salience ?*partial-whip[1]-salience*))
     (logical
-        ;;; ?llc1
-        (exists-link ?cont ?llc1 ?zzz)
-        ;;; the following condition implies that, in case t-whips are active,
-        ;;; the fact that the solution (or part of it) is known will not be used to restrict the targets
-        (or (t-Whips)
-            (test (not (known-to-be-in-solution ?zzz)))
-        )
+        ;;; ?zzz and ?llc1
+        (exists-link ?cont ?llc1 ?zzz&:(not (known-to-be-in-solution ?zzz)))
+
+        ;;; if the focus list is not empty, the following condition restricts the search to the candidates in it
+        ;;; t-whips should not be used if the focus list is not empty (this would restrict them improperly)
+        (or (not (candidate-in-focus (context ?cont))) (candidate-in-focus (context ?cont) (label ?zzz)))
 
         ;;; ?rlc1 and ?csp1
         (technique ?cont partial-whip[1])

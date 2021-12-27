@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;             January 2006 - August 2020             ;;;
+               ;;;             January 2006 - August 2021             ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -33,8 +33,11 @@
 
 (defrule activate-gwhip[2]
 	(declare (salience ?*activate-gwhip[2]-salience*))
-	(logical (play) (context (name ?cont)))
-	(not (deactivate ?cont gwhip))
+    (logical
+       (play)
+       (context (name ?cont))
+       (not (deactivate ?cont gwhip))
+    )
 =>
 	(if ?*print-levels* then (printout t Entering_level_gW2))
 	(assert (technique ?cont gwhip[2]))
@@ -97,6 +100,10 @@
 	(logical
         ;;; ?llc1
         (exists-link ?cont ?llc1 ?zzz&:(not (known-to-be-in-solution ?zzz)))
+
+        ;;; if the focus list is not empty, the following condition restricts the search to the candidates in it
+        ;;; t-whips should not be used if the focus list is not empty (this would restrict them improperly)
+        (or (not (candidate-in-focus (context ?cont))) (candidate-in-focus (context ?cont) (label ?zzz)))
 
         ;;; ?rlc1 and ?csp1
         (technique ?cont gwhip[2])

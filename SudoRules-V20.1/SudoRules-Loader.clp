@@ -30,7 +30,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; For reasons of efficiency and/or compatibility with Application 15b.1.12, 
+;;; For reasons of efficiency and/or compatibility with SudoRules 15b.1.12,
 ;;; gBRT and Subset rules are Sudoku specific
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -40,6 +40,8 @@
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "background.clp"))
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "nrc-output.clp"))
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "solve.clp"))
+(load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "solve-files.clp"))
+(load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "compute-RS.clp"))
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "manage.clp"))
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "NS.clp"))
 (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "HS.clp"))
@@ -54,8 +56,31 @@
     (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "init-glinks.clp"))
 )
 
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "disable-re-enable-rules.clp"))
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "erasable-cands.clp"))
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "1or2-step-solutions.clp"))
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "one-step-solutions.clp"))
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "two-step-solutions.clp"))
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "eval-erasable-cands.clp"))
+(load (str-cat ?*Application-Dir* "ADVANCED" ?*Directory-symbol* "fewer-step-solutions.clp"))
 
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; MODULES
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(load (str-cat ?*Application-Dir* "MODULES" ?*Directory-symbol* "modules.clp"))
+(load (str-cat ?*Application-Dir* "MODULES" ?*Directory-symbol* "solve-w-preferences.clp"))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; UNIQUENESS
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (if ?*Unique-Rectangles* then (load (str-cat ?*Application-Dir* "UNIQUENESS" ?*Directory-symbol* "UR1.clp")))
 (if ?*Unique-Rectangles* then (load (str-cat ?*Application-Dir* "UNIQUENESS" ?*Directory-symbol* "UR2.clp")))
@@ -66,7 +91,56 @@
 
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; SUBSETS
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; In the original behaviour of CSP-Rules, when a Subset was detected,
+;;; its application could be interrupted if a simpler rule became applicable after some of its elimination(s).
+;;; CSP-Rules now has a new default behaviour (blocked Subsets) - which can be reverted to the old one.
+;;; There is now a single version of the Subset rules, encompassing both behaviours.
+
+(if (or ?*Subsets* ?*Subsets[4]* ?*Subsets[3]* ?*Subsets[2]*) then
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "N2-naked-pairs.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "H2-hidden-pairs.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "SH2-x-wing.clp"))
+)
+(if (or ?*FinnedFish* ?*FinnedFish[4]* ?*FinnedFish[3]* ?*FinnedFish[2]*) then
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "FSH2-finned-x-wing.clp"))
+)
+
+
+(if (or ?*Subsets* ?*Subsets[4]* ?*Subsets[3]*) then
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "N3-naked-triplets.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "H3-hidden-triplets.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "SH3-swordfish.clp"))
+)
+(if (or ?*FinnedFish* ?*FinnedFish[4]* ?*FinnedFish[3]*) then
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "FSH3-finned-swordfish.clp"))
+)
+
+
+(if (or ?*Subsets* ?*Subsets[4]*) then
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "N4-naked-quads.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "H4-hidden-quads.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "SH4-jellyfish.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "SpN4-special-naked-quads.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "SpH4-special-hidden-quads.clp"))
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "SpSH4-special-jellyfish.clp"))
+)
+(if (or ?*FinnedFish* ?*FinnedFish[4]*) then
+    (load (str-cat ?*Application-Dir* "SUBSETS" ?*Directory-symbol* "FSH4-finned-jellyfish.clp"))
+)
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; EXOTIC PATTERNS
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (if ?*Belt4* then (load (str-cat ?*Application-Dir* "EXOTIC" ?*Directory-symbol* "sk-loops" ?*Directory-symbol* "Belt4-of-crosses.clp")))
 (if ?*Belt6* then (load (str-cat ?*Application-Dir* "EXOTIC" ?*Directory-symbol* "sk-loops" ?*Directory-symbol* "Belt6-of-crosses.clp")))
@@ -80,46 +154,24 @@
 
 
 
-;;; SUBSETS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; BACKDOORS, ANTI-BACKDOORS AND ANTI-BACKDOOR PAIRS
+;;; Additional, Sudoku-specific functions for backdoors, anti-backdoors and anti-backdoor-pairs
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; when a Subset is detected, in the default behaviour of SudoRules,
-;;; application of the rule can be interrupted if a simpler rule is applicable
-;;; SudoRules now allows to modify this behaviour (blocked Subsets)
-;;; as a result, different versions of the Subset rules, will be loaded by the SudoRules loader
-(defglobal ?*Subsets-Directory* = (if ?*blocked-Subsets* then "BLOCKED-SUBSETS" else "SUBSETS"))
-
-(if (or ?*Subsets* ?*Subsets[4]* ?*Subsets[3]* ?*Subsets[2]*) then
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "N2-naked-pairs.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "H2-hidden-pairs.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "SH2-x-wing.clp"))
-)
-(if (or ?*FinnedFish* ?*FinnedFish[4]* ?*FinnedFish[3]* ?*FinnedFish[2]*) then
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "FSH2-finned-x-wing.clp"))
+(if ?*Backdoors* then
+    (load (str-cat ?*Application-Dir* "T&E" ?*Directory-symbol* "backdoors.clp"))
 )
 
-
-(if (or ?*Subsets* ?*Subsets[4]* ?*Subsets[3]*) then
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "N3-naked-triplets.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "H3-hidden-triplets.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "SH3-swordfish.clp"))
-)
-(if (or ?*FinnedFish* ?*FinnedFish[4]* ?*FinnedFish[3]*) then
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "FSH3-finned-swordfish.clp"))
+(if ?*Anti-backdoors* then
+    (load (str-cat ?*Application-Dir* "T&E" ?*Directory-symbol* "anti-backdoors.clp"))
 )
 
-
-(if (or ?*Subsets* ?*Subsets[4]*) then
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "N4-naked-quads.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "H4-hidden-quads.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "SH4-jellyfish.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "SpN4-special-naked-quads.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "SpH4-special-hidden-quads.clp"))
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "SpSH4-special-jellyfish.clp"))
+(if ?*Anti-backdoor-pairs* then
+    (load (str-cat ?*Application-Dir* "T&E" ?*Directory-symbol* "anti-backdoor-pairs.clp"))
 )
-(if (or ?*FinnedFish* ?*FinnedFish[4]*) then
-    (load (str-cat ?*Application-Dir* ?*Subsets-Directory* ?*Directory-symbol* "FSH4-finned-jellyfish.clp"))
-)
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -155,6 +207,22 @@
 (load (str-cat ?*Application-Dir* "STATS" ?*Directory-symbol* "stats.clp"))
 (load (str-cat ?*Application-Dir* "STATS" ?*Directory-symbol* "unbiased-stats.clp"))
 (load (str-cat ?*Application-Dir* "STATS" ?*Directory-symbol* "comparisons.clp"))
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; GOODIES
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(load (str-cat ?*Application-Dir* "GOODIES" ?*Directory-symbol* "goodies.clp"))
+(load (str-cat ?*Application-Dir* "GOODIES" ?*Directory-symbol* "shuffle.clp"))
+(load (str-cat ?*Application-Dir* "GOODIES" ?*Directory-symbol* "pretty-print.clp"))
+
+
 
 
 

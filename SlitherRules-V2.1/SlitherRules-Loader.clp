@@ -72,11 +72,6 @@
     (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "init-links.clp"))
 )
 
-(if ?*Final-fill* then 
-    (if (and ?*Colours* ?*print-IO-solution*) then (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "complete-partial-sol-IO.clp")))
-    (if ?*print-HV-solution* then (load (str-cat ?*Application-Dir* "GENERAL" ?*Directory-symbol* "complete-partial-sol-HV.clp")))
-)
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -199,7 +194,7 @@
         (bind ?i (+ ?i 2))
     )
     (if (> ?*loops-max-length* 80) then
-        (load (str-cat ?*Application-Dir* "LOOPS" ?*Directory-symbol* "Loops[>80].clp"))
+        (load (str-cat ?*Application-Dir* "LOOPS" ?*Directory-symbol* "Loops[GT80].clp"))
     )
 )
 
@@ -217,8 +212,7 @@
     ;;; even-partial-loops
     (load (str-cat ?*Application-Dir* "EVEN-PARTIAL-LOOPS" ?*Directory-symbol* "Even-Partial-Loops[2].clp"))
     (load (str-cat ?*Application-Dir* "EVEN-PARTIAL-LOOPS" ?*Directory-symbol* "Even-Partial-Loops[3].clp"))
-    (load (str-cat ?*Application-Dir* "EVEN-PARTIAL-LOOPS" ?*Directory-symbol* "Even-Partial-Loops[4].clp"))
-    (bind ?i 6)
+    (bind ?i 4)
     (while (<= ?i 80)
         (if (and (<= ?i ?*loops-max-length*) (evenp ?i)) then
             (load (str-cat ?*Application-Dir* "EVEN-PARTIAL-LOOPS" ?*Directory-symbol* "Even-Partial-Loops[" ?i "].clp"))
@@ -226,7 +220,7 @@
         (bind ?i (+ ?i 1))
     )
     (if (< 80 ?*loops-max-length*) then
-        (load (str-cat ?*Application-Dir* "XTD-LOOPS" ?*Directory-symbol* "Even-Partial-Loops[>80].clp"))
+        (load (str-cat ?*Application-Dir* "EVEN-PARTIAL-LOOPS" ?*Directory-symbol* "Even-Partial-Loops[GT80].clp"))
     )
 
     ;;; extended-loops
@@ -238,7 +232,7 @@
         (bind ?i (+ ?i 1))
     )
     (if (< 80 ?*loops-max-length*) then
-        (load (str-cat ?*Application-Dir* "XTD-LOOPS" ?*Directory-symbol* "xtd-loops[>80].clp"))
+        (load (str-cat ?*Application-Dir* "XTD-LOOPS" ?*Directory-symbol* "xtd-loops[GT80].clp"))
     )
 )
 

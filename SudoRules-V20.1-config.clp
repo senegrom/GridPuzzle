@@ -31,30 +31,35 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; INSTALLATION ONLY:
-;;; Define environment variables: OS, installation directory and inference engine
+;;; Define environment variables: OS and installation directory
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; default setting is for Unix and MacOS:
+(clear) ; clean CLIPS of anything it may have had before.
+;;; Default setting is for Unix and MacOS,
+;;; but it should also work for recent versions of Windows:
 (defglobal ?*Directory-symbol* = "/")
-;;; for Windows, un-comment this line:
-; (bind ?*Directory-symbol* "\") ;                                           <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-;;; define your general CSP-Rules installation directory (including the ending directory symbol / or \)
-;;; CSP-Rules-V2.1 will be installed inside this general CSP-Rules installation directory
-(defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; Define your general CSP-Rules installation directory (including the ending directory symbol /).
+;;; This is the directory in which the CSP-Rules-V2.1 version is installed, not the CSP-Rules-V2.1 directory.
+;;; By defining the path in an absolute way, you will be able to launch CSP-Rules-V2.1 from anywhere.
+;;; You need to write something as follows.
+;;; For Unix (including MacOS):
+ (defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/")   ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; For Windows:
+; (defglobal ?*CSP-Rules* = "c:/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-;;; compatibility with JESS is no longer guaranteed and CLIPS is the default inference engine
-;;; the version of CLIPS used may be defined here (used only for displaying it in the banner)
-(defglobal ?*Clips-version* = "6.32-r770");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; CLIPS is the underlying inference engine.
+;;; The version of CLIPS used may be defined here (used only for displaying it in the banner)
+(defglobal ?*Clips-version* = "6.32-r813");                                     <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 ;;; Description of the computer used for the resolution
 (defglobal ?*Computer-description* =
-    "MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.4"
-)                                                                            <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    "MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.7"
+)                                                                               <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 
@@ -64,16 +69,16 @@
 ;;; Define useful directories and load all the globals
 ;;; (they must be available before choosing the configuration of rules)
 ;;;
-;;; do NOT change any of the following
+;;; Do NOT change any of the following
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; an ?*Application* must be defined as the name of the application (here, SudoRules), not as the name of the puzzle (Sudoku)
-;;; this name must coincide with the leading part of the name of the directory for the application inside the CSP-Rules-V2.1 directory
-;;; the version number of the ?*Application* must also be defined
-;;; this allows to have several versions of the same application based on the same version of CSP-Rules
-;;; for historical reasons, SudoRules version number inside CSP-Rules-V2.1 is not 2.1 but 20.1
-;;; (there were many versions of SudoRules before the development of a generic CSP-Rules core)
+;;; An ?*Application* must be defined as the name of the application (here, SudoRules), not as the name of the puzzle (Sudoku).
+;;; This name must coincide with the leading part of the name of the directory for the application inside the CSP-Rules-V2.1 directory.
+;;; The version number of the ?*Application* must also be defined.
+;;; This allows to have several versions of the same application based on the same version of CSP-Rules.
+;;; For historical reasons, SudoRules version number inside CSP-Rules-V2.1 is not 2.1 but 20.1
+;;; (there were many versions of SudoRules before the development of a generic CSP-Rules core).
 (defglobal ?*Application* = "SudoRules")
 (defglobal ?*Application-VersionNumber* = 20.1)
 
@@ -98,7 +103,7 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; because ordinary Sudoku puzzles are 9x9 (i.e. segment-size = 3),
+;;; Because ordinary Sudoku puzzles are 9x9 (i.e. segment-size = 3),
 ;;; SudoRules has its own way of dealing with the size of puzzles
 ;;; and this can only be done here; maximum segment size is 9
 ;;; you don't need do change anything for the standard 9x9 puzzles
@@ -143,14 +148,23 @@
 
 ;;; In the previous standard behaviour of CSP-Rules, when a pattern could have produced more than one elimination,
 ;;; the activation of a simpler rule by the first elimination could prevent further potential eliminations.
-;;; This default behaviour is now changed for Whips[1], bivalue-chains (typed or not), t-Whips (typed or not) and Subsets.
-;;; But CSP-Rules allows to revert to the previous behaviour,
-;;; independently for Whips[1], for bivalue-chains and t-Whips of any length and for Subsets.
-;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as the other chain rules:
+;;; This default behaviour is now changed:
+;;; - for Whips[1],
+;;; - for Subsets,
+;;; - for bivalue-chains (typed or not), z-chains (typed or not) and t-Whips (typed or not),
+;;; - for Oddagons.
+;;; However, CSP-Rules allows to revert to the previous behaviour,
+;;; independently for each of the above four groups of rules.
+;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as all the other rules.
+;;; Notice that ?*blocked-Subsets* = TRUE, ?*blocked-chains* = TRUE or ?*blocked-oddagons* = TRUE
+;;; will imply ?*blocked-Whips[1]* = TRUE
 ; (bind ?*blocked-Whips[1]* FALSE)
-; (bind ?*blocked-bivalue-chains* FALSE)
-; (bind ?*blocked-t-Whips* FALSE)
 ; (bind ?*blocked-Subsets* FALSE)
+; (bind ?*blocked-chains* FALSE) ; i.e. bivalue-chains, z-chains and t-Whips (typed or not)
+; (bind ?*blocked-oddagons* FALSE)
+;;; The old interrupted behaviour can be globally selected by ?*unblocked-behaviour* to TRUE;
+;;; (equivalent to setting the above four values to FALSE):
+; (bind ?*unblocked-behaviour* TRUE)
 
 
 ;;; Choose what's printed as the output.
@@ -159,8 +173,23 @@
 ; (bind ?*print-init-details* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-solution* FALSE)
+
+;;; Note that the following print options are time consuming.
+;;; De-activate them for a faster solution.
+;;; The resolution state after BRT is printed by default.
+;;; Un-comment this if you do not want to print it:
+; (bind ?*print-RS-after-Singles* FALSE)
+
+;;; The resolution state after Singles and whips[1] is printed by default.
+;;; Un-comment this if you do not want to print it:
+; (bind ?*print-RS-after-whips[1]* FALSE)
+
+;;; The resolution state is printed by default at the end of resolution
+;;; if the solution has not been found.
+;;; Un-comment this if you do not want to print it:
+; (bind ?*print-final-RS* FALSE)
 
 
 
@@ -173,22 +202,23 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; My standard config and its usual variants
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; My most usual rules (config = W+S+Fin, with unrestricted lengths):
 ;;; Sudoku-specific:
  (bind ?*Subsets* TRUE)
  (bind ?*FinnedFish* TRUE)
-;;; generic:
+;;; Generic:
+; (bind ?*Whips[1]* TRUE) ; allows to more easily activate only whips[1]
  (bind ?*Bivalue-Chains* TRUE)
  (bind ?*Whips* TRUE)
 
 
 ;;; Some additional rules I use frequently:
-; (bind ?*z-Chains* TRUE)
-; (bind ?*t-Whips* TRUE)
+ (bind ?*z-Chains* TRUE)
+ (bind ?*t-Whips* TRUE)
 ; (bind ?*G-Whips* TRUE)
 
 
@@ -216,6 +246,7 @@
 ; (bind ?*G-Braids* TRUE)
 ; (bind ?*Quick-B-Rating* TRUE)
 
+;;; Exotic generic rules:
 ; (bind ?*Oddagons* TRUE)
 
 
@@ -236,10 +267,10 @@
 
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Sudoku-specific rules (besdes Subsets):
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Sudoku-specific rules (besides Subsets):
 ;;; uniqueness and "exotic" patterns
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; U-resolution rules for uniqueness.
 ;;; BEWARE: don't activate the following uniqueness rules,
@@ -264,12 +295,16 @@
 
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Change the default maximal lengths of the chain patterns
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; Don't change these lengths unless you have some reason:
+;;; Don't change these lengths unless you have some reason.
 
+;;; The maximum length of all the generic chains can be lowered at once:
+; (bind ?*all-chains-max-length* 36)
+
+;;; Maximum lengths can also be lowered individually:
 ; (bind ?*bivalue-chains-max-length* 20)
 ; (bind ?*z-chains-max-length* 20)
 ; (bind ?*t-whips-max-length* 36)
@@ -305,19 +340,23 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; Un-comment the proper line below to change the level of details you want to be printed:
+;;; Un-comment the proper line(s) below to change the level of details you want to be printed.
+;;; This can make T&E faster.
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
 ; (bind ?*print-phase* TRUE)
+; (bind ?*print-RS-after-Singles* FALSE)
+; (bind ?*print-RS-after-whips[1]* FALSE)
+; (bind ?*print-final-RS* FALSE)
 
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 2a) for checking membership in T&E(k) or gT&E(k), k = 1,2,3
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Choose one of the following 3 depths of T&E:
 ;;; - depth 2 is enough for all the 9x9 Sudokus
@@ -330,63 +369,91 @@
 ;;; In addition to the previous choice, you can give priority to bivalue candidates:
 ; (bind ?*special-TE* TRUE)
 
-
-;;; For gT&E(k) instead of T&E(k), activate the next two lines:
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 1)
+;;; For gT&E(k) instead of T&E(k), activate the additional next line:
+; (bind ?*Whips[1]* TRUE)
 
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 2b) For computing the SpB classification
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; Remember that whips[1] are always activated before Subsets,
-;;; even if you don’t activate them explicitly here.
-;;; But you can choose to activate only them, to get gT&E (as in 2a)
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 1)
-
-;;; choose which Subsets[p] and FinnedFish[p] are activated:
-; (bind ?*Subsets* TRUE)
-; (bind ?*Subsets[2]* TRUE)
-; (bind ?*Subsets[3]* TRUE)
-; (bind ?*Subsets[4]* TRUE)
-
-; (bind ?*FinnedFish* TRUE)
-; (bind ?*FinnedFish[2]* TRUE)
-; (bind ?*FinnedFish[3]* TRUE)
-; (bind ?*FinnedFish[4]* TRUE)
-
-;;; choose one of the following forms of T&E(1, Sp or SpFin)
+;;; Choose one of the following forms of T&E(1, Sp or SpFin)
 ; (bind ?*TE1* TRUE) ;;; for T&E at level 1
 ;;; For T&E at level 1, with priority for bivalue variables, add the following:
 ; (bind ?*special-TE* TRUE)
 
+;;; Remember that whips[1] are always activated before Subsets,
+;;; even if you don’t activate them explicitly here.
+;;; But you can choose to activate only them, to get gT&E (as in 2a)
+; (bind ?*Whips[1]* TRUE)
+
+;;; choose which Subsets[p] and FinnedFish[p] are activated:
+; (bind ?*Subsets[2]* TRUE)
+; (bind ?*Subsets[3]* TRUE)
+; (bind ?*Subsets[4]* TRUE)
+; (bind ?*Subsets* TRUE)
+
+; (bind ?*FinnedFish[2]* TRUE)
+; (bind ?*FinnedFish[3]* TRUE)
+; (bind ?*FinnedFish[4]* TRUE)
+; (bind ?*FinnedFish* TRUE)
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 2c) for computing the BpB classification
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; choose p (here p = 3):
+;;; Choose one of the following forms of T&E(1)
+; (bind ?*TE1* TRUE) ;;; for T&E at level 1
+;;; For T&E at level 1, with priority for bivalue variables, add the following:
+; (bind ?*special-TE* TRUE)
+
+;;; Choose p (here p = 3):
 ; (bind ?*Whips* TRUE)
 ; (bind ?*Braids* TRUE)
 ; (bind ?*whips-max-length* 3)
 ; (bind ?*braids-max-length* 3)
 
-;;; choose one of the following forms of T&E(1)
-; (bind ?*TE1* TRUE) ;;; for T&E at level 1
-;;; For T&E at level 1, with priority for bivalue variables, add the following:
-; (bind ?*special-TE* TRUE)
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 2d) for looking for backdoors, anti-backdoors or anti-backdoor pairs
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Choose one or several of backdoors, anti-backdoors and anti-backdoor pairs:
+; (bind ?*Backdoors* TRUE)
+; (bind ?*Anti-backdoors* TRUE)
+; (bind ?*Anti-backdoor-pairs* TRUE)
+
+;;; for W1-backdoors, W1-anti-backdoors or W1-anti-backdoor pairs, add the following:
+; (bind ?*Whips[1]* TRUE)
+;;; for S-backdoors, S-anti-backdoors or S-anti-backdoor pairs, add the following:
+; (bind ?*Subsets* TRUE)
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 2e) for solving with Forcing-T&E
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; For Forcing T&E OR Forcing{3} T&E, activate only one of the following
+;;; The possibility of activating both together is not yet available
+; (bind ?*Forcing-TE* TRUE)
+; (bind ?*Forcing{3}-TE* TRUE)
+
+;;; for Forcing-T&E(W1) or Forcing{3}-T&E(W1), add:
+; (bind ?*Whips[1]* TRUE)
+;;; for Forcing-T&E(S) or Forcing{3}-T&E(S), add:
+; (bind ?*Subsets* TRUE)
 
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; 3) Choose DFS (dept-first search) options
+;;; 3) Choose DFS (depth-first search) options
 ;;;
 ;;; DO NOT FORGET TO DISABLE ALL THE RULES IN THE OTHER SECTIONS BEFORE ACTIVATING DFS
 ;;;
@@ -395,17 +462,21 @@
 
 ;;; DFS can be used to provide a relatively fast solution
 
+;;; To block all output:
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-phase* TRUE)
+; (bind ?*print-RS-after-Singles* FALSE)
+; (bind ?*print-RS-after-whips[1]* FALSE)
+; (bind ?*print-final-RS* FALSE)
 
 ;;; To activate DFS:
 ; (bind ?*DFS* TRUE)
-;;; To activate priority for bivalue cells, activate this line, in addition to the above line:
+;;; To activate priority for bivalue candidates, activate this line, in addition to the above line:
 ; (bind ?*special-DFS* TRUE)
 
 ;;; Activate short whips for combining whips[1] or whips[2] with DFS:
@@ -413,177 +484,6 @@
 ; (bind ?*Whips* TRUE)
 ; (bind ?*whips-max-length* 1)
 ; (bind ?*whips-max-length* 2)
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; 4) Use rules based on intermediate binary contradictions
-;;;
-;;; DO NOT FORGET TO DISABLE ALL THE RULES IN THE OTHER SECTIONS
-;;; BEFORE ACTIVATING ANY OF THE RULES BELOW
-;;; ACTIVATE RULES FROM ONLY ONE OF THE FOLLOWING SUB-SECTIONS AT A TIME
-;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;; BEWARE: this section should not be used unless you have a deep understanding
-;;; of these rules, as described in chapter 12 of PBCS
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Compute pairwise Bi-Whip / Bi-Braid contradictions using Bi-Whips / Bi-Braids,
-;;; thus getting a list ?*all-biwhip-contrads* / ?*all-bibraid-contrads*
-;;; plus the associated effective bi-Whips / bi-Braids
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;; This will typically be used in combination with W*-Whips
-;;; but it may be used independently, just to get an idea of the numbers of contradictions involved
-;;; and how they increase with p
-;;; Choose the maximum length of the Bi-Whips / Bi-Braids
-; (bind ?*Bi-Whips* TRUE)
-; (bind ?*biwhips-max-length* 4)
-; (bind ?*Bi-Braids* TRUE)
-; (bind ?*bibraids-max-length* 4)
-
-;;; Notice that ?*chain-rules-optimisation-type* MEMORY will not alllow
-;;; for continuous updating of the bi-Whip / bi-Braid contradictions
-;;; when combined with W*-Whips / B*-Braids
-; (bind ?*chain-rules-optimisation-type* MEMORY)
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Use Bi-Whips plus W*-Whips or Bi-Braids plus B*-Braids
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;; Notice that ?*chain-rules-optimisation-type* MEMORY will not alllow
-;;; for continuous updating of the bi-Whip / bi-Braid contradictions
-;;; when combined with W*-Whips / B*-Braids
-; (bind ?*chain-rules-optimisation-type* MEMORY)
-
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 2)
-; (bind ?*G-Whips* TRUE)
-; (bind ?*gwhips-max-length* 36)
-; (bind ?*W*-Whips* TRUE)
-; (bind ?*w*-whips-max-length* 2)
-; (bind ?*Bi-Whips* TRUE)
-; (bind ?*biwhips-max-length* 10)
-
-; (bind ?*B*-Braids* TRUE)
-; (bind ?*b*-braids-max-length* 20)
-; (defglobal ?*Bi-Braids* = TRUE)
-; (defglobal ?*bibraids-max-length* = 6)
-; (defglobal ?*Braids* = TRUE)
-; (defglobal ?*braids-max-length* = 6)
-
-
-;;; SHOULD BE MOVED TO GENERIC LOADER
-;;; When W*-Whips[p] are active, Whips[p] must be active also
-;(if ?*W*-Whips* then
-;   (bind ?*Whips* TRUE)
-;    (bind ?*whips-max-length* (max ?*whips-max-length* ?*w*-whips-max-length*))
-;)
-;;; When Bi-Whips[q] are active, Whips[q] must be active also
-; (if ?*Bi-Whips* then (bind ?*whips-max-length*  (max ?*whips-max-length* ?*biwhips-max-length*)))
-
-
-
-;;; if bi-braids are used, bi-whips of minimum length up to 2 must be used
-
-;;; when bi-whips [resp. bi-braids] are activated
-;;; whips [resp. braids] of at least same max length must be activated
-; (bind ?*Whips* TRUE)
-; (bind ?*Braids* TRUE)
-; (bind ?*whips-max-length* 2)
-; (bind ?*braids-max-length* 2)
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; for checking membership in B*B (without rating)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;; choose one of the following forms of T&E(1)
-; (bind ?*TE1* TRUE) ;;; for T&E at level 1
-;;; for T&E at level 1, with priority for bivalue variables, add the following:
-; (bind ?*special-TE* TRUE)
-
-; (bind ?*simple-bi-TE* TRUE) ;;; adds ECP* rule so that bibraid links can be used in context 0, thus simulating B*-braids
-
-
-;;; for checking membership in B*B[1] = Forcing-bi-braids = Forcing-bi-TE
-;;; choose one of the following forms of T&E(1)
-; (bind ?*TE1* TRUE) ;;; for T&E at level 1
-;;; for T&E at level 1, with priority for bivalue variables, add the following:
-; (bind ?*special-TE* TRUE)
-
-; (bind ?*simple-bi-TE* TRUE) ;;; adds ECP* rule so that bibraid links can be used in context 0, thus simulating B*-braids
-; (bind ?*Forcing-bi-TE* TRUE) ;;; restricts the use of bibraid links in context 0 to only the forcing-biTE rule
-
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Compute pairwise contradictions using bi-T&E,
-;;; thus getting a list ?*all-contrads*
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;; using bi-T&E, thus getting a list ?*all-contrads* of contradictory pairs
-; (bind ?*chain-rules-optimisation-type* MEMORY)
-; (bind ?*Bi-TE* TRUE)
-; (bind ?*print-Bi-TE-hypothesis* TRUE)
-; (bind ?*print-print-contradictions* TRUE)
-;;; add this to exclude some pairs from the calculations
-;;; useful when Bi-T&E(Bp) have already been calculated
-;;; and one wants to calculate Bi-T&E(Bp+1)
-; (bind ?*excluded-pairs ...result of previous computations...)
-;;; add this to compute all the bi-braid-contrads[Bp], using Bi-T&E(Bp) (here p=2)
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 2)
-; (bind ?*Braids* TRUE)
-; (bind ?*braids-max-length* 2)
-
-
-;;; when bi-braid-contrads are pre-computed by bi-TE, they must be loaded before solve is launched
-;;; notice that, if g-whips are active, bibraid-contrads must be loaded in the gW format
-; (bind ?*pre-computed-all-bi-braid-contrads* TRUE)
-
-
-;;; should be set to TRUE when bi-TE is used dynamically in conjunction with other rules
-; (bind ?*Context-restriction* = TRUE)
-
-
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Use W-Whips and/or B-Braids
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; (bind ?*W-Whips* TRUE)
-; (bind ?*w-whips-max-length* 36)
-; (bind ?*B-Braids* TRUE)
-; (bind ?*b-braids-max-length* 36)
-
-;;; if forcing-whips, forcing-braids, one must also activate Bi-whips or bi-braids or bi-T&E
-; (bind ?*Bi-Whips* TRUE)
-; (defglobal ?*Bi-Braids* = TRUE)
-; (bind ?*simple-bi-TE* TRUE)
-; (bind ?*print-biTE-hypothesis* TRUE)
-
-;;; if bi-braids are used, bi-whips of minimum length up to 2 must be used
-; (bind ?*biwhips-max-length* 36)
-; (defglobal ?*bibraids-max-length* = 36)
-
-
-
-
-;;; if forcing-whips, forcing-braids, w*-whips, b*-braids, w-whips or b-braids are activated, one must also activate Bi-whips or bi-braids or bi-T&E
-; (bind ?*Forcing-Bi-Whips* TRUE)
-; (bind ?*Forcing-Bi-Braids* TRUE)
-; (bind ?*Forcing-bi-TE* TRUE)
 
 
 
@@ -609,7 +509,7 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; because grid size may have been changed in this file,
+;;; Because grid size may have been changed in this file,
 ;;; redefine the associated internal factors;
 ;;; this has to be done BEFORE loading
 (redefine-internal-factors)
@@ -621,7 +521,8 @@
     then (printout t
         "BEWARE: g-labels, g-bivalue-chains, g-whips and g-braids are not managed” crlf
         “for segment size larger than 4, i.e. grid size larger than 16" crlf)
-    else (batch ?*CSP-Rules-Generic-Loader*)
+    else (redefine-all-chains-max-length)
+         (batch ?*CSP-Rules-Generic-Loader*)
 )
 
 	

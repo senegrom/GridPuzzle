@@ -28,36 +28,38 @@
 
 
 
+(clear)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; INSTALLATION ONLY:
-;;; Define environment variables: OS, installation directory and inference engine
+;;; Define environment variables: OS and installation directory
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; default setting is for Unix and MacOS:
+;;; Default setting is for Unix and MacOS,
+;;; but it should also work for recent versions of Windows:
 (defglobal ?*Directory-symbol* = "/")
 
-;;; for Windows, un-comment this line:
-; (bind ?*Directory-symbol* "\") ;                                           <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-
-;;; define your general CSP-Rules installation directory (including the ending directory symbol / or \)
-;;; CSP-Rules-V2.1 will be installed inside this general CSP-Rules installation directory
-(defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; Define your general CSP-Rules installation directory (including the ending directory symbol /).
+;;; This is the directory in which the CSP-Rules-V2.1 version is installed, not the CSP-Rules-V2.1 directory.
+;;; By defining the path in an absolute way, you will be able to launch CSP-Rules-V2.1 from anywhere.
+;;; You need to write something as follows.
+;;; For Unix (including MacOS):
+ (defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/")   ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; For Windows:
+; (defglobal ?*CSP-Rules* = "c:/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 ;;; compatibility with JESS is no longer guaranteed and CLIPS is the default inference engine
 ;;; the version of CLIPS used may be defined here (used only for displaying it in the banner)
-(defglobal ?*Clips-version* = "6.32-r770");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+(defglobal ?*Clips-version* = "6.32-r813");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-;;; Description of the computer used for the resolution
 ;;; Description of the computer used for the resolution
 (defglobal ?*Computer-description* =
-    "MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.4"
+    "MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.7"
 )                                                                            <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
 
 
 
@@ -138,23 +140,30 @@
 
 ;;; In the previous standard behaviour of CSP-Rules, when a pattern could have produced more than one elimination,
 ;;; the activation of a simpler rule by the first elimination could prevent further potential eliminations.
-;;; This default behaviour is now changed for Whips[1], bivalue-chains (typed or not), t-Whips (typed or not) and Subsets.
-;;; But CSP-Rules allows to revert to the previous behaviour,
-;;; independently for Whips[1] and for bivalue-chains and t-Whips of any length.
-;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as the other chain rules:
+;;; This default behaviour is now changed:
+;;; - for Whips[1],
+;;; - for bivalue-chains (typed or not), z-chains (typed or not) and t-Whips (typed or not),
+;;; - for Oddagons.
+;;; However, CSP-Rules allows to revert to the previous behaviour,
+;;; independently for each of the above four groups of rules.
+;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as all the other rules.
+;;; Notice that ?*blocked-Subsets* = TRUE, ?*blocked-chains* = TRUE or ?*blocked-oddagons* = TRUE
+;;; will imply ?*blocked-Whips[1]* = TRUE
 ; (bind ?*blocked-Whips[1]* FALSE)
-; (bind ?*blocked-bivalue-chains* FALSE)
-; (bind ?*blocked-t-Whips* FALSE)
+; (bind ?*blocked-chains* FALSE) ; i.e. bivalue-chains, z-chains and t-Whips (typed or not)
+; (bind ?*blocked-oddagons* FALSE)
+;;; The old interrupted behaviour can be globally selected by ?*unblocked-behaviour* to TRUE;
+;;; (equivalent to setting the above four values to FALSE):
+; (bind ?*unblocked-behaviour* TRUE)
 
 
-;;; Choose what's printed as the output.
-
-;;; The default combination is what has been used in PBCS.
+;;; Choose what's printed as the output:
+;;; The following default combination (keeping all the semi-colons) is what has been used in [PBCS2].
 ;;; Changes below will print more or less details.
 ; (bind ?*print-init-details* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-solution* FALSE)
 
 ;;; As H/V-singles, I-singles, P-singles and B-singles are trivial rules that appear very often,
@@ -171,18 +180,6 @@
 ;;; (However, IO will be effectively printed only if rules for Colours are activated.)
  (bind ?*print-IO-solution* TRUE)
  (bind ?*print-HV-solution* TRUE)
-
-
-;;; Deal with partailly solved puzzles
-;;; Global variable ?*Final-fill* is used to add dummy values in the undecided cells
-;;; when it has not found a solution, so as to be able to print the final state
-;;; It is FALSE by default, but it can be changed here:
- (bind ?*Final-fill* TRUE)
-
-;;; New in V2.1:
-;;; By default, no direct links between two candidates for CSP-Variables of types P are allowed.
-;;; You can allow them here:
-; (bind ?*Allow-direct-PP-links* TRUE)
 
 
 
@@ -219,26 +216,35 @@
  (bind ?*non-W1-equiv-patterns* TRUE)
 
 ;;; generic:
+; (bind ?*Whips[1]* TRUE) ; allows to more easily activate only whips[1]
+;;; Beware that, for large puzzles, the whips maximum length may have to be reduced
+;;; due to the high branchiung factor of Slitherlink and resulting potential memory overflow
+ (bind ?*Whips[1]* TRUE)
  (bind ?*Bivalue-Chains* TRUE)
- (bind ?*bivalue-chains-max-length* 5)
  (bind ?*Whips* TRUE)
- (bind ?*whips-max-length* 5)
  
 
 
 ;;; Some additional rules I use frequently:
 ; (bind ?*z-Chains* TRUE)
-; (bind ?*z-chains-max-length* 5)
 ; (bind ?*t-Whips* TRUE)
-; (bind ?*t-whips-max-length* 5)
 
 ;;; Some rules I use occasionally:
 ; (bind ?*G2-Whips* = TRUE)
-; (bind ?*g2whips-max-length* 5)
 
-;;; Some rules I almost never:
+;;; Some rules I almost never use:
 ; (bind ?*Braids* TRUE)
-; (bind ?*braids-max-length* 5)
+
+
+;;; The maximum length of all the generic chains can be lowered at once:
+; (defglobal ?*all-chains-max-length* = 5)
+
+;;; Maximum lengths can also be lowered individually:
+; (bind ?*bivalue-chains-max-length* 20)
+; (bind ?*z-chains-max-length* 20)
+; (bind ?*t-whips-max-length* 36)
+; (bind ?*whips-max-length* 36)
+; (bind ?*g2whips-max-length* 36)
 
 
 
@@ -256,7 +262,7 @@
 
 ;;; Un-comment the proper line below to change the level of details you want to be printed:
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
@@ -269,22 +275,22 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; In Slitherlink, only the H or V candidates are used as hypotheses.
-;;; Choose one of the following 3 depths of T&E:
+;;; Choose one of the following 2 depths of T&E:
 
 ; (bind ?*TE1* TRUE) ;;; for T&E at level 1
 ; (bind ?*TE2* TRUE) ;;; for T&E at level 2
 
 ;;; For Slitherlink, it is recommended to use whips[1], i.e. to use gT&E instead of T&E
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 1)
+; (bind ?*Whips[1]* TRUE)
 ; (bind ?*Loops* TRUE)
 ; (bind ?*xtd-Loops* TRUE)
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; 3) Choose DFS (dept-first search) options
+;;; 3) Choose DFS (depth-first search) options
 ;;;
 ;;; DO NOT FORGET TO DISABLE ALL THE RULES IN THE OTHER SECTIONS BEFORE ACTIVATING DFS
 ;;;
@@ -294,23 +300,23 @@
 ;;; DFS can be used to provide a relatively fast solution
 
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-phase* TRUE)
 
-; (bind ?*Loops* TRUE)
-
 ;;; To activate DFS:
 ; (bind ?*DFS* TRUE)
 ;;; To activate priority for bivalue cells, activate this line, in addition to the above line:
 ; (bind ?*special-DFS* TRUE)
 
-;;; Activate short whips for combining whips[1] with DFS:
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 1)
+;;; In Slitherlink, it is almost always necessary to activate whips[1] and Loops with DFS:
+; (bind ?*Whips[1]* TRUE)
+; (bind ?*Loops* TRUE)
+;;; Extended-Loops are an option
+; (bind ?*xtd-Loops* TRUE)
 
 
 
@@ -337,5 +343,6 @@
 
 ;;; now, load all
 ;;; Notice that the generic loader also loads the application-specific files
+(redefine-all-chains-max-length)
 (batch ?*CSP-Rules-Generic-Loader*)
 

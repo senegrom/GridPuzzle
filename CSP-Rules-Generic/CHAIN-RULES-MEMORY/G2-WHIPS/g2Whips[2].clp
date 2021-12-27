@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;             January 2006 - August 2020             ;;;
+               ;;;             January 2006 - August 2021             ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -30,8 +30,11 @@
 
 (defrule activate-g2whip[2]
 	(declare (salience ?*activate-g2whip[2]-salience*))
-	(logical (play) (context (name ?cont)))
-	(not (deactivate ?cont g2whip))
+    (logical
+       (play)
+       (context (name ?cont))
+       (not (deactivate ?cont g2whip))
+    )
 =>
 	(if ?*print-levels* then (printout t Entering_level_g2W2))
 	(assert (technique ?cont g2whip[2]))
@@ -87,8 +90,13 @@
 (defrule partial-g2whip[1]-2
 	(declare (salience ?*partial-g2whip[1]-salience-2*))
 	(logical
-		(exists-link ?cont ?zzz&:(not (known-to-be-in-solution ?zzz)) ?llc1)	
-		(technique ?cont g2whip[2])
+        (exists-link ?cont ?llc1 ?zzz&:(not (known-to-be-in-solution ?zzz)))
+
+        ;;; if the focus list is not empty, the following condition restricts the search to the candidates in it
+        ;;; t-whips should not be used if the focus list is not empty (this would restrict them improperly)
+        (or (not (candidate-in-focus (context ?cont))) (candidate-in-focus (context ?cont) (label ?zzz)))
+
+        (technique ?cont g2whip[2])
 		(csp-linked ?cont ?llc1 ?new-rlca&~?zzz&:(not (linked ?new-rlca ?zzz)) ?csp1)
 		(csp-linked ?cont ?llc1 ?new-rlcb&~?zzz&:(< ?new-rlcb ?new-rlca)&:(not (linked ?new-rlcb ?zzz)) ?csp1)
 	)

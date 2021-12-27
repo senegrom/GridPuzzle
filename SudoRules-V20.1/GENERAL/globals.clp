@@ -67,7 +67,11 @@
 (deffunction redefine-internal-factors ()
     (bind ?*internal-factor-0*  (if (or (eq ?*segment-size* 2) (eq ?*segment-size* 3))then 10 else 100))
     (bind ?*internal-factor* ?*internal-factor-0*)
-    (if (or ?*G-Bivalue-Chains* ?*G-Whips* ?*G-Braids*) then
+    (if (or ?*G-Bivalue-Chains* ?*G-Whips* ?*G-Braids*
+            ?*Typed-g-Whips*
+            ?*Forcing-G-Whips* ?*Forcing-G-Braids*
+            ?*All-generic-chain-rules*
+        ) then
         (bind ?*internal-factor* ?*internal-factor-0*)
         (bind ?i 1)
         (while (< ?i ?*segment-size*)
@@ -100,7 +104,6 @@
 
 ;;; define the allowed csp-types in Typed-Chains
 (defglobal ?*dummy-for-allowed-csp-types* = (progn (bind ?*allowed-csp-types* (create$ rc rn cn bn)) TRUE))
-
 
 
 (defglobal ?*Unique-Rectangles* = FALSE)
@@ -302,8 +305,6 @@
 ;;; VARIABLES USED FOR KEEPING TRACK OF SETS OF SOLUTIONS WHEN SOLVING SETS OF PUZZLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
-
 ;;; variables used to keep track of special puzzles:
 (defglobal ?*belt-list* = (create$))
 (defglobal ?*J-exocet-list* = (create$))
@@ -312,15 +313,15 @@
 (defglobal ?*has-J-exocet* = FALSE)
 
 
-
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; VARIABLES USED FOR KEEPING TRACK OF ONE-STEP CANDIDATES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
 (defglobal ?*one-step-candidates* = (create$))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; VARIABLES USED FOR GOOD-LOOKING FORMATTING OF SUDOKU OR SUKAKU GRIDS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defglobal ?*cosmetic-signs-in-grid* = (create$ "*" ":" "+" "-" "!"))

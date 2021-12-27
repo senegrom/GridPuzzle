@@ -32,7 +32,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; GENERAL CLIPS or JESS VARIABLES AND GENERAL BEHAVIOUR
+;;; GENERAL CLIPS VARIABLES AND GENERAL BEHAVIOUR
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -41,21 +41,14 @@
 
 (defglobal ?*CSP-Rules-VersionNumber* = 2.1)
 
-;;; Decide whether to use Clips or Jess
+;;; compatibility with JESS has been given up
 (defglobal ?*inference-engine* = CLIPS)
-; or (but there is no longer any guarantee of full compatibility with JESS):
-; (defglobal ?*inference-engine* = JESS)
-
-(defglobal ?*Jess-version* = "8.0a1")
 
 (defglobal ?*inference-engine-version* =
-    (if (eq ?*inference-engine* CLIPS) then ?*Clips-version*
-        else (if (eq ?*inference-engine* JESS) then ?*Jess-version*
-            else "ERROR")
-    )
+    (if (eq ?*inference-engine* CLIPS) then ?*Clips-version* else "ERROR")
 )
 
-;;; CLIPS/JESS default strategy is depth-first; keep it so
+;;; CLIPS default strategy is depth-first; keep it so
 ;;; All the global variables will be kept by a reset.
 ;;; This is important for a good loading of rules and for keeping track of lists of solved instances
 (defglobal ?*dummy-for-setting-CLIPS-behaviour* = (progn
@@ -110,11 +103,12 @@
     ?*context-counter* = 0
     ?*max-depth* = 0
     ?*biTE-context-counter* = 0
-    
+
+    ?*solution-found* = FALSE
     ?*add-grid-to-solved-list* = TRUE
     ?*add-instance-to-solved-list* = TRUE
     ?*solved-list* = (create$)
-    
+
     ?*init-instance-time* = 0
     ?*solve-instance-time* = 0
     ?*total-instance-time* = 0
@@ -122,6 +116,7 @@
 
     ?*DFS-max-depth* = 0
 
+    ?*has-exotic-pattern* = FALSE
     ?*has-oddagon* = FALSE
 )
 
@@ -136,7 +131,7 @@
 	(bind ?*nb-csp-variables-solved* 0)
 	(bind ?*nb-candidates* 0)
 	(bind ?*nb-g-candidates* 0)
-    
+
     (bind ?*label-links* (create$))
     (bind ?*label-glabel-glinks* (create$))
     (bind ?*label-in-glabel* (create$))
@@ -146,7 +141,7 @@
 	(bind ?*links-count* 0)
     (bind ?*csp-links* (create$))
     (bind ?*links* (create$))
-    
+
 	(bind ?*csp-glinks-count* 0)
 	(bind ?*glinks-count* 0)
     (bind ?*csp-glinks* (create$))
@@ -155,6 +150,8 @@
     (bind ?*blocked-rule-description* "")
     (bind ?*blocked-rule-eliminations* "")
 
+    (bind ?*solution-found* FALSE)
+    
     (bind ?*context-counter* 0)
     (bind ?*max-depth* 0)
     (bind ?*biTE-context-counter* 0)
@@ -164,10 +161,13 @@
     (bind ?*total-instance-time* 0)
     (bind ?*end-instance-time* 0)
 
-    (bind ?has-oddagon* FALSE)
+    (bind ?*has-exotic-pattern* FALSE)
+    (bind ?*has-oddagon* FALSE)
 )
 
 
+;;; Each application may have additional global variables.
+;;; In that case, it must redefine the following init-specific-globals function
 (deffunction init-specific-globals () TRUE)
 
 
@@ -181,12 +181,11 @@
 (defglobal ?*simulated-eliminations* = (create$))
 
 
-;;; variable used to avoid testing useless patterns when the solution is already known
+;;; Variable and function used to avoid testing useless patterns when the solution is already known
 (defglobal ?*known-to-be-in-solution* = (create$))
+(deffunction known-to-be-in-solution (?label) (member$ ?label ?*known-to-be-in-solution*))
 
-(deffunction known-to-be-in-solution (?label) 
-    (member$ ?label ?*known-to-be-in-solution*)
-)
+
 
 
 
@@ -211,20 +210,32 @@
 (defglobal ?*Context-restriction* = FALSE)
 
 
-;;; in the previous standard behaviour of CSP-Rules, when a pattern could have produced more than one elimination,
+;;; In the previous standard behaviour of CSP-Rules, when a pattern could have produced more than one elimination,
 ;;; the activation of a simpler rule by the first elimination could prevent further potential eliminations.
-;;; This default behaviour is now changed for Whips[1], bivalue-chains (typed or not), t-Whips (typed or not) and Subsets.
-;;; But CSP-Rules allows to revert to the previous behaviour,
-;;; independently for Whips[1], for bivalue-chains and t-Whips of any length and for Subsets.
-;;; Un-comment the relevant line(s) in the configuration file if you want these rules to be "interrupted" as the other rules
+;;; This default behaviour is now changed:
+;;; - for Whips[1],
+;;; - for Subsets,
+;;; - for bivalue-chains (typed or not), z-chains (typed or not) and t-Whips (typed or not),
+;;; - for Oddagons.
+;;; However, CSP-Rules allows to revert to the previous behaviour,
+;;; independently for each of the above four groups of rules.
+;;; Un-comment the relevant line(s) in the configuration file if you want these rules to be "interrupted" as the other rules.
 
 (defglobal ?*blocked-Whips[1]* = TRUE)
-(defglobal ?*blocked-bivalue-chains* = TRUE) ; this applies to both the typed and untyped versions
-(defglobal ?*blocked-t-Whips* = TRUE) ; this applies to both the typed and untyped versions
 (defglobal ?*blocked-Subsets* = TRUE)
+(defglobal ?*blocked-chains* = TRUE) ; this applies to both the typed and untyped versions
+(defglobal ?*blocked-oddagons* = TRUE)
+;;; secondary variables
+(defglobal ?*blocked-bivalue-chains* = TRUE)
+(defglobal ?*blocked-z-chains* = TRUE)
+(defglobal ?*blocked-t-Whips* = TRUE)
+
+;;; The globally "unblocked" behaviour can be reset by setting the following variable to TRUE in the configuration file
+(defglobal ?*unblocked-behaviour* = FALSE)
 
 
-;;; Although CSP-Rules doesn't have generic Subsets rules, it provides the general global variables to manage them
+;;; Although CSP-Rules doesn't have generic Subsets or g-Subset rules,
+;;; it provides the general global variables to manage them, up to size 4
 (defglobal ?*Subsets* = FALSE)
 (defglobal ?*Subsets[2]* = FALSE)
 (defglobal ?*Subsets[3]* = FALSE)
@@ -239,15 +250,32 @@
 (defglobal ?*g-Subsets-max-length* = 4)
 
 
-;;; setting ?*All-generic-chain-rules* allows to load all the first level rules
-;;; the first level rules are those defined below
+;;; setting ?*All-generic-chain-rules* allows to load all the "first level" rules.
+;;; The first level rules are those defined below
 (defglobal ?*All-generic-chain-rules* = FALSE)
 
-;;; Whips[1] and ?*Typed-Partial-Whips[1] are special cases because they must be active in many cases
-;;; even when longer Whips or Typed-Whips are not
-;;; These variables are managed by CSP-Rules, not by the user
-(defglobal ?*Whips[1]* = FALSE)
+
+
+;;; Some generic chain rules can now be activated more easily with some length restriction,
+;;; without activating longer rules of the same kind;
+;;; for instance, Whips[1] and ?*Typed-Partial-Whips[1]*, because they must be active in many cases,
+;;; even when longer Whips or Typed-Whips are not.
+
+;;; Some of the following variables for doing so are managed automatically by CSP-Rules
+;;; - Typed-Partial-Whips[1] and Typed-Whips[1] are required by several kinds of rules
 (defglobal ?*Typed-Partial-Whips[1]* = FALSE)
+;;; - Partial-Whips[1] could be used in conjunction with type restrictions (currently not used)
+(defglobal ?*Partial-Whips[1]* = FALSE)
+
+;;; and some may now be also managed by the user:
+;;; - whips[1], because they are the simplest pattern after BRT:
+(defglobal ?*Whips[1]* = FALSE)
+;;; - G-Whips[2] because the are universal among patterns with two CSP-Variables:
+(defglobal ?*G-Whips[2]* = FALSE)
+;;; - g-Braids[3] because they cover some Sudoku specific rules not covered by simpler rules
+(defglobal ?*G-Braids[3]* = FALSE)
+
+
 
 (defglobal ?*Bivalue-Chains* = FALSE)
 (defglobal ?*z-Chains* = FALSE)
@@ -281,8 +309,9 @@
 (defglobal ?*Forcing-G-Braids* = FALSE)
 
 
-;;; by default, all the chain rules of any coded length are loaded when their pattern is activated,
-;;; but this can be changed by the user
+
+;;; By default, all the chain rules of any coded length are loaded when their pattern is activated,
+;;; but this can be changed by the user.
 
 (defglobal ?*bivalue-chains-max-length* = 20)
 (defglobal ?*z-chains-max-length* = 20)
@@ -309,10 +338,55 @@
 (defglobal ?*forcing-gbraids-max-length* = 36)
 
 
-(defglobal ?*special-TE* = FALSE) ;;; by default, there is no Trial and Error at depth 1
+;;; Maximum lengths can be lowered individually in the application configuration file
+;;; The maximaum length can also be lowered at once for all the chains:
+(defglobal ?*all-chains-max-length* = 36)
+
+(deffunction redefine-all-chains-max-length ()
+    (bind ?*bivalue-chains-max-length* (min ?*bivalue-chains-max-length* ?*all-chains-max-length*))
+    (bind ?*z-chains-max-length* (min ?*z-chains-max-length* ?*all-chains-max-length*))
+    (bind ?*oddagons-max-length* (min ?*oddagons-max-length* ?*all-chains-max-length*))
+    (bind ?*t-whips-max-length* (min ?*t-whips-max-length* ?*all-chains-max-length*))
+    (bind ?*whips-max-length* (min ?*whips-max-length* ?*all-chains-max-length*))
+    (bind ?*braids-max-length* (min ?*braids-max-length* ?*all-chains-max-length*))
+
+    (bind ?*g-bivalue-chains-max-length* (min ?*g-bivalue-chains-max-length* ?*all-chains-max-length*))
+    (bind ?*g2whips-max-length* (min ?*g2whips-max-length* ?*all-chains-max-length*))
+    (bind ?*gwhips-max-length* (min ?*gwhips-max-length* ?*all-chains-max-length*))
+    (bind ?*g2braids-max-length* (min ?*g2braids-max-length* ?*all-chains-max-length*))
+    (bind ?*gbraids-max-length* (min ?*gbraids-max-length* ?*all-chains-max-length*))
+
+    (bind ?*typed-bivalue-chains-max-length* (min ?*typed-bivalue-chains-max-length* ?*all-chains-max-length*))
+    (bind ?*typed-z-chains-max-length* (min ?*typed-z-chains-max-length* ?*all-chains-max-length*))
+    (bind ?*typed-t-whips-max-length* (min ?*typed-t-whips-max-length* ?*all-chains-max-length*))
+    (bind ?*typed-whips-max-length* (min ?*typed-whips-max-length* ?*all-chains-max-length*))
+    (bind ?*typed-gwhips-max-length* (min ?*typed-gwhips-max-length* ?*all-chains-max-length*))
+
+    (bind ?*forcing-whips-max-length* (min ?*forcing-whips-max-length* ?*all-chains-max-length*))
+    (bind ?*forcing-gwhips-max-length* (min ?*forcing-gwhips-max-length* ?*all-chains-max-length*))
+    (bind ?*forcing-braids-max-length* (min ?*forcing-braids-max-length* ?*all-chains-max-length*))
+    (bind ?*forcing-gbraids-max-length* (min ?*forcing-gbraids-max-length* ?*all-chains-max-length*))
+)
+
+
+
+(defglobal ?*special-TE* = FALSE) ;;; by default, there is no priority in T&E for bivalue candidates
 (defglobal ?*TE1* = FALSE) ;;; by default, there is no Trial and Error at depth 1
 (defglobal ?*TE2* = FALSE) ;;; by default, there is no Trial and Error at depth 2
 (defglobal ?*TE3* = FALSE) ;;; by default, there is no Trial and Error at depth 3
+(defglobal ?*Forcing-TE* = FALSE) ;;; by default, there is no Forcing Trial and Error
+(defglobal ?*Forcing{2}-TE* = FALSE) ;;; by default, there is no Forcing{2} Trial and Error
+(defglobal ?*Forcing{3}-TE* = FALSE) ;;; by default, there is no Forcing{3} Trial and Error
+
+
+(defglobal ?*Backdoors* = FALSE)
+(defglobal ?*Anti-backdoors* = FALSE)
+(defglobal ?*Anti-backdoor-pairs* = FALSE)
+(defglobal ?*list-of-backdoors* = (create$))
+(defglobal ?*list-of-anti-backdoors* = (create$))
+(defglobal ?*list-of-anti-backdoor-pairs* = (create$))
+
+
 
 (defglobal ?*Templates* = FALSE)
 (defglobal ?*Templates-max-length* = 1)
@@ -366,6 +440,7 @@
 
 ;;; variables used to keep track of special patterns:
 (defglobal
+    ?*exotic-list* = (create$)
     ?*oddagon-list* = (create$)
     ?*special-list* = (create$)
     ?*special-list1* = (create$)
@@ -411,6 +486,9 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;; This will prevent the printing of entry in module MAIN until modules are used
+(defglobal ?*modules-used* = FALSE)
+
 ;;; The variables defined below allow a very fine tuning of what's printed.
 ;;; Application of particular techniques can be traced when some of the following variables are set to TRUE.
 ;;; The detailed correct message can be found in the rhs of each rule.
@@ -421,18 +499,33 @@
 ;;; Setting ?*print-init-details* to TRUE allows to trace the initialization of candidate sets (deleted for efficiency).
 
 (defglobal ?*print-initial-state* = TRUE) ; number of values and candidates, csp-links, links, density
-(defglobal ?*print-actions* = TRUE) ; print all the non-ECP rules
-(defglobal ?*print-solution* = TRUE)
+(defglobal ?*print-actions* = TRUE) ; print the singles and all the non-ECP rules
+(defglobal ?*print-levels* = FALSE) ; <<<<<<<<<<<<<<<<<< useful for tracking the advancement of hard instances
 
 (defglobal ?*print-all-details* = FALSE) ; includes any of the following
 (defglobal ?*print-init-details* = FALSE) ; print data about c-values and candidates initialisation
 (defglobal ?*print-ECP-details* = FALSE) ; print all the ECP eliminations
 
-(defglobal ?*print-levels* = TRUE) ; <<<<<<<<<<<<<<<<<< useful for tracking the advancement of hard instances
 
-(defglobal ?*print-hypothesis* = TRUE) ; used only for T&E; by default, hypotheses are printed when T&E is on
-(defglobal ?*print-phase* = TRUE) ; used only for T&E
+;;; By default, the solution (if found) is printed:
+(defglobal ?*print-solution* = TRUE)
+;;; By default, the resolution state after BRT is printed:
+(defglobal ?*print-RS-after-Singles* = TRUE)
+;;; By default, the resolution state after whips[1] is printed, if the CSP has whips[1]
+(defglobal ?*has-whips[1]* = TRUE)
+(defglobal ?*print-RS-after-whips[1]* = TRUE)
+;;; By default, the resolution state at the end of resolution (if a solution is not found) is printed:
+(defglobal ?*print-final-RS* = TRUE)
+;;; By default, the z-candidates of z-chains are not printed:
+(defglobal ?*print-z-candidates* = FALSE)
+;;; By default, the z-candidates of oddagons are printed:
+(defglobal ?*print-z-candidates-of-oddagons* = TRUE)
 
+
+
+;;; The following variables are used only for T&E and similar procedures
+(defglobal ?*print-hypothesis* = TRUE) ; by default, hypotheses are printed when T&E is on
+(defglobal ?*print-phase* = TRUE) ; by default, each phase in T&R is printed
 
 
 (defglobal ?*print-exceptional-patterns* = TRUE)
@@ -440,11 +533,64 @@
 (defglobal ?*g-debug* = FALSE)
 
 
+;;; Utilities allowing to change locally the control of what is printed:
+(defglobal ?*print-options-muted* = FALSE)
+(defglobal ?*print-actions-backup* = ?*print-actions*)
+(defglobal ?*print-solution-backup* = ?*print-solution*)
+(defglobal ?*print-RS-after-Singles-backup* = ?*print-RS-after-Singles*)
+(defglobal ?*print-RS-after-whips[1]-backup* = ?*print-RS-after-whips[1]*)
+(defglobal ?*print-final-RS-backup* = ?*print-final-RS*)
+(defglobal ?*print-levels-backup* = ?*print-levels*)
+(defglobal ?*print-time-backup* = ?*print-time*)
+(defglobal ?*print-hypothesis-backup* = ?*print-hypothesis*)
+(defglobal ?*print-phase-backup* = ?*print-phase*)
+
+(deffunction mute-print-options ()
+    (if (not ?*print-options-muted*) then
+        (bind ?*print-actions-backup* ?*print-actions*)
+        (bind ?*print-solution-backup* ?*print-solution*)
+        (bind ?*print-RS-after-Singles-backup* ?*print-RS-after-Singles*)
+        (bind ?*print-RS-after-whips[1]-backup* ?*print-RS-after-whips[1]*)
+        (bind ?*print-final-RS-backup* ?*print-final-RS*)
+        (bind ?*print-levels-backup* ?*print-levels*)
+        (bind ?*print-time-backup* ?*print-time*)
+        (bind ?*print-hypothesis-backup* ?*print-hypothesis*)
+        (bind ?*print-phase-backup* ?*print-phase*)
+        
+        (bind ?*print-actions* FALSE)
+        (bind ?*print-solution* FALSE)
+        (bind ?*print-RS-after-Singles* FALSE)
+        (bind ?*print-RS-after-whips[1]* FALSE)
+        (bind ?*print-final-RS* FALSE)
+        (bind ?*print-levels* FALSE)
+        (bind ?*print-time* FALSE)
+        (bind ?*print-hypothesis* FALSE)
+        (bind ?*print-phase* FALSE)
+        (bind ?*print-options-muted* TRUE)
+    )
+)
+
+(deffunction restore-print-options ()
+    (if ?*print-options-muted* then
+        (bind ?*print-actions* ?*print-actions-backup*)
+        (bind ?*print-solution* ?*print-solution-backup*)
+        (bind ?*print-RS-after-Singles* ?*print-RS-after-Singles-backup*)
+        (bind ?*print-RS-after-whips[1]* ?*print-RS-after-whips[1]-backup*)
+        (bind ?*print-final-RS* ?*print-final-RS-backup*)
+        (bind ?*print-levels* ?*print-levels-backup*)
+        (bind ?*print-time* ?*print-time-backup*)
+        (bind ?*print-hypothesis* ?*print-hypothesis-backup*)
+        (bind ?*print-phase* ?*print-phase-backup*)
+        (bind ?*print-options-muted* FALSE)
+    )
+)
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; print rule firings according to length (or "size") of defining pattern
-;;; Lk is the number of CSP-variables involved in the pattern definition
+;;; Print rule firings according to length (or "size") of defining pattern
+;;; Lk is the number of CSP-Variables involved in the pattern definition
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -491,8 +637,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; print rule firings according to type (or type and size) of defining pattern
-;;; very fine grain details (seldom used - but has been useful for debugging)
+;;; Print rule firings according to the type (or type and size) of their defining pattern
+;;; This is very fine grain details (seldom used - but has been useful in early debugging)
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -673,6 +819,16 @@
     ?*print-oddagon-11* = FALSE
     ?*print-oddagon-13* = FALSE
     ?*print-oddagon-15* = FALSE
+    ?*print-oddagon-17* = FALSE
+    ?*print-oddagon-19* = FALSE
+    ?*print-oddagon-21* = FALSE
+    ?*print-oddagon-23* = FALSE
+    ?*print-oddagon-25* = FALSE
+    ?*print-oddagon-27* = FALSE
+    ?*print-oddagon-29* = FALSE
+    ?*print-oddagon-31* = FALSE
+    ?*print-oddagon-33* = FALSE
+    ?*print-oddagon-35* = FALSE
 )
 
 (defglobal
@@ -1340,8 +1496,8 @@
 (defglobal ?*pre-computed-all-bi-braid-contrads* = FALSE)
 
 ;;; if bi-braids are used, bi-whips of minimum length up to 2 must be used
-(defglobal ?*biwhips-max-length* = 36)
-(defglobal ?*bibraids-max-length* = 36)
+(defglobal ?*biwhips-max-length* = (min 36 ?*all-chains-max-length*))
+(defglobal ?*bibraids-max-length* = (min 36 ?*all-chains-max-length*))
 
 ;;; When W*-Whips or B*-Braids are used, ?*ECP** is automatically set to True
 ;;; but it can be used independently of W*-Whips or B*-Braids

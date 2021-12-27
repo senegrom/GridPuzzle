@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;            January 2006 - August 2020              ;;;
+               ;;;            January 2006 - November 2021            ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -53,7 +53,7 @@
 
 (defglobal ?*dummy-variable-for-setting-generic-rules-dependencies* = (progn
     
-    ;;; 1) Subsets and gSubsets
+    ;;; Subsets and gSubsets
     ;;; Finned Fish have no predefined generic variables, but there are some for g-Subsets
     (if ?*g-Subsets* then (bind ?*g-Subsets[4]* TRUE) (bind ?*Subsets* TRUE))
     (if ?*g-Subsets[4]* then (bind ?*g-Subsets[3]* TRUE) (bind ?*Subsets[3]* TRUE))
@@ -76,9 +76,13 @@
         (bind ?*Forcing-G-Braids* TRUE)
         ;;; add those that are not implied by the previous ones:
         (bind ?*Bivalue-Chains* TRUE)
+        (bind ?*G-Bivalue-Chains* TRUE)
         (bind ?*z-Chains* TRUE)
         (bind ?*t-Whips* TRUE)
     )
+        
+    ;;; Add the relevant part for Bi-Whips, Bi-Braids, ...
+
         
     ;;; Forcing-whips, forcing-gwhips, forcing-braids, forcing-gbraids
     (if ?*Forcing-G-Braids* then
@@ -98,7 +102,7 @@
         (bind ?*Whips* TRUE) (bind ?*whips-max-length* (max ?*forcing-whips-max-length* ?*whips-max-length*))
     )
 
-    ;;; Bivalue-chains, whips, gwhips, braids, gbraids
+    ;;; Bivalue-chains, whips, g-bivalue-chains, gwhips, braids, gbraids
     (if ?*G-Braids* then
         (bind ?*G-Whips* TRUE) (bind ?*gwhips-max-length* (max ?*gbraids-max-length* ?*gwhips-max-length*))
         (bind ?*Braids* TRUE) (bind ?*braids-max-length* (max ?*gbraids-max-length* ?*braids-max-length*))
@@ -113,6 +117,11 @@
         (bind ?*Whips* TRUE) (bind ?*whips-max-length* (max ?*braids-max-length* ?*whips-max-length*))
     )
     
+    ;;; (typed or not) z-chains and g-bivalue chains imply (similarly typed or not) bivalue-chains
+    (if ?*z-Chains* then (bind ?*Bivalue-Chains* TRUE))
+    (if ?*G-Bivalue-Chains* then (bind ?*Bivalue-Chains* TRUE))
+    (if ?*Typed-z-Chains* then (bind ?*Typed-Bivalue-Chains* TRUE))
+
     (if (or ?*G-Bivalue-Chains* ?*G-Whips* ?*G-Braids*) then (bind ?*G-Labels* TRUE))
     
     ;;; Typed-whips
@@ -123,6 +132,7 @@
     
     ;;; All the resolution theories, apart from BRT, must have Whips[1]
     ;;; There is a special global variable ?*Whips[1]* to take this into account
+    ;;; Whips[1] are required by any other resilution theory
     (if (or ?*Subsets[2]*
             ?*Typed-Bivalue-Chains*
             ?*Bivalue-Chains*
@@ -151,14 +161,28 @@
             (bind ?*Typed-Chains* TRUE)
             (bind ?*Typed-Partial-Whips[1]* TRUE)
     )
-    
-    ;;; z-chains imply bivalue-chains
-    (if ?*z-Chains* then (bind ?*Bivalue-Chains* TRUE))
-    (if ?*Typed-z-Chains* then (bind ?*Typed-Bivalue-Chains* TRUE))
 
     (printout t "Generic rules dependencies set" crlf)
     
-    ;;; Add the relevant part for Bi-Whips, Bi-Braids, ...
+    ;;; Check consitency of the blocked choices
+    (if (or ?*blocked-Subsets* ?*blocked-chains* ?*blocked-oddagons*)
+        then (bind ?*blocked-Whips[1]* TRUE)
+    )
+    ;;; define values of secondary variables:
+    (bind ?*blocked-bivalue-chains* ?*blocked-chains*)
+    (bind ?*blocked-z-chains* ?*blocked-chains*)
+    (bind ?*blocked-t-Whips* ?*blocked-chains*)
+
+    ;;; If unblocked-behaviour is selected in the configuration file, reset the global unblocked behaviour:
+    (if ?*unblocked-behaviour* then
+        (bind ?*blocked-Whips[1]* FALSE)
+        (bind ?*blocked-bivalue-chains* FALSE)
+        (bind ?*blocked-z-chains* FALSE)
+        (bind ?*blocked-t-Whips* FALSE)
+        (bind ?*blocked-Subsets* FALSE)
+        (bind ?*blocked-oddagons* FALSE)
+    )
+    
     TRUE
 ))
 
@@ -178,107 +202,73 @@
 ;;; Notice that this generic rating doesn't take into account the application-specific rules
 
 (deffunction define-generic-rating-type ()
-    (bind ?*generic-rating-type* "")
-    
     ;;; typed-chains
-    (if ?*Typed-Bivalue-Chains* then (bind ?*generic-rating-type* "TyBC"))
-    (if ?*Typed-z-Chains* then (bind ?*generic-rating-type* "TyZ"))
-    (if ?*Typed-t-Whips* then
-        (bind ?*generic-rating-type*
-            (if (eq ?*generic-rating-type* "") then "TytW" else (str-cat ?*generic-rating-type* "+TytW"))
-        )
-    )
-    (if ?*Typed-Whips* then (bind ?*generic-rating-type* "TyW"))
-    (if ?*Typed-g-Whips* then (bind ?*generic-rating-type* "TygW"))
+    (bind ?typed-generic-rating-type "")
+    (if ?*Typed-Bivalue-Chains* then (bind ?typed-generic-rating-type "TyBC"))
+    (if ?*Typed-z-Chains* then (bind ?typed-generic-rating-type "TyZ"))
+    (if ?*Typed-t-Whips* then (bind ?typed-generic-rating-type "TytW"))
+    (if (and ?*Typed-z-Chains* ?*Typed-t-Whips*) then (bind ?typed-generic-rating-type "TyZ+TytW"))
+    (if ?*Typed-Whips* then (bind ?typed-generic-rating-type "TyW"))
+    (if ?*Typed-g-Whips* then (bind ?typed-generic-rating-type "TygW"))
 
-    ;;; Untyped-chain-rules
-    (if ?*Bivalue-Chains* then
-        (bind ?*generic-rating-type* "BC")
-        (if ?*Typed-z-Chains* then (bind ?*generic-rating-type* "TyZ+BC"))
-        (if ?*Typed-t-Whips* then (bind ?*generic-rating-type* "TytW+BC"))
-        (if ?*Typed-Whips* then (bind ?*generic-rating-type* "TyW+BC"))
-        (if ?*Typed-g-Whips* then (bind ?*generic-rating-type* "TygW+BC"))
-    )
-
-    (if ?*z-Chains* then
-        (bind ?*generic-rating-type* "Z")
-        (if ?*Typed-t-Whips* then (bind ?*generic-rating-type* "TytW+Z"))
-        (if ?*Typed-Whips* then (bind ?*generic-rating-type* "TyW+Z"))
-        (if ?*Typed-g-Whips* then (bind ?*generic-rating-type* "TygW+Z"))
-    )
-
-    (if ?*t-Whips* then
-        (bind ?*generic-rating-type* "tW")
-        (if ?*Typed-Whips* then (bind ?*generic-rating-type* "TyW+tW"))
-        (if ?*Typed-g-Whips* then (bind ?*generic-rating-type* "TygW+tW"))
-    )
-
-    
-    (if ?*Whips* then
-        (bind ?*generic-rating-type* "W")
-        (if ?*Typed-g-Whips* then (bind ?*generic-rating-type* "TygW+W"))
-    )
-    
-    (if ?*G2-Whips* then (bind ?*generic-rating-type* "g2W"))
-    (if ?*G-Whips* then (bind ?*generic-rating-type* "gW"))
-    (if ?*Braids* then
-        (if ?*G2-Whips* then (bind ?*generic-rating-type* "g2W+B")
-            else (if ?*G-Whips* then (bind ?*generic-rating-type* "gW+B")
-                                else (bind ?*generic-rating-type* "B")
-                )
-        )
-    )
+    ;;; Untyped-chain-rules with no g-labels
+    (bind ?*generic-rating-type* "")
+    (if ?*Whips[1]* then (bind ?*generic-rating-type* "W1"))
+    (if ?*Bivalue-Chains* then (bind ?*generic-rating-type* "BC"))
+    (if ?*z-Chains* then (bind ?*generic-rating-type* "Z"))
+    (if ?*t-Whips* then (bind ?*generic-rating-type* "tW"))
+    (if (and ?*z-Chains* ?*t-Whips*) then (bind ?*generic-rating-type* "Z+tW"))
+    (if ?*Whips* then (bind ?*generic-rating-type* "W"))
+    (if ?*Braids* then (bind ?*generic-rating-type* "B"))
+    ;;; not yet implemented:
     (if ?*Quick-B-Rating* then (bind ?*generic-rating-type* "B-Rating"))
-    
+
+    ;;; chains with g-labels
+    (if ?*G-Bivalue-Chains* then
+        (bind ?*generic-rating-type* "gBC")
+        (if ?*z-Chains* then (bind ?*generic-rating-type* "Z+gBC"))
+        (if ?*t-Whips* then (bind ?*generic-rating-type* "tW+gBC"))
+        (if (and ?*z-Chains* ?*t-Whips*) then (bind ?*generic-rating-type* "Z+tW+gBC"))
+        (if ?*Whips* then (bind ?*generic-rating-type* "W+gBC"))
+        (if ?*Braids* then (bind ?*generic-rating-type* "B+gBC"))
+    )
+    ;;; remember that g2-Whips and g-Whips subsume bivalue-chains, z-chains and t-whips
+    (if ?*G2-Whips* then
+        (bind ?*generic-rating-type* "g2W")
+        (if ?*Braids* then (bind ?*generic-rating-type* "B+g2W"))
+    )
+    (if ?*G-Whips* then
+        (bind ?*generic-rating-type* "gW")
+        (if ?*Braids* then (bind ?*generic-rating-type* "B+gW"))
+    )
     (if ?*G-Braids* then (bind ?*generic-rating-type* "gB"))
     
-    
-    (if ?*Forcing-Whips* then
-        (if (eq ?*generic-rating-type* "W")
-            then (bind ?*generic-rating-type* "FW")
-            else (bind ?*generic-rating-type* (str-cat ?*generic-rating-type* "+FW"))
-        )
-    )
-    ;;; at this point, ?*rating-type* can only be gW, B,gW+B, gB, FW, gW+FW, B+FW, gW+B+FW, gB+FW
-    ;;; Forcing g-whips and g-braids are not supposed to be used with g2-whips
-    (if ?*Forcing-G-Whips* then
-        ;;; ?*Forcing-Whips* and ?*G-Whips* are TRUE
-        (if (eq ?*generic-rating-type* "gW") then (bind ?*generic-rating-type* "FgW"))
-        (if (eq ?*generic-rating-type* "B") then (bind ?*generic-rating-type* "B+FgW"))
-        (if (eq ?*generic-rating-type* "gW+B") then (bind ?*generic-rating-type* "B+FgW"))
-        (if (eq ?*generic-rating-type* "gB")then (bind ?*generic-rating-type* "gB+FgW"))
-        
-        (if (eq ?*generic-rating-type* "FW") then (bind ?*generic-rating-type* "FgW"))
-        (if (eq ?*generic-rating-type* "gW+FW") then (bind ?*generic-rating-type* "FgW"))
-        (if (eq ?*generic-rating-type* "B+FW") then (bind ?*generic-rating-type* "B+FgW"))
-        (if (eq ?*generic-rating-type* "gW+B+FW") then (bind ?*generic-rating-type* "B+FgW"))
-        (if (eq ?*generic-rating-type* "gB+FW") then (bind ?*generic-rating-type* "gB+FgW"))
-    )
-    ;;; at this point, ?*rating-type* can only be
-    ;;; gW, B,gW+B, gB, FW, gW+FW, B+FW, gW+B+FW, gB+FW, FgW, B+FgW, gB+FgW
-    (if ?*Forcing-Braids* then
-        (if (eq ?*generic-rating-type* "FW") then (bind ?*generic-rating-type* "FB"))
-        (if (eq ?*generic-rating-type* "B") then (bind ?*generic-rating-type* "FB"))
-        (if (eq ?*generic-rating-type* "gW+B") then (bind ?*generic-rating-type* "gW+FB"))
-        (if (eq ?*generic-rating-type* "gB") then (bind ?*generic-rating-type* "gB+FB"))
-        (if (eq ?*generic-rating-type* "FW") then (bind ?*generic-rating-type* "FB"))
-        (if (eq ?*generic-rating-type* "gW+FW") then (bind ?*generic-rating-type* "gW+FB"))
-        (if (eq ?*generic-rating-type* "B+FW") then (bind ?*generic-rating-type* "FB"))
-        (if (eq ?*generic-rating-type* "gW+B+FW") then (bind ?*generic-rating-type* "gW+FB"))
-        (if (eq ?*generic-rating-type* "gB+FW") then (bind ?*generic-rating-type* "gB+FB"))
-        (if (eq ?*generic-rating-type* "FgW") then (bind ?*generic-rating-type* "FgW+FB"))
-        (if (eq ?*generic-rating-type* "B+FgW") then (bind ?*generic-rating-type* "FgW+FB"))
-        (if (eq ?*generic-rating-type* "gB+FgW") then (bind ?*generic-rating-type* "gB+FgW+FB"))
-    )
-    (if ?*Forcing-G-Braids* then (bind ?*generic-rating-type* "FgB"))
-
-    ;;; Add the relevant part for Bi-Whips, Bi-Braids, ...
-
+    ;;; exotic chains:
     (if ?*Oddagons* then
         (bind ?*generic-rating-type*
             (if (eq ?*generic-rating-type* "") then "O" else (str-cat ?*generic-rating-type* "+O"))
         )
     )
+
+    ;;; Fuse the typed and untyped ratings:
+    (bind ?*generic-rating-type*
+        (if (eq ?typed-generic-rating-type "")
+            then ?*generic-rating-type*
+            else (str-cat ?typed-generic-rating-type "+" ?*generic-rating-type*)
+        )
+    )
+
+    ;;; Forcing chains
+    (bind ?forcing-type "")
+    (if ?*Forcing-Whips* then (bind ?forcing-type "FW"))
+    (if ?*Forcing-G-Whips* then (bind ?forcing-type "FgW"))
+    (if ?*Forcing-Braids* then (bind ?forcing-type "FB"))
+    (if (and ?*Forcing-G-Whips* ?*Forcing-Braids*) then (bind ?forcing-type "FgW+FB"))
+    (if ?*Forcing-G-Braids* then (bind ?forcing-type "FgB"))
+    (if (neq ?forcing-type "") then (bind ?*generic-rating-type* ?forcing-type))
+
+    ;;; Add the relevant part for Bi-Whips, Bi-Braids, ...
+
     ?*generic-rating-type*
 )
 
@@ -295,7 +285,6 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -336,10 +325,25 @@
 ;;; As a result, T&E and DFS may be slower
 
 (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "SimulatedElim.clp")) ; for simulating non-programmed rules
+(load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "compute-RS.clp"))
 (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "manage.clp"))
 (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "ECP.clp"))
 (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "Single.clp"))
+(load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "blocked-rules-fns.clp"))
 (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "blocked-rules.clp"))
+(load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "focused-elims.clp"))
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Generic modules
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(load (str-cat ?*CSP-Rules-Generic-Dir* "MODULES" ?*Directory-symbol* "modules.clp"))
+(load (str-cat ?*CSP-Rules-Generic-Dir* "MODULES" ?*Directory-symbol* "enter-module.clp"))
+
 
 
 
@@ -350,7 +354,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; init-links
-(if (or ?*Whips[1]* ?*Bi-Whips* ?*Bi-Braids*) then
+(if (or ?*Whips[1]* ?*Bi-Whips* ?*Bi-Braids* ?*Forcing{2}-TE* ?*Forcing{3}-TE*) then
     (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "init-links.clp"))
 )
 
@@ -361,21 +365,14 @@
 ;;; Whips[1]
 (if ?*Whips[1]* then
     (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-            ?*Directory-symbol* "WHIPS" ?*Directory-symbol*
-            (if ?*blocked-Whips[1]* then "Blocked-Whips" else "Whips") "[1].clp"
+            ?*Directory-symbol* "WHIPS" ?*Directory-symbol* "Whips[1].clp"
         )
     )
 )
 
-;;; typed-partial-whips[1]
-(if ?*Typed-Partial-Whips[1]* then
-    (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-        ?*Directory-symbol* "TYPED-PARTIAL-WHIPS" ?*Directory-symbol* "Typed-Partial-Whips[" 1 "].clp")
-    )
-)
 
 ;;; Bivalue
-(if (or ?*Subsets[2]* ?*Bivalue-Chains* ?*Typed-Bivalue-Chains* ?*special-TE* ?*special-DFS*) then
+(if (or ?*Subsets[2]* ?*Bivalue-Chains* ?*Typed-Bivalue-Chains* ?*Oddagons* ?*Forcing-Whips* ?*special-TE* ?*Forcing{2}-TE* ?*special-DFS*) then
     (load (str-cat ?*CSP-Rules-Generic-Dir* "GENERAL" ?*Directory-symbol* "Bivalue.clp"))
 )
 
@@ -395,49 +392,68 @@
 
 ;;; for JESS compatibility "loop-for-count" is avoided
 
-;;; different versions of (typed or untyped) bivalue chains will be loaded, depending on variable ?*blocked-bivalue-chains*
-(defglobal ?*typed-bivalue-chains-directory* =
-    (if ?*blocked-bivalue-chains* then "BLOCKED-TYPED-BIVALUE-CHAINS" else "TYPED-BIVALUE-CHAINS")
+;;; typed-partial-whips[1], used by typed-z-chains ≥ 2, typed-t-whips ≥ 2 and typed-whips ≥ 2
+(if (or
+        (and ?*Typed-z-Chains* (<= 2 ?*typed-z-chains-max-length*))
+        (and ?*Typed-t-Whips* (<= 2 ?*typed-t-whips-max-length*))
+        (and ?*Typed-Whips* (<= 2 ?*typed-whips-max-length*))
+    ) then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
+                ?*Directory-symbol* "TYPED-PARTIAL-WHIPS"
+                ?*Directory-symbol* "Typed-Partial-Whips[1].clp")
+    )
 )
-(defglobal ?*bivalue-chains-directory* =
-    (if ?*blocked-bivalue-chains* then "BLOCKED-BIVALUE-CHAINS" else "BIVALUE-CHAINS")
+
+;;; partial-whips[1], used by z-chains ≥ 2, t-whips ≥ 2 and whips ≥ 2
+(if (or
+        (and ?*z-Chains* (<= 2 ?*z-chains-max-length*))
+        (and ?*t-Whips* (<= 2 ?*t-whips-max-length*))
+        (and ?*Whips* (<= 2 ?*whips-max-length*))
+    ) then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
+            ?*Directory-symbol* "PARTIAL-WHIPS"
+            ?*Directory-symbol* "Partial-Whips[1].clp")
+    )
 )
 
 
-(bind ?i 1)
+(bind ?i 2)
 (while (<= ?i 36)
 
     ;;; typed-bivalue-chains ≥ 2
-    (if (and ?*Typed-Bivalue-Chains* (>= ?i 2) (<= ?i ?*typed-bivalue-chains-max-length*)) then
+    (if (and ?*Typed-Bivalue-Chains* (<= ?i ?*typed-bivalue-chains-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-COMMON"
-            ?*Directory-symbol* ?*typed-bivalue-chains-directory*
+            ?*Directory-symbol* "TYPED-BIVALUE-CHAINS"
             ?*Directory-symbol* "Typed-Bivalue-Chains[" ?i "].clp")
         )
     )
     ;;; bivalue-chains ≥ 2
-    (if (and ?*Bivalue-Chains* (>= ?i 2) (<= ?i ?*bivalue-chains-max-length*)) then
+    (if (and ?*Bivalue-Chains* (<= ?i ?*bivalue-chains-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-COMMON"
-            ?*Directory-symbol* ?*bivalue-chains-directory*
+            ?*Directory-symbol* "BIVALUE-CHAINS"
             ?*Directory-symbol* "Bivalue-Chains[" ?i "].clp")
         )
     )
     
 
     ;;; typed-z-chains ≥ 2
-    (if (and ?*Typed-z-Chains* (>= ?i 2) (<= ?i ?*typed-z-chains-max-length*)) then
+    (if (and ?*Typed-z-Chains* (<= ?i ?*typed-z-chains-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                ?*Directory-symbol* "TYPED-Z-CHAINS" ?*Directory-symbol* "Typed-z-chains[" ?i "].clp")
+                ?*Directory-symbol* "TYPED-Z-CHAINS"
+                ?*Directory-symbol* "Typed-z-chains[" ?i "].clp")
         )
     )
 
     ;;; z-chains ≥ 2
-    (if (and ?*z-Chains* (>= ?i 2) (<= ?i ?*z-chains-max-length*)) then
+    (if (and ?*z-Chains* (<= ?i ?*z-chains-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                ?*Directory-symbol* "Z-CHAINS" ?*Directory-symbol* "z-chains[" ?i "].clp")
+                ?*Directory-symbol* "Z-CHAINS"
+                ?*Directory-symbol* "z-chains[" ?i "].clp")
         )
     )
     
-    ;;; oddagons
+    
+    ;;; oddagons (?i odd ≥ 3)
     (if (and ?*Oddagons* (>= ?i 3) (oddp ?i) (<= ?i ?*oddagons-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-COMMON"
             ?*Directory-symbol* "ODDAGONS"
@@ -446,93 +462,58 @@
     )
 
     
-    ;;; typed-partial-whips >= 1, used by both typed-t-whips ≥ 2 and typed-whips ≥ 2
-    (if (or
-            (and ?*Typed-t-Whips* (> ?i 2) (<= ?i ?*typed-t-whips-max-length*))
-            (and ?*Typed-Whips* (> ?i 2) (<= ?i ?*typed-whips-max-length*))
+    ;;; typed-partial-whips ≥ 2, used by typed-t-whips and typed-whips
+    (if (and (or ?*Typed-t-Whips* ?*Typed-Whips*)
+            (or (< ?i ?*typed-t-whips-max-length*)
+                (< ?i ?*typed-whips-max-length*)
+            )
         ) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
                     ?*Directory-symbol* "TYPED-PARTIAL-WHIPS"
-                    ?*Directory-symbol* "Typed-Partial-Whips[" (- ?i 1) "].clp")
+                    ?*Directory-symbol* "Typed-Partial-Whips[" ?i "].clp")
         )
     )
     
-    ;;; partial-whips[1], used by both z-chains, t-whips ≥ 2 and whips ≥ 2
-    (if (or
-            (and ?*z-Chains* (= ?i 2))
-            (and ?*t-Whips* (= ?i 2) (<= ?i ?*t-whips-max-length*))
-            (and ?*Whips* (= ?i 2) (<= ?i ?*whips-max-length*))
+    ;;; partial-whips ≥ 2, used by t-whips and whips
+    (if (and (or ?*t-Whips* ?*Whips*)
+            (or (< ?i ?*t-whips-max-length*)
+                (< ?i ?*whips-max-length*)
+            )
         ) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
                 ?*Directory-symbol* "PARTIAL-WHIPS"
-                ?*Directory-symbol* "Partial-Whips[" (- ?i 1) "].clp")
+                ?*Directory-symbol* "Partial-Whips[" ?i "].clp")
         )
     )
-    
-    ;;; partial-whips > 1, used by both t-whips ≥ 2 and whips ≥ 2
-    (if (or
-            (and ?*t-Whips* (> ?i 2) (<= ?i ?*t-whips-max-length*))
-            (and ?*Whips* (> ?i 2) (<= ?i ?*whips-max-length*))
-        ) then
+
+
+    ;;; typed-t-whips ≥ 2
+    (if (and ?*Typed-t-Whips* (<= ?i ?*typed-t-whips-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                ?*Directory-symbol* "PARTIAL-WHIPS"
-                ?*Directory-symbol* "Partial-Whips[" (- ?i 1) "].clp")
+                    ?*Directory-symbol* "TYPED-T-WHIPS"
+                    ?*Directory-symbol* "Typed-t-Whips[" ?i "].clp")
         )
     )
     
-    ;;; typed-t-whips
-    (if (and ?*Typed-t-Whips* (>= ?i 2) (<= ?i ?*typed-t-whips-max-length*)) then
-        (if ?*blocked-t-Whips*
-            then (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                    ?*Directory-symbol* "BLOCKED-TYPED-T-WHIPS" ?*Directory-symbol* "Typed-t-Whips[" ?i "].clp")
-                )
-            else (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                    ?*Directory-symbol* "TYPED-T-WHIPS" ?*Directory-symbol* "Typed-t-Whips[" ?i "].clp")
-                )
-        )
-    )
-    
-    ;;; t-whips
-    (if (and ?*t-Whips* (>= ?i 2) (<= ?i ?*t-whips-max-length*)) then
-        (if ?*blocked-t-Whips*
-            then (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                    ?*Directory-symbol* "BLOCKED-T-WHIPS" ?*Directory-symbol* "T-Whips[" ?i "].clp")
-                )
-            else (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                    ?*Directory-symbol* "T-WHIPS" ?*Directory-symbol* "T-Whips[" ?i "].clp")
-                )
+    ;;; t-whips ≥ 2
+    (if (and ?*t-Whips* (<= ?i ?*t-whips-max-length*)) then
+        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
+                    ?*Directory-symbol* "T-WHIPS"
+                    ?*Directory-symbol* "T-Whips[" ?i "].clp")
         )
     )
 
     
-    ;;; typed-whips[2]
-    (if (and ?*Typed-Whips* (eq ?i 2) (<= ?i ?*typed-whips-max-length*)) then
-        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                ?*Directory-symbol* "TYPED-WHIPS"
-                ?*Directory-symbol* (if ?*blocked-Whips[1]* then "Blocked-Typed-Whips" else "Typed-Whips")
-                "[2].clp")
-        )
-    )
-    
-    ;;; whips[2]
-    (if (and ?*Whips* (eq ?i 2) (<= ?i ?*whips-max-length*)) then
-        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
-                ?*Directory-symbol* "WHIPS" ?*Directory-symbol*
-                (if ?*blocked-Whips[1]* then "Blocked-Whips" else "Whips")
-                "[2].clp")
-        )
-    )
-
-    ;;; typed-whips ≥ 3
-    (if (and ?*Typed-Whips* (>= ?i 3) (<= ?i ?*typed-whips-max-length*)) then
+    ;;; typed-whips ≥ 2
+    (if (and ?*Typed-Whips* (<= ?i ?*typed-whips-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
                 ?*Directory-symbol* "TYPED-WHIPS"
                 ?*Directory-symbol* "Typed-Whips[" ?i "].clp")
         )
     )
-
-    ;;; whips ≥ 3
-    (if (and ?*Whips* (>= ?i 3) (<= ?i ?*whips-max-length*)) then
+    
+    ;;; whips ≥ 2
+    (if (and ?*Whips* (<= ?i ?*whips-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
                 ?*Directory-symbol* "WHIPS"
                 ?*Directory-symbol* "Whips[" ?i "].clp")
@@ -550,7 +531,7 @@
 
 
     ;;; B-rating ≥ 2
-    (if (and ?*Quick-B-Rating* (>= ?i 2) (<= ?i ?*braids-max-length*)) then ;;; start at 2
+    (if (and ?*Quick-B-Rating* (<= ?i ?*braids-max-length*)) then ;;; start at 2
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-SPEED"
                 ?*Directory-symbol* "RATING-BRAIDS"
                 ?*Directory-symbol* "Rating-Braids[" ?i "].clp")
@@ -567,7 +548,7 @@
     )
 
     ;;; G2-Whips always use the memory version
-    (if (and ?*G2-Whips* (>= ?i 2) (<= ?i ?*g2whips-max-length*)) then
+    (if (and ?*G2-Whips* (<= ?i ?*g2whips-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-MEMORY"
                 ?*Directory-symbol* "G2-WHIPS"
                 ?*Directory-symbol* "g2Whips[" ?i "].clp")
@@ -575,14 +556,14 @@
     )
 
     ;;; typed-g-whips
-    ;(if (and ?*Typed-g-Whips* (>= ?i 2) (<= ?i ?*typed-gwhips-max-length*)) then
+    ;(if (and ?*Typed-g-Whips* (<= ?i ?*typed-gwhips-max-length*)) then
     ;    (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
     ;         ?*Directory-symbol* "TYPED-G-WHIPS" ?*Directory-symbol* "Typed-gWhips[" ?i "].clp")
     ;    )
     ;)
 
     ;;; g-whips
-    (if (and ?*G-Whips* (>= ?i 2) (<= ?i ?*gwhips-max-length*)) then
+    (if (and ?*G-Whips* (<= ?i ?*gwhips-max-length*)) then
         (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type*
                 ?*Directory-symbol* "G-WHIPS" ?*Directory-symbol* "gWhips[" ?i "].clp")
         )
@@ -636,7 +617,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; T&E and DFS
+;;; T&E, Forcing T&E, Backdoors, Anti-Backdoors, Anti-Backdoor pairs and DFS
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -664,6 +645,16 @@
     )
 )
 
+
+(if ?*Forcing{2}-TE* then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "T&E+DFS" ?*Directory-symbol* "Forcing2-TE.clp"))
+)
+
+(if ?*Forcing{3}-TE* then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "T&E+DFS" ?*Directory-symbol* "Forcing3-TE.clp"))
+)
+
+
 (if ?*DFS* then
     (load (str-cat ?*CSP-Rules-Generic-Dir* "T&E+DFS" ?*Directory-symbol* "DFS.clp"))
     (if ?*special-DFS* then
@@ -672,6 +663,17 @@
 )
 
 
+(if ?*Backdoors* then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "T&E+DFS" ?*Directory-symbol* "backdoors.clp"))
+)
+
+(if ?*Anti-backdoors* then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "T&E+DFS" ?*Directory-symbol* "anti-backdoors.clp"))
+)
+
+(if ?*Anti-backdoor-pairs* then
+    (load (str-cat ?*CSP-Rules-Generic-Dir* "T&E+DFS" ?*Directory-symbol* "anti-backdoor-pairs.clp"))
+)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -716,7 +718,7 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; These are special cases of W*-Whips[1], but their total length is controlled
+;;; These are special cases of W*-Whips[[1]], but their total length is controlled
 
 (if ?*Forcing-Bi-Whips* then
     (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-COMMON"
@@ -743,7 +745,7 @@
 (if ?*W*-Whips* then ;;; start at 1
     (bind ?i 1)
     (while (<= ?i ?*w*-whips-max-length*)
-        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type* ?*Directory-symbol* "W*-WHIPS" ?*Directory-symbol* "W*-Whips[" ?i "].clp"))
+        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type* ?*Directory-symbol* "W*-WHIPS" ?*Directory-symbol* "W*-Whips[[" ?i "]].clp"))
         (bind ?i (+ ?i 1))
     )
 )
@@ -752,19 +754,7 @@
 (if ?*B*-Braids* then ;;; start at 2
     (bind ?i 2)
     (while (<= ?i ?*b*-braids-max-length*)
-        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type* ?*Directory-symbol* "B*-BRAIDS" ?*Directory-symbol* "B*-Braids[" ?i "].clp"))
-        (bind ?i (+ ?i 1))
-    )
-)
-
-
-
-(if ?*W-Whips* then 
-    (load (str-cat ?*CSP-Rules-Generic-Dir* "W-WHIPS" ?*Directory-symbol* "restart-W-Whips.clp"))
-    ;;; start at 1
-    (bind ?i 1)
-    (while (<= ?i ?*w-whips-max-length*) 
-        (load (str-cat ?*CSP-Rules-Generic-Dir* "W-WHIPS" ?*Directory-symbol* "W-Whips[" ?i "].clp"))
+        (load (str-cat ?*CSP-Rules-Generic-Dir* "CHAIN-RULES-" ?*chain-rules-optimisation-type* ?*Directory-symbol* "B*-BRAIDS" ?*Directory-symbol* "B*-Braids[[" ?i "]].clp"))
         (bind ?i (+ ?i 1))
     )
 )
@@ -807,10 +797,15 @@
             then ?*generic-rating-type*
             else (if (eq ?*generic-rating-type* "")
                     then ?*application-specific-rating-type*
-                    else (str-cat ?*generic-rating-type* "+" ?*application-specific-rating-type*)
+                    else (if (eq ?*generic-rating-type* "W1")
+                            then ?*application-specific-rating-type*
+                            else (str-cat ?*generic-rating-type* "+" ?*application-specific-rating-type*)
+                        )
                 )
         )
     )
+    (if (eq ?*rating-type* "") then (bind ?*rating-type* "BRT"))
+
     ;;; deal with T&E
     (if (and ?*TE1* (not ?*TE2*) (not ?*TE3*)) then
         (if (eq ?*rating-type* "")
@@ -856,6 +851,8 @@
 
 
 (define-rating-type)
+
+
 (print-start-banner)
 
 

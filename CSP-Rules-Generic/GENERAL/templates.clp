@@ -51,8 +51,9 @@
 ;;; For technical reasons, candidates and c-values have to be the same template 
 ;;; because of a few rules that assert values, such as singles and forcing-chain-value, and for T&E.
 ;;;	Usage :
-;;; As soon as a c-value is asserted, all the candidates are reduced by constraints propagation (ECP rules);
-;;; No candidate (with any status) for a csp variable means a contradiction (no value is possible for this csp variable), 
+;;; As soon as a c-value is asserted, all the candidates are reduced by constraints propagation (ECP rules).
+;;; In any context, having no candidate (with any status) for a csp variable means a contradiction
+;;; (no value is possible for this csp variable in this context), 
 ;;;	and every contradiction is detected this way.
 ;;; If this happens in context 0, it means the instance has no solution.
 
@@ -228,6 +229,22 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; TO FOCUS THE ELIMINATIONS
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(deftemplate candidate-in-focus
+    (slot context (type INTEGER) (default 0))
+    (slot label (type INTEGER) (default 0))
+)
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; CONTEXTS FOR T&E
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -243,7 +260,9 @@
     ;;; used only by T&E:
 	(slot generating-cand (type INTEGER) (default 0))
     ;;; used only for bi-Trial-and-Error:
-	(slot generating-cand2 (type INTEGER) (default 0))
+    (slot generating-cand2 (type INTEGER) (default 0))
+    ;;; used only for Forcing3-T&E
+    (slot generating-cand3 (type INTEGER) (default 0))
 )
 
 

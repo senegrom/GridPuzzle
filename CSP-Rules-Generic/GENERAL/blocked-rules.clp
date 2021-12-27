@@ -28,26 +28,8 @@
 
 
 
-;;; this file allows to print all the targets of a rule on the same line
-
-(deffunction add-elimination-to-blocked-rule (?elim)
-    (if (eq (length$ ?*blocked-rule-eliminations*) 0)
-        then (bind ?*blocked-rule-eliminations* ?elim)
-        else (bind ?*blocked-rule-eliminations* (str-cat ?*blocked-rule-eliminations* ", " ?elim))
-    )
-)
-
-
-(deffunction print-blocked-rule ()
-    (if (neq (length$ ?*blocked-rule-eliminations*) 0) then
-        (printout t ?*blocked-rule-description* ?*implication-sign* ?*blocked-rule-eliminations* crlf)
-    )
-    (bind ?*blocked-rule-description* "")
-    (bind ?*blocked-rule-eliminations* "")
-    TRUE
-)
-
-
+;;; This file allows to manage the "blocked rules" and "pseudo-blocked rules" behaviour
+;;; (print all the targets of a rule on the same line)
 
 (defrule end-apply-a-blocked-rule-1
     (declare (salience ?*end-apply-a-blocked-rule-salience-1*))
@@ -78,7 +60,7 @@
     ?apply <- (apply-rule-as-a-pseudo-block ?cont)
     ?pseudo-blocked <- (pseudo-blocked ?cont $?)
 =>
-    (printout t crlf)
+    (if ?*print-actions* then (printout t crlf))
     (retract ?pseudo-blocked)
     (retract ?apply)
 )

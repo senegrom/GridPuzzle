@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;             January 2006 - August 2020             ;;;
+               ;;;             January 2006 - August 2021             ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -33,8 +33,11 @@
 
 (defrule activate-g-bivalue-chain[1]
 	(declare (salience ?*activate-g-bivalue-chain[1]-salience*))
-	(logical (play) (context (name ?cont)))
-	(not (deactivate ?cont g-bivalue-chain))
+    (logical
+       (play)
+       (context (name ?cont))
+       (not (deactivate ?cont g-bivalue-chain))
+    )
 =>
 	(if ?*print-levels* then (printout t Entering_level_gBC1))
 	(assert (technique ?cont g-bivalue-chain[1]))
@@ -61,6 +64,8 @@
 	(declare (salience ?*partial-g-bivalue-chain[1]-salience*))
 	(logical
         (exists-link ?cont ?zzz&:(not (known-to-be-in-solution ?zzz)) ?llc1)
+        ;;; if the focus list is not empty, the following condition restricts the search to the candidates in it
+        (or (not (candidate-in-focus (context ?cont))) (candidate-in-focus (context ?cont) (label ?zzz)))
 
         (technique ?cont g-bivalue-chain[2])  ;;; need not be computed unless bivalue-chains[2] are activated
         

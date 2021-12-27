@@ -28,35 +28,38 @@
 
 
 
+(clear)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; INSTALLATION ONLY:
-;;; Define environment variables: OS, installation directory and inference engine
+;;; Define environment variables: OS and installation directory
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; default setting is for Unix and MacOS:
+;;; Default setting is for Unix and MacOS,
+;;; but it should also work for recent versions of Windows:
 (defglobal ?*Directory-symbol* = "/")
 
-;;; for Windows, un-comment this line:
-; (bind ?*Directory-symbol* "\") ;                                           <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-
-;;; define your general CSP-Rules installation directory (including the ending directory symbol / or \)
-;;; CSP-Rules-V2.1 will be installed inside this general CSP-Rules installation directory
-(defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; Define your general CSP-Rules installation directory (including the ending directory symbol /).
+;;; This is the directory in which the CSP-Rules-V2.1 version is installed, not the CSP-Rules-V2.1 directory.
+;;; By defining the path in an absolute way, you will be able to launch CSP-Rules-V2.1 from anywhere.
+;;; You need to write something as follows.
+;;; For Unix (including MacOS):
+ (defglobal ?*CSP-Rules* = "/Users/berthier/Documents/Projets/CSP-Rules/")   ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+;;; For Windows:
+; (defglobal ?*CSP-Rules* = "c:/Users/berthier/Documents/Projets/CSP-Rules/") ; <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 ;;; compatibility with JESS is no longer guaranteed and CLIPS is the default inference engine
 ;;; the version of CLIPS used may be defined here (used only for displaying it in the banner)
-(defglobal ?*Clips-version* = "6.32-r770");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+(defglobal ?*Clips-version* = "6.32-r813");                                  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 ;;; Description of the computer used for the resolution
 (defglobal ?*Computer-description* =
-    "MacBookPro Retina Mid-2012 i7 2.7GHz 16GB, 1600MHz DDR3, MacOS 10.15.4"
+    "MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.7"
 )                                                                            <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
 
 
 
@@ -136,14 +139,23 @@
 
 ;;; In the previous standard behaviour of CSP-Rules, when a pattern could have produced more than one elimination,
 ;;; the activation of a simpler rule by the first elimination could prevent further potential eliminations.
-;;; This default behaviour is now changed for Whips[1], bivalue-chains (typed or not), t-Whips (typed or not) and Subsets.
-;;; But CSP-Rules allows to revert to the previous behaviour,
-;;; independently for Whips[1], for bivalue-chains and t-Whips of any length and for Subsets.
-;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as the other chain rules:
+;;; This default behaviour is now changed:
+;;; - for Whips[1],
+;;; - for Subsets,
+;;; - for bivalue-chains (typed or not), z-chains (typed or not) and t-Whips (typed or not),
+;;; - for Oddagons.
+;;; However, CSP-Rules allows to revert to the previous behaviour,
+;;; independently for each of the above four groups of rules.
+;;; Un-comment the relevant line(s) below if you want these rules to be "interrupted" as all the other rules.
+;;; Notice that ?*blocked-Subsets* = TRUE, ?*blocked-chains* = TRUE or ?*blocked-oddagons* = TRUE
+;;; will imply ?*blocked-Whips[1]* = TRUE
 ; (bind ?*blocked-Whips[1]* FALSE)
-; (bind ?*blocked-bivalue-chains* FALSE)
-; (bind ?*blocked-t-Whips* FALSE)
 ; (bind ?*blocked-Subsets* FALSE)
+; (bind ?*blocked-chains* FALSE) ; i.e. bivalue-chains, z-chains and t-Whips (typed or not)
+; (bind ?*blocked-oddagons* FALSE)
+;;; The old interrupted behaviour can be globally selected by ?*unblocked-behaviour* to TRUE;
+;;; (equivalent to setting the above four values to FALSE):
+; (bind ?*unblocked-behaviour* TRUE)
 
 
 ;;; Choose what's printed as the output.
@@ -152,7 +164,7 @@
 ; (bind ?*print-init-details* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-solution* FALSE)
 
 
@@ -174,6 +186,7 @@
 ;;; Kakuro-specific:
  (bind ?*Subsets* TRUE)
 ;;; generic:
+; (bind ?*Whips[1]* TRUE) ; allows to more easily activate only whips[1]
  (bind ?*Bivalue-Chains* TRUE)
  (bind ?*Whips* TRUE)
 
@@ -185,7 +198,7 @@
 
 ;;; Some optional intermediary Typed Chains, allowing more varied resolution paths:
 ;;; (remember that whips[1] cannot be type-restricted)
-;;; In KakuRules, TYped-Chains are restricted to a single sector
+;;; In KakuRules, Typed-Chains are restricted to a single sector
 ; (bind ?*Typed-Bivalue-Chains* TRUE)
 ; (bind ?*Typed-z-Chains* TRUE)
 ; (bind ?*Typed-t-Whips* TRUE)
@@ -219,8 +232,12 @@
 ;;; Change the default maximal lengths of the chain patterns
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; Don't change these lengths unless you have some reason:
+;;; Don't change these lengths unless you have some reason.
 
+;;; The maximum length of all the generic chains can be lowered at once:
+; (defglobal ?*all-chains-max-length* = 36)
+
+;;; Maximum lengths can also be lowered individually:
 ; (bind ?*bivalue-chains-max-length* 20)
 ; (bind ?*z-chains-max-length* 20)
 ; (bind ?*t-whips-max-length* 36)
@@ -255,7 +272,7 @@
 
 ;;; Un-comment the proper line below to change the level of details you want to be printed:
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
@@ -268,7 +285,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Choose one of the following 3 depths of T&E:
-
 ; (bind ?*TE1* TRUE) ;;; for T&E at level 1
 ; (bind ?*TE2* TRUE) ;;; for T&E at level 2
 ; (bind ?*TE3* TRUE) ;;; for T&E at level 3
@@ -277,9 +293,8 @@
 ; (bind ?*special-TE* TRUE)
 
 
-;;; For gT&E(k) instead of T&E(k), activate the next two lines:
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 1)
+;;; For gT&E(k) instead of T&E(k), activate the next line:
+; (bind ?*Whips[1]* TRUE)
 
 
 
@@ -287,13 +302,18 @@
 ;;; 2b) For computing the SpB classification
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;; Choose one of the following forms of T&E(1, Sp or SpFin)
+; (bind ?*TE1* TRUE) ;;; for T&E at level 1
+;;; For T&E at level 1, with priority for bivalue variables, add the following:
+; (bind ?*special-TE* TRUE)
+
+
 ;;; Remember that whips[1] are always activated before Subsets,
 ;;; even if you don’t activate them explicitly here.
 ;;; But you can choose to activate only them, to get gT&E (as in 2a)
-; (bind ?*Whips* TRUE)
-; (bind ?*whips-max-length* 1)
+; (bind ?*Whips[1]* TRUE)
 
-;;; choose which Subsets[p] and FinnedFish[p] are activated:
+;;; Choose which Subsets[p] and FinnedFish[p] are activated:
 ; (bind ?*Subsets* TRUE)
 ; (bind ?*Subsets[2]* TRUE)
 ; (bind ?*Subsets[3]* TRUE)
@@ -304,27 +324,22 @@
 ; (bind ?*FinnedFish[3]* TRUE)
 ; (bind ?*FinnedFish[4]* TRUE)
 
-;;; choose one of the following forms of T&E(1, Sp or SpFin)
-; (bind ?*TE1* TRUE) ;;; for T&E at level 1
-;;; For T&E at level 1, with priority for bivalue variables, add the following:
-; (bind ?*special-TE* TRUE)
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 2c) for computing the BpB classification
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;; choose p (here p = 3):
+;;; Choose one of the following forms of T&E(1, Sp or SpFin)
+; (bind ?*TE1* TRUE) ;;; for T&E at level 1
+;;; For T&E at level 1, with priority for bivalue variables, add the following:
+; (bind ?*special-TE* TRUE)
+
+;;; Choose p (here p = 3):
 ; (bind ?*Whips* TRUE)
 ; (bind ?*Braids* TRUE)
 ; (bind ?*whips-max-length* 3)
 ; (bind ?*braids-max-length* 3)
-
-;;; choose one of the following forms of T&E(1)
-; (bind ?*TE1* TRUE) ;;; for T&E at level 1
-;;; For T&E at level 1, with priority for bivalue variables, add the following:
-; (bind ?*special-TE* TRUE)
 
 
 
@@ -342,7 +357,7 @@
 ;;; DFS can be used to provide a relatively fast solution
 
 ; (bind ?*print-actions* FALSE)
-; (bind ?*print-levels* FALSE)
+; (bind ?*print-levels* TRUE)
 ; (bind ?*print-ECP-details* TRUE)
 ; (bind ?*print-solution* FALSE)
 ; (bind ?*print-hypothesis* FALSE)
@@ -354,8 +369,8 @@
 ;;; To activate priority for bivalue cells, activate this line, in addition to the above line:
 ; (bind ?*special-DFS* TRUE)
 
-;;; Activate short whips for combining whips[1] or whips[2] with DFS:
-;;; this often gives a faster result (but not with larger whips)
+;;; Activate short whips for combining whips[1] or whips[2] with DFS.
+;;; This often gives a faster result (but not with larger whips)
 ; (bind ?*Whips* TRUE)
 ; (bind ?*whips-max-length* 1)
 ; (bind ?*whips-max-length* 2)
@@ -386,6 +401,7 @@
 
 ;;; now, load all
 ;;; Notice that the generic loader also loads the application-specific files
+(redefine-all-chains-max-length)
 (batch ?*CSP-Rules-Generic-Loader*)
 
 

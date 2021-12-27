@@ -48,6 +48,7 @@
      and this number belongs to the unique combination of this sector,
      then assert the c-value"
 	(declare (salience ?*magic-hidden-single-salience*))
+    (logical (context (name ?cont)))
 	(technique ?cont hidden-single)
 
     (horizontal-magic-sector ?comb ?row ?ctr-col)
@@ -56,7 +57,10 @@
 	(not (candidate (context ?cont) (type white) (number ?nb) (row ?row) (column ?colx&~?col) (column-of-horizontal-controller ?ctr-col)))
 =>
 	(modify ?mod (status c-value))
-	(if (eq ?cont 0) then (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1)))
+    (if (eq ?cont 0) then
+        (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1))
+        (bind ?*nb-candidates* (- ?*nb-candidates* 1))
+    )
 	(if (or ?*print-actions* ?*print-L0* ?*print-hidden-single*) then
 		(printout t "hidden-single-in-magic-horiz-sector" ?*implication-sign* (row-name ?row) (column-name ?col) ?*equal-sign* (numeral-name ?nb) crlf)
     )
@@ -68,6 +72,7 @@
      and this number belongs to the unique combination of this sector,
      then assert the c-value"
 	(declare (salience ?*magic-hidden-single-salience*))
+    (logical (context (name ?cont)))
 	(technique ?cont hidden-single)
 
     (vertical-magic-sector ?comb ?ctr-row ?col)
@@ -76,7 +81,10 @@
 	(not (candidate (context ?cont) (type white) (number ?nb) (column ?col) (row ?rowx&~?row) (row-of-vertical-controller ?ctr-row)))
 =>
     (modify ?mod (status c-value))
-	(if (eq ?cont 0) then (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1)))
+    (if (eq ?cont 0) then
+        (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1))
+        (bind ?*nb-candidates* (- ?*nb-candidates* 1))
+    )
 	(if (or ?*print-actions* ?*print-L0* ?*print-hidden-single*) then
 		(printout t "hidden-single-in-magic-verti-sector" ?*implication-sign* (row-name ?row) (column-name ?col) ?*equal-sign* (numeral-name ?nb) crlf)
 	)
@@ -90,6 +98,7 @@
 	"if there is a pseudo magic number in a horizontal sector, whose instance in this sector has been confined to a unique white cell, 
      then assert the c-value"
 	(declare (salience ?*pseudo-magic-hidden-single-salience*))
+    (logical (context (name ?cont)))
 	(technique ?cont hidden-single)
 
     (magic-digit-in-horizontal-sector ?nb ?row ?ctr-col)
@@ -98,7 +107,10 @@
 	(not (candidate (context ?cont) (type white) (number ?nb) (row ?row) (column ?colx&~?col) (column-of-horizontal-controller ?ctr-col)))
 =>
 	(modify ?mod (status c-value))
-	(if (eq ?cont 0) then (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1)))
+    (if (eq ?cont 0) then
+        (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1))
+        (bind ?*nb-candidates* (- ?*nb-candidates* 1))
+    )
 	(if (or ?*print-actions* ?*print-L0* ?*print-hidden-single*) then
 		(printout t "hidden-single-for-magic-digit-in-horiz-sector" ?*implication-sign* (row-name ?row) (column-name ?col) ?*equal-sign* (numeral-name ?nb) crlf)
 	)
@@ -109,6 +121,7 @@
 	"if there is a pseudo magic number in a vertical sector, whose instance in this sector has been confined to a unique white cell, 
      then assert the c-value"
 	(declare (salience ?*pseudo-magic-hidden-single-salience*))
+    (logical (context (name ?cont)))
 	(technique ?cont hidden-single)
 
     (magic-digit-in-vertical-sector ?nb ?ctr-row ?col)
@@ -117,7 +130,10 @@
 	(not (candidate (context ?cont) (type white) (number ?nb) (column ?col) (row ?rowx&~?row) (row-of-vertical-controller ?ctr-row)))
 =>
     (modify ?mod (status c-value))
-	(if (eq ?cont 0) then (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1)))
+    (if (eq ?cont 0) then
+        (bind ?*nb-csp-variables-solved* (+ ?*nb-csp-variables-solved* 1))
+        (bind ?*nb-candidates* (- ?*nb-candidates* 1))
+    )
 	(if (or ?*print-actions* ?*print-L0* ?*print-hidden-single*) then
 		(printout t "hidden-single-for-magic-digit-in-verti-sector" ?*implication-sign* (row-name ?row) (column-name ?col) ?*equal-sign* (numeral-name ?nb) crlf)
 	)

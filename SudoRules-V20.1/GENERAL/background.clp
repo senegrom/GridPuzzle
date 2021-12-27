@@ -4,7 +4,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;;                              CSP-RULES / SUDORULES
-;;;                              BACKGROUND
+;;;                                   BACKGROUND
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -16,7 +16,7 @@
                ;;;                                                    ;;;
                ;;;              copyright Denis Berthier              ;;;
                ;;;     https://denis-berthier.pagesperso-orange.fr    ;;;
-               ;;;            January 2006 - August 2020              ;;;
+               ;;;           January 2006 - December 2021             ;;;
                ;;;                                                    ;;;
                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -225,7 +225,6 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
 (deffunction row-column-to-rc-variable (?row ?col)
     (+ (* ?*internal-factor-2* 1) (* ?*internal-factor* ?row) ?col)
 )
@@ -277,7 +276,6 @@
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
 ;;; notice that, thanks to the redefinition of the internal-factors when g-labels are used,
 ;;; the following functions work also for g-labels (i.e. if ?r or ?c are segments)
 
@@ -316,6 +314,50 @@
 )
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; CONVERSION FUNCTIONS
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Added March 2021:
+;;; Convert the printed representation of a candidate or a list of candidates
+;;; (i.e. nirjck, where n, r and c are fixed symbols and i, j, k are the corresponding components)
+;;; to an internal label compatible with the current set of rules.
+
+(deffunction nirjck-to-nrc-triplet (?str)
+    (bind ?len (str-length ?str))
+    (bind ?list (create$))
+    (bind ?i 1)
+    (while (<= ?i ?len)
+        (bind ?x (sub-string ?i ?i ?str))
+        (if (and (neq ?x "n") (neq ?x "r") (neq ?x "c")) then
+            (bind ?list (create$ ?list (string-to-field ?x)))
+        )
+        (bind ?i (+ ?i 1))
+    )
+    ?list
+)
+
+
+(deffunction nirjck-to-label (?str)
+    (bind ?list (nirjck-to-nrc-triplet ?str))
+    (nrc-to-label (nth$ 1 ?list) (nth$ 2 ?list) (nth$ 3 ?list))
+)
+
+
+(deffunction list-of-nirjck-to-list-of-labels ($?list)
+    ;(funcall nirjck-to-label ?list); doesn't work
+    (bind ?len (length$ ?list))
+    (bind ?res (create$))
+    (bind ?i 1)
+    (while (<= ?i ?len)
+        (bind ?x (nth$ ?i ?list))
+        (bind ?res (create$ ?res (nirjck-to-label ?x)))
+        (bind ?i (+ ?i 1))
+    )
+    ?res
+)
 
 
 
@@ -324,7 +366,6 @@
 ;;; LINKS BETWEEN LABELS
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (deffunction nrc-linked (?nb1 ?row1 ?col1 ?bl1 ?nb2 ?row2 ?col2 ?bl2)
 	(if (neq ?nb1 ?nb2)
@@ -424,6 +465,26 @@
 )
 
 
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; FUNCTIONS "LINKED" AND "LINKED-OR"
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Instead of using the generic version of functions "linked" and "linked-or" (based on global variable ?*links*)
+;;; we redefine them respectively as "labels-linked" and "labels-linked-or"
+;;; (using the generic version would be slower)
+
+(deffunction linked (?lab1 ?lab2) (labels-linked ?lab1 ?lab2))
+
+(deffunction linked-or (?lab $?labs) (labels-linked-or ?lab $?labs))
+
+;;; for using the generic version, the above redefinitions must be deleted and
+;;; (if (eq ?cont 0) then (bind ?*links-count* (+ ?*links-count* 1)))
+;;; must be replaced by
+;;; (if (eq ?cont 0) then (add-link ?cand1 ?cand2))
 
 
 
@@ -539,4 +600,78 @@
 )
 
 
+;;; reverse transformations
+
+(deffunction transform-nb-to-hexa (?nb)
+    (if (eq ?nb 10) then (bind ?nb A))
+    (if (eq ?nb 11) then (bind ?nb B))
+    (if (eq ?nb 12) then (bind ?nb C))
+    (if (eq ?nb 13) then (bind ?nb D))
+    (if (eq ?nb 14) then (bind ?nb E))
+    (if (eq ?nb 15) then (bind ?nb F))
+    (if (eq ?nb 16) then (bind ?nb G))
+    ?nb
+)
+
+(deffunction transform-nb-to-25letters (?nb)
+    (if (eq ?nb 10) then (bind ?nb A))
+    (if (eq ?nb 11) then (bind ?nb B))
+    (if (eq ?nb 12) then (bind ?nb C))
+    (if (eq ?nb 13) then (bind ?nb D))
+    (if (eq ?nb 14) then (bind ?nb E))
+    (if (eq ?nb 15) then (bind ?nb F))
+    (if (eq ?nb 16) then (bind ?nb G))
+    (if (eq ?nb 17) then (bind ?nb H))
+    (if (eq ?nb 18) then (bind ?nb I))
+    (if (eq ?nb 19) then (bind ?nb J))
+    (if (eq ?nb 20) then (bind ?nb K))
+    (if (eq ?nb 21) then (bind ?nb L))
+    (if (eq ?nb 22) then (bind ?nb M))
+    (if (eq ?nb 23) then (bind ?nb N))
+    (if (eq ?nb 24) then (bind ?nb O))
+    (if (eq ?nb 25) then (bind ?nb P))
+    ?nb
+)
+
+
+(deffunction transform-nb-to-36letters (?nb)
+    (if (eq ?nb 10) then (bind ?nb A))
+    (if (eq ?nb 11) then (bind ?nb B))
+    (if (eq ?nb 12) then (bind ?nb C))
+    (if (eq ?nb 13) then (bind ?nb D))
+    (if (eq ?nb 14) then (bind ?nb E))
+    (if (eq ?nb 15) then (bind ?nb F))
+    (if (eq ?nb 16) then (bind ?nb G))
+    (if (eq ?nb 17) then (bind ?nb H))
+    (if (eq ?nb 18) then (bind ?nb I))
+    (if (eq ?nb 19) then (bind ?nb J))
+    (if (eq ?nb 20) then (bind ?nb K))
+    (if (eq ?nb 21) then (bind ?nb L))
+    (if (eq ?nb 22) then (bind ?nb M))
+    (if (eq ?nb 23) then (bind ?nb N))
+    (if (eq ?nb 24) then (bind ?nb O))
+    (if (eq ?nb 25) then (bind ?nb P))
+    (if (eq ?nb 26) then (bind ?nb Q))
+    (if (eq ?nb 27) then (bind ?nb R))
+    (if (eq ?nb 28) then (bind ?nb S))
+    (if (eq ?nb 29) then (bind ?nb T))
+    (if (eq ?nb 30) then (bind ?nb U))
+    (if (eq ?nb 31) then (bind ?nb V))
+    (if (eq ?nb 32) then (bind ?nb W))
+    (if (eq ?nb 33) then (bind ?nb X))
+    (if (eq ?nb 34) then (bind ?nb Y))
+    (if (eq ?nb 35) then (bind ?nb Z))
+    (if (eq ?nb 36) then (bind ?nb 0))
+    ?nb
+)
+
+
+(deffunction test-input-conversions()
+    (loop-for-count (?i 1 36)
+        (bind ?j (transform-36letters-to-nb (transform-nb-to-36letters ?i)))
+        (if (neq ?i ?j) then (printout t "Error: " ?i " => " ?j crlf))
+    )
+    TRUE
+)
+        
 

@@ -28,6 +28,9 @@
 
 
 
+;;; IN THE CURRENT VERSION, THIS FILE IS NOT USED
+
+
 ;;; restrict predicate is-csp-variable-for-label so that it is only true of actual non-decided candidates
 
 (defrule is-csp-variable-for-candidate
