@@ -94,7 +94,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce):
                     yield p
 
     @staticmethod
-    def partition2(n: int, count: int, mini: int = 1, maxi: Optional[int] = None) -> Iterator[Deque[int]]:
+    def partition2(n: int, count: int, mini: int = 1, maxi: Optional[int] = None) -> List[Deque[int]]:
         if maxi is None:
             maxi = n
 
