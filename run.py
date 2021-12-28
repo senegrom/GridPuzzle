@@ -4,7 +4,7 @@ import time
 
 import examples2
 from gridsolver.abstract_grids import solver
-from gridsolver.abstract_grids.grid_loading import create_from_str
+from gridsolver.abstract_grids.grid_loading import create_from_str_and_class
 
 if __name__ == "__main__":
 
@@ -44,7 +44,7 @@ if __name__ == "__main__":
         g = examples2.get_example(args)
         solver.solve(g, detail)
     elif args.str:
-        g = create_from_str(args.str, args.class_)
+        g = create_from_str_and_class(args.str, args.class_)
         solver.solve(g, detail)
     else:
         raise RuntimeError("Must define input puzzle either via module file or example choice. Run -h to see details.")
