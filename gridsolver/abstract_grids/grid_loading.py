@@ -13,13 +13,9 @@ def create_from_file(path: Union[Path, str], /, row_wise=True, space_sep=False) 
     Whitespace and lines starting with # will be ignored; . converted to 0"""
     if not isinstance(path, Path):
         path = Path(path)
-    lines = []
-    with path.open("rt") as f:
-        while line := f.readline():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            lines.append(line)
+    read_lines = path.read_text().splitlines(keepends=False)
+    lines = (line.strip() for line in read_lines)
+    lines = [line for line in lines if line and not line.startswith("#")]
 
     return create_from_str("\n".join(lines), row_wise=row_wise, space_sep=space_sep)
 
