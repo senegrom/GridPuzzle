@@ -31,6 +31,8 @@ def create_from_str(values: str, /, row_wise=True, space_sep=False) -> Grid:
     If space_sep is True, whitespace will be treated as seperators"""
 
     values = str(values)
+    if "::" not in values:
+        raise ValueError("Puzzle string contains no :: class separator.")
     try:
         class_, values2 = values.split("::")
         return create_from_str_and_class(values2, class_, row_wise=row_wise, space_sep=space_sep)
