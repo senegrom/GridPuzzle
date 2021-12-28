@@ -19,6 +19,23 @@ class SolveStatus(Enum):
     INVALID = -1
 
 
+def _load_preprocess_str(values: str):
+    assert isinstance(values, str), f"Cannot call _load_preprocess_str with object {values}, only strings."
+    return values.strip().replace(" ", "") \
+        .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
+
+
+def _load_preprocess_str_space_sep(values: Union[str, Iterable[str]]):
+    if isinstance(values, str):
+        values = values.strip().split("\n")
+    values = (x for value in values for x in value.split("\n"))
+    values = (x for value in values for x in value.split(" "))
+    values = (x for value in values for x in value.split("\t"))
+    values = (x.strip().replace(".", "0") for x in values)
+    values = (x for x in values if x)
+    return list(values)
+
+
 class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def __delitem__(self, i: int) -> None:
         raise TypeError("Grid.__delitem__ not supported")
@@ -134,12 +151,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.remove(gtee)
         self._guarantees_ia.add(gtee)
 
-    @staticmethod
-    def _load_preprocess_str(values: str):
-        return values.strip().replace(" ", "") \
-            .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
-
-    def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]]):
+    def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]],
+                                  /, space_sep=False):
         assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
         flattened_once = False
 
@@ -148,14 +161,18 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             flattened_once = True
 
         if isinstance(values, str):
-            values = self._load_preprocess_str(values)
+            if space_sep:
+                values = _load_preprocess_str_space_sep(values)
+            else:
+                values = _load_preprocess_str(values)
 
         assert len(values) == len(self._known), f"len: {len(values)} != {len(self._known)}"
         self.has_been_filled = True
         return values
 
-    def load(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]], /, row_wise=True):
-        values = self._load_preprocess_sequence(values)
+    def load(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]], /,
+             row_wise=True, space_sep=False):
+        values = self._load_preprocess_sequence(values, space_sep=False)
         if row_wise:
             for i, nk in enumerate(values):
                 row, col = divmod(i, self.rows)

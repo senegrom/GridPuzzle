@@ -1,5 +1,5 @@
 from gridsolver.abstract_grids.grid import Grid
-from gridsolver.abstract_grids.grid_loading import create_from_str_and_class
+from gridsolver.abstract_grids.grid_loading import create_from_str
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -8,7 +8,7 @@ from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 
 def get_example(args) -> Grid:
     if args.example == "s":
-        g = create_from_str_and_class("..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2.", Sudoku)
+        g = create_from_str("Sudoku::..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2.")
         print(g)
 
     elif args.example == "t":
@@ -106,10 +106,9 @@ def get_example(args) -> Grid:
         ])
 
     elif args.example == "c":
-        g = KillerSudoku()
-
-        g.load(
+        g = create_from_str(
             """
+            KillerSudoku::
             aaabbbccc
             defffgghi
             dejkkklhi

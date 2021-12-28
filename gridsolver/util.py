@@ -7,7 +7,7 @@ def flatten(lst, ltypes=(list, tuple, Sequence)):
     lst = list(lst)
     i = 0
     while i < len(lst):
-        while isinstance(lst[i], ltypes):
+        while isinstance(lst[i], ltypes) and not isinstance(lst[i], str):
             if not lst[i]:
                 lst.pop(i)
                 i -= 1
@@ -24,5 +24,3 @@ __T = TypeVar("__T")
 def peek(it: Iterable[__T]) -> (__T, Iterable[__T]):
     first, *it = it
     return first, chain([first], it)
-
-
