@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from gridsolver.abstract_grids import solver
+from gridsolver.solver import solver
 from gridsolver.abstract_grids.grid_loading import create_from_file
 
 example_path = Path("../Examples/Sudoku/")
@@ -41,8 +41,9 @@ def test_ex_sudoku_25x25():
     #     _solve_all_in_path(example_path / "25x25", True)
     pass
 
-    def test_ex_sudoku_cbg000():
-        _solve_all_in_path(example_path / "cbg-000", False)
+
+def test_ex_sudoku_cbg000():
+    _solve_all_in_path(example_path / "cbg-000", False)
 
 
 def test_ex_sudoku_clips():

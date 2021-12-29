@@ -3,6 +3,7 @@ import itertools
 from array import ArrayType, array
 from typing import Tuple, Set, Sequence, List, Dict, FrozenSet, Optional, Callable
 
+import gridsolver.solver.logger
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
@@ -10,15 +11,23 @@ from gridsolver.rules import unique, uneq, sumrules
 from gridsolver.rules.rules import Guarantee, RuleAlwaysSatisfied, InvalidGrid
 
 GC_LEN_PARAM: int = 22
+_lg = gridsolver.solver.logger.get_log(__name__, 0)
+_MAX_LVL = gridsolver.solver.logger.MAX_LVL
 
 
-def solve(grid: Grid, print_info: int = 0, max_sols: int = -1) -> Optional[Set[ImmutableGrid]]:
+def set_loglevel(lvl: int):
+    _lg.set_lvl(lvl)
+
+
+def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set[ImmutableGrid]]:
+    if log_level is not None:
+        set_loglevel(log_level)
     sols: Set[ImmutableGrid]
     rulehelpers: List[Callable[['Grid'], None]] = []
     grid.has_been_filled = True
+
     any_unique = any(isinstance(rule, unique.ElementsAtMostOnce) for rule in grid.rules)
-    any_sum = any(isinstance(rule, sumrules.SumAndElementsAtMostOnce) or isinstance(rule, sumrules.SumRule) for rule in
-                  grid.rules)
+    any_sum = any(isinstance(rule, sumrules.SumRule) for rule in grid.rules)
     any_uniq_ns = any(
         isinstance(rule, sumrules.ElementsAtMostOnce) and not isinstance(rule, sumrules.SumAndElementsAtMostOnce) for
         rule in grid.rules)
@@ -27,25 +36,20 @@ def solve(grid: Grid, print_info: int = 0, max_sols: int = -1) -> Optional[Set[I
     if any_sum and any_uniq_ns:
         rulehelpers.append(rulehelper_sum_atmostonce)
 
-    sols, _ = _solve_full(grid.deepcopy(), print_info, [], max_sols, rulehelpers)
+    sols, _ = _solve_full(grid.deepcopy(), [], max_sols, rulehelpers)
 
     for idx, sol in enumerate(sols):
-        print("Solution " + str(idx))
-        print(sol.to_str(PrettyPrintArgs(print_possible=False, args=grid.format_args)))
+        _lg.logs(0, "Solution " + str(idx), header=True)
+        _lg.logg(0, sol, PrettyPrintArgs(print_candidates=False, args=grid.format_args))
 
     if len(sols) == 0:
-        print("No solution found.")
+        _lg.logs(0, "No solution found.", header=True)
 
     return sols
 
 
-def __solve_atomic(grid: Grid, is_print: bool = False, upsteps: Sequence[int] = None,
-                   solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None) -> SolveStatus:
-    grid.presolve_hook()
-    if grid.presolved_not_yet_once:
-        grid.presolve_hook_once()
-        grid.presolved_not_yet_once = False
-
+def _solve_atomic(grid: Grid, upsteps: List[int] = None,
+                  solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None) -> SolveStatus:
     steps: int = 0
     old: Optional[Grid] = None
 
@@ -57,17 +61,14 @@ def __solve_atomic(grid: Grid, is_print: bool = False, upsteps: Sequence[int] = 
             if grid == old:
                 break
         old = grid.deepcopy()
-        if is_print:
-            if not all_but_rule_equal:
-                print(f"Step {upsteps} - {steps}")
-                print(
-                    grid.to_str(PrettyPrintArgs(print_possible=True, args=grid.format_args, detail_rule=True)))
-            else:
-                print(f"Step {upsteps} - {steps}")
-                # noinspection PyProtectedMember
-                print(grid._str_header(detailed=True))
+        _lg.logstep(len(upsteps), upsteps, str(steps))
+        if not all_but_rule_equal:
+            _lg.logg(_MAX_LVL, grid, PrettyPrintArgs(print_candidates=True, args=grid.format_args, detail_rule=True))
+        else:
+            # noinspection PyProtectedMember
+            _lg.logs(_MAX_LVL, grid._str_header(detailed=True))
         steps = steps + 1
-        __update_step(grid)
+        _update_step(grid)
 
     status: SolveStatus
     if not grid.is_valid:
@@ -77,37 +78,36 @@ def __solve_atomic(grid: Grid, is_print: bool = False, upsteps: Sequence[int] = 
     else:
         status = SolveStatus.NONE
 
-    if is_print:
-        print(f"Done after {steps} steps: \t{status}")
-        print(grid.to_str(PrettyPrintArgs(print_possible=True, args=grid.format_args)))
+    _lg.logs(_MAX_LVL, f"Done after {steps} steps: \t{status}")
+    _lg.logg(_MAX_LVL, grid, PrettyPrintArgs(print_candidates=True, args=grid.format_args))
     return status
 
 
 # rule updates
 
-def __update_known_from_possible(setitem: Callable[[int, int], None], possible: Tuple[Set[int]],
-                                 known: ArrayType) -> None:
+def _update_known_from_possible(setitem: Callable[[int, int], None], possible: Tuple[Set[int]],
+                                known: ArrayType) -> None:
     for i, p in enumerate(possible):
         if len(p) == 1 and known[i] == 0:
             setitem(i, next(iter(p)))
 
 
-def __refresh_possible_from_known(possible: Tuple[Set[int]], known: ArrayType) -> None:
+def _refresh_possible_from_known(possible: Tuple[Set[int]], known: ArrayType) -> None:
     for p, k in zip(possible, known):
         if k > 0 and len(p) > 1:
             p &= {k}
 
 
-def __update_from_rules(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
+def _update_from_rules(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
     for rule in grid.rules.copy():
         try:
             do_refresh, new_rules, new_gts = rule.apply(known, possible, grid.guarantees)
             if do_refresh:
-                __refresh_possible_from_known(possible, known)
+                _refresh_possible_from_known(possible, known)
         except RuleAlwaysSatisfied:
             new_rules = []
             new_gts = None
-            __refresh_possible_from_known(possible, known)
+            _refresh_possible_from_known(possible, known)
         if new_rules is not None:
             grid.deactivate_rule(rule)
             for new_rule in new_rules:
@@ -117,7 +117,7 @@ def __update_from_rules(grid: Grid, possible: Tuple[Set[int]], known: ArrayType)
                 grid.add_gtee_checked(gt)
 
 
-def __filter_guarantees(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
+def _filter_guarantees(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
     gt: Guarantee
 
     gts = [(gt.val, frozenset(gt.cells), gt) for gt in grid.guarantees]
@@ -175,24 +175,22 @@ def _update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]],
 
 
 # noinspection PyProtectedMember
-def __update_step(grid: Grid) -> None:
-    __update_known_from_possible(grid.__setitem__, grid._candidates, grid._known)
+def _update_step(grid: Grid) -> None:
+    _update_known_from_possible(grid.__setitem__, grid._candidates, grid._known)
     try:
-        __update_from_rules(grid, grid._candidates, grid._known)
-        __filter_guarantees(grid, grid._candidates, grid._known)
+        _update_from_rules(grid, grid._candidates, grid._known)
+        _filter_guarantees(grid, grid._candidates, grid._known)
     except InvalidGrid:
         pass
 
 
-def _solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
-                solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None
+def _solve_full(grid: Grid, steps: List[int], max_sols: int, solve_iter_hooks: Sequence[Callable[['Grid'], None]] = None
                 ) -> (Set[ImmutableGrid], Set[ImmutableGrid]):
     steps.append(0)
-    print_all: bool = print_info < 0
-    mylen = len(steps)
-    if mylen == len(grid) - GC_LEN_PARAM:
+    if len(steps) == len(grid) - GC_LEN_PARAM:
         gc.collect()
-    solved: SolveStatus = __solve_atomic(grid, print_all, steps, solve_iter_hooks)
+
+    solved: SolveStatus = _solve_atomic(grid, steps, solve_iter_hooks)
     if solved == SolveStatus.SOLVED:
         steps.pop()
         return {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}, set()
@@ -211,15 +209,15 @@ def _solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
     sols: Set[ImmutableGrid] = set()
     wrongs: Set[ImmutableGrid] = set()
     for test_val_cell in tests or test_gt.cells:
-        if print_all or mylen <= print_info:
-            if is_test_gt:
-                print(
-                    f"Step {steps} - Trial (guarantee) [{test_val_cell % grid.rows},{test_val_cell // grid.rows}] " +
-                    f"== {test_gt.val} with {len(sols)} previous solutions")
-            else:
-                print(
-                    f"Step {steps} - Trial [{test_i % grid.rows},{test_i // grid.rows}] " +
-                    f"== {test_val_cell} with {len(sols)} previous solutions")
+        mylen = len(steps)
+        if is_test_gt:
+            _lg.logstep(mylen, steps,
+                        f"Trial (guarantee) [{test_val_cell % grid.rows},{test_val_cell // grid.rows}] " +
+                        f"== {test_gt.val} with {len(sols)} previous solutions")
+        else:
+            _lg.logstep(mylen, steps,
+                        f"Trial [{test_i % grid.rows},{test_i // grid.rows}] " +
+                        f"== {test_val_cell} with {len(sols)} previous solutions")
         clone: Grid = grid.deepcopy()
 
         if is_test_gt:
@@ -230,13 +228,12 @@ def _solve_full(grid: Grid, print_info: int, steps: List[int], max_sols: int,
         sols_x: Set[ImmutableGrid]
         wrongs_x: Set[ImmutableGrid]
         new_max: int = -1 if max_sols == -1 else max_sols - len(sols)
-        sols_x, wrongs_x = _solve_full(clone, print_info, steps, new_max)
+        sols_x, wrongs_x = _solve_full(clone, steps, new_max)
         steps[mylen - 1] = steps[mylen - 1] + 1
         sols.update(sols_x)
         wrongs.update(wrongs_x)
         if 0 < max_sols <= len(sols):
-            if print_all:
-                print(f"Step {steps} - Reached max_sols == {max_sols} ")
+            _lg.logs(0, f"Step {steps} - Reached max_sols == {max_sols} ")
             sols = set(itertools.islice(iter(sols), max_sols))
             break
 

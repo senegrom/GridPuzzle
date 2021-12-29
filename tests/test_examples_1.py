@@ -3,7 +3,7 @@ from argparse import Namespace
 from pytest import raises
 
 import examples2
-from gridsolver.abstract_grids import solver
+from gridsolver.solver import solver
 
 
 def _example_test(x: str):

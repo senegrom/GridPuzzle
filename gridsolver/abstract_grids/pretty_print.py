@@ -10,7 +10,7 @@ class PrettyPrintArgs:
     def _none_alternate(arg1, arg2, default):
         return (default if arg2 is None else arg2) if arg1 is None else arg1
 
-    def __init__(self, sep_up: int = None, print_possible: bool = None, sep_lo: int = None, sep_ri: int = None,
+    def __init__(self, sep_up: int = None, print_candidates: bool = None, sep_lo: int = None, sep_ri: int = None,
                  sep_le: int = None, inner_grid_row: int = None, inner_grid_col: int = None, sep_in_ve: int = None,
                  sep_in_ho: int = None, detail_rule: bool = False, args: 'PrettyPrintArgs' = None):
         self.sep_up: int = PrettyPrintArgs._none_alternate(sep_up, args.sep_up if args else None, 2)
@@ -19,8 +19,8 @@ class PrettyPrintArgs:
         self.sep_ri: int = PrettyPrintArgs._none_alternate(sep_ri, args.sep_ri if args else None, 2)
         self.sep_in_ve: int = PrettyPrintArgs._none_alternate(sep_in_ve, args.sep_in_ve if args else None, 3)
         self.sep_in_ho: int = PrettyPrintArgs._none_alternate(sep_in_ho, args.sep_in_ho if args else None, 0)
-        self.print_possible: bool = PrettyPrintArgs._none_alternate(print_possible,
-                                                                    args.print_possible if args else None, False)
+        self.print_candidates: bool = PrettyPrintArgs._none_alternate(print_candidates,
+                                                                      args.print_candidates if args else None, False)
         self.detail_rule: bool = PrettyPrintArgs._none_alternate(detail_rule, args.detail_rule if args else None, False)
         self.inner_grid_row: int = PrettyPrintArgs._none_alternate(inner_grid_row,
                                                                    args.inner_grid_row if args else None, 0)
@@ -35,17 +35,17 @@ class PrettyPrintArgs:
 
     @staticmethod
     def blank() -> 'PrettyPrintArgs':
-        return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_possible=False,
+        return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_candidates=False,
                                inner_grid_col=0, inner_grid_row=0, detail_rule=False)
 
 
-def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], possible: Tuple[Set[int]] = None,
+def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], candidates: Tuple[Set[int]] = None,
                  args: PrettyPrintArgs = None) -> str:
     max_dgt = math.floor(math.log10(max_elem)) + 1
     if args is None:
         args = PrettyPrintArgs()
-    if possible is not None and args.print_possible:
-        return _show_possible_square(rows, cols, max_dgt, max_elem, possible, args)
+    if candidates is not None and args.print_candidates:
+        return _show_candidate_square(rows, cols, max_dgt, max_elem, candidates, args)
     else:
         if args.sep_in_ve == 3 and max_dgt == 1:
             args = PrettyPrintArgs(args=args, sep_in_ve=0)
@@ -62,15 +62,15 @@ def _simple_square(rows: int, cols: int, max_dgt: int, content: Iterable[int],
     return "\n".join(mybox)
 
 
-def _show_possible_square(rows: int, cols: int, max_dgt: int, max_elem: int, possible: Iterable[Set[int]],
-                          args: PrettyPrintArgs) -> str:
+def _show_candidate_square(rows: int, cols: int, max_dgt: int, max_elem: int, candidates: Iterable[Set[int]],
+                           args: PrettyPrintArgs) -> str:
     pb_w = math.ceil(math.sqrt(max_elem))
     pb_h = math.ceil(max_elem / pb_w)
     pb_wh = pb_w * pb_h
     blank_args = PrettyPrintArgs.blank()
     args = PrettyPrintArgs(args=args, inner_grid_row=1, inner_grid_col=1, sep_in_ve=1, sep_in_ho=1)
 
-    def show_possible_str(p: Set[int]) -> List[Tuple[str]]:
+    def show_candidate_str(p: Set[int]) -> List[Tuple[str]]:
         ll = len(p)
         if ll == 0:
             return [("╳" * max_dgt,) for _ in range(pb_wh)]
@@ -82,7 +82,7 @@ def _show_possible_square(rows: int, cols: int, max_dgt: int, max_elem: int, pos
                    [(" " * max_dgt,) for _ in range(bdry + 2, pb_wh)]
         return [(format_str.format(x),) if x in p else (" " * max_dgt,) for x in range(1, pb_wh + 1)]
 
-    myl: List[Deque[str]] = [_box_str(show_possible_str(p), pb_h, pb_w, blank_args) for p in possible]
+    myl: List[Deque[str]] = [_box_str(show_candidate_str(p), pb_h, pb_w, blank_args) for p in candidates]
     mybox = _box_str(myl, rows, cols, args)
     _fix_crossings(mybox)
     mybox.append("")

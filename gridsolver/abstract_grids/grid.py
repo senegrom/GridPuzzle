@@ -49,7 +49,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         candidates_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
         self._candidates: Tuple[Set[int]] = tuple(candidates_gen)
         self.has_been_filled = False
-        self.presolved_not_yet_once: bool = True
 
     @overload
     def __setitem__(self, i: int, val: int) -> None:
@@ -106,7 +105,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         setattr(result, "_rules_ia", copy.copy(self._rules_ia))
         setattr(result, "guarantees", copy.copy(self.guarantees))
         setattr(result, "_guarantees_ia", copy.copy(self._guarantees_ia))
-        setattr(result, "presolved_not_yet_once", self.presolved_not_yet_once)
         setattr(result, "format_args", copy.copy(self.format_args))
         return result
 
@@ -180,12 +178,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         else:
             for i, nk in enumerate(values):
                 self[i] = int(nk)
-
-    def presolve_hook_once(self):
-        pass
-
-    def presolve_hook(self):
-        pass
 
     def _str_header(self, detailed=False):
 

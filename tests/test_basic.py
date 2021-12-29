@@ -1,18 +1,18 @@
-from gridsolver.abstract_grids import solver
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.solver import solver
 
 
 def test_sudo0():
     g = Sudoku(1, 1, 1, 1)
-    sol = solver.solve(g, print_info=-1)
+    sol = solver.solve(g, log_level=-1)
     assert len(sol) == 1
 
 
 def test_sudo1():
     g = Sudoku(2, 2, 2, 2)
-    sol = solver.solve(g, print_info=-1)
+    sol = solver.solve(g, log_level=-1)
     assert len(sol) == 288
 
 
@@ -29,12 +29,12 @@ def test_sudo2():
     assert g == g4
     assert g == g5
     assert g == g6
-    sol = solver.solve(g, print_info=-1)
-    sol2 = solver.solve(g2, print_info=0)
-    sol3 = solver.solve(g3, print_info=0)
-    sol4 = solver.solve(g4, print_info=0)
-    sol5 = solver.solve(g5, print_info=0)
-    sol6 = solver.solve(g6, print_info=0)
+    sol = solver.solve(g, log_level=-1)
+    sol2 = solver.solve(g2, log_level=0)
+    sol3 = solver.solve(g3, log_level=0)
+    sol4 = solver.solve(g4, log_level=0)
+    sol5 = solver.solve(g5, log_level=0)
+    sol6 = solver.solve(g6, log_level=0)
     assert len(sol) == 4
     assert sol == sol2
     assert sol == sol3
@@ -50,9 +50,9 @@ def test_sudo2_file():
     g3 = create_from_file("./test_data/sudoku2x2b.pzl", space_sep=True)
     assert g == g2
     assert g == g3
-    sol = solver.solve(g, print_info=-1)
-    sol2 = solver.solve(g2, print_info=0)
-    sol3 = solver.solve(g3, print_info=0)
+    sol = solver.solve(g, log_level=-1)
+    sol2 = solver.solve(g2, log_level=0)
+    sol3 = solver.solve(g3, log_level=0)
     assert len(sol) == 4
     assert sol == sol2
     assert sol == sol3
@@ -60,20 +60,20 @@ def test_sudo2_file():
 
 def test_sudo3():
     g = create_from_str_and_class("1234432131......", Sudoku)
-    sol = solver.solve(g, print_info=-1)
+    sol = solver.solve(g, log_level=-1)
     assert len(sol) == 1
 
 
 def test_sudo_none():
     g = create_from_str_and_class("123443212......3", Sudoku)
-    sol = solver.solve(g, print_info=-1)
+    sol = solver.solve(g, log_level=-1)
     assert len(sol) == 0
 
 
 def test_sudo_nonsq():
     g = Sudoku(2, 3, 3, 2)
     g.load("123456654321........................", row_wise=False)
-    sol = solver.solve(g, print_info=-1)
+    sol = solver.solve(g, log_level=-1)
     assert len(sol) == 16
 
 
@@ -82,13 +82,13 @@ def test_sudo_mith():
         "...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...",
         Sudoku
     )
-    sol = solver.solve(g, print_info=-1)
+    sol = solver.solve(g, log_level=-1)
     assert len(sol) == 1
 
 
 def test_sudo_m10():
     g = Sudoku()
-    sol = solver.solve(g, max_sols=10, print_info=-1)
+    sol = solver.solve(g, max_sols=10, log_level=-1)
     assert len(sol) == 10
 
 
@@ -172,3 +172,7 @@ def test_eq_killer_sudoku():
     assert g != g_x
     assert g == g2
     assert g == g3
+
+
+def test_eq_futoshiki():
+    pass

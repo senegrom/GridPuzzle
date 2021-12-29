@@ -1,4 +1,4 @@
-from gridsolver.abstract_grids import solver
+from gridsolver.solver import solver
 
 
 def test_ex_sudoku():

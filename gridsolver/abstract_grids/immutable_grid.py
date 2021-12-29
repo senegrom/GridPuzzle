@@ -73,10 +73,10 @@ class ImmutableGrid(gridsolver.abstract_grids.gridsize_container.GridSizeContain
         return s
 
     def __str__(self) -> str:
-        return self.to_str(PrettyPrintArgs(print_possible=False, args=self.format_args))
+        return self.to_str(PrettyPrintArgs(print_candidates=False, args=self.format_args))
 
     def __repr__(self) -> str:
-        return self.to_str(PrettyPrintArgs(print_possible=False, args=self.format_args))
+        return self.to_str(PrettyPrintArgs(print_candidates=False, args=self.format_args))
 
     def to_str(self, args: PrettyPrintArgs = None) -> str:
         candidates = None

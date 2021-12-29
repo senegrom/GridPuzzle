@@ -1,24 +1,24 @@
 import collections
 import itertools
 import reprlib
+from abc import abstractmethod
 from array import array
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
-import gridsolver.abstract_grids.gridsize_container
+from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType
 from gridsolver.rules.unique import ElementsAtMostOnce
 
 
 class SumRule(Rule):
-
-    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, cells: Iterable[IdxType],
-                 mysum: int):
-        super().__init__(gsz, sorted(cells), None)
+    def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], mysum: int):
+        if not gsz is None and not cells is None:
+            super().__init__(gsz, cells, None)
         self.sum: int = mysum
         self._sum_possibles: Optional[Tuple[Set[int]]] = None
         self._candidates = None
-        raise NotImplementedError()
 
+    @abstractmethod
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None) -> \
             Tuple[
                 bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
@@ -28,13 +28,10 @@ class SumRule(Rule):
 # todo combine to sum rules for large areas
 # todo subtract from guarantees to make new subrules
 
-class SumAndElementsAtMostOnce(ElementsAtMostOnce):
-    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer, cells: Iterable[IdxType],
-                 mysum: int):
-        super().__init__(gsz, sorted(cells), None)
-        self.sum: int = mysum
-        self._sum_possibles: Optional[Tuple[Set[int]]] = None
-        self._possibles = None
+class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
+    def __init__(self, gsz: GridSizeContainer, cells: Iterable[IdxType], mysum: int):
+        ElementsAtMostOnce.__init__(self, gsz, cells, None)
+        SumRule.__init__(self, None, None, mysum)
 
     @property
     def sum_possibles(self) -> Tuple[FrozenSet[int]]:
@@ -49,9 +46,9 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce):
 
     @property
     def possibles(self) -> FrozenSet[int]:
-        if self._possibles is None:
-            self._possibles = frozenset(x for y in self.sum_possibles for x in y)
-        return self._possibles
+        if self._candidates is None:
+            self._candidates = frozenset(x for y in self.sum_possibles for x in y)
+        return self._candidates
 
     def __hash__(self):
         return hash((super().__hash__(), self.sum))
@@ -151,8 +148,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce):
 
         if lk:
             return False, [SumAndElementsAtMostOnce(
-                gsz=gridsolver.abstract_grids.gridsize_container.GridSizeContainer(self._rows, self._cols,
-                                                                                   self._max_elem),
+                gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),
                 cells=new_possible_cells, mysum=self.sum - sum(my_known))], new_gts
 
         return False, None, new_gts
