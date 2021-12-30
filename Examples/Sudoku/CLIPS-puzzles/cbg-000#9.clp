@@ -56,7 +56,7 @@ Sudoku::
 #***  Running on MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.7
 #***  Download from: https://github.com/denis-berthier/CSP-Rules-V2.1
 #***********************************************************************************************
-#.2.4..7......891.........65..48.....3..9....1.95..1.7..7.3...1263.........2.1...8
+.2.4..7......891.........65..48.....3..9....1.95..1.7..7.3...1263.........2.1...8
 #26 givens, 196 candidates
 #entering BRT
 #hidden-single-in-a-column ==> r8c9 = 7

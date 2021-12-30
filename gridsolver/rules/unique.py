@@ -7,11 +7,13 @@ from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, Invalid
 
 
 class ElementsAtMostOnce(Rule):
+    sort_idx = 20
+
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Iterable[IdxType] = None, cell_creator=None):
-        super().__init__(gsz, sorted(cells) if cells is not None else None, cell_creator)
+        super().__init__(gsz, cells, cell_creator)
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         my_known, new_possible, new_possible_cells = self._process_new_possible_cells(known, possible)
 
         lk = len(my_known)
@@ -25,12 +27,11 @@ class ElementsAtMostOnce(Rule):
 
     @staticmethod
     def _update_from_guarantees(possible: Tuple[Set[int]], new_possible_cells: List[int],
-                                guarantees: Sequence[Guarantee]) -> None:
+                                guarantees: Set[Guarantee]) -> None:
         npc_set = frozenset(new_possible_cells)
         for gt in guarantees:
-            gt_cells = frozenset(gt.cells)
-            if gt_cells <= npc_set:
-                for cell in npc_set - gt_cells:
+            if gt.cells <= npc_set:
+                for cell in npc_set - gt.cells:
                     possible[cell].discard(gt.val)
 
     def _process_new_possible_cells(self, known: MutableSequence[int], possible: Tuple[Set[int]]):
@@ -109,9 +110,11 @@ class ElementsAtMostOnce(Rule):
 
 
 class ElementsAtLeastOnce(Rule):
+    sort_idx = 10
+
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Iterable[IdxType] = None, cell_creator=None):
-        super().__init__(gsz, sorted(cells) if cells is not None else None, cell_creator)
+        super().__init__(gsz, cells, cell_creator)
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
-        return False, [], [Guarantee(val, self.cells) for val in range(1, self._max_elem + 1)]
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
+        return False, [], [Guarantee(val, frozenset(self.cells)) for val in range(1, self._max_elem + 1)]

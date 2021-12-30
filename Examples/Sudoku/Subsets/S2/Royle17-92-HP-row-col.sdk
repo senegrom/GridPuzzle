@@ -18,7 +18,7 @@ Sudoku::
 #***  Running on MacBookPro Retina Mid-2012 i7 2.7GHz, 16GB 1600MHz DDR3, MacOS 10.15.7
 #***  Download from: https://github.com/denis-berthier/CSP-Rules-V2.1
 #***********************************************************************************************
-#.......21.7.3........4.8...1...6..5..3....4......2....2...5.......7..8..6........
+.......21.7.3........4.8...1...6..5..3....4......2....2...5.......7..8..6........
 #hidden-single-in-a-column ==> r9c4 = 2
 #hidden-single-in-a-column ==> r2c6 = 2
 #hidden-single-in-a-row ==> r8c9 = 2

@@ -12,7 +12,7 @@ class IneqRule(Rule):
         super().__init__(gsz, [gt_cell, lt_cell], None)
         self._gt_cell, self._lt_cell = self.cells
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         plt = possible[self._lt_cell]
         pgt = possible[self._gt_cell]
         plt.intersection_update(range(1, max(pgt, default=0)))
@@ -38,7 +38,7 @@ class UneqRule(SingleRelationRule):
                  rel_cells: Iterable[IdxType]):
         super().__init__(gsz, origin_cell, rel_cells)
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         k = known[self.origin_cell]
 
         if k > 0:
@@ -59,7 +59,7 @@ class UneqRule(SingleRelationRule):
 
         rcs = frozenset(self.rel_cells)
         for gt in guarantees:
-            if gt.val not in removed_values and rcs.issuperset(gt.cells):
+            if gt.val not in removed_values and rcs >= gt.cells:
                 por.discard(gt.val)
                 removed_values.add(gt.val)
                 if not por:
@@ -76,7 +76,7 @@ class DiffGe2Rule(SingleRelationRule):
                  rel_cells: Iterable[IdxType]):
         SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         k = known[self.origin_cell]
         por = possible[self.origin_cell]
         if not por:
@@ -113,14 +113,13 @@ class DiffGe2Rule(SingleRelationRule):
         rcs = frozenset(self.rel_cells)
         rcso = frozenset([self.origin_cell, *self.rel_cells])
         for gt in guarantees:
-            gtcs = frozenset(gt.cells)
-            if gt.val not in removed_values1 and rcs >= gtcs:
+            if gt.val not in removed_values1 and rcs >= gt.cells:
                 por -= {gt.val - 1, gt.val, gt.val + 1}
                 removed_values1.add(gt.val)
                 removed_values2.add(gt.val)
                 if not por:
                     raise InvalidGrid()
-            elif gt.val not in removed_values2 and rcso >= gtcs:
+            elif gt.val not in removed_values2 and rcso >= gt.cells:
                 por -= {gt.val - 1, gt.val + 1}
                 removed_values2.add(gt.val)
                 if not por:

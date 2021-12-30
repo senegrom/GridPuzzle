@@ -9,10 +9,9 @@ def test_ex_sudoku():
 
 def test_ex_blank_sudoku():
     pass
-    # todo
-    # from gridsolver.examples import blankSudoku
-    # sol = solver.solve(blankSudoku.g, 2)
-    # assert len(sol) == 2
+    from examples import blankSudoku
+    sol = solver.solve(blankSudoku.g, max_sols=2)
+    assert len(sol) == 2
 
 
 def test_ex_futoshiki():

@@ -1,6 +1,6 @@
 import gc
 import itertools
-from array import ArrayType, array
+from array import ArrayType
 from typing import Tuple, Set, Sequence, List, Dict, FrozenSet, Optional, Callable
 
 import gridsolver.solver.logger
@@ -120,12 +120,11 @@ def _update_from_rules(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) 
 def _filter_guarantees(grid: Grid, possible: Tuple[Set[int]], known: ArrayType) -> None:
     gt: Guarantee
 
-    gts = [(gt.val, frozenset(gt.cells), gt) for gt in grid.guarantees]
     for val in range(1, grid.max_elem + 1):
-        for (_, cells1, gt1), (_, cells2, gt2) in itertools.combinations((gt for gt in gts if gt[0] == val), 2):
-            if cells1 <= cells2 and gt1 in grid.guarantees and gt2 in grid.guarantees:
+        for gt1, gt2 in itertools.combinations((gt for gt in grid.guarantees if gt.val == val), 2):
+            if gt1.cells <= gt2.cells and gt1 in grid.guarantees and gt2 in grid.guarantees:
                 grid.deactivate_gtee(gt2)
-            elif cells2 <= cells1 and gt1 in grid.guarantees and gt2 in grid.guarantees:
+            elif gt2.cells <= gt1.cells and gt1 in grid.guarantees and gt2 in grid.guarantees:
                 grid.deactivate_gtee(gt1)
 
     for gt in grid.guarantees.copy():
@@ -149,7 +148,7 @@ def _update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]],
 
     if is_single:
         if first_idx == -1:
-            possible[gt.cells[0]].clear()
+            possible[next(iter(gt.cells))].clear()
             raise InvalidGrid()
         pfi: Set[int] = possible[first_idx]
         kfi = known[first_idx]
@@ -164,13 +163,13 @@ def _update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]],
     if any(known[cell] > 0 or gt.val not in possible[cell] for cell in gt.cells):
         grid.deactivate_gtee(gt)
 
-        new_cells = [cell for cell in gt.cells if known[cell] == 0 and gt.val in possible[cell]]
+        new_cells = frozenset(cell for cell in gt.cells if known[cell] == 0 and gt.val in possible[cell])
 
         if not new_cells:
-            possible[gt.cells[0]].clear()
+            possible[next(iter(gt.cells))].clear()
             raise InvalidGrid()
 
-        new_gt = Guarantee(val=gt.val, cells=array('i', new_cells))
+        new_gt = Guarantee(val=gt.val, cells=new_cells)
         grid.add_gtee_checked(new_gt)
 
 
@@ -242,7 +241,7 @@ def _solve_full(grid: Grid, steps: List[int], max_sols: int, solve_iter_hooks: S
 
 
 def rulehelper_uneq_atmostonce(grid: Grid) -> None:
-    most_one_rule_cells = (rule for rule in grid.rules if isinstance(rule, unique.ElementsAtMostOnce))
+    most_one_rule_cells = [rule for rule in grid.rules if isinstance(rule, unique.ElementsAtMostOnce)]
 
     for rule in most_one_rule_cells:
         cells: FrozenSet[int] = frozenset(rule.cells)

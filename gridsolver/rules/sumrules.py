@@ -2,7 +2,6 @@ import collections
 import itertools
 import reprlib
 from abc import abstractmethod
-from array import array
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -19,7 +18,7 @@ class SumRule(Rule):
         self._candidates = None
 
     @abstractmethod
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None) -> \
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
             Tuple[
                 bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
         pass
@@ -34,7 +33,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         SumRule.__init__(self, None, None, mysum)
 
     @property
-    def sum_possibles(self) -> Tuple[FrozenSet[int]]:
+    def sum_candidates(self) -> Tuple[FrozenSet[int]]:
         if self._sum_possibles is None:
             len_cell = self.len_cells
             self._sum_possibles = tuple(
@@ -45,9 +44,9 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         return self._sum_possibles
 
     @property
-    def possibles(self) -> FrozenSet[int]:
+    def candidates(self) -> FrozenSet[int]:
         if self._candidates is None:
-            self._candidates = frozenset(x for y in self.sum_possibles for x in y)
+            self._candidates = frozenset(x for y in self.sum_candidates for x in y)
         return self._candidates
 
     def __hash__(self):
@@ -62,7 +61,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
     def __repr__(self):
         cell_str = reprlib.repr(self.cells)
         return f"{type(self).__name__}[{cell_str.partition('[')[2][:-2]}; {self.sum}; " \
-               f"{reprlib.repr(set(self.possibles))}; {reprlib.repr([set(p) for p in self.sum_possibles])}]"
+               f"{reprlib.repr(set(self.candidates))}; {reprlib.repr([set(p) for p in self.sum_candidates])}]"
 
     _partition_dic = {}
 
@@ -111,7 +110,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         SumAndElementsAtMostOnce._partition_dic[key] = result
         return result
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None):
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         my_known, new_possible, new_possible_cells = self._process_new_possible_cells(known, possible)
 
         lk = len(my_known)
@@ -133,7 +132,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
                 raise InvalidGrid()
 
         possible_union = set.union(*new_possible)
-        new_sum_possibles = (sp - my_known for sp in self.sum_possibles if my_known <= sp)
+        new_sum_possibles = (sp - my_known for sp in self.sum_candidates if my_known <= sp)
         new_sum_possibles = [sp for sp in new_sum_possibles if sp <= possible_union]
         new_possibles = frozenset().union(*new_sum_possibles)
         for p in new_possible:
@@ -166,7 +165,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
         nc_set = frozenset(new_cells)
         for gt in gts:
-            if nc_set.issuperset(gt.cells):
+            if nc_set >= gt.cells:
                 for perm in allowed_perms.copy():
                     if not any(cell in gt.cells and perm[i] == gt.val for (i, cell) in enumerate(new_cells)):
                         allowed_perms.remove(perm)
@@ -178,5 +177,5 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
         intersect = frozenset.intersection(*new_sum_possibles)
 
-        return [Guarantee(val=i, cells=array('i', (c for (c, p) in zip(new_cells, new_possible) if i in p))) for i in
+        return [Guarantee(val=i, cells=frozenset(c for (c, p) in zip(new_cells, new_possible) if i in p)) for i in
                 intersect]

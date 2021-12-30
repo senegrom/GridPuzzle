@@ -2,7 +2,7 @@ import numbers
 import reprlib
 from abc import abstractmethod, ABC
 from array import array, ArrayType
-from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional
+from typing import Tuple, Set, Sequence, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional, FrozenSet
 
 import gridsolver.abstract_grids.gridsize_container
 from gridsolver import util
@@ -22,14 +22,15 @@ class RuleAlwaysSatisfied(Exception):
 
 class Guarantee(NamedTuple):
     val: int
-    cells: ArrayType
+    cells: FrozenSet
 
     def __hash__(self):
-        return hash((type(self), bytes(self.cells), self.val))
+        return hash((type(self), hash(self.cells), self.val))
 
 
 class Rule(ABC):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', '_lcells')
+    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells')
+    sort_idx = 1000
 
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Optional[Iterable[IdxType]] = None,
@@ -58,7 +59,7 @@ class Rule(ABC):
             return (idx * self._rows + row for row in range(self._cols))
 
     @abstractmethod
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Sequence[Guarantee] = None) -> \
+    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
             Tuple[
                 bool, Optional[Iterable['Rule']], Optional[Iterable[Guarantee]]]:
         pass
