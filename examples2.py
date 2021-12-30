@@ -9,7 +9,6 @@ from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 def get_example(args) -> Grid:
     if args.example == "s":
         g = create_from_str("Sudoku::..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2.")
-        print(g)
 
     elif args.example == "t":
         g = Sudoku()
@@ -19,7 +18,6 @@ def get_example(args) -> Grid:
              [0, 0, 0, 0, 4, 5, 7, 0, 0], [0, 0, 0, 1, 0, 0, 0, 3, 0], [0, 0, 1, 0, 0, 0, 0, 6, 8],
              [0, 0, 8, 5, 0, 0, 0, 1, 0],
              [0, 9, 0, 0, 0, 0, 4, 0, 0]], row_wise=True)
-        print(g)
 
     elif args.example == "f":
         n = 5
@@ -35,7 +33,6 @@ def get_example(args) -> Grid:
         g[1, 0] = 3
         g[4, 0] = 4
 
-        print(g)
 
     elif args.example == "b":
         g = KillerSudoku()
