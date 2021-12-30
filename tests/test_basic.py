@@ -1,5 +1,5 @@
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
-from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku, _SumCellPair
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.solver import solver
 
@@ -104,7 +104,33 @@ def test_sudo_big2_m10():
     # assert len(sol) == 10
 
 
-def test_eq_killer_sudoku():
+def test_eq_killer_sudoku1():
+    g = create_from_str(
+        """
+        KillerSudoku::
+        a
+        :
+        a1
+        """)
+
+    g2 = KillerSudoku(None, 1, 1, 1, 1)
+    g2.load_with_dic(
+        """
+        a
+        """, {"a": 1})
+
+    g3 = create_from_str(
+        """KillerSudoku::a : a1""", space_sep=True)
+
+    g4 = KillerSudoku(None, 1, 1, 1, 1)
+    g4.ext_sum_cells([(1, (0, 0))])
+
+    assert g == g2
+    assert g == g3
+    assert g == g4
+
+
+def test_eq_killer_sudoku2():
     g = create_from_str(
         """
         KillerSudoku::

@@ -73,6 +73,11 @@ class Rule(ABC):
         return self._rows == other._rows and self._cols == other._cols and \
                self._max_elem == other._max_elem and self.cells == other.cells
 
+    def __le__(self, other: 'Rule') -> bool:
+        if not isinstance(other, Rule):
+            return False
+        # todo
+
     def __hash__(self):
         return hash((type(self), bytes(self.cells), self._rows, self._cols, self._max_elem, self.len_cells))
 

@@ -35,6 +35,8 @@ class GridLogger:
         self.logs(lvl, g.to_str(p))
 
     def set_lvl(self, lvl):
+        if lvl < 0:
+            lvl = MAX_LVL + lvl + 1
         self.lg.setLevel(_lvl(lvl))
 
 

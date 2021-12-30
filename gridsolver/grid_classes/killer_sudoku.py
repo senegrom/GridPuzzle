@@ -1,6 +1,6 @@
 from itertools import chain
 from numbers import Integral
-from typing import Iterable, NamedTuple, Mapping, Dict, MutableSequence, Union
+from typing import Iterable, NamedTuple, Mapping, Dict, Union, Sequence
 
 from gridsolver.abstract_grids.grid import _load_preprocess_str_space_sep, _load_preprocess_str
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -9,7 +9,7 @@ from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
 class _SumCellPair(NamedTuple):
     mysum: int
-    cells: MutableSequence
+    cells: Sequence
 
 
 class KillerSudoku(Sudoku):
