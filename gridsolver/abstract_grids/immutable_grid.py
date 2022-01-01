@@ -2,18 +2,19 @@ from array import ArrayType, array
 from numbers import Integral
 from typing import Sequence, Optional, Union, overload, Tuple, Iterator
 
-import gridsolver.abstract_grids.gridsize_container
+from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs, pretty_print
 from gridsolver.rules.rules import IdxTypeSlice
 
 
-class ImmutableGrid(gridsolver.abstract_grids.gridsize_container.GridSizeContainer, Sequence[int]):
+class ImmutableGrid(GridSizeContainer, Sequence[int]):
+    format_args = PrettyPrintArgs()
+
     def __init__(self, known: Sequence[int], rows: int, cols: Optional[int] = None,
                  max_elem: Optional[int] = None, name: Optional[str] = None):
-        gridsolver.abstract_grids.gridsize_container.GridSizeContainer.__init__(self, rows, cols, max_elem)
-        self._known: ArrayType = array('i', known)
+        GridSizeContainer.__init__(self, rows, cols, max_elem)
+        self._known: ArrayType = array('I', known)
         self.__hash: int = hash((bytes(self._known)))
-        self.format_args = PrettyPrintArgs()
         self.name = name
 
     def __eq__(self, other: 'ImmutableGrid') -> bool:
@@ -83,5 +84,5 @@ class ImmutableGrid(gridsolver.abstract_grids.gridsize_container.GridSizeContain
         if hasattr(self, "_candidates"):
             candidates = self._candidates
 
-        return self._str_header(args.detail_rule) + "\n" + pretty_print(self.rows, self.cols, self.max_elem,
+        return self._str_header(False) + "\n" + pretty_print(self.rows, self.cols, self.max_elem,
                                                                         self._known, candidates, args)

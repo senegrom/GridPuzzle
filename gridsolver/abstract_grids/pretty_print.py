@@ -1,7 +1,7 @@
 import math
 from collections import deque
 from itertools import chain
-from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence
+from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union
 
 
 class PrettyPrintArgs:
@@ -11,8 +11,8 @@ class PrettyPrintArgs:
         return (default if arg2 is None else arg2) if arg1 is None else arg1
 
     def __init__(self, sep_up: int = None, print_candidates: bool = None, sep_lo: int = None, sep_ri: int = None,
-                 sep_le: int = None, inner_grid_row: int = None, inner_grid_col: int = None, sep_in_ve: int = None,
-                 sep_in_ho: int = None, detail_rule: bool = False, args: 'PrettyPrintArgs' = None):
+                 sep_le: int = None, inner_grid_row: Union[int, str] = None, inner_grid_col: Union[int, str] = None,
+                 sep_in_ve: int = None, sep_in_ho: int = None, args: 'PrettyPrintArgs' = None):
         self.sep_up: int = PrettyPrintArgs._none_alternate(sep_up, args.sep_up if args else None, 2)
         self.sep_lo: int = PrettyPrintArgs._none_alternate(sep_lo, args.sep_lo if args else None, 2)
         self.sep_le: int = PrettyPrintArgs._none_alternate(sep_le, args.sep_le if args else None, 2)
@@ -21,22 +21,21 @@ class PrettyPrintArgs:
         self.sep_in_ho: int = PrettyPrintArgs._none_alternate(sep_in_ho, args.sep_in_ho if args else None, 0)
         self.print_candidates: bool = PrettyPrintArgs._none_alternate(print_candidates,
                                                                       args.print_candidates if args else None, False)
-        self.detail_rule: bool = PrettyPrintArgs._none_alternate(detail_rule, args.detail_rule if args else None, False)
-        self.inner_grid_row: int = PrettyPrintArgs._none_alternate(inner_grid_row,
-                                                                   args.inner_grid_row if args else None, 0)
-        self.inner_grid_col: int = PrettyPrintArgs._none_alternate(inner_grid_col,
-                                                                   args.inner_grid_col if args else None, 0)
+        self.inner_grid_row: Union[int, str] = PrettyPrintArgs._none_alternate(inner_grid_row,
+                                                                               args.inner_grid_row if args else None, 0)
+        self.inner_grid_col: Union[int, str] = PrettyPrintArgs._none_alternate(inner_grid_col,
+                                                                               args.inner_grid_col if args else None, 0)
 
     def __copy__(self):
         return PrettyPrintArgs(args=self)
 
-    def __deepcopy__(self):
+    def __deepcopy__(self, memodict=None):
         return PrettyPrintArgs(args=self)
 
     @staticmethod
     def blank() -> 'PrettyPrintArgs':
         return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_candidates=False,
-                               inner_grid_col=0, inner_grid_row=0, detail_rule=False)
+                               inner_grid_col=0, inner_grid_row=0)
 
 
 def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], candidates: Tuple[Set[int]] = None,
@@ -101,12 +100,21 @@ def _box_str(data: List[Iterable[str]], rows: int, cols: int, args: PrettyPrintA
     up = ["", "─", "━"][args.sep_up]
     lo = ["", "─", "━"][args.sep_lo]
 
+    if args.inner_grid_col == "sqrt":
+        inner_grid_col = int(math.sqrt(cols))
+    else:
+        inner_grid_col = args.inner_grid_col
+    if args.inner_grid_row == "sqrt":
+        inner_grid_row = int(math.sqrt(rows))
+    else:
+        inner_grid_row = args.inner_grid_row
+
     def splice(str_iter: Tuple[str]) -> Deque[str]:
         sp_result: Deque[str] = deque()
         n = len(str_iter)
         for i, d in enumerate(str_iter):
             sp_result.append(d)
-            if (i + 1) % args.inner_grid_col == 0 and i < n - 1:
+            if (i + 1) % inner_grid_col == 0 and i < n - 1:
                 sp_result.append(iv)
 
         return sp_result
@@ -114,7 +122,7 @@ def _box_str(data: List[Iterable[str]], rows: int, cols: int, args: PrettyPrintA
     def build_row(r: int) -> Iterator[Tuple[str]]:
         full_row: Iterator[Iterable[str]] = (data[r + c * rows] for c in range(cols))
         zipped_row: Iterator[Tuple[str]] = zip(*full_row)
-        if args.inner_grid_col == 0:
+        if inner_grid_col == 0:
             return zipped_row
         return (tuple(splice(rowling)) for rowling in zipped_row)
 
@@ -131,7 +139,7 @@ def _box_str(data: List[Iterable[str]], rows: int, cols: int, args: PrettyPrintA
     for r_idx, row_tuple in enumerate(new_rows):
         for row in row_tuple:
             result.append(le + "".join(row) + ri)
-        if args.sep_in_ho > 0 and r_idx < rows - 1 and (r_idx + 1) % args.inner_grid_row == 0:
+        if args.sep_in_ho > 0 and r_idx < rows - 1 and (r_idx + 1) % inner_grid_row == 0:
             result.append(sep_row(ih))
 
     if args.sep_up:

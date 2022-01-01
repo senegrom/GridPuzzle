@@ -44,7 +44,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         raise TypeError("Grid.insert not supported")
 
     def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
-        ImmutableGrid.__init__(self, array('i', [0] * (rows * rows)), rows, cols, max_elem)
+        ImmutableGrid.__init__(self, array('I', [0] * (rows * rows)), rows, cols, max_elem)
         RuleContainer.__init__(self)
         candidates_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
         self._candidates: Tuple[Set[int]] = tuple(candidates_gen)
@@ -72,7 +72,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._candidates[idx].intersection_update([val])
 
     def __repr__(self) -> str:
-        return self.to_str(PrettyPrintArgs(print_possible=True, args=self.format_args))
+        return self.to_str(PrettyPrintArgs(print_candidates=True, args=self.format_args))
 
     def __eq__(self, other: 'Grid') -> bool:
         if not isinstance(other, type(self)):
@@ -95,17 +95,16 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         cls = type(self)
         result = cls.__new__(cls)
         memo[id(self)] = result
-        setattr(result, "_GridSizeContainer__rows", self.rows)
-        setattr(result, "_GridSizeContainer__cols", self.cols)
-        setattr(result, "_GridSizeContainer__max_elem", self.max_elem)
-        setattr(result, "_GridSizeContainer__len", self.len)
+        setattr(result, "rows", self.rows)
+        setattr(result, "cols", self.cols)
+        setattr(result, "max_elem", self.max_elem)
+        setattr(result, "len", self.len)
         setattr(result, "_known", copy.deepcopy(self._known, memo=memo))
         setattr(result, "_candidates", copy.deepcopy(self._candidates, memo=memo))
         setattr(result, "rules", copy.copy(self.rules))
-        setattr(result, "_rules_ia", copy.copy(self._rules_ia))
+        setattr(result, "rules_ia", copy.copy(self.rules_ia))
         setattr(result, "guarantees", copy.copy(self.guarantees))
-        setattr(result, "_guarantees_ia", copy.copy(self._guarantees_ia))
-        setattr(result, "format_args", copy.copy(self.format_args))
+        setattr(result, "guarantees_ia", copy.copy(self.guarantees_ia))
         return result
 
     def deepcopy(self) -> 'Grid':
@@ -123,8 +122,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return self._candidates[self._get_index_from_key(key)]
 
     def get_smallest_candidate_set_gt1(self) -> Tuple[int, Set[int]]:
-        possible_where_len_gt1 = ((i, pp) for i, pp in enumerate(self._candidates) if len(pp) > 1)
-        mysorted = min(possible_where_len_gt1, key=lambda x: len(x[1]))
+        candidates_where_len_gt1 = ((i, pp) for i, pp in enumerate(self._candidates) if len(pp) > 1)
+        mysorted = min(candidates_where_len_gt1, key=lambda x: len(x[1]))
         return mysorted
 
     def get_smallest_guarantee(self) -> Optional[Guarantee]:
@@ -134,20 +133,20 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return mysorted
 
     def add_rule_checked(self, rule: Rule):
-        if rule not in self._rules_ia:
+        if rule not in self.rules_ia:
             self.rules.add(rule)
 
     def deactivate_rule(self, rule: Rule):
         self.rules.remove(rule)
-        self._rules_ia.add(rule)
+        self.rules_ia.add(rule)
 
     def add_gtee_checked(self, gtee: Guarantee):
-        if gtee not in self._guarantees_ia:
+        if gtee not in self.guarantees_ia:
             self.guarantees.add(gtee)
 
     def deactivate_gtee(self, gtee: Guarantee):
         self.guarantees.remove(gtee)
-        self._guarantees_ia.add(gtee)
+        self.guarantees_ia.add(gtee)
 
     def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]],
                                   /, space_sep=False):
@@ -182,14 +181,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def _str_header(self, detailed=False):
 
         s = f"{self.__class__.__name__}({self.rows},{self.cols})" + \
-            f" - [{len(self.rules)} rls, {len(self._rules_ia)} ria, {len(self.guarantees)} gts," \
-            f" {len(self._guarantees_ia)} gia]"
+            f" - [{len(self.rules)} rls, {len(self.rules_ia)} ria, {len(self.guarantees)} gts," \
+            f" {len(self.guarantees_ia)} gia]"
 
         if detailed:
             grp1 = {t: list(set(r.cells) for r in grp) for t, grp in
                     itertools.groupby(sorted(self.rules, key=lambda x: type(x).__name__), lambda x: type(x).__name__)}
             grp2 = {t: list(set(r.cells) for r in grp) for t, grp in
-                    itertools.groupby(sorted(self._rules_ia, key=lambda x: type(x).__name__),
+                    itertools.groupby(sorted(self.rules_ia, key=lambda x: type(x).__name__),
                                       lambda x: type(x).__name__)}
             s1 = '\n'.join(map(str, (f"  {len(grp):6} \t {key}" for key, grp in grp1.items())))
             s2 = '\n'.join(map(str, (f"  {len(grp):6} \t {key}" for key, grp in grp2.items())))

@@ -40,7 +40,7 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
 
     for idx, sol in enumerate(sols):
         _lg.logs(0, "Solution " + str(idx), header=True)
-        _lg.logg(0, sol, PrettyPrintArgs(print_candidates=False, args=grid.format_args))
+        _lg.logg(0, sol)
 
     if len(sols) == 0:
         _lg.logs(0, "No solution found.", header=True)
@@ -63,7 +63,7 @@ def _solve_atomic(grid: Grid, upsteps: List[int] = None,
         old = grid.deepcopy()
         _lg.logstep(len(upsteps), upsteps, str(steps))
         if not all_but_rule_equal:
-            _lg.logg(_MAX_LVL, grid, PrettyPrintArgs(print_candidates=True, args=grid.format_args, detail_rule=True))
+            _lg.logg(_MAX_LVL, grid, print_candidates=True)
         else:
             # noinspection PyProtectedMember
             _lg.logs(_MAX_LVL, grid._str_header(detailed=True))
@@ -79,7 +79,7 @@ def _solve_atomic(grid: Grid, upsteps: List[int] = None,
         status = SolveStatus.NONE
 
     _lg.logs(_MAX_LVL, f"Done after {steps} steps: \t{status}")
-    _lg.logg(_MAX_LVL, grid, PrettyPrintArgs(print_candidates=True, args=grid.format_args))
+    _lg.logg(_MAX_LVL, grid, print_candidates=True)
     return status
 
 
@@ -169,7 +169,7 @@ def _update_from_guarantee(grid: Grid, gt: Guarantee, possible: Tuple[Set[int]],
             possible[next(iter(gt.cells))].clear()
             raise InvalidGrid()
 
-        new_gt = Guarantee(val=gt.val, cells=new_cells)
+        new_gt = Guarantee(val=gt.val, cells=new_cells, rows=grid.rows, cols=grid.cols)
         grid.add_gtee_checked(new_gt)
 
 

@@ -11,26 +11,10 @@ class GridSizeContainer:
         assert cols > 0, "y should be > 0"
         assert max_elem > 0, "max_elem should be > 0"
 
-        self.__rows: int = rows
-        self.__cols: int = cols
-        self.__max_elem: int = max_elem
-        self.__len: int = rows * cols
+        self.rows: int = rows
+        self.cols: int = cols
+        self.max_elem: int = max_elem
+        self.len: int = rows * cols
 
     def __len__(self) -> int:
-        return self.__len
-
-    @property
-    def rows(self) -> int:
-        return self.__rows
-
-    @property
-    def cols(self) -> int:
-        return self.__cols
-
-    @property
-    def max_elem(self) -> int:
-        return self.__max_elem
-
-    @property
-    def len(self) -> int:
-        return self.__len
+        return self.len

@@ -7,39 +7,39 @@ from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, Invalid
 
 
 class ElementsAtMostOnce(Rule):
-    sort_idx = 20
 
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Iterable[IdxType] = None, cell_creator=None):
+        cells = sorted(list(cells)) if cells is not None else None
         super().__init__(gsz, cells, cell_creator)
 
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        my_known, new_possible, new_possible_cells = self._process_new_possible_cells(known, possible)
+    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
+        my_known, new_candidates, new_candidates_cells = self._process_new_candidate_cells(known, candidates)
 
         lk = len(my_known)
         if lk == self.len_cells:
             raise RuleAlwaysSatisfied()
 
-        ElementsAtMostOnce._multi_occur_check(self.len_cells - lk, new_possible)
-        ElementsAtMostOnce._update_from_guarantees(possible, new_possible_cells, guarantees)
+        ElementsAtMostOnce._multi_occur_check(self.len_cells - lk, new_candidates)
+        ElementsAtMostOnce._update_from_guarantees(candidates, new_candidates_cells, guarantees)
 
         return False, None, None
 
     @staticmethod
-    def _update_from_guarantees(possible: Tuple[Set[int]], new_possible_cells: List[int],
+    def _update_from_guarantees(candidates: Tuple[Set[int]], new_candidates_cells: List[int],
                                 guarantees: Set[Guarantee]) -> None:
-        npc_set = frozenset(new_possible_cells)
+        npc_set = frozenset(new_candidates_cells)
         for gt in guarantees:
             if gt.cells <= npc_set:
                 for cell in npc_set - gt.cells:
-                    possible[cell].discard(gt.val)
+                    candidates[cell].discard(gt.val)
 
-    def _process_new_possible_cells(self, known: MutableSequence[int], possible: Tuple[Set[int]]):
+    def _process_new_candidate_cells(self, known: MutableSequence[int], candidates: Tuple[Set[int]]):
         my_known = set()
-        new_possible = []
-        new_possible_cells: List[int] = []
+        new_candidates = []
+        new_candidates_cells: List[int] = []
         for cell in self.cells:
-            p = possible[cell]
+            p = candidates[cell]
             k = known[cell]
 
             if k > 0:
@@ -48,37 +48,37 @@ class ElementsAtMostOnce(Rule):
                     raise InvalidGrid()
                 my_known.add(k)
             else:
-                new_possible.append(p)
-                new_possible_cells.append(cell)
+                new_candidates.append(p)
+                new_candidates_cells.append(cell)
 
-        for p in new_possible:
+        for p in new_candidates:
             p -= my_known
             if not p:
                 raise InvalidGrid()
 
-        return my_known, new_possible, new_possible_cells
+        return my_known, new_candidates, new_candidates_cells
 
     @staticmethod
-    def _multi_occur_check(lkx: int, possible: Sequence[Set[int]]) -> None:
-        possible_st: Set[FrozenSet[int]] = set()
-        possible_intg = [p for p in possible if 1 < len(p) < lkx]
-        for p in possible_intg:
-            possible_st.add(frozenset(p))
+    def _multi_occur_check(lkx: int, candidates: Sequence[Set[int]]) -> None:
+        candidates_st: Set[FrozenSet[int]] = set()
+        candidates_intg = [p for p in candidates if 1 < len(p) < lkx]
+        for p in candidates_intg:
+            candidates_st.add(frozenset(p))
 
-        possible_ct: Counter[FrozenSet[int]] = collections.Counter()
-        for p in possible_intg:
-            possible_ct.update({frozenset(p): 1})
-        pct_items = possible_ct.items()
+        candidates_ct: Counter[FrozenSet[int]] = collections.Counter()
+        for p in candidates_intg:
+            candidates_ct.update({frozenset(p): 1})
+        pct_items = candidates_ct.items()
 
         for key, count in pct_items:
             if count == (lk := len(key)):
-                for p in possible:
+                for p in candidates:
                     if not p <= key:
                         p -= key
                     if not p:
                         raise InvalidGrid()
             elif count > lk:
-                for p in possible:
+                for p in candidates:
                     if p <= key:
                         p.clear()
                         raise InvalidGrid()
@@ -97,24 +97,25 @@ class ElementsAtMostOnce(Rule):
                     continue
                 lk = len(key)
                 if count == lk:
-                    for p in possible:
+                    for p in candidates:
                         if not p <= key:
                             p -= key
                         if not p:
                             raise InvalidGrid()
                 elif count > lk:
-                    for p in possible:
+                    for p in candidates:
                         if p <= key:
                             p.clear()
                             raise InvalidGrid()
 
 
 class ElementsAtLeastOnce(Rule):
-    sort_idx = 10
 
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Iterable[IdxType] = None, cell_creator=None):
+        sorted(list(cells)) if cells is not None else None
         super().__init__(gsz, cells, cell_creator)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        return False, [], [Guarantee(val, frozenset(self.cells)) for val in range(1, self._max_elem + 1)]
+        return False, [], [Guarantee(val, frozenset(self.cells), self._rows, self._cols) for val in
+                           range(1, self._max_elem + 1)]

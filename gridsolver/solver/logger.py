@@ -22,6 +22,7 @@ class GridLogger:
         self.lg: logging.Logger = lg
         self.grid_buffer: Optional[ImmutableGrid] = None
         self.set_lvl(lvl)
+        self.grid_buf = None
 
     def logs(self, lvl, s: str, header=False):
         if header:
@@ -31,8 +32,10 @@ class GridLogger:
     def logstep(self, lvl, steps: List[int], descr: str):
         self.logs(lvl, f"Step {steps} - {descr}", header=True)
 
-    def logg(self, lvl, g: ImmutableGrid, p: PrettyPrintArgs = None):
-        self.logs(lvl, g.to_str(p))
+    def logg(self, lvl, g: ImmutableGrid, **kwargs):
+        g2s = g.to_str(PrettyPrintArgs(args=g.format_args, **kwargs))
+        self.logs(lvl, g2s)
+        self.grid_buf = g2s
 
     def set_lvl(self, lvl):
         if lvl < 0:
