@@ -29,10 +29,8 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
     any_unique = any(isinstance(rule, unique.ElementsAtMostOnce) for rule in grid.rules)
     any_sum_unique = any(isinstance(rule, sumrules.SumAndElementsAtMostOnce) for rule in grid.rules)
     any_uneq = any(isinstance(rule, uneq.UneqRule) for rule in grid.rules)
-    if any_unique:
+    if any_unique or any_uneq:
         rulehelpers.append(rulehelper_atmostonce)
-    if any_uneq:
-        rulehelpers.append(rulehelper_uneq)
     if any_sum_unique:
         rulehelpers.append(rulehelper_sum_atmostonce)
 
@@ -264,10 +262,7 @@ def rulehelper_atmostonce(ats: AtomicSolver) -> bool:
             for cell in cells:
                 new_rule = uneq.UneqRule(ats.grid, cell, cells - {cell})
                 ats.grid.add_rule_checked(new_rule)
-    return False
 
-
-def rulehelper_uneq(ats: AtomicSolver) -> bool:
     uneq_rules = [rule for rule in ats.grid.rules if isinstance(rule, uneq.UneqRule)]
 
     for oc in range(ats.grid.len):
