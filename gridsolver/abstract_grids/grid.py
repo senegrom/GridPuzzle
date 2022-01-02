@@ -4,7 +4,7 @@ from array import array
 from enum import Enum
 from functools import partial
 from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, Optional, Iterator, \
-    MutableMapping, Generator, overload, List, Type, Dict, Any
+    MutableMapping, Generator, overload, List, Type, Dict, Any, Sequence
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
@@ -149,13 +149,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees_ia.add(gtee)
 
     def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]],
-                                  /, space_sep=False):
-        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
-        flattened_once = False
-
-        while not isinstance(values, str) and not flattened_once:
+                                  /, space_sep=False, assert_length=None):
+        if assert_length is None:
+            assert_length = len(self._known)
+        if not isinstance(values, str):
             values = flatten(values)
-            flattened_once = True
 
         if isinstance(values, str):
             if space_sep:
@@ -163,12 +161,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             else:
                 values = _load_preprocess_str(values)
 
-        assert len(values) == len(self._known), f"len: {len(values)} != {len(self._known)}"
+        assert len(values) == assert_length, f"len: {len(values)} != {assert_length}"
         self.has_been_filled = True
         return values
 
-    def load(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]], /,
+    def load(self, values: Union[str, Sequence[int], Sequence[Iterable[int]]], /,
              row_wise=True, space_sep=False):
+
+        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
         values = self._load_preprocess_sequence(values, space_sep=False)
         if row_wise:
             for i, nk in enumerate(values):

@@ -38,7 +38,7 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
 
     for idx, sol in enumerate(sols):
         _lg.logs(0, "Solution " + str(idx), header=True)
-        _lg.logg(0, sol)
+        _lg.logg(0, sol, args=grid.format_args)
 
     if len(sols) == 0:
         _lg.logs(0, "No solution found.", header=True)

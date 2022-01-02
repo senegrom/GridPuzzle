@@ -101,6 +101,7 @@ class KillerSudoku(Sudoku):
     def load_with_dic(self, sum_cells: Union[str, Iterable[str]], dic: Mapping[str, int], row_wise=True) -> None:
         """Input grid with single char per "group" as multiline string. Plus a dictionary for the sums"""
 
+        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
         sum_cells = self._load_preprocess_sequence(sum_cells)
         if not isinstance(dic, Mapping):
             dic = dict(dic)

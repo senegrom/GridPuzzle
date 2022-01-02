@@ -14,12 +14,13 @@ def solve_all_in_path(path: Path, space_sep: bool):
         lg.logs(0, f"\nLoading {file}")
         g = create_from_file(file, space_sep=space_sep)
         lg.logs(0, f"\nSolving {file}")
+        # sol = solver.solve(g, 1000)
         sol = solver.solve(g, 100)
         assert len(sol) == 1
 
 
 def _make_comments():
-    for d in Path("../Examples/LatinSquares/").iterdir():
+    for d in Path("../Examples/Futoshiki/").iterdir():
         if not d.is_dir():
             continue
         print(d)

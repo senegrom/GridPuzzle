@@ -46,8 +46,6 @@ def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], cand
     if candidates is not None and args.print_candidates:
         return _show_candidate_square(rows, cols, max_dgt, max_elem, candidates, args)
     else:
-        if args.sep_in_ve == 3 and max_dgt == 1:
-            args = PrettyPrintArgs(args=args, sep_in_ve=0)
         return _simple_square(rows, cols, max_dgt, known, args)
 
 
@@ -153,6 +151,9 @@ def _box_str(data: List[Iterable[str]], rows: int, cols: int, args: PrettyPrintA
 
 _BOX_DRAW_DIC = {
     (" ", " ", "│", "─"): "┌", (" ", " ", "┃", "━"): "┏", (" ", " ", "│", "━"): "┍", (" ", " ", "┃", "─"): "┎",
+    (" ", "─", " ", "─"): "─", (" ", "─", " ", "━"): "╼", (" ", "━", " ", "━"): "━", (" ", "━", " ", "─"): "╾",
+    (" ", " ", " ", " "): " ",
+    ("│", " ", "│", " "): "│", ("│", " ", "┃", " "): "╽", ("┃", " ", "│", " "): "╿", ("┃", " ", "┃", " "): "┃",
     ("│", "─", " ", " "): "┘", ("┃", "━", " ", " "): "┛", ("│", "━", " ", " "): "┙", ("┃", "─", " ", " "): "┚",
     ("│", " ", " ", "─"): "└", ("┃", " ", " ", "━"): "┗", ("│", " ", " ", "━"): "┕", ("┃", " ", " ", "─"): "┖",
     (" ", "─", "│", " "): "┐", (" ", "━", "┃", " "): "┓", (" ", "━", "│", " "): "┑", (" ", "─", "┃", " "): "┒",

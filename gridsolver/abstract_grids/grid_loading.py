@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from typing import Union, Iterable
 
@@ -75,7 +76,7 @@ def _create_from_str_and_class(values: Union[str, Iterable[int], Iterable[str]],
     if class_ is Sudoku:
         size = len(values) ** 0.25
         if size != int(size):
-            raise ValueError(f"Cannot infer size from non biquadratic length {len(values)}.")
+            raise ValueError(f"Cannot infer size ({size}) from non biquadratic length {len(values)}.")
         size = int(size)
         g = Sudoku(size, size, size, size)
     elif class_ is KillerSudoku:
@@ -84,13 +85,19 @@ def _create_from_str_and_class(values: Union[str, Iterable[int], Iterable[str]],
             length += 1
         size = length ** 0.25
         if size != int(size):
-            raise ValueError(f"Cannot infer size from non biquadratic length {len(values)}.")
+            raise ValueError(f"Cannot infer size ({size}) from non biquadratic length {len(values)}.")
         size = int(size)
         g = KillerSudoku(None, size, size, size, size)
-    elif class_ in {Futoshiki, LatinSquare, DiagonalLatinSquare}:
+    elif class_ is Futoshiki:
+        size = (1 + math.sqrt(1 + 3 * len(values))) / 3
+        if size != int(size):
+            raise ValueError(f"Cannot infer size ({size}) from length {len(values)} not satisfying x=3n^2-2n.")
+        size = int(size)
+        g = Futoshiki(size)
+    elif class_ in {LatinSquare, DiagonalLatinSquare}:
         size = len(values) ** 0.5
         if size != int(size):
-            raise ValueError(f"Cannot infer size from non quadratic length {len(values)}.")
+            raise ValueError(f"Cannot infer size ({size}) from non quadratic length {len(values)}.")
         size = int(size)
         g = class_(size)
 

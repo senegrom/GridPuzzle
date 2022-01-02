@@ -9,7 +9,7 @@ class Sudoku(UniqueSquareGrid):
         sep_in_ve=1,
         inner_grid_row="sqrt",
         inner_grid_col="sqrt"
-    ) #todo
+    )
 
     def __init__(self, rows_in_box: int = 3, cols_in_box: int = 3, box_rows: int = 3, box_cols: int = 3):
         n: int = rows_in_box * box_rows

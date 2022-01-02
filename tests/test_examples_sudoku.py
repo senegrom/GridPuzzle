@@ -7,12 +7,10 @@ example_path = Path("../Examples/Sudoku/")
 
 def test_ex_sudoku_16x16():
     solve_all_in_path(example_path / "16x16", True)
-    pass
 
 
 def test_ex_sudoku_25x25():
     solve_all_in_path(example_path / "25x25+", True)
-    pass
 
 
 def test_ex_sudoku_cbg000():
@@ -21,12 +19,10 @@ def test_ex_sudoku_cbg000():
 
 def test_ex_sudoku_clips():
     solve_all_in_path(example_path / "CLIPS-puzzles", False)
-    pass
 
 
 def test_ex_sudoku_clips_big():
     solve_all_in_path(example_path / "CLIPS-puzzles-big", True)
-    pass
 
 
 def test_ex_sudoku_fewers():
