@@ -14,8 +14,8 @@ def solve_all_in_path(path: Path, space_sep: bool):
         lg.logs(0, f"\nLoading {file}")
         g = create_from_file(file, space_sep=space_sep)
         lg.logs(0, f"\nSolving {file}")
-        # sol = solver.solve(g, 1000)
-        sol = solver.solve(g, 100)
+        sol = solver.solve(g, 1000)
+        # sol = solver.solve(g, 100)
         assert len(sol) == 1
 
 

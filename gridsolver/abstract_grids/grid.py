@@ -71,9 +71,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if val > 0:
             self._candidates[idx].intersection_update([val])
 
-    def __repr__(self) -> str:
-        return self.to_str(PrettyPrintArgs(print_candidates=True, args=self.format_args))
-
     def __eq__(self, other: 'Grid') -> bool:
         if not isinstance(other, type(self)):
             return False

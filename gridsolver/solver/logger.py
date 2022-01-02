@@ -32,12 +32,10 @@ class GridLogger:
     def logstep(self, lvl, steps: List[int], descr: str):
         self.logs(lvl, f"Step {steps} - {descr}", header=True)
 
-    def logg(self, lvl, g: ImmutableGrid, **kwargs):
-        if "args" in kwargs:
-            args = PrettyPrintArgs(**kwargs)
-        else:
-            args = PrettyPrintArgs(args=g.format_args, **kwargs)
-        g2s = g.to_str(args)
+    def logg(self, lvl, g: ImmutableGrid, rules=None, format_args=None, **kwargs):
+        if not format_args:
+            format_args = PrettyPrintArgs(args=g.format_args, **kwargs)
+        g2s = g.to_str(format_args, rules=rules)
         self.logs(lvl, g2s)
         self.grid_buf = g2s
 

@@ -1,10 +1,12 @@
 from array import ArrayType, array
 from numbers import Integral
-from typing import Sequence, Optional, Union, overload, Tuple, Iterator
+from typing import Sequence, Optional, Union, overload, Tuple, Iterator, Collection
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs, pretty_print
-from gridsolver.rules.rules import IdxTypeSlice
+from gridsolver.abstract_grids.rule_container import RuleContainer
+from gridsolver.rules.rules import IdxTypeSlice, Rule
+from gridsolver.rules.uneq import IneqRule
 
 
 class ImmutableGrid(GridSizeContainer, Sequence[int]):
@@ -73,16 +75,18 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
         s = f"{self.name or self.__class__.__name__}({self.rows},{self.cols})"
         return s
 
-    def __str__(self) -> str:
-        return self.to_str(PrettyPrintArgs(print_candidates=False, args=self.format_args))
+    def to_str(self, args: PrettyPrintArgs = None, rules: Collection[Rule] = None) -> str:
+        candidates = tuple()
+        ineqs = set()
 
-    def __repr__(self) -> str:
-        return self.to_str(PrettyPrintArgs(print_candidates=False, args=self.format_args))
-
-    def to_str(self, args: PrettyPrintArgs = None) -> str:
-        candidates = None
         if hasattr(self, "_candidates"):
             candidates = self._candidates
+        if args.sep_in_ve == 4 or args.sep_in_ho == 4:
+            assert isinstance(self, RuleContainer) or rules, "Need rules to display inequalities"
+            if not rules:
+                rules = self.rules
+            ineqs = {(rule.lt_cell, rule.gt_cell) for rule in rules if isinstance(rule, IneqRule)}
 
-        return self._str_header(False) + "\n" + pretty_print(self.rows, self.cols, self.max_elem,
-                                                                        self._known, candidates, args)
+        return self._str_header(False) + "\n" + \
+               pretty_print(self.rows, self.cols, self.max_elem, self._known, candidates=candidates,
+                            args=args, ineqs=ineqs)

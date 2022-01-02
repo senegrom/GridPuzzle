@@ -9,8 +9,8 @@ class Futoshiki(UniqueSquareGrid):
     """A (normally 5x5) grid with unique row/column entries and inequality constraints."""
 
     format_args = PrettyPrintArgs(
-        sep_in_ho=3,
-        sep_in_ve=3,
+        sep_in_ho=4,
+        sep_in_ve=4,
         inner_grid_row=1,
         inner_grid_col=1
     )

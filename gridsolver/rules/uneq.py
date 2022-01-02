@@ -23,6 +23,14 @@ class IneqRule(Rule):
             raise RuleAlwaysSatisfied()
         return False, None, None
 
+    @property
+    def gt_cell(self):
+        return self._gt_cell
+
+    @property
+    def lt_cell(self):
+        return self._lt_cell
+
 
 class SingleRelationRule(Rule, ABC):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'origin_cell', 'rel_cells')
