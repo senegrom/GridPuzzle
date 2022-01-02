@@ -259,8 +259,7 @@ def rulehelper_atmostonce(ats: AtomicSolver) -> bool:
     most_one_rules = [rule for rule in ats.grid.rules if isinstance(rule, unique.ElementsAtMostOnce)]
 
     for rule in most_one_rules:
-        cells = set(rule.cells)
-        cells = {cell for cell in cells if ats.grid._known[cell] == 0}
+        cells = frozenset(rule.cells)
         if len(cells) > 1:
             for cell in cells:
                 new_rule = uneq.UneqRule(ats.grid, cell, cells - {cell})
