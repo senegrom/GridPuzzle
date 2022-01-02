@@ -4,6 +4,7 @@ from typing import Union, Iterable
 from gridsolver.abstract_grids.grid import Grid, _load_preprocess_str_space_sep, _load_preprocess_str
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.latins_square import LatinSquare, DiagonalLatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
 
 
@@ -53,6 +54,10 @@ def create_from_str_and_class(values: str, class_: Union[type, str], /,
             class_ = Futoshiki
         elif class_ == "killersudoku":
             class_ = KillerSudoku
+        elif class_ == "latinsquare":
+            class_ = LatinSquare
+        elif class_ == "diagonallatinsquare":
+            class_ = DiagonalLatinSquare
         else:
             raise ValueError(f"Puzzle class {class_} not supported.")
     assert isinstance(class_, type), "not isinstance(class_, type)"
@@ -82,12 +87,12 @@ def _create_from_str_and_class(values: Union[str, Iterable[int], Iterable[str]],
             raise ValueError(f"Cannot infer size from non biquadratic length {len(values)}.")
         size = int(size)
         g = KillerSudoku(None, size, size, size, size)
-    elif class_ is Futoshiki:
+    elif class_ in {Futoshiki, LatinSquare, DiagonalLatinSquare}:
         size = len(values) ** 0.5
         if size != int(size):
             raise ValueError(f"Cannot infer size from non quadratic length {len(values)}.")
         size = int(size)
-        g = Futoshiki(size)
+        g = class_(size)
 
     if g is None:
         raise ValueError(f"Puzzle class {class_} not supported.")

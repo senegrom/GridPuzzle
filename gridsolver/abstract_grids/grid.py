@@ -173,7 +173,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if row_wise:
             for i, nk in enumerate(values):
                 row, col = divmod(i, self.rows)
-                self[(row, col)] = int(nk)
+
+                try:
+                    value = int(nk)
+                except ValueError:
+                    value = int(nk, base=36)
+                self[(row, col)] = value
         else:
             for i, nk in enumerate(values):
                 self[i] = int(nk)
