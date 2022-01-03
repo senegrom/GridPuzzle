@@ -7,16 +7,19 @@ _MAX_LVL = logger.MAX_LVL
 lg = logger.get_log("TEST", _MAX_LVL)
 
 
-def solve_all_in_path(path: Path, space_sep: bool):
+def solve_all_in_path(path: Path, space_sep: bool, max_count=0):
+    counter = 0
     for file in path.iterdir():
         if not file.is_file():
             continue
+        if max_count and counter >= max_count:
+            break
         lg.logs(0, f"\nLoading {file}")
         g = create_from_file(file, space_sep=space_sep)
         lg.logs(0, f"\nSolving {file}")
-        sol = solver.solve(g, 1000)
-        # sol = solver.solve(g, 100)
+        sol = solver.solve(g, 100)
         assert len(sol) == 1
+        counter += 1
 
 
 def _make_comments():

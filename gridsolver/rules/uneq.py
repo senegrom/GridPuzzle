@@ -1,5 +1,6 @@
+import itertools
 from abc import ABC
-from typing import Tuple, Set, Iterable, MutableSequence, FrozenSet, Optional
+from typing import Tuple, Set, Iterable, MutableSequence, FrozenSet
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType, _format_coord
@@ -71,12 +72,21 @@ class UneqRule(SingleRelationRule):
                 if not por:
                     raise InvalidGrid()
 
-        for gt in guarantees:
-            if gt.val not in removed_values and self.rel_cells >= gt.cells:
+        interesting_gts = [gt for gt in guarantees if
+                           gt.val not in removed_values and
+                           gt.val in por and
+                           self.rel_cells >= gt.cells]
+
+        for gt in interesting_gts:
+            if gt.val not in removed_values:
                 por.discard(gt.val)
                 removed_values.add(gt.val)
                 if not por:
                     raise InvalidGrid()
+        #
+        # interesting_gts = [gt for gt in interesting_gts if gt.val not in removed_values]
+        # for(i in range(2,3)):
+        #     for gtc in itertools.combinations
 
         if k > 0 and all(0 < known[cell] != k for cell in self.rel_cells):
             raise RuleAlwaysSatisfied()

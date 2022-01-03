@@ -4,6 +4,7 @@ from typing import Tuple, Set, Sequence, Iterable, MutableSequence, List, Counte
 
 import gridsolver.abstract_grids.gridsize_container
 from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
+from gridsolver.solver.solver_log import lg as _lg
 
 
 class ElementsAtMostOnce(Rule):
@@ -16,11 +17,11 @@ class ElementsAtMostOnce(Rule):
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         my_known, new_candidates, new_candidates_cells = self._process_new_candidate_cells(known, candidates)
 
-        lk = len(my_known)
-        if lk == self.len_cells:
+        len_known = len(my_known)
+        if len_known == self.len_cells:
             raise RuleAlwaysSatisfied()
 
-        ElementsAtMostOnce._multi_occur_check(self.len_cells - lk, new_candidates)
+        ElementsAtMostOnce._multi_occur_check(self.len_cells - len_known, new_candidates)
         ElementsAtMostOnce._update_from_guarantees(candidates, new_candidates_cells, guarantees)
 
         return False, None, None
@@ -59,54 +60,48 @@ class ElementsAtMostOnce(Rule):
         return my_known, new_candidates, new_candidates_cells
 
     @staticmethod
-    def _multi_occur_check(lkx: int, candidates: Sequence[Set[int]]) -> None:
-        candidates_st: Set[FrozenSet[int]] = set()
-        candidates_intg = [p for p in candidates if 1 < len(p) < lkx]
-        for p in candidates_intg:
-            candidates_st.add(frozenset(p))
+    def _multi_occur_check(len_unknown: int, candidates: Sequence[Set[int]]) -> None:
+        candidates_intg = [p for p in candidates if 1 < len(p) < len_unknown]
 
         candidates_ct: Counter[FrozenSet[int]] = collections.Counter()
         for p in candidates_intg:
             candidates_ct.update({frozenset(p): 1})
         pct_items = candidates_ct.items()
 
-        for key, count in pct_items:
-            if count == (lk := len(key)):
+        def do_filter(key, count):
+            if count == (len_key := len(key)):
                 for p in candidates:
-                    if not p <= key:
+                    if not p <= key and (p & key):
+                        _lg.logr("NakedTuple",
+                                 f"{count} times: {set(p)} vs {set(key)}",
+                                 set(key))
                         p -= key
                     if not p:
                         raise InvalidGrid()
-            elif count > lk:
+            elif count > len_key:
                 for p in candidates:
                     if p <= key:
+                        _lg.logr("TooManyNakedTuple",
+                                 f"occuring too often - {count} times - invalid",
+                                 set(key))
                         p.clear()
                         raise InvalidGrid()
 
-        for comb_ct in range(2, lkx):
+        for key, count in pct_items:
+            do_filter(key, count)
+
+        for comb_ct in range(2, len_unknown):
             for combs in itertools.combinations(pct_items, comb_ct):
                 count = 0
                 key = set()
-                dismiss = False
                 for keyx, countx in combs:
                     count += countx
                     key |= keyx
                     if countx > len(keyx):
-                        dismiss = True
-                if count >= lkx or dismiss:
+                        raise RuntimeError("This should be unreachable.")
+                if count >= len_unknown:
                     continue
-                lk = len(key)
-                if count == lk:
-                    for p in candidates:
-                        if not p <= key:
-                            p -= key
-                        if not p:
-                            raise InvalidGrid()
-                elif count > lk:
-                    for p in candidates:
-                        if p <= key:
-                            p.clear()
-                            raise InvalidGrid()
+                do_filter(key, count)
 
 
 class ElementsAtLeastOnce(Rule):

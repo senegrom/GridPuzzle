@@ -9,7 +9,7 @@ from gridsolver.solver import solver
 def _example_test(x: str):
     args = Namespace(example=x)
     g = examples2.get_example(args)
-    sol = solver.solve(g)
+    sol = solver.solve(g, 100)
     assert len(sol) == 1
 
 

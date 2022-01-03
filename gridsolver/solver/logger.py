@@ -17,6 +17,9 @@ def _lvl(lvl):
     return MAX_LVL - lvl + 1
 
 
+_RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple"}
+
+
 class GridLogger:
     def __init__(self, lg: logging.Logger, lvl: int):
         self.lg: logging.Logger = lg
@@ -28,6 +31,17 @@ class GridLogger:
         if header:
             s = Fore.BLUE + s + Style.RESET_ALL
         self.lg.log(_lvl(lvl), s)
+
+    def logd(self, s: str):
+        s = Fore.YELLOW + s + Style.RESET_ALL
+        self.lg.log(_lvl(11), s)
+
+    def logr(self, rule_name: str, message: str, item: int):
+        if not any(rule_name.startswith(rf) for rf in _RULE_LOG_FILTER):
+            return
+        message = ": " + message if message else ""
+        s = f"{Fore.GREEN}{rule_name} - {item}{message}{Style.RESET_ALL}"
+        self.lg.log(_lvl(1), s)
 
     def logstep(self, lvl, steps: List[int], descr: str):
         self.logs(lvl, f"Step {steps} - {descr}", header=True)
