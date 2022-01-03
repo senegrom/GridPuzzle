@@ -52,11 +52,10 @@ class AtomicSolver:
                     break
 
             _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
-            if not all_but_rule_equal:
-                _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
-            else:
-                # noinspection PyProtectedMember
+            if step_type == "Hook":
                 _lg.logs(_MAX_LVL, self.grid._str_header(detailed=True))
+            else:
+                _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
             steps = steps + 1
             if step_type == "Normal":
                 old = self.grid.deepcopy()
@@ -106,18 +105,28 @@ class AtomicSolver:
 
     def _fast_actions(self):
         with _lg.time_ctxt("fish3"):
-            apply_fish(self.grid, 2)
+            apply_fish(self.grid, 3)
+        with _lg.time_ctxt("hidden_tuples4"):
+            if self.hidden_pair_checked_gts:
+                remove_hidden_pairs(self.grid, 4,
+                                    [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+            else:
+                remove_hidden_pairs(self.grid, 4, None)
 
     def _slow_actions(self):
         with _lg.time_ctxt("fish"):
-            apply_fish(self.grid, 3)
+            apply_fish(self.grid, _MAX_FISH)
         with _lg.time_ctxt("hidden_tuples"):
             if self.hidden_pair_checked_gts:
-                remove_hidden_pairs(self.grid,
+                remove_hidden_pairs(self.grid, _MAX_HIDDEN_TUPLE,
                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
             else:
-                remove_hidden_pairs(self.grid, None)
+                remove_hidden_pairs(self.grid, _MAX_HIDDEN_TUPLE, None)
             self.hidden_pair_checked_gts = self.grid.guarantees
+
+
+_MAX_HIDDEN_TUPLE = 7
+_MAX_FISH = 4
 
 
 def _update_known_from_candidates(setitem: Callable[[int, int], None], possible: Tuple[Set[int]],

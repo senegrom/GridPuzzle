@@ -13,8 +13,8 @@ def test_ex_sudoku_clips():
     solve_all_in_path(example_path / "CLIPS-puzzles", False)
 
 
-# def test_ex_sudoku_clips_big():
-#     solve_all_in_path(example_path / "CLIPS-puzzles-big", True)
+def test_ex_sudoku_clips_big():
+    solve_all_in_path(example_path / "CLIPS-puzzles-big", True)
 
 
 def test_ex_sudoku_fewers():

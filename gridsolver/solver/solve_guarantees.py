@@ -61,11 +61,8 @@ def _remove_hidden_pairs_inner(grid: Grid, length, prev_gts: List[Guarantee],
         values.remove(gt.val)
 
 
-_MAX_HIDDEN_TUPLE = 7
-
-
-def remove_hidden_pairs(grid: Grid, candidate_gts: Optional[List[Guarantee]]) -> None:
-    range_start = min(_MAX_HIDDEN_TUPLE, grid.max_elem - 1)
+def remove_hidden_pairs(grid: Grid, max_ht, candidate_gts: Optional[List[Guarantee]]) -> None:
+    range_start = min(max_ht, grid.max_elem - 1)
     if candidate_gts is None:
         candidates = [gt for gt in grid.guarantees if len(gt.cells) <= range_start]
         _lg.logd(f"hidden_tuples {range_start}/{len(grid.guarantees)}>{len(candidates)}")
