@@ -4,6 +4,7 @@ from typing import Tuple, Set, Sequence, List, Optional, Callable
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
+from gridsolver.solver.solve_fish import apply_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_pairs, filter_guarantees
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -24,26 +25,32 @@ class AtomicSolver:
         steps: int = 0
         old: Optional[Grid] = None
 
-        while self.grid.is_valid:
-            do_refresh = False
-            all_but_rule_equal = self.grid.all_but_rule_equal(old)
-            step_type = "Normal"
-
-            if all_but_rule_equal and self.grid == old:
+        def hooks():
+            with _lg.time_ctxt("solve_iter_hooks"):
+                do_refresh = False
                 for hook in self.solve_iter_hooks or []:
                     do_refresh |= hook(self.grid)
                 if do_refresh:
                     _update_candidates_from_known(self.grid._candidates, self.grid._known)
-                if self.grid == old:
-                    self._slow_actions()
-                    if self.grid == old:
-                        break
-                    else:
-                        step_type = "Slow"
-                else:
-                    step_type = "Hook"
 
-            old = self.grid.deepcopy()
+        while self.grid.is_valid:
+            all_but_rule_equal = self.grid.all_but_rule_equal(old)
+            step_type = "Normal"
+
+            if all_but_rule_equal:
+                power_actions = [(hooks, "Hook"), (self._fast_actions, "Fast"), (self._slow_actions, "Slow")]
+                pa_idx = 0
+                break_outer = False
+                while self.grid == old:
+                    if pa_idx >= len(power_actions):
+                        break_outer = True
+                        break
+                    pa, step_type = power_actions[pa_idx]
+                    pa()
+                    pa_idx += 1
+                if break_outer:
+                    break
+
             _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
             if not all_but_rule_equal:
                 _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
@@ -52,6 +59,7 @@ class AtomicSolver:
                 _lg.logs(_MAX_LVL, self.grid._str_header(detailed=True))
             steps = steps + 1
             if step_type == "Normal":
+                old = self.grid.deepcopy()
                 self._update_step()
 
         status: SolveStatus
@@ -69,8 +77,10 @@ class AtomicSolver:
     def _update_step(self) -> None:
         _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
         try:
-            self._update_from_rules()
-            filter_guarantees(self.grid)
+            with _lg.time_ctxt("update_from_rules"):
+                self._update_from_rules()
+            with _lg.time_ctxt("filter_guarantees"):
+                filter_guarantees(self.grid)
         except InvalidGrid:
             pass
 
@@ -94,13 +104,20 @@ class AtomicSolver:
                 for gt in new_gts:
                     self.grid.add_gtee_checked(gt)
 
+    def _fast_actions(self):
+        with _lg.time_ctxt("fish3"):
+            apply_fish(self.grid, 2)
+
     def _slow_actions(self):
-        if self.hidden_pair_checked_gts:
-            remove_hidden_pairs(self.grid,
-                                [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
-        else:
-            remove_hidden_pairs(self.grid, None)
-        self.hidden_pair_checked_gts = self.grid.guarantees
+        with _lg.time_ctxt("fish"):
+            apply_fish(self.grid, 3)
+        with _lg.time_ctxt("hidden_tuples"):
+            if self.hidden_pair_checked_gts:
+                remove_hidden_pairs(self.grid,
+                                    [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+            else:
+                remove_hidden_pairs(self.grid, None)
+            self.hidden_pair_checked_gts = self.grid.guarantees
 
 
 def _update_known_from_candidates(setitem: Callable[[int, int], None], possible: Tuple[Set[int]],

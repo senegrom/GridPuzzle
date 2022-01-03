@@ -98,10 +98,10 @@ def test_sudo_big_m10():
     assert len(sol) == 2
 
 
-# def test_sudo_big2_m10():
-#     g = Sudoku(5, 5, 5, 5)
-#     sol = solver.solve(g, max_sols=1, log_level=100)
-#     assert len(sol) == 1
+def test_sudo_big2_m10():
+    g = Sudoku(5, 5, 5, 5)
+    sol = solver.solve(g, max_sols=1, log_level=100)
+    assert len(sol) == 1
 
 
 def test_eq_killer_sudoku1():

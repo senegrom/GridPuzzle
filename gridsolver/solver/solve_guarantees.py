@@ -28,8 +28,6 @@ def _remove_hidden_pairs_inner(grid: Grid, length, prev_gts: List[Guarantee],
                                values: Set, prev_union: List[Optional[Set]],
                                candidates_for_round: Optional[List[Guarantee]] = None):
     ll = len(prev_gts)
-    # if ll < 3:
-    #     _lg.logs(1, f"_remove_hidden_pairs_inner {ll}/{length}/{len(remaining_cdts)}")
 
     for i, gt in enumerate(candidates_for_round if candidates_for_round is not None else remaining_cdts):
         union_cells = prev_union[ll - 1] | gt.cells if ll else gt.cells
@@ -37,6 +35,9 @@ def _remove_hidden_pairs_inner(grid: Grid, length, prev_gts: List[Guarantee],
         if len(union_cells) > length:
             raise RuntimeError("Should not happen")
         if len(union_cells) < len(values):
+            _lg.logr(f"HiddenTuple@{length}",
+                     f"Invalid: {len(union_cells)} < {len(values)}",
+                     set(union_cells))
             grid._candidates[next(iter(union_cells))].clear()
             raise InvalidGrid
         if ll == length - 1:
@@ -60,14 +61,14 @@ def _remove_hidden_pairs_inner(grid: Grid, length, prev_gts: List[Guarantee],
         values.remove(gt.val)
 
 
-_MAX_HIDDEN_TUPLE = 100
+_MAX_HIDDEN_TUPLE = 7
 
 
 def remove_hidden_pairs(grid: Grid, candidate_gts: Optional[List[Guarantee]]) -> None:
     range_start = min(_MAX_HIDDEN_TUPLE, grid.max_elem - 1)
     if candidate_gts is None:
         candidates = [gt for gt in grid.guarantees if len(gt.cells) <= range_start]
-        _lg.logd(f"remove_hidden_pairs {range_start}/{len(grid.guarantees)}>{len(candidates)}")
+        _lg.logd(f"hidden_tuples {range_start}/{len(grid.guarantees)}>{len(candidates)}")
         for i in range(range_start, 1, -1):
             if not candidates:
                 break
@@ -78,10 +79,10 @@ def remove_hidden_pairs(grid: Grid, candidate_gts: Optional[List[Guarantee]]) ->
 
     candidates_for_1st = [gt for gt in candidate_gts if len(gt.cells) <= range_start]
     if not candidates_for_1st:
-        _lg.logd(f"remove_hidden_pairs C {range_start}/{len(grid.guarantees)}>{len(candidates_for_1st)}")
+        _lg.logd(f"hidden_tuples C {range_start}/{len(grid.guarantees)}>{len(candidates_for_1st)}")
         return
     candidates_for_2nd = [gt for gt in grid.guarantees if len(gt.cells) <= range_start]
-    _lg.logd(f"remove_hidden_pairs C {range_start}/{len(grid.guarantees)}>" +
+    _lg.logd(f"hidden_tuples C {range_start}/{len(grid.guarantees)}>" +
              f"{len(candidates_for_1st)}/{len(candidates_for_2nd)}")
     for i in range(range_start, 1, -1):
         if not candidates_for_1st or not candidates_for_2nd:

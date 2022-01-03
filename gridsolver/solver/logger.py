@@ -1,6 +1,8 @@
 import logging
 import sys
-from typing import Optional, List, Union
+import time
+from contextlib import contextmanager
+from typing import Optional, List, Union, Any
 
 from colorama import Style, init, Fore
 
@@ -17,7 +19,8 @@ def _lvl(lvl):
     return MAX_LVL - lvl + 1
 
 
-_RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple"}
+_RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish"}
+TIME_DELTA_LOG_MIN = 0.5
 
 
 class GridLogger:
@@ -32,11 +35,22 @@ class GridLogger:
             s = Fore.BLUE + s + Style.RESET_ALL
         self.lg.log(_lvl(lvl), s)
 
+    @contextmanager
+    def time_ctxt(self, s: str):
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            delta = time.perf_counter() - start
+            if delta > TIME_DELTA_LOG_MIN:
+                s = f"{s} took {delta}s."
+                self.logd(s)
+
     def logd(self, s: str):
-        s = Fore.YELLOW + s + Style.RESET_ALL
+        s = "    " + Fore.YELLOW + s + Style.RESET_ALL
         self.lg.log(_lvl(11), s)
 
-    def logr(self, rule_name: str, message: str, item: int):
+    def logr(self, rule_name: str, message: str, item: Any):
         if not any(rule_name.startswith(rf) for rf in _RULE_LOG_FILTER):
             return
         message = ": " + message if message else ""
