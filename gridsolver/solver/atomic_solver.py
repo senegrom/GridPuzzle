@@ -6,7 +6,7 @@ from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_pairs, filter_guarantees
-from gridsolver.solver.solve_wing import xy_wing
+from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -108,6 +108,8 @@ class AtomicSolver:
     def _fast_actions(self):
         with _lg.time_ctxt("xy_wing"):
             xy_wing(self.grid)
+        with _lg.time_ctxt("xyz_wing"):
+            xyz_wing(self.grid)
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_pairs(self.grid, 3,

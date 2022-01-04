@@ -83,8 +83,20 @@ def test_row_unique_col_min():
     g = Grid(rows=10, cols=5, max_elem=7)
     g.ext_rules(ElementsAtMostOnce, None, g.row_rule_applicators)
     g.ext_rules(ElementsAtLeastOnce, None, g.col_rule_applicators)
+    g.load("""
+    1324.
+    2134.
+    32145
+    42315
+    24153
+    13462
+    24371
+    ...2.
+    .5.31
+    ...4.
+    """,row_wise=True)
     sol = solver.solve(g, log_level=-1)
-    assert len(sol) == 16
+    assert len(sol) == 24
 
 
 def test_sudo_mith():

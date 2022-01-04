@@ -45,7 +45,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         raise TypeError("Grid.insert not supported")
 
     def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
-        ImmutableGrid.__init__(self, array('I', [0] * (rows * rows)), rows, cols, max_elem)
+        if cols is None:
+            cols = rows
+        assert rows, "Rows must be > 0"
+        ImmutableGrid.__init__(self, array('I', [0] * (rows * cols)), rows, cols, max_elem)
         RuleContainer.__init__(self)
         candidates_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
         self._candidates: Tuple[Set[int]] = tuple(candidates_gen)
@@ -170,7 +173,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         values = self._load_preprocess_sequence(values, space_sep=False)
         if row_wise:
             for i, nk in enumerate(values):
-                row, col = divmod(i, self.rows)
+                row, col = divmod(i, self.cols)
 
                 try:
                     value = int(nk)
@@ -221,7 +224,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     @property
     def col_rule_applicators(self) -> Iterator[Callable[[Rule], Iterable]]:
         # noinspection PyTypeChecker
-        return (partial(Rule.cells_as_row_or_column, idx=i, row_wise=False) for i in range(self.rows))
+        return (partial(Rule.cells_as_row_or_column, idx=i, row_wise=False) for i in range(self.cols))
 
     def get_rule_cells_of_type(self, class_: Type[Rule]) -> List[FrozenSet[int]]:
         return [frozenset(rule.cells) for rule in self.get_rules_of_type(class_)]

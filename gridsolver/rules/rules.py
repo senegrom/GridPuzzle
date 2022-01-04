@@ -1,7 +1,7 @@
 import numbers
 from abc import abstractmethod, ABC
 from array import array, ArrayType
-from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional, FrozenSet, List
+from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, NamedTuple, Optional, FrozenSet
 
 from gridsolver import util
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -32,6 +32,7 @@ class Guarantee(NamedTuple):
     def __hash__(self):
         return hash((type(self), hash(self.cells), self.val, self.rows, self.cols))
 
+
 TApplyResult = Tuple[bool, Optional[Iterable['Rule']], Optional[Iterable[Guarantee]]]
 
 
@@ -47,6 +48,7 @@ class Rule(ABC):
         self._cols: int = gsz.cols
         self._max_elem: int = gsz.max_elem
         if cells is not None:
+            assert cells, "Cells are empty"
             first, cells = util.peek(cells)
         else:
             first, cells = util.peek(cell_creator(self))
@@ -57,13 +59,14 @@ class Rule(ABC):
             cells = (keyx + keyy * gsz.rows for keyx, keyy in cells if
                      0 <= keyx < self._rows and 0 <= keyy < self._cols)
         self.cells = array('I', (cell for cell in cells if 0 <= cell < rc))
+        assert self.cells, "Cells are empty"
         self.len_cells: int = len(self.cells)
 
     def cells_as_row_or_column(self, idx: int, row_wise: bool) -> Iterable[IdxType]:
         if row_wise:
             return (idx + col * self._rows for col in range(self._cols))
         else:
-            return (idx * self._rows + row for row in range(self._cols))
+            return (idx * self._rows + row for row in range(self._rows))
 
     @abstractmethod
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
