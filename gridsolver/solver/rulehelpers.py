@@ -5,18 +5,16 @@ from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules import unique, uneq, sumrules
 
 
-# noinspection PyProtectedMember
 def rulehelper_atmostonce(grid: Grid) -> bool:
-    most_one_rules = [rule for rule in grid.rules if isinstance(rule, unique.ElementsAtMostOnce)]
+    unique_rule_cells = grid.unique_rule_cells
 
-    for rule in most_one_rules:
-        cells = frozenset(rule.cells)
+    for cells in unique_rule_cells:
         if len(cells) > 1:
             for cell in cells:
                 new_rule = uneq.UneqRule(grid, cell, cells - {cell})
                 grid.add_rule_checked(new_rule)
 
-    uneq_rules = [rule for rule in grid.rules if isinstance(rule, uneq.UneqRule)]
+    uneq_rules = grid.get_rules_of_type(uneq.UneqRule)
 
     for oc in range(grid.len):
         uneq_rule_cells_oc = {(frozenset(rule.rel_cells), rule) for rule in uneq_rules if
@@ -40,7 +38,7 @@ def rulehelper_sum_atmostonce(grid: Grid) -> bool:
                            isinstance(rule, unique.ElementsAtMostOnce)
                            and not isinstance(rule, sumrules.SumAndElementsAtMostOnce)]
 
-    sum_once_rules = [rule for rule in grid.rules if isinstance(rule, sumrules.SumAndElementsAtMostOnce)]
+    sum_once_rules = grid.get_rules_of_type(sumrules.SumAndElementsAtMostOnce)
 
     set_dic: Dict[sumrules.SumAndElementsAtMostOnce, FrozenSet[int]] = {}
     rule_cntn_dic: Dict[FrozenSet[int], List[sumrules.SumAndElementsAtMostOnce]] = {key: [] for key in

@@ -75,7 +75,7 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
         s = f"{self.name or self.__class__.__name__}({self.rows},{self.cols})"
         return s
 
-    def to_str(self, args: PrettyPrintArgs = None, rules: Collection[Rule] = None) -> str:
+    def to_str(self, args: PrettyPrintArgs = None, rules: Collection[Rule] = None) -> Tuple[str, str]:
         candidates = tuple()
         ineqs = set()
 
@@ -87,6 +87,6 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
                 rules = self.rules
             ineqs = {(rule.lt_cell, rule.gt_cell) for rule in rules if isinstance(rule, IneqRule)}
 
-        return self._str_header(False) + "\n" + \
-               pretty_print(self.rows, self.cols, self.max_elem, self._known, candidates=candidates,
-                            args=args, ineqs=ineqs)
+        return self._str_header(False), \
+               pretty_print(self.rows, self.cols, self.max_elem, self._known, candidates=candidates, args=args,
+                            ineqs=ineqs)

@@ -6,7 +6,7 @@ from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence,
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType, _format_coord
-from gridsolver.rules.unique import ElementsAtMostOnce
+from gridsolver.rules.unique import ElementsAtMostOnce, multi_occur_check
 
 
 class SumRule(Rule):
@@ -144,7 +144,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
         new_gts = self._filter_new_sum_candidates(new_candidate_cells, new_candidates,
                                                   new_sum_candidates, guarantees)
-        SumAndElementsAtMostOnce._multi_occur_check(self.len_cells - lk, new_candidates)
+        multi_occur_check(self.len_cells - lk, new_candidates)
         SumAndElementsAtMostOnce._update_from_guarantees(candidates, new_candidate_cells, guarantees)
 
         if lk:

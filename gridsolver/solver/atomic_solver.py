@@ -4,8 +4,9 @@ from typing import Tuple, Set, Sequence, List, Optional, Callable
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
-from gridsolver.solver.solve_fish import apply_fish
+from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_pairs, filter_guarantees
+from gridsolver.solver.solve_wing import xy_wing
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -38,7 +39,8 @@ class AtomicSolver:
             step_type = "Normal"
 
             if all_but_rule_equal:
-                power_actions = [(hooks, "Hook"), (self._fast_actions, "Fast"), (self._slow_actions, "Slow")]
+                power_actions = [(hooks, "Hook"), (self._fast_actions, "Fast"), (self._medium_actions, "Medium"),
+                                 (self._slow_actions, "Slow")]
                 pa_idx = 0
                 break_outer = False
                 while self.grid == old:
@@ -104,18 +106,30 @@ class AtomicSolver:
                     self.grid.add_gtee_checked(gt)
 
     def _fast_actions(self):
-        with _lg.time_ctxt("fish3"):
-            apply_fish(self.grid, 3)
+        with _lg.time_ctxt("xy_wing"):
+            xy_wing(self.grid)
+        with _lg.time_ctxt("hidden_tuples3"):
+            if self.hidden_pair_checked_gts:
+                remove_hidden_pairs(self.grid, 3,
+                                    [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+            else:
+                remove_hidden_pairs(self.grid, 3, None)
+        with _lg.time_ctxt("fish2"):
+            fish(self.grid, 2)
+
+    def _medium_actions(self):
         with _lg.time_ctxt("hidden_tuples4"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_pairs(self.grid, 4,
                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
             else:
                 remove_hidden_pairs(self.grid, 4, None)
+        with _lg.time_ctxt("fish3"):
+            fish(self.grid, 3)
+        with _lg.time_ctxt("finned-fish2"):
+            finned_fish(self.grid, 2)
 
     def _slow_actions(self):
-        with _lg.time_ctxt("fish"):
-            apply_fish(self.grid, _MAX_FISH)
         with _lg.time_ctxt("hidden_tuples"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_pairs(self.grid, _MAX_HIDDEN_TUPLE,
@@ -123,6 +137,10 @@ class AtomicSolver:
             else:
                 remove_hidden_pairs(self.grid, _MAX_HIDDEN_TUPLE, None)
             self.hidden_pair_checked_gts = self.grid.guarantees
+        with _lg.time_ctxt("fish"):
+            fish(self.grid, _MAX_FISH)
+        with _lg.time_ctxt("finned-fish"):
+            finned_fish(self.grid, _MAX_FISH - 1)
 
 
 _MAX_HIDDEN_TUPLE = 7

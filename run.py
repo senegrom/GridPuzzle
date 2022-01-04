@@ -3,12 +3,11 @@ import importlib
 import time
 
 import examples2
-import gridsolver.solver.logger
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file
 from gridsolver.solver import solver
+from gridsolver.solver.logger import get_log, MAX_LVL as _MAX_LVL, Colouring, set_colouring
 
-_lg = gridsolver.solver.logger.get_log(__name__, 0)
-_MAX_LVL = gridsolver.solver.logger.MAX_LVL
+_lg = get_log(__name__, 0)
 
 if __name__ == "__main__":
 
@@ -17,6 +16,8 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--str", help="string to load puzzle from", type=str)
     parser.add_argument("-c", "--class_", help="puzzle class", choices=("sudoku", "killersudoku", "futoshiki"),
                         type=str)
+    parser.add_argument("-o", "--colour", help="colour", choices=(Colouring.No, Colouring.Colorama, Colouring.Rich),
+                        default=Colouring.Colorama, type=Colouring.__getitem__)
     parser.add_argument("-f", "--file", help="puzzle string file to load puzzle from", type=str)
     parser.add_argument("-e", "--example", choices=("a", "b", "c", "d", "f", "m", "s", "t"),
                         help="Choose one of the default example puzzles and do not load from module file",
@@ -26,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true", help="Print very detailed log output (every step)")
     args = parser.parse_args()
 
+    set_colouring(args.colour)
     detail = 0
     if args.detail:
         detail = args.detail

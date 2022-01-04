@@ -4,12 +4,13 @@ from array import array
 from enum import Enum
 from functools import partial
 from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, Optional, Iterator, \
-    MutableMapping, Generator, overload, List, Type, Dict, Any, Sequence
+    MutableMapping, Generator, overload, List, Type, Dict, Any, Sequence, FrozenSet
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
-from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
 from gridsolver.abstract_grids.rule_container import RuleContainer
 from gridsolver.rules.rules import Rule, Guarantee, IdxType
+from gridsolver.rules.uneq import UneqRule
+from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.util import flatten
 
 
@@ -221,3 +222,44 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def col_rule_applicators(self) -> Iterator[Callable[[Rule], Iterable]]:
         # noinspection PyTypeChecker
         return (partial(Rule.cells_as_row_or_column, idx=i, row_wise=False) for i in range(self.rows))
+
+    def get_rule_cells_of_type(self, class_: Type[Rule]) -> List[FrozenSet[int]]:
+        return [frozenset(rule.cells) for rule in self.get_rules_of_type(class_)]
+
+    def get_rules_of_type(self, class_: Type[Rule]) -> List[Rule]:
+        return [rule for rule in self.rules if isinstance(rule, class_)]
+
+    @property
+    def unique_rule_cells(self) -> List[FrozenSet[int]]:
+        return self.get_rule_cells_of_type(ElementsAtMostOnce)
+
+    @property
+    def uneq_rule_pairs(self) -> Dict[int, FrozenSet[int]]:
+        return {rule.origin_cell: rule.rel_cells for rule in self.get_rules_of_type(UneqRule)}
+
+    @property
+    def guarantees_by_value(self) -> Dict[int, List[Guarantee]]:
+        return {i: [gt for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)}
+
+    @property
+    def guarantee_cells_by_value(self) -> Dict[int, List[FrozenSet]]:
+        return {i: [gt.cells for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)}
+
+    @property
+    def guarantees_by_length(self) -> Dict[int, Guarantee]:
+        return {ll: [gt for gt in self.guarantees if len(gt.cells) == ll] for ll in range(0, self.len)}
+
+    def get_guarantees_shorter_than(self, ll: int) -> List[Guarantee]:
+        return [gt for gt in self.guarantees if len(gt.cells) <= ll]
+
+    @property
+    def guarantees_by_value_and_length(self) -> Dict[int, Dict[int, List[FrozenSet]]]:
+        gbv = self.guarantee_cells_by_value
+        return {i:
+                    {ll:
+                         [gt for gt in gbv[i] if len(gt) == ll]
+                     for ll in range(1, self.len)}
+                for i in range(1, self.max_elem + 1)}
+
+    def get_cells_with_candidate_length(self, i) -> List[Tuple[int, Set[int]]]:
+        return [(cell, self._candidates[cell]) for cell, cts in enumerate(self._candidates) if len(cts) == i]

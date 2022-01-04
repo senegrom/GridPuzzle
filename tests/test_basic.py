@@ -1,6 +1,8 @@
+from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
 from gridsolver.solver import solver
 
 
@@ -77,11 +79,17 @@ def test_sudo_nonsq():
     assert len(sol) == 16
 
 
+def test_row_unique_col_min():
+    g = Grid(rows=10, cols=5, max_elem=7)
+    g.ext_rules(ElementsAtMostOnce, None, g.row_rule_applicators)
+    g.ext_rules(ElementsAtLeastOnce, None, g.col_rule_applicators)
+    sol = solver.solve(g, log_level=-1)
+    assert len(sol) == 16
+
+
 def test_sudo_mith():
-    g = create_from_str_and_class(
-        "...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...",
-        Sudoku
-    )
+    g = create_from_str_and_class("...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...",
+                                  Sudoku)
     sol = solver.solve(g, log_level=-1)
     assert len(sol) == 1
 
@@ -92,16 +100,23 @@ def test_sudo_m10():
     assert len(sol) == 10
 
 
-def test_sudo_big_m10():
-    g = Sudoku(4, 4, 4, 4)
+def test_sudo_xy_wing():
+    g = create_from_str_and_class("6...27......9..1.2.47.......3..1.4..9..4.6.2...8..3......5....3.65.79........1...",
+                                  Sudoku)
     sol = solver.solve(g, max_sols=2, log_level=100)
-    assert len(sol) == 2
-
-
-def test_sudo_big2_m10():
-    g = Sudoku(5, 5, 5, 5)
-    sol = solver.solve(g, max_sols=1, log_level=100)
     assert len(sol) == 1
+
+
+# def test_sudo_big_m10():
+#     g = Sudoku(4, 4, 4, 4)
+#     sol = solver.solve(g, max_sols=2, log_level=100)
+#     assert len(sol) == 2
+#
+#
+# def test_sudo_big2_m10():
+#     g = Sudoku(5, 5, 5, 5)
+#     sol = solver.solve(g, max_sols=1, log_level=100)
+#     assert len(sol) == 1
 
 
 def test_eq_killer_sudoku1():

@@ -3,6 +3,8 @@ from pathlib import Path
 from gridsolver.abstract_grids.grid_loading import create_from_file
 from gridsolver.solver import solver, logger
 
+logger.set_colouring(logger.Colouring.Colorama)
+
 _MAX_LVL = logger.MAX_LVL
 lg = logger.get_log("TEST", _MAX_LVL)
 
