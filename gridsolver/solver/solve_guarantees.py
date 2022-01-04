@@ -23,73 +23,6 @@ def filter_guarantees(grid: Grid) -> None:
         update_from_guarantee(grid, gt)
 
 
-def _remove_hidden_pairs_inner(cands: Tuple[Set[int]], rows: int, length, prev_gts: List[Guarantee],
-                               remaining_cdts: List[Guarantee],
-                               values: Set, prev_union: List[Optional[Set]],
-                               candidates_for_round: Optional[List[Guarantee]] = None):
-    ll = len(prev_gts)
-    c = CoordToString(rows)
-
-    for i, gt in enumerate(candidates_for_round if candidates_for_round is not None else remaining_cdts):
-        union_cells = prev_union[ll - 1] | gt.cells if ll else gt.cells
-        values.add(gt.val)
-        if len(union_cells) > length:
-            raise RuntimeError("Should not happen")
-        if len(union_cells) < len(values):
-            _lg.logr(f"HiddenTuple@{length}",
-                     f"Invalid: {len(union_cells)} < {len(values)} for values {values}",
-                     c(union_cells))
-            cands[next(iter(union_cells))].clear()
-            raise InvalidGrid
-        if ll == length - 1:
-            for cell in union_cells:
-                if not cands[cell] <= values:
-                    _lg.logr(f"HiddenTuple@{length}",
-                             f"{cands[cell]} vs {values} w/ tuple cells {c(union_cells)}",
-                             c(cell))
-                    cands[cell].intersection_update(values)
-        else:
-            prev_union[ll] = union_cells
-            if candidates_for_round is not None:
-                new_remaining_cdts = [gt for gt in remaining_cdts if
-                                      gt.val not in values and len(union_cells | gt.cells) <= length]
-            else:
-                new_remaining_cdts = [gt for gt in remaining_cdts[i + 1:] if
-                                      gt.val not in values and len(union_cells | gt.cells) <= length]
-            if new_remaining_cdts:
-                _remove_hidden_pairs_inner(cands, rows, length, prev_gts + [gt], new_remaining_cdts,
-                                           values, prev_union)
-        values.remove(gt.val)
-
-
-# noinspection PyProtectedMember
-def remove_hidden_pairs(grid: Grid, max_ht, candidate_gts: Optional[List[Guarantee]]) -> None:
-    range_start = min(max_ht, grid.max_elem - 1)
-    if candidate_gts is None:
-        candidates = grid.get_guarantees_shorter_than(range_start)
-        for i in range(range_start, 1, -1):
-            if not candidates:
-                break
-            _remove_hidden_pairs_inner(grid._candidates, grid.rows, i, [], candidates, set(), [None] * i)
-            if i > 2:
-                candidates = [gt for gt in candidates if len(gt.cells) <= i - 1]
-        return
-
-    candidates_for_1st = [gt for gt in candidate_gts if len(gt.cells) <= range_start]
-    if not candidates_for_1st:
-        return
-    candidates_for_2nd = grid.get_guarantees_shorter_than(range_start)
-    for i in range(range_start, 1, -1):
-        if not candidates_for_1st or not candidates_for_2nd:
-            break
-        _remove_hidden_pairs_inner(grid._candidates, grid.rows, i, [], candidates_for_2nd, set(), [None] * i,
-                                   candidates_for_1st)
-        if i > 2:
-            candidates_for_1st = [gt for gt in candidates_for_1st if len(gt.cells) <= i - 1]
-            candidates_for_2nd = [gt for gt in candidates_for_2nd if len(gt.cells) <= i - 1]
-
-
-# todo combine guarantees like AtLeastOnce
 # noinspection PyProtectedMember
 def update_from_guarantee(grid: Grid, gt: Guarantee):
     first_idx = -1
@@ -132,3 +65,69 @@ def update_from_guarantee(grid: Grid, gt: Guarantee):
 
         new_gt = Guarantee(val=gt.val, cells=new_cells, rows=grid.rows, cols=grid.cols)
         grid.add_gtee_checked(new_gt)
+
+
+def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], rows: int, length, prev_gts: List[Guarantee],
+                                remaining_cdts: List[Guarantee],
+                                values: Set, prev_union: List[Optional[Set]],
+                                candidates_for_round: Optional[List[Guarantee]] = None):
+    ll = len(prev_gts)
+    c = CoordToString(rows)
+
+    for i, gt in enumerate(candidates_for_round if candidates_for_round is not None else remaining_cdts):
+        union_cells = prev_union[ll - 1] | gt.cells if ll else gt.cells
+        values.add(gt.val)
+        if len(union_cells) > length:
+            raise RuntimeError("Should not happen")
+        if len(union_cells) < len(values):
+            _lg.logr(f"HiddenTuple@{length}",
+                     f"Invalid: {len(union_cells)} < {len(values)} for values {values}",
+                     c(union_cells))
+            cands[next(iter(union_cells))].clear()
+            raise InvalidGrid
+        if ll == length - 1:
+            for cell in union_cells:
+                if not cands[cell] <= values:
+                    _lg.logr(f"HiddenTuple@{length}",
+                             f"{cands[cell]} vs {values} w/ tuple cells {c(union_cells)}",
+                             c(cell))
+                    cands[cell].intersection_update(values)
+        else:
+            prev_union[ll] = union_cells
+            if candidates_for_round is not None:
+                new_remaining_cdts = [gt for gt in remaining_cdts if
+                                      gt.val not in values and len(union_cells | gt.cells) <= length]
+            else:
+                new_remaining_cdts = [gt for gt in remaining_cdts[i + 1:] if
+                                      gt.val not in values and len(union_cells | gt.cells) <= length]
+            if new_remaining_cdts:
+                _remove_hidden_tuples_inner(cands, rows, length, prev_gts + [gt], new_remaining_cdts,
+                                            values, prev_union)
+        values.remove(gt.val)
+
+
+# noinspection PyProtectedMember
+def remove_hidden_tuples(grid: Grid, max_ht, candidate_gts: Optional[List[Guarantee]]) -> None:
+    range_start = min(max_ht, grid.max_elem - 1)
+    if candidate_gts is None:
+        candidates = grid.get_guarantees_shorter_than(range_start)
+        for i in range(range_start, 1, -1):
+            if not candidates:
+                break
+            _remove_hidden_tuples_inner(grid._candidates, grid.rows, i, [], candidates, set(), [None] * i)
+            if i > 2:
+                candidates = [gt for gt in candidates if len(gt.cells) <= i - 1]
+        return
+
+    candidates_for_1st = [gt for gt in candidate_gts if len(gt.cells) <= range_start]
+    if not candidates_for_1st:
+        return
+    candidates_for_2nd = grid.get_guarantees_shorter_than(range_start)
+    for i in range(range_start, 1, -1):
+        if not candidates_for_1st or not candidates_for_2nd:
+            break
+        _remove_hidden_tuples_inner(grid._candidates, grid.rows, i, [], candidates_for_2nd, set(), [None] * i,
+                                    candidates_for_1st)
+        if i > 2:
+            candidates_for_1st = [gt for gt in candidates_for_1st if len(gt.cells) <= i - 1]
+            candidates_for_2nd = [gt for gt in candidates_for_2nd if len(gt.cells) <= i - 1]

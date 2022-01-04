@@ -1,11 +1,13 @@
 from array import ArrayType
-from typing import Tuple, Set, Sequence, List, Optional, Callable
+from typing import Tuple, Set, List, Optional, Callable
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
+from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_fish import fish, finned_fish
-from gridsolver.solver.solve_guarantees import remove_hidden_pairs, filter_guarantees
+from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
+from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
 from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -13,11 +15,9 @@ from gridsolver.solver.solver_log import lg as _lg
 # noinspection PyProtectedMember
 class AtomicSolver:
     def __init__(self, grid: Grid, upsteps: List[int],
-                 solve_iter_hooks: Sequence[Callable[[Grid], bool]],
                  hidden_pair_checked_gts: Set[Guarantee]):
         self.grid = grid
         self.upsteps = upsteps
-        self.solve_iter_hooks = solve_iter_hooks if solve_iter_hooks is not None else []
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
 
     def solve_atomic(self) -> SolveStatus:
@@ -26,42 +26,27 @@ class AtomicSolver:
         steps: int = 0
         old: Optional[Grid] = None
 
-        def hooks():
-            with _lg.time_ctxt("solve_iter_hooks"):
-                do_refresh = False
-                for hook in self.solve_iter_hooks or []:
-                    do_refresh |= hook(self.grid)
-                if do_refresh:
-                    _update_candidates_from_known(self.grid._candidates, self.grid._known)
-
         while self.grid.is_valid:
-            all_but_rule_equal = self.grid.all_but_rule_equal(old)
-            step_type = "Normal"
+            do_step = True
+            step_type = "basic"
 
-            if all_but_rule_equal:
-                power_actions = [(hooks, "Hook"), (self._fast_actions, "Fast"), (self._medium_actions, "Medium"),
-                                 (self._slow_actions, "Slow")]
-                pa_idx = 0
-                break_outer = False
-                while self.grid == old:
-                    if pa_idx >= len(power_actions):
-                        break_outer = True
+            break_outer = True
+            if old == self.grid:
+                for step_type in self._solve_power_actions():
+                    if old != self.grid:
+                        break_outer = False
+                        do_step = False
                         break
-                    pa, step_type = power_actions[pa_idx]
-                    pa()
-                    pa_idx += 1
                 if break_outer:
                     break
 
             _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
-            if step_type == "Hook":
-                _lg.logs(_MAX_LVL, self.grid._str_header(detailed=True))
-            else:
-                _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
+            _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
             steps = steps + 1
-            if step_type == "Normal":
-                old = self.grid.deepcopy()
-                self._update_step()
+            with _lg.time_ctxt("update_step"):
+                if do_step:
+                    old = self.grid.deepcopy()
+                    self._update_step()
 
         status: SolveStatus
         if not self.grid.is_valid:
@@ -105,44 +90,59 @@ class AtomicSolver:
                 for gt in new_gts:
                     self.grid.add_gtee_checked(gt)
 
-    def _fast_actions(self):
+    def _solve_power_actions(self):
+        with _lg.time_ctxt("rulehelper_atmostonce"):
+            rulehelper_atmostonce(self.grid)
+        yield "rulehelper_atmostonce"
+        with _lg.time_ctxt("rulehelper_sum_atmostonce"):
+            rulehelper_sum_atmostonce(self.grid)
+        yield "rulehelper_sum_atmostonce"
+        with _lg.time_ctxt("naked_tuples"):
+            remove_naked_tuples(self.grid)
+        yield "naked_tuples"
         with _lg.time_ctxt("xy_wing"):
             xy_wing(self.grid)
+        yield "xy_wing"
         with _lg.time_ctxt("xyz_wing"):
             xyz_wing(self.grid)
+        yield "xyz_wing"
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
-                remove_hidden_pairs(self.grid, 3,
-                                    [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+                remove_hidden_tuples(self.grid, 3,
+                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
             else:
-                remove_hidden_pairs(self.grid, 3, None)
+                remove_hidden_tuples(self.grid, 3, None)
+        yield "hidden_tuples3"
         with _lg.time_ctxt("fish2"):
             fish(self.grid, 2)
-
-    def _medium_actions(self):
+        yield "fish2"
         with _lg.time_ctxt("hidden_tuples4"):
             if self.hidden_pair_checked_gts:
-                remove_hidden_pairs(self.grid, 4,
-                                    [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+                remove_hidden_tuples(self.grid, 4,
+                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
             else:
-                remove_hidden_pairs(self.grid, 4, None)
+                remove_hidden_tuples(self.grid, 4, None)
+        yield "hidden_tuples4"
         with _lg.time_ctxt("fish3"):
             fish(self.grid, 3)
+        yield "fish3"
         with _lg.time_ctxt("finned-fish2"):
             finned_fish(self.grid, 2)
-
-    def _slow_actions(self):
+        yield "finned-fish2"
         with _lg.time_ctxt("hidden_tuples"):
             if self.hidden_pair_checked_gts:
-                remove_hidden_pairs(self.grid, _MAX_HIDDEN_TUPLE,
-                                    [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+                remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE,
+                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
             else:
-                remove_hidden_pairs(self.grid, _MAX_HIDDEN_TUPLE, None)
+                remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE, None)
             self.hidden_pair_checked_gts = self.grid.guarantees
+        yield "hidden_tuples"
         with _lg.time_ctxt("fish"):
             fish(self.grid, _MAX_FISH)
+        yield "fish"
         with _lg.time_ctxt("finned-fish"):
             finned_fish(self.grid, _MAX_FISH - 1)
+        yield "finned-fish"
 
 
 _MAX_HIDDEN_TUPLE = 7

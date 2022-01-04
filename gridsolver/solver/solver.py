@@ -1,13 +1,11 @@
 import gc
 import itertools
-from typing import Set, Sequence, List, Optional, Callable
+from typing import Set, List, Optional
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
-from gridsolver.rules import unique, uneq, sumrules
 from gridsolver.rules.rules import Guarantee
 from gridsolver.solver.atomic_solver import AtomicSolver
-from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
 from gridsolver.solver.solver_log import lg as _lg
 
 GC_LEN_PARAM: int = 22
@@ -21,18 +19,9 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
     if log_level is not None:
         set_loglevel(log_level)
     sols: Set[ImmutableGrid]
-    rulehelpers: List[Callable[[Grid], bool]] = []
     grid.has_been_filled = True
 
-    any_unique = any(isinstance(rule, unique.ElementsAtMostOnce) for rule in grid.rules)
-    any_sum_unique = any(isinstance(rule, sumrules.SumAndElementsAtMostOnce) for rule in grid.rules)
-    any_uneq = any(isinstance(rule, uneq.UneqRule) for rule in grid.rules)
-    if any_unique or any_uneq:
-        rulehelpers.append(rulehelper_atmostonce)
-    if any_sum_unique:
-        rulehelpers.append(rulehelper_sum_atmostonce)
-
-    sols, _ = _solve_full(grid.deepcopy(), [], max_sols, rulehelpers, set())
+    sols, _ = _solve_full(grid.deepcopy(), [], max_sols, set())
 
     for idx, sol in enumerate(sols):
         _lg.logs(0, "Solution " + str(idx), header=True)
@@ -47,14 +36,13 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
 def _solve_full(grid: Grid,
                 steps: List[int],
                 max_sols: int,
-                solve_iter_hooks: Sequence[Callable[[Grid], bool]],
                 hidden_pair_checked_gts: Set[Guarantee]
                 ) -> (Set[ImmutableGrid], Set[ImmutableGrid]):
     steps.append(0)
     if len(steps) == len(grid) - GC_LEN_PARAM:
         gc.collect()
 
-    solved: SolveStatus = AtomicSolver(grid, steps, solve_iter_hooks, hidden_pair_checked_gts).solve_atomic()
+    solved: SolveStatus = AtomicSolver(grid, steps, hidden_pair_checked_gts).solve_atomic()
     if solved == SolveStatus.SOLVED:
         steps.pop()
         return {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}, set()
@@ -95,7 +83,7 @@ def _solve_full(grid: Grid,
         sols_x: Set[ImmutableGrid]
         wrongs_x: Set[ImmutableGrid]
         new_max: int = -1 if max_sols == -1 else max_sols - len(sols)
-        sols_x, wrongs_x = _solve_full(clone, steps, new_max, solve_iter_hooks, grid.guarantees)
+        sols_x, wrongs_x = _solve_full(clone, steps, new_max, grid.guarantees)
         steps[mylen - 1] = steps[mylen - 1] + 1
         sols.update(sols_x)
         wrongs.update(wrongs_x)

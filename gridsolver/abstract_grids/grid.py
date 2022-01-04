@@ -4,7 +4,7 @@ from array import array
 from enum import Enum
 from functools import partial
 from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, Optional, Iterator, \
-    MutableMapping, Generator, overload, List, Type, Dict, Any, Sequence, FrozenSet
+    MutableMapping, Generator, overload, List, Type, Dict, Any, Sequence, FrozenSet, TypeVar
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
@@ -35,6 +35,9 @@ def _load_preprocess_str_space_sep(values: Union[str, Iterable[str]]):
     values = (x.strip().replace(".", "0") for x in values)
     values = (x for x in values if x)
     return list(values)
+
+
+T_ = TypeVar("T_", bound=Rule)
 
 
 class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
@@ -229,7 +232,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def get_rule_cells_of_type(self, class_: Type[Rule]) -> List[FrozenSet[int]]:
         return [frozenset(rule.cells) for rule in self.get_rules_of_type(class_)]
 
-    def get_rules_of_type(self, class_: Type[Rule]) -> List[Rule]:
+    def get_rules_of_type(self, class_: Type[T_]) -> List[T_]:
         return [rule for rule in self.rules if isinstance(rule, class_)]
 
     @property

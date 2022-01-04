@@ -5,7 +5,7 @@ from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules import unique, uneq, sumrules
 
 
-def rulehelper_atmostonce(grid: Grid) -> bool:
+def rulehelper_atmostonce(grid: Grid) -> None:
     unique_rule_cells = grid.unique_rule_cells
 
     for cells in unique_rule_cells:
@@ -14,7 +14,7 @@ def rulehelper_atmostonce(grid: Grid) -> bool:
                 new_rule = uneq.UneqRule(grid, cell, cells - {cell})
                 grid.add_rule_checked(new_rule)
 
-    uneq_rules = grid.get_rules_of_type(uneq.UneqRule)
+    uneq_rules:List[uneq.UneqRule] = grid.get_rules_of_type(uneq.UneqRule)
 
     for oc in range(grid.len):
         uneq_rule_cells_oc = {(frozenset(rule.rel_cells), rule) for rule in uneq_rules if
@@ -30,15 +30,16 @@ def rulehelper_atmostonce(grid: Grid) -> bool:
             if not uneq_rule_cells_oc:
                 new_rule = uneq.UneqRule(grid, oc, uni)
                 grid.add_rule_checked(new_rule)
-    return False
 
 
-def rulehelper_sum_atmostonce(grid: Grid) -> bool:
+def rulehelper_sum_atmostonce(grid: Grid) -> None:
     most_one_rule_cells = [frozenset(rule.cells) for rule in grid.rules if
                            isinstance(rule, unique.ElementsAtMostOnce)
                            and not isinstance(rule, sumrules.SumAndElementsAtMostOnce)]
 
     sum_once_rules = grid.get_rules_of_type(sumrules.SumAndElementsAtMostOnce)
+    if not sum_once_rules:
+        return
 
     set_dic: Dict[sumrules.SumAndElementsAtMostOnce, FrozenSet[int]] = {}
     rule_cntn_dic: Dict[FrozenSet[int], List[sumrules.SumAndElementsAtMostOnce]] = {key: [] for key in
@@ -75,4 +76,3 @@ def rulehelper_sum_atmostonce(grid: Grid) -> bool:
                 new_sum = int(grid.max_elem * (grid.max_elem + 1) / 2) - rule.sum
                 new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=rule_most_cells - cells, mysum=new_sum)
                 grid.add_rule_checked(new_rule)
-    return False

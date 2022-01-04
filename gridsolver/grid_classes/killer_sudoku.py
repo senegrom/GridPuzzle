@@ -53,11 +53,7 @@ class KillerSudoku(Sudoku):
             dic = []
             it = iter(sum_cells_and_dic)
             mode = 0
-            while True:
-                try:
-                    x = next(it)
-                except StopIteration:
-                    break
+            for x in it:
                 if x == ":":
                     mode += 1
                 elif mode == 0:
