@@ -10,4 +10,4 @@ def test_ex_sudoku_16x16():
 
 
 def test_ex_sudoku_25x25():
-    solve_all_in_path(example_path / "25x25+", True, max_count=2)
+    solve_all_in_path(example_path / "25x25+", True, max_count=3)

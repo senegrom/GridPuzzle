@@ -241,7 +241,16 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @property
     def uneq_rule_pairs(self) -> Dict[int, FrozenSet[int]]:
+        """the weak links originating from a cell in a dictionary"""
         return {rule.origin_cell: rule.rel_cells for rule in self.get_rules_of_type(UneqRule)}
+
+    @property
+    def strong_links(self) -> List[FrozenSet[int]]:
+        """the strong links originating from a cell in a dictionary"""
+        g2 = self.get_guarantees_of_length(2)
+        links = [[gt for gt in g2 if cell in gt.cells] for cell in range(self.len)]
+        links = [[gt.cells.difference((cell,)) for gt in gts] for cell, gts in enumerate(links)]
+        return [frozenset(next(iter(x)) for x in gts) for cell, gts in enumerate(links)]
 
     @property
     def guarantees_by_value(self) -> Dict[int, List[Guarantee]]:
@@ -253,7 +262,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @property
     def guarantees_by_length(self) -> Dict[int, Guarantee]:
-        return {ll: [gt for gt in self.guarantees if len(gt.cells) == ll] for ll in range(0, self.len)}
+        return {ll: self.get_guarantees_of_length(ll) for ll in range(1, self.len + 1)}
+
+    def get_guarantees_of_length(self, ll: int) -> List[Guarantee]:
+        return [gt for gt in self.guarantees if len(gt.cells) == ll]
 
     def get_guarantees_shorter_than(self, ll: int) -> List[Guarantee]:
         return [gt for gt in self.guarantees if len(gt.cells) <= ll]
