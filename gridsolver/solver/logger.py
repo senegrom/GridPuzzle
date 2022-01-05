@@ -89,8 +89,8 @@ def _lvl(lvl):
     return MAX_LVL - lvl + 1
 
 
-_RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "NakedTuple"}
-# _RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing"}
+# _RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "NakedTuple", "Chain", "Loop"}
+_RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "Chain", "Loop"}
 TIME_DELTA_LOG_MIN = 0.5
 
 

@@ -240,17 +240,35 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return self.get_rule_cells_of_type(ElementsAtMostOnce)
 
     @property
-    def uneq_rule_pairs(self) -> Dict[int, FrozenSet[int]]:
+    def weak_links(self) -> List[FrozenSet[int]]:
         """the weak links originating from a cell in a dictionary"""
-        return {rule.origin_cell: rule.rel_cells for rule in self.get_rules_of_type(UneqRule)}
+        uneq_rules = self.get_rules_of_type(UneqRule)
+        return [frozenset().union(*(rule.rel_cells for rule in uneq_rules if rule.origin_cell == cell))
+                for cell in range(self.len)]
 
     @property
-    def strong_links(self) -> List[FrozenSet[int]]:
-        """the strong links originating from a cell in a dictionary"""
+    def semi_strong_links(self) -> Dict[int, List[FrozenSet[int]]]:
+        """the semi-strong links originating from a cell in a dictionary"""
         g2 = self.get_guarantees_of_length(2)
-        links = [[gt for gt in g2 if cell in gt.cells] for cell in range(self.len)]
-        links = [[gt.cells.difference((cell,)) for gt in gts] for cell, gts in enumerate(links)]
-        return [frozenset(next(iter(x)) for x in gts) for cell, gts in enumerate(links)]
+        g2_dic = {val: [gt for gt in g2 if gt.val == val] for val in range(1, self.max_elem + 1)}
+        links = {val: [
+            set().union(*(gt.cells for gt in g2_dic[val] if cell in gt.cells))
+            for cell in range(self.len)]
+            for val in range(1, self.max_elem + 1)}
+        for val in range(1, self.max_elem + 1):
+            for cell in range(self.len):
+                links[val][cell] = frozenset(links[val][cell].difference((cell,)))
+
+        return links
+
+    @property
+    def strong_links(self) -> Dict[int, List[FrozenSet[int]]]:
+        """the strong links (semi-strong and weak) originating from a cell in a dictionary"""
+        wl = self.weak_links
+        ssl = self.semi_strong_links
+        return {val: [cell_links & wl[cell]
+                      for cell, cell_links in enumerate(ssl[val])]
+                for val in range(1, self.max_elem + 1)}
 
     @property
     def guarantees_by_value(self) -> Dict[int, List[Guarantee]]:

@@ -5,6 +5,7 @@ from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
+from gridsolver.solver.solve_chain import w_wing, x_chain
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
@@ -32,11 +33,16 @@ class AtomicSolver:
 
             break_outer = True
             if old == self.grid:
-                for step_type in self._solve_power_actions():
-                    if old != self.grid:
-                        break_outer = False
-                        do_step = False
-                        break
+                try:
+                    for step_type in self._solve_power_actions():
+                        if old != self.grid:
+                            break_outer = False
+                            do_step = False
+                            _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates,
+                                                          self.grid._known)
+                            break
+                except InvalidGrid:
+                    break
                 if break_outer:
                     break
 
@@ -97,15 +103,21 @@ class AtomicSolver:
         with _lg.time_ctxt("rulehelper_sum_atmostonce"):
             rulehelper_sum_atmostonce(self.grid)
         yield "rulehelper_sum_atmostonce"
-        with _lg.time_ctxt("naked_tuples"):
-            remove_naked_tuples(self.grid)
-        yield "naked_tuples"
+        with _lg.time_ctxt("naked_tuples5"):
+            remove_naked_tuples(self.grid, 5)
+        yield "naked_tuples5"
         with _lg.time_ctxt("xy_wing"):
             xy_wing(self.grid)
         yield "xy_wing"
         with _lg.time_ctxt("xyz_wing"):
             xyz_wing(self.grid)
         yield "xyz_wing"
+        with _lg.time_ctxt("w_wing"):
+            w_wing(self.grid)
+        yield "w_wing"
+        with _lg.time_ctxt("x_chain"):
+            x_chain(self.grid)
+        yield "x_chain"
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, 3,
@@ -116,6 +128,9 @@ class AtomicSolver:
         with _lg.time_ctxt("fish2"):
             fish(self.grid, 2)
         yield "fish2"
+        with _lg.time_ctxt("naked_tuples10"):
+            remove_naked_tuples(self.grid, 10)
+        yield "naked_tuples10"
         with _lg.time_ctxt("hidden_tuples4"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, 4,
@@ -129,6 +144,9 @@ class AtomicSolver:
         with _lg.time_ctxt("finned-fish2"):
             finned_fish(self.grid, 2)
         yield "finned-fish2"
+        with _lg.time_ctxt("naked_tuples"):
+            remove_naked_tuples(self.grid)
+        yield "naked_tuples"
         with _lg.time_ctxt("hidden_tuples"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE,
