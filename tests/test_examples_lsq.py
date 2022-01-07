@@ -10,4 +10,4 @@ def test_ex_latin_squares():
 
 
 def test_ex_diag_latin_squares():
-    solve_all_in_path(example_path / "Pandiagonals", False, max_count=2)
+    solve_all_in_path(example_path / "Pandiagonals", False, max_count=3)
