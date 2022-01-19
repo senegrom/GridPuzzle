@@ -82,7 +82,7 @@ def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length
             _lg.logr(f"HiddenTuple@{length}",
                      f"Invalid: {len(union_cells)} < {len(values)} for values {values}",
                      c(union_cells))
-            cands[next(iter(union_cells))].clear()
+            cands[union_cells.pop()].clear()
             raise InvalidGrid
         if ll == length - 1:
             for cell in union_cells:

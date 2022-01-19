@@ -5,7 +5,7 @@ from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
-from gridsolver.solver.solve_chain import w_wing, x_chain
+from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
@@ -46,13 +46,16 @@ class AtomicSolver:
                 if break_outer:
                     break
 
+            with _lg.time_ctxt("update_step"):
+                if do_step:
+                    if old is None:
+                        self._update_step()
+                    old = self.grid.deepcopy()
+                    self._update_step()
+
             _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
             _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
             steps = steps + 1
-            with _lg.time_ctxt("update_step"):
-                if do_step:
-                    old = self.grid.deepcopy()
-                    self._update_step()
 
         status: SolveStatus
         if not self.grid.is_valid:
@@ -118,6 +121,9 @@ class AtomicSolver:
         with _lg.time_ctxt("x_chain"):
             x_chain(self.grid)
         yield "x_chain"
+        with _lg.time_ctxt("xy_chain"):
+            xy_chain(self.grid)
+        yield "xy_chain"
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, 3,

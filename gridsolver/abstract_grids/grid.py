@@ -240,29 +240,49 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return self.get_rule_cells_of_type(ElementsAtMostOnce)
 
     @property
-    def weak_links(self) -> List[FrozenSet[int]]:
+    def weak_links(self) -> List[Set[int]]:
         """the weak links originating from a cell in a dictionary"""
         uneq_rules = self.get_rules_of_type(UneqRule)
-        return [frozenset().union(*(rule.rel_cells for rule in uneq_rules if rule.origin_cell == cell))
+        return [set().union(*(rule.rel_cells for rule in uneq_rules if rule.origin_cell == cell))
                 for cell in range(self.len)]
 
     @property
-    def semi_strong_links(self) -> Dict[int, List[FrozenSet[int]]]:
-        """the semi-strong links originating from a cell in a dictionary"""
+    def semi_strong_links(self) -> Dict[int, List[Set[int]]]:
+        """the semi-strong links originating from a cell in a dictionary for targets of the same number"""
         g2 = self.get_guarantees_of_length(2)
+
         g2_dic = {val: [gt for gt in g2 if gt.val == val] for val in range(1, self.max_elem + 1)}
+
         links = {val: [
             set().union(*(gt.cells for gt in g2_dic[val] if cell in gt.cells))
             for cell in range(self.len)]
             for val in range(1, self.max_elem + 1)}
+
         for val in range(1, self.max_elem + 1):
             for cell in range(self.len):
-                links[val][cell] = frozenset(links[val][cell].difference((cell,)))
+                links[val][cell].discard(cell)
 
         return links
 
     @property
-    def strong_links(self) -> Dict[int, List[FrozenSet[int]]]:
+    def semi_strong_links_all(self) -> Dict[int, List[Set[Tuple[int, int]]]]:
+        """the semi-strong links originating from a cell in a dictionary for all targets"""
+        ssl: Dict[int, List[Set[Union[int, Tuple[int, int]]]]] = self.semi_strong_links
+        c2 = self.get_cells_with_candidate_length(2)
+        c2_dic = {val: {cell for cell, cand in c2 if val in cand} for val in range(1, self.max_elem + 1)}
+
+        for val in range(1, self.max_elem + 1):
+            for cell in range(self.len):
+                ssl[val][cell] = {(val, x) for x in ssl[val][cell]}
+                if cell in c2_dic[val]:
+                    other: int = self._candidates[cell].difference((val,)).pop()
+                    ssl[val][cell].add((other, cell))
+
+        # noinspection PyTypeChecker
+        return ssl
+
+    @property
+    def strong_links(self) -> Dict[int, List[Set[int]]]:
         """the strong links (semi-strong and weak) originating from a cell in a dictionary"""
         wl = self.weak_links
         ssl = self.semi_strong_links
