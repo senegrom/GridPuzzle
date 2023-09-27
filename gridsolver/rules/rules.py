@@ -88,3 +88,8 @@ class Rule(ABC):
 
     def __ne__(self, other: 'Rule') -> bool:
         return not self == other
+
+    def invalidate_current_cells_and_raise_invalid_grid(self, candidates):
+        for cell in self.cells:
+            candidates[cell].clear()
+        raise InvalidGrid()

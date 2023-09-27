@@ -77,7 +77,7 @@ def _show_candidate_square(rows: int, cols: int, max_dgt: int, max_elem: int, ca
         ll = len(p)
         if ll == 0:
             return [("╳" * max_dgt,) for _ in range(pb_wh)]
-        format_str = "{" + "0:{0}d".format(max_dgt) + "}"
+        format_str = "{" + "0:{0}".format(max_dgt) + "}"
         if ll == 1 and pb_wh > 2:
             bdry = pb_w // 2 * pb_h + ((pb_h - 1) // 2)
             return [(" " * max_dgt,) for _ in range(bdry)] + \

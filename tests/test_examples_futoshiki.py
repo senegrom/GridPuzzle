@@ -11,3 +11,7 @@ def test_ex_futo_atk():
 
 def test_ex_futo_tatham():
     solve_all_in_path(example_path / "Tatham", False)
+
+
+def test_ex_futo_times():
+    solve_all_in_path(example_path / "times", False)

@@ -319,3 +319,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     def get_cells_with_candidate_length(self, i) -> List[Tuple[int, Set[int]]]:
         return [(cell, self._candidates[cell]) for cell, cts in enumerate(self._candidates) if len(cts) == i]
+
+
+def pairs(it: Iterable):
+    it = iter(it)
+    try:
+        while True:
+            a = next(it)
+            b = next(it)
+            yield a, b
+    except StopIteration:
+        pass

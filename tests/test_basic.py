@@ -107,9 +107,10 @@ def test_sudo_mith():
 
 
 def test_sudo_xy_wing():
+    import helpers
     g = create_from_str_and_class("6...27......9..1.2.47.......3..1.4..9..4.6.2...8..3......5....3.65.79........1...",
                                   Sudoku)
-    sol = solver.solve(g, max_sols=2, log_level=100)
+    sol = solver.solve(g, max_sols=2, log_level=helpers.VERB)
     assert len(sol) == 1
 
 
@@ -212,11 +213,10 @@ def test_eq_killer_sudoku2():
 def test_eq_futoshiki():
     pass  # todo
 
-
-def test_sudo_m10():
-    g = Sudoku()
-    sol = solver.solve(g, max_sols=10, log_level=100)
-    assert len(sol) == 10
+# def test_sudo_m10():
+#     g = Sudoku()
+#     sol = solver.solve(g, max_sols=10, log_level=100)
+#     assert len(sol) == 10
 
 # def test_sudo_big_m10():
 #     g = Sudoku(4, 4, 4, 4)

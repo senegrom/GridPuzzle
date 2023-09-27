@@ -1,15 +1,15 @@
 from itertools import chain
 from numbers import Integral
-from typing import Iterable, NamedTuple, Mapping, Dict, Union, Sequence
+from typing import Iterable, NamedTuple, Mapping, Dict, Union, List
 
-from gridsolver.abstract_grids.grid import _load_preprocess_str_space_sep, _load_preprocess_str
+from gridsolver.abstract_grids.grid import _load_preprocess_str_space_sep, _load_preprocess_str, pairs
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
 
 class _SumCellPair(NamedTuple):
     mysum: int
-    cells: Sequence
+    cells: List
 
 
 class KillerSudoku(Sudoku):
@@ -25,24 +25,13 @@ class KillerSudoku(Sudoku):
         """Add sum cells. Accepts a list of pairs."""
         first, *sum_cells = sum_cells
         sum_cells = chain([first], sum_cells)
-        if isinstance(first[1][0], Integral):
+        if isinstance(first.cells[0], Integral):
             self.ext_rules(SumAndElementsAtMostOnce,
-                           [{"mysum": mysum, "cells": KillerSudoku._pairs(cells)} for mysum, cells in sum_cells],
+                           [{"mysum": mysum, "cells": pairs(cells)} for mysum, cells in sum_cells],
                            None)
         else:
             self.ext_rules(SumAndElementsAtMostOnce, [{"mysum": mysum, "cells": cells} for mysum, cells in sum_cells],
                            None)
-
-    @staticmethod
-    def _pairs(it: Iterable):
-        it = iter(it)
-        try:
-            while True:
-                a = next(it)
-                b = next(it)
-                yield a, b
-        except StopIteration:
-            pass
 
     @staticmethod
     def _load_preprocess_colon_split(sum_cells_and_dic: Union[str, Iterable[str]]):

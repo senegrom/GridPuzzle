@@ -4,6 +4,7 @@ from typing import Union, Iterable
 
 from gridsolver.abstract_grids.grid import Grid, _load_preprocess_str_space_sep, _load_preprocess_str
 from gridsolver.grid_classes.futoshiki import Futoshiki
+from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.latins_square import LatinSquare, DiagonalLatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -59,6 +60,8 @@ def create_from_str_and_class(values: str, class_: Union[type, str], /,
             class_ = LatinSquare
         elif class_ == "diagonallatinsquare":
             class_ = DiagonalLatinSquare
+        elif class_ == "kenken":
+            class_ = Kenken
         else:
             raise ValueError(f"Puzzle class {class_} not supported.")
     assert isinstance(class_, type), "not isinstance(class_, type)"
@@ -88,6 +91,15 @@ def _create_from_str_and_class(values: Union[str, Iterable[int], Iterable[str]],
             raise ValueError(f"Cannot infer size ({size}) from non biquadratic length {len(values)}.")
         size = int(size)
         g = KillerSudoku(None, size, size, size, size)
+    elif class_ is Kenken:
+        length = 0
+        while length < len(values) and values[length] != ":":
+            length += 1
+        size = length ** 0.5
+        if size != int(size):
+            raise ValueError(f"Cannot infer size ({size}) from non quadratic length {len(values)}.")
+        size = int(size)
+        g = Kenken(None, size)
     elif class_ is Futoshiki:
         size = (1 + math.sqrt(1 + 3 * len(values))) / 3
         if size != int(size):

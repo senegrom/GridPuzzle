@@ -1,7 +1,6 @@
 import collections
 import itertools
 import reprlib
-from abc import abstractmethod
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -10,21 +9,291 @@ from gridsolver.rules.unique import ElementsAtMostOnce
 
 
 class SumRule(Rule):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'sum', '_sum_candidates', '_candidates')
+    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'sum')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], mysum: int):
         if not gsz is None and not cells is None:
             cells = sorted(list(cells))
             super().__init__(gsz, cells, None)
         self.sum: int = mysum
-        self._sum_candidates: Optional[Tuple[Set[int]]] = None
-        self._candidates = None
 
-    @abstractmethod
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
-            Tuple[
-                bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
-        pass
+            Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
+
+        my_known: List[int] = []
+        for cell in self.cells:
+            k = known[cell]
+            if k > 0:
+                my_known.append(k)
+
+        lk = len(my_known)
+        current_sum = sum(my_known)
+        if lk == self.len_cells and current_sum == self.sum:
+            raise RuleAlwaysSatisfied()
+        elif lk == self.len_cells:
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+        elif lk == self.len_cells - 1:
+            k = self.sum - current_sum
+            last_cell = next(cell for cell in self.cells if known[cell] == 0)
+            if k in candidates[last_cell]:
+                candidates[last_cell].clear()
+                candidates[last_cell].add(k)
+                raise RuleAlwaysSatisfied()
+            else:
+                candidates[last_cell].clear()
+                raise InvalidGrid()
+
+        for cell in self.cells:
+            tmax = self.sum - current_sum + lk - len(self.cells)
+            for c in list(candidates[cell]):
+                if c > tmax:
+                    candidates[cell].discard(c)
+
+        if lk:
+            new_target = self.sum - current_sum
+            if new_target < 0:
+                self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+            return False, [
+                SumRule(
+                    gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),
+                    cells=[cell for cell in self.cells if known[cell] == 0], mysum=new_target
+                )
+            ], []
+
+        return False, None, []
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.sum))
+
+    def __eq__(self, other: Rule):
+        if not super().__eq__(other):
+            return False
+        other: SumRule
+        return self.sum == other.sum
+
+    def __repr__(self):
+        cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.cells)
+        return f"{type(self).__name__}[{self.sum}: {cell_str}]"
+
+
+class DiffRule(Rule):
+    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'diff')
+
+    def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        if not gsz is None and not cells is None:
+            cells = list(cells)
+            assert len(cells) == 2
+            super().__init__(gsz, cells, None)
+        self.diff: int = target
+
+    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
+            Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
+
+        first = known[self.cells[0]]
+        second = known[self.cells[1]]
+        if first > 0 and second > 0 and (first - second == self.diff or second - first == self.diff):
+            raise RuleAlwaysSatisfied()
+        elif first > 0 and second > 0:
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+        elif first > 0:
+            new_cand = {first - self.diff, first + self.diff}
+            candidates[self.cells[1]].intersection_update(new_cand)
+            if len(candidates[self.cells[1]]) == 1:
+                raise RuleAlwaysSatisfied()
+            elif len(candidates[self.cells[1]]) == 0:
+                raise InvalidGrid()
+        elif second > 0:
+            new_cand = {second - self.diff, second + self.diff}
+            candidates[self.cells[0]].intersection_update(new_cand)
+            if len(candidates[self.cells[0]]) == 1:
+                raise RuleAlwaysSatisfied()
+            elif len(candidates[self.cells[0]]) == 0:
+                raise InvalidGrid()
+
+        for cell in self.cells:
+            for c in list(candidates[cell]):
+                t1 = c + self.diff
+                t2 = c - self.diff
+                t2 = t2 if t2 > 0 else -1
+                for cell2 in self.cells:
+                    if cell == cell2:
+                        continue
+                    if t1 in candidates[cell2]:
+                        t1 = 0
+                    if t2 in candidates[cell2]:
+                        t2 = 0
+                    if t1 == 0 or t2 == 0:
+                        break
+                if t1 != 0 and t2 != 0:
+                    candidates[cell].discard(c)
+        if any(not candidates[cell] for cell in self.cells):
+            raise InvalidGrid()
+
+        return False, None, []
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.diff))
+
+    def __eq__(self, other: Rule):
+        if not super().__eq__(other):
+            return False
+        other: DiffRule
+        return self.diff == other.diff
+
+    def __repr__(self):
+        cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.cells)
+        return f"{type(self).__name__}[{self.diff}: {cell_str}]"
+
+
+class ProdRule(Rule):
+    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'prod')
+
+    def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        if not gsz is None and not cells is None:
+            cells = sorted(list(cells))
+            super().__init__(gsz, cells, None)
+        self.prod: int = target
+
+    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
+            Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
+        my_known: List[int] = []
+        for cell in self.cells:
+            k = known[cell]
+
+            if k > 0:
+                my_known.append(k)
+
+        lk = len(my_known)
+        current_prod = 1
+        for k in my_known:
+            current_prod *= k
+        if lk == self.len_cells and current_prod == self.prod:
+            raise RuleAlwaysSatisfied()
+        elif lk == self.len_cells:
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+        elif lk == self.len_cells - 1:
+            k = self.prod / current_prod
+            last_cell = next(cell for cell in self.cells if known[cell] == 0)
+            if k != int(k):
+                candidates[last_cell].clear()
+                raise InvalidGrid()
+            k = int(k)
+            if k in candidates[last_cell]:
+                candidates[last_cell].clear()
+                candidates[last_cell].add(k)
+                raise RuleAlwaysSatisfied()
+            else:
+                candidates[last_cell].clear()
+                raise InvalidGrid()
+
+        for cell in self.cells:
+            tmax = self.prod / current_prod
+            for c in list(candidates[cell]):
+                if c > tmax:
+                    candidates[cell].discard(c)
+
+        if any(not candidates[cell] for cell in self.cells):
+            raise InvalidGrid()
+
+        if lk:
+            new_target = self.prod / current_prod
+            if new_target != int(new_target):
+                self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+            new_target = int(new_target)
+            return False, [
+                ProdRule(
+                    gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),
+                    cells=[cell for cell in self.cells if known[cell] == 0], target=new_target
+                )
+            ], []
+
+        return False, None, []
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.prod))
+
+    def __eq__(self, other: Rule):
+        if not super().__eq__(other):
+            return False
+        other: ProdRule
+        return self.prod == other.prod
+
+    def __repr__(self):
+        cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.cells)
+        return f"{type(self).__name__}[{self.prod}: {cell_str}]"
+
+
+class DivRule(Rule):
+    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'div')
+
+    def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        if not gsz is None and not cells is None:
+            cells = list(cells)
+            assert len(cells) == 2
+            super().__init__(gsz, cells, None)
+        self.div: int = target
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.div))
+
+    def __eq__(self, other: Rule):
+        if not super().__eq__(other):
+            return False
+        other: DivRule
+        return self.div == other.div
+
+    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
+            Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
+
+        first = known[self.cells[0]]
+        second = known[self.cells[1]]
+        if first > 0 and second > 0 and (first / second == self.div or second / first == self.div):
+            raise RuleAlwaysSatisfied()
+        elif first > 0 and second > 0:
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+        elif first > 0:
+            new_cand = {first * self.div}
+            if int(first / self.div) == first / self.div:
+                new_cand.add(int(first / self.div))
+            candidates[self.cells[1]].intersection_update(new_cand)
+            if len(candidates[self.cells[1]]) == 1:
+                raise RuleAlwaysSatisfied()
+            elif len(candidates[self.cells[1]]) == 0:
+                raise InvalidGrid()
+        elif second > 0:
+            new_cand = {second * self.div}
+            if int(second / self.div) == second / self.div:
+                new_cand.add(int(second / self.div))
+            candidates[self.cells[0]].intersection_update(new_cand)
+            if len(candidates[self.cells[0]]) == 1:
+                raise RuleAlwaysSatisfied()
+            elif len(candidates[self.cells[0]]) == 0:
+                raise InvalidGrid()
+
+        for cell in self.cells:
+            for c in list(candidates[cell]):
+                t1 = c * self.div
+                t2 = c / self.div
+                t2 = int(t2) if int(t2) == t2 else -1
+                for cell2 in self.cells:
+                    if cell == cell2:
+                        continue
+                    if t1 in candidates[cell2]:
+                        t1 = 0
+                    if t2 in candidates[cell2]:
+                        t2 = 0
+                    if t1 == 0 or t2 == 0:
+                        break
+                if t1 != 0 and t2 != 0:
+                    candidates[cell].discard(c)
+        if any(not candidates[cell] for cell in self.cells):
+            raise InvalidGrid()
+
+        return False, None, []
+
+    def __repr__(self):
+        cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.cells)
+        return f"{type(self).__name__}[{self.div}: {cell_str}]"
 
 
 # todo combine to sum rules for large areas
@@ -119,9 +388,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         if lk == self.len_cells and sum(my_known) == self.sum:
             raise RuleAlwaysSatisfied()
         elif lk == self.len_cells:
-            for p in candidates:
-                p.clear()
-                raise InvalidGrid()
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             k = self.sum - sum(my_known)
             np0 = new_candidates[0]
@@ -147,10 +414,13 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         SumAndElementsAtMostOnce._update_from_guarantees(candidates, new_candidate_cells, guarantees)
 
         if lk:
+            new_target = self.sum - sum(my_known)
+            if new_target < 0:
+                self.invalidate_current_cells_and_raise_invalid_grid(candidates)
             return False, [
                 SumAndElementsAtMostOnce(
                     gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),
-                    cells=new_candidate_cells, mysum=self.sum - sum(my_known)
+                    cells=new_candidate_cells, mysum=new_target
                 )
             ], new_gts
 

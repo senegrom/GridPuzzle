@@ -55,3 +55,7 @@ def test_ex_sudoku_subsets4():
 
 def test_ex_sudoku_zchains():
     solve_all_in_path(example_path / "z-chains", False)
+
+
+def test_ex_sudoku_times():
+    solve_all_in_path(example_path / "times", False)

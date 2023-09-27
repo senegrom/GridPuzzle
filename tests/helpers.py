@@ -7,6 +7,15 @@ logger.set_colouring(logger.Colouring.Colorama)
 
 _MAX_LVL = logger.MAX_LVL
 lg = logger.get_log("TEST", _MAX_LVL)
+VERB = 100
+
+
+def solve_path(file: Path, space_sep: bool):
+    lg.logs(0, f"\nLoading {file}")
+    g = create_from_file(file, space_sep=space_sep)
+    lg.logs(0, f"\nSolving {file}")
+    sol = solver.solve(g, VERB)
+    assert len(sol) == 1
 
 
 def solve_all_in_path(path: Path, space_sep: bool, max_count=0):
@@ -16,11 +25,7 @@ def solve_all_in_path(path: Path, space_sep: bool, max_count=0):
             continue
         if max_count and counter >= max_count:
             break
-        lg.logs(0, f"\nLoading {file}")
-        g = create_from_file(file, space_sep=space_sep)
-        lg.logs(0, f"\nSolving {file}")
-        sol = solver.solve(g, 100)
-        assert len(sol) == 1
+        solve_path(file, space_sep=space_sep)
         counter += 1
 
 
