@@ -14,7 +14,7 @@ class _CellTuple(NamedTuple):
 
 
 class Kenken(UniqueSquareGrid):
-    """UniqueSquareGrid with additional areas that have a arithmetic operation condition"""
+    """UniqueSquareGrid with additional areas that have an arithmetic operation condition"""
 
     def __init__(self, target_cells: Iterable[_CellTuple] = None, n: int = 6):
         super().__init__(n)

@@ -11,7 +11,7 @@ In the name of a puzzle or a directory, "H" means "Hard", "M" means "Medium", "N
 
 <> The Kakuro-online "medium" puzzles are approximately the same difficulty as the "hard" Puzzle-loop ones. 
 The main difference is, they are less slithery. As a result, they will make a lesser use of the Quasi-Loops. 
-The "hard" ones are mentioned by Kakuro-online as requiring T&E (and it seems they really do), while the other ones are mentioned as being solvable by patterns (which patterns is not stated; but is seems that the SlitherRules patterns are largely enough).
+The "hard" ones are mentioned by Kakuro-online as requiring T&E (and it seems they really do), while the other ones are mentioned as being solvable by patterns (which patterns is not stated; but it seems that the SlitherRules patterns are largely enough).
 
 
 <> The Mebane puzzles form a small collection with varying levels of difficulty, but with most of them on the high end of the spectrum. 

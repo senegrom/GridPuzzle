@@ -61,24 +61,24 @@ def _solve_full(grid: Grid,
     sols: Set[ImmutableGrid] = set()
     wrongs: Set[ImmutableGrid] = set()
 
-    def do_trial(test_val_cell):  # todo
+    def do_trial(test_val_cell_inner):  # todo
         nonlocal sols
 
         mylen = len(steps)
         if is_test_gt:
             _lg.logstep(mylen, steps,
-                        f"Trial (guarantee) [{test_val_cell % grid.rows},{test_val_cell // grid.rows}] " +
+                        f"Trial (guarantee) [{test_val_cell_inner % grid.rows},{test_val_cell_inner // grid.rows}] " +
                         f"== {test_gt.val} with {len(sols)} previous solutions")
         else:
             _lg.logstep(mylen, steps,
                         f"Trial [{test_i % grid.rows},{test_i // grid.rows}] " +
-                        f"== {test_val_cell} with {len(sols)} previous solutions")
+                        f"== {test_val_cell_inner} with {len(sols)} previous solutions")
         clone: Grid = grid.deepcopy()
 
         if is_test_gt:
-            clone[test_val_cell] = test_gt.val
+            clone[test_val_cell_inner] = test_gt.val
         else:
-            clone[test_i] = test_val_cell
+            clone[test_i] = test_val_cell_inner
 
         sols_x: Set[ImmutableGrid]
         wrongs_x: Set[ImmutableGrid]

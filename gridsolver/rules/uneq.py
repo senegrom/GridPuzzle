@@ -1,4 +1,3 @@
-import itertools
 from abc import ABC
 from typing import Tuple, Set, Iterable, MutableSequence, FrozenSet
 

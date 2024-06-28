@@ -7,7 +7,7 @@ from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
 
-class _SumCellPair(NamedTuple):
+class SumCellPair(NamedTuple):
     mysum: int
     cells: List
 
@@ -15,13 +15,13 @@ class _SumCellPair(NamedTuple):
 class KillerSudoku(Sudoku):
     """Sudoku with additional areas that have a sum and uniquencess condition"""
 
-    def __init__(self, sum_cells: Iterable[_SumCellPair] = None, rows_in_box: int = 3, cols_in_box: int = 3,
+    def __init__(self, sum_cells: Iterable[SumCellPair] = None, rows_in_box: int = 3, cols_in_box: int = 3,
                  box_rows: int = 3, box_cols: int = 3):
         super().__init__(rows_in_box, cols_in_box, box_rows, box_cols)
         if sum_cells is not None:
             self.ext_sum_cells(sum_cells)
 
-    def ext_sum_cells(self, sum_cells: Iterable[_SumCellPair]) -> None:
+    def ext_sum_cells(self, sum_cells: Iterable[SumCellPair]) -> None:
         """Add sum cells. Accepts a list of pairs."""
         first, *sum_cells = sum_cells
         sum_cells = chain([first], sum_cells)
@@ -90,11 +90,11 @@ class KillerSudoku(Sudoku):
         sum_cells = self._load_preprocess_sequence(sum_cells)
         if not isinstance(dic, Mapping):
             dic = dict(dic)
-        final_dic: Dict[str, _SumCellPair] = {}
+        final_dic: Dict[str, SumCellPair] = {}
         char_iter = iter(sum_cells)
         for c1 in range(self.cols if row_wise else self.rows):
             for c2 in range(self.rows if row_wise else self.cols):
                 char = next(char_iter)
-                entry = final_dic.setdefault(char, _SumCellPair(mysum=dic[char], cells=[]))
+                entry = final_dic.setdefault(char, SumCellPair(mysum=dic[char], cells=[]))
                 entry.cells.append((c2, c1) if row_wise else (c1, c2))
         self.ext_sum_cells(final_dic.values())

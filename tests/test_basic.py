@@ -1,6 +1,6 @@
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
-from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku, SumCellPair
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
 from gridsolver.solver import solver
@@ -133,7 +133,7 @@ def test_eq_killer_sudoku1():
         """KillerSudoku::a : a1""", space_sep=True)
 
     g4 = KillerSudoku(None, 1, 1, 1, 1)
-    g4.ext_sum_cells([(1, (0, 0))])
+    g4.ext_sum_cells([SumCellPair(1, [0, 0])])
 
     assert g == g2
     assert g == g3
