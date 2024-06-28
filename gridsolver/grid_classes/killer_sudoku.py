@@ -1,6 +1,6 @@
 from itertools import chain
 from numbers import Integral
-from typing import Iterable, NamedTuple, Mapping, Dict, Union, List
+from typing import Iterable, NamedTuple, Mapping, Dict, Union, List, Tuple
 
 from gridsolver.abstract_grids.grid import _load_preprocess_str_space_sep, _load_preprocess_str, pairs
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -21,11 +21,12 @@ class KillerSudoku(Sudoku):
         if sum_cells is not None:
             self.ext_sum_cells(sum_cells)
 
-    def ext_sum_cells(self, sum_cells: Iterable[SumCellPair]) -> None:
+    def ext_sum_cells(self, sum_cells: Iterable[
+        SumCellPair | Tuple[int, List[Integral | Tuple[Integral, Integral]]]]) -> None:
         """Add sum cells. Accepts a list of pairs."""
         first, *sum_cells = sum_cells
         sum_cells = chain([first], sum_cells)
-        if isinstance(first.cells[0], Integral):
+        if isinstance(first[1][0], Integral):
             self.ext_rules(SumAndElementsAtMostOnce,
                            [{"mysum": mysum, "cells": pairs(cells)} for mysum, cells in sum_cells],
                            None)

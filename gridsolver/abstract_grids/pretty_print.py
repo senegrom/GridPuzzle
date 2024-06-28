@@ -1,7 +1,7 @@
 import math
 from collections import deque
 from itertools import chain
-from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union, Any, Generator
+from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union
 
 
 class PrettyPrintArgs:
@@ -81,8 +81,8 @@ def _show_candidate_square(rows: int, cols: int, max_dgt: int, max_elem: int, ca
         if ll == 1 and pb_wh > 2:
             bdry = pb_w // 2 * pb_h + ((pb_h - 1) // 2)
             return [(" " * max_dgt,) for _ in range(bdry)] + \
-                   [(format_str.format(x),) for x in p] + [("=" * max_dgt,)] + \
-                   [(" " * max_dgt,) for _ in range(bdry + 2, pb_wh)]
+                [(format_str.format(x),) for x in p] + [("=" * max_dgt,)] + \
+                [(" " * max_dgt,) for _ in range(bdry + 2, pb_wh)]
         return [(format_str.format(x),) if x in p else (" " * max_dgt,) for x in range(1, pb_wh + 1)]
 
     box_maker_inner = _BoxStringMaker(pb_h, pb_w, blank_args, set())

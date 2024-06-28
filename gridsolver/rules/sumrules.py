@@ -13,7 +13,7 @@ class SumRule(Rule):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'sum')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], mysum: int):
-        if not gsz is None and not cells is None:
+        if gsz is not None and cells is not None:
             cells = sorted(list(cells))
             super().__init__(gsz, cells, None)
         self.sum: int = mysum
@@ -81,7 +81,7 @@ class DiffRule(Rule):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'diff')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
-        if not gsz is None and not cells is None:
+        if gsz is not None and cells is not None:
             cells = list(cells)
             assert len(cells) == 2
             super().__init__(gsz, cells, None)
@@ -150,7 +150,7 @@ class ProdRule(Rule):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'prod')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
-        if not gsz is None and not cells is None:
+        if gsz is not None and cells is not None:
             cells = sorted(list(cells))
             super().__init__(gsz, cells, None)
         self.prod: int = target
@@ -228,7 +228,7 @@ class DivRule(Rule):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'div')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
-        if not gsz is None and not cells is None:
+        if gsz is not None and cells is not None:
             cells = list(cells)
             assert len(cells) == 2
             super().__init__(gsz, cells, None)

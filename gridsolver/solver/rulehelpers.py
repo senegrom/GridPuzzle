@@ -14,7 +14,7 @@ def rulehelper_atmostonce(grid: Grid) -> None:
                 new_rule = uneq.UneqRule(grid, cell, cells - {cell})
                 grid.add_rule_checked(new_rule)
 
-    uneq_rules:List[uneq.UneqRule] = grid.get_rules_of_type(uneq.UneqRule)
+    uneq_rules: List[uneq.UneqRule] = grid.get_rules_of_type(uneq.UneqRule)
 
     for oc in range(grid.len):
         uneq_rule_cells_oc = {(frozenset(rule.rel_cells), rule) for rule in uneq_rules if

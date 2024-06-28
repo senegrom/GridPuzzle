@@ -33,7 +33,6 @@ def get_example(args) -> Grid:
         g[1, 0] = 3
         g[4, 0] = 4
 
-
     elif args.example == "b":
         g = KillerSudoku()
         g.ext_sum_cells([

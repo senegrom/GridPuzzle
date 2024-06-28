@@ -4,7 +4,7 @@ from array import array
 from enum import Enum
 from functools import partial
 from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, Optional, Iterator, \
-    MutableMapping, Generator, overload, List, Type, Dict, Any, Sequence, FrozenSet, TypeVar
+    MutableMapping, overload, List, Type, Dict, Any, Sequence, FrozenSet, TypeVar
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
