@@ -1,7 +1,7 @@
 import math
 from collections import deque
 from itertools import chain
-from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union
+from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union, Any, Generator
 
 
 class PrettyPrintArgs:
@@ -138,7 +138,7 @@ class _BoxStringMaker:
 
         return sp_result
 
-    def build_row(self, r: int, data) -> Iterator[Tuple[str]]:
+    def build_row(self, r: int, data) -> Iterable[Tuple[str]]:
         full_row: Iterator[Iterable[str]] = (data[r + c * self.rows] for c in range(self.cols))
         zipped_row: Iterator[Tuple[str]] = zip(*full_row)
         if self.inner_grid_col == 0:

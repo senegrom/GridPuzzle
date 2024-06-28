@@ -1,6 +1,7 @@
 import collections
 import itertools
 import reprlib
+from functools import cached_property
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -304,22 +305,17 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         ElementsAtMostOnce.__init__(self, gsz, cells, None)
         SumRule.__init__(self, None, None, mysum)
 
-    @property
+    @cached_property
     def sum_candidates(self) -> Tuple[FrozenSet[int]]:
-        if self._sum_candidates is None:
-            len_cell = self.len_cells
-            self._sum_candidates = tuple(
-                frozenset(p) for p in SumAndElementsAtMostOnce.partition2(self.sum, len_cell, 1, self._max_elem)
-                if len(set(p)) == len_cell
-            )
+        len_cell = self.len_cells
+        return tuple(
+            frozenset(p) for p in SumAndElementsAtMostOnce.partition2(self.sum, len_cell, 1, self._max_elem)
+            if len(set(p)) == len_cell
+        )
 
-        return self._sum_candidates
-
-    @property
+    @cached_property
     def candidates(self) -> FrozenSet[int]:
-        if self._candidates is None:
-            self._candidates = frozenset(x for y in self.sum_candidates for x in y)
-        return self._candidates
+        return frozenset(x for y in self.sum_candidates for x in y)
 
     def __hash__(self):
         return hash((super().__hash__(), self.sum))

@@ -61,7 +61,7 @@ C = _C_NO
 _FORMAT = "%(message)s"
 
 
-def set_colouring(c: Colouring):
+def set_colouring(c: Colouring | str):
     global C
     if not isinstance(c, Colouring):
         c = Colouring[c]

@@ -53,8 +53,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         assert rows, "Rows must be > 0"
         ImmutableGrid.__init__(self, array('I', [0] * (rows * cols)), rows, cols, max_elem)
         RuleContainer.__init__(self)
-        candidates_gen: Generator[Set[int]] = (set(range(1, self.max_elem + 1)) for _ in range(len(self)))
-        self._candidates: Tuple[Set[int]] = tuple(candidates_gen)
+        self._candidates: Tuple[Set[int]] = tuple(set(range(1, self.max_elem + 1)) for _ in range(len(self)))
         self.has_been_filled = False
 
     @overload
@@ -299,7 +298,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return {i: [gt.cells for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)}
 
     @property
-    def guarantees_by_length(self) -> Dict[int, Guarantee]:
+    def guarantees_by_length(self) -> Dict[int, List[Guarantee]]:
         return {ll: self.get_guarantees_of_length(ll) for ll in range(1, self.len + 1)}
 
     def get_guarantees_of_length(self, ll: int) -> List[Guarantee]:
