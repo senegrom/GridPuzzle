@@ -9,18 +9,32 @@ from gridsolver.solver.solver_log import lg as _lg
 
 # noinspection PyProtectedMember
 def filter_guarantees(grid: Grid) -> None:
-    # remove duplicates
-    gt_dic = grid.guarantees_by_value
-    for val in range(1, grid.max_elem + 1):
-        for gt1, gt2 in itertools.combinations(gt_dic[val], 2):
-            if gt1.cells <= gt2.cells and gt1 in grid.guarantees and gt2 in grid.guarantees:
-                grid.deactivate_gtee(gt2)
-            elif gt2.cells <= gt1.cells and gt1 in grid.guarantees and gt2 in grid.guarantees:
-                grid.deactivate_gtee(gt1)
+    # remove duplicates - group by value, sort by cell count for efficient subset checks
+    gt_dic: dict[int, list[Guarantee]] = {}
+    for gt in grid.guarantees:
+        gt_dic.setdefault(gt.val, []).append(gt)
+
+    for val, gts in gt_dic.items():
+        if len(gts) < 2:
+            continue
+        gts.sort(key=lambda g: len(g.cells))
+        to_deactivate = []
+        for i, gt1 in enumerate(gts):
+            if gt1 not in grid.guarantees:
+                continue
+            for gt2 in gts[i + 1:]:
+                if gt2 not in grid.guarantees:
+                    continue
+                if gt1.cells <= gt2.cells:
+                    to_deactivate.append(gt2)
+        for gt in to_deactivate:
+            if gt in grid.guarantees:
+                grid.deactivate_gtee(gt)
     del gt_dic
 
-    for gt in grid.guarantees.copy():
-        update_from_guarantee(grid, gt)
+    for gt in list(grid.guarantees):
+        if gt in grid.guarantees:
+            update_from_guarantee(grid, gt)
 
 
 # noinspection PyProtectedMember

@@ -1,9 +1,13 @@
+from pathlib import Path
+
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku, SumCellPair
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
 from gridsolver.solver import solver
+
+_TESTS_DIR = Path(__file__).resolve().parent
 
 
 def test_sudo0():
@@ -48,8 +52,8 @@ def test_sudo2():
 def test_sudo2_file():
     g = Sudoku(2, 2, 2, 2)
     g.load("12344321........")
-    g2 = create_from_file("./test_data/sudoku2x2.pzl")
-    g3 = create_from_file("./test_data/sudoku2x2b.pzl", space_sep=True)
+    g2 = create_from_file(_TESTS_DIR / "test_data/sudoku2x2.pzl")
+    g3 = create_from_file(_TESTS_DIR / "test_data/sudoku2x2b.pzl", space_sep=True)
     assert g == g2
     assert g == g3
     sol = solver.solve(g, log_level=-1)

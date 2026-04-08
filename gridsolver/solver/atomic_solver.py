@@ -6,8 +6,12 @@ from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
+from gridsolver.solver.solve_aligned_pair import aligned_pair_exclusion
+from gridsolver.solver.solve_als import als_xz
+from gridsolver.solver.solve_coloring import simple_coloring
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
+from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
 from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
@@ -32,10 +36,10 @@ class AtomicSolver:
             step_type = "basic"
 
             break_outer = True
-            if old == self.grid:
+            if old is not None and old.all_but_rule_equal(self.grid):
                 try:
                     for step_type in self._solve_power_actions():
-                        if old != self.grid:
+                        if not old.all_but_rule_equal(self.grid):
                             break_outer = False
                             do_step = False
                             _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates,
@@ -81,7 +85,7 @@ class AtomicSolver:
 
     # rule updates
     def _update_from_rules(self) -> None:
-        for rule in self.grid.rules.copy():
+        for rule in list(self.grid.rules):
             try:
                 do_refresh, new_rules, new_gts = rule.apply(
                     self.grid._known, self.grid._candidates, self.grid.guarantees)
@@ -100,6 +104,9 @@ class AtomicSolver:
                     self.grid.add_gtee_checked(gt)
 
     def _solve_power_actions(self):
+        with _lg.time_ctxt("locked_candidate"):
+            locked_candidate(self.grid)
+        yield "locked_candidate"
         with _lg.time_ctxt("rulehelper_atmostonce"):
             rulehelper_atmostonce(self.grid)
         yield "rulehelper_atmostonce"
@@ -124,6 +131,15 @@ class AtomicSolver:
         with _lg.time_ctxt("xy_chain"):
             xy_chain(self.grid)
         yield "xy_chain"
+        with _lg.time_ctxt("simple_coloring"):
+            simple_coloring(self.grid)
+        yield "simple_coloring"
+        with _lg.time_ctxt("aligned_pair_exclusion"):
+            aligned_pair_exclusion(self.grid)
+        yield "aligned_pair_exclusion"
+        with _lg.time_ctxt("als_xz"):
+            als_xz(self.grid)
+        yield "als_xz"
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, 3,
@@ -183,4 +199,4 @@ def _update_known_from_candidates(setitem: Callable[[int, int], None], possible:
 def _update_candidates_from_known(possible: Tuple[Set[int]], known: ArrayType) -> None:
     for p, k in zip(possible, known):
         if k > 0 and len(p) > 1:
-            p &= {k}
+            p.intersection_update((k,))

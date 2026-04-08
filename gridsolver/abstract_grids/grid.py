@@ -75,7 +75,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             raise TypeError("Index slices not supported for setting.")
         self._known[idx] = val
         if val > 0:
-            self._candidates[idx].intersection_update([val])
+            self._candidates[idx].intersection_update((val,))
 
     def __eq__(self, other: 'Grid') -> bool:
         if not isinstance(other, type(self)):
@@ -93,33 +93,39 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     # noinspection PyArgumentList
     def __deepcopy__(self, memo: MutableMapping = None) -> 'Grid':
-        if memo is None:
-            memo = {}
-        cls = type(self)
-        result = cls.__new__(cls)
-        memo[id(self)] = result
-        setattr(result, "rows", self.rows)
-        setattr(result, "cols", self.cols)
-        setattr(result, "max_elem", self.max_elem)
-        setattr(result, "len", self.len)
-        setattr(result, "_known", copy.deepcopy(self._known, memo=memo))
-        setattr(result, "_candidates", copy.deepcopy(self._candidates, memo=memo))
-        setattr(result, "rules", copy.copy(self.rules))
-        setattr(result, "rules_ia", copy.copy(self.rules_ia))
-        setattr(result, "guarantees", copy.copy(self.guarantees))
-        setattr(result, "guarantees_ia", copy.copy(self.guarantees_ia))
-        return result
+        return self.deepcopy()
 
     def deepcopy(self) -> 'Grid':
-        return copy.deepcopy(self)
+        cls = type(self)
+        result = cls.__new__(cls)
+        result.rows = self.rows
+        result.cols = self.cols
+        result.max_elem = self.max_elem
+        result.len = self.len
+        result._known = array('I', self._known)
+        result._candidates = tuple(s.copy() for s in self._candidates)
+        result.rules = self.rules.copy()
+        result.rules_ia = self.rules_ia.copy()
+        result.guarantees = self.guarantees.copy()
+        result.guarantees_ia = self.guarantees_ia.copy()
+        return result
 
     @property
     def is_solved(self) -> bool:
-        return all(0 < k in p for p, k in zip(self._candidates, self._known))
+        known = self._known
+        candidates = self._candidates
+        for i in range(self.len):
+            k = known[i]
+            if k <= 0 or k not in candidates[i]:
+                return False
+        return True
 
     @property
     def is_valid(self) -> bool:
-        return all(self._candidates)
+        for p in self._candidates:
+            if not p:
+                return False
+        return True
 
     def get_candidates(self, key: IdxType) -> Set[int]:
         return self._candidates[self._get_index_from_key(key)]

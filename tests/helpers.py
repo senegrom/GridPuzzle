@@ -3,6 +3,9 @@ from pathlib import Path
 from gridsolver.abstract_grids.grid_loading import create_from_file
 from gridsolver.solver import solver, logger
 
+# Resolve paths relative to this file's directory (tests/), not CWD
+_TESTS_DIR = Path(__file__).resolve().parent
+
 logger.set_colouring(logger.Colouring.Colorama)
 
 _MAX_LVL = logger.MAX_LVL
@@ -19,6 +22,7 @@ def solve_path(file: Path, space_sep: bool):
 
 
 def solve_all_in_path(path: Path, space_sep: bool, max_count=0):
+    path = _TESTS_DIR / path
     counter = 0
     for file in path.iterdir():
         if not file.is_file():
