@@ -10,6 +10,7 @@ from gridsolver.solver.solve_aligned_pair import aligned_pair_exclusion
 from gridsolver.solver.solve_als import als_xz
 from gridsolver.solver.solve_coloring import simple_coloring
 from gridsolver.solver.solve_fish import fish, finned_fish
+from gridsolver.solver.solve_forcing_chain import forcing_chain
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
 from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
@@ -174,6 +175,9 @@ class AtomicSolver:
         with _lg.time_ctxt("finned-fish2"):
             finned_fish(self.grid, 2)
         yield "finned-fish2"
+        with _lg.time_ctxt("forcing_chain"):
+            forcing_chain(self.grid)
+        yield "forcing_chain"
         with _lg.time_ctxt("naked_tuples"):
             remove_naked_tuples(self.grid)
         yield "naked_tuples"
