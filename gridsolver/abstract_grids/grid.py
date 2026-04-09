@@ -110,6 +110,24 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.guarantees_ia = self.guarantees_ia.copy()
         return result
 
+    def deep_deepcopy(self) -> 'Grid':
+        """Fully independent copy including deep-copied Rule objects.
+        Used by forcing chain trials to ensure complete isolation."""
+        cls = type(self)
+        result = cls.__new__(cls)
+        result.rows = self.rows
+        result.cols = self.cols
+        result.max_elem = self.max_elem
+        result.len = self.len
+        result._known = array('I', self._known)
+        result._candidates = tuple(s.copy() for s in self._candidates)
+        memo = {}
+        result.rules = {copy.deepcopy(r, memo) for r in self.rules}
+        result.rules_ia = {copy.deepcopy(r, memo) for r in self.rules_ia}
+        result.guarantees = self.guarantees.copy()
+        result.guarantees_ia = self.guarantees_ia.copy()
+        return result
+
     @property
     def is_solved(self) -> bool:
         known = self._known
