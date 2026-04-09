@@ -13,6 +13,8 @@ from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
 from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
+from gridsolver.solver.solve_skyscraper import skyscraper
+from gridsolver.solver.solve_sue_de_coq import sue_de_coq
 from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -107,6 +109,9 @@ class AtomicSolver:
         with _lg.time_ctxt("locked_candidate"):
             locked_candidate(self.grid)
         yield "locked_candidate"
+        with _lg.time_ctxt("skyscraper"):
+            skyscraper(self.grid)
+        yield "skyscraper"
         with _lg.time_ctxt("rulehelper_atmostonce"):
             rulehelper_atmostonce(self.grid)
         yield "rulehelper_atmostonce"
@@ -140,6 +145,9 @@ class AtomicSolver:
         with _lg.time_ctxt("als_xz"):
             als_xz(self.grid)
         yield "als_xz"
+        with _lg.time_ctxt("sue_de_coq"):
+            sue_de_coq(self.grid)
+        yield "sue_de_coq"
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, 3,
