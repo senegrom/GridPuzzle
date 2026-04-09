@@ -175,9 +175,6 @@ class AtomicSolver:
         with _lg.time_ctxt("finned-fish2"):
             finned_fish(self.grid, 2)
         yield "finned-fish2"
-        with _lg.time_ctxt("forcing_chain"):
-            forcing_chain(self.grid)
-        yield "forcing_chain"
         with _lg.time_ctxt("naked_tuples"):
             remove_naked_tuples(self.grid)
         yield "naked_tuples"
@@ -195,6 +192,9 @@ class AtomicSolver:
         with _lg.time_ctxt("finned-fish"):
             finned_fish(self.grid, _MAX_FISH - 1)
         yield "finned-fish"
+        with _lg.time_ctxt("forcing_chain"):
+            forcing_chain(self.grid)
+        yield "forcing_chain"
 
 
 _MAX_HIDDEN_TUPLE = 7
