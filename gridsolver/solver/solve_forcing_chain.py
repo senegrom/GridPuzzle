@@ -7,55 +7,81 @@ from gridsolver.solver.solver_log import lg as _lg
 _in_forcing_chain = False
 
 
-def _propagate_basic(grid: Grid) -> SolveStatus:
-    """Lightweight propagation: only basic rule application + guarantee filtering.
+def _propagate_with_cheap_techniques(grid: Grid) -> SolveStatus:
+    """Run basic propagation + all cheap techniques (everything that comes
+    before forcing_chain in the power actions pipeline).
 
-    No power actions (no fish, no chains, no wings, etc). Just the core
-    _update_step loop until fixpoint or contradiction. This is the same as
-    what AtomicSolver does in its inner loop, minus the expensive techniques.
+    This is essentially a mini atomic solver that skips fish, finned_fish,
+    hidden_tuples, and naked_tuples (the expensive combinatorial ones).
     """
-    from gridsolver.solver.solve_guarantees import filter_guarantees
     from gridsolver.solver.atomic_solver import _update_known_from_candidates, _update_candidates_from_known
+    from gridsolver.solver.solve_guarantees import filter_guarantees
+    from gridsolver.solver.solve_locked_candidate import locked_candidate
+    from gridsolver.solver.solve_skyscraper import skyscraper
+    from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
+    from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
+    from gridsolver.solver.solve_wing import xy_wing, xyz_wing
+    from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
+    from gridsolver.solver.solve_coloring import simple_coloring
+    from gridsolver.solver.solve_aligned_pair import aligned_pair_exclusion
+    from gridsolver.solver.solve_als import als_xz
+    from gridsolver.solver.solve_sue_de_coq import sue_de_coq
 
     known = grid._known
     cands = grid._candidates
-    rules = grid.rules
 
-    changed = True
-    while changed and grid.is_valid:
-        changed = False
-        old_known = list(known)
-
-        # Update known from singleton candidates
+    def _update_step():
         _update_known_from_candidates(grid.__setitem__, cands, known)
-
-        # Apply all rules
-        for rule in list(rules):
-            try:
-                do_refresh, new_rules, new_gts = rule.apply(known, cands, grid.guarantees)
-                if do_refresh:
-                    _update_candidates_from_known(cands, known)
-            except RuleAlwaysSatisfied:
-                new_rules = []
-                new_gts = None
-                _update_candidates_from_known(cands, known)
-            if new_rules is not None:
-                grid.deactivate_rule(rule)
-                for new_rule in new_rules:
-                    grid.add_rule_checked(new_rule)
-            if new_gts is not None:
-                for gt in new_gts:
-                    grid.add_gtee_checked(gt)
-
-        # Filter guarantees
         try:
+            # Apply all rules
+            for rule in list(grid.rules):
+                try:
+                    do_refresh, new_rules, new_gts = rule.apply(known, cands, grid.guarantees)
+                    if do_refresh:
+                        _update_candidates_from_known(cands, known)
+                except RuleAlwaysSatisfied:
+                    new_rules = []
+                    new_gts = None
+                    _update_candidates_from_known(cands, known)
+                if new_rules is not None:
+                    grid.deactivate_rule(rule)
+                    for new_rule in new_rules:
+                        grid.add_rule_checked(new_rule)
+                if new_gts is not None:
+                    for gt in new_gts:
+                        grid.add_gtee_checked(gt)
             filter_guarantees(grid)
         except InvalidGrid:
             pass
 
-        # Check if anything changed
-        if list(known) != old_known:
-            changed = True
+    cheap_techniques = [
+        locked_candidate, skyscraper, rulehelper_atmostonce, rulehelper_sum_atmostonce,
+        lambda g: remove_naked_tuples(g, 5),
+        xy_wing, xyz_wing, w_wing, x_chain, xy_chain,
+        simple_coloring, aligned_pair_exclusion, als_xz, sue_de_coq,
+    ]
+
+    old = None
+    while grid.is_valid:
+        if old is not None and old.all_but_rule_equal(grid):
+            # Try cheap techniques
+            made_progress = False
+            for technique in cheap_techniques:
+                try:
+                    technique(grid)
+                except InvalidGrid:
+                    break
+                if old is not None and not old.all_but_rule_equal(grid):
+                    _update_known_from_candidates(grid.__setitem__, cands, known)
+                    made_progress = True
+                    break
+            if not made_progress:
+                break
+
+        if old is None:
+            _update_step()
+        old = grid.deepcopy()
+        _update_step()
 
     if not grid.is_valid:
         return SolveStatus.INVALID
@@ -69,14 +95,12 @@ def forcing_chain(grid: Grid) -> None:
     """Forcing Chain technique.
 
     Pick a cell with exactly 2 candidates. For each candidate, deepcopy the grid,
-    assign the value, and run basic propagation (rules + guarantees only — no
-    expensive power actions like fish/chains). Then:
+    assign the value, and run propagation with all cheap techniques (everything
+    before fish in the pipeline). Then:
 
-    Case 3 (contradiction): If one branch returns INVALID, the other must be true.
-    Case 1 (common assignment): If both branches assign the same value to the same
-            cell, that value is forced.
-    Case 2 (common elimination): If both branches eliminate the same candidate from
-            a cell, that candidate can be eliminated.
+    Case 3: If one branch returns INVALID, the other must be true.
+    Case 1: If both branches assign the same value to the same cell, force it.
+    Case 2: If both branches eliminate the same candidate from a cell, remove it.
     """
     global _in_forcing_chain
     if _in_forcing_chain:
@@ -104,7 +128,7 @@ def forcing_chain(grid: Grid) -> None:
             for val in vals:
                 clone = grid.deepcopy()
                 clone[cell] = val
-                status = _propagate_basic(clone)
+                status = _propagate_with_cheap_techniques(clone)
                 statuses.append(status)
                 clones.append(clone)
 
