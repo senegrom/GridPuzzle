@@ -149,6 +149,9 @@ class AtomicSolver:
         with _lg.time_ctxt("sue_de_coq"):
             sue_de_coq(self.grid)
         yield "sue_de_coq"
+        with _lg.time_ctxt("forcing_chain"):
+            forcing_chain(self.grid)
+        yield "forcing_chain"
         with _lg.time_ctxt("hidden_tuples3"):
             if self.hidden_pair_checked_gts:
                 remove_hidden_tuples(self.grid, 3,
@@ -192,9 +195,6 @@ class AtomicSolver:
         with _lg.time_ctxt("finned-fish"):
             finned_fish(self.grid, _MAX_FISH - 1)
         yield "finned-fish"
-        with _lg.time_ctxt("forcing_chain"):
-            forcing_chain(self.grid)
-        yield "forcing_chain"
 
 
 _MAX_HIDDEN_TUPLE = 7
