@@ -100,7 +100,12 @@ def forcing_chain(grid: Grid) -> None:
                          c(cell))
                 cands[cell].intersection_update((vals[0],))
                 return
-            # Both INVALID: don't raise — let backtracking handle it
+            if statuses[0] == SolveStatus.INVALID and statuses[1] == SolveStatus.INVALID:
+                # Both branches contradict with basic propagation. This does NOT
+                # mean the grid is invalid — it means this bivalue cell can't be
+                # resolved at this propagation depth. The real solver might resolve
+                # it via deeper backtracking on other cells first. Skip this cell.
+                continue
 
             # Cases 1 & 2: only if both branches are valid
             if statuses[0] != SolveStatus.INVALID and statuses[1] != SolveStatus.INVALID:
