@@ -81,24 +81,25 @@ def update_from_guarantee(grid: Grid, gt: Guarantee):
         grid.add_gtee_checked(new_gt)
 
 
-def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length, prev_gts: List[Guarantee],
+def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length,
+                                depth: int,
                                 remaining_cdts: List[Guarantee],
                                 values: Set, prev_union: List[Optional[Set]],
                                 candidates_for_round: Optional[List[Guarantee]] = None):
-    ll = len(prev_gts)
-
     for i, gt in enumerate(candidates_for_round if candidates_for_round is not None else remaining_cdts):
-        union_cells = prev_union[ll - 1] | gt.cells if ll else gt.cells
+        union_cells = prev_union[depth - 1] | gt.cells if depth else set(gt.cells)
         values.add(gt.val)
-        if len(union_cells) > length:
+        len_union = len(union_cells)
+        len_values = len(values)
+        if len_union > length:
             raise RuntimeError("Should not happen")
-        if len(union_cells) < len(values):
+        if len_union < len_values:
             _lg.logr(f"HiddenTuple@{length}",
-                     f"Invalid: {len(union_cells)} < {len(values)} for values {values}",
+                     f"Invalid: {len_union} < {len_values} for values {values}",
                      c(union_cells))
             cands[union_cells.pop()].clear()
             raise InvalidGrid
-        if ll == length - 1:
+        if depth == length - 1:
             for cell in union_cells:
                 if not cands[cell] <= values:
                     _lg.logr(f"HiddenTuple@{length}",
@@ -106,15 +107,19 @@ def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length
                              c(cell))
                     cands[cell].intersection_update(values)
         else:
-            prev_union[ll] = union_cells
+            prev_union[depth] = union_cells
+            max_new_cells = length - len_union
             if candidates_for_round is not None:
-                new_remaining_cdts = [gt for gt in remaining_cdts if
-                                      gt.val not in values and len(union_cells | gt.cells) <= length]
+                new_remaining_cdts = [gt2 for gt2 in remaining_cdts if
+                                      gt2.val not in values and
+                                      len(gt2.cells - union_cells) <= max_new_cells]
             else:
-                new_remaining_cdts = [gt for gt in remaining_cdts[i + 1:] if
-                                      gt.val not in values and len(union_cells | gt.cells) <= length]
+                new_remaining_cdts = [gt2 for gt2 in remaining_cdts[i + 1:] if
+                                      gt2.val not in values and
+                                      len(gt2.cells - union_cells) <= max_new_cells]
             if new_remaining_cdts:
-                _remove_hidden_tuples_inner(cands, c, length, prev_gts + [gt], new_remaining_cdts,
+                _remove_hidden_tuples_inner(cands, c, length, depth + 1,
+                                            new_remaining_cdts,
                                             values, prev_union)
         values.remove(gt.val)
 
@@ -128,7 +133,7 @@ def remove_hidden_tuples(grid: Grid, max_ht, candidate_gts: Optional[List[Guaran
         for i in range(range_start, 1, -1):
             if not candidates:
                 break
-            _remove_hidden_tuples_inner(grid._candidates, c, i, [], candidates, set(), [None] * i)
+            _remove_hidden_tuples_inner(grid._candidates, c, i, 0, candidates, set(), [None] * i)
             if i > 2:
                 candidates = [gt for gt in candidates if len(gt.cells) <= i - 1]
         return
@@ -140,7 +145,7 @@ def remove_hidden_tuples(grid: Grid, max_ht, candidate_gts: Optional[List[Guaran
     for i in range(range_start, 1, -1):
         if not candidates_for_1st or not candidates_for_2nd:
             break
-        _remove_hidden_tuples_inner(grid._candidates, c, i, [], candidates_for_2nd, set(), [None] * i,
+        _remove_hidden_tuples_inner(grid._candidates, c, i, 0, candidates_for_2nd, set(), [None] * i,
                                     candidates_for_1st)
         if i > 2:
             candidates_for_1st = [gt for gt in candidates_for_1st if len(gt.cells) <= i - 1]

@@ -15,8 +15,7 @@ def locked_candidate(grid: Grid) -> None:
     both groups, then that value can be eliminated from the other group's
     remaining cells (those outside the intersection).
     """
-    # Only use full-size uniqueness groups (rows, cols, boxes) — not partial groups like
-    # killer sudoku cages, which have fewer cells than max_elem.
+    # Only use full-size uniqueness groups (rows, cols, boxes)
     unique_rule_cells: List[FrozenSet[int]] = [
         grp for grp in grid.unique_rule_cells if len(grp) == grid.max_elem
     ]
@@ -27,40 +26,53 @@ def locked_candidate(grid: Grid) -> None:
     cands = grid._candidates
     known = grid._known
 
-    # Precompute: for each group, which values are still candidates and where
-    # We only need pairs of groups that actually overlap
+    # Precompute intersecting pairs and their partitions
+    pairs = []
     for g1, g2 in itertools.combinations(unique_rule_cells, 2):
         intersection = g1 & g2
         if not intersection or len(intersection) == len(g1) or len(intersection) == len(g2):
-            # No overlap, or one is subset of the other — skip
             continue
+        pairs.append((tuple(g1 - intersection), tuple(g2 - intersection), tuple(intersection)))
 
-        g1_only = g1 - intersection
-        g2_only = g2 - intersection
-
+    for g1_only, g2_only, intersection in pairs:
         for val in range(1, grid.max_elem + 1):
             # Check if val in g1 is locked to the intersection
-            # (all occurrences of val in g1 are within g1 & g2)
-            val_in_g1_only = any(val in cands[cell] and known[cell] == 0 for cell in g1_only)
-            if not val_in_g1_only:
-                # val in g1 is confined to intersection → eliminate from g2_only (Pointing)
-                val_in_intersection = any(val in cands[cell] and known[cell] == 0 for cell in intersection)
-                if val_in_intersection:
+            g1_has_val = False
+            for cell in g1_only:
+                if known[cell] == 0 and val in cands[cell]:
+                    g1_has_val = True
+                    break
+            if not g1_has_val:
+                # val in g1 is confined to intersection → eliminate from g2_only
+                isect_has_val = False
+                for cell in intersection:
+                    if known[cell] == 0 and val in cands[cell]:
+                        isect_has_val = True
+                        break
+                if isect_has_val:
                     for cell in g2_only:
                         if val in cands[cell]:
-                            _lg.logr(f"LockedCandidate",
+                            _lg.logr("LockedCandidate",
                                      f"{val} removed (pointing) w/ locked set {c(intersection)}",
                                      c(cell))
                             cands[cell].discard(val)
 
             # Check the reverse: val in g2 is locked to the intersection
-            val_in_g2_only = any(val in cands[cell] and known[cell] == 0 for cell in g2_only)
-            if not val_in_g2_only:
-                val_in_intersection = any(val in cands[cell] and known[cell] == 0 for cell in intersection)
-                if val_in_intersection:
+            g2_has_val = False
+            for cell in g2_only:
+                if known[cell] == 0 and val in cands[cell]:
+                    g2_has_val = True
+                    break
+            if not g2_has_val:
+                isect_has_val = False
+                for cell in intersection:
+                    if known[cell] == 0 and val in cands[cell]:
+                        isect_has_val = True
+                        break
+                if isect_has_val:
                     for cell in g1_only:
                         if val in cands[cell]:
-                            _lg.logr(f"LockedCandidate",
+                            _lg.logr("LockedCandidate",
                                      f"{val} removed (claiming) w/ locked set {c(intersection)}",
                                      c(cell))
                             cands[cell].discard(val)

@@ -27,12 +27,11 @@ def fish(grid: Grid, max_fish=2) -> None:
                 if n < f:
                     continue
                 if f == 2:
-                    # Specialized fast path for f=2 (most common case)
                     for a in range(n):
                         gt_a = my_gt_temp[a]
                         for b in range(a + 1, n):
                             gt_b = my_gt_temp[b]
-                            if gt_a & gt_b:
+                            if not gt_a.isdisjoint(gt_b):
                                 continue
                             all_gts = gt_a | gt_b
                             for ur in urs:
@@ -59,7 +58,6 @@ def fish(grid: Grid, max_fish=2) -> None:
                                         break
                 else:
                     for gts in itertools.combinations(my_gt_temp, f):
-                        # Check pairwise disjoint via accumulated set
                         seen = set()
                         disjoint = True
                         for gt in gts:
@@ -72,13 +70,14 @@ def fish(grid: Grid, max_fish=2) -> None:
                         all_gts = frozenset(seen)
                         for ur in urs:
                             for cell in ur:
-                                if cell not in all_gts:
-                                    cd = cands[cell]
-                                    if i in cd:
-                                        _lg.logr(f"Fish@{f}",
-                                                 f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                 c(cell))
-                                        cd.remove(i)
+                                if cell in all_gts:
+                                    continue
+                                cd = cands[cell]
+                                if i in cd:
+                                    _lg.logr(f"Fish@{f}",
+                                             f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
+                                             c(cell))
+                                    cd.remove(i)
                         for cell in all_gts:
                             counter = 0
                             for ur in urs:
@@ -121,12 +120,11 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                 if n < f:
                     continue
                 if f == 2:
-                    # Specialized fast path for f=2 (most common case)
                     for a in range(n):
                         gt_a = my_gt_temp[a]
                         for b in range(a + 1, n):
                             gt_b = my_gt_temp[b]
-                            if gt_a & gt_b:
+                            if not gt_a.isdisjoint(gt_b):
                                 continue
                             all_gts = gt_a | gt_b
                             for isect in ur_intersections:
@@ -153,7 +151,6 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                         break
                 else:
                     for gts in itertools.combinations(my_gt_temp, f):
-                        # Check pairwise disjoint via accumulated set
                         seen = set()
                         disjoint = True
                         for gt in gts:
@@ -165,14 +162,13 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                             continue
                         all_gts = frozenset(seen)
                         for isect in ur_intersections:
-                            for cell in isect:
-                                if cell not in all_gts:
-                                    cd = cands[cell]
-                                    if i in cd:
-                                        _lg.logr(f"FishFinned@{f}",
-                                                 f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                 c(cell))
-                                        cd.remove(i)
+                            for cell in isect - all_gts:
+                                cd = cands[cell]
+                                if i in cd:
+                                    _lg.logr(f"FishFinned@{f}",
+                                             f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
+                                             c(cell))
+                                    cd.remove(i)
                         for cell in all_gts:
                             counter = 0
                             for ur in urs:
