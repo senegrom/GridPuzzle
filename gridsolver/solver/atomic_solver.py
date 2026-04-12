@@ -6,9 +6,7 @@ from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
-from gridsolver.solver.solve_aligned_pair import aligned_pair_exclusion
 from gridsolver.solver.solve_als import als_xz
-from gridsolver.solver.solve_coloring import simple_coloring
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_forcing_chain import forcing_chain
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
@@ -137,12 +135,6 @@ class AtomicSolver:
         with _lg.time_ctxt("xy_chain"):
             xy_chain(self.grid)
         yield "xy_chain"
-        with _lg.time_ctxt("simple_coloring"):
-            simple_coloring(self.grid)
-        yield "simple_coloring"
-        with _lg.time_ctxt("aligned_pair_exclusion"):
-            aligned_pair_exclusion(self.grid)
-        yield "aligned_pair_exclusion"
         with _lg.time_ctxt("als_xz"):
             als_xz(self.grid)
         yield "als_xz"
