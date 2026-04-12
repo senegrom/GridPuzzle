@@ -1,25 +1,24 @@
 from collections import deque
-from typing import List, FrozenSet, Dict, Set, Tuple
+from typing import List, FrozenSet, Dict, Set, Tuple, Union
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
+# A node is either a single (cell, digit) or a group (frozenset_of_cells, digit)
+Node = Tuple[Union[int, FrozenSet[int]], int]
+
 
 # noinspection PyProtectedMember
 def alternating_inference_chain(grid: Grid) -> None:
-    """Alternating Inference Chain (AIC) technique.
+    """Alternating Inference Chain (AIC) with grouped strong links.
 
-    Builds a graph of strong and weak links between (cell, digit) nodes.
-    Searches for chains of odd length that start and end with strong links.
-    If both endpoints have the same digit, any cell seeing both endpoints
-    can have that digit eliminated.
-
-    Strong links: conjugate pairs (digit in exactly 2 cells of a house),
-                  bivalue cells (if not A then B).
-    Weak links: same house (if cell has D, peer can't have D),
-                same cell (if cell has A, it doesn't have B).
+    Nodes: (cell_or_group, digit).
+    Strong links: conjugate pairs, bivalue cells, AND grouped links from
+    box-line intersections (if digit D in a house is confined to 2 sectors).
+    Weak links: same house, same cell, AND group-to-cell (if a cell sees
+    all cells in a group for the same digit).
     """
     cands = grid._candidates
     known = grid._known
@@ -29,14 +28,15 @@ def alternating_inference_chain(grid: Grid) -> None:
     if not houses:
         return
 
-    # Build link graph: node = (cell, digit)
-    strong: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
-    weak: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
+    strong: Dict[Node, Set[Node]] = {}
+    weak: Dict[Node, Set[Node]] = {}
 
     def _add(d, src, dst):
         d.setdefault(src, set()).add(dst)
 
-    # Conjugate pairs → strong links
+    # --- Single-cell strong links ---
+
+    # Conjugate pairs
     for house in houses:
         for val in range(1, grid.max_elem + 1):
             cells = [cell for cell in house if known[cell] == 0 and val in cands[cell]]
@@ -44,17 +44,48 @@ def alternating_inference_chain(grid: Grid) -> None:
                 _add(strong, (cells[0], val), (cells[1], val))
                 _add(strong, (cells[1], val), (cells[0], val))
 
-    # Bivalue cells → strong links
+    # Bivalue cells
     for cell in range(grid.len):
         if known[cell] == 0 and len(cands[cell]) == 2:
             a, b = list(cands[cell])
             _add(strong, (cell, a), (cell, b))
             _add(strong, (cell, b), (cell, a))
 
+    # --- Grouped strong links ---
+    # For each pair of houses that intersect, check if a digit's candidates
+    # in one house are split into exactly 2 sectors (intersections with other houses)
+    rows_n = grid.rows
+
+    for house in houses:
+        for val in range(1, grid.max_elem + 1):
+            val_cells = frozenset(cell for cell in house if known[cell] == 0 and val in cands[cell])
+            if len(val_cells) < 3:
+                continue  # Already covered by conjugate pairs
+
+            # Find how val_cells split across other houses
+            for other_house in houses:
+                if other_house is house:
+                    continue
+                intersection = val_cells & other_house
+                if not intersection:
+                    continue
+                remainder = val_cells - intersection
+                if not remainder:
+                    continue
+                # intersection and remainder form a strong link:
+                # D must be in intersection OR remainder (within this house)
+                if len(intersection) <= 3 and len(remainder) <= 3:
+                    g1 = frozenset(intersection) if len(intersection) > 1 else next(iter(intersection))
+                    g2 = frozenset(remainder) if len(remainder) > 1 else next(iter(remainder))
+                    _add(strong, (g1, val), (g2, val))
+                    _add(strong, (g2, val), (g1, val))
+
     if not strong:
         return
 
-    # Same-house weak links (same digit, different cells)
+    # --- Weak links ---
+
+    # Same-house (same digit, different cells)
     for house in houses:
         for val in range(1, grid.max_elem + 1):
             cells = [cell for cell in house if known[cell] == 0 and val in cands[cell]]
@@ -63,16 +94,43 @@ def alternating_inference_chain(grid: Grid) -> None:
                     _add(weak, (a, val), (b, val))
                     _add(weak, (b, val), (a, val))
 
-    # Same-cell weak links (different digits)
+    # Same-cell (different digits)
     for cell in range(grid.len):
-        if known[cell] == 0:
+        if known[cell] == 0 and len(cands[cell]) >= 2:
             vals = list(cands[cell])
             for i, a in enumerate(vals):
                 for b in vals[i + 1:]:
                     _add(weak, (cell, a), (cell, b))
                     _add(weak, (cell, b), (cell, a))
 
-    # Precompute cell peers
+    # Group-to-cell weak links: if a cell sees ALL cells in a group (same digit)
+    # then group being true → cell can't have that digit
+    all_group_nodes = set()
+    for node in strong:
+        if isinstance(node[0], frozenset):
+            all_group_nodes.add(node)
+
+    for gnode in all_group_nodes:
+        group_cells, val = gnode
+        # Find cells that see ALL cells in the group and have val as candidate
+        common_peers = None
+        for gc in group_cells:
+            peers = set()
+            for house in houses:
+                if gc in house:
+                    peers |= house
+            peers.discard(gc)
+            if common_peers is None:
+                common_peers = peers
+            else:
+                common_peers &= peers
+        if common_peers:
+            for peer in common_peers:
+                if known[peer] == 0 and val in cands[peer] and peer not in group_cells:
+                    _add(weak, gnode, (peer, val))
+                    _add(weak, (peer, val), gnode)
+
+    # --- Precompute cell peers ---
     cell_peers: Dict[int, Set[int]] = {}
     for cell in range(grid.len):
         peers = set()
@@ -82,62 +140,70 @@ def alternating_inference_chain(grid: Grid) -> None:
         peers.discard(cell)
         cell_peers[cell] = peers
 
-    # Search for AICs: start from each node, follow strong→weak→strong→...
-    # Looking for chains where the END node has the same digit as start,
-    # reached via a strong link (so both endpoints are "true or").
-    # Chain: start --strong--> A --weak--> B --strong--> C --weak--> ... --strong--> end
-    # Length must be odd (counted by links): 3, 5, 7
+    def _get_cells(node: Node) -> Set[int]:
+        """Get the cell(s) of a node."""
+        n, _ = node
+        if isinstance(n, frozenset):
+            return n
+        return {n}
 
-    max_depth = 7  # max number of links
+    def _cells_see_all(target_cell: int, node: Node) -> bool:
+        """Check if target_cell sees all cells in node."""
+        for nc in _get_cells(node):
+            if nc not in cell_peers.get(target_cell, set()):
+                return False
+        return True
+
+    # --- BFS for AICs ---
+    max_depth = 9
 
     for start_node in strong:
-        start_cell, start_val = start_node
+        start_cells = _get_cells(start_node)
+        start_val = start_node[1]
 
-        # BFS with (current_node, next_is_weak, depth)
-        # Use visited per (node, parity) to allow reaching same node via different parities
         visited = set()
-        visited.add((start_node, False))  # start: next link from here is strong (parity=False=strong)
+        visited.add((start_node, False))
         queue = deque()
 
-        # Follow strong links from start (depth 1, next is weak)
         for nb in strong.get(start_node, ()):
-            key = (nb, True)  # arrived via strong, next is weak
+            key = (nb, True)
             if key not in visited:
                 visited.add(key)
                 queue.append((nb, True, 1))
 
         while queue:
             current, next_is_weak, depth = queue.popleft()
-            cur_cell, cur_val = current
+            cur_cells = _get_cells(current)
+            cur_val = current[1]
 
-            # Check: arrived via strong link (next_is_weak=True), same digit as start,
-            # different cell, depth >= 3 (at least 3 links)
-            if next_is_weak and depth >= 3 and cur_val == start_val and cur_cell != start_cell:
-                common_peers = cell_peers.get(start_cell, set()) & cell_peers.get(cur_cell, set())
-                for z in common_peers:
-                    if known[z] == 0 and z != start_cell and z != cur_cell and cur_val in cands[z]:
-                        _lg.logr("AIC",
-                                 f"{cur_val} removed (chain len {depth}: "
-                                 f"{c(start_cell)}..{c(cur_cell)})",
-                                 c(z))
-                        cands[z].discard(cur_val)
-                        if not cands[z]:
-                            raise InvalidGrid()
-                        return
+            # Check: arrived via strong link, same digit as start, different cells
+            if next_is_weak and depth >= 3 and cur_val == start_val and cur_cells != start_cells:
+                # Find cells that see ALL cells in both endpoints
+                for z in range(grid.len):
+                    if known[z] == 0 and z not in start_cells and z not in cur_cells \
+                            and cur_val in cands[z]:
+                        if _cells_see_all(z, start_node) and _cells_see_all(z, current):
+                            _lg.logr("AIC",
+                                     f"{cur_val} removed (chain len {depth}: "
+                                     f"{c(sorted(start_cells))}..{c(sorted(cur_cells))})",
+                                     c(z))
+                            cands[z].discard(cur_val)
+                            if not cands[z]:
+                                raise InvalidGrid()
+                            return
 
             if depth >= max_depth:
                 continue
 
-            # Follow next links
             if next_is_weak:
                 links = weak.get(current, ())
-                next_parity = False
+                next_par = False
             else:
                 links = strong.get(current, ())
-                next_parity = True
+                next_par = True
 
             for nb in links:
-                key = (nb, next_parity)
+                key = (nb, next_par)
                 if key not in visited:
                     visited.add(key)
-                    queue.append((nb, next_parity, depth + 1))
+                    queue.append((nb, next_par, depth + 1))
