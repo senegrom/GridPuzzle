@@ -67,14 +67,6 @@ def forcing_chain(grid: Grid) -> None:
     known = grid._known
     c = CoordToString(grid.rows)
 
-    # Check if grid has decomposing rules (SumRule, ProdRule etc.) where
-    # rule decomposition during trial propagation makes the constraint system
-    # order-dependent — both-INVALID is unreliable for these puzzles
-    from gridsolver.rules.sumrules import SumRule, ProdRule, DiffRule, DivRule, SumAndElementsAtMostOnce
-    has_decomposing_rules = any(
-        isinstance(r, (SumRule, ProdRule, DiffRule, DivRule, SumAndElementsAtMostOnce))
-        for r in grid.rules | grid.rules_ia)
-
     # Collect cells sorted by candidate count (smallest first)
     target_cells = []
     for cell in range(grid.len):
@@ -115,17 +107,10 @@ def forcing_chain(grid: Grid) -> None:
                 cands[cell].intersection_update((survivor,))
                 return
 
-            # If ALL contradict:
+            # If ALL contradict, skip — the cell may need other cells resolved
+            # first via backtracking (FC tests one cell in isolation)
             if not valid_indices:
-                if has_decomposing_rules:
-                    # With decomposing rules, the contradiction may be
-                    # order-dependent — skip and let backtracking handle it
-                    continue
-                else:
-                    # Without decomposing rules, both-INVALID means the grid
-                    # is truly invalid — no assignment order can fix it
-                    cands[cell].clear()
-                    raise InvalidGrid()
+                continue
 
             # If some contradict, eliminate those candidates
             if invalid_count > 0:
