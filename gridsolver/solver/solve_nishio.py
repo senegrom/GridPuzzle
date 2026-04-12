@@ -1,6 +1,5 @@
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid, RuleAlwaysSatisfied
-from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -9,26 +8,25 @@ from gridsolver.solver.solver_log import lg as _lg
 def nishio(grid: Grid) -> None:
     """Nishio technique (single-digit forcing).
 
-    For each unsolved cell and each of its candidates: hypothetically place that
-    digit, propagate basic constraints on a clone, then check if any full-size
-    house has no remaining cell for some digit. If so, the candidate is invalid.
+    For each unsolved cell and each candidate: hypothetically place it,
+    propagate basic constraints (rules + guarantees). If the grid becomes
+    invalid (some cell has no candidates — which includes guarantee violations
+    like "digit D has nowhere to go in house H"), the candidate is eliminated.
 
-    Only runs on grids where all ElementsAtMostOnce rules are full-size (no
-    small arithmetic cages like KenKen) to avoid false contradictions from
-    over-constraining propagation.
+    The guarantee system (ElementsAtLeastOnce → filter_guarantees) already
+    checks that every digit has at least one cell in every house, so no
+    separate house check is needed.
     """
     cands = grid._candidates
     known = grid._known
     c = CoordToString(grid.rows)
 
-    # Safety check: skip if the grid has arithmetic rules (SumRule, ProdRule, etc.)
-    # where basic propagation can produce false contradictions
+    # Skip puzzles with decomposing rules (SumRule, ProdRule, etc.) where
+    # running rules to fixpoint can produce false contradictions through
+    # rule decomposition + guarantee interaction
     from gridsolver.rules.sumrules import SumRule, ProdRule, DiffRule, DivRule, SumAndElementsAtMostOnce
     if any(isinstance(r, (SumRule, ProdRule, DiffRule, DivRule, SumAndElementsAtMostOnce))
            for r in grid.rules | grid.rules_ia):
-        return
-    houses = [grp for grp in grid.unique_rule_cells if len(grp) == grid.max_elem]
-    if not houses:
         return
 
     from gridsolver.solver.atomic_solver import _update_known_from_candidates, _update_candidates_from_known
@@ -45,7 +43,7 @@ def nishio(grid: Grid) -> None:
             ck = clone._known
             cc = clone._candidates
 
-            # Basic propagation
+            # Basic propagation (same as AtomicSolver._update_step in a loop)
             changed = True
             while changed and clone.is_valid:
                 changed = False
@@ -74,23 +72,10 @@ def nishio(grid: Grid) -> None:
                 if list(ck) != old_known:
                     changed = True
 
-            # Check for contradictions: empty candidate sets or missing digits in houses
-            reason = None
             if not clone.is_valid:
-                empty_cells = [i for i in range(grid.len) if not cc[i]]
-                reason = f"empty candidates at {c(empty_cells[0])}" if empty_cells else "invalid grid"
-            else:
-                for house in houses:
-                    for d in range(1, grid.max_elem + 1):
-                        if any(ck[c2] == d for c2 in house):
-                            continue
-                        if not any(d in cc[c2] for c2 in house if ck[c2] == 0):
-                            reason = f"digit {d} has no cell in house {c(sorted(house)[:3])}..."
-                            break
-                    if reason:
-                        break
-
-            if reason:
+                # Find what went wrong for the log message
+                empty = [i for i in range(grid.len) if not cc[i]]
+                reason = f"empty candidates at {c(empty[0])}" if empty else "invalid grid"
                 _lg.logr("Nishio",
                          f"{val} removed ({reason})",
                          c(cell))
