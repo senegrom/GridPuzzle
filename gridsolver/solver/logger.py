@@ -66,17 +66,17 @@ def set_colouring(c: Colouring | str):
     if not isinstance(c, Colouring):
         c = Colouring[c]
     if c == Colouring.No:
-        logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0)
+        logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_NO
     elif c == Colouring.Rich:
-        logging.basicConfig(format=_FORMAT, level=0,
+        logging.basicConfig(format=_FORMAT, level=0, force=True,
                             handlers=[
                                 RichHandler(show_time=False, show_level=False, show_path=False,
                                             highlighter=NullHighlighter(),
                                             markup=True)])
         C = _C_RICH
     elif c == Colouring.Colorama:
-        logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0)
+        logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_COLORAMA
     else:
         raise ValueError(str(c))
