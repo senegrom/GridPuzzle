@@ -5,6 +5,8 @@ from gridsolver.solver.solver_log import lg as _lg
 
 _in_forcing_chain = False
 
+MAX_FORCING_CHAIN_CANDIDATES = 2  # Only bivalue cells (safe for all puzzle types)
+
 
 def _propagate_basic(grid):
     """Basic propagation: rules + guarantees, no power actions."""
@@ -48,16 +50,14 @@ def _propagate_basic(grid):
 
 # noinspection PyProtectedMember
 def forcing_chain(grid: Grid) -> None:
-    """Forcing Chain technique.
+    """Forcing Chain technique (generalized to N candidates).
 
-    For each bivalue cell, test both candidates via basic propagation:
-    - Case 3: If one branch is INVALID, the other must be true.
-    - Case 1: If both branches assign the same value to a cell, force it.
-    - Case 2: If both branches eliminate the same candidate, remove it.
+    For each cell with 2..MAX candidates, test all candidates via basic propagation:
+    - If all but one branch contradict, force the surviving candidate.
+    - If ALL non-contradicted branches agree on a value for some cell, force it.
+    - If ALL non-contradicted branches eliminate the same candidate, remove it.
 
-    When BOTH branches are INVALID, we do NOT raise InvalidGrid — we let the
-    solver's backtracking handle it, since the contradiction may be resolvable
-    at a higher backtracking level.
+    Tries smallest cells first (bivalue, then trivalue, etc).
     """
     global _in_forcing_chain
     if _in_forcing_chain:
@@ -67,13 +67,20 @@ def forcing_chain(grid: Grid) -> None:
     known = grid._known
     c = CoordToString(grid.rows)
 
-    bivalue_cells = [i for i in range(grid.len) if known[i] == 0 and len(cands[i]) == 2]
-    if not bivalue_cells:
+    # Collect cells sorted by candidate count (smallest first)
+    target_cells = []
+    for cell in range(grid.len):
+        n = len(cands[cell])
+        if known[cell] == 0 and 2 <= n <= MAX_FORCING_CHAIN_CANDIDATES:
+            target_cells.append((n, cell))
+    target_cells.sort()
+
+    if not target_cells:
         return
 
     _in_forcing_chain = True
     try:
-        for cell in bivalue_cells:
+        for _, cell in target_cells:
             vals = list(cands[cell])
             statuses = []
             clones = []
@@ -87,62 +94,80 @@ def forcing_chain(grid: Grid) -> None:
                 statuses.append(s)
                 clones.append(clone)
 
-            # Case 3: One branch contradicts
-            if statuses[0] == SolveStatus.INVALID and statuses[1] != SolveStatus.INVALID:
+            valid_indices = [j for j, s in enumerate(statuses) if s != SolveStatus.INVALID]
+            invalid_count = len(vals) - len(valid_indices)
+
+            # If all but one contradict, force the survivor
+            if len(valid_indices) == 1:
+                survivor = vals[valid_indices[0]]
                 _lg.logr("ForcingChain",
-                         f"contradiction when {c(cell)}={vals[0]}, so {c(cell)}={vals[1]}",
+                         f"{invalid_count} of {len(vals)} branches contradict, "
+                         f"forcing {c(cell)}={survivor}",
                          c(cell))
-                cands[cell].intersection_update((vals[1],))
+                cands[cell].intersection_update((survivor,))
                 return
-            if statuses[1] == SolveStatus.INVALID and statuses[0] != SolveStatus.INVALID:
-                _lg.logr("ForcingChain",
-                         f"contradiction when {c(cell)}={vals[1]}, so {c(cell)}={vals[0]}",
-                         c(cell))
-                cands[cell].intersection_update((vals[0],))
-                return
-            if statuses[0] == SolveStatus.INVALID and statuses[1] == SolveStatus.INVALID:
-                # Both branches contradict with basic propagation. This does NOT
-                # mean the grid is invalid — it means this bivalue cell can't be
-                # resolved at this propagation depth. The real solver might resolve
-                # it via deeper backtracking on other cells first. Skip this cell.
+
+            # If ALL contradict, skip (can't resolve this cell in isolation)
+            if not valid_indices:
                 continue
 
-            # Cases 1 & 2: only if both branches are valid
-            if statuses[0] != SolveStatus.INVALID and statuses[1] != SolveStatus.INVALID:
-                known_a, cands_a = clones[0]._known, clones[0]._candidates
-                known_b, cands_b = clones[1]._known, clones[1]._candidates
-                made_progress = False
+            # If some contradict, eliminate those candidates
+            if invalid_count > 0:
+                for j, s in enumerate(statuses):
+                    if s == SolveStatus.INVALID:
+                        v = vals[j]
+                        if v in cands[cell]:
+                            _lg.logr("ForcingChain",
+                                     f"{v} contradicts, removed from {c(cell)}",
+                                     c(cell))
+                            cands[cell].discard(v)
+                # Made progress — return and let solver re-propagate
+                return
 
-                for i in range(grid.len):
-                    if i == cell or known[i] > 0:
-                        continue
-                    ka, kb = known_a[i], known_b[i]
-                    if ka > 0 and ka == kb:
-                        _lg.logr("ForcingChain",
-                                 f"both branches force {c(i)}={ka} from {c(cell)}",
-                                 c(i))
-                        cands[i].intersection_update((ka,))
-                        made_progress = True
+            # All branches valid — find common deductions among ALL branches
+            made_progress = False
 
-                for i in range(grid.len):
-                    if i == cell or known[i] > 0 or len(cands[i]) <= 1:
-                        continue
-                    eliminated_a = cands[i] - cands_a[i]
-                    if not eliminated_a:
-                        continue
-                    eliminated_b = cands[i] - cands_b[i]
-                    common_eliminated = eliminated_a & eliminated_b
+            # Case 1: All branches force the same value in some cell
+            for i in range(grid.len):
+                if i == cell or known[i] > 0:
+                    continue
+                forced_val = clones[valid_indices[0]]._known[i]
+                if forced_val > 0 and all(
+                        clones[j]._known[i] == forced_val for j in valid_indices[1:]):
+                    _lg.logr("ForcingChain",
+                             f"all {len(valid_indices)} branches force {c(i)}={forced_val} "
+                             f"from {c(cell)}",
+                             c(i))
+                    cands[i].intersection_update((forced_val,))
+                    made_progress = True
+
+            # Case 2: All branches eliminate the same candidate
+            for i in range(grid.len):
+                if i == cell or known[i] > 0 or len(cands[i]) <= 1:
+                    continue
+                # Find candidates eliminated in ALL valid branches
+                common_eliminated = None
+                for j in valid_indices:
+                    elim = cands[i] - clones[j]._candidates[i]
+                    if common_eliminated is None:
+                        common_eliminated = elim
+                    else:
+                        common_eliminated &= elim
+                    if not common_eliminated:
+                        break
+                if common_eliminated:
                     for v in common_eliminated:
                         if v in cands[i]:
                             _lg.logr("ForcingChain",
-                                     f"{v} removed from {c(i)} (both branches eliminate)",
+                                     f"{v} removed from {c(i)} "
+                                     f"(all {len(valid_indices)} branches eliminate)",
                                      c(i))
                             cands[i].discard(v)
                             if not cands[i]:
                                 raise InvalidGrid()
                             made_progress = True
 
-                if made_progress:
-                    return
+            if made_progress:
+                return
     finally:
         _in_forcing_chain = False
