@@ -69,11 +69,18 @@ def set_colouring(c: Colouring | str):
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_NO
     elif c == Colouring.Rich:
+        from colorama import deinit
+        deinit()  # Remove colorama's stdout/stderr wrapper so Rich can handle output
+        import io
+        from rich.console import Console
+        # Use a Console that writes UTF-8 to stdout, bypassing Windows legacy encoding
+        utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        console = Console(file=utf8_stdout, markup=True, highlight=False, force_terminal=True)
         logging.basicConfig(format=_FORMAT, level=0, force=True,
                             handlers=[
                                 RichHandler(show_time=False, show_level=False, show_path=False,
                                             highlighter=NullHighlighter(),
-                                            markup=True)])
+                                            markup=True, console=console)])
         C = _C_RICH
     elif c == Colouring.Colorama:
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
