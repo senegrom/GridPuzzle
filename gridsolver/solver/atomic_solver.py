@@ -11,6 +11,7 @@ from gridsolver.solver.solve_als import als_xz
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_nishio import nishio
 from gridsolver.solver.solve_forcing_chain import forcing_chain
+from gridsolver.solver.solve_forcing_net import forcing_net
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
 from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
@@ -195,6 +196,9 @@ class AtomicSolver:
         with _lg.time_ctxt("finned-fish"):
             finned_fish(self.grid, _MAX_FISH - 1)
         yield "finned-fish"
+        with _lg.time_ctxt("forcing_net"):
+            forcing_net(self.grid)
+        yield "forcing_net"
 
 
 _MAX_HIDDEN_TUPLE = 7
