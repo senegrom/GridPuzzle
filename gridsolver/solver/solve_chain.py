@@ -172,13 +172,13 @@ def xy_chain(grid: Grid) -> None:
                 # _lg.logd(f"Link end  {start_cell}--{le}")
                 if le == start_cell:
                     _lg.logr(f"LoopXY",
-                             f"all but {val} removed from {set(cd)} w/ loop {'##'}", cs(start_cell))
+                             f"all but {val} removed from {set(cd)} w/ loop {cs(start_cell)}", cs(start_cell))
                     cd.intersection_update((val,))
                 joint_nb = wl[start_cell] & wl[le]
                 for nb in joint_nb:
                     if val in cands[nb]:
                         _lg.logr(f"ChainXY",
-                                 f"{val} removed from {cands[nb]} w/ chain {'##'}", cs(nb))
+                                 f"{val} removed from {cands[nb]} w/ chain {cs(start_cell)}..{cs(le)}", cs(nb))
                         cands[nb].remove(val)
 
 
