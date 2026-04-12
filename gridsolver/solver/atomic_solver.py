@@ -143,12 +143,6 @@ class AtomicSolver:
         with _lg.time_ctxt("sue_de_coq"):
             sue_de_coq(self.grid)
         yield "sue_de_coq"
-        with _lg.time_ctxt("aic"):
-            alternating_inference_chain(self.grid)
-        yield "aic"
-        with _lg.time_ctxt("nishio"):
-            nishio(self.grid)
-        yield "nishio"
         with _lg.time_ctxt("forcing_chain"):
             forcing_chain(self.grid)
         yield "forcing_chain"
@@ -189,6 +183,12 @@ class AtomicSolver:
                 remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE, None)
             self.hidden_pair_checked_gts = self.grid.guarantees
         yield "hidden_tuples"
+        with _lg.time_ctxt("aic"):
+            alternating_inference_chain(self.grid)
+        yield "aic"
+        with _lg.time_ctxt("nishio"):
+            nishio(self.grid)
+        yield "nishio"
         with _lg.time_ctxt("fish"):
             fish(self.grid, _MAX_FISH)
         yield "fish"
