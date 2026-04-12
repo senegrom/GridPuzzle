@@ -75,21 +75,24 @@ def nishio(grid: Grid) -> None:
                     changed = True
 
             # Check for contradictions: empty candidate sets or missing digits in houses
-            contradiction = not clone.is_valid
-            if not contradiction:
+            reason = None
+            if not clone.is_valid:
+                empty_cells = [i for i in range(grid.len) if not cc[i]]
+                reason = f"empty candidates at {c(empty_cells[0])}" if empty_cells else "invalid grid"
+            else:
                 for house in houses:
                     for d in range(1, grid.max_elem + 1):
                         if any(ck[c2] == d for c2 in house):
                             continue
                         if not any(d in cc[c2] for c2 in house if ck[c2] == 0):
-                            contradiction = True
+                            reason = f"digit {d} has no cell in house {c(sorted(house)[:3])}..."
                             break
-                    if contradiction:
+                    if reason:
                         break
 
-            if contradiction:
+            if reason:
                 _lg.logr("Nishio",
-                         f"{val} removed (placement leads to contradiction)",
+                         f"{val} removed ({reason})",
                          c(cell))
                 cands[cell].discard(val)
                 if not cands[cell]:
