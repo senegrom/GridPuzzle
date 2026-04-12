@@ -6,8 +6,10 @@ from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
+from gridsolver.solver.solve_aic import alternating_inference_chain
 from gridsolver.solver.solve_als import als_xz
 from gridsolver.solver.solve_fish import fish, finned_fish
+from gridsolver.solver.solve_nishio import nishio
 from gridsolver.solver.solve_forcing_chain import forcing_chain
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
 from gridsolver.solver.solve_locked_candidate import locked_candidate
@@ -141,6 +143,12 @@ class AtomicSolver:
         with _lg.time_ctxt("sue_de_coq"):
             sue_de_coq(self.grid)
         yield "sue_de_coq"
+        with _lg.time_ctxt("aic"):
+            alternating_inference_chain(self.grid)
+        yield "aic"
+        with _lg.time_ctxt("nishio"):
+            nishio(self.grid)
+        yield "nishio"
         with _lg.time_ctxt("forcing_chain"):
             forcing_chain(self.grid)
         yield "forcing_chain"

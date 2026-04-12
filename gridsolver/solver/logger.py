@@ -98,7 +98,8 @@ def _lvl(lvl):
 
 # _RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "NakedTuple", "Chain", "Loop"}
 _RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "Chain", "Loop",
-                    "ForcingChain", "Skyscraper", "LockedCandidate", "ALS", "SueDeCoq"}
+                    "ForcingChain", "Skyscraper", "LockedCandidate", "ALS", "SueDeCoq",
+                    "AIC", "Nishio"}
 TIME_DELTA_LOG_MIN = 0.5
 
 
