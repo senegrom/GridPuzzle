@@ -70,21 +70,21 @@ def set_colouring(c: Colouring | str):
         C = _C_NO
     elif c == Colouring.Rich:
         from colorama import deinit
-        deinit()  # Remove colorama's stdout/stderr wrapper so Rich can handle output
         from rich.console import Console
-        # In Jupyter, sys.stdout is an OutStream without .buffer — use it directly.
-        # On Windows terminal, wrap stdout.buffer with UTF-8 to bypass cp1252.
         if hasattr(sys.stdout, 'buffer'):
+            # Windows terminal: deinit colorama, wrap with UTF-8
+            deinit()
             import io
             out = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
             console = Console(file=out, markup=True, highlight=False, force_terminal=True)
         else:
-            console = Console(file=sys.stdout, markup=True, highlight=False)
+            # Jupyter: use default Console (Jupyter handles Unicode natively)
+            console = Console(markup=True, highlight=False, force_jupyter=True)
         logging.basicConfig(format=_FORMAT, level=0, force=True,
                             handlers=[
-                                RichHandler(show_time=False, show_level=False, show_path=False,
-                                            highlighter=NullHighlighter(),
-                                            markup=True, console=console)])
+                                RichHandler(console=console, show_time=False, show_level=False,
+                                            show_path=False, highlighter=NullHighlighter(),
+                                            markup=True)])
         C = _C_RICH
     elif c == Colouring.Colorama:
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
