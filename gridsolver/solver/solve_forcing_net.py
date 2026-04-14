@@ -73,12 +73,12 @@ def forcing_net(grid: Grid) -> None:
         return
 
     # Try pairs of cells (pick from the smallest)
-    max_pairs_to_try = 10  # Limit combinatorial explosion
+    max_pairs_to_try = 30
     pairs_tried = 0
 
-    for i in range(min(len(small_cells), 6)):
+    for i in range(min(len(small_cells), 12)):
         _, cell_a = small_cells[i]
-        for j in range(i + 1, min(len(small_cells), 6)):
+        for j in range(i + 1, min(len(small_cells), 12)):
             _, cell_b = small_cells[j]
 
             vals_a = list(cands[cell_a])

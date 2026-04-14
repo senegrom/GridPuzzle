@@ -5,47 +5,14 @@ from gridsolver.solver.solver_log import lg as _lg
 
 _in_forcing_chain = False
 
-MAX_FORCING_CHAIN_CANDIDATES = 2  # Only bivalue cells (safe for all puzzle types)
+MAX_FORCING_CHAIN_CANDIDATES = 4  # Up to 4-value cells
 
 
-def _propagate_basic(grid):
-    """Basic propagation: rules + guarantees, no power actions."""
-    from gridsolver.solver.atomic_solver import _update_known_from_candidates, _update_candidates_from_known
-    from gridsolver.solver.solve_guarantees import filter_guarantees
-    known = grid._known
-    cands = grid._candidates
-    changed = True
-    while changed and grid.is_valid:
-        changed = False
-        old_known = list(known)
-        _update_known_from_candidates(grid.__setitem__, cands, known)
-        try:
-            for rule in list(grid.rules):
-                try:
-                    do_refresh, new_rules, new_gts = rule.apply(known, cands, grid.guarantees)
-                    if do_refresh:
-                        _update_candidates_from_known(cands, known)
-                except RuleAlwaysSatisfied:
-                    new_rules = []
-                    new_gts = None
-                    _update_candidates_from_known(cands, known)
-                if new_rules is not None:
-                    grid.deactivate_rule(rule)
-                    for r in new_rules:
-                        grid.add_rule_checked(r)
-                if new_gts is not None:
-                    for gt in new_gts:
-                        grid.add_gtee_checked(gt)
-            filter_guarantees(grid)
-        except InvalidGrid:
-            pass
-        if list(known) != old_known:
-            changed = True
-    if not grid.is_valid:
-        return SolveStatus.INVALID
-    if grid.is_solved:
-        return SolveStatus.SOLVED
-    return SolveStatus.NONE
+def _propagate_with_techniques(grid):
+    """Propagation with cheap techniques — runs the full atomic solver
+    (minus forcing chain/net/nishio to prevent recursion and keep it fast)."""
+    from gridsolver.solver.atomic_solver import AtomicSolver
+    return AtomicSolver(grid, [], set()).solve_atomic()
 
 
 # noinspection PyProtectedMember
@@ -88,7 +55,7 @@ def forcing_chain(grid: Grid) -> None:
                 clone = grid.deepcopy()
                 clone[cell] = val
                 try:
-                    s = _propagate_basic(clone)
+                    s = _propagate_with_techniques(clone)
                 except InvalidGrid:
                     s = SolveStatus.INVALID
                 statuses.append(s)
