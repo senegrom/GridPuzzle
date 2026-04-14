@@ -190,11 +190,14 @@ class ProdRule(Rule):
                 candidates[last_cell].clear()
                 raise InvalidGrid()
 
+        remaining_prod = self.prod / current_prod
         for cell in self.cells:
-            tmax = self.prod / current_prod
-            for c in list(candidates[cell]):
-                if c > tmax:
-                    candidates[cell].discard(c)
+            if known[cell] == 0:
+                # Max value for this cell: remaining_prod divided by min product of other unknowns (all 1s)
+                tmax = remaining_prod
+                for c in list(candidates[cell]):
+                    if c > tmax:
+                        candidates[cell].discard(c)
 
         if any(not candidates[cell] for cell in self.cells):
             raise InvalidGrid()

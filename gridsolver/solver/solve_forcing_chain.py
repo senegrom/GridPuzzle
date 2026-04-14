@@ -108,7 +108,8 @@ def forcing_chain(grid: Grid) -> None:
                 return
 
             if not valid_indices:
-                continue
+                cands[cell].clear()
+                raise InvalidGrid()
 
             # If some contradict, eliminate those candidates
             if invalid_count > 0:
