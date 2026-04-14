@@ -21,13 +21,13 @@ def nishio(grid: Grid) -> None:
     known = grid._known
     c = CoordToString(grid.rows)
 
-    # Skip puzzles with decomposing rules (SumRule, ProdRule, etc.) where
-    # running rules to fixpoint can produce false contradictions through
-    # rule decomposition + guarantee interaction
+    # Skip puzzles with arithmetic rules where propagation to fixpoint
+    # can expose rule bugs not yet fixed
     from gridsolver.rules.sumrules import SumRule, ProdRule, DiffRule, DivRule, SumAndElementsAtMostOnce
     if any(isinstance(r, (SumRule, ProdRule, DiffRule, DivRule, SumAndElementsAtMostOnce))
            for r in grid.rules | grid.rules_ia):
         return
+
 
     from gridsolver.solver.atomic_solver import _update_known_from_candidates, _update_candidates_from_known
     from gridsolver.solver.solve_guarantees import filter_guarantees

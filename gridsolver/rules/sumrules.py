@@ -44,11 +44,14 @@ class SumRule(Rule):
                 candidates[last_cell].clear()
                 raise InvalidGrid()
 
+        remaining_unknowns = self.len_cells - lk
+        remaining_sum = self.sum - current_sum
+        tmax = remaining_sum - remaining_unknowns + 1  # max if all other unknowns are min 1
         for cell in self.cells:
-            tmax = self.sum - current_sum + lk - len(self.cells)
-            for c in list(candidates[cell]):
-                if c > tmax:
-                    candidates[cell].discard(c)
+            if known[cell] == 0:
+                for c in list(candidates[cell]):
+                    if c > tmax:
+                        candidates[cell].discard(c)
 
         if lk:
             new_target = self.sum - current_sum

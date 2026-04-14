@@ -107,8 +107,6 @@ def forcing_chain(grid: Grid) -> None:
                 cands[cell].intersection_update((survivor,))
                 return
 
-            # If ALL contradict, skip — the cell may need other cells resolved
-            # first via backtracking (FC tests one cell in isolation)
             if not valid_indices:
                 continue
 
