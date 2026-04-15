@@ -40,12 +40,27 @@ resorting to backtracking only when all deductive methods are exhausted.
 #### Advanced
 - **Fish / Finned Fish** — X-Wing, Swordfish, Jellyfish patterns (and finned variants)
 - **Alternating Inference Chains (AIC)** — generalized chains with grouped strong links from box-line intersections
-- **Nishio** — single-digit forcing: place a candidate, propagate, check for contradiction
-- **Forcing Chain** — test both values of a bivalue cell; if one contradicts, force the other; if both agree on a deduction, apply it
+- **Nishio** — single-digit forcing: place a candidate, propagate, check for contradiction via the guarantee system
+- **Forcing Chain** — test each value of a small cell (2-4 candidates) using the full constraint propagation engine; if one contradicts, force another; if all non-contradicted branches agree on a deduction, apply it; if all branches contradict, the grid is invalid
 - **Forcing Net** — test all value combinations of two cells simultaneously for common deductions
 
 #### Last Resort
 - **Backtracking** with MRV (Minimum Remaining Values) heuristic
+
+### Technique effectiveness
+Based on profiling across 49 test puzzles:
+
+| Technique | Hit Rate | Notes |
+|-----------|----------|-------|
+| Forcing Chain | 57% | Most impactful; uses full solver for trials |
+| Skyscraper | 13% | Cheap, fires often |
+| ALS-XZ | 10% | |
+| Locked Candidate | 7% | |
+| Nishio | 30 hits on hard sudoku | Now works on all puzzle types |
+| AIC | 2-4 hits | Grouped strong links help |
+| Sue de Coq | 1.5% | |
+
+The hardest built-in test puzzle (example_t) is solved **entirely without backtracking** using deductive techniques alone.
 
 
 ## Arguments
