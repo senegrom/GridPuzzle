@@ -163,6 +163,9 @@ class GridLogger:
         self.logs(lvl, f"Step {steps} - {descr}", header=True)
 
     def logg(self, lvl, g: ImmutableGrid, rules=None, format_args=None, **kwargs):
+        # Skip expensive grid rendering if this level won't be logged
+        if not self.lg.isEnabledFor(_lvl(lvl)):
+            return
         if not format_args:
             format_args = PrettyPrintArgs(args=g.format_args, **kwargs)
         header, g2s = g.to_str(format_args, rules=rules)

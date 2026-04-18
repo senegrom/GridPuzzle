@@ -20,13 +20,24 @@ def fish(grid: Grid, max_fish=2) -> None:
     gt_dic = grid.guarantee_cells_by_value
     cands = grid._candidates
 
-    # Precompute: for each guarantee, which unique rules contain it
-    gt_to_urs: dict[FrozenSet[int], List[FrozenSet[int]]] = {}
+    # Precompute: for each value, list of unique rules that contain at least
+    # one guarantee for that value (these are the relevant rules for fish-f)
+    relevant_urs_by_val: dict[int, list[FrozenSet[int]]] = {}
     for i in range(1, grid.max_elem + 1):
-        for gt in gt_dic[i]:
-            containing = [ur for ur in unique_rules if gt <= ur]
-            if containing:
-                gt_to_urs[gt] = containing
+        gts_for_val = gt_dic[i]
+        if not gts_for_val:
+            continue
+        seen_ids = set()
+        rel_list = []
+        for ur in unique_rules:
+            for gt in gts_for_val:
+                if gt <= ur:
+                    if id(ur) not in seen_ids:
+                        seen_ids.add(id(ur))
+                        rel_list.append(ur)
+                    break
+        if rel_list:
+            relevant_urs_by_val[i] = rel_list
 
     for f in range(max_fish, 1, -1):
         # Value-first: for each value, find relevant unique rule combinations
@@ -35,17 +46,7 @@ def fish(grid: Grid, max_fish=2) -> None:
             if len(gts_for_val) < f:
                 continue
 
-            # Find unique rules that contain at least one guarantee for this value
-            relevant_urs = set()
-            for gt in gts_for_val:
-                if gt in gt_to_urs:
-                    for ur in gt_to_urs[gt]:
-                        relevant_urs.add(id(ur))
-
-            # Map id -> frozenset for relevant rules only
-            id_to_ur = {id(ur): ur for ur in unique_rules if id(ur) in relevant_urs}
-            relevant_ur_list = list(id_to_ur.values())
-
+            relevant_ur_list = relevant_urs_by_val.get(i, [])
             if len(relevant_ur_list) < f:
                 continue
 
@@ -141,13 +142,23 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
     gt_dic = grid.guarantee_cells_by_value
     cands = grid._candidates
 
-    # Precompute: for each guarantee, which unique rules contain it
-    gt_to_urs: dict[FrozenSet[int], List[FrozenSet[int]]] = {}
+    # Precompute: for each value, unique rules that contain at least one guarantee for it
+    relevant_urs_by_val: dict[int, list[FrozenSet[int]]] = {}
     for i in range(1, grid.max_elem + 1):
-        for gt in gt_dic[i]:
-            containing = [ur for ur in unique_rules if gt <= ur]
-            if containing:
-                gt_to_urs[gt] = containing
+        gts_for_val = gt_dic[i]
+        if not gts_for_val:
+            continue
+        seen_ids = set()
+        rel_list = []
+        for ur in unique_rules:
+            for gt in gts_for_val:
+                if gt <= ur:
+                    if id(ur) not in seen_ids:
+                        seen_ids.add(id(ur))
+                        rel_list.append(ur)
+                    break
+        if rel_list:
+            relevant_urs_by_val[i] = rel_list
 
     for f in range(max_fish, 1, -1):
         for i in range(1, grid.max_elem + 1):
@@ -155,14 +166,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
             if len(gts_for_val) < f:
                 continue
 
-            relevant_urs = set()
-            for gt in gts_for_val:
-                if gt in gt_to_urs:
-                    for ur in gt_to_urs[gt]:
-                        relevant_urs.add(id(ur))
-
-            id_to_ur = {id(ur): ur for ur in unique_rules if id(ur) in relevant_urs}
-            relevant_ur_list = list(id_to_ur.values())
+            relevant_ur_list = relevant_urs_by_val.get(i, [])
 
             if len(relevant_ur_list) < f + 1:
                 continue

@@ -227,6 +227,9 @@ _BOX_DRAW_CHARS = {"│", "─", "┃", "━"}
 
 
 def _fix_crossings(data: MutableSequence[str]) -> None:
+    # Skip the 2D char conversion if there are no crossings to fix
+    if not any(CORNER_MARKER in row for row in data):
+        return
     data_s = [[char for char in row] for row in data]
     last_row = len(data_s) - 1
     for i, row in enumerate(data_s):
