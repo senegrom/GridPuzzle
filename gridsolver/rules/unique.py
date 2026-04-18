@@ -60,7 +60,6 @@ class ElementsAtLeastOnce(Rule):
 
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Iterable[IdxType] = None, cell_creator=None):
-        sorted(list(cells)) if cells is not None else None
         super().__init__(gsz, cells, cell_creator)
 
     def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):

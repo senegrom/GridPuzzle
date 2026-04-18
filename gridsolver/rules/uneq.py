@@ -15,8 +15,14 @@ class IneqRule(Rule):
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         plt = candidates[self._lt_cell]
         pgt = candidates[self._gt_cell]
-        plt.intersection_update(range(1, max(pgt, default=0)))
-        pgt.intersection_update(range(min(plt, default=self._max_elem) + 1, self._max_elem + 1))
+        # plt must be < max(pgt); remove values >= max(pgt)
+        pgt_max = max(pgt) if pgt else 0
+        if plt and max(plt) >= pgt_max:
+            plt.difference_update([v for v in plt if v >= pgt_max])
+        # pgt must be > min(plt); remove values <= min(plt)
+        plt_min = min(plt) if plt else self._max_elem
+        if pgt and min(pgt) <= plt_min:
+            pgt.difference_update([v for v in pgt if v <= plt_min])
         if not plt or not pgt:
             raise InvalidGrid()
         if known[self._gt_cell] > 0 and 0 < known[self._lt_cell] < known[self._gt_cell]:

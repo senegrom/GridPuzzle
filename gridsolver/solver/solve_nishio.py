@@ -41,7 +41,7 @@ def nishio(grid: Grid) -> None:
             changed = True
             while changed and clone.is_valid:
                 changed = False
-                old_known = list(ck)
+                old_hash = bytes(ck)
                 _update_known_from_candidates(clone.__setitem__, cc, ck)
                 try:
                     for rule in list(clone.rules):
@@ -63,7 +63,7 @@ def nishio(grid: Grid) -> None:
                     filter_guarantees(clone)
                 except InvalidGrid:
                     pass
-                if list(ck) != old_known:
+                if bytes(ck) != old_hash:
                     changed = True
 
             if not clone.is_valid:

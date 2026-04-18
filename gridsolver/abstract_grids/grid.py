@@ -265,26 +265,24 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     @property
     def weak_links(self) -> List[Set[int]]:
         """the weak links originating from a cell in a dictionary"""
-        uneq_rules = self.get_rules_of_type(UneqRule)
-        return [set().union(*(rule.rel_cells for rule in uneq_rules if rule.origin_cell == cell))
-                for cell in range(self.len)]
+        # Single-pass over UneqRules instead of filtering per cell
+        result = [set() for _ in range(self.len)]
+        for rule in self.rules:
+            if isinstance(rule, UneqRule):
+                result[rule.origin_cell].update(rule.rel_cells)
+        return result
 
     @property
     def semi_strong_links(self) -> Dict[int, List[Set[int]]]:
         """the semi-strong links originating from a cell in a dictionary for targets of the same number"""
-        g2 = self.get_guarantees_of_length(2)
-
-        g2_dic = {val: [gt for gt in g2 if gt.val == val] for val in range(1, self.max_elem + 1)}
-
-        links = {val: [
-            set().union(*(gt.cells for gt in g2_dic[val] if cell in gt.cells))
-            for cell in range(self.len)]
-            for val in range(1, self.max_elem + 1)}
-
-        for val in range(1, self.max_elem + 1):
-            for cell in range(self.len):
-                links[val][cell].discard(cell)
-
+        # Single-pass: for each length-2 guarantee, add both cells to each other's links
+        links = {val: [set() for _ in range(self.len)] for val in range(1, self.max_elem + 1)}
+        for gt in self.guarantees:
+            if len(gt.cells) == 2:
+                cells = list(gt.cells)
+                a, b = cells[0], cells[1]
+                links[gt.val][a].add(b)
+                links[gt.val][b].add(a)
         return links
 
     @property
