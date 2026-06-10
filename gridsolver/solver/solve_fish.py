@@ -1,5 +1,5 @@
 import itertools
-from typing import List, FrozenSet
+from typing import FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.solver.logger import CoordToString

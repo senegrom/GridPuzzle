@@ -3,7 +3,7 @@ import sys
 import time
 from contextlib import contextmanager
 from enum import Enum
-from typing import Optional, List, Union, Any, Iterable, Set, FrozenSet, Callable
+from typing import List, Union, Any, Iterable, Set, FrozenSet, Callable
 
 from colorama import init, Fore, Style
 from rich.highlighter import NullHighlighter
@@ -16,7 +16,7 @@ init()
 
 
 class Colouring(Enum):
-    No = 0,
+    No = 0
     Colorama = 1
     Rich = 2
 
@@ -100,7 +100,6 @@ def _lvl(lvl):
     return MAX_LVL - lvl + 1
 
 
-# _RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "NakedTuple", "Chain", "Loop"}
 _RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "Chain", "Loop",
                     "ForcingChain", "Skyscraper", "LockedCandidate", "ALS", "SueDeCoq",
                     "AIC", "Nishio", "ForcingNet"}
@@ -128,7 +127,6 @@ class CoordToString(Callable):
 class GridLogger:
     def __init__(self, lg: logging.Logger, lvl: int):
         self.lg: logging.Logger = lg
-        self.grid_buffer: Optional[ImmutableGrid] = None
         self.set_lvl(lvl)
         self.grid_buf = None
 

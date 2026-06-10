@@ -1,4 +1,3 @@
-import copy
 import itertools
 from array import array
 from enum import Enum
@@ -110,24 +109,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.guarantees_ia = self.guarantees_ia.copy()
         return result
 
-    def deep_deepcopy(self) -> 'Grid':
-        """Fully independent copy including deep-copied Rule objects.
-        Used by forcing chain trials to ensure complete isolation."""
-        cls = type(self)
-        result = cls.__new__(cls)
-        result.rows = self.rows
-        result.cols = self.cols
-        result.max_elem = self.max_elem
-        result.len = self.len
-        result._known = array('I', self._known)
-        result._candidates = tuple(s.copy() for s in self._candidates)
-        memo = {}
-        result.rules = {copy.deepcopy(r, memo) for r in self.rules}
-        result.rules_ia = {copy.deepcopy(r, memo) for r in self.rules_ia}
-        result.guarantees = self.guarantees.copy()
-        result.guarantees_ia = self.guarantees_ia.copy()
-        return result
-
     @property
     def is_solved(self) -> bool:
         known = self._known
@@ -196,19 +177,21 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
              row_wise=True, space_sep=False):
 
         assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
-        values = self._load_preprocess_sequence(values, space_sep=False)
+        values = self._load_preprocess_sequence(values, space_sep=space_sep)
+
+        def to_int(nk):
+            try:
+                return int(nk)
+            except ValueError:
+                return int(nk, base=36)
+
         if row_wise:
             for i, nk in enumerate(values):
                 row, col = divmod(i, self.cols)
-
-                try:
-                    value = int(nk)
-                except ValueError:
-                    value = int(nk, base=36)
-                self[(row, col)] = value
+                self[(row, col)] = to_int(nk)
         else:
             for i, nk in enumerate(values):
-                self[i] = int(nk)
+                self[i] = to_int(nk)
 
     def _str_header(self, detailed=False):
 
@@ -237,6 +220,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         elif kwargs_list is None and fun_it is not None:
             new_rules = (rule_cls(self, cell_creator=fun) for fun in fun_it)
         else:
+            fun_it = list(fun_it)  # may be a one-shot generator; it is iterated once per kwargs
             new_rules = (rule_cls(self, cell_creator=fun, **kwargs) for kwargs in kwargs_list for fun in fun_it)
 
         for rule in new_rules:
@@ -303,40 +287,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return ssl
 
     @property
-    def strong_links(self) -> Dict[int, List[Set[int]]]:
-        """the strong links (semi-strong and weak) originating from a cell in a dictionary"""
-        wl = self.weak_links
-        ssl = self.semi_strong_links
-        return {val: [cell_links & wl[cell]
-                      for cell, cell_links in enumerate(ssl[val])]
-                for val in range(1, self.max_elem + 1)}
-
-    @property
-    def guarantees_by_value(self) -> Dict[int, List[Guarantee]]:
-        return {i: [gt for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)}
-
-    @property
     def guarantee_cells_by_value(self) -> Dict[int, List[FrozenSet]]:
         return {i: [gt.cells for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)}
 
-    @property
-    def guarantees_by_length(self) -> Dict[int, List[Guarantee]]:
-        return {ll: self.get_guarantees_of_length(ll) for ll in range(1, self.len + 1)}
-
-    def get_guarantees_of_length(self, ll: int) -> List[Guarantee]:
-        return [gt for gt in self.guarantees if len(gt.cells) == ll]
-
     def get_guarantees_shorter_than(self, ll: int) -> List[Guarantee]:
         return [gt for gt in self.guarantees if len(gt.cells) <= ll]
-
-    @property
-    def guarantees_by_value_and_length(self) -> Dict[int, Dict[int, List[FrozenSet]]]:
-        gbv = self.guarantee_cells_by_value
-        return {i:
-                    {ll:
-                         [gt for gt in gbv[i] if len(gt) == ll]
-                     for ll in range(1, self.len)}
-                for i in range(1, self.max_elem + 1)}
 
     def get_cells_with_candidate_length(self, i) -> List[Tuple[int, Set[int]]]:
         return [(cell, self._candidates[cell]) for cell, cts in enumerate(self._candidates) if len(cts) == i]

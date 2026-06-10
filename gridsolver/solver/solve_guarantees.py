@@ -1,4 +1,3 @@
-import itertools
 from typing import List, Optional, Set, Tuple
 
 from gridsolver.abstract_grids.grid import Grid
@@ -60,7 +59,7 @@ def update_from_guarantee(grid: Grid, gt: Guarantee):
         pfi: Set[int] = cands[first_idx]
         kfi = known[first_idx]
         if kfi == 0 and gt.val in pfi:
-            known[first_idx] = gt.val
+            grid[first_idx] = gt.val  # via __setitem__ so the candidate set is pruned too
             grid.deactivate_gtee(gt)
             return
         else:

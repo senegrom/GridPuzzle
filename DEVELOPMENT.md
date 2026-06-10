@@ -23,7 +23,7 @@ solve(grid)
 ### Key Design Decisions
 
 **Rules are immutable and shared across deepcopy clones.**
-`Grid.deepcopy()` shallow-copies the rules/guarantees sets but shares Rule objects. This is safe because Rule objects never mutate after construction (`@cached_property` values are deterministic). `Grid.deep_deepcopy()` exists for full isolation but isn't needed in practice.
+`Grid.deepcopy()` shallow-copies the rules/guarantees sets but shares Rule objects. This is safe because Rule objects never mutate after construction (`@cached_property` values are deterministic).
 
 **Forcing chain uses the full AtomicSolver for trial branches.**
 The `_in_forcing_chain` module-level flag prevents recursion. The inner solver runs ALL techniques except FC/nishio/forcing_net. This gives maximum deductive power — example_t solves with zero backtracking.

@@ -1,6 +1,8 @@
 from gridsolver.abstract_grids.grid import Grid
-from gridsolver.rules.rules import InvalidGrid, RuleAlwaysSatisfied
+from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
+from gridsolver.solver import solve_forcing_chain as _solve_fc
+from gridsolver.solver.solve_forcing_net import _propagate_basic
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -17,14 +19,12 @@ def nishio(grid: Grid) -> None:
     checks that every digit has at least one cell in every house, so no
     separate house check is needed.
     """
+    if _solve_fc._in_forcing_chain:
+        return
+
     cands = grid._candidates
     known = grid._known
     c = CoordToString(grid.rows)
-
-
-
-    from gridsolver.solver.atomic_solver import _update_known_from_candidates, _update_candidates_from_known
-    from gridsolver.solver.solve_guarantees import filter_guarantees
 
     for cell in range(grid.len):
         if known[cell] > 0 or len(cands[cell]) <= 1:
@@ -34,37 +34,8 @@ def nishio(grid: Grid) -> None:
         for val in list(cands[cell]):
             clone = grid.deepcopy()
             clone[cell] = val
-            ck = clone._known
             cc = clone._candidates
-
-            # Basic propagation (same as AtomicSolver._update_step in a loop)
-            changed = True
-            while changed and clone.is_valid:
-                changed = False
-                old_hash = bytes(ck)
-                _update_known_from_candidates(clone.__setitem__, cc, ck)
-                try:
-                    for rule in list(clone.rules):
-                        try:
-                            do_refresh, new_rules, new_gts = rule.apply(ck, cc, clone.guarantees)
-                            if do_refresh:
-                                _update_candidates_from_known(cc, ck)
-                        except RuleAlwaysSatisfied:
-                            new_rules = []
-                            new_gts = None
-                            _update_candidates_from_known(cc, ck)
-                        if new_rules is not None:
-                            clone.deactivate_rule(rule)
-                            for r in new_rules:
-                                clone.add_rule_checked(r)
-                        if new_gts is not None:
-                            for gt in new_gts:
-                                clone.add_gtee_checked(gt)
-                    filter_guarantees(clone)
-                except InvalidGrid:
-                    pass
-                if bytes(ck) != old_hash:
-                    changed = True
+            _propagate_basic(clone)
 
             if not clone.is_valid:
                 # Find what went wrong for the log message

@@ -4,6 +4,7 @@ from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku, SumCellPair
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 from gridsolver.rules.unique import ElementsAtMostOnce, ElementsAtLeastOnce
 from gridsolver.solver import solver
 
@@ -77,10 +78,37 @@ def test_sudo_none():
 
 
 def test_sudo_nonsq():
-    g = Sudoku(2, 3, 3, 2)
+    g = Sudoku(3, 2, 2, 3)
     g.load("123456654321........................", row_wise=False)
     sol = solver.solve(g, log_level=-1)
-    assert len(sol) == 16
+    assert len(sol) == 1408  # verified by independent brute force
+
+
+def test_sudo_nonsq_box_tiling():
+    # boxes of 3 rows x 2 cols must partition the 6x6 grid
+    g = Sudoku(3, 2, 2, 3)
+    houses = [cells for cells in g.unique_rule_cells if len(cells) == 6]
+    box_00 = frozenset(r + c * 6 for r in range(3) for c in range(2))
+    assert box_00 in houses
+    # every cell lies in exactly 3 size-6 houses: its row, column and box
+    for cell in range(36):
+        assert sum(1 for h in houses if cell in h) == 3
+
+
+def test_killer_cages_row_major():
+    # the first line of the cage layout is the first ROW of the grid
+    g = KillerSudoku(None, 2, 2, 2, 2)
+    g.load_with_dic(
+        """
+        aabb
+        ccdd
+        eeff
+        gghh
+        """, {ch: 5 for ch in "abcdefgh"})
+    cages = {frozenset(rule.cells) for rule in g.get_rules_of_type(SumAndElementsAtMostOnce)}
+    idx = {(r, c): r + c * 4 for r in range(4) for c in range(4)}
+    assert frozenset({idx[0, 0], idx[0, 1]}) in cages  # cage 'a' spans row 0
+    assert frozenset({idx[1, 2], idx[1, 3]}) in cages  # cage 'd' spans row 1
 
 
 def test_row_unique_col_min():
@@ -216,19 +244,3 @@ def test_eq_killer_sudoku2():
 
 def test_eq_futoshiki():
     pass  # todo
-
-# def test_sudo_m10():
-#     g = Sudoku()
-#     sol = solver.solve(g, max_sols=10, log_level=100)
-#     assert len(sol) == 10
-
-# def test_sudo_big_m10():
-#     g = Sudoku(4, 4, 4, 4)
-#     sol = solver.solve(g, max_sols=2, log_level=100)
-#     assert len(sol) == 2
-#
-#
-# def test_sudo_big2_m10():
-#     g = Sudoku(5, 5, 5, 5)
-#     sol = solver.solve(g, max_sols=1, log_level=100)
-#     assert len(sol) == 1

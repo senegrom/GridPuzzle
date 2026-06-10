@@ -182,7 +182,7 @@ class AtomicSolver:
                                      [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
             else:
                 remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE, None)
-            self.hidden_pair_checked_gts = self.grid.guarantees
+            self.hidden_pair_checked_gts = set(self.grid.guarantees)
         yield "hidden_tuples"
         with _lg.time_ctxt("aic"):
             alternating_inference_chain(self.grid)

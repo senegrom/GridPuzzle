@@ -2,9 +2,9 @@
 Solver for grid puzzles, e.g. Sudokus, Futoshiki, Killer Sudoku, KenKen, Latin Squares etc.
 Input puzzles are read as modules that define the variable `g`, from `.pzl` files, or from strings.
 
-Execute  `python run.py -f examples.exampleSudoku` to solve the Sudoku that is stored as `g` in the `Examples/exampleSudoku.py` file.
+Execute  `python run.py -m Examples.exampleSudoku` to solve the Sudoku that is stored as `g` in the `Examples/exampleSudoku.py` file.
 Additional options exist to print intermediate steps or to run one of the built-in examples.
-Try `python run.py -v -f examples.exampleSudoku` for all intermediate steps when solving the example Sudoku.
+Try `python run.py -v -m Examples.exampleSudoku` for all intermediate steps when solving the example Sudoku.
 
 Try `python run.py -s ..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2. -c sudoku` to solve a Sudoku from an arbitrary string.
 

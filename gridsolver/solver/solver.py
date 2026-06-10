@@ -21,7 +21,7 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
     sols: Set[ImmutableGrid]
     grid.has_been_filled = True
 
-    sols, _ = _solve_full(grid.deepcopy(), [], max_sols, set())
+    sols = _solve_full(grid.deepcopy(), [], max_sols, set())
 
     for idx, sol in enumerate(sols):
         _lg.logs(0, "Solution " + str(idx), header=True)
@@ -37,7 +37,7 @@ def _solve_full(grid: Grid,
                 steps: List[int],
                 max_sols: int,
                 hidden_pair_checked_gts: Set[Guarantee]
-                ) -> (Set[ImmutableGrid], Set[ImmutableGrid]):
+                ) -> Set[ImmutableGrid]:
     steps.append(0)
     if len(steps) == len(grid) - GC_LEN_PARAM:
         gc.collect()
@@ -45,10 +45,10 @@ def _solve_full(grid: Grid,
     solved: SolveStatus = AtomicSolver(grid, steps, hidden_pair_checked_gts).solve_atomic()
     if solved == SolveStatus.SOLVED:
         steps.pop()
-        return {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}, set()
+        return {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}
     if solved == SolveStatus.INVALID:
         steps.pop()
-        return set(), {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}
+        return set()
 
     test_i, p = grid.get_smallest_candidate_set_gt1()
     test_gt = grid.get_smallest_guarantee()
@@ -59,9 +59,8 @@ def _solve_full(grid: Grid,
         tests = None
 
     sols: Set[ImmutableGrid] = set()
-    wrongs: Set[ImmutableGrid] = set()
 
-    def do_trial(test_val_cell_inner):  # todo
+    def do_trial(test_val_cell_inner):
         nonlocal sols
 
         mylen = len(steps)
@@ -80,13 +79,10 @@ def _solve_full(grid: Grid,
         else:
             clone[test_i] = test_val_cell_inner
 
-        sols_x: Set[ImmutableGrid]
-        wrongs_x: Set[ImmutableGrid]
         new_max: int = -1 if max_sols == -1 else max_sols - len(sols)
-        sols_x, wrongs_x = _solve_full(clone, steps, new_max, grid.guarantees)
+        sols_x = _solve_full(clone, steps, new_max, grid.guarantees)
         steps[mylen - 1] = steps[mylen - 1] + 1
         sols.update(sols_x)
-        wrongs.update(wrongs_x)
         if 0 < max_sols <= len(sols):
             _lg.logs(0, f"Step {steps} - Reached max_sols == {max_sols} ")
             sols = set(itertools.islice(iter(sols), max_sols))
@@ -99,4 +95,4 @@ def _solve_full(grid: Grid,
             break
 
     steps.pop()
-    return sols, wrongs
+    return sols

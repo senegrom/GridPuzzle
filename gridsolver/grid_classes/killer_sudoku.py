@@ -82,7 +82,7 @@ class KillerSudoku(Sudoku):
                 raise ValueError("KillerSudoku string format invalid.")
             val = int(str_dic[start:idx])
             dic[char] = val
-        self.load_with_dic(sum_cells, dic)
+        self.load_with_dic(sum_cells, dic, row_wise)
 
     def load_with_dic(self, sum_cells: Union[str, Iterable[str]], dic: Mapping[str, int], row_wise=True) -> None:
         """Input grid with single char per "group" as multiline string. Plus a dictionary for the sums"""
@@ -93,9 +93,9 @@ class KillerSudoku(Sudoku):
             dic = dict(dic)
         final_dic: Dict[str, SumCellPair] = {}
         char_iter = iter(sum_cells)
-        for c1 in range(self.cols if row_wise else self.rows):
-            for c2 in range(self.rows if row_wise else self.cols):
+        for c1 in range(self.rows if row_wise else self.cols):
+            for c2 in range(self.cols if row_wise else self.rows):
                 char = next(char_iter)
                 entry = final_dic.setdefault(char, SumCellPair(mysum=dic[char], cells=[]))
-                entry.cells.append((c2, c1) if row_wise else (c1, c2))
+                entry.cells.append((c1, c2) if row_wise else (c2, c1))
         self.ext_sum_cells(final_dic.values())

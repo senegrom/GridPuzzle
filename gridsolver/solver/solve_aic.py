@@ -1,5 +1,5 @@
 from collections import deque
-from typing import List, FrozenSet, Dict, Set, Tuple, Union
+from typing import FrozenSet, Dict, Set, Tuple, Union
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
@@ -54,8 +54,6 @@ def alternating_inference_chain(grid: Grid) -> None:
     # --- Grouped strong links ---
     # For each pair of houses that intersect, check if a digit's candidates
     # in one house are split into exactly 2 sectors (intersections with other houses)
-    rows_n = grid.rows
-
     for house in houses:
         for val in range(1, grid.max_elem + 1):
             val_cells = frozenset(cell for cell in house if known[cell] == 0 and val in cands[cell])

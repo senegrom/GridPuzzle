@@ -76,6 +76,8 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
         return s
 
     def to_str(self, args: PrettyPrintArgs = None, rules: Collection[Rule] = None) -> Tuple[str, str]:
+        if args is None:
+            args = PrettyPrintArgs(args=self.format_args)
         candidates = tuple()
         ineqs = set()
 

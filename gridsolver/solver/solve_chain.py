@@ -39,6 +39,7 @@ def w_wing(grid: Grid) -> None:
                         chain = _compute_chain(le, weak_dic, strg_dic, True)
                         _lg.logr(f"LoopW",
                                  f"{val} removed from {set(key)} w/ loop {cs(chain)} ", cs(cell))
+                        cands[cell].discard(val)
                     joint_nb = wl[cell] & wl[le]
                     for nb in joint_nb:
                         if other_val in cands[nb]:
@@ -225,6 +226,8 @@ def _find_link_ends_with_num(start_cell: int, end_cells: Union[None, Set[int], F
                     and visited_strong_dic[num][active] != start_cell:  # length 1 not interesting
                 results.append((num, active))
             for nb in wl[active]:
+                if nb in visited_weak[num]:
+                    continue
                 visited_weak[num].add(nb)
                 visited_weak_dic[num][nb] = active
                 todo_weak.append((num, nb))

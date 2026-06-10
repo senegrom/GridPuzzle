@@ -100,10 +100,6 @@ def sue_de_coq(grid: Grid) -> None:
                     if line_overlap_count != needed_line_overlap:
                         continue
 
-                    # Verify the overlaps don't share values
-                    if box_overlap & line_overlap:
-                        continue
-
                     # Valid Sue de Coq! Apply eliminations.
                     made_progress = False
 

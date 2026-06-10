@@ -88,10 +88,6 @@ class UneqRule(SingleRelationRule):
                 removed_values.add(gt.val)
                 if not por:
                     raise InvalidGrid()
-        #
-        # interesting_gts = [gt for gt in interesting_gts if gt.val not in removed_values]
-        # for(i in range(2,3)):
-        #     for gtc in itertools.combinations
 
         if k > 0 and all(0 < known[cell] != k for cell in self.rel_cells):
             raise RuleAlwaysSatisfied()

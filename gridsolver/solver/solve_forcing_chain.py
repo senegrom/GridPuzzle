@@ -1,5 +1,5 @@
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
-from gridsolver.rules.rules import InvalidGrid, RuleAlwaysSatisfied
+from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 

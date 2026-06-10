@@ -35,8 +35,8 @@ def als_xz(grid: Grid) -> None:
     known = grid._known
 
     # Build all ALSs: for each house, find subsets of N unsolved cells with N+1 candidates
-    all_als: list[tuple[frozenset[int], frozenset[int], FrozenSet[int]]] = []
-    # Each ALS: (cells, values, house)
+    all_als: list[tuple[frozenset[int], frozenset[int]]] = []
+    # Each ALS: (cells, values)
 
     for house in all_houses:
         unsolved = [(cell, frozenset(cands[cell])) for cell in house
@@ -45,13 +45,13 @@ def als_xz(grid: Grid) -> None:
         # ALS of size 1: a single cell with 2 candidates (bivalue cell)
         for cell, cell_cands in unsolved:
             if len(cell_cands) == 2:
-                all_als.append((frozenset([cell]), cell_cands, house))
+                all_als.append((frozenset([cell]), cell_cands))
 
         # ALS of size 2: two cells with 3 total candidates
         for (c1, cd1), (c2, cd2) in itertools.combinations(unsolved, 2):
             union = cd1 | cd2
             if len(union) == 3:
-                all_als.append((frozenset([c1, c2]), union, house))
+                all_als.append((frozenset([c1, c2]), union))
 
         # ALS of size 3: three cells with 4 total candidates
         if len(unsolved) >= 3:
@@ -59,7 +59,7 @@ def als_xz(grid: Grid) -> None:
                 cells_fs = frozenset(cell for cell, _ in combo)
                 union = frozenset().union(*(cd for _, cd in combo))
                 if len(union) == 4:
-                    all_als.append((cells_fs, union, combo[0][1]))  # house doesn't matter much
+                    all_als.append((cells_fs, union))
 
     if len(all_als) < 2:
         return
@@ -67,7 +67,7 @@ def als_xz(grid: Grid) -> None:
     # Deduplicate ALSs by (cells, values)
     seen_als = set()
     unique_als = []
-    for cells, vals, house in all_als:
+    for cells, vals in all_als:
         key = (cells, vals)
         if key not in seen_als:
             seen_als.add(key)

@@ -3,6 +3,7 @@ import itertools
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid, RuleAlwaysSatisfied
 from gridsolver.solver.logger import CoordToString
+from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -57,6 +58,9 @@ def forcing_net(grid: Grid) -> None:
     This is strictly more powerful than single-cell forcing chains because
     it tests interactions between cells.
     """
+    if _solve_fc._in_forcing_chain:
+        return
+
     cands = grid._candidates
     known = grid._known
     c = CoordToString(grid.rows)
@@ -149,54 +153,19 @@ def forcing_net(grid: Grid) -> None:
                                 raise InvalidGrid()
                             made_progress = True
 
-            # Case 3: Some value for cell_a or cell_b contradicts in ALL combos
-            for va in vals_a:
-                if all(not clone.is_valid or clone._known[cell_a] != va
-                       for clone in valid_clones):
-                    # va contradicts with every value of cell_b — but only if
-                    # it truly contradicts (not just wasn't assigned)
-                    all_invalid = True
-                    for vb in vals_b:
-                        clone = grid.deepcopy()
-                        clone[cell_a] = va
-                        clone[cell_b] = vb
-                        try:
-                            s = _propagate_basic(clone)
-                        except InvalidGrid:
-                            s = SolveStatus.INVALID
-                        if s != SolveStatus.INVALID:
-                            all_invalid = False
-                            break
-                    if all_invalid and va in cands[cell_a]:
+            # Case 3: a value of cell_a/cell_b appearing in no valid branch is
+            # contradicted (every valid clone keeps its assigned value in _known,
+            # so the main loop above already tested all combinations)
+            for cell_x, vals_x, cell_other in ((cell_a, vals_a, cell_b), (cell_b, vals_b, cell_a)):
+                for vx in vals_x:
+                    if vx in cands[cell_x] and all(cl._known[cell_x] != vx for cl in valid_clones):
                         _lg.logr("ForcingNet",
-                                 f"{va} removed (contradicts with all values of {c(cell_b)})",
-                                 c(cell_a))
-                        cands[cell_a].discard(va)
-                        if not cands[cell_a]:
+                                 f"{vx} removed (contradicts with all values of {c(cell_other)})",
+                                 c(cell_x))
+                        cands[cell_x].discard(vx)
+                        if not cands[cell_x]:
                             raise InvalidGrid()
                         made_progress = True
-
-            for vb in vals_b:
-                all_invalid = True
-                for va in vals_a:
-                    clone = grid.deepcopy()
-                    clone[cell_a] = va
-                    clone[cell_b] = vb
-                    try:
-                        s = _propagate_basic(clone)
-                    except InvalidGrid:
-                        s = SolveStatus.INVALID
-                    if s != SolveStatus.INVALID:
-                        all_invalid = False
-                        break
-                if all_invalid and vb in cands[cell_b]:
-                    _lg.logr("ForcingNet",
-                             f"{vb} removed (contradicts with all values of {c(cell_a)})",
-                             c(cell_b))
-                    cands[cell_b].discard(vb)
-                    if not cands[cell_b]:
-                        raise InvalidGrid()
-                    made_progress = True
 
             if made_progress:
                 return

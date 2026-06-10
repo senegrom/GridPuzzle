@@ -66,7 +66,7 @@ class Kenken(UniqueSquareGrid):
                 raise ValueError("Kenken string format invalid.")
             val = int(str_dic[start:idx])
             dic[char] = (op, val)
-        self.load_with_dic(sum_cells, dic)
+        self.load_with_dic(sum_cells, dic, row_wise)
 
     def load_with_dic(self, sum_cells: Union[str, Iterable[str]], dic: Mapping[str, Tuple[str, int]],
                       row_wise=True) -> None:
@@ -78,9 +78,9 @@ class Kenken(UniqueSquareGrid):
             dic = dict(dic)
         final_dic: Dict[str, _CellTuple] = {}
         char_iter = iter(sum_cells)
-        for c1 in range(self.cols if row_wise else self.rows):
-            for c2 in range(self.rows if row_wise else self.cols):
+        for c1 in range(self.rows if row_wise else self.cols):
+            for c2 in range(self.cols if row_wise else self.rows):
                 char = next(char_iter)
                 entry = final_dic.setdefault(char, _CellTuple(mytarget=dic[char][1], cells=[], operator=dic[char][0]))
-                entry.cells.append((c2, c1) if row_wise else (c1, c2))
+                entry.cells.append((c1, c2) if row_wise else (c2, c1))
         self.ext_target_cells(final_dic.values())
