@@ -277,6 +277,24 @@ def test_eq_futoshiki():
     pass  # todo
 
 
+def test_empty_rectangle():
+    # value 1 in box 0 confined to row 1 + column 1 (the ER cross); conjugate
+    # pair (1,4)-(7,4) in column 4 has one end in row 1 -> 1 eliminated from
+    # (7,1), which sees the other end; (5,1) does not and keeps its candidate
+    from gridsolver.rules.rules import Guarantee
+    from gridsolver.solver.solve_empty_rectangle import empty_rectangle
+    g = Sudoku()
+    for r, col in ((0, 0), (0, 2), (2, 0), (2, 2)):
+        g.get_candidates((r, col)).discard(1)
+    idx = {(r, col): r + col * 9 for r in range(9) for col in range(9)}
+    cross = frozenset(idx[rc] for rc in ((1, 0), (1, 1), (1, 2), (0, 1), (2, 1)))
+    g.add_gtee_checked(Guarantee(val=1, cells=cross, rows=9, cols=9))
+    g.add_gtee_checked(Guarantee(val=1, cells=frozenset({idx[1, 4], idx[7, 4]}), rows=9, cols=9))
+    empty_rectangle(g)
+    assert 1 not in g.get_candidates((7, 1))
+    assert 1 in g.get_candidates((5, 1))
+
+
 def test_als_xy_wing_degenerate_xy_wing():
     # three single-cell ALSs reduce ALS-XY-Wing to the classic XY-Wing:
     # hinge (0,0){1,2}, A=(0,4){1,3} (RC X=1 via row 0), B=(4,0){2,3}
