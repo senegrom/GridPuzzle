@@ -69,7 +69,7 @@ def skyscraper(grid: Grid) -> None:
 
                         for cell in sees_top_a & sees_top_b - cells4:
                             if known[cell] == 0 and val in cands[cell]:
-                                _lg.logr("Skyscraper",
+                                _lg.on and _lg.logr("Skyscraper",
                                          f"{val} removed w/ tops {c(top_a)},{c(top_b)}",
                                          c(cell))
                                 cands[cell].discard(val)

@@ -13,13 +13,13 @@ _TESTS_DIR = Path(__file__).resolve().parent
 
 def test_sudo0():
     g = Sudoku(1, 1, 1, 1)
-    sol = solver.solve(g, log_level=-1)
+    sol = solver.solve(g, log_level=0)
     assert len(sol) == 1
 
 
 def test_sudo1():
     g = Sudoku(2, 2, 2, 2)
-    sol = solver.solve(g, log_level=-1)
+    sol = solver.solve(g, log_level=0)
     assert len(sol) == 288
 
 
@@ -36,12 +36,12 @@ def test_sudo2():
     assert g == g4
     assert g == g5
     assert g == g6
-    sol = solver.solve(g, log_level=-1)
-    sol2 = solver.solve(g2, log_level=-1)
-    sol3 = solver.solve(g3, log_level=-1)
-    sol4 = solver.solve(g4, log_level=-1)
-    sol5 = solver.solve(g5, log_level=-1)
-    sol6 = solver.solve(g6, log_level=-1)
+    sol = solver.solve(g, log_level=0)
+    sol2 = solver.solve(g2, log_level=0)
+    sol3 = solver.solve(g3, log_level=0)
+    sol4 = solver.solve(g4, log_level=0)
+    sol5 = solver.solve(g5, log_level=0)
+    sol6 = solver.solve(g6, log_level=0)
     assert len(sol) == 4
     assert sol == sol2
     assert sol == sol3
@@ -57,9 +57,9 @@ def test_sudo2_file():
     g3 = create_from_file(_TESTS_DIR / "test_data/sudoku2x2b.pzl", space_sep=True)
     assert g == g2
     assert g == g3
-    sol = solver.solve(g, log_level=-1)
-    sol2 = solver.solve(g2, log_level=-1)
-    sol3 = solver.solve(g3, log_level=-1)
+    sol = solver.solve(g, log_level=0)
+    sol2 = solver.solve(g2, log_level=0)
+    sol3 = solver.solve(g3, log_level=0)
     assert len(sol) == 4
     assert sol == sol2
     assert sol == sol3
@@ -67,13 +67,13 @@ def test_sudo2_file():
 
 def test_sudo3():
     g = create_from_str_and_class("1234432131......", Sudoku)
-    sol = solver.solve(g, log_level=-1)
+    sol = solver.solve(g, log_level=0)
     assert len(sol) == 1
 
 
 def test_sudo_none():
     g = create_from_str_and_class("123443212......3", Sudoku)
-    sol = solver.solve(g, log_level=-1)
+    sol = solver.solve(g, log_level=0)
     assert len(sol) == 0
 
 
@@ -83,7 +83,7 @@ def test_sudo_nonsq():
     # The full solution count is 1408 (verified by independent brute force) but
     # enumerating them all is slow; the pre-fix broken box tiling admitted only
     # 16 solutions, so already reaching 20 proves the corrected tiling.
-    sol = solver.solve(g, max_sols=20, log_level=-1)
+    sol = solver.solve(g, max_sols=20, log_level=0)
     assert len(sol) == 20
 
 
@@ -130,14 +130,14 @@ def test_row_unique_col_min():
     .5.31
     ...4.
     """, row_wise=True)
-    sol = solver.solve(g, log_level=-1)
+    sol = solver.solve(g, log_level=0)
     assert len(sol) == 24
 
 
 def test_sudo_mith():
     g = create_from_str_and_class("...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...",
                                   Sudoku)
-    sol = solver.solve(g, log_level=-1)
+    sol = solver.solve(g, log_level=0)
     assert len(sol) == 1
 
 

@@ -120,7 +120,7 @@ def forcing_net(grid: Grid) -> None:
                     continue
                 forced = valid_clones[0]._known[i2]
                 if forced > 0 and all(cl._known[i2] == forced for cl in valid_clones[1:]):
-                    _lg.logr("ForcingNet",
+                    _lg.on and _lg.logr("ForcingNet",
                              f"all {len(valid_clones)} branches force {c(i2)}={forced} "
                              f"from net {c(cell_a)}+{c(cell_b)}",
                              c(i2))
@@ -143,7 +143,7 @@ def forcing_net(grid: Grid) -> None:
                 if common_elim:
                     for v in common_elim:
                         if v in cands[i2]:
-                            _lg.logr("ForcingNet",
+                            _lg.on and _lg.logr("ForcingNet",
                                      f"{v} removed from {c(i2)} "
                                      f"(all {len(valid_clones)} branches of "
                                      f"net {c(cell_a)}+{c(cell_b)})",
@@ -159,7 +159,7 @@ def forcing_net(grid: Grid) -> None:
             for cell_x, vals_x, cell_other in ((cell_a, vals_a, cell_b), (cell_b, vals_b, cell_a)):
                 for vx in vals_x:
                     if vx in cands[cell_x] and all(cl._known[cell_x] != vx for cl in valid_clones):
-                        _lg.logr("ForcingNet",
+                        _lg.on and _lg.logr("ForcingNet",
                                  f"{vx} removed (contradicts with all values of {c(cell_other)})",
                                  c(cell_x))
                         cands[cell_x].discard(vx)

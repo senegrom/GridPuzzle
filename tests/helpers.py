@@ -10,7 +10,7 @@ logger.set_colouring(logger.Colouring.Colorama)
 
 _MAX_LVL = logger.MAX_LVL
 lg = logger.get_log("TEST", _MAX_LVL)
-VERB = 100
+VERB = 0  # bump (e.g. to 100) when debugging a failing test
 
 
 def solve_path(file: Path, space_sep: bool):

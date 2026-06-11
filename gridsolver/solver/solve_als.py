@@ -130,7 +130,7 @@ def als_xz(grid: Grid) -> None:
                             continue
                         # Cell must see every z-cell
                         if all(any(cell in h for h in cell_houses[zc]) for zc in all_z_cells):
-                            _lg.logr("ALS-XZ",
+                            _lg.on and _lg.logr("ALS-XZ",
                                      f"{z} removed (X={x}) w/ ALS {c(sorted(cells_a))}+{c(sorted(cells_b))}",
                                      c(cell))
                             cands[cell].discard(z)

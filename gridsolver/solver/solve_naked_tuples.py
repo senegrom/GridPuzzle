@@ -49,7 +49,7 @@ def _do_filter(key_, count_, candidates, comb_ct: int, cells: FrozenSet[int], c:
     if count_ == (len_key := len(key_)):
         for p in candidates:
             if not p <= key_ and (p & key_):
-                _lg.logr(f"NakedTuple@{comb_ct}",
+                _lg.on and _lg.logr(f"NakedTuple@{comb_ct}",
                          f"{count_} times - removed {set(key_)} from {set(p)}",
                          c(cells))
                 p -= key_
@@ -58,7 +58,7 @@ def _do_filter(key_, count_, candidates, comb_ct: int, cells: FrozenSet[int], c:
     elif count_ > len_key:
         for p in candidates:
             if p <= key_:
-                _lg.logr(f"TooManyNakedTuple@{comb_ct}",
+                _lg.on and _lg.logr(f"TooManyNakedTuple@{comb_ct}",
                          f"{key_} occuring too often - {count_} times - invalid",
                          c(cells))
                 p.clear()

@@ -67,7 +67,7 @@ def forcing_chain(grid: Grid) -> None:
             # If all but one contradict, force the survivor
             if len(valid_indices) == 1:
                 survivor = vals[valid_indices[0]]
-                _lg.logr("ForcingChain",
+                _lg.on and _lg.logr("ForcingChain",
                          f"{invalid_count} of {len(vals)} branches contradict, "
                          f"forcing {c(cell)}={survivor}",
                          c(cell))
@@ -84,7 +84,7 @@ def forcing_chain(grid: Grid) -> None:
                     if s == SolveStatus.INVALID:
                         v = vals[j]
                         if v in cands[cell]:
-                            _lg.logr("ForcingChain",
+                            _lg.on and _lg.logr("ForcingChain",
                                      f"{v} contradicts, removed from {c(cell)}",
                                      c(cell))
                             cands[cell].discard(v)
@@ -101,7 +101,7 @@ def forcing_chain(grid: Grid) -> None:
                 forced_val = clones[valid_indices[0]]._known[i]
                 if forced_val > 0 and all(
                         clones[j]._known[i] == forced_val for j in valid_indices[1:]):
-                    _lg.logr("ForcingChain",
+                    _lg.on and _lg.logr("ForcingChain",
                              f"all {len(valid_indices)} branches force {c(i)}={forced_val} "
                              f"from {c(cell)}",
                              c(i))
@@ -125,7 +125,7 @@ def forcing_chain(grid: Grid) -> None:
                 if common_eliminated:
                     for v in common_eliminated:
                         if v in cands[i]:
-                            _lg.logr("ForcingChain",
+                            _lg.on and _lg.logr("ForcingChain",
                                      f"{v} removed from {c(i)} "
                                      f"(all {len(valid_indices)} branches eliminate)",
                                      c(i))

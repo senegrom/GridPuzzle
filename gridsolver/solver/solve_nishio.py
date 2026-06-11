@@ -41,7 +41,7 @@ def nishio(grid: Grid) -> None:
                 # Find what went wrong for the log message
                 empty = [i for i in range(grid.len) if not cc[i]]
                 reason = f"empty candidates at {c(empty[0])}" if empty else "invalid grid"
-                _lg.logr("Nishio",
+                _lg.on and _lg.logr("Nishio",
                          f"{val} removed ({reason})",
                          c(cell))
                 cands[cell].discard(val)

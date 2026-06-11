@@ -83,7 +83,7 @@ def fish(grid: Grid, max_fish=2) -> None:
                                         if cell not in all_gts:
                                             cd = cands[cell]
                                             if i in cd:
-                                                _lg.logr(f"Fish@{f}",
+                                                _lg.on and _lg.logr(f"Fish@{f}",
                                                          f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                          c(cell))
                                                 cd.remove(i)
@@ -95,7 +95,7 @@ def fish(grid: Grid, max_fish=2) -> None:
                                         if counter == 2:
                                             cd = cands[cell]
                                             if i in cd:
-                                                _lg.logr(f"FishCannibal@{f}",
+                                                _lg.on and _lg.logr(f"FishCannibal@{f}",
                                                          f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                          c(cell))
                                                 cd.remove(i)
@@ -122,7 +122,7 @@ def fish(grid: Grid, max_fish=2) -> None:
                                 if cell not in all_gts:
                                     cd = cands[cell]
                                     if i in cd:
-                                        _lg.logr(f"Fish@{f}",
+                                        _lg.on and _lg.logr(f"Fish@{f}",
                                                  f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                  c(cell))
                                         cd.remove(i)
@@ -134,7 +134,7 @@ def fish(grid: Grid, max_fish=2) -> None:
                                 if counter == 2:
                                     cd = cands[cell]
                                     if i in cd:
-                                        _lg.logr(f"FishCannibal@{f}",
+                                        _lg.on and _lg.logr(f"FishCannibal@{f}",
                                                  f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                  c(cell))
                                         cd.remove(i)
@@ -198,7 +198,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                             if cell not in all_gts:
                                                 cd = cands[cell]
                                                 if i in cd:
-                                                    _lg.logr(f"FishFinned@{f}",
+                                                    _lg.on and _lg.logr(f"FishFinned@{f}",
                                                              f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                              c(cell))
                                                     cd.remove(i)
@@ -210,7 +210,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                             if counter == 3:
                                                 cd = cands[cell]
                                                 if i in cd:
-                                                    _lg.logr(f"FishFinnedCannibal@{f}",
+                                                    _lg.on and _lg.logr(f"FishFinnedCannibal@{f}",
                                                              f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                              c(cell))
                                                     cd.remove(i)
@@ -244,7 +244,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                 if cell not in all_gts:
                                     cd = cands[cell]
                                     if i in cd:
-                                        _lg.logr(f"FishFinned@{f}",
+                                        _lg.on and _lg.logr(f"FishFinned@{f}",
                                                  f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                  c(cell))
                                         cd.remove(i)
@@ -256,7 +256,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                 if counter == 3:
                                     cd = cands[cell]
                                     if i in cd:
-                                        _lg.logr(f"FishFinnedCannibal@{f}",
+                                        _lg.on and _lg.logr(f"FishFinnedCannibal@{f}",
                                                  f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
                                                  c(cell))
                                         cd.remove(i)

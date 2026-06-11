@@ -29,7 +29,7 @@ def xy_wing(grid: Grid) -> None:
                     for x in seeing_both:
                         cdt = grid.get_candidates(x)
                         if i in cdt:
-                            _lg.logr(f"WingXY",
+                            _lg.on and _lg.logr(f"WingXY",
                                      f"{i} removed from {cdt} w/ " +
                                      f"{cs(c)}, pincers {cs(l1)}, {cs(l2)}", cs(x))
                             cdt.remove(i)
@@ -57,7 +57,7 @@ def xyz_wing(grid: Grid) -> None:
                     for x in seeing_three:
                         cdt = grid.get_candidates(x)
                         if i in cdt:
-                            _lg.logr(f"WingXYZ",
+                            _lg.on and _lg.logr(f"WingXYZ",
                                      f"{i} removed from {cdt} w/ " +
                                      f"{cs(c)}, pincers {cs(l1)}, {cs(l2)}", cs(x))
                             cdt.remove(i)

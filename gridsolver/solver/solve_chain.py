@@ -37,14 +37,14 @@ def w_wing(grid: Grid) -> None:
                 for le in les:
                     if le == cell and val in cands[cell]:
                         chain = _compute_chain(le, weak_dic, strg_dic, True)
-                        _lg.logr(f"LoopW",
+                        _lg.on and _lg.logr(f"LoopW",
                                  f"{val} removed from {set(key)} w/ loop {cs(chain)} ", cs(cell))
                         cands[cell].discard(val)
                     joint_nb = wl[cell] & wl[le]
                     for nb in joint_nb:
                         if other_val in cands[nb]:
                             chain = _compute_chain(le, weak_dic, strg_dic, True)
-                            _lg.logr(f"WingW",
+                            _lg.on and _lg.logr(f"WingW",
                                      f"{other_val} removed from {set(key)} w/ wing {cs(chain)}", cs(nb))
                             cands[nb].remove(other_val)
 
@@ -122,14 +122,14 @@ def x_chain(grid: Grid) -> None:
             for le in les:
                 if le == cell:
                     chain = _compute_chain(le, weak_dic, strg_dic, False)
-                    _lg.logr(f"LoopX",
+                    _lg.on and _lg.logr(f"LoopX",
                              f"all but {val} removed from {set(cd)} w/ loop {cs(chain)}", cs(cell))
                     cd.intersection_update((val,))
                 joint_nb = wl[cell] & wl[le]
                 for nb in joint_nb:
                     if val in cands[nb]:
                         chain = _compute_chain(le, weak_dic, strg_dic, False)
-                        _lg.logr(f"ChainX",
+                        _lg.on and _lg.logr(f"ChainX",
                                  f"{val} removed from {set(cands[nb])} w/ chain {cs(chain)}", cs(nb))
                         cands[nb].remove(val)
 
@@ -172,13 +172,13 @@ def xy_chain(grid: Grid) -> None:
             for _, le in les:
                 # _lg.logd(f"Link end  {start_cell}--{le}")
                 if le == start_cell:
-                    _lg.logr(f"LoopXY",
+                    _lg.on and _lg.logr(f"LoopXY",
                              f"all but {val} removed from {set(cd)} w/ loop {cs(start_cell)}", cs(start_cell))
                     cd.intersection_update((val,))
                 joint_nb = wl[start_cell] & wl[le]
                 for nb in joint_nb:
                     if val in cands[nb]:
-                        _lg.logr(f"ChainXY",
+                        _lg.on and _lg.logr(f"ChainXY",
                                  f"{val} removed from {cands[nb]} w/ chain {cs(start_cell)}..{cs(le)}", cs(nb))
                         cands[nb].remove(val)
 

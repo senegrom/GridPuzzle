@@ -181,7 +181,7 @@ def alternating_inference_chain(grid: Grid) -> None:
                     if known[z] == 0 and z not in start_cells and z not in cur_cells \
                             and cur_val in cands[z]:
                         if _cells_see_all(z, start_node) and _cells_see_all(z, current):
-                            _lg.logr("AIC",
+                            _lg.on and _lg.logr("AIC",
                                      f"{cur_val} removed (chain len {depth}: "
                                      f"{c(sorted(start_cells))}..{c(sorted(cur_cells))})",
                                      c(z))

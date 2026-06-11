@@ -110,7 +110,7 @@ def sue_de_coq(grid: Grid) -> None:
                             continue
                         for val in box_als_vals:
                             if val in cands[cell]:
-                                _lg.logr("SueDeCoq",
+                                _lg.on and _lg.logr("SueDeCoq",
                                          f"{val} removed from box-rem (locked to ALS+intersection)",
                                          c(cell))
                                 cands[cell].discard(val)
@@ -125,7 +125,7 @@ def sue_de_coq(grid: Grid) -> None:
                             continue
                         for val in line_als_vals:
                             if val in cands[cell]:
-                                _lg.logr("SueDeCoq",
+                                _lg.on and _lg.logr("SueDeCoq",
                                          f"{val} removed from line-rem (locked to ALS+intersection)",
                                          c(cell))
                                 cands[cell].discard(val)

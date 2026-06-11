@@ -203,7 +203,7 @@ def capture_states(grid: Grid, max_states: int) -> list:
 
     _am.fish, _am.finned_fish = cap_fish, cap_finned
     try:
-        solver.solve(grid, log_level=-1, max_sols=1)
+        solver.solve(grid, log_level=0, max_sols=1)
     except _EnoughStates:
         pass
     finally:

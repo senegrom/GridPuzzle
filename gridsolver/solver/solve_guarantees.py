@@ -93,7 +93,7 @@ def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length
         if len_union > length:
             raise RuntimeError("Should not happen")
         if len_union < len_values:
-            _lg.logr(f"HiddenTuple@{length}",
+            _lg.on and _lg.logr(f"HiddenTuple@{length}",
                      f"Invalid: {len_union} < {len_values} for values {values}",
                      c(union_cells))
             cands[union_cells.pop()].clear()
@@ -101,7 +101,7 @@ def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length
         if depth == length - 1:
             for cell in union_cells:
                 if not cands[cell] <= values:
-                    _lg.logr(f"HiddenTuple@{length}",
+                    _lg.on and _lg.logr(f"HiddenTuple@{length}",
                              f"{cands[cell]} vs {values} w/ tuple cells {c(union_cells)}",
                              c(cell))
                     cands[cell].intersection_update(values)

@@ -150,6 +150,12 @@ class GridLogger:
         s = f"    {C['Y']}{s}{C['X']}"
         self.logs(11, s)
 
+    @property
+    def on(self) -> bool:
+        """Whether rule-level records would be emitted. Guard logr calls with
+        `_lg.on and _lg.logr(...)` so message f-strings are only built when needed."""
+        return self.lg.isEnabledFor(_lvl(1))
+
     def logr(self, rule_name: str, message: str, item: Any):
         if not any(rule_name.startswith(rf) for rf in _RULE_LOG_FILTER):
             return

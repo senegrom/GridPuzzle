@@ -52,7 +52,7 @@ def locked_candidate(grid: Grid) -> None:
                 if isect_has_val:
                     for cell in g2_only:
                         if val in cands[cell]:
-                            _lg.logr("LockedCandidate",
+                            _lg.on and _lg.logr("LockedCandidate",
                                      f"{val} removed (pointing) w/ locked set {c(intersection)}",
                                      c(cell))
                             cands[cell].discard(val)
@@ -72,7 +72,7 @@ def locked_candidate(grid: Grid) -> None:
                 if isect_has_val:
                     for cell in g1_only:
                         if val in cands[cell]:
-                            _lg.logr("LockedCandidate",
+                            _lg.on and _lg.logr("LockedCandidate",
                                      f"{val} removed (claiming) w/ locked set {c(intersection)}",
                                      c(cell))
                             cands[cell].discard(val)
