@@ -13,6 +13,7 @@ from gridsolver.solver.solve_nishio import nishio
 from gridsolver.solver.solve_forcing_chain import forcing_chain
 from gridsolver.solver.solve_forcing_net import forcing_net
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
+from gridsolver.solver.solve_ineq_bounds import ineq_bounds
 from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
 from gridsolver.solver.solve_skyscraper import skyscraper
@@ -120,6 +121,9 @@ class AtomicSolver:
         with _lg.time_ctxt("skyscraper"):
             skyscraper(self.grid)
         yield "skyscraper"
+        with _lg.time_ctxt("ineq_bounds"):
+            ineq_bounds(self.grid)
+        yield "ineq_bounds"
         with _lg.time_ctxt("rulehelper_atmostonce"):
             rulehelper_atmostonce(self.grid)
         yield "rulehelper_atmostonce"

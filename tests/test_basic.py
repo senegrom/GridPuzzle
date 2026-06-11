@@ -275,3 +275,28 @@ def test_eq_killer_sudoku2():
 
 def test_eq_futoshiki():
     pass  # todo
+
+
+def test_ineq_bounds_chain():
+    # a < b < c < d forces d >= 4 and a <= 2 in a single pass
+    from gridsolver.grid_classes.futoshiki import Futoshiki
+    from gridsolver.solver.solve_ineq_bounds import ineq_bounds
+    g = Futoshiki(5)
+    g.ext_ineqs([((0, 0), (0, 1)), ((0, 1), (0, 2)), ((0, 2), (0, 3))])
+    ineq_bounds(g)
+    idx = {(r, c): r + c * 5 for r in range(5) for c in range(5)}
+    assert g.get_candidates(idx[0, 3]) == {4, 5}
+    assert g.get_candidates(idx[0, 0]) == {1, 2}
+
+
+def test_ineq_bounds_distinct():
+    # (0,1) is greater than BOTH (0,0) and (0,2); they share row 0 and are
+    # therefore distinct, so (0,1) >= 3 — unreachable for iterated pairwise
+    # bounds, which only ever see one edge at a time
+    from gridsolver.grid_classes.futoshiki import Futoshiki
+    from gridsolver.solver.solve_ineq_bounds import ineq_bounds
+    g = Futoshiki(5)
+    g.ext_ineqs([((0, 0), (0, 1)), ((0, 2), (0, 1))])
+    ineq_bounds(g)
+    idx = {(r, c): r + c * 5 for r in range(5) for c in range(5)}
+    assert g.get_candidates(idx[0, 1]) == {3, 4, 5}
