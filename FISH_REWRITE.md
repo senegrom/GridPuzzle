@@ -1,5 +1,39 @@
 # Fish Rewrite Plan
 
+## Status: attempted and reverted (2026-06-11) — read this first
+
+The base-first rewrite below WAS implemented exactly as planned, validated as
+byte-identical to the reference on all harness states (including synthetic
+edge cases for free-house covers, cannibals and finned intersections) — and
+benchmarked **5.5× slower** than the cover-first original (554s vs 100s over
+the same captured states; in-solver finned-fish on the 11×11 pandiagonal went
+from ~11s to ~70s per call). It was reverted the same day.
+
+**Why the plan's assumption failed:** on house-rich grids, guarantees are
+small cell-sets scattered over a large grid, so almost every f-combination of
+guarantees is pairwise disjoint *and* coverable — the disjointness and
+cover-bound prunes never bind. Worse, since `relevant` houses each contain at
+least one full guarantee, nearly *every* f-subset of houses admits f disjoint
+bases: the pattern space really is ~C(houses, f), and any exactly-equivalent
+algorithm must visit it. The enumeration order was never the bottleneck — the
+guarantee-generalised fish *semantics* is.
+
+**Real options (both change behaviour, owner decision required):**
+1. Restrict bases to textbook fish (per base house, the candidate positions of
+   the value, requiring ≤ f positions per base house) — collapses the pattern
+   space to the classical one; loses some exotic-but-sound eliminations that
+   backtracking currently compensates for anyway.
+2. Incremental fish: only re-examine patterns whose guarantees/houses changed
+   since the last pass (requires per-pattern bookkeeping across rounds; exact
+   but complex).
+
+The harness (`tests/fish_rewrite_harness.py`, incl. synthetic states) remains
+the regression net for any future attempt.
+
+---
+
+The original (now historical) plan follows.
+
 ## Why
 
 Live profiling (py-spy, June 2026) during the pandiagonal latin-square tests showed

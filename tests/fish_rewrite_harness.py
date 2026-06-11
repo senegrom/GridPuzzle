@@ -223,6 +223,39 @@ PUZZLES = [
 ]
 
 
+def synthetic_states() -> list:
+    """Hand-crafted guarantee configurations exercising edge semantics that real
+    captured states rarely reach: undersized covers (free houses), cannibal
+    eliminations, and finned intersections."""
+    from gridsolver.grid_classes.latins_square import LatinSquare
+    from gridsolver.rules.rules import Guarantee
+
+    def idx(r, col):
+        return r + col * 5
+
+    def make(gt_specs):
+        g = LatinSquare(5)
+        for val, cells in gt_specs:
+            g.add_gtee_checked(Guarantee(val=val, cells=frozenset(idx(r, col) for r, col in cells), rows=5, cols=5))
+        return g
+
+    return [
+        # tight x-wing-style pair (rows cover)
+        make([(1, [(0, 0), (0, 4)]), (1, [(3, 0), (3, 4)])]),
+        # two disjoint bases inside one row + a third elsewhere -> undersized
+        # cover, the second chosen house is a "free" house (fallback path)
+        make([(2, [(0, 0), (0, 1)]), (2, [(0, 2), (0, 3)]), (2, [(4, 4), (3, 4)])]),
+        # bases meeting at (0,0): cannibal elimination in row0 & col0 cover
+        make([(3, [(0, 0), (0, 1)]), (3, [(1, 0), (2, 0)])]),
+        # three rel houses with intersections: finned eliminations
+        make([(4, [(1, 0), (1, 4)]), (4, [(2, 1), (2, 3)]), (4, [(0, 2), (4, 2)])]),
+        # mixed values together on one grid
+        make([(1, [(0, 0), (0, 4)]), (1, [(3, 0), (3, 4)]),
+              (2, [(1, 1), (1, 2)]), (2, [(2, 1), (2, 2)]), (2, [(4, 0), (4, 3)]),
+              (5, [(0, 1), (1, 1)]), (5, [(2, 2), (3, 2)])]),
+    ]
+
+
 # --------------------------------------------------------------------------
 # Equivalence check + benchmark
 # --------------------------------------------------------------------------
@@ -235,14 +268,15 @@ def run(quick: bool):
     ]
     total = {"legacy": 0.0, "current": 0.0}
     mismatches = 0
+    all_states = [("synthetic", synthetic_states())]
     for puzzle_name, loader in PUZZLES:
         print(f"capturing states from {puzzle_name} ...", flush=True)
         try:
-            states = capture_states(loader(), max_states)
+            all_states.append((puzzle_name, capture_states(loader(), max_states)))
+            print(f"  {len(all_states[-1][1])} states")
         except Exception as exc:
             print(f"  capture failed: {type(exc).__name__}: {exc}")
-            continue
-        print(f"  {len(states)} states")
+    for puzzle_name, states in all_states:
         for si, state in enumerate(states):
             for name, legacy, current, sizes in variants:
                 for f in sizes:
