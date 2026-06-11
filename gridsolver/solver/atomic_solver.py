@@ -1,4 +1,5 @@
 from array import ArrayType
+from collections import Counter
 from typing import Tuple, Set, List, Optional, Callable
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
@@ -10,6 +11,7 @@ from gridsolver.solver.solve_aic import alternating_inference_chain
 from gridsolver.solver.solve_als import als_xy_wing, als_xz
 from gridsolver.solver.solve_fish import fish, finned_fish
 from gridsolver.solver.solve_nishio import nishio
+from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.solve_forcing_chain import forcing_chain
 from gridsolver.solver.solve_forcing_net import forcing_net
 from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
@@ -21,6 +23,31 @@ from gridsolver.solver.solve_skyscraper import skyscraper
 from gridsolver.solver.solve_sue_de_coq import sue_de_coq
 from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
+
+
+# Technique statistics, aggregated process-wide (including the inner solvers
+# of forcing-chain branches). A "try" is one execution of a power action; a
+# "hit" is an execution after which the grid state changed.
+POWER_TRIES: Counter = Counter()
+POWER_HITS: Counter = Counter()
+
+
+def reset_power_stats() -> None:
+    POWER_TRIES.clear()
+    POWER_HITS.clear()
+    _lg.time_stats.clear()
+
+
+def power_stats_table() -> str:
+    """Aligned per-technique table: tries, hits, hit rate, cumulative seconds."""
+    labels = sorted(set(POWER_TRIES) | set(_lg.time_stats), key=lambda x: -_lg.time_stats.get(x, 0.0))
+    lines = [f"{'technique':24} {'tries':>9} {'hits':>6} {'hit%':>7} {'time[s]':>9}"]
+    for label in labels:
+        tries = POWER_TRIES.get(label, 0)
+        hits = POWER_HITS.get(label, 0)
+        rate = f"{100 * hits / tries:.2f}" if tries else "-"
+        lines.append(f"{label:24} {tries:>9} {hits:>6} {rate:>7} {_lg.time_stats.get(label, 0.0):>9.1f}")
+    return "\n".join(lines)
 
 
 # noinspection PyProtectedMember
@@ -45,7 +72,9 @@ class AtomicSolver:
             if old is not None and old == self._state_snapshot():
                 try:
                     for step_type in self._solve_power_actions():
+                        POWER_TRIES[step_type] += 1
                         if old != self._state_snapshot():
+                            POWER_HITS[step_type] += 1
                             break_outer = False
                             do_step = False
                             _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates,
@@ -187,35 +216,45 @@ class AtomicSolver:
             else:
                 remove_hidden_tuples(self.grid, 4, None)
         yield "hidden_tuples4"
-        with _lg.time_ctxt("fish3"):
-            fish(self.grid, 3)
-        yield "fish3"
+        # The four tiers below cost the bulk of solve time with ~zero hit rates
+        # (see tests/technique_stats_harness.py), and ~90% of their executions
+        # happen inside forcing-chain branches. Skip them there, mirroring the
+        # existing nishio/forcing_net exclusion; they still run at the outer
+        # level for full deductive power.
+        in_fc = _solve_fc._in_forcing_chain
+        if not in_fc:
+            with _lg.time_ctxt("fish3"):
+                fish(self.grid, 3)
+            yield "fish3"
         with _lg.time_ctxt("finned-fish2"):
             finned_fish(self.grid, 2)
         yield "finned-fish2"
         with _lg.time_ctxt("naked_tuples"):
             remove_naked_tuples(self.grid)
         yield "naked_tuples"
-        with _lg.time_ctxt("hidden_tuples"):
-            if self.hidden_pair_checked_gts:
-                remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE,
-                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
-            else:
-                remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE, None)
-            self.hidden_pair_checked_gts = set(self.grid.guarantees)
-        yield "hidden_tuples"
+        if not in_fc:
+            with _lg.time_ctxt("hidden_tuples"):
+                if self.hidden_pair_checked_gts:
+                    remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE,
+                                         [gt for gt in self.grid.guarantees if
+                                          gt not in self.hidden_pair_checked_gts])
+                else:
+                    remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE, None)
+                self.hidden_pair_checked_gts = set(self.grid.guarantees)
+            yield "hidden_tuples"
         with _lg.time_ctxt("aic"):
             alternating_inference_chain(self.grid)
         yield "aic"
         with _lg.time_ctxt("nishio"):
             nishio(self.grid)
         yield "nishio"
-        with _lg.time_ctxt("fish"):
-            fish(self.grid, _MAX_FISH)
-        yield "fish"
-        with _lg.time_ctxt("finned-fish"):
-            finned_fish(self.grid, _MAX_FISH - 1)
-        yield "finned-fish"
+        if not in_fc:
+            with _lg.time_ctxt("fish"):
+                fish(self.grid, _MAX_FISH)
+            yield "fish"
+            with _lg.time_ctxt("finned-fish"):
+                finned_fish(self.grid, _MAX_FISH - 1)
+            yield "finned-fish"
         with _lg.time_ctxt("forcing_net"):
             forcing_net(self.grid)
         yield "forcing_net"

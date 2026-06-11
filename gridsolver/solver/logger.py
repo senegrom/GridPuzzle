@@ -129,6 +129,7 @@ class GridLogger:
         self.lg: logging.Logger = lg
         self.set_lvl(lvl)
         self.grid_buf = None
+        self.time_stats: dict = {}  # cumulative seconds per time_ctxt label
 
     def logs(self, lvl, s: str, header=False):
         if header:
@@ -142,6 +143,7 @@ class GridLogger:
             yield
         finally:
             delta = time.perf_counter() - start
+            self.time_stats[s] = self.time_stats.get(s, 0.0) + delta
             if delta > TIME_DELTA_LOG_MIN:
                 s = f"{s} took {delta}s."
                 self.logd(s)

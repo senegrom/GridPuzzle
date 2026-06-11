@@ -16,11 +16,14 @@ general; none special-case diagonals.
    re-running would only re-apply idempotent eliminations. Exact, sound, and
    the dominant waste on slow grids (most rounds touch one or two values).
    This is the concrete form of "incremental fish".
-2. **Hit-rate instrumentation, then data-driven tiering.** Count eliminations
-   per technique (time_ctxt already exists; add hit counters) and summarise per
-   puzzle. If fish(4)/finned(3) almost never fire across the whole corpus,
-   demote them below forcing_chain or lower _MAX_FISH — a global constant
-   change justified by measurement, not a per-puzzle-type hack.
+2. **DONE (June 2026): hit-rate instrumentation + data-driven exclusion.**
+   tries/hits/time counters live in atomic_solver + logger; corpus harness in
+   tests/technique_stats_harness.py. Data: fish(4)/finned(3)/fish(3)/
+   hidden_tuples(7) had zero hits anywhere, ~90% of executions inside FC
+   branches. Excluded from FC inner solvers -> corpus 6.6x faster (t-hard
+   1872s->273s, pandiagonal-11x11 188s->33s), identical solutions. Note:
+   demoting zero-hit tiers within the list saves nothing — they run in every
+   fully-stalled round regardless of position; exclusion is the lever.
 3. **Pruned recursion inside the existing fish enumeration.** Same cover-first
    semantics, but recurse over house indices with a running union and
    precomputed suffix unions; cut any subtree where fewer than f guarantees fit

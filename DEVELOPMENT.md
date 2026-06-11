@@ -54,6 +54,13 @@ Both bugs caused false contradictions in trial-based techniques (forcing chain, 
 
 ### Performance Notes
 
+- **Per-technique tries/hits/time**: `atomic_solver.POWER_TRIES/POWER_HITS` +
+  `lg.time_stats`, reported by `tests/technique_stats_harness.py`. June 2026
+  corpus data: fish(4), finned-fish(3), fish(3) and hidden_tuples(7) had ZERO
+  hits in ~900-1400 tries while costing ~80% of solve time — ~90% of their
+  executions inside forcing-chain branches. They are now excluded from FC
+  inner solvers (like nishio/forcing_net); corpus got 6.6x faster with
+  identical solutions and hit profiles.
 - **Fish dominates profiling** (60%+ on 9x9). Value-first iteration and inlined f=2 fast path help. For 16x16+, the combinatorial explosion of group combinations is the bottleneck.
 - **Manual `Grid.deepcopy()`** replaces `copy.deepcopy` — `array('I', self._known)` and `tuple(s.copy() for s in self._candidates)` are much faster.
 - **`list(self.grid.rules)` snapshot** instead of `set.copy()` for iteration during rule application.
