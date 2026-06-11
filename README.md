@@ -35,7 +35,7 @@ resorting to backtracking only when all deductive methods are exhausted.
 - **Naked / Hidden Subsets** — pairs, triples, quads of candidates locked to cells
 - **XY-Wing / XYZ-Wing / W-Wing** — three-cell patterns eliminating shared candidates
 - **X-Chain / XY-Chain** — alternating strong/weak link chains for a single or multiple digits
-- **ALS-XZ** (Almost Locked Sets) — N cells with N+1 candidates, restricted common digit
+- **ALS-XZ / ALS-XY-Wing** (Almost Locked Sets) — N cells with N+1 candidates, restricted common digits; the wing variant chains two ALSs through a hinge ALS
 - **Sue de Coq** (Two-Sector Disjoint Subsets) — box-line intersection with ALS analysis
 
 #### Advanced

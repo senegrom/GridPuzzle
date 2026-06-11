@@ -277,6 +277,20 @@ def test_eq_futoshiki():
     pass  # todo
 
 
+def test_als_xy_wing_degenerate_xy_wing():
+    # three single-cell ALSs reduce ALS-XY-Wing to the classic XY-Wing:
+    # hinge (0,0){1,2}, A=(0,4){1,3} (RC X=1 via row 0), B=(4,0){2,3}
+    # (RC Y=2 via col 0) -> Z=3 eliminated from (4,4), which sees both
+    from gridsolver.solver.solve_als import als_xy_wing
+    g = Sudoku()
+    g.get_candidates((0, 0)).intersection_update({1, 2})
+    g.get_candidates((0, 4)).intersection_update({1, 3})
+    g.get_candidates((4, 0)).intersection_update({2, 3})
+    als_xy_wing(g)
+    assert 3 not in g.get_candidates((4, 4))
+    assert 3 in g.get_candidates((8, 8))
+
+
 def test_ineq_bounds_chain():
     # a < b < c < d forces d >= 4 and a <= 2 in a single pass
     from gridsolver.grid_classes.futoshiki import Futoshiki
