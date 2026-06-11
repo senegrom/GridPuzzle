@@ -29,6 +29,7 @@ resorting to backtracking only when all deductive methods are exhausted.
 - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house
 - **Locked Candidate** (Pointing/Claiming) — candidates confined to a box-line intersection
 - **Skyscraper** — two conjugate pairs sharing a base house
+- **Rule of 45 / Innies** (cage puzzles) — disjoint cages inside a house, row band or column stack force the sum of the leftover cells
 
 #### Intermediate
 - **Naked / Hidden Subsets** — pairs, triples, quads of candidates locked to cells

@@ -4,7 +4,7 @@ from typing import Tuple, Set, List, Optional, Callable
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
-from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_sum_atmostonce
+from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_house_sums, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
 from gridsolver.solver.solve_aic import alternating_inference_chain
 from gridsolver.solver.solve_als import als_xz
@@ -126,6 +126,9 @@ class AtomicSolver:
         with _lg.time_ctxt("rulehelper_sum_atmostonce"):
             rulehelper_sum_atmostonce(self.grid)
         yield "rulehelper_sum_atmostonce"
+        with _lg.time_ctxt("rulehelper_house_sums"):
+            rulehelper_house_sums(self.grid)
+        yield "rulehelper_house_sums"
         with _lg.time_ctxt("naked_tuples5"):
             remove_naked_tuples(self.grid, 5)
         yield "naked_tuples5"

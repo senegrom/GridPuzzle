@@ -98,6 +98,34 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
+def test_rule45_innies_single_house():
+    # two cages cover 3 cells of row 0 (4x4, house total 10) -> the leftover
+    # cell's sum is forced in ONE pass (the old pairwise merging needed
+    # several rounds to converge on this)
+    from gridsolver.solver.rulehelpers import rulehelper_house_sums
+    g = KillerSudoku(None, 2, 2, 2, 2)
+    g.ext_sum_cells([(3, (0, 0, 0, 1)), (3, (0, 2,))])
+    rulehelper_house_sums(g)
+    idx = {(r, c): r + c * 4 for r in range(4) for c in range(4)}
+    derived = {(frozenset(r.cells), r.sum) for r in g.get_rules_of_type(SumAndElementsAtMostOnce)}
+    assert (frozenset({idx[0, 3]}), 4) in derived
+
+
+def test_rule45_innies_row_band():
+    # the vertical cage (0,0),(1,0) spans rows 0 and 1, so it is invisible to
+    # single-house reasoning but participates in the two-row band: the leftover
+    # (0,3),(1,3) must sum to 20 - 5 - 5 - 4 = 6 (it lies inside column 3, so
+    # the at-most-once variant is emitted). Sums taken from the valid solution
+    # 1234/3412/2143/4321.
+    from gridsolver.solver.rulehelpers import rulehelper_house_sums
+    g = KillerSudoku(None, 2, 2, 2, 2)
+    g.ext_sum_cells([(5, (0, 1, 0, 2)), (5, (1, 1, 1, 2)), (4, (0, 0, 1, 0))])
+    rulehelper_house_sums(g)
+    idx = {(r, c): r + c * 4 for r in range(4) for c in range(4)}
+    derived = {(frozenset(r.cells), r.sum) for r in g.get_rules_of_type(SumAndElementsAtMostOnce)}
+    assert (frozenset({idx[0, 3], idx[1, 3]}), 6) in derived
+
+
 def test_killer_cages_row_major():
     # the first line of the cage layout is the first ROW of the grid
     g = KillerSudoku(None, 2, 2, 2, 2)

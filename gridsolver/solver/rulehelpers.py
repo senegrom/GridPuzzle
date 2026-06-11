@@ -3,6 +3,10 @@ from typing import List, Dict, FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules import unique, uneq, sumrules
+from gridsolver.rules.rules import InvalidGrid
+
+_MAX_INNIE = 4  # emit derived sums only for leftovers up to this many cells
+_MAX_HOUSE_UNION = 3  # consider unions of up to this many disjoint houses
 
 
 def rulehelper_atmostonce(grid: Grid) -> None:
@@ -30,6 +34,87 @@ def rulehelper_atmostonce(grid: Grid) -> None:
             if not uneq_rule_cells_oc:
                 new_rule = uneq.UneqRule(grid, oc, uni)
                 grid.add_rule_checked(new_rule)
+
+
+def rulehelper_house_sums(grid: Grid) -> None:
+    """Rule of 45 (innies): every complete house sums to n(n+1)/2.
+
+    For unions of up to _MAX_HOUSE_UNION pairwise-disjoint complete houses
+    (single houses, row bands, column stacks, box groups, ...), pick disjoint
+    sum cages contained in the union; together with the known cells they force
+    the sum of the few leftover cells. Unlike the pairwise cage merging in
+    rulehelper_sum_atmostonce this derives the full innie in one pass and can
+    cross house boundaries (cages spanning two rows of a band).
+
+    Re-derivation is cheap but pointless while nothing changed, so the whole
+    pass runs once per rule generation (cage updates clear the struct cache,
+    which re-arms it; pure candidate changes never affect the arithmetic).
+    """
+    sum_rules = [r for r in grid.rules if isinstance(r, (sumrules.SumRule, sumrules.SumAndElementsAtMostOnce))]
+    if not sum_rules:
+        return
+
+    done_flag = grid.cached_struct("house_sums_done", lambda: [False])
+    if done_flag[0]:
+        return
+    done_flag[0] = True
+
+    n = grid.max_elem
+    house_total = n * (n + 1) // 2
+
+    # complete houses: full-size at-most-once groups that also carry at-least-once
+    at_least = {frozenset(r.cells) for r in itertools.chain(grid.rules, grid.rules_ia)
+                if isinstance(r, unique.ElementsAtLeastOnce)}
+    houses = [fs for fs in grid.unique_rule_cells if len(fs) == n and fs in at_least]
+    if not houses:
+        return
+    houses.sort(key=sorted)
+
+    known = grid._known
+    # smallest first: original cages win over derived merged ones in the greedy pick
+    cages = sorted(((frozenset(r.cells), r.sum) for r in sum_rules), key=lambda t: (len(t[0]), sorted(t[0])))
+    all_caged = frozenset().union(*(c for c, _ in cages))
+
+    def uncoverable(hs) -> int:
+        # cells that no cage could ever cover — a lower bound on the leftover size
+        return sum(1 for cell in hs if known[cell] == 0 and cell not in all_caged)
+
+    eligible = [(h, uncoverable(h)) for h in houses]
+    eligible = [(h, u) for h, u in eligible if u <= _MAX_INNIE]
+
+    for k in range(1, _MAX_HOUSE_UNION + 1):
+        for combo in itertools.combinations(eligible, k):
+            if sum(u for _, u in combo) > _MAX_INNIE:
+                continue
+            hs = [h for h, _ in combo]
+            if k > 1 and any(not h1.isdisjoint(h2) for h1, h2 in itertools.combinations(hs, 2)):
+                continue
+            target = hs[0] if k == 1 else frozenset().union(*hs)
+
+            chosen_sum = 0
+            covered: set = set()
+            for c_cells, c_sum in cages:
+                if not (c_cells & covered) and c_cells <= target:
+                    covered |= c_cells
+                    chosen_sum += c_sum
+            leftover = frozenset(cell for cell in target
+                                 if cell not in covered and known[cell] == 0)
+            known_sum = sum(known[cell] for cell in target
+                            if cell not in covered and known[cell] > 0)
+            derived = k * house_total - chosen_sum - known_sum
+
+            if not leftover:
+                if derived != 0:
+                    grid._candidates[next(iter(target))].clear()
+                    raise InvalidGrid()
+                continue
+            if len(leftover) > _MAX_INNIE:
+                continue
+            if any(leftover <= h for h in houses):
+                new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=leftover, mysum=derived)
+            else:
+                new_rule = sumrules.SumRule(gsz=grid, cells=leftover, mysum=derived)
+            grid.add_rule_checked(new_rule)
 
 
 def rulehelper_sum_atmostonce(grid: Grid) -> None:
