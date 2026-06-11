@@ -54,6 +54,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         RuleContainer.__init__(self)
         self._candidates: Tuple[Set[int]] = tuple(set(range(1, self.max_elem + 1)) for _ in range(len(self)))
         self.has_been_filled = False
+        self._struct_cache: Dict[str, Any] = {}
 
     @overload
     def __setitem__(self, i: int, val: int) -> None:
@@ -82,11 +83,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return self._known == other._known and self._candidates == other._candidates and RuleContainer.__eq__(self,
                                                                                                               other)
 
-    def all_but_rule_equal(self, other: 'Grid') -> bool:
-        if not isinstance(other, type(self)):
-            return False
-        return self._known == other._known and self._candidates == other._candidates
-
     def __ne__(self, other: 'Grid') -> bool:
         return not self == other
 
@@ -107,6 +103,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.rules_ia = self.rules_ia.copy()
         result.guarantees = self.guarantees.copy()
         result.guarantees_ia = self.guarantees_ia.copy()
+        result._struct_cache = {}
         return result
 
     @property
@@ -143,18 +140,35 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def add_rule_checked(self, rule: Rule):
         if rule not in self.rules_ia:
             self.rules.add(rule)
+            self._struct_cache.clear()
 
     def deactivate_rule(self, rule: Rule):
         self.rules.remove(rule)
         self.rules_ia.add(rule)
+        self._struct_cache.clear()
 
     def add_gtee_checked(self, gtee: Guarantee):
         if gtee not in self.guarantees_ia:
             self.guarantees.add(gtee)
+            self._struct_cache.clear()
 
     def deactivate_gtee(self, gtee: Guarantee):
         self.guarantees.remove(gtee)
         self.guarantees_ia.add(gtee)
+        self._struct_cache.clear()
+
+    def cached_struct(self, key: str, factory: Callable[[], Any]) -> Any:
+        """Memoize a rule/guarantee-derived structure on this grid.
+
+        The cache is cleared whenever a rule or guarantee is added or
+        deactivated, and is never shared with deepcopy clones. Cached
+        objects are returned as-is — callers must not mutate them."""
+        try:
+            return self._struct_cache[key]
+        except KeyError:
+            val = factory()
+            self._struct_cache[key] = val
+            return val
 
     def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]],
                                   /, space_sep=False, assert_length=None):
@@ -244,35 +258,48 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @property
     def unique_rule_cells(self) -> List[FrozenSet[int]]:
-        return self.get_rule_cells_of_type(ElementsAtMostOnce)
+        """cached; do not mutate"""
+        return self.cached_struct("unique_rule_cells", lambda: self.get_rule_cells_of_type(ElementsAtMostOnce))
 
     @property
     def weak_links(self) -> List[Set[int]]:
-        """the weak links originating from a cell in a dictionary"""
-        # Single-pass over UneqRules instead of filtering per cell
-        result = [set() for _ in range(self.len)]
-        for rule in self.rules:
-            if isinstance(rule, UneqRule):
-                result[rule.origin_cell].update(rule.rel_cells)
-        return result
+        """the weak links originating from a cell in a dictionary (cached; do not mutate)"""
+
+        def build():
+            # Single-pass over UneqRules instead of filtering per cell
+            result = [set() for _ in range(self.len)]
+            for rule in self.rules:
+                if isinstance(rule, UneqRule):
+                    result[rule.origin_cell].update(rule.rel_cells)
+            return result
+
+        return self.cached_struct("weak_links", build)
 
     @property
     def semi_strong_links(self) -> Dict[int, List[Set[int]]]:
-        """the semi-strong links originating from a cell in a dictionary for targets of the same number"""
-        # Single-pass: for each length-2 guarantee, add both cells to each other's links
-        links = {val: [set() for _ in range(self.len)] for val in range(1, self.max_elem + 1)}
-        for gt in self.guarantees:
-            if len(gt.cells) == 2:
-                cells = list(gt.cells)
-                a, b = cells[0], cells[1]
-                links[gt.val][a].add(b)
-                links[gt.val][b].add(a)
-        return links
+        """the semi-strong links originating from a cell in a dictionary for targets of the same number
+        (cached; do not mutate)"""
+
+        def build():
+            # Single-pass: for each length-2 guarantee, add both cells to each other's links
+            links = {val: [set() for _ in range(self.len)] for val in range(1, self.max_elem + 1)}
+            for gt in self.guarantees:
+                if len(gt.cells) == 2:
+                    cells = list(gt.cells)
+                    a, b = cells[0], cells[1]
+                    links[gt.val][a].add(b)
+                    links[gt.val][b].add(a)
+            return links
+
+        return self.cached_struct("semi_strong_links", build)
 
     @property
     def semi_strong_links_all(self) -> Dict[int, List[Set[Tuple[int, int]]]]:
-        """the semi-strong links originating from a cell in a dictionary for all targets"""
-        ssl: Dict[int, List[Set[Union[int, Tuple[int, int]]]]] = self.semi_strong_links
+        """the semi-strong links originating from a cell in a dictionary for all targets.
+        Built fresh per call (depends on candidates); shallow-copies the cached base lists
+        because every element is replaced below."""
+        ssl: Dict[int, List[Set[Union[int, Tuple[int, int]]]]] = \
+            {val: list(lst) for val, lst in self.semi_strong_links.items()}
         c2 = self.get_cells_with_candidate_length(2)
         c2_dic = {val: {cell for cell, cand in c2 if val in cand} for val in range(1, self.max_elem + 1)}
 
@@ -288,7 +315,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @property
     def guarantee_cells_by_value(self) -> Dict[int, List[FrozenSet]]:
-        return {i: [gt.cells for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)}
+        """cached; do not mutate"""
+        return self.cached_struct(
+            "guarantee_cells_by_value",
+            lambda: {i: [gt.cells for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)})
 
     def get_guarantees_shorter_than(self, ll: int) -> List[Guarantee]:
         return [gt for gt in self.guarantees if len(gt.cells) <= ll]

@@ -33,17 +33,17 @@ class AtomicSolver:
         _lg.logs(_MAX_LVL, f"Solving rule-based")
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         steps: int = 0
-        old: Optional[Grid] = None
+        old: Optional[Tuple[bytes, int]] = None
 
         while self.grid.is_valid:
             do_step = True
             step_type = "basic"
 
             break_outer = True
-            if old is not None and old.all_but_rule_equal(self.grid):
+            if old is not None and old == self._state_snapshot():
                 try:
                     for step_type in self._solve_power_actions():
-                        if not old.all_but_rule_equal(self.grid):
+                        if old != self._state_snapshot():
                             break_outer = False
                             do_step = False
                             _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates,
@@ -58,7 +58,7 @@ class AtomicSolver:
                 if do_step:
                     if old is None:
                         self._update_step()
-                    old = self.grid.deepcopy()
+                    old = self._state_snapshot()
                     self._update_step()
 
             _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
@@ -76,6 +76,12 @@ class AtomicSolver:
         _lg.logs(_MAX_LVL, f"Done after {steps} steps: \t{status}")
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         return status
+
+    def _state_snapshot(self) -> Tuple[bytes, int]:
+        # Propagation is monotone (knowns only get set, candidates only shrink),
+        # so this pair changes iff known/candidate state changed — much cheaper
+        # than deep-copying the grid for an equality check.
+        return bytes(self.grid._known), sum(len(s) for s in self.grid._candidates)
 
     def _update_step(self) -> None:
         _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)

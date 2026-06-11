@@ -57,5 +57,6 @@ Both bugs caused false contradictions in trial-based techniques (forcing chain, 
 - **Fish dominates profiling** (60%+ on 9x9). Value-first iteration and inlined f=2 fast path help. For 16x16+, the combinatorial explosion of group combinations is the bottleneck.
 - **Manual `Grid.deepcopy()`** replaces `copy.deepcopy` — `array('I', self._known)` and `tuple(s.copy() for s in self._candidates)` are much faster.
 - **`list(self.grid.rules)` snapshot** instead of `set.copy()` for iteration during rule application.
-- **`all_but_rule_equal()`** for change detection in the solve loop — cheaper than full `__eq__` which compares rules/guarantees.
+- **Snapshot change detection** in the solve loop: `(bytes(_known), total candidate count)` instead of deep-copying the grid and comparing. Valid because propagation is monotone — knowns only get set, candidates only shrink.
+- **`Grid.cached_struct`** memoizes rule/guarantee-derived structures (`unique_rule_cells`, `weak_links`, `semi_strong_links`, `guarantee_cells_by_value`, fish's relevant-houses map). The cache clears on any rule/guarantee add/deactivate and is not shared with deepcopy clones. Cached objects must not be mutated by consumers — `xy_chain` copies `weak_links` before pruning it, and `semi_strong_links_all` shallow-copies the base lists.
 - **Monkey-patching pitfall**: `from X import func` binds at import time. Patching `module.func` doesn't affect already-imported references. Use module-level flags or patch at the call site.

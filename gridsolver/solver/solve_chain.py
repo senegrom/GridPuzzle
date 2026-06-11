@@ -140,7 +140,7 @@ def xy_chain(grid: Grid) -> None:
     cs = CoordToString(grid.rows)
 
     sl = grid.semi_strong_links_all
-    wl = grid.weak_links
+    wl = [lk.copy() for lk in grid.weak_links]  # pruned in place below; the property is cached
 
     for val, links in sl.items():
         for link in links:

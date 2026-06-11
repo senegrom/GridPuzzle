@@ -9,6 +9,32 @@ from gridsolver.solver.solver_log import lg as _lg
 # todo endo fins
 
 
+def _relevant_urs_by_val(grid: Grid, unique_rules, gt_dic) -> dict:
+    """For each value, the unique rules containing at least one of its guarantees.
+    Shared by fish/finned_fish and cached on the grid (cleared on rule/guarantee changes)."""
+
+    def build():
+        result: dict[int, list[FrozenSet[int]]] = {}
+        for i in range(1, grid.max_elem + 1):
+            gts_for_val = gt_dic[i]
+            if not gts_for_val:
+                continue
+            seen_ids = set()
+            rel_list = []
+            for ur in unique_rules:
+                for gt in gts_for_val:
+                    if gt <= ur:
+                        if id(ur) not in seen_ids:
+                            seen_ids.add(id(ur))
+                            rel_list.append(ur)
+                        break
+            if rel_list:
+                result[i] = rel_list
+        return result
+
+    return grid.cached_struct("fish_relevant_urs", build)
+
+
 # noinspection PyProtectedMember
 def fish(grid: Grid, max_fish=2) -> None:
     assert max_fish >= 2
@@ -20,24 +46,7 @@ def fish(grid: Grid, max_fish=2) -> None:
     gt_dic = grid.guarantee_cells_by_value
     cands = grid._candidates
 
-    # Precompute: for each value, list of unique rules that contain at least
-    # one guarantee for that value (these are the relevant rules for fish-f)
-    relevant_urs_by_val: dict[int, list[FrozenSet[int]]] = {}
-    for i in range(1, grid.max_elem + 1):
-        gts_for_val = gt_dic[i]
-        if not gts_for_val:
-            continue
-        seen_ids = set()
-        rel_list = []
-        for ur in unique_rules:
-            for gt in gts_for_val:
-                if gt <= ur:
-                    if id(ur) not in seen_ids:
-                        seen_ids.add(id(ur))
-                        rel_list.append(ur)
-                    break
-        if rel_list:
-            relevant_urs_by_val[i] = rel_list
+    relevant_urs_by_val = _relevant_urs_by_val(grid, unique_rules, gt_dic)
 
     for f in range(max_fish, 1, -1):
         # Value-first: for each value, find relevant unique rule combinations
@@ -142,23 +151,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
     gt_dic = grid.guarantee_cells_by_value
     cands = grid._candidates
 
-    # Precompute: for each value, unique rules that contain at least one guarantee for it
-    relevant_urs_by_val: dict[int, list[FrozenSet[int]]] = {}
-    for i in range(1, grid.max_elem + 1):
-        gts_for_val = gt_dic[i]
-        if not gts_for_val:
-            continue
-        seen_ids = set()
-        rel_list = []
-        for ur in unique_rules:
-            for gt in gts_for_val:
-                if gt <= ur:
-                    if id(ur) not in seen_ids:
-                        seen_ids.add(id(ur))
-                        rel_list.append(ur)
-                    break
-        if rel_list:
-            relevant_urs_by_val[i] = rel_list
+    relevant_urs_by_val = _relevant_urs_by_val(grid, unique_rules, gt_dic)
 
     for f in range(max_fish, 1, -1):
         for i in range(1, grid.max_elem + 1):
