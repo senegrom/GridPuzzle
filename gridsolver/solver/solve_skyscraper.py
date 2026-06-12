@@ -3,6 +3,7 @@ from typing import List, FrozenSet
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
+from gridsolver.solver.solve_als import _cell_houses
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -24,10 +25,8 @@ def skyscraper(grid: Grid) -> None:
     cands = grid._candidates
     known = grid._known
 
-    # Precompute: for each cell, which houses it belongs to
-    cell_houses: dict[int, list[FrozenSet[int]]] = {}
-    for cell in range(grid.len):
-        cell_houses[cell] = [h for h in all_houses if cell in h]
+    # cell -> houses containing it (cached on the grid)
+    cell_houses = _cell_houses(grid, all_houses)
 
     for val in range(1, grid.max_elem + 1):
         # Find conjugate pairs: houses where val appears in exactly 2 unsolved cells

@@ -10,6 +10,24 @@ from gridsolver.solver.solver_log import lg as _lg
 Node = Tuple[Union[int, FrozenSet[int]], int]
 
 
+def _cell_peers(grid: Grid, houses) -> Dict[int, FrozenSet[int]]:
+    """cell -> all cells sharing a house with it; cached on the grid
+    (houses derive from the rule set). Frozensets — do not mutate."""
+
+    def build():
+        peers: Dict[int, FrozenSet[int]] = {}
+        for cell in range(grid.len):
+            p = set()
+            for house in houses:
+                if cell in house:
+                    p |= house
+            p.discard(cell)
+            peers[cell] = frozenset(p)
+        return peers
+
+    return grid.cached_struct("cell_peers", build)
+
+
 # noinspection PyProtectedMember
 def alternating_inference_chain(grid: Grid) -> None:
     """Alternating Inference Chain (AIC) with grouped strong links.
@@ -108,35 +126,22 @@ def alternating_inference_chain(grid: Grid) -> None:
         if isinstance(node[0], frozenset):
             all_group_nodes.add(node)
 
+    cell_peers = _cell_peers(grid, houses)
+
     for gnode in all_group_nodes:
         group_cells, val = gnode
         # Find cells that see ALL cells in the group and have val as candidate
         common_peers = None
         for gc in group_cells:
-            peers = set()
-            for house in houses:
-                if gc in house:
-                    peers |= house
-            peers.discard(gc)
             if common_peers is None:
-                common_peers = peers
+                common_peers = set(cell_peers[gc])
             else:
-                common_peers &= peers
+                common_peers &= cell_peers[gc]
         if common_peers:
             for peer in common_peers:
                 if known[peer] == 0 and val in cands[peer] and peer not in group_cells:
                     _add(weak, gnode, (peer, val))
                     _add(weak, (peer, val), gnode)
-
-    # --- Precompute cell peers ---
-    cell_peers: Dict[int, Set[int]] = {}
-    for cell in range(grid.len):
-        peers = set()
-        for house in houses:
-            if cell in house:
-                peers |= house
-        peers.discard(cell)
-        cell_peers[cell] = peers
 
     def _get_cells(node: Node) -> Set[int]:
         """Get the cell(s) of a node."""
