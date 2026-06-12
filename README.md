@@ -49,17 +49,14 @@ resorting to backtracking only when all deductive methods are exhausted.
 - **Backtracking** with MRV (Minimum Remaining Values) heuristic
 
 ### Technique effectiveness
-Based on profiling across 49 test puzzles:
 
-| Technique | Hit Rate | Notes |
-|-----------|----------|-------|
-| Forcing Chain | 57% | Most impactful; uses full solver for trials |
-| Skyscraper | 13% | Cheap, fires often |
-| ALS-XZ | 10% | |
-| Locked Candidate | 7% | |
-| Nishio | 30 hits on hard sudoku | Now works on all puzzle types |
-| AIC | 2-4 hits | Grouped strong links help |
-| Sue de Coq | 1.5% | |
+Measured live by `tests/technique_stats_harness.py` (tries/hits/time per
+technique over a representative corpus). June 2026 headline data: `aic` is the
+strongest expensive technique (36% hit rate), `naked_tuples(5)`,
+`locked_candidate` and `empty_rectangle` are the cheap workhorses (9-13%), and
+the deep fish/hidden-tuple tiers had zero hits anywhere — they are therefore
+skipped inside forcing-chain branches (6.6x corpus speedup, identical
+solutions).
 
 The hardest built-in test puzzle (example_t) is solved **entirely without backtracking** using deductive techniques alone.
 
