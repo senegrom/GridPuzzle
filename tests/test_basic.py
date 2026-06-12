@@ -126,6 +126,20 @@ def test_rule45_innies_row_band():
     assert (frozenset({idx[0, 3], idx[1, 3]}), 6) in derived
 
 
+def test_rule45_outies():
+    # cages (0,2),(1,2) and (0,3),(1,3) stick out of row 0: covering row 0's
+    # leftover with them forces the overflow cells (1,2),(1,3) to sum to
+    # (4 + 6) - 7 = 3. Sums taken from the valid solution 1234/3412/2143/4321.
+    from gridsolver.solver.rulehelpers import rulehelper_house_sums
+    g = KillerSudoku(None, 2, 2, 2, 2)
+    g.ext_sum_cells([(3, (0, 0, 0, 1)), (4, (0, 2, 1, 2)), (6, (0, 3, 1, 3))])
+    rulehelper_house_sums(g)
+    idx = {(r, c): r + c * 4 for r in range(4) for c in range(4)}
+    derived = {(frozenset(r.cells), r.sum) for r in g.get_rules_of_type(SumAndElementsAtMostOnce)}
+    assert (frozenset({idx[0, 2], idx[0, 3]}), 7) in derived  # innie
+    assert (frozenset({idx[1, 2], idx[1, 3]}), 3) in derived  # outie
+
+
 def test_killer_cages_row_major():
     # the first line of the cage layout is the first ROW of the grid
     g = KillerSudoku(None, 2, 2, 2, 2)

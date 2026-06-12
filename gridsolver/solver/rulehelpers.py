@@ -74,6 +74,10 @@ def rulehelper_house_sums(grid: Grid) -> None:
     # smallest first: original cages win over derived merged ones in the greedy pick
     cages = sorted(((frozenset(r.cells), r.sum) for r in sum_rules), key=lambda t: (len(t[0]), sorted(t[0])))
     all_caged = frozenset().union(*(c for c, _ in cages))
+    cages_by_cell: Dict[int, List] = {}
+    for c_cells, c_sum in cages:
+        for cell in c_cells:
+            cages_by_cell.setdefault(cell, []).append((c_cells, c_sum))
 
     def uncoverable(hs) -> int:
         # cells that no cage could ever cover — a lower bound on the leftover size
@@ -108,13 +112,46 @@ def rulehelper_house_sums(grid: Grid) -> None:
                     grid._candidates[next(iter(target))].clear()
                     raise InvalidGrid()
                 continue
-            if len(leftover) > _MAX_INNIE:
-                continue
-            if any(leftover <= h for h in houses):
-                new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=leftover, mysum=derived)
-            else:
-                new_rule = sumrules.SumRule(gsz=grid, cells=leftover, mysum=derived)
-            grid.add_rule_checked(new_rule)
+            if len(leftover) <= _MAX_INNIE:
+                if any(leftover <= h for h in houses):
+                    new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=leftover, mysum=derived)
+                else:
+                    new_rule = sumrules.SumRule(gsz=grid, cells=leftover, mysum=derived)
+                grid.add_rule_checked(new_rule)
+
+            # outies: cover the leftover with disjoint cages sticking out of the
+            # target; the cells overflowing the target then have a forced sum:
+            # overflow = sum(covering cages) - leftover sum - knowns they contain
+            new_sum = 0
+            new_cells: set = set()
+            coverable_out = True
+            for cell in sorted(leftover):
+                if cell in new_cells:
+                    continue
+                for c_cells, c_sum in cages_by_cell.get(cell, ()):
+                    if not (c_cells & covered) and not (c_cells & new_cells):
+                        new_cells |= c_cells
+                        new_sum += c_sum
+                        break
+                else:
+                    coverable_out = False
+                    break
+            if coverable_out and new_cells:
+                overflow = new_cells - target
+                known_target_new = sum(known[cell] for cell in (new_cells & target) if known[cell] > 0)
+                known_overflow = sum(known[cell] for cell in overflow if known[cell] > 0)
+                overflow_unknown = frozenset(cell for cell in overflow if known[cell] == 0)
+                o_sum = new_sum - derived - known_target_new - known_overflow
+                if not overflow_unknown:
+                    if o_sum != 0:
+                        grid._candidates[next(iter(target))].clear()
+                        raise InvalidGrid()
+                elif len(overflow_unknown) <= _MAX_INNIE:
+                    if any(overflow_unknown <= h for h in houses):
+                        new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=overflow_unknown, mysum=o_sum)
+                    else:
+                        new_rule = sumrules.SumRule(gsz=grid, cells=overflow_unknown, mysum=o_sum)
+                    grid.add_rule_checked(new_rule)
 
 
 def rulehelper_sum_atmostonce(grid: Grid) -> None:
