@@ -31,6 +31,8 @@ CORPUS = [
     ("killer-c", lambda: examples2.get_example(SimpleNamespace(example="c"))),
     ("killer-d", lambda: examples2.get_example(SimpleNamespace(example="d"))),
     ("kenken", lambda: create_from_file(next((_PROJECT_ROOT / "Examples/Kenken").glob("*.pzl")))),
+    ("sudoku-16x16", lambda: create_from_file(
+        _PROJECT_ROOT / "Examples/Sudoku/16x16/Tarek16x16-W3.sdk", space_sep=True)),
     ("latin-9x9", lambda: create_from_file(
         _PROJECT_ROOT / "Examples/LatinSquares/LatinSquares/9x9-#1-W5.clp")),
     ("pandiagonal-11x11", lambda: create_from_file(
@@ -41,6 +43,8 @@ CORPUS = [
 def run(quick: bool) -> None:
     grand_tries: Counter = Counter()
     grand_hits: Counter = Counter()
+    grand_elims: Counter = Counter()
+    grand_rulechg: Counter = Counter()
     grand_time: dict = {}
 
     for name, loader in CORPUS:
@@ -56,6 +60,8 @@ def run(quick: bool) -> None:
         print(atomic_solver.power_stats_table(), flush=True)
         grand_tries.update(atomic_solver.POWER_TRIES)
         grand_hits.update(atomic_solver.POWER_HITS)
+        grand_elims.update(atomic_solver.POWER_ELIMS)
+        grand_rulechg.update(atomic_solver.POWER_RULE_CHANGES)
         for k, v in _lg.time_stats.items():
             grand_time[k] = grand_time.get(k, 0.0) + v
 
@@ -63,6 +69,10 @@ def run(quick: bool) -> None:
     atomic_solver.POWER_TRIES.update(grand_tries)
     atomic_solver.POWER_HITS.clear()
     atomic_solver.POWER_HITS.update(grand_hits)
+    atomic_solver.POWER_ELIMS.clear()
+    atomic_solver.POWER_ELIMS.update(grand_elims)
+    atomic_solver.POWER_RULE_CHANGES.clear()
+    atomic_solver.POWER_RULE_CHANGES.update(grand_rulechg)
     _lg.time_stats.clear()
     _lg.time_stats.update(grand_time)
     print("\n=== GRAND TOTAL ===", flush=True)

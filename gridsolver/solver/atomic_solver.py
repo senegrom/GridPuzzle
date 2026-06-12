@@ -27,26 +27,34 @@ from gridsolver.solver.solver_log import lg as _lg
 
 # Technique statistics, aggregated process-wide (including the inner solvers
 # of forcing-chain branches). A "try" is one execution of a power action; a
-# "hit" is an execution after which the grid state changed.
+# "hit" is an execution after which the grid state changed; "elims" counts the
+# candidates removed by hits; "rulechg" counts hits that changed the
+# rule/guarantee sets (e.g. the rulehelpers, which eliminate nothing directly).
 POWER_TRIES: Counter = Counter()
 POWER_HITS: Counter = Counter()
+POWER_ELIMS: Counter = Counter()
+POWER_RULE_CHANGES: Counter = Counter()
 
 
 def reset_power_stats() -> None:
     POWER_TRIES.clear()
     POWER_HITS.clear()
+    POWER_ELIMS.clear()
+    POWER_RULE_CHANGES.clear()
     _lg.time_stats.clear()
 
 
 def power_stats_table() -> str:
-    """Aligned per-technique table: tries, hits, hit rate, cumulative seconds."""
+    """Aligned per-technique table: tries, hits, hit rate, eliminations,
+    rule-changing hits, cumulative seconds."""
     labels = sorted(set(POWER_TRIES) | set(_lg.time_stats), key=lambda x: -_lg.time_stats.get(x, 0.0))
-    lines = [f"{'technique':24} {'tries':>9} {'hits':>6} {'hit%':>7} {'time[s]':>9}"]
+    lines = [f"{'technique':24} {'tries':>9} {'hits':>6} {'hit%':>7} {'elims':>7} {'rulechg':>8} {'time[s]':>9}"]
     for label in labels:
         tries = POWER_TRIES.get(label, 0)
         hits = POWER_HITS.get(label, 0)
         rate = f"{100 * hits / tries:.2f}" if tries else "-"
-        lines.append(f"{label:24} {tries:>9} {hits:>6} {rate:>7} {_lg.time_stats.get(label, 0.0):>9.1f}")
+        lines.append(f"{label:24} {tries:>9} {hits:>6} {rate:>7} {POWER_ELIMS.get(label, 0):>7}"
+                     f" {POWER_RULE_CHANGES.get(label, 0):>8} {_lg.time_stats.get(label, 0.0):>9.1f}")
     return "\n".join(lines)
 
 
@@ -73,8 +81,12 @@ class AtomicSolver:
                 try:
                     for step_type in self._solve_power_actions():
                         POWER_TRIES[step_type] += 1
-                        if old != self._state_snapshot():
+                        new_snap = self._state_snapshot()
+                        if old != new_snap:
                             POWER_HITS[step_type] += 1
+                            POWER_ELIMS[step_type] += max(0, old[1] - new_snap[1])
+                            if old[2:] != new_snap[2:]:
+                                POWER_RULE_CHANGES[step_type] += 1
                             break_outer = False
                             do_step = False
                             _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates,
@@ -108,11 +120,18 @@ class AtomicSolver:
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         return status
 
-    def _state_snapshot(self) -> Tuple[bytes, int]:
-        # Propagation is monotone (knowns only get set, candidates only shrink),
-        # so this pair changes iff known/candidate state changed — much cheaper
-        # than deep-copying the grid for an equality check.
-        return bytes(self.grid._known), sum(len(s) for s in self.grid._candidates)
+    def _state_snapshot(self) -> Tuple[bytes, int, int, int]:
+        # Knowns only get set and candidates only shrink (monotone), so the
+        # first two fields change iff cell state changed. The rule/guarantee
+        # set sizes make rule-only progress (rulehelpers deriving new rules)
+        # count as progress too, so the new rules get another propagation round
+        # instead of falling through to backtracking; any mutation is visible
+        # because the inactive sets only ever grow (a deactivate+add pair that
+        # keeps the active count equal still bumps field four). Termination:
+        # rule versions per original rule are bounded by its cell count.
+        g = self.grid
+        return (bytes(g._known), sum(len(s) for s in g._candidates),
+                len(g.rules) + len(g.guarantees), len(g.rules_ia) + len(g.guarantees_ia))
 
     def _update_step(self) -> None:
         _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
