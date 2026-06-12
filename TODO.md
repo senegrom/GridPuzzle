@@ -24,6 +24,8 @@ general; none special-case diagonals.
    1872s->273s, pandiagonal-11x11 188s->33s), identical solutions. Note:
    demoting zero-hit tiers within the list saves nothing — they run in every
    fully-stalled round regardless of position; exclusion is the lever.
+   Combined with the per-value memo (idea 1): the slow pandiagonal suite test
+   went 3h09m -> 22m28s (8.4x), same solutions.
 3. **REJECTED (June 2026): pruned recursion inside the fish enumeration.**
    Implemented (take/skip index recursion, suffix unions, subtree prune when
    fewer than f guarantees fit the potential union), validated exactly
