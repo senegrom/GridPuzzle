@@ -2,6 +2,18 @@
 
 Deferred solver ideas (June 2026 review). Ordered by expected payoff.
 
+## Adaptive technique gating (from the AIC-in-FC experiment)
+
+Measured June 2026: excluding AIC from forcing-chain inner solvers makes
+sudoku-t-hard 43% faster (264s -> 151s; its 475 inner-AIC hits were not
+load-bearing) but the pandiagonal-11x11 4.5x SLOWER (16.5s -> 75s; there
+inner AIC ran at a 65% hit rate and FC tries tripled without it). Any static
+in/out rule picks a loser, and per-puzzle-type gating would be special-casing.
+The general follow-up: adaptive gating — a technique that misses N consecutive
+times on a grid (and its clones) gets skipped inside FC until something
+changes (e.g. rule-generation bump), with the miss counters carried into
+clones. Reverted the static exclusion.
+
 ## Speeding up house-rich grids (pandiagonals) — general mechanisms only
 
 Why it's slow: a pandiagonal n×n has ~4n houses, so per-value pattern spaces
