@@ -19,15 +19,14 @@ def _relevant_urs_by_val(grid: Grid, unique_rules, gt_dic) -> dict:
             gts_for_val = gt_dic[i]
             if not gts_for_val:
                 continue
-            seen_ids = set()
+            seen = set()
             rel_list = []
             for ur in unique_rules:
-                for gt in gts_for_val:
-                    if gt <= ur:
-                        if id(ur) not in seen_ids:
-                            seen_ids.add(id(ur))
-                            rel_list.append(ur)
-                        break
+                # dedup by value: distinct rules over identical cells (e.g. a
+                # full-house cage) would otherwise produce degenerate combos
+                if ur not in seen and any(gt <= ur for gt in gts_for_val):
+                    seen.add(ur)
+                    rel_list.append(ur)
             if rel_list:
                 result[i] = rel_list
         return result

@@ -138,7 +138,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return mysorted
 
     def add_rule_checked(self, rule: Rule):
-        if rule not in self.rules_ia:
+        # only clear the struct cache on an actual change: rules are re-derived
+        # and re-added every round, and no-op re-adds would otherwise wipe the
+        # cache (and the epoch gates living in it) thousands of times per solve
+        if rule not in self.rules_ia and rule not in self.rules:
             self.rules.add(rule)
             self._struct_cache.clear()
 
@@ -148,7 +151,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._struct_cache.clear()
 
     def add_gtee_checked(self, gtee: Guarantee):
-        if gtee not in self.guarantees_ia:
+        if gtee not in self.guarantees_ia and gtee not in self.guarantees:
             self.guarantees.add(gtee)
             self._struct_cache.clear()
 

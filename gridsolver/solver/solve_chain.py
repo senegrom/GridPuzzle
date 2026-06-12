@@ -28,9 +28,10 @@ def w_wing(grid: Grid) -> None:
         key_l = list(key)
         assert len(key_l) == 2
 
-        cell_it = iter(cells)
-        next(cell_it)
-        for cell in cell_it:
+        # every cell starts a chain: the wing case is symmetric in the pair so
+        # one direction would suffice, but the LoopW elimination is per-start
+        # and would silently miss skipped cells (and singleton groups entirely)
+        for cell in cells:
             for i, val in enumerate(key_l):
                 other_val = key_l[1 - i]
                 les, strg_dic, weak_dic = _find_link_ends(cell, cells, sl[val], wl, True)

@@ -70,7 +70,7 @@ class AtomicSolver:
         _lg.logs(_MAX_LVL, f"Solving rule-based")
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         steps: int = 0
-        old: Optional[Tuple[bytes, int]] = None
+        old: Optional[Tuple[bytes, int, int, int]] = None
 
         while self.grid.is_valid:
             do_step = True
@@ -163,120 +163,71 @@ class AtomicSolver:
                 for gt in new_gts:
                     self.grid.add_gtee_checked(gt)
 
+    def _act(self, label: str, fn) -> str:
+        """Run one power action under its timer. A raised InvalidGrid kills the
+        generator before the consumer can count the execution, yet a proven
+        contradiction is the most decisive kind of hit — count it here."""
+        with _lg.time_ctxt(label):
+            try:
+                fn()
+            except InvalidGrid:
+                POWER_TRIES[label] += 1
+                POWER_HITS[label] += 1
+                raise
+        return label
+
+    def _hidden_tuples(self, n: int) -> None:
+        if self.hidden_pair_checked_gts:
+            remove_hidden_tuples(self.grid, n,
+                                 [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+        else:
+            remove_hidden_tuples(self.grid, n, None)
+
+    def _hidden_tuples_max(self) -> None:
+        self._hidden_tuples(_MAX_HIDDEN_TUPLE)
+        self.hidden_pair_checked_gts = set(self.grid.guarantees)
+
     def _solve_power_actions(self):
-        with _lg.time_ctxt("locked_candidate"):
-            locked_candidate(self.grid)
-        yield "locked_candidate"
-        with _lg.time_ctxt("skyscraper"):
-            skyscraper(self.grid)
-        yield "skyscraper"
-        with _lg.time_ctxt("empty_rectangle"):
-            empty_rectangle(self.grid)
-        yield "empty_rectangle"
-        with _lg.time_ctxt("ineq_bounds"):
-            ineq_bounds(self.grid)
-        yield "ineq_bounds"
-        with _lg.time_ctxt("rulehelper_atmostonce"):
-            rulehelper_atmostonce(self.grid)
-        yield "rulehelper_atmostonce"
-        with _lg.time_ctxt("rulehelper_sum_atmostonce"):
-            rulehelper_sum_atmostonce(self.grid)
-        yield "rulehelper_sum_atmostonce"
-        with _lg.time_ctxt("rulehelper_house_sums"):
-            rulehelper_house_sums(self.grid)
-        yield "rulehelper_house_sums"
-        with _lg.time_ctxt("naked_tuples5"):
-            remove_naked_tuples(self.grid, 5)
-        yield "naked_tuples5"
-        with _lg.time_ctxt("xy_wing"):
-            xy_wing(self.grid)
-        yield "xy_wing"
-        with _lg.time_ctxt("xyz_wing"):
-            xyz_wing(self.grid)
-        yield "xyz_wing"
-        with _lg.time_ctxt("w_wing"):
-            w_wing(self.grid)
-        yield "w_wing"
-        with _lg.time_ctxt("x_chain"):
-            x_chain(self.grid)
-        yield "x_chain"
-        with _lg.time_ctxt("xy_chain"):
-            xy_chain(self.grid)
-        yield "xy_chain"
-        with _lg.time_ctxt("als_xz"):
-            als_xz(self.grid)
-        yield "als_xz"
-        with _lg.time_ctxt("als_xy_wing"):
-            als_xy_wing(self.grid)
-        yield "als_xy_wing"
-        with _lg.time_ctxt("sue_de_coq"):
-            sue_de_coq(self.grid)
-        yield "sue_de_coq"
-        with _lg.time_ctxt("forcing_chain"):
-            forcing_chain(self.grid)
-        yield "forcing_chain"
-        with _lg.time_ctxt("hidden_tuples3"):
-            if self.hidden_pair_checked_gts:
-                remove_hidden_tuples(self.grid, 3,
-                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
-            else:
-                remove_hidden_tuples(self.grid, 3, None)
-        yield "hidden_tuples3"
-        with _lg.time_ctxt("fish2"):
-            fish(self.grid, 2)
-        yield "fish2"
-        with _lg.time_ctxt("naked_tuples10"):
-            remove_naked_tuples(self.grid, 10)
-        yield "naked_tuples10"
-        with _lg.time_ctxt("hidden_tuples4"):
-            if self.hidden_pair_checked_gts:
-                remove_hidden_tuples(self.grid, 4,
-                                     [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
-            else:
-                remove_hidden_tuples(self.grid, 4, None)
-        yield "hidden_tuples4"
-        # The four tiers below cost the bulk of solve time with ~zero hit rates
-        # (see tests/technique_stats_harness.py), and ~90% of their executions
-        # happen inside forcing-chain branches. Skip them there, mirroring the
-        # existing nishio/forcing_net exclusion; they still run at the outer
-        # level for full deductive power.
+        g = self.grid
+        # Tiers guarded by `not in_fc` cost the bulk of solve time with ~zero
+        # hit rates outside house-rich grids (tests/technique_stats_harness.py)
+        # and ~90% of their executions happen inside forcing-chain branches;
+        # they are skipped there, mirroring the nishio/forcing_net exclusion,
+        # and still run at the outer level for full deductive power.
         in_fc = _solve_fc._in_forcing_chain
+        yield self._act("locked_candidate", lambda: locked_candidate(g))
+        yield self._act("skyscraper", lambda: skyscraper(g))
+        yield self._act("empty_rectangle", lambda: empty_rectangle(g))
+        yield self._act("ineq_bounds", lambda: ineq_bounds(g))
+        yield self._act("rulehelper_atmostonce", lambda: rulehelper_atmostonce(g))
+        yield self._act("rulehelper_sum_atmostonce", lambda: rulehelper_sum_atmostonce(g))
+        yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(g))
+        yield self._act("naked_tuples5", lambda: remove_naked_tuples(g, 5))
+        yield self._act("xy_wing", lambda: xy_wing(g))
+        yield self._act("xyz_wing", lambda: xyz_wing(g))
+        yield self._act("w_wing", lambda: w_wing(g))
+        yield self._act("x_chain", lambda: x_chain(g))
+        yield self._act("xy_chain", lambda: xy_chain(g))
+        yield self._act("als_xz", lambda: als_xz(g))
+        yield self._act("als_xy_wing", lambda: als_xy_wing(g))
+        yield self._act("sue_de_coq", lambda: sue_de_coq(g))
+        yield self._act("forcing_chain", lambda: forcing_chain(g))
+        yield self._act("hidden_tuples3", lambda: self._hidden_tuples(3))
+        yield self._act("fish2", lambda: fish(g, 2))
+        yield self._act("naked_tuples10", lambda: remove_naked_tuples(g, 10))
+        yield self._act("hidden_tuples4", lambda: self._hidden_tuples(4))
         if not in_fc:
-            with _lg.time_ctxt("fish3"):
-                fish(self.grid, 3)
-            yield "fish3"
-        with _lg.time_ctxt("finned-fish2"):
-            finned_fish(self.grid, 2)
-        yield "finned-fish2"
-        with _lg.time_ctxt("naked_tuples"):
-            remove_naked_tuples(self.grid)
-        yield "naked_tuples"
+            yield self._act("fish3", lambda: fish(g, 3))
+        yield self._act("finned-fish2", lambda: finned_fish(g, 2))
+        yield self._act("naked_tuples", lambda: remove_naked_tuples(g))
         if not in_fc:
-            with _lg.time_ctxt("hidden_tuples"):
-                if self.hidden_pair_checked_gts:
-                    remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE,
-                                         [gt for gt in self.grid.guarantees if
-                                          gt not in self.hidden_pair_checked_gts])
-                else:
-                    remove_hidden_tuples(self.grid, _MAX_HIDDEN_TUPLE, None)
-                self.hidden_pair_checked_gts = set(self.grid.guarantees)
-            yield "hidden_tuples"
-        with _lg.time_ctxt("aic"):
-            alternating_inference_chain(self.grid)
-        yield "aic"
-        with _lg.time_ctxt("nishio"):
-            nishio(self.grid)
-        yield "nishio"
+            yield self._act("hidden_tuples", self._hidden_tuples_max)
+        yield self._act("aic", lambda: alternating_inference_chain(g))
+        yield self._act("nishio", lambda: nishio(g))
         if not in_fc:
-            with _lg.time_ctxt("fish"):
-                fish(self.grid, _MAX_FISH)
-            yield "fish"
-            with _lg.time_ctxt("finned-fish"):
-                finned_fish(self.grid, _MAX_FISH - 1)
-            yield "finned-fish"
-        with _lg.time_ctxt("forcing_net"):
-            forcing_net(self.grid)
-        yield "forcing_net"
+            yield self._act("fish", lambda: fish(g, _MAX_FISH))
+            yield self._act("finned-fish", lambda: finned_fish(g, _MAX_FISH - 1))
+        yield self._act("forcing_net", lambda: forcing_net(g))
 
 
 _MAX_HIDDEN_TUPLE = 7

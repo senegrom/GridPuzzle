@@ -110,7 +110,10 @@ def forcing_net(grid: Grid) -> None:
                     valid_clones.append(clone)
 
             if not valid_clones:
-                continue  # All branches invalid — can't determine anything safely
+                # the branch set covers every assignment of the pair at this
+                # fixpoint — all contradicting means the grid itself is invalid
+                cands[cell_a].clear()
+                raise InvalidGrid()
 
             made_progress = False
 
