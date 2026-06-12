@@ -24,10 +24,14 @@ general; none special-case diagonals.
    1872s->273s, pandiagonal-11x11 188s->33s), identical solutions. Note:
    demoting zero-hit tiers within the list saves nothing — they run in every
    fully-stalled round regardless of position; exclusion is the lever.
-3. **Pruned recursion inside the existing fish enumeration.** Same cover-first
-   semantics, but recurse over house indices with a running union and
-   precomputed suffix unions; cut any subtree where fewer than f guarantees fit
-   in (running ∪ suffix) union. Exact-equivalent; multiplies with idea 1.
+3. **REJECTED (June 2026): pruned recursion inside the fish enumeration.**
+   Implemented (take/skip index recursion, suffix unions, subtree prune when
+   fewer than f guarantees fit the potential union), validated exactly
+   equivalent — and measured: corpus flat, cold fish calls 12% SLOWER. The
+   prune's win case (sparse guarantees) is exactly what the per-value memo
+   (idea 1) already skips, and plentiful-guarantee states gate the prune off
+   while paying Python-recursion overhead against C-level
+   itertools.combinations. Reverted; not worth the complexity.
 4. Trail-based propagation and parallel trials (below) also apply: the
    pandiagonal tests backtrack, and fish is per-value parallelisable on a
    free-threaded build.
