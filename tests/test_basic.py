@@ -277,6 +277,26 @@ def test_eq_futoshiki():
     pass  # todo
 
 
+def test_fish_value_memo_invalidation():
+    # the per-value memo must re-run a value when its guarantees change:
+    # first call fires the rows-0/3 x-wing (and records the state); adding a
+    # row-1 guarantee afterwards must trigger re-evaluation and the new
+    # eliminations in row 1
+    from gridsolver.grid_classes.latins_square import LatinSquare
+    from gridsolver.rules.rules import Guarantee
+    from gridsolver.solver.solve_fish import fish
+    idx = {(r, col): r + col * 5 for r in range(5) for col in range(5)}
+    g = LatinSquare(5)
+    g.add_gtee_checked(Guarantee(val=1, cells=frozenset({idx[0, 0], idx[0, 4]}), rows=5, cols=5))
+    g.add_gtee_checked(Guarantee(val=1, cells=frozenset({idx[3, 0], idx[3, 4]}), rows=5, cols=5))
+    fish(g, 2)
+    assert 1 not in g.get_candidates((0, 2))
+    assert 1 in g.get_candidates((1, 2))
+    g.add_gtee_checked(Guarantee(val=1, cells=frozenset({idx[1, 0], idx[1, 4]}), rows=5, cols=5))
+    fish(g, 2)
+    assert 1 not in g.get_candidates((1, 2))
+
+
 def test_empty_rectangle():
     # value 1 in box 0 confined to row 1 + column 1 (the ER cross); conjugate
     # pair (1,4)-(7,4) in column 4 has one end in row 1 -> 1 eliminated from

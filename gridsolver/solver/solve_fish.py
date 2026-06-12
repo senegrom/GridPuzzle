@@ -35,6 +35,21 @@ def _relevant_urs_by_val(grid: Grid, unique_rules, gt_dic) -> dict:
     return grid.cached_struct("fish_relevant_urs", build)
 
 
+def _value_memo(grid: Grid) -> dict:
+    """Per-value dirty tracking: fish pattern detection reads only the value's
+    guarantees and the relevant houses (never candidates), so when those are
+    value-equal to the last completed pass, re-running would re-derive exactly
+    the already-applied (idempotent) eliminations — the value can be skipped.
+    Keyed (finned, f, value) -> (frozenset of gts, frozenset of houses); kept
+    as a plain grid attribute so it survives struct-cache rebuilds and is
+    deliberately NOT copied to deepcopy clones (they recompute, which is safe)."""
+    memo = getattr(grid, "_fish_value_memo", None)
+    if memo is None:
+        memo = {}
+        grid._fish_value_memo = memo
+    return memo
+
+
 # noinspection PyProtectedMember
 def fish(grid: Grid, max_fish=2) -> None:
     assert max_fish >= 2
@@ -47,6 +62,7 @@ def fish(grid: Grid, max_fish=2) -> None:
     cands = grid._candidates
 
     relevant_urs_by_val = _relevant_urs_by_val(grid, unique_rules, gt_dic)
+    memo = _value_memo(grid)
 
     for f in range(max_fish, 1, -1):
         # Value-first: for each value, find relevant unique rule combinations
@@ -57,6 +73,11 @@ def fish(grid: Grid, max_fish=2) -> None:
 
             relevant_ur_list = relevant_urs_by_val.get(i, [])
             if len(relevant_ur_list) < f:
+                continue
+
+            memo_key = (False, f, i)
+            fingerprint = (frozenset(gts_for_val), frozenset(relevant_ur_list))
+            if memo.get(memo_key) == fingerprint:
                 continue
 
             if f == 2:
@@ -139,6 +160,7 @@ def fish(grid: Grid, max_fish=2) -> None:
                                                  c(cell))
                                         cd.remove(i)
                                     break
+            memo[memo_key] = fingerprint
 
 
 def finned_fish(grid: Grid, max_fish=2) -> None:
@@ -152,6 +174,7 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
     cands = grid._candidates
 
     relevant_urs_by_val = _relevant_urs_by_val(grid, unique_rules, gt_dic)
+    memo = _value_memo(grid)
 
     for f in range(max_fish, 1, -1):
         for i in range(1, grid.max_elem + 1):
@@ -162,6 +185,11 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
             relevant_ur_list = relevant_urs_by_val.get(i, [])
 
             if len(relevant_ur_list) < f + 1:
+                continue
+
+            memo_key = (True, f, i)
+            fingerprint = (frozenset(gts_for_val), frozenset(relevant_ur_list))
+            if memo.get(memo_key) == fingerprint:
                 continue
 
             if f == 2:
@@ -261,3 +289,4 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                                  c(cell))
                                         cd.remove(i)
                                     break
+            memo[memo_key] = fingerprint
