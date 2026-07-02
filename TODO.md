@@ -2,6 +2,29 @@
 
 Deferred solver ideas (June 2026 review). Ordered by expected payoff.
 
+## Known issues — rules-layer scan (June 2026; none reachable from the suite)
+
+1. **ProdRule float division** (sumrules.py ~179-206): exact-divisibility via
+   `/` and `k != int(k)` breaks silently once cage products exceed 2^53 (large
+   Kenken cages). Fix with divmod integer arithmetic.
+2. **Factorial landmine** (sumrules.py `_filter_new_sum_candidates` +
+   rulehelpers complement cages): permutations of all unknown cage cells are
+   enumerated per apply, and rulehelper_sum_atmostonce creates complement
+   cages with NO size cap — a 12x12+ killer would effectively hang. Cap the
+   complement size like _MAX_INNIE, or replace enumeration with a
+   Hall-condition feasibility check.
+3. **DiagonalLatinSquare is actually pandiagonal** (latins_square.py): builds
+   all 2n broken diagonals; matches every current example (all are
+   pandiagonal) but the name/loader keyword would over-constrain a genuine
+   diagonal puzzle. Rename + add a true diagonal variant.
+4. Minor: ImmutableGrid eq/hash ignores dimensions (cross-shape dedup risk in
+   user code); Guarantee hash/eq contract mismatch vs raw tuples; SumRule
+   lacks a tmin prune and ProdRule a divisor prune; two pruning sites don't
+   raise InvalidGrid on emptied sets (one extra round to detect); guarantee
+   scans in ElementsAtMostOnce/UneqRule are O(rules x guarantees) per round —
+   the n=100 scale cost driver; run.py -c blocks latinsquare/kenken that -f
+   supports; _partition_dic cache is unbounded process-wide.
+
 ## Adaptive technique gating (from the AIC-in-FC experiment)
 
 Measured June 2026: excluding AIC from forcing-chain inner solvers makes
@@ -21,13 +44,10 @@ Why it's slow: a pandiagonal n×n has ~4n houses, so per-value pattern spaces
 every power round even when nothing relevant changed. All fixes below are
 general; none special-case diagonals.
 
-1. **Per-value dirty fingerprints.** Fish/finned/x-chain/skyscraper are
-   per-value independent: results for value v depend only on v's guarantees,
-   v's candidate positions and the house structure. Cache a fingerprint per
-   (technique, f, value); skip v when unchanged since the last completed pass —
-   re-running would only re-apply idempotent eliminations. Exact, sound, and
-   the dominant waste on slow grids (most rounds touch one or two values).
-   This is the concrete form of "incremental fish".
+1. **DONE for fish/finned (June 2026): per-value dirty fingerprints**
+   (solve_fish._value_memo). Open remainder: the same idea for x_chain and
+   skyscraper — deliberately skipped so far because both are cheap (~1.5s
+   corpus total); revisit only if profiles change.
 2. **DONE (June 2026): hit-rate instrumentation + data-driven exclusion.**
    tries/hits/time counters live in atomic_solver + logger; corpus harness in
    tests/technique_stats_harness.py. Data: fish(4)/finned(3)/fish(3)/
