@@ -48,6 +48,12 @@ _ADAPTIVE_GATED = ("aic",)
 _ADAPTIVE_MIN_TRIES = 30
 _ADAPTIVE_MIN_HITRATE = 0.5
 
+# Depth-gated technique tiers: at backtracking depth > DEPTH_GATE_K only the
+# cheap tier runs (through naked_tuples5) — deep contradictions usually surface
+# from cheap propagation, trading more nodes for much cheaper nodes. Behavior-
+# affecting, so off by default; enable per run and measure (see TODO.md).
+DEPTH_GATE_K: Optional[int] = None
+
 
 def reset_power_stats() -> None:
     POWER_TRIES.clear()
@@ -231,6 +237,8 @@ class AtomicSolver:
         yield self._act("rulehelper_sum_atmostonce", lambda: rulehelper_sum_atmostonce(g))
         yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(g))
         yield self._act("naked_tuples5", lambda: remove_naked_tuples(g, 5))
+        if DEPTH_GATE_K is not None and not in_fc and len(self.upsteps) > DEPTH_GATE_K:
+            return
         yield self._act("xy_wing", lambda: xy_wing(g))
         yield self._act("xyz_wing", lambda: xyz_wing(g))
         yield self._act("w_wing", lambda: w_wing(g))
