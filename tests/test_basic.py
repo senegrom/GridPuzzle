@@ -98,6 +98,28 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
+def test_saeamo_regin_matches_bruteforce():
+    # the matching-based assignment filter must equal brute-force permutation
+    # enumeration, including guarantee position restrictions
+    import itertools
+    import random
+    from gridsolver.rules.sumrules import _admissible_assignments
+    rnd = random.Random(4321)
+    for _ in range(300):
+        k = rnd.randint(1, 6)
+        values = frozenset(rnd.sample(range(1, 12), k))
+        cands = [set(rnd.sample(sorted(values), rnd.randint(0, k))) for _ in range(k)]
+        restrict = {v: frozenset(rnd.sample(range(k), rnd.randint(0, k)))
+                    for v in values if rnd.random() < 0.3}
+        got = set(_admissible_assignments(values, cands, restrict))
+        want = set()
+        for perm in itertools.permutations(values):
+            if all(v in cands[i] and (v not in restrict or i in restrict[v])
+                   for i, v in enumerate(perm)):
+                want.update(enumerate(perm))
+        assert got == want
+
+
 def test_diagonal_vs_pandiagonal_latin_square():
     # the true diagonal class constrains only the two main diagonals; the
     # pandiagonal one (pre-June-2026 misnamed DiagonalLatinSquare) all 2n

@@ -7,6 +7,8 @@ from gridsolver.rules.rules import InvalidGrid
 
 _MAX_INNIE = 4  # emit derived sums only for leftovers up to this many cells
 _MAX_HOUSE_UNION = 3  # consider unions of up to this many disjoint houses
+_MAX_SAEAMO_CELLS = 8  # cap derived sum-cages: partition enumeration grows
+# combinatorially with cell count (a no-op for 9x9 houses, a guard for 12x12+)
 
 
 def rulehelper_atmostonce(grid: Grid) -> None:
@@ -184,7 +186,7 @@ def rulehelper_sum_atmostonce(grid: Grid) -> None:
 
             union_cells = cells1 | cells2
             luc = len(union_cells)
-            if luc != len(rule_most_cells):
+            if luc != len(rule_most_cells) and luc <= _MAX_SAEAMO_CELLS:
                 new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=union_cells,
                                                              mysum=rule1.sum + rule2.sum)
                 grid.add_rule_checked(new_rule)
@@ -194,7 +196,7 @@ def rulehelper_sum_atmostonce(grid: Grid) -> None:
         for rule in rule_cntn_dic[rule_most_cells]:
             cells = set_dic[rule]
             lc = len(cells)
-            if lc != len(rule_most_cells) and grid.max_elem == lrmc:
+            if lc != len(rule_most_cells) and grid.max_elem == lrmc and lrmc - lc <= _MAX_SAEAMO_CELLS:
                 new_sum = int(grid.max_elem * (grid.max_elem + 1) / 2) - rule.sum
                 new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=rule_most_cells - cells, mysum=new_sum)
                 grid.add_rule_checked(new_rule)

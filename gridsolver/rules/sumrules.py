@@ -309,6 +309,115 @@ class DivRule(Rule):
 # todo combine to sum rules for large areas
 # todo subtract from guarantees to make new subrules
 
+
+def _admissible_assignments(values: FrozenSet[int], cand_sets: Sequence[Set[int]],
+                            restrict: dict) -> Iterator[Tuple[int, int]]:
+    """All (position, value) pairs occurring in at least one bijection of
+    `values` onto the positions, where position i admits value v iff
+    v in cand_sets[i] and (v unrestricted or i in restrict[v]).
+
+    Regin (1994): a maximum bipartite matching decides feasibility; a non-matched
+    edge participates in some perfect matching iff its endpoints share a strongly
+    connected component of the residual digraph (unmatched value->position,
+    matched position->value). Polynomial in the cage size, replacing k!
+    permutation enumeration."""
+    k = len(cand_sets)
+    vals = list(values)
+    if len(vals) != k:
+        return
+    edges = {}
+    for v in vals:
+        allowed = restrict.get(v)
+        edges[v] = [i for i in range(k)
+                    if v in cand_sets[i] and (allowed is None or i in allowed)]
+
+    match_pos: dict = {}  # position -> value
+    match_val: dict = {}  # value -> position
+
+    def try_augment(v, visited) -> bool:
+        for i in edges[v]:
+            if i in visited:
+                continue
+            visited.add(i)
+            if i not in match_pos or try_augment(match_pos[i], visited):
+                match_pos[i] = v
+                match_val[v] = i
+                return True
+        return False
+
+    for v in vals:
+        if not try_augment(v, set()):
+            return  # no perfect matching: this partition admits no assignment
+
+    # residual digraph: nodes = values (0..k-1 by index) and positions (k..2k-1)
+    val_index = {v: j for j, v in enumerate(vals)}
+    succ: List[List[int]] = [[] for _ in range(2 * k)]
+    for v in vals:
+        vn = val_index[v]
+        for i in edges[v]:
+            if match_val[v] == i:
+                succ[k + i].append(vn)
+            else:
+                succ[vn].append(k + i)
+
+    comp = _tarjan_scc(succ)
+    for v in vals:
+        vn = val_index[v]
+        for i in edges[v]:
+            if match_val[v] == i or comp[vn] == comp[k + i]:
+                yield i, v
+
+
+def _tarjan_scc(succ: Sequence[Sequence[int]]) -> List[int]:
+    """Strongly connected component id per node (iterative Tarjan)."""
+    n = len(succ)
+    index = [-1] * n
+    low = [0] * n
+    on_stack = [False] * n
+    stack: List[int] = []
+    comp = [-1] * n
+    counter = 0
+    comp_id = 0
+
+    for root in range(n):
+        if index[root] != -1:
+            continue
+        work = [(root, iter(succ[root]))]
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack[root] = True
+        while work:
+            node, it = work[-1]
+            advanced = False
+            for nb in it:
+                if index[nb] == -1:
+                    index[nb] = low[nb] = counter
+                    counter += 1
+                    stack.append(nb)
+                    on_stack[nb] = True
+                    work.append((nb, iter(succ[nb])))
+                    advanced = True
+                    break
+                elif on_stack[nb]:
+                    low[node] = min(low[node], index[nb])
+            if advanced:
+                continue
+            work.pop()
+            if low[node] == index[node]:
+                while True:
+                    w = stack.pop()
+                    on_stack[w] = False
+                    comp[w] = comp_id
+                    if w == node:
+                        break
+                comp_id += 1
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+    return comp
+
+
 class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
     def __init__(self, gsz: GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         ElementsAtMostOnce.__init__(self, gsz, cells, None)
@@ -436,22 +545,30 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
     def _filter_new_sum_candidates(self, new_cells: Sequence[int], new_candidates: Sequence[Set[int]],
                                    new_sum_candidates: Iterable[FrozenSet[int]], gts: Iterable[Guarantee]) \
             -> List[Guarantee]:
-
-        allowed_perms: Set[Tuple[int]] = set()
-        for sp in new_sum_candidates:
-            for perm in itertools.permutations(sp):
-                if all(val in p for val, p in zip(perm, new_candidates)):
-                    allowed_perms.add(perm)
-
+        # For each partition (a set of k distinct values for the k unknown
+        # cells) the assignable (cell, value) pairs are computed via bipartite
+        # matching (Regin's alldifferent filtering) instead of enumerating all
+        # k! permutations. Guarantees whose cells lie inside this cage restrict
+        # their value's admissible positions (a partition not containing such a
+        # value admits no assignment at all) — equivalent to the old
+        # permutation filter, verified by fuzzing (test_saeamo_regin_matches_bruteforce).
         nc_set = frozenset(new_cells)
+        position_restrict: dict = {}
         for gt in gts:
             if nc_set >= gt.cells:
-                for perm in allowed_perms.copy():
-                    if not any(cell in gt.cells and perm[i] == gt.val for (i, cell) in enumerate(new_cells)):
-                        allowed_perms.remove(perm)
+                positions = frozenset(i for i, cell in enumerate(new_cells) if cell in gt.cells)
+                prev = position_restrict.get(gt.val)
+                position_restrict[gt.val] = positions if prev is None else prev & positions
+
+        allowed_by_pos: List[Set[int]] = [set() for _ in new_cells]
+        for sp in new_sum_candidates:
+            if any(v not in sp for v in position_restrict):
+                continue  # a guaranteed value is missing: no assignment of sp survives
+            for pos, val in _admissible_assignments(sp, new_candidates, position_restrict):
+                allowed_by_pos[pos].add(val)
 
         for i, p in enumerate(new_candidates):
-            p &= {perm[i] for perm in allowed_perms}
+            p &= allowed_by_pos[i]
             if not p:
                 raise InvalidGrid()
 
