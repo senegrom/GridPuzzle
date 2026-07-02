@@ -148,7 +148,7 @@ class AtomicSolver:
         for rule in list(self.grid.rules):
             try:
                 do_refresh, new_rules, new_gts = rule.apply(
-                    self.grid._known, self.grid._candidates, self.grid.guarantees)
+                    self.grid._known, self.grid._candidates, _relevant_gts(self.grid, rule))
                 if do_refresh:
                     _update_candidates_from_known(self.grid._candidates, self.grid._known)
             except RuleAlwaysSatisfied:
@@ -232,6 +232,26 @@ class AtomicSolver:
 
 _MAX_HIDDEN_TUPLE = 7
 _MAX_FISH = 4
+
+
+def _relevant_gts(grid: Grid, rule) -> list:
+    """Guarantees possibly relevant to `rule`: every consumer filters on
+    gt.cells being a subset of the rule's (unknown) cells, which implies the
+    guarantee's minimum cell lies in rule.cells — so bucketing by min cell
+    yields an exact superset at a fraction of iterating all live guarantees
+    (the dominant per-round cost on large grids). The index lives in the
+    struct cache and is rebuilt only when guarantees actually change."""
+    index = grid.cached_struct(
+        "gts_by_min_cell",
+        lambda: _build_gt_index(grid))
+    return [gt for cell in rule.cells for gt in index.get(cell, ())]
+
+
+def _build_gt_index(grid: Grid) -> dict:
+    idx: dict = {}
+    for gt in grid.guarantees:
+        idx.setdefault(min(gt.cells), []).append(gt)
+    return idx
 
 
 def _update_known_from_candidates(setitem: Callable[[int, int], None], possible: Tuple[Set[int]],

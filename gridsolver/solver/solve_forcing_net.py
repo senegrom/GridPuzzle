@@ -9,7 +9,8 @@ from gridsolver.solver.solver_log import lg as _lg
 
 def _propagate_basic(grid):
     """Basic propagation: rules + guarantees, no power actions."""
-    from gridsolver.solver.atomic_solver import _update_known_from_candidates, _update_candidates_from_known
+    from gridsolver.solver.atomic_solver import _relevant_gts, _update_known_from_candidates, \
+        _update_candidates_from_known
     from gridsolver.solver.solve_guarantees import filter_guarantees
     known = grid._known
     cands = grid._candidates
@@ -21,7 +22,7 @@ def _propagate_basic(grid):
         try:
             for rule in list(grid.rules):
                 try:
-                    do_refresh, new_rules, new_gts = rule.apply(known, cands, grid.guarantees)
+                    do_refresh, new_rules, new_gts = rule.apply(known, cands, _relevant_gts(grid, rule))
                     if do_refresh:
                         _update_candidates_from_known(cands, known)
                 except RuleAlwaysSatisfied:
