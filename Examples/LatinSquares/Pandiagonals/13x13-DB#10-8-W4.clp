@@ -1,4 +1,4 @@
-DiagonalLatinSquare::
+PandiagonalLatinSquare::
 #
 #
 #

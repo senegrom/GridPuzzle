@@ -1,4 +1,4 @@
-DiagonalLatinSquare::
+PandiagonalLatinSquare::
 #
 #The original (non-minimal) puzzle by Mith was in Z2:
 #

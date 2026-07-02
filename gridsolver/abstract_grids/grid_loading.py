@@ -6,7 +6,7 @@ from gridsolver.abstract_grids.grid import Grid, _load_preprocess_str_space_sep,
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
-from gridsolver.grid_classes.latins_square import LatinSquare, DiagonalLatinSquare
+from gridsolver.grid_classes.latins_square import LatinSquare, DiagonalLatinSquare, PandiagonalLatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
 
 
@@ -60,6 +60,8 @@ def create_from_str_and_class(values: str, class_: Union[type, str], /,
             class_ = LatinSquare
         elif class_ == "diagonallatinsquare":
             class_ = DiagonalLatinSquare
+        elif class_ == "pandiagonallatinsquare":
+            class_ = PandiagonalLatinSquare
         elif class_ == "kenken":
             class_ = Kenken
         else:
@@ -106,7 +108,7 @@ def _create_from_str_and_class(values: Union[str, Iterable[int], Iterable[str]],
             raise ValueError(f"Cannot infer size ({size}) from length {len(values)} not satisfying x=3n^2-2n.")
         size = int(size)
         g = Futoshiki(size)
-    elif class_ in {LatinSquare, DiagonalLatinSquare}:
+    elif class_ in {LatinSquare, DiagonalLatinSquare, PandiagonalLatinSquare}:
         size = len(values) ** 0.5
         if size != int(size):
             raise ValueError(f"Cannot infer size ({size}) from non quadratic length {len(values)}.")

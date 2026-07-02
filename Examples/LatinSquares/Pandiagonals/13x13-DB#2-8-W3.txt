@@ -1,4 +1,4 @@
-DiagonalLatinSquare::
+PandiagonalLatinSquare::
 #
 #
 #1 2 . . 5 6 . 8 . . . C .

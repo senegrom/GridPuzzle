@@ -98,6 +98,17 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
+def test_diagonal_vs_pandiagonal_latin_square():
+    # the true diagonal class constrains only the two main diagonals; the
+    # pandiagonal one (pre-June-2026 misnamed DiagonalLatinSquare) all 2n
+    from gridsolver.grid_classes.latins_square import DiagonalLatinSquare, PandiagonalLatinSquare
+    n = 5
+    d_houses = [h for h in DiagonalLatinSquare(n).unique_rule_cells if len(h) == n]
+    p_houses = [h for h in PandiagonalLatinSquare(n).unique_rule_cells if len(h) == n]
+    assert len(d_houses) == 2 * n + 2
+    assert len(p_houses) == 2 * n + 2 * n
+
+
 def test_prodrule_integer_exact_beyond_float():
     # products beyond 2**53: float division would mis-handle exact divisibility
     from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
