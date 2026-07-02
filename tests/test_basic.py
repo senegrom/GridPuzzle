@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file, create_from_str
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku, SumCellPair
@@ -96,6 +98,15 @@ def test_sudo_nonsq_box_tiling():
     # every cell lies in exactly 3 size-6 houses: its row, column and box
     for cell in range(36):
         assert sum(1 for h in houses if cell in h) == 3
+
+
+@pytest.mark.slow  # ~1 min: full 288-solution enumeration twice + pool spawn
+def test_parallel_trials_match_sequential():
+    # cross-process solution sets must merge correctly (also guards the
+    # process-stable ImmutableGrid hash: hash(bytes) is salted per process)
+    seq = solver.solve(Sudoku(2, 2, 2, 2), log_level=0)
+    par = solver.solve(Sudoku(2, 2, 2, 2), log_level=0, processes=2)
+    assert len(seq) == 288 and seq == par
 
 
 def test_saeamo_regin_matches_bruteforce():

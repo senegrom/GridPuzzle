@@ -15,13 +15,17 @@ def set_loglevel(lvl: int):
     _lg.set_lvl(lvl)
 
 
-def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set[ImmutableGrid]]:
+def solve(grid: Grid, log_level: int = None, max_sols: int = -1,
+          processes: int = 0) -> Optional[Set[ImmutableGrid]]:
     if log_level is not None:
         set_loglevel(log_level)
     sols: Set[ImmutableGrid]
     grid.has_been_filled = True
 
-    sols = _solve_full(grid.deepcopy(), [], max_sols, set())
+    if processes > 1:
+        sols = _solve_top_parallel(grid.deepcopy(), max_sols, processes)
+    else:
+        sols = _solve_full(grid.deepcopy(), [], max_sols, set())
 
     for idx, sol in enumerate(sols):
         _lg.logs(0, "Solution " + str(idx), header=True)
@@ -31,6 +35,29 @@ def solve(grid: Grid, log_level: int = None, max_sols: int = -1) -> Optional[Set
         _lg.logs(0, "No solution found.", header=True)
 
     return sols
+
+
+def _solve_top_parallel(grid: Grid, max_sols: int, processes: int) -> Set[ImmutableGrid]:
+    """One in-process atomic pass, then first-level trial branches distributed
+    over a process pool (see solve_parallel.py). Falls back to the sequential
+    path when the atomic pass already decides the grid."""
+    from gridsolver.solver.solve_parallel import solve_parallel_trials
+    solved: SolveStatus = AtomicSolver(grid, [0], set()).solve_atomic()
+    if solved == SolveStatus.SOLVED:
+        return {ImmutableGrid(grid.known, grid.rows, grid.cols, grid.max_elem, type(grid).__name__)}
+    if solved == SolveStatus.INVALID:
+        return set()
+
+    test_i, p = grid.get_smallest_candidate_set_gt1()
+    test_gt = grid.get_smallest_guarantee()
+    tests = list(p)
+    if test_gt and len(test_gt.cells) < len(tests):
+        branches = [(cell, test_gt.val) for cell in test_gt.cells]
+    else:
+        branches = [(test_i, val) for val in tests]
+
+    _lg.logs(0, f"Parallel: {len(branches)} top-level branches on {processes} processes")
+    return solve_parallel_trials(grid, branches, max_sols, processes)
 
 
 def _solve_full(grid: Grid,

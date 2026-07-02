@@ -1,3 +1,4 @@
+import zlib
 from array import ArrayType, array
 from numbers import Integral
 from typing import Sequence, Optional, Union, overload, Tuple, Iterator, Collection
@@ -16,7 +17,10 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
                  max_elem: Optional[int] = None, name: Optional[str] = None):
         GridSizeContainer.__init__(self, rows, cols, max_elem)
         self._known: ArrayType = array('I', known)
-        self.__hash: int = hash((bytes(self._known), self.rows, self.cols))
+        # process-independent content hash: the eager cache crosses process
+        # boundaries via pickle (parallel trials), and hash(bytes) is salted
+        # per process — crc32 and int tuples are not
+        self.__hash: int = hash((zlib.crc32(bytes(self._known)), self.rows, self.cols))
         self.name = name
 
     def __eq__(self, other: 'ImmutableGrid') -> bool:
