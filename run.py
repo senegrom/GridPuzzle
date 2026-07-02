@@ -14,7 +14,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Solve grid puzzle")
     parser.add_argument("-m", "--module", help="module file to load puzzle from", type=str)
     parser.add_argument("-s", "--str", help="string to load puzzle from", type=str)
-    parser.add_argument("-c", "--class_", help="puzzle class", choices=("sudoku", "killersudoku", "futoshiki"),
+    parser.add_argument("-c", "--class_", help="puzzle class",
+                        choices=("sudoku", "killersudoku", "futoshiki", "kenken",
+                                 "latinsquare", "diagonallatinsquare"),
                         type=str)
     parser.add_argument("-o", "--colour", help="colour", choices=(Colouring.No, Colouring.Colorama, Colouring.Rich),
                         default=Colouring.Colorama, type=Colouring.__getitem__)

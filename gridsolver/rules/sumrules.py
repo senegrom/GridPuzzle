@@ -47,11 +47,14 @@ class SumRule(Rule):
         remaining_unknowns = self.len_cells - lk
         remaining_sum = self.sum - current_sum
         tmax = remaining_sum - remaining_unknowns + 1  # max if all other unknowns are min 1
+        tmin = remaining_sum - (remaining_unknowns - 1) * self._max_elem  # min if all others are max
         for cell in self.cells:
             if known[cell] == 0:
                 for c in list(candidates[cell]):
-                    if c > tmax:
+                    if c > tmax or c < tmin:
                         candidates[cell].discard(c)
+                if not candidates[cell]:
+                    raise InvalidGrid()
 
         if lk:
             new_target = self.sum - current_sum
@@ -176,12 +179,13 @@ class ProdRule(Rule):
         elif lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
-            k = self.prod / current_prod
+            # integer arithmetic: float division silently loses exactness once
+            # the product exceeds 2**53 (large cages)
+            k, rem = divmod(self.prod, current_prod)
             last_cell = next(cell for cell in self.cells if known[cell] == 0)
-            if k != int(k):
+            if rem:
                 candidates[last_cell].clear()
                 raise InvalidGrid()
-            k = int(k)
             if k in candidates[last_cell]:
                 candidates[last_cell].clear()
                 candidates[last_cell].add(k)
@@ -190,23 +194,22 @@ class ProdRule(Rule):
                 candidates[last_cell].clear()
                 raise InvalidGrid()
 
-        remaining_prod = self.prod / current_prod
+        remaining_prod, rem = divmod(self.prod, current_prod)
+        if rem:
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         for cell in self.cells:
             if known[cell] == 0:
-                # Max value for this cell: remaining_prod divided by min product of other unknowns (all 1s)
-                tmax = remaining_prod
+                # Max value: remaining_prod with all other unknowns at their min (1);
+                # and every value must divide the remaining product exactly.
                 for c in list(candidates[cell]):
-                    if c > tmax:
+                    if c > remaining_prod or remaining_prod % c:
                         candidates[cell].discard(c)
 
         if any(not candidates[cell] for cell in self.cells):
             raise InvalidGrid()
 
         if lk:
-            new_target = self.prod / current_prod
-            if new_target != int(new_target):
-                self.invalidate_current_cells_and_raise_invalid_grid(candidates)
-            new_target = int(new_target)
+            new_target = remaining_prod
             return False, [
                 ProdRule(
                     gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),
@@ -380,6 +383,8 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         if result is not None:
             return result
         result = list(SumAndElementsAtMostOnce.partition(n, count, mini, maxi))
+        if len(SumAndElementsAtMostOnce._partition_dic) >= 65536:
+            SumAndElementsAtMostOnce._partition_dic.clear()  # crude bound for long processes
         SumAndElementsAtMostOnce._partition_dic[key] = result
         return result
 

@@ -32,6 +32,14 @@ class Guarantee(NamedTuple):
     def __hash__(self):
         return hash((type(self), hash(self.cells), self.val, self.rows, self.cols))
 
+    def __eq__(self, other) -> bool:
+        # type-strict so the eq/hash contract holds (the hash mixes in the type,
+        # so a plain tuple with equal fields must not compare equal)
+        return type(other) is Guarantee and tuple.__eq__(self, other)
+
+    def __ne__(self, other) -> bool:
+        return not self.__eq__(other)
+
 
 TApplyResult = Tuple[bool, Optional[Iterable['Rule']], Optional[Iterable[Guarantee]]]
 

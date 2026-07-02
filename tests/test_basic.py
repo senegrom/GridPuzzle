@@ -98,6 +98,50 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
+def test_prodrule_integer_exact_beyond_float():
+    # products beyond 2**53: float division would mis-handle exact divisibility
+    from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
+    from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid
+    from gridsolver.rules.sumrules import ProdRule
+    gsz = GridSizeContainer(1, 3, 9)
+    rule = ProdRule(gsz=gsz, cells=[0, 1, 2], target=3 ** 34)
+    known = [3 ** 17, 3 ** 16, 0]
+    cands = (set(), set(), set(range(1, 10)))
+    try:
+        rule.apply(known, cands)
+        raise AssertionError("expected RuleAlwaysSatisfied")
+    except RuleAlwaysSatisfied:
+        pass
+    assert cands[2] == {3}
+    # non-divisible remainder must raise InvalidGrid, not force a rounded value
+    rule2 = ProdRule(gsz=gsz, cells=[0, 1, 2], target=3 ** 34 + 1)
+    cands2 = (set(), set(), set(range(1, 10)))
+    try:
+        rule2.apply(known, cands2)
+        raise AssertionError("expected InvalidGrid")
+    except InvalidGrid:
+        pass
+
+
+def test_sumrule_tmin_prune():
+    # two cells summing to 17 with max 9: values below 8 are impossible
+    from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
+    from gridsolver.rules.sumrules import SumRule
+    gsz = GridSizeContainer(1, 2, 9)
+    rule = SumRule(gsz=gsz, cells=[0, 1], mysum=17)
+    cands = (set(range(1, 10)), set(range(1, 10)))
+    rule.apply([0, 0], cands)
+    assert cands[0] == {8, 9} and cands[1] == {8, 9}
+
+
+def test_immutable_grid_shape_in_equality():
+    from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
+    flat = list(range(1, 17))
+    a = ImmutableGrid(flat, 2, 8, 8)
+    b = ImmutableGrid(flat, 4, 4, 4)
+    assert a != b and len({a, b}) == 2
+
+
 def test_rule45_innies_single_house():
     # two cages cover 3 cells of row 0 (4x4, house total 10) -> the leftover
     # cell's sum is forced in ONE pass (the old pairwise merging needed

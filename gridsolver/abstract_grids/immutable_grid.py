@@ -16,13 +16,13 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
                  max_elem: Optional[int] = None, name: Optional[str] = None):
         GridSizeContainer.__init__(self, rows, cols, max_elem)
         self._known: ArrayType = array('I', known)
-        self.__hash: int = hash((bytes(self._known)))
+        self.__hash: int = hash((bytes(self._known), self.rows, self.cols))
         self.name = name
 
     def __eq__(self, other: 'ImmutableGrid') -> bool:
         if not isinstance(other, type(self)):
             return False
-        return self._known == other._known
+        return self.rows == other.rows and self.cols == other.cols and self._known == other._known
 
     def __ne__(self, other: 'ImmutableGrid') -> bool:
         return not self == other

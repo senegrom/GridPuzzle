@@ -30,6 +30,8 @@ class ElementsAtMostOnce(Rule):
             if gt.cells <= npc_set:
                 for cell in npc_set - gt.cells:
                     candidates[cell].discard(gt.val)
+                    if not candidates[cell]:
+                        raise InvalidGrid()
 
     def _process_new_candidate_cells(self, known: MutableSequence[int], candidates: Tuple[Set[int]]):
         my_known = set()
