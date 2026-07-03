@@ -55,10 +55,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._candidates: Tuple[Set[int]] = tuple(set(range(1, self.max_elem + 1)) for _ in range(len(self)))
         self.has_been_filled = False
         self._struct_cache: Dict[str, Any] = {}
-        # per-solve adaptive statistics, DELIBERATELY SHARED with deepcopy
-        # clones (one dict per solve lineage): {label: [tries, hits]} of
-        # forcing-chain-inner technique executions, used for adaptive gating
-        self._adaptive_stats: Dict[str, list] = {}
 
     @overload
     def __setitem__(self, i: int, val: int) -> None:
@@ -108,7 +104,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.guarantees = self.guarantees.copy()
         result.guarantees_ia = self.guarantees_ia.copy()
         result._struct_cache = {}
-        result._adaptive_stats = self._adaptive_stats  # shared per solve lineage
         return result
 
     @property

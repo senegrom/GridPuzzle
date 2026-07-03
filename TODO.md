@@ -25,15 +25,22 @@ records kept with their measurements; the genuinely open items are marked OPEN.
    (atomic_solver._relevant_gts — the n=100 cost driver); run.py -c accepts
    all loader classes; _partition_dic bounded.
 
-## Adaptive technique gating — DONE July 2026
+## REJECTED (July 2026): adaptive technique gating by inner hit rate
 
-Implemented for AIC inside FC inner solvers (atomic_solver._ADAPTIVE_*):
-per-solve-lineage tries/hits in grid._adaptive_stats (deliberately SHARED
-with deepcopy clones), skip after 30 inner tries below 50% hit rate. The
-discriminating signal is the inner hit rate (t-hard 36%, pandiagonal 65%) —
-NOT consecutive misses as originally sketched. Measured: t-hard 218s -> 137s
-(-37%), pandiagonal-11x11 flat at 15.3s, rest unchanged. OPEN (small): apply
-to more techniques than AIC if profiles ever show another split case.
+Implemented and fully measured, then reverted. Gate = skip AIC inside FC
+after 30 inner tries below 50% hit rate, stats per solve lineage. Corpus
+looked perfect (t-hard 218s -> 137s, pandiagonal-11x11 flat: rates 36% vs
+65% separate cleanly) — but the full suite exposed the flaw: the pandiagonal
+ENUMERATION test doubled (1006s -> 2072s). Per-file instrumentation:
+13x13-DB#1-15-W4 solves in ~450s with inner AIC and 1871s once gated, and
+its root hit rate over the first 30 tries is 27% — BELOW t-hard's 36% where
+AIC is dead weight. Hit rate does not order techniques by value across grid
+families, so no threshold works; scoping variants (per-subtree fresh stats,
+root-only gating) were also measured and recovered almost nothing
+(1869s/1819s). The unrealized prize stays: t-hard would be 37% faster with a
+correct signal. That signal must measure VALUE, e.g. attribute each inner
+hit to whether its FC branch then concludes (contradiction/solved) vs stalls
+— plumbing through the FC branch loop, sketched but not built.
 
 ## Speeding up house-rich grids (pandiagonals) — general mechanisms only
 

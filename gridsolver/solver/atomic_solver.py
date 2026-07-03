@@ -36,18 +36,6 @@ POWER_ELIMS: Counter = Counter()
 POWER_RULE_CHANGES: Counter = Counter()
 
 
-# Adaptive gating of expensive techniques inside forcing-chain inner solvers.
-# Static exclusion is wrong for AIC (June 2026 experiment: t-hard 43% faster
-# without inner AIC, pandiagonal-11x11 4.5x slower — there inner AIC hits 65%
-# and carries the branches). The discriminating signal is the inner hit rate
-# itself, accumulated per solve lineage in grid._adaptive_stats (a dict shared
-# across deepcopy clones): once a technique has _ADAPTIVE_MIN_TRIES inner
-# executions and its hit rate sits below _ADAPTIVE_MIN_HITRATE, it is skipped
-# inside FC for the rest of the solve (t-hard measures 36%, pandiagonal 65%).
-_ADAPTIVE_GATED = ("aic",)
-_ADAPTIVE_MIN_TRIES = 30
-_ADAPTIVE_MIN_HITRATE = 0.5
-
 # Depth-gated technique tiers: at backtracking depth > DEPTH_GATE_K only the
 # cheap tier runs (through naked_tuples5) — deep contradictions usually surface
 # from cheap propagation, trading more nodes for much cheaper nodes. Behavior-
@@ -100,15 +88,9 @@ class AtomicSolver:
                 try:
                     for step_type in self._solve_power_actions():
                         POWER_TRIES[step_type] += 1
-                        ast = None
-                        if step_type in _ADAPTIVE_GATED and _solve_fc._in_forcing_chain:
-                            ast = self.grid._adaptive_stats.setdefault(step_type, [0, 0])
-                            ast[0] += 1
                         new_snap = self._state_snapshot()
                         if old != new_snap:
                             POWER_HITS[step_type] += 1
-                            if ast is not None:
-                                ast[1] += 1
                             POWER_ELIMS[step_type] += max(0, old[1] - new_snap[1])
                             if old[2:] != new_snap[2:]:
                                 POWER_RULE_CHANGES[step_type] += 1
@@ -198,17 +180,8 @@ class AtomicSolver:
             except InvalidGrid:
                 POWER_TRIES[label] += 1
                 POWER_HITS[label] += 1
-                if label in _ADAPTIVE_GATED and _solve_fc._in_forcing_chain:
-                    st = self.grid._adaptive_stats.setdefault(label, [0, 0])
-                    st[0] += 1
-                    st[1] += 1
                 raise
         return label
-
-    def _adaptive_allows(self, label: str) -> bool:
-        stats = self.grid._adaptive_stats.get(label)
-        return (stats is None or stats[0] < _ADAPTIVE_MIN_TRIES
-                or stats[1] >= _ADAPTIVE_MIN_HITRATE * stats[0])
 
     def _hidden_tuples(self, n: int) -> None:
         if self.hidden_pair_checked_gts:
@@ -258,8 +231,7 @@ class AtomicSolver:
         yield self._act("naked_tuples", lambda: remove_naked_tuples(g))
         if not in_fc:
             yield self._act("hidden_tuples", self._hidden_tuples_max)
-        if not in_fc or self._adaptive_allows("aic"):
-            yield self._act("aic", lambda: alternating_inference_chain(g))
+        yield self._act("aic", lambda: alternating_inference_chain(g))
         yield self._act("nishio", lambda: nishio(g))
         if not in_fc:
             yield self._act("fish", lambda: fish(g, _MAX_FISH))
