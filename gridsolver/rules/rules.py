@@ -47,6 +47,11 @@ TApplyResult = Tuple[bool, Optional[Iterable['Rule']], Optional[Iterable[Guarant
 class Rule(ABC):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells')
 
+    # Whether apply() actually reads its `guarantees` argument. False lets the
+    # solver skip building the per-rule guarantee list entirely (see
+    # atomic_solver._relevant_gts); every subclass that reads it must set True.
+    uses_guarantees = False
+
     def __init__(self, gsz: GridSizeContainer,
                  cells: Optional[Iterable[IdxType]] = None,
                  cell_creator: Optional[TCellCreator] = None):

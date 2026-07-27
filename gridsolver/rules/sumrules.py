@@ -320,11 +320,14 @@ def _admissible_assignments(values: FrozenSet[int], cand_sets: Sequence[Set[int]
     edge participates in some perfect matching iff its endpoints share a strongly
     connected component of the residual digraph (unmatched value->position,
     matched position->value). Polynomial in the cage size, replacing k!
-    permutation enumeration."""
+    permutation enumeration.
+
+    NOTE: restrict keys outside `values` are ignored here — the caller must skip
+    partitions that omit a guaranteed value (a bare `return` would read as "this
+    partition admits nothing", silently losing solutions)."""
     k = len(cand_sets)
     vals = list(values)
-    if len(vals) != k:
-        return
+    assert len(vals) == k, (values, k)
     edges = {}
     for v in vals:
         allowed = restrict.get(v)
@@ -492,7 +495,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         if result is not None:
             return result
         result = list(SumAndElementsAtMostOnce.partition(n, count, mini, maxi))
-        if len(SumAndElementsAtMostOnce._partition_dic) >= 65536:
+        if len(SumAndElementsAtMostOnce._partition_dic) >= 65535:
             SumAndElementsAtMostOnce._partition_dic.clear()  # crude bound for long processes
         SumAndElementsAtMostOnce._partition_dic[key] = result
         return result

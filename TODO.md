@@ -42,6 +42,20 @@ correct signal. That signal must measure VALUE, e.g. attribute each inner
 hit to whether its FC branch then concludes (contradiction/solved) vs stalls
 — plumbing through the FC branch loop, sketched but not built.
 
+## OPEN: guarantee-index rebuild rate on sum-rule-heavy grids
+
+`_relevant_gts` caches its min-cell bucket index in `_struct_cache`, which
+`deactivate_rule` clears unconditionally — and Sum/Prod/SaEAMO rules deactivate
+themselves on every apply once a cell is known, so the index is rebuilt
+mid-loop. Measured on a 9x9 killer (review instrumentation, July 2026): 299
+rebuilds against 2817 uses, guarantee-visits 540509 -> 90947 (6x) — a clear win
+there. But on a grid where nearly every rule is a sum rule the rebuild rate
+approaches 1:1 and the index becomes a net loss. Correctness is unaffected
+either way. Fix if it ever shows up: version the index on a monotone
+guarantee-generation counter instead of the shared struct cache. (The cheap
+half — skipping the index entirely for rules that never read guarantees — is
+already done via `Rule.uses_guarantees`.)
+
 ## Speeding up house-rich grids (pandiagonals) — general mechanisms only
 
 1. **DONE for fish/finned (June 2026): per-value dirty fingerprints**

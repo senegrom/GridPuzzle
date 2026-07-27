@@ -12,7 +12,8 @@ are cancelled once the budget is met, but already-running branches finish, so
 the wall-clock win on capped searches is smaller.
 """
 import concurrent.futures
-from typing import List, Optional, Set, Tuple
+import itertools
+from typing import List, Set, Tuple
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
@@ -28,7 +29,7 @@ def _solve_branch(payload: Tuple[Grid, int, int, int]) -> Set[ImmutableGrid]:
 
 
 def solve_parallel_trials(grid: Grid, branches: List[Tuple[int, int]], max_sols: int,
-                          processes: int) -> Optional[Set[ImmutableGrid]]:
+                          processes: int) -> Set[ImmutableGrid]:
     """Distribute (cell, value) trial branches; returns the union of branch
     solutions (capped at max_sols if positive)."""
     grid._struct_cache.clear()  # keep pickles lean
@@ -43,6 +44,5 @@ def solve_parallel_trials(grid: Grid, branches: List[Tuple[int, int]], max_sols:
                     other.cancel()
                 break
     if 0 < max_sols < len(sols):
-        import itertools
         sols = set(itertools.islice(iter(sols), max_sols))
     return sols

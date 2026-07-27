@@ -54,6 +54,8 @@ class SingleRelationRule(Rule, ABC):
 
 
 class UneqRule(SingleRelationRule):
+    uses_guarantees = True
+
     def __init__(self, gsz: GridSizeContainer, origin_cell: IdxType,
                  rel_cells: Iterable[IdxType]):
         super().__init__(gsz, origin_cell, rel_cells)
@@ -95,6 +97,8 @@ class UneqRule(SingleRelationRule):
 
 
 class DiffGe2Rule(SingleRelationRule):
+    uses_guarantees = True
+
     def __init__(self, gsz: GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
         SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)
 

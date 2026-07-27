@@ -8,7 +8,8 @@ from gridsolver.rules.rules import InvalidGrid
 _MAX_INNIE = 4  # emit derived sums only for leftovers up to this many cells
 _MAX_HOUSE_UNION = 3  # consider unions of up to this many disjoint houses
 _MAX_SAEAMO_CELLS = 8  # cap derived sum-cages: partition enumeration grows
-# combinatorially with cell count (a no-op for 9x9 houses, a guard for 12x12+)
+# combinatorially with cell count (provably a no-op up to 9x9 houses, since
+# derived cages there are at most 8 cells anyway; starts biting at 10x10)
 
 
 def rulehelper_atmostonce(grid: Grid) -> None:

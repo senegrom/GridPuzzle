@@ -248,12 +248,20 @@ def _relevant_gts(grid: Grid, rule) -> list:
     gt.cells being a subset of the rule's (unknown) cells, which implies the
     guarantee's minimum cell lies in rule.cells — so bucketing by min cell
     yields an exact superset at a fraction of iterating all live guarantees
-    (the dominant per-round cost on large grids). The index lives in the
-    struct cache and is rebuilt only when guarantees actually change."""
+    (a large per-round cost on grids with many guarantees). The index lives in
+    the struct cache and is rebuilt only when guarantees actually change.
+
+    Rules that never read the argument (Sum/Prod/Div/Diff/Ineq/AtLeastOnce)
+    skip the list construction entirely."""
+    if not rule.uses_guarantees:
+        return _NO_GTS
     index = grid.cached_struct(
         "gts_by_min_cell",
         lambda: _build_gt_index(grid))
     return [gt for cell in rule.cells for gt in index.get(cell, ())]
+
+
+_NO_GTS: list = []
 
 
 def _build_gt_index(grid: Grid) -> dict:

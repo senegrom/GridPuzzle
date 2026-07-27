@@ -5,6 +5,7 @@ from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, Invalid
 
 
 class ElementsAtMostOnce(Rule):
+    uses_guarantees = True  # _update_from_guarantees (and SaEAMO's cage filter)
 
     def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
                  cells: Iterable[IdxType] = None, cell_creator=None):
