@@ -4,7 +4,8 @@ from typing import Iterable, NamedTuple, Mapping, Dict, Union, Tuple, List
 from gridsolver.abstract_grids.grid import _load_preprocess_str_space_sep, _load_preprocess_str, pairs
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import UniqueSquareGrid
-from gridsolver.rules.sumrules import SumRule, DiffRule, ProdRule, DivRule
+from gridsolver.rules.exact_div_rule import ExactDivRule
+from gridsolver.rules.sumrules import SumRule, DiffRule, ProdRule
 
 
 class _CellTuple(NamedTuple):
@@ -36,7 +37,7 @@ class Kenken(UniqueSquareGrid):
             case "-":
                 return DiffRule(gsz=self, cells=cells, target=t.mytarget)
             case "/" | ":":
-                return DivRule(gsz=self, cells=cells, target=t.mytarget)
+                return ExactDivRule(gsz=self, cells=cells, target=t.mytarget)
             case "*":
                 return ProdRule(gsz=self, cells=cells, target=t.mytarget)
             case _:
@@ -74,7 +75,8 @@ class Kenken(UniqueSquareGrid):
     def load_with_dic(self, sum_cells: Union[str, Iterable[str]], dic: Mapping[str, Tuple[str, int]],
                       row_wise=True) -> None:
         """Load a single-character cage layout plus target/operator mappings."""
-        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
+        if self.has_been_filled:
+            raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
         sum_cells = self._load_preprocess_sequence(sum_cells)
         if not isinstance(dic, Mapping):
             dic = dict(dic)
@@ -83,6 +85,10 @@ class Kenken(UniqueSquareGrid):
         for c1 in range(self.rows if row_wise else self.cols):
             for c2 in range(self.cols if row_wise else self.rows):
                 char = next(char_iter)
-                entry = final_dic.setdefault(char, _CellTuple(mytarget=dic[char][1], cells=[], operator=dic[char][0]))
+                try:
+                    operator, target = dic[char]
+                except KeyError as exc:
+                    raise ValueError(f"Missing KenKen cage definition for {char!r}") from exc
+                entry = final_dic.setdefault(char, _CellTuple(mytarget=target, cells=[], operator=operator))
                 entry.cells.append((c1, c2) if row_wise else (c2, c1))
         self.ext_target_cells(final_dic.values())
