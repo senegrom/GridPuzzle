@@ -5,9 +5,10 @@ from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
-from gridsolver.rules.rules import Rule
+from gridsolver.rules.rules import InvalidGrid, Rule
 from gridsolver.rules.sumrules import DivRule, SumAndElementsAtMostOnce
 from gridsolver.solver.solve_forcing_net import _propagate_basic
+from gridsolver.solver.solve_nishio import nishio
 from gridsolver.util import peek
 
 
@@ -21,12 +22,39 @@ class _PeelOneCandidatePerPass(Rule):
         return False, None, None
 
 
+class _RejectValueWithoutMutating(Rule):
+    """Report a contradiction without relying on an emptied candidate set."""
+
+    def __init__(self, grid, cell, rejected):
+        super().__init__(grid, cells=[cell])
+        self.rejected = rejected
+
+    def apply(self, known, candidates, guarantees=None):
+        if known[self.cells[0]] == self.rejected:
+            raise InvalidGrid()
+        return False, None, None
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.rejected))
+
+    def __eq__(self, other):
+        return super().__eq__(other) and self.rejected == other.rejected
+
+
 def test_basic_trial_propagation_tracks_candidate_only_progress():
     grid = Grid(1, 1, max_elem=4)
     grid.add_rule_checked(_PeelOneCandidatePerPass(grid, cells=[0]))
 
     assert _propagate_basic(grid) == SolveStatus.SOLVED
     assert grid[0] == 1
+    assert grid.get_candidates(0) == {1}
+
+
+def test_nishio_uses_the_returned_invalid_status():
+    grid = Grid(1, 1, max_elem=2)
+    grid.add_rule_checked(_RejectValueWithoutMutating(grid, cell=0, rejected=2))
+
+    nishio(grid)
     assert grid.get_candidates(0) == {1}
 
 
