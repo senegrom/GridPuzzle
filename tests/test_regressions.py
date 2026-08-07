@@ -9,9 +9,8 @@ from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
-from gridsolver.rules.exact_div_rule import ExactDivRule
 from gridsolver.rules.rules import InvalidGrid, Rule
-from gridsolver.rules.sumrules import DivRule, SumAndElementsAtMostOnce
+from gridsolver.rules.sumrules import DiffRule, DivRule, SumAndElementsAtMostOnce
 from gridsolver.solver import solve_forcing_chain as forcing_chain_module
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.solve_forcing_net import _propagate_basic
@@ -162,18 +161,29 @@ def test_kenken_colon_division_operator_and_generator_input():
     streamed.load(iter(("aabb", ":", "a:2b:2")))
 
     assert direct == streamed
-    assert len(direct.get_rules_of_type(DivRule)) == 2
-    assert all(isinstance(rule, ExactDivRule) for rule in direct.get_rules_of_type(DivRule))
+    division_rules = direct.get_rules_of_type(DivRule)
+    assert len(division_rules) == 2
+    assert all(type(rule) is DivRule for rule in division_rules)
 
 
-def test_exact_division_does_not_accept_a_rounded_float_ratio():
+def test_division_rule_does_not_accept_a_rounded_float_ratio():
     base = 2 ** 60
     almost_three_times = 3 * base + 1
-    rule = ExactDivRule(GridSizeContainer(1, 2, almost_three_times), cells=[0, 1], target=3)
+    rule = DivRule(GridSizeContainer(1, 2, almost_three_times), cells=[0, 1], target=3)
     candidates = ({almost_three_times}, {base})
 
     with pytest.raises(InvalidGrid):
         rule.apply([almost_three_times, base], candidates)
+
+
+def test_arithmetic_rules_validate_public_inputs():
+    gsz = GridSizeContainer(1, 2, 2)
+    with pytest.raises(ValueError, match="positive"):
+        DivRule(gsz, cells=[0, 1], target=0)
+    with pytest.raises(ValueError, match="exactly two"):
+        DivRule(gsz, cells=[0], target=2)
+    with pytest.raises(ValueError, match="non-negative"):
+        DiffRule(gsz, cells=[0, 1], target=-1)
 
 
 def test_killer_cages_accept_mixed_coordinate_representations():
