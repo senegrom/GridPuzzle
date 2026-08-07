@@ -78,6 +78,7 @@ class AtomicSolver:
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         steps: int = 0
         old: Optional[Tuple[bytes, int, int, int]] = None
+        invalid = False
 
         while self.grid.is_valid:
             do_step = True
@@ -100,23 +101,28 @@ class AtomicSolver:
                                                           self.grid._known)
                             break
                 except InvalidGrid:
+                    invalid = True
                     break
                 if break_outer:
                     break
 
-            with _lg.time_ctxt("update_step"):
-                if do_step:
-                    if old is None:
+            try:
+                with _lg.time_ctxt("update_step"):
+                    if do_step:
+                        if old is None:
+                            self._update_step()
+                        old = self._state_snapshot()
                         self._update_step()
-                    old = self._state_snapshot()
-                    self._update_step()
+            except InvalidGrid:
+                invalid = True
+                break
 
             _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
             _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
             steps = steps + 1
 
         status: SolveStatus
-        if not self.grid.is_valid:
+        if invalid or not self.grid.is_valid:
             status = SolveStatus.INVALID
         elif self.grid.is_solved:
             status = SolveStatus.SOLVED
@@ -142,13 +148,10 @@ class AtomicSolver:
 
     def _update_step(self) -> None:
         _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
-        try:
-            with _lg.time_ctxt("update_from_rules"):
-                self._update_from_rules()
-            with _lg.time_ctxt("filter_guarantees"):
-                filter_guarantees(self.grid)
-        except InvalidGrid:
-            pass
+        with _lg.time_ctxt("update_from_rules"):
+            self._update_from_rules()
+        with _lg.time_ctxt("filter_guarantees"):
+            filter_guarantees(self.grid)
 
     # rule updates
     def _update_from_rules(self) -> None:
