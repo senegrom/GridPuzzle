@@ -20,7 +20,8 @@ class SolveStatus(Enum):
 
 
 def _load_preprocess_str(values: str):
-    assert isinstance(values, str), f"Cannot call _load_preprocess_str with object {values}, only strings."
+    if not isinstance(values, str):
+        raise TypeError(f"Cannot call _load_preprocess_str with {type(values).__name__}; expected str")
     return values.strip().replace(" ", "") \
         .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
 
@@ -49,7 +50,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
         if cols is None:
             cols = rows
-        assert rows, "Rows must be > 0"
+        if rows <= 0 or cols <= 0:
+            raise ValueError("Grid dimensions must be positive")
         ImmutableGrid.__init__(self, array('I', [0] * (rows * cols)), rows, cols, max_elem)
         RuleContainer.__init__(self)
         self._candidates: Tuple[Set[int]] = tuple(set(range(1, self.max_elem + 1)) for _ in range(len(self)))
@@ -103,6 +105,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.rules_ia = self.rules_ia.copy()
         result.guarantees = self.guarantees.copy()
         result.guarantees_ia = self.guarantees_ia.copy()
+        result.has_been_filled = self.has_been_filled
         result._struct_cache = {}
         return result
 
@@ -186,14 +189,16 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             else:
                 values = _load_preprocess_str(values)
 
-        assert len(values) == assert_length, f"len: {len(values)} != {assert_length}"
+        if len(values) != assert_length:
+            raise ValueError(f"len: {len(values)} != {assert_length}")
         self.has_been_filled = True
         return values
 
     def load(self, values: Union[str, Sequence[int], Sequence[Iterable[int]]], /,
              row_wise=True, space_sep=False):
 
-        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
+        if self.has_been_filled:
+            raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
         values = self._load_preprocess_sequence(values, space_sep=space_sep)
 
         def to_int(nk):
@@ -331,11 +336,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
 
 def pairs(it: Iterable):
-    it = iter(it)
-    try:
-        while True:
-            a = next(it)
-            b = next(it)
-            yield a, b
-    except StopIteration:
-        pass
+    iterator = iter(it)
+    while True:
+        try:
+            a = next(iterator)
+        except StopIteration:
+            return
+        try:
+            b = next(iterator)
+        except StopIteration as exc:
+            raise ValueError("Expected complete pairs, got an unpaired final value") from exc
+        yield a, b
