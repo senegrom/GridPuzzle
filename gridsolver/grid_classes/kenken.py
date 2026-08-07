@@ -4,8 +4,7 @@ from typing import Iterable, NamedTuple, Mapping, Dict, Union, Tuple, List
 from gridsolver.abstract_grids.grid import _load_preprocess_str_space_sep, _load_preprocess_str, pairs
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import UniqueSquareGrid
-from gridsolver.rules.exact_div_rule import ExactDivRule
-from gridsolver.rules.sumrules import SumRule, DiffRule, ProdRule
+from gridsolver.rules.sumrules import SumRule, DiffRule, DivRule, ProdRule
 
 
 class _CellTuple(NamedTuple):
@@ -37,7 +36,7 @@ class Kenken(UniqueSquareGrid):
             case "-":
                 return DiffRule(gsz=self, cells=cells, target=t.mytarget)
             case "/" | ":":
-                return ExactDivRule(gsz=self, cells=cells, target=t.mytarget)
+                return DivRule(gsz=self, cells=cells, target=t.mytarget)
             case "*":
                 return ProdRule(gsz=self, cells=cells, target=t.mytarget)
             case _:
