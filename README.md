@@ -1,8 +1,11 @@
 # GridPuzzle
+
+[![CI](https://github.com/senegrom/GridPuzzle/actions/workflows/ci.yml/badge.svg)](https://github.com/senegrom/GridPuzzle/actions/workflows/ci.yml)
+
 Solver for grid puzzles, e.g. Sudokus, Futoshiki, Killer Sudoku, KenKen, Latin Squares etc.
 Input puzzles are read as modules that define the variable `g`, from `.pzl` files, or from strings.
 
-Execute  `python run.py -m Examples.exampleSudoku` to solve the Sudoku that is stored as `g` in the `Examples/exampleSudoku.py` file.
+Execute `python run.py -m Examples.exampleSudoku` to solve the Sudoku that is stored as `g` in the `Examples/exampleSudoku.py` file.
 Additional options exist to print intermediate steps or to run one of the built-in examples.
 Try `python run.py -v -m Examples.exampleSudoku` for all intermediate steps when solving the example Sudoku.
 
@@ -13,7 +16,7 @@ Default implementations for arbitrary sizes exist for _Sudoku_ (including 16x16,
 _Killer Sudoku_ (additional sum constraints on areas),
 _Futoshiki_ (inequality constraints),
 _KenKen_ (arithmetic cage constraints),
-and _Latin Square_ / _Diagonal Latin Square_.
+and _Latin Square_ / _Diagonal Latin Square_ / _Pandiagonal Latin Square_.
 They can be extended using the built-in rules.
 
 An example is the puzzle called _Miracle Sudoku_ given in `Examples/miracleSudoku.py`.
@@ -60,31 +63,31 @@ solutions).
 
 The hardest built-in test puzzle (example_t) is solved **entirely without backtracking** using deductive techniques alone.
 
-
 ## Arguments
 
 ```
-usage: run.py [-h] [-m MODULE] [-s STR] [-c {sudoku,killersudoku,futoshiki}]
+usage: run.py [-h] [-m MODULE] [-s STR]
+              [-c {sudoku,killersudoku,futoshiki,kenken,latinsquare,diagonallatinsquare,pandiagonallatinsquare}]
               [-o {No,Colorama,Rich}] [-f FILE]
               [-e {a,b,c,d,f,m,s,t}] [-d DETAIL] [-v]
 
 Solve grid puzzle
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   -m MODULE, --module MODULE
                         module file to load puzzle from
   -s STR, --str STR     string to load puzzle from
-  -c {sudoku,killersudoku,futoshiki}, --class_ {sudoku,killersudoku,futoshiki}
+  -c {sudoku,killersudoku,futoshiki,kenken,latinsquare,diagonallatinsquare,pandiagonallatinsquare}, --class_ {...}
                         puzzle class
   -o {No,Colorama,Rich}, --colour {No,Colorama,Rich}
                         colour output mode (default: Colorama)
   -f FILE, --file FILE  puzzle string file to load puzzle from
   -e {a,b,c,d,f,m,s,t}, --example {a,b,c,d,f,m,s,t}
-                        Choose one of the default example puzzles
+                        choose one of the default example puzzles
   -d DETAIL, --detail DETAIL
-                        Detail of log output (higher means more intermediate steps)
-  -v, --verbose         Print very detailed log output (every step)
+                        detail of log output (higher means more intermediate steps)
+  -v, --verbose         print very detailed log output (every step)
 ```
 
 ## Rule types
@@ -111,6 +114,23 @@ One special cell must have a different value than all the other rule cells.
 
 #### `DiffGe2Rule`
 One special cell must have a difference of at least 2 to all the other rule cells.
+
+## Development
+
+Install the dependencies and run the bounded pull-request suite with:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pytest -q tests/test_regressions.py tests/test_basic.py tests/test_scale.py -m "not slow"
+```
+
+The `slow` marker contains the long corpus and large-scale checks and is intentionally excluded from the default CI path:
+
+```bash
+python -m pytest -m slow
+```
+
+GitHub Actions compiles the source and runs the bounded suite on Python 3.10 and 3.14. Python 3.14 also runs representative end-to-end example tests.
 
 ## Notebook
 
