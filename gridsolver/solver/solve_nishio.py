@@ -1,4 +1,4 @@
-from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver import solve_forcing_chain as _solve_fc
@@ -35,10 +35,12 @@ def nishio(grid: Grid) -> None:
             clone = grid.deepcopy()
             clone[cell] = val
             cc = clone._candidates
-            _propagate_basic(clone)
+            status = _propagate_basic(clone)
 
-            if not clone.is_valid:
-                # Find what went wrong for the log message
+            if status == SolveStatus.INVALID or not clone.is_valid:
+                # Find what went wrong for the log message. Some custom rules
+                # can report InvalidGrid without emptying a candidate set, so
+                # the returned status is authoritative.
                 empty = [i for i in range(grid.len) if not cc[i]]
                 reason = f"empty candidates at {c(empty[0])}" if empty else "invalid grid"
                 _lg.on and _lg.logr("Nishio",

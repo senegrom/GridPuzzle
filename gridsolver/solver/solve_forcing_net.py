@@ -7,17 +7,29 @@ from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.solver_log import lg as _lg
 
 
+def _propagation_snapshot(grid: Grid):
+    """Monotone state used to detect a complete basic-propagation fixpoint."""
+    return (bytes(grid._known), sum(len(candidates) for candidates in grid._candidates),
+            len(grid.rules) + len(grid.guarantees),
+            len(grid.rules_ia) + len(grid.guarantees_ia))
+
+
 def _propagate_basic(grid):
-    """Basic propagation: rules + guarantees, no power actions."""
+    """Propagate rules and guarantees to a fixpoint, without power actions.
+
+    Candidate-only and rule-only changes matter: they can enable another rule
+    on the next pass even when no cell became known.  The previous loop watched
+    only known values and could therefore stop early inside Nishio and forcing
+    nets, missing contradictions and common deductions.
+    """
     from gridsolver.solver.atomic_solver import _relevant_gts, _update_known_from_candidates, \
         _update_candidates_from_known
     from gridsolver.solver.solve_guarantees import filter_guarantees
+
     known = grid._known
     cands = grid._candidates
-    changed = True
-    while changed and grid.is_valid:
-        changed = False
-        old_known = list(known)
+    while grid.is_valid:
+        before = _propagation_snapshot(grid)
         _update_known_from_candidates(grid.__setitem__, cands, known)
         try:
             for rule in list(grid.rules):
@@ -31,16 +43,18 @@ def _propagate_basic(grid):
                     _update_candidates_from_known(cands, known)
                 if new_rules is not None:
                     grid.deactivate_rule(rule)
-                    for r in new_rules:
-                        grid.add_rule_checked(r)
+                    for new_rule in new_rules:
+                        grid.add_rule_checked(new_rule)
                 if new_gts is not None:
                     for gt in new_gts:
                         grid.add_gtee_checked(gt)
             filter_guarantees(grid)
         except InvalidGrid:
-            pass
-        if list(known) != old_known:
-            changed = True
+            return SolveStatus.INVALID
+
+        if _propagation_snapshot(grid) == before:
+            break
+
     if not grid.is_valid:
         return SolveStatus.INVALID
     if grid.is_solved:
@@ -111,8 +125,8 @@ def forcing_net(grid: Grid) -> None:
                     valid_clones.append(clone)
 
             if not valid_clones:
-                # the branch set covers every assignment of the pair at this
-                # fixpoint — all contradicting means the grid itself is invalid
+                # The branch set covers every assignment of the pair at this
+                # fixpoint — all contradicting means the grid itself is invalid.
                 cands[cell_a].clear()
                 raise InvalidGrid()
 
@@ -136,8 +150,8 @@ def forcing_net(grid: Grid) -> None:
                 if i2 == cell_a or i2 == cell_b or known[i2] > 0 or len(cands[i2]) <= 1:
                     continue
                 common_elim = None
-                for cl in valid_clones:
-                    elim = cands[i2] - cl._candidates[i2]
+                for clone in valid_clones:
+                    elim = cands[i2] - clone._candidates[i2]
                     if common_elim is None:
                         common_elim = elim
                     else:
@@ -145,14 +159,14 @@ def forcing_net(grid: Grid) -> None:
                     if not common_elim:
                         break
                 if common_elim:
-                    for v in common_elim:
-                        if v in cands[i2]:
+                    for value in common_elim:
+                        if value in cands[i2]:
                             _lg.on and _lg.logr("ForcingNet",
-                                     f"{v} removed from {c(i2)} "
+                                     f"{value} removed from {c(i2)} "
                                      f"(all {len(valid_clones)} branches of "
                                      f"net {c(cell_a)}+{c(cell_b)})",
                                      c(i2))
-                            cands[i2].discard(v)
+                            cands[i2].discard(value)
                             if not cands[i2]:
                                 raise InvalidGrid()
                             made_progress = True
@@ -161,12 +175,12 @@ def forcing_net(grid: Grid) -> None:
             # contradicted (every valid clone keeps its assigned value in _known,
             # so the main loop above already tested all combinations)
             for cell_x, vals_x, cell_other in ((cell_a, vals_a, cell_b), (cell_b, vals_b, cell_a)):
-                for vx in vals_x:
-                    if vx in cands[cell_x] and all(cl._known[cell_x] != vx for cl in valid_clones):
+                for value in vals_x:
+                    if value in cands[cell_x] and all(cl._known[cell_x] != value for cl in valid_clones):
                         _lg.on and _lg.logr("ForcingNet",
-                                 f"{vx} removed (contradicts with all values of {c(cell_other)})",
+                                 f"{value} removed (contradicts with all values of {c(cell_other)})",
                                  c(cell_x))
-                        cands[cell_x].discard(vx)
+                        cands[cell_x].discard(value)
                         if not cands[cell_x]:
                             raise InvalidGrid()
                         made_progress = True
