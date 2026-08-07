@@ -55,6 +55,11 @@ jobs:
           tests/test_scale.py
           -m "not slow"
 
+      - name: Run guarantee-consumer metadata guard
+        run: >-
+          python -m pytest -q
+          tests/test_basic.py::test_uses_guarantees_flag_matches_apply_bodies
+
       - name: Run representative end-to-end examples
         if: matrix.python-version == '3.14'
         run: python -m pytest -q tests/test_examples_2.py
