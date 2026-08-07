@@ -23,13 +23,13 @@ solve(grid)
 ### Key Design Decisions
 
 **Rules are immutable and shared across deepcopy clones.**
-`Grid.deepcopy()` shallow-copies the rules/guarantees sets but shares Rule objects. This is safe because Rule objects never mutate after construction (`@cached_property` values are deterministic).
+`Grid.deepcopy()` shallow-copies the rules/guarantees sets but shares Rule objects. This is safe because Rule objects never mutate after construction (`@cached_property` values are deterministic). The clone also preserves `has_been_filled`; structural caches are deliberately rebuilt per clone.
 
 **Forcing chain uses the full AtomicSolver for trial branches.**
-The `_in_forcing_chain` module-level flag prevents recursion. The inner solver runs ALL techniques except FC/nishio/forcing_net. This gives maximum deductive power — example_t solves with zero backtracking.
+A `ContextVar`-backed recursion flag prevents forcing-chain recursion without leaking state between concurrent solves. The inner solver runs all techniques except FC/nishio/forcing_net. This gives maximum deductive power — example_t solves with zero backtracking.
 
-**Both-INVALID in forcing chain raises InvalidGrid.**
-If all candidates of a cell lead to contradictions via the full constraint propagation engine, the grid is truly invalid. This is sound because propagation only removes candidates (never adds), so an empty candidate set is an irreversible contradiction.
+**All-INVALID in forcing chain raises InvalidGrid.**
+If all candidates of a cell lead to contradictions via the full constraint propagation engine, the grid is truly invalid. This is sound because propagation only removes candidates (never adds), so an empty candidate set is an irreversible contradiction. `AtomicSolver` also treats an explicit `InvalidGrid` exception as authoritative even when a custom rule does not mutate candidates before raising.
 
 **Techniques that use `unique_rule_cells` must filter to full-size groups.**
 KenKen/Killer cages create small `ElementsAtMostOnce` groups. Techniques like locked_candidate and skyscraper assume groups have `max_elem` cells (rows/cols/boxes). Filter with `len(grp) == grid.max_elem`.
@@ -47,10 +47,21 @@ KenKen/Killer cages create small `ElementsAtMostOnce` groups. Techniques like lo
 
 Both bugs caused false contradictions in trial-based techniques (forcing chain, nishio) on KenKen puzzles, because the over-aggressive elimination emptied candidate sets that should have remained valid.
 
+**Trial propagation stopped before a full fixpoint:**
+- Old: Nishio/forcing-net trial propagation repeated only when known values changed.
+- Fixed: the snapshot also tracks total candidates and active/inactive rule and guarantee counts, so candidate-only and rule-only progress receives another pass.
+
+**KenKen division used floating-point comparisons:**
+- Old: quotient comparisons could round large integer ratios beyond `2**53`.
+- Fixed: KenKen division cages use multiplication and `divmod`, preserving exact integer semantics.
+
 ### Rich Logging on Windows / Jupyter
 
-- **Windows terminal**: `colorama.init()` wraps stdout with cp1252 encoding, breaking Rich's Unicode box-drawing characters. Fix: `deinit()` colorama, wrap `sys.stdout.buffer` with `io.TextIOWrapper(encoding='utf-8')`, use `Console(force_terminal=True)`.
-- **Jupyter**: stdout is an `OutStream` without `.buffer`. Fix: use `Console(force_jupyter=True)` without deinit. Check `hasattr(sys.stdout, 'buffer')` to detect environment.
+Importing the solver does not initialize Colorama or mutate stdout. Terminal configuration is explicit through `set_colouring`.
+
+- **Windows terminal / Colorama mode**: `just_fix_windows_console()` enables ANSI handling without wrapping stdout repeatedly.
+- **Rich on a terminal with `stdout.buffer`**: Colorama is deinitialized, stdout is wrapped as UTF-8, and Rich uses `Console(force_terminal=True)`.
+- **Jupyter**: stdout is an `OutStream` without `.buffer`; Rich uses `Console(force_jupyter=True)`.
 
 ### Performance Notes
 
@@ -66,4 +77,4 @@ Both bugs caused false contradictions in trial-based techniques (forcing chain, 
 - **`list(self.grid.rules)` snapshot** instead of `set.copy()` for iteration during rule application.
 - **Snapshot change detection** in the solve loop: `(bytes(_known), total candidate count, active rule+guarantee count, inactive rule+guarantee count)` instead of deep-copying the grid and comparing. Cell state is monotone (knowns only get set, candidates only shrink) and the inactive sets only grow, so every mutation — including rule-only progress by the rulehelpers — is detected.
 - **`Grid.cached_struct`** memoizes rule/guarantee-derived structures (`unique_rule_cells`, `weak_links`, `semi_strong_links`, `guarantee_cells_by_value`, fish's relevant-houses map). The cache clears on any rule/guarantee add/deactivate and is not shared with deepcopy clones. Cached objects must not be mutated by consumers — `xy_chain` copies `weak_links` before pruning it, and `semi_strong_links_all` shallow-copies the base lists.
-- **Monkey-patching pitfall**: `from X import func` binds at import time. Patching `module.func` doesn't affect already-imported references. Use module-level flags or patch at the call site.
+- **Monkey-patching pitfall**: `from X import func` binds at import time. Patching `module.func` doesn't affect already-imported references. Prefer dependency injection or patch at the call site.
