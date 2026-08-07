@@ -17,16 +17,17 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
                  max_elem: Optional[int] = None, name: Optional[str] = None):
         GridSizeContainer.__init__(self, rows, cols, max_elem)
         self._known: ArrayType = array('I', known)
-        # process-independent content hash: the eager cache crosses process
+        # Process-independent content hash: the eager cache crosses process
         # boundaries via pickle (parallel trials), and hash(bytes) is salted
-        # per process — crc32 and int tuples are not
-        self.__hash: int = hash((zlib.crc32(bytes(self._known)), self.rows, self.cols))
+        # per process. crc32 and tuples containing only ints are stable.
+        self.__hash: int = hash((zlib.crc32(bytes(self._known)), self.rows, self.cols, self.max_elem))
         self.name = name
 
     def __eq__(self, other: 'ImmutableGrid') -> bool:
-        if not isinstance(other, type(self)):
+        if type(other) is not type(self):
             return False
-        return self.rows == other.rows and self.cols == other.cols and self._known == other._known
+        return self.rows == other.rows and self.cols == other.cols and \
+            self.max_elem == other.max_elem and self._known == other._known
 
     def __ne__(self, other: 'ImmutableGrid') -> bool:
         return not self == other
