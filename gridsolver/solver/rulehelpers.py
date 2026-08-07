@@ -198,6 +198,6 @@ def rulehelper_sum_atmostonce(grid: Grid) -> None:
             cells = set_dic[rule]
             lc = len(cells)
             if lc != len(rule_most_cells) and grid.max_elem == lrmc and lrmc - lc <= _MAX_SAEAMO_CELLS:
-                new_sum = int(grid.max_elem * (grid.max_elem + 1) / 2) - rule.sum
+                new_sum = grid.max_elem * (grid.max_elem + 1) // 2 - rule.sum
                 new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=rule_most_cells - cells, mysum=new_sum)
                 grid.add_rule_checked(new_rule)
