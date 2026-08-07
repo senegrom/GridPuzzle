@@ -1,9 +1,28 @@
+from contextvars import ContextVar, Token
+
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
-_in_forcing_chain = False
+
+class _ContextFlag:
+    """Boolean-compatible flag whose value is local to the current context."""
+
+    def __init__(self, name: str):
+        self._value: ContextVar[bool] = ContextVar(name, default=False)
+
+    def __bool__(self) -> bool:
+        return self._value.get()
+
+    def set(self, value: bool) -> Token:
+        return self._value.set(value)
+
+    def reset(self, token: Token) -> None:
+        self._value.reset(token)
+
+
+_in_forcing_chain = _ContextFlag("gridpuzzle_in_forcing_chain")
 
 MAX_FORCING_CHAIN_CANDIDATES = 4  # Up to 4-value cells
 
@@ -26,7 +45,6 @@ def forcing_chain(grid: Grid) -> None:
 
     Tries smallest cells first (bivalue, then trivalue, etc).
     """
-    global _in_forcing_chain
     if _in_forcing_chain:
         return
 
@@ -45,7 +63,7 @@ def forcing_chain(grid: Grid) -> None:
     if not target_cells:
         return
 
-    _in_forcing_chain = True
+    token = _in_forcing_chain.set(True)
     try:
         for _, cell in target_cells:
             vals = list(cands[cell])
@@ -137,4 +155,4 @@ def forcing_chain(grid: Grid) -> None:
             if made_progress:
                 return
     finally:
-        _in_forcing_chain = False
+        _in_forcing_chain.reset(token)
