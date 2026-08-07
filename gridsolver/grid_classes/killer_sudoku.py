@@ -43,7 +43,7 @@ class KillerSudoku(Sudoku):
             # normal puzzle preprocessors.
             text = "\n".join(str(part) for part in sum_cells_and_dic)
         else:
-            raise ValueError(f"Input type {sum_cells_and_dic.__class__} not supported")
+            raise TypeError(f"Input type {type(sum_cells_and_dic).__name__} is not supported")
 
         if ":" not in text:
             raise ValueError("Puzzle string contains no : separator")
@@ -74,7 +74,8 @@ class KillerSudoku(Sudoku):
 
     def load_with_dic(self, sum_cells: Union[str, Iterable[str]], dic: Mapping[str, int], row_wise=True) -> None:
         """Load a single-character cage layout plus a mapping of cage sums."""
-        assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
+        if self.has_been_filled:
+            raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
         sum_cells = self._load_preprocess_sequence(sum_cells)
         if not isinstance(dic, Mapping):
             dic = dict(dic)
@@ -83,6 +84,10 @@ class KillerSudoku(Sudoku):
         for c1 in range(self.rows if row_wise else self.cols):
             for c2 in range(self.cols if row_wise else self.rows):
                 char = next(char_iter)
-                entry = final_dic.setdefault(char, SumCellPair(mysum=dic[char], cells=[]))
+                try:
+                    cage_sum = dic[char]
+                except KeyError as exc:
+                    raise ValueError(f"Missing Killer Sudoku cage definition for {char!r}") from exc
+                entry = final_dic.setdefault(char, SumCellPair(mysum=cage_sum, cells=[]))
                 entry.cells.append((c1, c2) if row_wise else (c2, c1))
         self.ext_sum_cells(final_dic.values())

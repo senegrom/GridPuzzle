@@ -5,14 +5,12 @@ from contextlib import contextmanager
 from enum import Enum
 from typing import List, Union, Any, Iterable, Set, FrozenSet, Callable
 
-from colorama import init, Fore, Style
+from colorama import deinit, just_fix_windows_console, Fore, Style
 from rich.highlighter import NullHighlighter
 from rich.logging import RichHandler
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
-
-init()
 
 
 class Colouring(Enum):
@@ -62,18 +60,24 @@ _FORMAT = "%(message)s"
 
 
 def set_colouring(c: Colouring | str):
+    """Configure terminal output explicitly.
+
+    Importing the solver no longer initializes Colorama or mutates stdout;
+    terminal setup happens only when the CLI or embedding application calls
+    this function.
+    """
     global C
     if not isinstance(c, Colouring):
         c = Colouring[c]
     if c == Colouring.No:
+        deinit()
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_NO
     elif c == Colouring.Rich:
-        from colorama import deinit
         from rich.console import Console
+        deinit()
         if hasattr(sys.stdout, 'buffer'):
-            # Windows terminal: deinit colorama, wrap with UTF-8
-            deinit()
+            # Windows terminal: wrap with UTF-8 for Rich output.
             import io
             out = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
             console = Console(file=out, markup=True, highlight=False, force_terminal=True)
@@ -87,6 +91,7 @@ def set_colouring(c: Colouring | str):
                                             markup=True)])
         C = _C_RICH
     elif c == Colouring.Colorama:
+        just_fix_windows_console()
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_COLORAMA
     else:

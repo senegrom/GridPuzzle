@@ -48,9 +48,10 @@ if __name__ == "__main__":
 
     if args.module:
         _lg.logs(0, f"Importing grid puzzle from {args.module}")
-        x = importlib.import_module(args.module)
-        assert hasattr(x, "g"), "Module does not define puzzle object g"
-        solver.solve(x.g)
+        module = importlib.import_module(args.module)
+        if not hasattr(module, "g"):
+            raise AttributeError(f"Module {args.module!r} does not define puzzle object 'g'")
+        solver.solve(module.g)
     elif args.file:
         g = create_from_file(args.file)
         _lg.logs(0, f"Importing grid puzzle from {args.file}")

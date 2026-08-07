@@ -12,9 +12,15 @@ class Sudoku(UniqueSquareGrid):
     )
 
     def __init__(self, rows_in_box: int = 3, cols_in_box: int = 3, box_rows: int = 3, box_cols: int = 3):
+        dimensions = (rows_in_box, cols_in_box, box_rows, box_cols)
+        if any(value <= 0 for value in dimensions):
+            raise ValueError("Sudoku box dimensions must be positive")
+
         n: int = rows_in_box * box_rows
-        assert n == cols_in_box * box_cols
-        assert rows_in_box * cols_in_box == n, "boxes must contain exactly n cells to tile the grid"
+        if n != cols_in_box * box_cols:
+            raise ValueError("Row and column box layouts must define the same square grid")
+        if rows_in_box * cols_in_box != n:
+            raise ValueError("Boxes must contain exactly n cells to tile the grid")
         super().__init__(n)
 
         box_pattern_1 = [row + col * n for col in range(cols_in_box) for row in range(rows_in_box)]

@@ -1,3 +1,5 @@
+from contextvars import Context
+
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus, pairs
@@ -6,9 +8,11 @@ from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.exact_div_rule import ExactDivRule
 from gridsolver.rules.rules import InvalidGrid, Rule
 from gridsolver.rules.sumrules import DivRule, SumAndElementsAtMostOnce
+from gridsolver.solver import solve_forcing_chain as forcing_chain_module
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.solve_forcing_net import _propagate_basic
 from gridsolver.solver.solve_nishio import nishio
@@ -70,6 +74,17 @@ def test_nishio_uses_the_returned_invalid_status():
     assert grid.get_candidates(0) == {1}
 
 
+def test_forcing_chain_guard_is_context_local():
+    flag = forcing_chain_module._in_forcing_chain
+    token = flag.set(True)
+    try:
+        assert bool(flag)
+        assert Context().run(bool, flag) is False
+    finally:
+        flag.reset(token)
+    assert not flag
+
+
 def test_peek_consumes_only_the_first_item_eagerly():
     seen = []
 
@@ -105,6 +120,11 @@ def test_grid_clone_preserves_fill_state():
 def test_grid_rejects_invalid_dimensions_without_asserts():
     with pytest.raises(ValueError, match="positive"):
         Grid(0)
+
+
+def test_sudoku_rejects_inconsistent_box_dimensions():
+    with pytest.raises(ValueError, match="same square grid"):
+        Sudoku(2, 2, 2, 3)
 
 
 def test_pairs_rejects_an_unpaired_final_value():
