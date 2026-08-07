@@ -1,3 +1,2 @@
-pytest
-colorama
-rich
+colorama>=0.4.6
+rich>=13.0

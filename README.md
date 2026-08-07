@@ -117,11 +117,17 @@ One special cell must have a difference of at least 2 to all the other rule cell
 
 ## Development
 
-Install the dependencies and run the bounded pull-request suite with:
+Install the development dependencies and run the bounded CI suite with:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 python -m pytest -q tests/test_regressions.py tests/test_basic.py tests/test_scale.py -m "not slow"
+```
+
+The package can also be installed in editable mode with its development extra:
+
+```bash
+python -m pip install -e ".[dev]"
 ```
 
 The `slow` marker contains the long corpus and large-scale checks and is intentionally excluded from the default CI path:
@@ -132,13 +138,9 @@ python -m pytest -m slow
 
 GitHub Actions compiles the source and runs the bounded suite on Python 3.10 and 3.14. Python 3.14 also runs representative end-to-end example tests.
 
-## Notebook
-
-Use `solve.ipynb` for interactive solving with Rich output (coloured grids, step-by-step display).
-
 ## Acknowledgements
 
-I have merged in many examples from Denis Berthier / https://github.com/denis-berthier/CSP-Rules-V2.1/tree/master/Examples
+Many supported puzzle examples originated in Denis Berthier's CSP-Rules corpus.
 
 ## License
 The software is distributed under the GNU AGPL v3.0 license.
