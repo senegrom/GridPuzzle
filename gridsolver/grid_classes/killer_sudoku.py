@@ -1,4 +1,3 @@
-from itertools import chain
 from numbers import Integral
 from typing import Iterable, NamedTuple, Mapping, Dict, Union, List, Tuple
 
@@ -13,7 +12,7 @@ class SumCellPair(NamedTuple):
 
 
 class KillerSudoku(Sudoku):
-    """Sudoku with additional areas that have a sum and uniquencess condition"""
+    """Sudoku with additional areas that have a sum and uniqueness condition."""
 
     def __init__(self, sum_cells: Iterable[SumCellPair] = None, rows_in_box: int = 3, cols_in_box: int = 3,
                  box_rows: int = 3, box_cols: int = 3):
@@ -23,53 +22,43 @@ class KillerSudoku(Sudoku):
 
     def ext_sum_cells(self, sum_cells: Iterable[
         SumCellPair | Tuple[int, List[Integral | Tuple[Integral, Integral]]]]) -> None:
-        """Add sum cells. Accepts a list of pairs."""
-        first, *sum_cells = sum_cells
-        sum_cells = chain([first], sum_cells)
-        if isinstance(first[1][0], Integral):
-            self.ext_rules(SumAndElementsAtMostOnce,
-                           [{"mysum": mysum, "cells": pairs(cells)} for mysum, cells in sum_cells],
-                           None)
-        else:
-            self.ext_rules(SumAndElementsAtMostOnce, [{"mysum": mysum, "cells": cells} for mysum, cells in sum_cells],
-                           None)
+        """Add cages, accepting coordinate pairs or flat row/column pairs per cage."""
+        for mysum, cells in sum_cells:
+            cells = list(cells)
+            if not cells:
+                raise ValueError("Killer Sudoku cages must contain at least one cell")
+            if isinstance(cells[0], Integral):
+                if len(cells) % 2:
+                    raise ValueError("Flat cage coordinates must contain complete row/column pairs")
+                cells = pairs(cells)
+            self.add_rule_checked(SumAndElementsAtMostOnce(gsz=self, cells=cells, mysum=mysum))
 
     @staticmethod
     def _load_preprocess_colon_split(sum_cells_and_dic: Union[str, Iterable[str]]):
         if isinstance(sum_cells_and_dic, str):
-            return sum_cells_and_dic.split(":")
+            text = sum_cells_and_dic
         elif isinstance(sum_cells_and_dic, Iterable):
-            sum_cells = []
-            dic = []
-            it = iter(sum_cells_and_dic)
-            mode = 0
-            for x in it:
-                if x == ":":
-                    mode += 1
-                elif mode == 0:
-                    sum_cells.append(x)
-                elif mode == 1:
-                    dic.append(x)
-                    mode += 1
-                else:
-                    raise RuntimeError("Illegal string parse.")
-            return sum_cells, dic[0]
+            # Materialise once so one-shot iterables are not consumed by a
+            # separate membership check. Newlines are stripped later by the
+            # normal puzzle preprocessors.
+            text = "\n".join(str(part) for part in sum_cells_and_dic)
         else:
             raise ValueError(f"Input type {sum_cells_and_dic.__class__} not supported")
 
-    def load(self, sum_cells_and_dic: Union[str, Iterable[str]], /, row_wise=True, space_sep=False) -> None:
-        """Input grid with single char per "group" as multiline string.
-        Plus a dictionary for the sums seperated by colons with a single character for the cell values"""
-        if ":" not in sum_cells_and_dic:
-            raise ValueError("KillerSudoku string contains no : separator.")
+        if ":" not in text:
+            raise ValueError("Puzzle string contains no : separator")
+        # Split only the layout separator. KenKen also permits ':' as a
+        # division operator in the dictionary section.
+        return text.split(":", 1)
 
+    def load(self, sum_cells_and_dic: Union[str, Iterable[str]], /, row_wise=True, space_sep=False) -> None:
+        """Load a cage layout followed by a single-character sum dictionary."""
         sum_cells, str_dic = self._load_preprocess_colon_split(sum_cells_and_dic)
         if space_sep:
             sum_cells = _load_preprocess_str_space_sep(sum_cells)
         else:
             sum_cells = _load_preprocess_str(sum_cells)
         str_dic = _load_preprocess_str(str_dic)
-        str_dic: str
         idx = 0
         dic = {}
         while idx < len(str_dic):
@@ -80,13 +69,11 @@ class KillerSudoku(Sudoku):
                 idx += 1
             if idx == start:
                 raise ValueError("KillerSudoku string format invalid.")
-            val = int(str_dic[start:idx])
-            dic[char] = val
+            dic[char] = int(str_dic[start:idx])
         self.load_with_dic(sum_cells, dic, row_wise)
 
     def load_with_dic(self, sum_cells: Union[str, Iterable[str]], dic: Mapping[str, int], row_wise=True) -> None:
-        """Input grid with single char per "group" as multiline string. Plus a dictionary for the sums"""
-
+        """Load a single-character cage layout plus a mapping of cage sums."""
         assert not self.has_been_filled, "Grid can only be filled once; or be used in individual access mode"
         sum_cells = self._load_preprocess_sequence(sum_cells)
         if not isinstance(dic, Mapping):
