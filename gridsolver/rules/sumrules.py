@@ -87,9 +87,12 @@ class DiffRule(Rule):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'diff')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        if target < 0:
+            raise ValueError("Difference targets must be non-negative")
         if gsz is not None and cells is not None:
             cells = list(cells)
-            assert len(cells) == 2
+            if len(cells) != 2:
+                raise ValueError("Difference cages must contain exactly two cells")
             super().__init__(gsz, cells, None)
         self.diff: int = target
 
@@ -237,9 +240,12 @@ class DivRule(Rule):
     __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'div')
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        if target <= 0:
+            raise ValueError("Division targets must be positive")
         if gsz is not None and cells is not None:
             cells = list(cells)
-            assert len(cells) == 2
+            if len(cells) != 2:
+                raise ValueError("Division cages must contain exactly two cells")
             super().__init__(gsz, cells, None)
         self.div: int = target
 
@@ -254,50 +260,46 @@ class DivRule(Rule):
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
             Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
+        first_cell, second_cell = self.cells
+        first = known[first_cell]
+        second = known[second_cell]
 
-        first = known[self.cells[0]]
-        second = known[self.cells[1]]
-        if first > 0 and second > 0 and (first / second == self.div or second / first == self.div):
-            raise RuleAlwaysSatisfied()
-        elif first > 0 and second > 0:
+        if first > 0 and second > 0:
+            if first == second * self.div or second == first * self.div:
+                raise RuleAlwaysSatisfied()
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
-        elif first > 0:
-            new_cand = {first * self.div}
-            if int(first / self.div) == first / self.div:
-                new_cand.add(int(first / self.div))
-            candidates[self.cells[1]].intersection_update(new_cand)
-            if len(candidates[self.cells[1]]) == 1:
-                raise RuleAlwaysSatisfied()
-            elif len(candidates[self.cells[1]]) == 0:
-                raise InvalidGrid()
-        elif second > 0:
-            new_cand = {second * self.div}
-            if int(second / self.div) == second / self.div:
-                new_cand.add(int(second / self.div))
-            candidates[self.cells[0]].intersection_update(new_cand)
-            if len(candidates[self.cells[0]]) == 1:
-                raise RuleAlwaysSatisfied()
-            elif len(candidates[self.cells[0]]) == 0:
-                raise InvalidGrid()
 
-        for cell in self.cells:
-            for c in list(candidates[cell]):
-                t1 = c * self.div
-                t2 = c / self.div
-                t2 = int(t2) if int(t2) == t2 else -1
-                for cell2 in self.cells:
-                    if cell == cell2:
-                        continue
-                    if t1 in candidates[cell2]:
-                        t1 = 0
-                    if t2 in candidates[cell2]:
-                        t2 = 0
-                    if t1 == 0 or t2 == 0:
-                        break
-                if t1 != 0 and t2 != 0:
-                    candidates[cell].discard(c)
-        if any(not candidates[cell] for cell in self.cells):
-            raise InvalidGrid()
+        if first > 0:
+            allowed = {first * self.div}
+            quotient, remainder = divmod(first, self.div)
+            if remainder == 0:
+                allowed.add(quotient)
+            candidates[second_cell].intersection_update(allowed)
+            if not candidates[second_cell]:
+                raise InvalidGrid()
+            if len(candidates[second_cell]) == 1:
+                raise RuleAlwaysSatisfied()
+
+        elif second > 0:
+            allowed = {second * self.div}
+            quotient, remainder = divmod(second, self.div)
+            if remainder == 0:
+                allowed.add(quotient)
+            candidates[first_cell].intersection_update(allowed)
+            if not candidates[first_cell]:
+                raise InvalidGrid()
+            if len(candidates[first_cell]) == 1:
+                raise RuleAlwaysSatisfied()
+
+        for cell, other_cell in ((first_cell, second_cell), (second_cell, first_cell)):
+            other_candidates = candidates[other_cell]
+            for value in tuple(candidates[cell]):
+                multiplied = value * self.div
+                quotient, remainder = divmod(value, self.div)
+                if multiplied not in other_candidates and (remainder != 0 or quotient not in other_candidates):
+                    candidates[cell].discard(value)
+            if not candidates[cell]:
+                raise InvalidGrid()
 
         return False, None, []
 
