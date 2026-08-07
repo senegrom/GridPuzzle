@@ -7,9 +7,12 @@ class GridSizeContainer:
             cols = rows
         if max_elem is None:
             max_elem = min(rows, cols)
-        assert rows > 0, "x should be > 0"
-        assert cols > 0, "y should be > 0"
-        assert max_elem > 0, "max_elem should be > 0"
+        if rows <= 0:
+            raise ValueError("rows must be positive")
+        if cols <= 0:
+            raise ValueError("cols must be positive")
+        if max_elem <= 0:
+            raise ValueError("max_elem must be positive")
 
         self.rows: int = rows
         self.cols: int = cols
