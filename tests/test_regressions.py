@@ -168,6 +168,21 @@ def test_futoshiki_direct_load_accepts_whitespace_separated_multiline_input():
     assert spaced == compact
 
 
+def test_futoshiki_failed_load_is_transactional_and_retryable():
+    grid = Futoshiki(2)
+    original_rules = grid.rules.copy()
+
+    with pytest.raises(ValueError, match="inequality symbol"):
+        grid.load("....---x")
+
+    assert not grid.has_been_filled
+    assert grid.known == (0, 0, 0, 0)
+    assert grid.rules == original_rules
+
+    grid.load("....----")
+    assert grid.has_been_filled
+
+
 def test_kenken_colon_division_operator_and_generator_input():
     direct = Kenken(n=2)
     direct.load("aabb:a:2b:2")
@@ -179,6 +194,20 @@ def test_kenken_colon_division_operator_and_generator_input():
     division_rules = direct.get_rules_of_type(DivRule)
     assert len(division_rules) == 2
     assert all(type(rule) is DivRule for rule in division_rules)
+
+
+def test_kenken_failed_load_is_transactional_and_retryable():
+    grid = Kenken(n=2)
+    original_rules = grid.rules.copy()
+
+    with pytest.raises(ValueError, match="operator"):
+        grid.load("aabb:a?3b+3")
+
+    assert not grid.has_been_filled
+    assert grid.rules == original_rules
+
+    grid.load("aabb:a+3b+3")
+    assert grid.has_been_filled
 
 
 def test_division_rule_does_not_accept_a_rounded_float_ratio():
@@ -211,7 +240,32 @@ def test_killer_cages_accept_mixed_coordinate_representations():
     assert len(grid.get_rules_of_type(SumAndElementsAtMostOnce)) == 2
 
 
-def test_flat_cage_coordinates_reject_an_unpaired_coordinate():
+def test_killer_failed_load_is_transactional_and_retryable():
     grid = KillerSudoku(None, 2, 2, 2, 2)
+    original_rules = grid.rules.copy()
+    layout = "aaaabbbbccccdddd"
+
+    with pytest.raises(ValueError, match="Missing Killer Sudoku"):
+        grid.load(layout + ":a10b10c10")
+
+    assert not grid.has_been_filled
+    assert grid.rules == original_rules
+
+    grid.load(layout + ":a10b10c10d10")
+    assert grid.has_been_filled
+    assert len(grid.get_rules_of_type(SumAndElementsAtMostOnce)) == 4
+
+
+def test_flat_cage_coordinates_reject_an_unpaired_coordinate_atomically():
+    grid = KillerSudoku(None, 2, 2, 2, 2)
+    original_rules = grid.rules.copy()
+
     with pytest.raises(ValueError, match="row/column pairs"):
-        grid.ext_sum_cells([(3, (0, 0, 1))])
+        grid.ext_sum_cells(
+            [
+                (3, (0, 0, 0, 1)),
+                (3, (1, 0, 1)),
+            ]
+        )
+
+    assert grid.rules == original_rules
