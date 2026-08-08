@@ -1,0 +1,89 @@
+name: Extended CI
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: random
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  supported-corpus:
+    name: Supported puzzle corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+      - name: Run supported example corpora
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_examples_1.py
+          tests/test_examples_futoshiki.py
+          tests/test_examples_kenken.py
+          tests/test_examples_killer.py
+          tests/test_examples_lsq.py
+          tests/test_examples_sudoku1.py
+          tests/test_examples_sudoku2.py
+          -m "not slow"
+          --durations=20
+
+  large-scale:
+    name: Large generated Sudoku scales
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+      - name: Run 49x49 through 100x100 propagation tests
+        run: python -X dev -m pytest -q tests/test_scale.py -m slow --durations=10
+
+  pandiagonal-corpus:
+    name: Slow pandiagonal Latin-square corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+      - name: Run the slow pandiagonal corpus
+        run: python -X dev -m pytest -q tests/test_examples_lsq.py -m slow --durations=10

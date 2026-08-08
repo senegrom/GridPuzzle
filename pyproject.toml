@@ -39,9 +39,6 @@ include = ["gridsolver*"]
 testpaths = ["tests"]
 addopts = ["--strict-config", "--strict-markers"]
 xfail_strict = true
-log_cli = true
-log_cli_level = 10
-log_cli_format = "%(message)s"
 markers = [
     "slow: very long-running tests (deselect with -m 'not slow')",
 ]

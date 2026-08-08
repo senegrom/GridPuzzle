@@ -1,7 +1,7 @@
 # TODO
 
 Deferred solver ideas from the June–August 2026 reviews, ordered by expected payoff.
-Completed and rejected experiments remain recorded with measurements so they are not repeated blindly. GridPuzzle now requires Python 3.14 or newer.
+Completed and rejected experiments remain recorded with measurements so they are not repeated blindly. GridPuzzle requires Python 3.14 or newer.
 
 ## Rules-layer scan issues — DONE
 
@@ -52,7 +52,9 @@ caches.
 ## Speeding up house-rich grids — general mechanisms only
 
 1. **DONE for fish/finned fish:** per-value dirty fingerprints
-   (`solve_fish._value_memo`). The same idea for X-chain/skyscraper remains low
+   (`solve_fish._value_memo`). The memo is now a trailed mapping: parent
+   fingerprints survive speculative work while branch-only entries roll back
+   with the candidate state. The same idea for X-chain/skyscraper remains low
    priority because both are cheap in current profiles.
 2. **DONE:** hit-rate instrumentation plus forcing-chain inner exclusion of
    zero-hit tiers made the corpus 6.6x faster; the slow pandiagonal suite fell
@@ -86,21 +88,50 @@ depth. Historical measurements at K=1: blank 4x4 37.0s -> 2.6s; non-square
 **OPEN:** decide whether to adopt a default after scheduled extended CI measures
 K=1..2 across single-solution hard puzzles and the slow Latin-square corpus.
 
-## Trail-based propagation instead of deepcopy-per-trial — OPEN, designed
+## Trail-based propagation instead of deepcopy-per-trial — DONE August 2026
 
-See `TRAIL_DESIGN.md`. Proposed phases: Nishio, then forcing chain/net, then
-backtracking. Fish-memo staleness is the principal soundness risk. Require
-solution-set equivalence and a representative-corpus performance gate after
-each phase. This remains the largest credible engine win for enumeration-heavy
-workloads and composes with parallel top-level trials.
+Nishio, forcing chains, forcing nets, and recursive backtracking now use nested
+`trail_mark()` / `trail_undo()` scopes instead of cloning the complete grid for
+every speculative branch. Candidate sets snapshot once per trail frame;
+knowns, rule and guarantee transitions, structural caches, and fish memo state
+all roll back transactionally. Top-level API isolation and process-pool branch
+payloads still use explicit copies intentionally.
 
-## Independent/differential validation — OPEN
+Correctness is covered by nested rollback, exception, cache, pickle, branch
+consensus, Nishio, forcing-net, recursive-search, independent-oracle, and
+sequential/parallel equivalence tests. See `TRAIL_DESIGN.md` for the implemented
+invariants.
 
-Add a deliberately simple brute-force oracle for random small grids and compare
-complete solution sets. Then test each advanced technique against the set of
-surviving completions: a sound deduction must never remove a candidate used by
-any valid completion. Parser fuzzing and round-trip fixtures should accompany
-this work.
+**OPEN measurement gate:** establish a stable before/after benchmark record for
+representative single-solution and enumeration-heavy puzzles. Do not claim a
+speedup or change trail representation again without full solution-set
+equivalence and corpus measurements.
+
+## Independent/differential validation — BASELINE DONE; technique work OPEN
+
+`tests/test_differential.py` independently enumerates all 288 4x4 Sudoku
+solutions, generates deterministic bounded puzzle cases, compares complete
+solver solution sets, includes contradictory fixtures, and verifies that a
+full `AtomicSolver` pass never removes a value used by any surviving oracle
+completion.
+
+**OPEN:** extend this from whole-solver checking to individual advanced
+techniques, using candidate states derived from known completion sets. Add
+parser fuzzing and round-trip fixtures for every supported input format.
+
+## Scheduled extended CI — DONE August 2026
+
+The normal workflow remains bounded. A weekly/manual extended workflow shards
+the supported example corpus, 49x49–100x100 generated Sudoku scale tests, and
+the slow pandiagonal Latin-square corpus into independent jobs with explicit
+timeouts and duration reporting.
+
+## Future puzzle families
+
+The Hidato, Kakuro, Numbrix, and Slitherlink corpora remain under `Examples/` as
+source material for future runtime implementations. They are intentionally not
+part of the supported-corpus test job until loaders and independent validators
+exist for those formats.
 
 ## Fish — parked; see `FISH_REWRITE.md`
 

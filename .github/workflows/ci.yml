@@ -49,7 +49,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q gridsolver tests Examples run.py examples2.py
 
-      - name: Run bounded core and regression tests
+      - name: Run bounded core, differential, and regression tests
         run: >-
           python -X dev -m pytest -q
           tests/test_cli_and_loading.py
@@ -58,10 +58,12 @@ jobs:
           tests/test_solution_validation.py
           tests/test_solver_api.py
           tests/test_trail.py
+          tests/test_differential.py
           tests/test_basic.py
           tests/test_scale.py
           -m "not slow"
           -k "not test_parallel_trials_match_sequential"
+          --durations=10
 
       - name: Run guarantee-consumer metadata guard
         run: python -X dev -m pytest -q tests/test_rule_metadata.py
@@ -89,7 +91,7 @@ jobs:
           python -m pip check
 
       - name: Run representative end-to-end examples
-        run: python -X dev -m pytest -q tests/test_examples_2.py
+        run: python -X dev -m pytest -q tests/test_examples_2.py --durations=10
 
   windows-smoke:
     name: Python 3.14 / Windows smoke
@@ -128,3 +130,4 @@ jobs:
           tests/test_solution_validation.py
           tests/test_solver_api.py
           tests/test_trail.py
+          tests/test_differential.py
