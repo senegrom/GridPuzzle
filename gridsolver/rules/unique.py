@@ -25,7 +25,7 @@ class ElementsAtMostOnce(Rule):
         known: MutableSequence[int],
         candidates: tuple[set[int], ...],
         guarantees: Iterable[Guarantee] | None = None,
-    ):
+    ) -> tuple[bool, None, None]:
         my_known, new_candidates, new_candidate_cells = self._process_new_candidate_cells(
             known,
             candidates,
@@ -99,7 +99,7 @@ class ElementsAtLeastOnce(Rule):
         known: MutableSequence[int],
         candidates: tuple[set[int], ...],
         guarantees: Iterable[Guarantee] | None = None,
-    ):
+    ) -> tuple[bool, list[Rule], list[Guarantee]]:
         return False, [], [
             Guarantee(value, frozenset(self.cells), self._rows, self._cols)
             for value in range(1, self._max_elem + 1)
