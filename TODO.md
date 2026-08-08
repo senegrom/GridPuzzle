@@ -1,7 +1,7 @@
 # TODO
 
 Deferred solver ideas from the June–August 2026 reviews, ordered by expected payoff.
-Completed and rejected experiments remain recorded with measurements so they are not repeated blindly. GridPuzzle now targets Python 3.14 only.
+Completed and rejected experiments remain recorded with measurements so they are not repeated blindly. GridPuzzle now requires Python 3.14 or newer.
 
 ## Rules-layer scan issues — DONE
 

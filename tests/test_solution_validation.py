@@ -23,10 +23,11 @@ def test_validator_accepts_returned_solutions():
 
 
 def test_validator_rejects_rule_candidate_and_guarantee_violations():
-    sudoku = Sudoku(2, 2, 2, 2)
-    duplicate_rows = ImmutableGrid([1] * 16, rows=4, cols=4, max_elem=4)
+    unique = Grid(1, 2, max_elem=2)
+    unique.add_rule_checked(ElementsAtMostOnce(unique, cells=[0, 1]))
+    duplicate_values = ImmutableGrid([1, 1], rows=1, cols=2, max_elem=2)
     with pytest.raises(InvalidSolutionError, match="ElementsAtMostOnce"):
-        validate_solution(sudoku, duplicate_rows)
+        validate_solution(unique, duplicate_values)
 
     restricted = Grid(1, 1, max_elem=2)
     restricted.get_candidates(0).discard(2)

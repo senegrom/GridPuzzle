@@ -7,7 +7,7 @@ name = "gridpuzzle-solver"
 version = "0.1.0"
 description = "Constraint-propagation solver for Sudoku, Killer Sudoku, Futoshiki, KenKen, and Latin squares"
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.14"
 license = { file = "LICENSE" }
 authors = [{ name = "senegrom" }]
 dependencies = [

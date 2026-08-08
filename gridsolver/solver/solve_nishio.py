@@ -22,18 +22,29 @@ def nishio(grid: Grid) -> None:
 
         made_progress = False
         for value in sorted(candidates[cell]):
-            clone = grid.deepcopy()
+            mark = grid.trail_mark()
+            branch_valid = False
+            reason = "invalid grid"
             try:
-                clone[cell] = value
-                status = propagate_basic(clone)
+                grid[cell] = value
+                status = propagate_basic(grid)
+                branch_valid = status is not SolveStatus.INVALID and grid.is_valid
+                if not branch_valid:
+                    empty_cells = [
+                        index
+                        for index, possible in enumerate(grid._candidates)
+                        if not possible
+                    ]
+                    if empty_cells:
+                        reason = f"empty candidates at {coord(empty_cells[0])}"
             except InvalidGrid:
-                status = SolveStatus.INVALID
+                branch_valid = False
+            finally:
+                grid.trail_undo(mark)
 
-            if status is not SolveStatus.INVALID and clone.is_valid:
+            if branch_valid:
                 continue
 
-            empty_cells = [index for index, possible in enumerate(clone._candidates) if not possible]
-            reason = f"empty candidates at {coord(empty_cells[0])}" if empty_cells else "invalid grid"
             _lg.on and _lg.logr(
                 "Nishio",
                 f"{value} removed ({reason})",

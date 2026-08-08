@@ -9,6 +9,7 @@ from typing import Any, TypeVar, overload
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
+from gridsolver.abstract_grids.trail import TrailState, TrailedSet
 from gridsolver.rules.rules import Guarantee, IdxType, Rule
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
@@ -90,8 +91,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             size.max_elem,
         )
         RuleContainer.__init__(self)
-        self._candidates: tuple[set[int], ...] = tuple(
-            set(range(1, self.max_elem + 1)) for _ in range(self.len)
+        self._trail_state = TrailState()
+        self._candidates: tuple[TrailedSet, ...] = tuple(
+            TrailedSet(range(1, self.max_elem + 1), self._trail_state)
+            for _ in range(self.len)
         )
         self.has_been_filled = False
         self._struct_cache: dict[str, Any] = {}
@@ -130,6 +133,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if value == 0:
             return
 
+        if current != value and self._trail_state.active:
+            self._trail_state.entries.append(("known", index, current))
         self._known[index] = value
         # An assignment outside the current candidate set intentionally empties
         # the set, making the trial branch invalid without corrupting the value
@@ -162,7 +167,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.max_elem = self.max_elem
         result.len = self.len
         result._known = array("I", self._known)
-        result._candidates = tuple(possible.copy() for possible in self._candidates)
+        result._trail_state = TrailState()
+        result._candidates = tuple(
+            TrailedSet(possible, result._trail_state) for possible in self._candidates
+        )
         result.rules = self.rules.copy()
         result.rules_ia = self.rules_ia.copy()
         result.guarantees = self.guarantees.copy()
@@ -172,6 +180,73 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result._struct_cache = {}
         result._guarantee_cache = {}
         return result
+
+    def trail_mark(self) -> int:
+        """Start a reversible mutation scope and return its LIFO mark."""
+        state = self._trail_state
+        mark = len(state.entries)
+        state.marks.append(mark)
+        # Restore API-visible fill state and make empty nested marks distinct.
+        state.entries.append(("filled", self.has_been_filled))
+        return mark
+
+    def trail_undo(self, mark: int) -> None:
+        """Undo every grid mutation since ``mark`` in reverse order."""
+        if isinstance(mark, bool) or not isinstance(mark, int):
+            raise TypeError("Trail mark must be an integer returned by trail_mark()")
+
+        state = self._trail_state
+        if not state.marks or state.marks[-1] != mark:
+            raise ValueError("Trail marks must be undone in LIFO order")
+        state.marks.pop()
+
+        structure_changed = False
+        guarantee_changed = False
+        for entry in reversed(state.entries[mark:]):
+            tag = entry[0]
+            if tag == "cand":
+                _, possible, removed, added = entry
+                set.difference_update(possible, added)
+                set.update(possible, removed)
+            elif tag == "known":
+                _, index, old_value = entry
+                self._known[index] = old_value
+            elif tag == "filled":
+                _, old_value = entry
+                self.has_been_filled = old_value
+            elif tag == "rule+":
+                _, rule = entry
+                self.rules.discard(rule)
+                structure_changed = True
+            elif tag == "rule-":
+                _, rule = entry
+                self.rules_ia.discard(rule)
+                self.rules.add(rule)
+                structure_changed = True
+            elif tag == "gt+":
+                _, guarantee = entry
+                self.guarantees.discard(guarantee)
+                structure_changed = True
+                guarantee_changed = True
+            elif tag == "gt-":
+                _, guarantee = entry
+                self.guarantees_ia.discard(guarantee)
+                self.guarantees.add(guarantee)
+                structure_changed = True
+                guarantee_changed = True
+            else:
+                raise RuntimeError(f"Unknown trail entry {tag!r}")
+
+        del state.entries[mark:]
+        if structure_changed:
+            self._struct_cache.clear()
+        if guarantee_changed:
+            self._guarantee_cache.clear()
+
+        # Branch-local candidate fingerprints are stale after rollback.
+        for name, value in vars(self).items():
+            if name.endswith("_memo") and hasattr(value, "clear"):
+                value.clear()
 
     @property
     def is_solved(self) -> bool:
@@ -217,22 +292,30 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def add_rule_checked(self, rule: Rule) -> None:
         if rule not in self.rules_ia and rule not in self.rules:
             self.rules.add(rule)
+            if self._trail_state.active:
+                self._trail_state.entries.append(("rule+", rule))
             self._struct_cache.clear()
 
     def deactivate_rule(self, rule: Rule) -> None:
         self.rules.remove(rule)
         self.rules_ia.add(rule)
+        if self._trail_state.active:
+            self._trail_state.entries.append(("rule-", rule))
         self._struct_cache.clear()
 
     def add_gtee_checked(self, guarantee: Guarantee) -> None:
         if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:
             self.guarantees.add(guarantee)
+            if self._trail_state.active:
+                self._trail_state.entries.append(("gt+", guarantee))
             self._struct_cache.clear()
             self._guarantee_cache.clear()
 
     def deactivate_gtee(self, guarantee: Guarantee) -> None:
         self.guarantees.remove(guarantee)
         self.guarantees_ia.add(guarantee)
+        if self._trail_state.active:
+            self._trail_state.entries.append(("gt-", guarantee))
         self._struct_cache.clear()
         self._guarantee_cache.clear()
 

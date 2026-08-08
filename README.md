@@ -4,7 +4,7 @@
 
 Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, and Latin Squares.
 
-**Runtime requirement: Python 3.14.** Older Python versions are intentionally unsupported.
+**Runtime requirement: Python 3.14 or newer.** Older Python versions are intentionally unsupported; newer releases are not artificially capped.
 
 Input puzzles are read as modules that define the variable `g`, from `.pzl` files, or from strings.
 
@@ -133,7 +133,7 @@ The `slow` marker contains long corpus and large-scale checks and is intentional
 python -X dev -m pytest -m slow
 ```
 
-GitHub Actions targets Python 3.14 only. Linux runs the bounded suite plus representative end-to-end examples; Windows runs a portable regression smoke suite.
+GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux runs the bounded suite plus representative end-to-end examples, and Windows runs a portable regression smoke suite.
 
 ## Acknowledgements
 

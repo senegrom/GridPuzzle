@@ -2,7 +2,7 @@
 
 ## Runtime baseline
 
-GridPuzzle targets **Python 3.14 only**. Compatibility branches, CI jobs, dependency pins, and syntax constraints for older Python releases should not be added unless the support policy changes explicitly.
+GridPuzzle targets **Python 3.14 and newer**. Python 3.14 is the tested minimum; compatibility branches, CI jobs, dependency pins, and syntax constraints for older releases should not be added unless the support policy changes explicitly. Do not add an artificial upper bound for future Python releases.
 
 The Hidato, Kakuro, Numbrix, and Slitherlink corpora are retained under `Examples/` as source material for future implementations. They are not currently parsed by the runtime and should not be treated as dead data.
 
