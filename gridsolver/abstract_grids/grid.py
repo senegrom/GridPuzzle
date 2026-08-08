@@ -320,7 +320,70 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._trail_state.entries.append(("rule-", rule))
         self._invalidate_struct_cache()
 
+    def _normalize_guarantee(self, guarantee: Guarantee) -> Guarantee:
+        """Validate and canonicalise one guarantee before set membership.
+
+        Guarantee is a lightweight NamedTuple and can therefore be
+        constructed with mutable or malformed fields by extension code.
+        Normalising first prevents unhashable values from reaching the
+        live sets and keeps every downstream index inside the grid.
+        """
+        if not isinstance(guarantee, Guarantee):
+            raise TypeError("Guarantees must be Guarantee instances")
+
+        value = guarantee.val
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise TypeError("Guarantee values must be integers")
+        value = int(value)
+        if not 1 <= value <= self.max_elem:
+            raise ValueError(
+                f"Guarantee value {value} is outside 1..{self.max_elem}"
+            )
+
+        dimensions: list[int] = []
+        for name, raw_dimension in (
+            ("rows", guarantee.rows),
+            ("cols", guarantee.cols),
+        ):
+            if (
+                isinstance(raw_dimension, bool)
+                or not isinstance(raw_dimension, Integral)
+            ):
+                raise TypeError(f"Guarantee {name} must be an integer")
+            dimensions.append(int(raw_dimension))
+        rows, cols = dimensions
+        if (rows, cols) != (self.rows, self.cols):
+            raise ValueError(
+                f"Guarantee dimensions {(rows, cols)} do not match "
+                f"grid dimensions {(self.rows, self.cols)}"
+            )
+
+        if isinstance(guarantee.cells, (str, bytes, bytearray)):
+            raise TypeError("Guarantee cells must be an iterable of integers")
+        try:
+            raw_cells = list(guarantee.cells)
+        except TypeError as exc:
+            raise TypeError(
+                "Guarantee cells must be an iterable of integers"
+            ) from exc
+        if not raw_cells:
+            raise ValueError("Guarantee cells must not be empty")
+
+        cells: set[int] = set()
+        for raw_cell in raw_cells:
+            if isinstance(raw_cell, bool) or not isinstance(raw_cell, Integral):
+                raise TypeError("Guarantee cells must be integers")
+            cell = int(raw_cell)
+            if not 0 <= cell < self.len:
+                raise ValueError(
+                    f"Guarantee cell {cell} is outside 0..{self.len - 1}"
+                )
+            cells.add(cell)
+
+        return Guarantee(value, frozenset(cells), rows, cols)
+
     def add_gtee_checked(self, guarantee: Guarantee) -> None:
+        guarantee = self._normalize_guarantee(guarantee)
         if (
             guarantee not in self.guarantees_ia
             and guarantee not in self.guarantees
@@ -457,7 +520,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 for cell_creator in cell_creators
             )
 
-        for rule in new_rules:
+        # Construct every rule before committing the first one. A bad later
+        # constructor must not leave a partially extended grid.
+        rules = list(new_rules)
+        for rule in rules:
             self.add_rule_checked(rule)
 
     @property

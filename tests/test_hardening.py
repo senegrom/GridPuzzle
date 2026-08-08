@@ -133,7 +133,7 @@ def test_rule_rejects_empty_outside_or_duplicate_cell_sets():
     grid = Grid(2)
     with pytest.raises(ValueError, match="must not be empty"):
         _NoOpRule(grid, cells=[])
-    with pytest.raises(ValueError, match="no cells inside"):
+    with pytest.raises(ValueError, match="outside a 2x2 grid"):
         _NoOpRule(grid, cells=[(9, 9)])
     with pytest.raises(ValueError, match="unique"):
         _NoOpRule(grid, cells=[0, 0])
