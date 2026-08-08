@@ -35,188 +35,92 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Apply semantics-preserving hot-path candidate
+      - name: Apply isolated hot-path candidate
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
 
           def replace_between(text: str, start_marker: str, end_marker: str, replacement: str) -> str:
               start = text.index(start_marker)
               end = text.index(end_marker, start)
               return text[:start] + replacement + text[end:]
 
-          # C-level Guarantee hashing and one cached immutable base hash per Rule.
-          path = Path("gridsolver/rules/rules.py")
-          text = path.read_text(encoding="utf-8")
-          guarantee = dedent('''
-              class Guarantee(NamedTuple):
-                  val: int
-                  cells: frozenset[int]
-                  rows: int
-                  cols: int
-
-                  # Equality remains type-strict. Unequal types may legally share a
-                  # hash, so use NamedTuple's C-level tuple hash instead of rebuilding
-                  # and hashing another tuple in Python millions of times.
-                  __hash__ = tuple.__hash__
-
-                  def __eq__(self, other: object) -> bool:
-                      return type(other) is Guarantee and tuple.__eq__(self, other)
-
-                  def __ne__(self, other: object) -> bool:
-                      return not self.__eq__(other)
-
-          ''').lstrip()
-          text = replace_between(
-              text,
-              "class Guarantee(NamedTuple):\n",
-              "type TApplyResult = tuple[\n",
-              guarantee,
-          )
-          old_slots = '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen")\n'
-          new_slots = '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen", "_base_hash")\n'
-          if text.count(old_slots) != 1:
-              raise SystemExit("Rule slot marker changed")
-          text = text.replace(old_slots, new_slots, 1)
-          old_init = '        object.__setattr__(self, "_frozen", False)\n        self._rows = gsz.rows\n'
-          new_init = '        object.__setattr__(self, "_frozen", False)\n        object.__setattr__(self, "_base_hash", None)\n        self._rows = gsz.rows\n'
-          if text.count(old_init) != 1:
-              raise SystemExit("Rule initializer marker changed")
-          text = text.replace(old_init, new_init, 1)
-          rule_class = text.index("class Rule(ABC):\n")
-          hash_start = text.index("    def __hash__(self) -> int:\n", rule_class)
-          hash_end = text.index("\n    def __ne__(self, other: object) -> bool:\n", hash_start)
-          cached_hash = dedent('''
-                  def __hash__(self) -> int:
-                      cached = self._base_hash
-                      if cached is None:
-                          cached = hash(
-                              (
-                                  type(self),
-                                  self.cells,
-                                  self._rows,
-                                  self._cols,
-                                  self._max_elem,
-                                  self.len_cells,
-                              )
-                          )
-                          object.__setattr__(self, "_base_hash", cached)
-                      self.freeze()
-                      return cached
-          ''')
-          text = text[:hash_start] + cached_hash + text[hash_end:]
-          path.write_text(text, encoding="utf-8")
-
-          # Guarantee relevance depends only on rule cells and the live guarantee
-          # generation. The existing guarantee-only cache already has exactly that
-          # lifecycle, so retain immutable tuples instead of rebuilding lists.
-          path = Path("gridsolver/solver/propagation.py")
-          text = path.read_text(encoding="utf-8")
-          relevant = dedent('''
-              def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
-                  """Return the cached guarantee superset that may affect ``rule``."""
-                  if not rule.uses_guarantees:
-                      return _NO_GUARANTEES
-                  index = grid.cached_guarantee_struct(
-                      "gts_by_min_cell",
-                      lambda: _build_guarantee_index(grid),
-                  )
-                  return grid.cached_guarantee_struct(
-                      ("relevant_guarantees", rule.cells),
-                      lambda: tuple(
-                          guarantee
-                          for cell in rule.cells
-                          for guarantee in index.get(cell, ())
-                      ),
-                  )
-
-          ''').lstrip()
-          text = replace_between(
-              text,
-              "def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:\n",
-              "def update_known_from_candidates(\n",
-              relevant,
-          )
-          path.write_text(text, encoding="utf-8")
-
-          # Build the final merged Uneq relation once per origin rather than
-          # constructing and then deactivating one temporary rule per house.
-          path = Path("gridsolver/solver/rulehelpers.py")
-          text = path.read_text(encoding="utf-8")
-          helper = dedent('''
-              def rulehelper_atmostonce(grid: Grid) -> None:
-                  """Materialise one merged inequality relation per origin cell."""
-                  desired: list[set[int]] = [set() for _ in range(grid.len)]
-                  for cells in grid.unique_rule_cells:
-                      if len(cells) <= 1:
-                          continue
-                      for cell in cells:
-                          desired[cell].update(cells)
-                          desired[cell].discard(cell)
-
-                  existing_by_origin: dict[int, list[uneq.UneqRule]] = {}
-                  for rule in grid.get_rules_of_type(uneq.UneqRule):
-                      existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
-
-                  additions: list[uneq.UneqRule] = []
-                  for origin, required in enumerate(desired):
-                      existing = existing_by_origin.get(origin, [])
-                      merged = set(required)
-                      for rule in existing:
-                          merged.update(rule.rel_cells)
-                      if not merged:
-                          continue
-
-                      target = frozenset(merged)
-                      keeper = next(
-                          (rule for rule in existing if rule.rel_cells == target),
-                          None,
-                      )
-                      for rule in existing:
-                          if rule is not keeper:
-                              grid.deactivate_rule(rule)
-                      if keeper is None:
-                          additions.append(uneq.UneqRule(grid, origin, target))
-
-                  grid.add_rules_checked(additions)
-
-          ''').lstrip()
-          text = replace_between(
-              text,
-              "def rulehelper_atmostonce(grid: Grid) -> None:\n",
-              "def rulehelper_house_sums(grid: Grid) -> None:\n",
-              helper,
-          )
-          path.write_text(text, encoding="utf-8")
-
-          # Avoid millions of singleton-set allocations and default set()
-          # constructions in the AIC endpoint visibility test.
+          # Avoid millions of temporary singleton/default sets in AIC endpoint
+          # visibility checks without changing the graph or traversal order.
           path = Path("gridsolver/solver/solve_aic.py")
           text = path.read_text(encoding="utf-8")
-          helpers = dedent('''
-                  def _get_cells(node: Node) -> FrozenSet[int] | tuple[int]:
-                      """Return an allocation-free group or a compact singleton tuple."""
-                      cells, _ = node
-                      if isinstance(cells, frozenset):
-                          return cells
-                      return (cells,)
+          replacement = '''    def _get_cells(node: Node) -> FrozenSet[int] | tuple[int]:
+        """Return an existing group or a compact singleton view."""
+        cells, _ = node
+        if isinstance(cells, frozenset):
+            return cells
+        return (cells,)
 
-                  def _cells_see_all(target_cell: int, node: Node) -> bool:
-                      """Check whether ``target_cell`` sees every cell in ``node``."""
-                      cells, _ = node
-                      peers = cell_peers[target_cell]
-                      if isinstance(cells, frozenset):
-                          return cells <= peers
-                      return cells in peers
+    def _cells_see_all(target_cell: int, node: Node) -> bool:
+        """Whether target_cell sees every cell in node, allocation-free."""
+        cells, _ = node
+        peers = cell_peers[target_cell]
+        if isinstance(cells, frozenset):
+            return cells <= peers
+        return cells in peers
 
-          ''')
+'''
           text = replace_between(
               text,
               "    def _get_cells(node: Node) -> Set[int]:\n",
               "    # --- BFS for AICs ---\n",
-              helpers,
+              replacement,
+          )
+          path.write_text(text, encoding="utf-8")
+
+          # Build one final Uneq relation per origin instead of constructing one
+          # per house and then repeatedly merging/deactivating temporary rules.
+          path = Path("gridsolver/solver/rulehelpers.py")
+          text = path.read_text(encoding="utf-8")
+          replacement = '''def rulehelper_atmostonce(grid: Grid) -> None:
+    """Materialise the union of all active inequalities per origin cell."""
+    desired: list[set[int]] = [set() for _ in range(grid.len)]
+    for cells in grid.unique_rule_cells:
+        if len(cells) <= 1:
+            continue
+        for cell in cells:
+            desired[cell].update(cells)
+            desired[cell].discard(cell)
+
+    existing_by_origin: dict[int, list[uneq.UneqRule]] = {}
+    for rule in grid.get_rules_of_type(uneq.UneqRule):
+        existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
+
+    additions: list[uneq.UneqRule] = []
+    to_deactivate: list[uneq.UneqRule] = []
+    for origin, required in enumerate(desired):
+        existing = existing_by_origin.get(origin, [])
+        merged = set(required)
+        for rule in existing:
+            merged.update(rule.rel_cells)
+        if not merged:
+            continue
+
+        target = frozenset(merged)
+        keeper = next(
+            (rule for rule in existing if rule.rel_cells == target),
+            None,
+        )
+        to_deactivate.extend(rule for rule in existing if rule is not keeper)
+        if keeper is None:
+            additions.append(uneq.UneqRule(grid, origin, target))
+
+    for rule in to_deactivate:
+        grid.deactivate_rule(rule)
+    grid.add_rules_checked(additions)
+
+'''
+          text = replace_between(
+              text,
+              "def rulehelper_atmostonce(grid: Grid) -> None:\n",
+              "def rulehelper_house_sums(grid: Grid) -> None:\n",
+              replacement,
           )
           path.write_text(text, encoding="utf-8")
           PY
