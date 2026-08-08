@@ -1,70 +1,106 @@
-from typing import Tuple, Set, Iterable, MutableSequence, List
+from array import array
+from collections.abc import Iterable, MutableSequence
 
-import gridsolver.abstract_grids.gridsize_container
-from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType
+from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
+from gridsolver.rules.rules import Guarantee, IdxType, InvalidGrid, Rule, RuleAlwaysSatisfied
 
 
 class ElementsAtMostOnce(Rule):
     uses_guarantees = True  # _update_from_guarantees (and SaEAMO's cage filter)
 
-    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
-                 cells: Iterable[IdxType] = None, cell_creator=None):
-        cells = sorted(list(cells)) if cells is not None else None
-        super().__init__(gsz, cells, cell_creator)
+    def __init__(
+        self,
+        gsz: GridSizeContainer,
+        cells: Iterable[IdxType] | None = None,
+        cell_creator=None,
+    ) -> None:
+        # Call Rule directly: SumAndElementsAtMostOnce also inherits SumRule,
+        # so cooperative super() would route this constructor through
+        # SumRule.__init__ with the cell_creator argument as a temporary sum.
+        Rule.__init__(self, gsz, cells, cell_creator)
+        self.cells = array("I", sorted(self.cells))
 
-    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        my_known, new_candidates, new_candidates_cells = self._process_new_candidate_cells(known, candidates)
+    def apply(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+        guarantees: Iterable[Guarantee] | None = None,
+    ):
+        my_known, new_candidates, new_candidate_cells = self._process_new_candidate_cells(
+            known,
+            candidates,
+        )
 
-        len_known = len(my_known)
-        if len_known == self.len_cells:
+        if len(my_known) == self.len_cells:
             raise RuleAlwaysSatisfied()
 
-        ElementsAtMostOnce._update_from_guarantees(candidates, new_candidates_cells, guarantees)
-
+        self._update_from_guarantees(
+            candidates,
+            new_candidate_cells,
+            () if guarantees is None else guarantees,
+        )
         return False, None, None
 
     @staticmethod
-    def _update_from_guarantees(candidates: Tuple[Set[int]], new_candidates_cells: List[int],
-                                guarantees: Set[Guarantee]) -> None:
-        npc_set = frozenset(new_candidates_cells)
-        for gt in guarantees:
-            if gt.cells <= npc_set:
-                for cell in npc_set - gt.cells:
-                    candidates[cell].discard(gt.val)
+    def _update_from_guarantees(
+        candidates: tuple[set[int], ...],
+        new_candidate_cells: list[int],
+        guarantees: Iterable[Guarantee],
+    ) -> None:
+        unknown_cells = frozenset(new_candidate_cells)
+        for guarantee in guarantees:
+            if guarantee.cells <= unknown_cells:
+                for cell in unknown_cells - guarantee.cells:
+                    candidates[cell].discard(guarantee.val)
                     if not candidates[cell]:
                         raise InvalidGrid()
 
-    def _process_new_candidate_cells(self, known: MutableSequence[int], candidates: Tuple[Set[int]]):
-        my_known = set()
-        new_candidates = []
-        new_candidates_cells: List[int] = []
+    def _process_new_candidate_cells(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+    ) -> tuple[set[int], list[set[int]], list[int]]:
+        my_known: set[int] = set()
+        new_candidates: list[set[int]] = []
+        new_candidate_cells: list[int] = []
         for cell in self.cells:
-            p = candidates[cell]
-            k = known[cell]
+            possible = candidates[cell]
+            value = known[cell]
 
-            if k > 0:
-                if k in my_known:
-                    p.clear()
+            if value > 0:
+                if value in my_known:
+                    possible.clear()
                     raise InvalidGrid()
-                my_known.add(k)
+                my_known.add(value)
             else:
-                new_candidates.append(p)
-                new_candidates_cells.append(cell)
+                new_candidates.append(possible)
+                new_candidate_cells.append(cell)
 
-        for p in new_candidates:
-            p -= my_known
-            if not p:
+        for possible in new_candidates:
+            possible -= my_known
+            if not possible:
                 raise InvalidGrid()
 
-        return my_known, new_candidates, new_candidates_cells
+        return my_known, new_candidates, new_candidate_cells
 
 
 class ElementsAtLeastOnce(Rule):
+    def __init__(
+        self,
+        gsz: GridSizeContainer,
+        cells: Iterable[IdxType] | None = None,
+        cell_creator=None,
+    ) -> None:
+        Rule.__init__(self, gsz, cells, cell_creator)
+        self.cells = array("I", sorted(self.cells))
 
-    def __init__(self, gsz: gridsolver.abstract_grids.gridsize_container.GridSizeContainer,
-                 cells: Iterable[IdxType] = None, cell_creator=None):
-        super().__init__(gsz, cells, cell_creator)
-
-    def apply(self, known: MutableSequence[int], possible: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        return False, [], [Guarantee(val, frozenset(self.cells), self._rows, self._cols) for val in
-                           range(1, self._max_elem + 1)]
+    def apply(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+        guarantees: Iterable[Guarantee] | None = None,
+    ):
+        return False, [], [
+            Guarantee(value, frozenset(self.cells), self._rows, self._cols)
+            for value in range(1, self._max_elem + 1)
+        ]
