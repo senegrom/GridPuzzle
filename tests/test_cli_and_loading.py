@@ -71,6 +71,18 @@ def test_cli_parser_exposes_parallel_and_solution_limits():
     assert args.colour == "No"
 
 
+def test_cli_parser_rejects_invalid_worker_and_solution_limits():
+    parser = build_parser()
+    common = ["--str", "....", "--class", "latinsquare"]
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([*common, "--processes", "-1"])
+    with pytest.raises(SystemExit):
+        parser.parse_args([*common, "--max-solutions", "-2"])
+    with pytest.raises(SystemExit):
+        parser.parse_args([*common, "--processes", "not-an-int"])
+
+
 def test_get_log_does_not_reconfigure_the_root_logger():
     root = logging.getLogger()
     before = tuple(root.handlers)

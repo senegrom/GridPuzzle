@@ -22,6 +22,26 @@ _PUZZLE_CLASSES = (
 )
 
 
+def _non_negative_int(raw_value: str) -> int:
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return value
+
+
+def _solution_limit(raw_value: str) -> int:
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if value < -1:
+        raise argparse.ArgumentTypeError("must be -1 or non-negative")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Solve a grid puzzle")
     source = parser.add_mutually_exclusive_group(required=True)
@@ -66,13 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-p",
         "--processes",
-        type=int,
+        type=_non_negative_int,
         default=0,
         help="Top-level process-pool workers (0 or 1 means sequential)",
     )
     parser.add_argument(
         "--max-solutions",
-        type=int,
+        type=_solution_limit,
         default=-1,
         help="Maximum returned solutions; -1 means unlimited",
     )
