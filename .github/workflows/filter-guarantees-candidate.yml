@@ -120,8 +120,13 @@ jobs:
                       grid.add_gtee_checked(
                           Guarantee(2, frozenset({2, 3}), 2, 2)
                       )
-                      assert grid._guarantee_cache is not first_cache
+                      # Outside a trail, invalidation deliberately clears the existing
+                      # mapping so callers holding the cache object do not become stale.
+                      assert grid._guarantee_cache is first_cache
+                      assert not grid._guarantee_cache
+
                       filter_guarantees(grid)
+                      assert grid._guarantee_cache is first_cache
                       assert set(grid._guarantee_cache["filter_guarantees_by_value"]) == {1, 2}
               ''').lstrip(),
               encoding="utf-8",
