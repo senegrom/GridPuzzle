@@ -1,4 +1,4 @@
-name: Explicit per-solve depth gating migration v3
+name: Explicit per-solve depth gating migration v4
 
 on:
   push:
@@ -73,6 +73,22 @@ jobs:
           if old not in text:
               raise SystemExit("Migrated CLI solve call not found")
           path.write_text(text.replace(old, formatted, 1), encoding="utf-8")
+
+          test_path = Path("tests/test_trail.py")
+          tests = test_path.read_text(encoding="utf-8")
+          old_helper = "    def fake_propagation(branch: Grid) -> SolveStatus:\n"
+          new_helper = (
+              "    def fake_propagation(\n"
+              "        branch: Grid,\n"
+              "        depth_gate: int | None = None,\n"
+              "    ) -> SolveStatus:\n"
+          )
+          if old_helper not in tests:
+              raise SystemExit("Forcing-chain test helper not found")
+          test_path.write_text(
+              tests.replace(old_helper, new_helper, 1),
+              encoding="utf-8",
+          )
           PY
 
       - name: Install and validate explicit solve options
@@ -124,6 +140,7 @@ jobs:
             tests/test_cli_and_loading.py \
             tests/test_hardening.py \
             tests/test_differential.py \
+            tests/test_trail.py \
             tests/test_basic.py \
             README.md \
             DEVELOPMENT.md \
