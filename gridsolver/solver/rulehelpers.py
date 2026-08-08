@@ -2,6 +2,7 @@ import itertools
 from typing import List, Dict, FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.trail import TrailedDict
 from gridsolver.rules import unique, uneq, sumrules
 from gridsolver.rules.rules import InvalidGrid
 
@@ -51,6 +52,20 @@ def rulehelper_atmostonce(grid: Grid) -> None:
         grid.deactivate_rule(rule)
     grid.add_rules_checked(additions)
 
+def _house_sums_memo(grid: Grid) -> TrailedDict:
+    """Trail-journaled memo for the house-sums pass, mirroring the fish
+    per-value memo: parent entries survive speculative branches, branch-only
+    entries roll back, and a deepcopy starts fresh and recomputes."""
+    memo = getattr(grid, "_house_sums_memo", None)
+    if (
+        not isinstance(memo, TrailedDict)
+        or memo._trail_state is not grid._trail_state
+    ):
+        memo = TrailedDict(() if memo is None else memo, grid._trail_state)
+        grid._house_sums_memo = memo
+    return memo
+
+
 def rulehelper_house_sums(grid: Grid) -> None:
     """Rule of 45 (innies): every complete house sums to n(n+1)/2.
 
@@ -61,18 +76,23 @@ def rulehelper_house_sums(grid: Grid) -> None:
     rulehelper_sum_atmostonce this derives the full innie in one pass and can
     cross house boundaries (cages spanning two rows of a band).
 
-    Re-derivation is cheap but pointless while nothing changed, so the whole
-    pass runs once per rule generation (cage updates clear the struct cache,
-    which re-arms it; pure candidate changes never affect the arithmetic).
+    Re-derivation is cheap but pointless while nothing changed, so the pass
+    runs once per distinct cage configuration: a fingerprint of the active sum
+    rules is kept in a trail-journaled memo (like the fish per-value memo), so
+    speculative branches that derive with branch-local cages roll back to the
+    parent's fingerprint instead of poisoning it, and cage updates (remnant
+    emission, new merged cages) re-arm the pass by changing the fingerprint.
+    Pure candidate changes never affect the arithmetic.
     """
     sum_rules = [r for r in grid.rules if isinstance(r, (sumrules.SumRule, sumrules.SumAndElementsAtMostOnce))]
     if not sum_rules:
         return
 
-    done_flag = grid.cached_struct("house_sums_done", lambda: [False])
-    if done_flag[0]:
+    fingerprint = frozenset((frozenset(r.cells), r.sum) for r in sum_rules)
+    memo = _house_sums_memo(grid)
+    if memo.get("cages") == fingerprint:
         return
-    done_flag[0] = True
+    memo["cages"] = fingerprint
 
     n = grid.max_elem
     house_total = n * (n + 1) // 2
