@@ -54,7 +54,8 @@ def solve(
     if max_sols == 0:
         return set()
 
-    grid.has_been_filled = True
+    # Solving operates exclusively on clones. The caller may therefore reuse,
+    # extend, or load the original grid after this function returns.
     if processes > 1:
         solutions = _solve_top_parallel(grid.deepcopy(), max_sols, processes)
     else:
