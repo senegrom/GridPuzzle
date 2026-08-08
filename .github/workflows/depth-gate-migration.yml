@@ -1,4 +1,4 @@
-name: Explicit per-solve depth gating migration v4
+name: Explicit per-solve depth gating migration v5
 
 on:
   push:
@@ -89,6 +89,21 @@ jobs:
               tests.replace(old_helper, new_helper, 1),
               encoding="utf-8",
           )
+
+          validation_path = Path("tests/test_solution_validation.py")
+          validation = validation_path.read_text(encoding="utf-8")
+          old_lambda = (
+              "        lambda grid, steps, max_sols, checked: {invalid},\n"
+          )
+          new_lambda = (
+              "        lambda grid, steps, max_sols, checked, depth_gate=None: {invalid},\n"
+          )
+          if old_lambda not in validation:
+              raise SystemExit("Solution-validation monkeypatch not found")
+          validation_path.write_text(
+              validation.replace(old_lambda, new_lambda, 1),
+              encoding="utf-8",
+          )
           PY
 
       - name: Install and validate explicit solve options
@@ -141,6 +156,7 @@ jobs:
             tests/test_hardening.py \
             tests/test_differential.py \
             tests/test_trail.py \
+            tests/test_solution_validation.py \
             tests/test_basic.py \
             README.md \
             DEVELOPMENT.md \
