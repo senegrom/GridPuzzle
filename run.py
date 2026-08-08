@@ -1,69 +1,153 @@
 import argparse
 import importlib
 import time
+from collections.abc import Sequence
 
 import examples2
-from gridsolver.abstract_grids.grid_loading import create_from_str_and_class, create_from_file
+from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str_and_class
 from gridsolver.solver import solver
-from gridsolver.solver.logger import get_log, MAX_LVL as _MAX_LVL, Colouring, set_colouring
+from gridsolver.solver.logger import Colouring, MAX_LVL, get_log, set_colouring
 
-_lg = get_log(__name__, 0)
 
-if __name__ == "__main__":
+_LOG = get_log(__name__, 0)
+_PUZZLE_CLASSES = (
+    "sudoku",
+    "killersudoku",
+    "futoshiki",
+    "kenken",
+    "latinsquare",
+    "diagonallatinsquare",
+    "pandiagonallatinsquare",
+)
 
-    parser = argparse.ArgumentParser(description="Solve grid puzzle")
-    parser.add_argument("-m", "--module", help="module file to load puzzle from", type=str)
-    parser.add_argument("-s", "--str", help="string to load puzzle from", type=str)
-    parser.add_argument("-c", "--class_", help="puzzle class",
-                        choices=("sudoku", "killersudoku", "futoshiki", "kenken",
-                                 "latinsquare", "diagonallatinsquare", "pandiagonallatinsquare"),
-                        type=str)
-    parser.add_argument("-o", "--colour", help="colour", choices=(Colouring.No, Colouring.Colorama, Colouring.Rich),
-                        default=Colouring.Colorama, type=Colouring.__getitem__)
-    parser.add_argument("-f", "--file", help="puzzle string file to load puzzle from", type=str)
-    parser.add_argument("-e", "--example", choices=("a", "b", "c", "d", "f", "m", "s", "t"),
-                        help="Choose one of the default example puzzles and do not load from module file",
-                        type=str, required=False)
-    parser.add_argument("-d", "--detail", type=int, default=0,
-                        help="Detail of log output (higher means more intermediate steps are shown)", required=False)
-    parser.add_argument("-v", "--verbose", action="store_true", help="Print very detailed log output (every step)")
-    args = parser.parse_args()
 
-    set_colouring(args.colour)
-    detail = 0
-    if args.detail:
-        detail = args.detail
-    if args.verbose:
-        detail = _MAX_LVL
-    solver.set_loglevel(detail)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Solve a grid puzzle")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("-m", "--module", help="Python module containing puzzle object g")
+    source.add_argument("-s", "--str", dest="puzzle_string", help="Puzzle string")
+    source.add_argument("-f", "--file", help="Puzzle file")
+    source.add_argument(
+        "-e",
+        "--example",
+        choices=("a", "b", "c", "d", "f", "m", "s", "t"),
+        help="Built-in example puzzle",
+    )
 
-    start_time = time.process_time()
+    parser.add_argument(
+        "-c",
+        "--class",
+        "--class_",
+        dest="puzzle_class",
+        choices=_PUZZLE_CLASSES,
+        help="Puzzle class; required with --str",
+    )
+    parser.add_argument(
+        "-o",
+        "--colour",
+        choices=tuple(mode.name for mode in Colouring),
+        default=Colouring.Colorama.name,
+        help="Output colouring mode",
+    )
+    parser.add_argument(
+        "-d",
+        "--detail",
+        type=int,
+        default=0,
+        help="Log detail level",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print every solver step",
+    )
+    parser.add_argument(
+        "-p",
+        "--processes",
+        type=int,
+        default=0,
+        help="Top-level process-pool workers (0 or 1 means sequential)",
+    )
+    parser.add_argument(
+        "--max-solutions",
+        type=int,
+        default=-1,
+        help="Maximum returned solutions; -1 means unlimited",
+    )
+    parser.add_argument(
+        "--space-separated",
+        action="store_true",
+        help="Treat whitespace as value separators for string/file input",
+    )
+    parser.add_argument(
+        "--column-wise",
+        action="store_true",
+        help="Interpret string/file values column-wise",
+    )
+    return parser
 
-    if args.file and args.example:
-        raise ValueError("Cannot choose from file and example.")
-    if args.file and args.str:
-        raise ValueError("Cannot choose from file and string.")
-    if args.example and args.str:
-        raise ValueError("Cannot choose from string and example.")
+
+def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Grid:
+    row_wise = not args.column_wise
 
     if args.module:
-        _lg.logs(0, f"Importing grid puzzle from {args.module}")
-        module = importlib.import_module(args.module)
+        try:
+            module = importlib.import_module(args.module)
+        except ImportError as exc:
+            parser.error(f"Cannot import module {args.module!r}: {exc}")
         if not hasattr(module, "g"):
-            raise AttributeError(f"Module {args.module!r} does not define puzzle object 'g'")
-        solver.solve(module.g)
-    elif args.file:
-        g = create_from_file(args.file)
-        _lg.logs(0, f"Importing grid puzzle from {args.file}")
-        solver.solve(g)
-    elif args.example:
-        g = examples2.get_example(args)
-        solver.solve(g)
-    elif args.str:
-        g = create_from_str_and_class(args.str, args.class_)
-        solver.solve(g)
-    else:
-        raise RuntimeError("Must define input puzzle either via module file or example choice. Run -h to see details.")
+            parser.error(f"Module {args.module!r} does not define puzzle object g")
+        grid = module.g
+        if not isinstance(grid, Grid):
+            parser.error(f"{args.module}.g is not a Grid instance")
+        return grid
 
-    elapsed_time = time.process_time() - start_time
-    _lg.logs(0, f"Took {elapsed_time:.4f}s to execute.")
+    if args.file:
+        try:
+            return create_from_file(
+                args.file,
+                row_wise=row_wise,
+                space_sep=args.space_separated,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            parser.error(str(exc))
+
+    if args.example:
+        return examples2.get_example(args)
+
+    if not args.puzzle_class:
+        parser.error("--class is required with --str")
+    try:
+        return create_from_str_and_class(
+            args.puzzle_string,
+            args.puzzle_class,
+            row_wise=row_wise,
+            space_sep=args.space_separated,
+        )
+    except (TypeError, ValueError) as exc:
+        parser.error(str(exc))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    set_colouring(Colouring[args.colour])
+    detail = MAX_LVL if args.verbose else args.detail
+    solver.set_loglevel(detail)
+
+    grid = _load_grid(args, parser)
+    start = time.perf_counter()
+    solver.solve(
+        grid,
+        max_sols=args.max_solutions,
+        processes=args.processes,
+    )
+    _LOG.logs(0, f"Took {time.perf_counter() - start:.4f}s to execute.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

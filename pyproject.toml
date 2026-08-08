@@ -23,8 +23,14 @@ classifiers = [
     "Topic :: Games/Entertainment :: Puzzle Games",
 ]
 
+[project.scripts]
+gridpuzzle = "run:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+py-modules = ["run", "examples2"]
 
 [tool.setuptools.packages.find]
 include = ["gridsolver*"]

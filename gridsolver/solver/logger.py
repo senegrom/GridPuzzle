@@ -1,13 +1,10 @@
 import logging
 import sys
 import time
+from collections.abc import Iterable, Set
 from contextlib import contextmanager
 from enum import Enum
-from typing import List, Union, Any, Iterable, Set, FrozenSet, Callable
-
-from colorama import deinit, just_fix_windows_console, Fore, Style
-from rich.highlighter import NullHighlighter
-from rich.logging import RichHandler
+from typing import Any
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
@@ -19,30 +16,18 @@ class Colouring(Enum):
     Rich = 2
 
 
-_C_NO = {
-    "X": "",
-    "R": "",
-    "G": "",
-    "B": "",
-    "Y": "",
-    "RR": "",
-    "GG": "",
-    "BB": "",
-    "YY": "",
+_C_NO = {key: "" for key in ("X", "R", "G", "B", "Y", "RR", "GG", "BB", "YY")}
+_C_ANSI = {
+    "X": "\x1b[0m",
+    "R": "\x1b[31m",
+    "G": "\x1b[32m",
+    "B": "\x1b[34m",
+    "Y": "\x1b[33m",
+    "RR": "\x1b[91m",
+    "GG": "\x1b[92m",
+    "BB": "\x1b[94m",
+    "YY": "\x1b[93m",
 }
-
-_C_COLORAMA = {
-    "X": Style.RESET_ALL,
-    "R": Fore.RED,
-    "G": Fore.GREEN,
-    "B": Fore.BLUE,
-    "Y": Fore.YELLOW,
-    "RR": Fore.LIGHTRED_EX,
-    "GG": Fore.LIGHTGREEN_EX,
-    "BB": Fore.LIGHTBLUE_EX,
-    "YY": Fore.LIGHTYELLOW_EX,
-}
-
 _C_RICH = {
     "X": "[/]",
     "R": "[color(1)]",
@@ -59,151 +44,208 @@ C = _C_NO
 _FORMAT = "%(message)s"
 
 
-def set_colouring(c: Colouring | str):
-    """Configure terminal output explicitly.
+def _restore_colorama_streams() -> None:
+    try:
+        from colorama import deinit
+    except ImportError:
+        return
+    deinit()
 
-    Importing the solver no longer initializes Colorama or mutates stdout;
-    terminal setup happens only when the CLI or embedding application calls
-    this function.
-    """
+
+def set_colouring(colouring: Colouring | str) -> None:
+    """Configure output explicitly without doing work at import time."""
     global C
-    if not isinstance(c, Colouring):
-        c = Colouring[c]
-    if c == Colouring.No:
-        deinit()
+    if not isinstance(colouring, Colouring):
+        try:
+            colouring = Colouring[colouring]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"Unknown colouring mode {colouring!r}") from exc
+
+    if colouring is Colouring.No:
+        _restore_colorama_streams()
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_NO
-    elif c == Colouring.Rich:
-        from rich.console import Console
-        deinit()
-        if hasattr(sys.stdout, 'buffer'):
-            # Windows terminal: wrap with UTF-8 for Rich output.
-            import io
-            out = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-            console = Console(file=out, markup=True, highlight=False, force_terminal=True)
-        else:
-            # Jupyter: use default Console (Jupyter handles Unicode natively)
-            console = Console(markup=True, highlight=False, force_jupyter=True)
-        logging.basicConfig(format=_FORMAT, level=0, force=True,
-                            handlers=[
-                                RichHandler(console=console, show_time=False, show_level=False,
-                                            show_path=False, highlighter=NullHighlighter(),
-                                            markup=True)])
-        C = _C_RICH
-    elif c == Colouring.Colorama:
+        return
+
+    if colouring is Colouring.Colorama:
+        from colorama import just_fix_windows_console
+
         just_fix_windows_console()
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
-        C = _C_COLORAMA
-    else:
-        raise ValueError(str(c))
+        C = _C_ANSI
+        return
+
+    if colouring is Colouring.Rich:
+        from rich.console import Console
+        from rich.highlighter import NullHighlighter
+        from rich.logging import RichHandler
+
+        _restore_colorama_streams()
+        output = sys.stdout
+        # Reconfigure the existing stream instead of wrapping its buffer in a
+        # second TextIOWrapper. A discarded wrapper can close stdout's buffer
+        # when output modes are changed more than once.
+        if sys.platform == "win32" and hasattr(output, "reconfigure"):
+            try:
+                output.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, OSError, ValueError):
+                pass
+
+        if hasattr(output, "buffer"):
+            console = Console(file=output, markup=True, highlight=False)
+        else:
+            console = Console(markup=True, highlight=False, force_jupyter=True)
+
+        logging.basicConfig(
+            format=_FORMAT,
+            level=0,
+            force=True,
+            handlers=[
+                RichHandler(
+                    console=console,
+                    show_time=False,
+                    show_level=False,
+                    show_path=False,
+                    highlighter=NullHighlighter(),
+                    markup=True,
+                )
+            ],
+        )
+        C = _C_RICH
+        return
+
+    raise ValueError(str(colouring))
 
 
 MAX_LVL = 1000
 
 
-def _lvl(lvl):
-    return MAX_LVL - lvl + 1
+def _lvl(level: int) -> int:
+    return MAX_LVL - level + 1
 
 
-_RULE_LOG_FILTER = {"TooManyNakedTuple", "HiddenTuple", "Fish", "Wing", "Chain", "Loop",
-                    "ForcingChain", "Skyscraper", "LockedCandidate", "ALS", "SueDeCoq",
-                    "AIC", "Nishio", "ForcingNet", "EmptyRectangle", "IneqBounds"}
+_RULE_LOG_FILTER = {
+    "TooManyNakedTuple",
+    "HiddenTuple",
+    "Fish",
+    "Wing",
+    "Chain",
+    "Loop",
+    "ForcingChain",
+    "Skyscraper",
+    "LockedCandidate",
+    "ALS",
+    "SueDeCoq",
+    "AIC",
+    "Nishio",
+    "ForcingNet",
+    "EmptyRectangle",
+    "IneqBounds",
+}
 TIME_DELTA_LOG_MIN = 0.5
 
 
-class CoordToString(Callable):
-    def __init__(self, rows: int):
+class CoordToString:
+    def __init__(self, rows: int) -> None:
         self.rows = rows
 
-    def __call__(self, i: Union[int, Iterable[int]]):
-        return self.coord(i)
+    def __call__(self, index: int | Iterable[int]) -> str:
+        return self.coord(index)
 
-    def coord(self, i: Union[int, Iterable[int]]) -> str:
-        if isinstance(i, Iterable):
-            if isinstance(i, Set) or isinstance(i, FrozenSet):
-                return "{" + ", ".join(self._coord_prim(x) for x in i) + "}"
-            return "[" + ", ".join(self._coord_prim(x) for x in i) + "]"
-        return self._coord_prim(i)
+    def coord(self, index: int | Iterable[int]) -> str:
+        if isinstance(index, Iterable):
+            if isinstance(index, Set):
+                return "{" + ", ".join(self._coord_prim(value) for value in index) + "}"
+            return "[" + ", ".join(self._coord_prim(value) for value in index) + "]"
+        return self._coord_prim(index)
 
-    def _coord_prim(self, i: int):
-        return f"({i % self.rows}, {i // self.rows})"
+    def _coord_prim(self, index: int) -> str:
+        return f"({index % self.rows}, {index // self.rows})"
 
 
 class GridLogger:
-    def __init__(self, lg: logging.Logger, lvl: int):
-        self.lg: logging.Logger = lg
-        self.set_lvl(lvl)
-        self.grid_buf = None
-        self.time_stats: dict = {}  # cumulative seconds per time_ctxt label
+    def __init__(self, logger: logging.Logger, level: int) -> None:
+        self.lg = logger
+        self.set_lvl(level)
+        self.grid_buf: str | None = None
+        self.time_stats: dict[str, float] = {}
 
-    def logs(self, lvl, s: str, header=False):
+    def logs(self, level: int, message: str, header: bool = False) -> None:
         if header:
-            s = f"{C['B']}{s}{C['X']}"
-        self.lg.log(_lvl(lvl), s)
+            message = f"{C['B']}{message}{C['X']}"
+        self.lg.log(_lvl(level), message)
 
     @contextmanager
-    def time_ctxt(self, s: str):
+    def time_ctxt(self, label: str):
         start = time.perf_counter()
         try:
             yield
         finally:
             delta = time.perf_counter() - start
-            self.time_stats[s] = self.time_stats.get(s, 0.0) + delta
+            self.time_stats[label] = self.time_stats.get(label, 0.0) + delta
             if delta > TIME_DELTA_LOG_MIN:
-                s = f"{s} took {delta}s."
-                self.logd(s)
+                self.logd(f"{label} took {delta}s.")
 
-    def logd(self, s: str, ):
-        s = f"    {C['Y']}{s}{C['X']}"
-        self.logs(11, s)
+    def logd(self, message: str) -> None:
+        self.logs(11, f"    {C['Y']}{message}{C['X']}")
 
     @property
     def on(self) -> bool:
-        """Whether rule-level records would be emitted. Guard logr calls with
-        `_lg.on and _lg.logr(...)` so message f-strings are only built when needed."""
         return self.lg.isEnabledFor(_lvl(1))
 
-    def logr(self, rule_name: str, message: str, item: Any):
-        if not any(rule_name.startswith(rf) for rf in _RULE_LOG_FILTER):
+    def logr(self, rule_name: str, message: str, item: Any) -> None:
+        if not any(rule_name.startswith(prefix) for prefix in _RULE_LOG_FILTER):
             return
-        message = ": " + message if message else ""
-        s = f"{C['G']}{rule_name} - {item}{message}{C['X']}"
-        self.logs(1, s)
+        suffix = f": {message}" if message else ""
+        self.logs(1, f"{C['G']}{rule_name} - {item}{suffix}{C['X']}")
 
-    def logstep(self, lvl, steps: List[int], descr: str):
-        self.logs(lvl, f"Step {steps} - {descr}", header=True)
+    def logstep(self, level: int, steps: list[int], description: str) -> None:
+        self.logs(level, f"Step {steps} - {description}", header=True)
 
-    def logg(self, lvl, g: ImmutableGrid, rules=None, format_args=None, **kwargs):
-        # Skip expensive grid rendering if this level won't be logged
-        if not self.lg.isEnabledFor(_lvl(lvl)):
+    def logg(
+        self,
+        level: int,
+        grid: ImmutableGrid,
+        rules=None,
+        format_args=None,
+        **kwargs,
+    ) -> None:
+        if not self.lg.isEnabledFor(_lvl(level)):
             return
-        if not format_args:
-            format_args = PrettyPrintArgs(args=g.format_args, **kwargs)
-        header, g2s = g.to_str(format_args, rules=rules)
-        self.logs(lvl, header)
-        g2so = g2s
-        if self.grid_buf and len(self.grid_buf) == len(g2s):
-            new_string = []
-            for c1, c2 in zip(g2s, self.grid_buf):
-                if c1 == c2:
-                    new_string.append(c1)
-                elif c1 == " ":
-                    new_string.extend([C['RR'], c2, C['X']])
-                elif c1 == "=":
-                    new_string.extend([C['GG'], c1, C['X']])
+        if format_args is None:
+            format_args = PrettyPrintArgs(args=grid.format_args, **kwargs)
+        header, rendered = grid.to_str(format_args, rules=rules)
+        self.logs(level, header)
+        original = rendered
+
+        if self.grid_buf and len(self.grid_buf) == len(rendered):
+            changed: list[str] = []
+            for current, previous in zip(rendered, self.grid_buf):
+                if current == previous:
+                    changed.append(current)
+                elif current == " ":
+                    changed.extend((C["RR"], previous, C["X"]))
+                elif current == "=":
+                    changed.extend((C["GG"], current, C["X"]))
                 else:
-                    new_string.extend([C['BB'], c1, C['X']])
-            g2s = "".join(new_string)
-        self.logs(lvl, g2s)
-        self.grid_buf = g2so
+                    changed.extend((C["BB"], current, C["X"]))
+            rendered = "".join(changed)
 
-    def set_lvl(self, lvl):
-        if lvl < 0:
-            lvl = MAX_LVL + lvl + 1
-        self.lg.setLevel(_lvl(lvl))
+        self.logs(level, rendered)
+        self.grid_buf = original
+
+    def set_lvl(self, level: int) -> None:
+        if level < 0:
+            level = MAX_LVL + level + 1
+        self.lg.setLevel(_lvl(level))
 
 
-def get_log(class_: Union[type, str], lvl: int) -> GridLogger:
-    if isinstance(class_, type):
-        class_ = class_.__name__
-    return GridLogger(logging.getLogger(class_), lvl)
+def get_log(class_: type | str, level: int) -> GridLogger:
+    name = class_.__name__ if isinstance(class_, type) else class_
+    logger = logging.getLogger(name)
+    # Avoid logging.lastResort output before an application explicitly configures
+    # logging. The NullHandler does not block propagation once the root logger is
+    # configured by set_colouring or the embedding application.
+    if not logger.handlers:
+        logger.addHandler(logging.NullHandler())
+    return GridLogger(logger, level)

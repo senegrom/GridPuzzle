@@ -1,122 +1,165 @@
 import math
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Union, Iterable
 
-from gridsolver.abstract_grids.grid import Grid, _load_preprocess_str_space_sep, _load_preprocess_str
+from gridsolver.abstract_grids.grid import Grid, _load_preprocess_str, _load_preprocess_str_space_sep
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
-from gridsolver.grid_classes.latins_square import LatinSquare, DiagonalLatinSquare, PandiagonalLatinSquare
+from gridsolver.grid_classes.latins_square import DiagonalLatinSquare, LatinSquare, PandiagonalLatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
 
 
-def create_from_file(path: Union[Path, str], /, row_wise=True, space_sep=False) -> Grid:
-    """Specify the puzzle file with the file as <Class>::<PuzzleString> where PuzzleString is a standard format string of the puzzle.
-    Example: "Sudoku::12344321........"
-    Whitespace and lines starting with # will be ignored; . converted to 0"""
-    if not isinstance(path, Path):
-        path = Path(path)
-    read_lines = path.read_text().splitlines(keepends=False)
-    lines = (line.strip() for line in read_lines)
-    lines = [line for line in lines if line and not line.startswith("#")]
+type PuzzleClass = type[Grid]
 
-    return create_from_str("\n".join(lines), row_wise=row_wise, space_sep=space_sep)
-
-
-def create_from_str(values: str, /, row_wise=True, space_sep=False) -> Grid:
-    """Specify the puzzle as <Class>::<PuzzleString> where PuzzleString is a standard format string of the puzzle.
-    Example: "Sudoku::12344321........"
-    Whitespace will be ignored; . converted to 0
-    If space_sep is True, whitespace will be treated as seperators"""
-
-    values = str(values)
-    if "::" not in values:
-        raise ValueError("Puzzle string contains no :: class separator.")
-    try:
-        class_, values2 = values.split("::")
-        return create_from_str_and_class(values2, class_, row_wise=row_wise, space_sep=space_sep)
-    except Exception as e:
-        raise ValueError(f"Cannot parse puzzle string \"{values}\". Error: {e}", )
+_PUZZLE_CLASSES: dict[str, PuzzleClass] = {
+    "sudoku": Sudoku,
+    "futoshiki": Futoshiki,
+    "killersudoku": KillerSudoku,
+    "latinsquare": LatinSquare,
+    "diagonallatinsquare": DiagonalLatinSquare,
+    "pandiagonallatinsquare": PandiagonalLatinSquare,
+    "kenken": Kenken,
+}
 
 
-def create_from_str_and_class(values: str, class_: Union[type, str], /,
-                              row_wise=True, space_sep=False) -> Grid:
-    """Specify the puzzle as standard format string and the class name seperately"""
-    values = str(values)
+def create_from_file(
+    path: Path | str,
+    /,
+    row_wise: bool = True,
+    space_sep: bool = False,
+) -> Grid:
+    """Load ``<Class>::<PuzzleString>`` from a UTF-8 text file."""
+    path = path if isinstance(path, Path) else Path(path)
+    lines = (
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+    )
+    payload = "\n".join(line for line in lines if line and not line.startswith("#"))
+    return create_from_str(payload, row_wise=row_wise, space_sep=space_sep)
 
-    if space_sep:
-        values = _load_preprocess_str_space_sep(values)
+
+def create_from_str(
+    values: str,
+    /,
+    row_wise: bool = True,
+    space_sep: bool = False,
+) -> Grid:
+    """Load a puzzle encoded as ``<Class>::<PuzzleString>``."""
+    if not isinstance(values, str):
+        raise TypeError(f"Puzzle input must be str, got {type(values).__name__}")
+    class_name, separator, payload = values.partition("::")
+    if not separator:
+        raise ValueError("Puzzle string contains no :: class separator")
+    return create_from_str_and_class(
+        payload,
+        class_name,
+        row_wise=row_wise,
+        space_sep=space_sep,
+    )
+
+
+def create_from_str_and_class(
+    values: str | Iterable[int] | Iterable[str],
+    class_: PuzzleClass | str,
+    /,
+    row_wise: bool = True,
+    space_sep: bool = False,
+) -> Grid:
+    """Load a puzzle string when its concrete grid class is known separately."""
+    if isinstance(values, str):
+        normalized: str | list[str] = (
+            _load_preprocess_str_space_sep(values)
+            if space_sep
+            else _load_preprocess_str(values)
+        )
+    elif isinstance(values, Iterable):
+        normalized = list(values)
     else:
-        values = _load_preprocess_str(values)
+        raise TypeError(f"Puzzle input must be str or iterable, got {type(values).__name__}")
+
     if isinstance(class_, str):
-        class_ = class_.strip().lower()
-        if class_ == "sudoku":
-            class_ = Sudoku
-        elif class_ == "futoshiki":
-            class_ = Futoshiki
-        elif class_ == "killersudoku":
-            class_ = KillerSudoku
-        elif class_ == "latinsquare":
-            class_ = LatinSquare
-        elif class_ == "diagonallatinsquare":
-            class_ = DiagonalLatinSquare
-        elif class_ == "pandiagonallatinsquare":
-            class_ = PandiagonalLatinSquare
-        elif class_ == "kenken":
-            class_ = Kenken
-        else:
-            raise ValueError(f"Puzzle class {class_} not supported.")
-    assert isinstance(class_, type), "not isinstance(class_, type)"
+        key = class_.strip().lower()
+        try:
+            class_ = _PUZZLE_CLASSES[key]
+        except KeyError as exc:
+            supported = ", ".join(sorted(_PUZZLE_CLASSES))
+            raise ValueError(f"Puzzle class {key!r} is not supported; choose one of {supported}") from exc
+    elif not isinstance(class_, type) or not issubclass(class_, Grid):
+        raise TypeError("class_ must be a supported Grid subclass or class name")
 
     try:
-        return _create_from_str_and_class(values, class_, row_wise=row_wise, space_sep=space_sep)
-    except Exception as e:
-        raise ValueError(f"Cannot parse puzzle string \"{values}\" with class {class_}. Error: {e}", )
+        return _create_from_str_and_class(
+            normalized,
+            class_,
+            row_wise=row_wise,
+            space_sep=space_sep,
+        )
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Cannot parse puzzle input with class {class_.__name__}: {exc}"
+        ) from exc
 
 
-def _create_from_str_and_class(values: Union[str, Iterable[int], Iterable[str]], class_: type, /,
-                               row_wise, space_sep) -> Grid:
-    g = None
+def _perfect_square_root(length: int, description: str) -> int:
+    root = math.isqrt(length)
+    if root * root != length:
+        raise ValueError(f"Cannot infer {description} from non-square length {length}")
+    return root
 
+
+def _standard_sudoku_box_size(layout_length: int) -> int:
+    grid_side = _perfect_square_root(layout_length, "Sudoku side length")
+    box_side = math.isqrt(grid_side)
+    if box_side * box_side != grid_side:
+        raise ValueError(
+            f"Cannot infer equal square Sudoku boxes from grid side {grid_side}"
+        )
+    return box_side
+
+
+def _layout_length_before_dictionary(values: str | list) -> int:
+    try:
+        return values.index(":")
+    except ValueError as exc:
+        raise ValueError("Puzzle string contains no : cage dictionary separator") from exc
+
+
+def _futoshiki_size(length: int) -> int:
+    discriminant = 1 + 3 * length
+    root = math.isqrt(discriminant)
+    if root * root != discriminant or (1 + root) % 3:
+        raise ValueError(
+            f"Cannot infer Futoshiki size from length {length}; expected 3n²-2n"
+        )
+    return (1 + root) // 3
+
+
+def _create_from_str_and_class(
+    values: str | list[int] | list[str],
+    class_: PuzzleClass,
+    /,
+    row_wise: bool,
+    space_sep: bool,
+) -> Grid:
     if class_ is Sudoku:
-        size = len(values) ** 0.25
-        if size != int(size):
-            raise ValueError(f"Cannot infer size ({size}) from non biquadratic length {len(values)}.")
-        size = int(size)
-        g = Sudoku(size, size, size, size)
+        box_side = _standard_sudoku_box_size(len(values))
+        grid: Grid = Sudoku(box_side, box_side, box_side, box_side)
     elif class_ is KillerSudoku:
-        length = 0
-        while length < len(values) and values[length] != ":":
-            length += 1
-        size = length ** 0.25
-        if size != int(size):
-            raise ValueError(f"Cannot infer size ({size}) from non biquadratic length {len(values)}.")
-        size = int(size)
-        g = KillerSudoku(None, size, size, size, size)
+        box_side = _standard_sudoku_box_size(_layout_length_before_dictionary(values))
+        grid = KillerSudoku(None, box_side, box_side, box_side, box_side)
     elif class_ is Kenken:
-        length = 0
-        while length < len(values) and values[length] != ":":
-            length += 1
-        size = length ** 0.5
-        if size != int(size):
-            raise ValueError(f"Cannot infer size ({size}) from non quadratic length {len(values)}.")
-        size = int(size)
-        g = Kenken(None, size)
+        size = _perfect_square_root(
+            _layout_length_before_dictionary(values),
+            "KenKen side length",
+        )
+        grid = Kenken(None, size)
     elif class_ is Futoshiki:
-        size = (1 + math.sqrt(1 + 3 * len(values))) / 3
-        if size != int(size):
-            raise ValueError(f"Cannot infer size ({size}) from length {len(values)} not satisfying x=3n^2-2n.")
-        size = int(size)
-        g = Futoshiki(size)
+        grid = Futoshiki(_futoshiki_size(len(values)))
     elif class_ in {LatinSquare, DiagonalLatinSquare, PandiagonalLatinSquare}:
-        size = len(values) ** 0.5
-        if size != int(size):
-            raise ValueError(f"Cannot infer size ({size}) from non quadratic length {len(values)}.")
-        size = int(size)
-        g = class_(size)
+        grid = class_(_perfect_square_root(len(values), "Latin-square side length"))
+    else:
+        raise ValueError(f"Puzzle class {class_.__name__} is not supported")
 
-    if g is None:
-        raise ValueError(f"Puzzle class {class_} not supported.")
-
-    g.load(values, row_wise=row_wise, space_sep=space_sep)
-    return g
+    grid.load(values, row_wise=row_wise, space_sep=space_sep)
+    return grid
