@@ -202,8 +202,8 @@ def test_sumrule_tmin_prune():
 
 def test_immutable_grid_shape_in_equality():
     from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
-    flat = list(range(1, 17))
-    a = ImmutableGrid(flat, 2, 8, 8)
+    flat = [1, 2, 3, 4] * 4
+    a = ImmutableGrid(flat, 2, 8, 4)
     b = ImmutableGrid(flat, 4, 4, 4)
     assert a != b and len({a, b}) == 2
 
