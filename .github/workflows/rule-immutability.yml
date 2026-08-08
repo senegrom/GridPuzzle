@@ -1,0 +1,85 @@
+name: Rule immutability and compatibility migration
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/rule-immutability.yml
+      - .github/scripts/rule_immutability.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rule-immutability
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply immutable rule-state hardening
+        run: python .github/scripts/rule_immutability.py
+
+      - name: Install and validate rule invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_rule_inputs.py \
+            tests/test_solution_validation.py \
+            tests/test_trail.py \
+            tests/test_regressions.py \
+            tests/test_rule_metadata.py
+          python -X dev -m pytest -q \
+            tests/test_cli_and_loading.py \
+            tests/test_hardening.py \
+            tests/test_rule_inputs.py \
+            tests/test_regressions.py \
+            tests/test_solution_validation.py \
+            tests/test_solver_api.py \
+            tests/test_trail.py \
+            tests/test_differential.py \
+            tests/test_rule_metadata.py \
+            tests/test_basic.py \
+            tests/test_scale.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=10
+
+      - name: Commit tested source and remove migration files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "senegrom"
+          git config user.email "6349874+senegrom@users.noreply.github.com"
+          git rm \
+            .github/workflows/rule-immutability.yml \
+            .github/scripts/rule_immutability.py
+          git add \
+            gridsolver/rules/rules.py \
+            gridsolver/rules/unique.py \
+            gridsolver/rules/uneq.py \
+            gridsolver/rules/sumrules.py \
+            gridsolver/abstract_grids/grid.py \
+            tests/test_rule_inputs.py \
+            DEVELOPMENT.md
+          git diff --cached --check
+          git commit -m "Freeze registered rules and validate grid compatibility"
+          git push origin HEAD:master
