@@ -1,4 +1,4 @@
-name: Preserve trail-frame cache state
+name: Reuse sibling guarantee snapshot
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: trail-cache-preservation-v2
+  group: sibling-guarantee-snapshot
   cancel-in-progress: false
 
 jobs:
@@ -29,410 +29,48 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Restore cache objects and use token-local candidate snapshots
+      - name: Hoist immutable parent guarantee snapshot out of sibling loop
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
 
-          Path("gridsolver/abstract_grids/trail.py").write_text(
-              dedent(r'''
-                  from collections.abc import Iterable
-                  from dataclasses import dataclass, field
-                  from typing import Any
-
-
-                  type TrailEntry = tuple[Any, ...]
-
-
-                  @dataclass(slots=True)
-                  class TrailFrame:
-                      """One reversible scope and the parent caches it must restore."""
-
-                      token: int
-                      start: int
-                      filled: bool
-                      struct_cache: dict[str, Any]
-                      guarantee_cache: dict[str, Any]
-
-
-                  @dataclass(slots=True)
-                  class TrailState:
-                      """Shared journal state for one grid and all of its candidate sets."""
-
-                      entries: list[TrailEntry] = field(default_factory=list)
-                      marks: list[TrailFrame] = field(default_factory=list)
-                      next_token: int = 0
-
-                      @property
-                      def active(self) -> bool:
-                          return bool(self.marks)
-
-
-                  class TrailedSet(set[int]):
-                      """A set that snapshots itself once per active trail token."""
-
-                      __slots__ = ("_trail_state", "_snapshot_token")
-
-                      def __init__(
-                          self,
-                          values: Iterable[int] = (),
-                          trail_state: TrailState | None = None,
-                          snapshot_token: int = 0,
-                      ) -> None:
-                          super().__init__(values)
-                          self._trail_state = (
-                              TrailState() if trail_state is None else trail_state
-                          )
-                          self._snapshot_token = snapshot_token
-
-                      def __reduce__(self):
-                          return type(self), (
-                              tuple(self),
-                              self._trail_state,
-                              self._snapshot_token,
-                          )
-
-                      def __repr__(self) -> str:
-                          return repr(set(self))
-
-                      def copy(self) -> set[int]:
-                          return set(self)
-
-                      def _journal_snapshot(self) -> None:
-                          state = self._trail_state
-                          frame = state.marks[-1]
-                          if self._snapshot_token == frame.token:
-                              return
-                          previous_token = self._snapshot_token
-                          state.entries.append(
-                              ("cand", self, tuple(self), previous_token)
-                          )
-                          self._snapshot_token = frame.token
-
-                      def add(self, element: int) -> None:
-                          state = self._trail_state
-                          if not state.marks:
-                              set.add(self, element)
-                              return
-                          if element in self:
-                              return
-                          self._journal_snapshot()
-                          set.add(self, element)
-
-                      def clear(self) -> None:
-                          if not self:
-                              return
-                          state = self._trail_state
-                          if state.marks:
-                              self._journal_snapshot()
-                          set.clear(self)
-
-                      def difference_update(self, *others: Iterable[int]) -> None:
-                          if not others:
-                              return
-                          state = self._trail_state
-                          if state.marks:
-                              self._journal_snapshot()
-                          set.difference_update(self, *others)
-
-                      def discard(self, element: int) -> None:
-                          state = self._trail_state
-                          if not state.marks:
-                              set.discard(self, element)
-                              return
-                          if element not in self:
-                              return
-                          self._journal_snapshot()
-                          set.discard(self, element)
-
-                      def intersection_update(self, *others: Iterable[int]) -> None:
-                          if not others:
-                              return
-                          state = self._trail_state
-                          if state.marks:
-                              self._journal_snapshot()
-                          set.intersection_update(self, *others)
-
-                      def pop(self) -> int:
-                          state = self._trail_state
-                          if not state.marks:
-                              return set.pop(self)
-                          if not self:
-                              return set.pop(self)
-                          self._journal_snapshot()
-                          return set.pop(self)
-
-                      def remove(self, element: int) -> None:
-                          state = self._trail_state
-                          if not state.marks:
-                              set.remove(self, element)
-                              return
-                          if element not in self:
-                              set.remove(self, element)
-                              return
-                          self._journal_snapshot()
-                          set.remove(self, element)
-
-                      def symmetric_difference_update(self, other: Iterable[int]) -> None:
-                          state = self._trail_state
-                          if state.marks:
-                              self._journal_snapshot()
-                          set.symmetric_difference_update(self, other)
-
-                      def update(self, *others: Iterable[int]) -> None:
-                          if not others:
-                              return
-                          state = self._trail_state
-                          if state.marks:
-                              self._journal_snapshot()
-                          set.update(self, *others)
-
-                      def __iand__(self, other: Iterable[int]):
-                          self.intersection_update(other)
-                          return self
-
-                      def __ior__(self, other: Iterable[int]):
-                          self.update(other)
-                          return self
-
-                      def __isub__(self, other: Iterable[int]):
-                          self.difference_update(other)
-                          return self
-
-                      def __ixor__(self, other: Iterable[int]):
-                          self.symmetric_difference_update(other)
-                          return self
-              ''').lstrip(),
-              encoding="utf-8",
+          path = Path("gridsolver/solver/solver.py")
+          text = path.read_text(encoding="utf-8")
+          old = (
+              "        trials = sorted(guarantee.cells) if use_guarantee else values\n"
+              "        solutions: set[ImmutableGrid] = set()\n\n"
+              "        for trial in trials:\n"
           )
-
-          grid_path = Path("gridsolver/abstract_grids/grid.py")
-          grid = grid_path.read_text(encoding="utf-8")
-          trail_start = grid.find("    def trail_mark(self) -> int:\n")
-          trail_end = grid.find("    @property\n    def is_solved(self) -> bool:\n", trail_start)
-          if trail_start < 0 or trail_end < 0:
-              raise SystemExit("Grid trail method markers were not found")
-
-          trail_methods = dedent('''
-                  def trail_mark(self) -> int:
-                      """Start a reversible mutation scope and return its LIFO token."""
-                      state = self._trail_state
-                      state.next_token += 1
-                      token = state.next_token
-                      state.marks.append(
-                          TrailFrame(
-                              token=token,
-                              start=len(state.entries),
-                              filled=self.has_been_filled,
-                              struct_cache=self._struct_cache,
-                              guarantee_cache=self._guarantee_cache,
-                          )
-                      )
-                      return token
-
-                  def trail_undo(self, mark: int) -> None:
-                      """Undo every grid mutation in the matching innermost scope."""
-                      if isinstance(mark, bool) or not isinstance(mark, int):
-                          raise TypeError(
-                              "Trail mark must be an integer returned by trail_mark()"
-                          )
-
-                      state = self._trail_state
-                      if not state.marks or state.marks[-1].token != mark:
-                          raise ValueError("Trail marks must be undone in LIFO order")
-                      frame = state.marks.pop()
-
-                      for entry in reversed(state.entries[frame.start:]):
-                          tag = entry[0]
-                          if tag == "cand":
-                              _, possible, original, previous_token = entry
-                              set.clear(possible)
-                              set.update(possible, original)
-                              possible._snapshot_token = previous_token
-                          elif tag == "known":
-                              _, index, old_value = entry
-                              self._known[index] = old_value
-                          elif tag == "rule+":
-                              _, rule = entry
-                              self.rules.discard(rule)
-                          elif tag == "rule-":
-                              _, rule = entry
-                              self.rules_ia.discard(rule)
-                              self.rules.add(rule)
-                          elif tag == "gt+":
-                              _, guarantee = entry
-                              self.guarantees.discard(guarantee)
-                          elif tag == "gt-":
-                              _, guarantee = entry
-                              self.guarantees_ia.discard(guarantee)
-                              self.guarantees.add(guarantee)
-                          else:
-                              raise RuntimeError(f"Unknown trail entry {tag!r}")
-
-                      del state.entries[frame.start:]
-                      self.has_been_filled = frame.filled
-                      self._struct_cache = frame.struct_cache
-                      self._guarantee_cache = frame.guarantee_cache
-
-                      # Candidate fingerprints computed in an abandoned branch are stale.
-                      for name, value in vars(self).items():
-                          if name.endswith("_memo") and hasattr(value, "clear"):
-                              value.clear()
-
-          ''')
-          trail_methods = "".join(
-              f"    {line}\n" if line else "\n"
-              for line in trail_methods.splitlines()
+          new = (
+              "        trials = sorted(guarantee.cells) if use_guarantee else values\n"
+              "        solutions: set[ImmutableGrid] = set()\n"
+              "        # AtomicSolver only reads the incoming snapshot and replaces its\n"
+              "        # own reference after a full hidden-tuple pass. All sibling branches\n"
+              "        # therefore share this one immutable-by-convention parent snapshot.\n"
+              "        checked_guarantees = set(grid.guarantees)\n\n"
+              "        for trial in trials:\n"
           )
-          grid = grid[:trail_start] + trail_methods + grid[trail_end:]
+          if old not in text:
+              raise SystemExit("Recursive branch-loop marker was not found")
+          text = text.replace(old, new, 1)
 
-          mutation_start = grid.find("    def add_rule_checked(self, rule: Rule) -> None:\n")
-          mutation_end = grid.find(
-              "    def cached_struct(self, key: str, factory: Callable[[], Any]) -> Any:\n",
-              mutation_start,
+          old = (
+              "            mark = grid.trail_mark()\n"
+              "            checked_guarantees = set(grid.guarantees)\n"
+              "            try:\n"
           )
-          if mutation_start < 0 or mutation_end < 0:
-              raise SystemExit("Grid mutation/cache markers were not found")
-
-          mutation_methods = dedent('''
-                  def _invalidate_struct_cache(self) -> None:
-                      # A trail frame owns the parent cache object. Branch invalidation
-                      # swaps in a new dictionary instead of destroying that object.
-                      if self._trail_state.active:
-                          self._struct_cache = {}
-                      else:
-                          self._struct_cache.clear()
-
-                  def _invalidate_guarantee_cache(self) -> None:
-                      if self._trail_state.active:
-                          self._guarantee_cache = {}
-                      else:
-                          self._guarantee_cache.clear()
-
-                  def add_rule_checked(self, rule: Rule) -> None:
-                      if rule not in self.rules_ia and rule not in self.rules:
-                          self.rules.add(rule)
-                          if self._trail_state.active:
-                              self._trail_state.entries.append(("rule+", rule))
-                          self._invalidate_struct_cache()
-
-                  def deactivate_rule(self, rule: Rule) -> None:
-                      self.rules.remove(rule)
-                      self.rules_ia.add(rule)
-                      if self._trail_state.active:
-                          self._trail_state.entries.append(("rule-", rule))
-                      self._invalidate_struct_cache()
-
-                  def add_gtee_checked(self, guarantee: Guarantee) -> None:
-                      if (
-                          guarantee not in self.guarantees_ia
-                          and guarantee not in self.guarantees
-                      ):
-                          self.guarantees.add(guarantee)
-                          if self._trail_state.active:
-                              self._trail_state.entries.append(("gt+", guarantee))
-                          self._invalidate_struct_cache()
-                          self._invalidate_guarantee_cache()
-
-                  def deactivate_gtee(self, guarantee: Guarantee) -> None:
-                      self.guarantees.remove(guarantee)
-                      self.guarantees_ia.add(guarantee)
-                      if self._trail_state.active:
-                          self._trail_state.entries.append(("gt-", guarantee))
-                      self._invalidate_struct_cache()
-                      self._invalidate_guarantee_cache()
-
-          ''')
-          mutation_methods = "".join(
-              f"    {line}\n" if line else "\n"
-              for line in mutation_methods.splitlines()
+          new = (
+              "            mark = grid.trail_mark()\n"
+              "            try:\n"
           )
-          grid_path.write_text(
-              grid[:mutation_start] + mutation_methods + grid[mutation_end:],
-              encoding="utf-8",
-          )
-
-          test_path = Path("tests/test_trail.py")
-          tests = test_path.read_text(encoding="utf-8")
-          if "def test_nested_trails_restore_parent_cache_objects" in tests:
-              raise SystemExit("Cache restoration regression already exists")
-          tests += dedent('''
-
-
-              def test_nested_trails_restore_parent_cache_objects():
-                  grid = Grid(2)
-                  root_struct_value = object()
-                  root_guarantee_value = object()
-                  grid._struct_cache["root"] = root_struct_value
-                  grid._guarantee_cache["root"] = root_guarantee_value
-                  root_struct_cache = grid._struct_cache
-                  root_guarantee_cache = grid._guarantee_cache
-
-                  outer = grid.trail_mark()
-                  outer_rule = ElementsAtMostOnce(grid, [0, 1])
-                  grid.add_rule_checked(outer_rule)
-                  assert grid._struct_cache is not root_struct_cache
-                  assert grid._guarantee_cache is root_guarantee_cache
-                  outer_struct_value = object()
-                  grid._struct_cache["outer"] = outer_struct_value
-                  outer_struct_cache = grid._struct_cache
-                  outer_guarantee_cache = grid._guarantee_cache
-
-                  inner = grid.trail_mark()
-                  inner_guarantee = Guarantee(
-                      1,
-                      frozenset({0, 1}),
-                      grid.rows,
-                      grid.cols,
-                  )
-                  grid.add_gtee_checked(inner_guarantee)
-                  assert grid._struct_cache is not outer_struct_cache
-                  assert grid._guarantee_cache is not outer_guarantee_cache
-                  grid.trail_undo(inner)
-
-                  assert grid._struct_cache is outer_struct_cache
-                  assert grid._guarantee_cache is outer_guarantee_cache
-                  assert grid._struct_cache["outer"] is outer_struct_value
-                  assert inner_guarantee not in grid.guarantees
-
-                  grid.trail_undo(outer)
-
-                  assert grid._struct_cache is root_struct_cache
-                  assert grid._guarantee_cache is root_guarantee_cache
-                  assert grid._struct_cache["root"] is root_struct_value
-                  assert grid._guarantee_cache["root"] is root_guarantee_value
-                  assert outer_rule not in grid.rules
-                  assert grid._trail_state.entries == []
-                  assert not grid._trail_state.marks
-
-
-              def test_nested_candidate_tokens_restore_outer_first_touch_state():
-                  grid = Grid(2)
-                  possible = grid._candidates[0]
-
-                  outer = grid.trail_mark()
-                  possible.discard(1)
-                  outer_entries = len(grid._trail_state.entries)
-
-                  inner = grid.trail_mark()
-                  possible.discard(2)
-                  assert len(grid._trail_state.entries) == outer_entries + 1
-                  grid.trail_undo(inner)
-
-                  possible.add(1)
-                  assert len(grid._trail_state.entries) == outer_entries
-                  grid.trail_undo(outer)
-
-                  assert possible == {1, 2}
-                  assert possible._snapshot_token == 0
-          ''')
-          test_path.write_text(tests, encoding="utf-8")
+          if old not in text:
+              raise SystemExit("Per-branch guarantee snapshot marker was not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
 
-      - name: Install and validate cache-preserving trails
+      - name: Install and validate sibling snapshot reuse
         shell: bash
         run: |
           set -euo pipefail
@@ -454,16 +92,13 @@ jobs:
             -m "not slow" \
             -k "not test_parallel_trials_match_sequential"
 
-      - name: Commit cache-preserving trails to master
+      - name: Commit sibling snapshot reuse to master
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "senegrom"
           git config user.email "6349874+senegrom@users.noreply.github.com"
-          git add \
-            gridsolver/abstract_grids/trail.py \
-            gridsolver/abstract_grids/grid.py \
-            tests/test_trail.py
+          git add gridsolver/solver/solver.py
           git diff --cached --check
-          git commit -m "Preserve parent caches across trail scopes"
+          git commit -m "Reuse guarantee snapshot across sibling branches"
           git push origin HEAD:master
