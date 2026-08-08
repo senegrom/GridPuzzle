@@ -55,6 +55,7 @@ jobs:
           tests/test_cli_and_loading.py
           tests/test_hardening.py
           tests/test_regressions.py
+          tests/test_solver_api.py
           tests/test_basic.py
           tests/test_scale.py
           -m "not slow"
@@ -122,3 +123,4 @@ jobs:
           tests/test_cli_and_loading.py
           tests/test_hardening.py
           tests/test_regressions.py
+          tests/test_solver_api.py
