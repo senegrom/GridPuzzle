@@ -158,14 +158,26 @@ def _solve_full(
                     f"== {trial} with {len(solutions)} previous solutions",
                 )
 
-            clone = grid.deepcopy()
-            if use_guarantee:
-                clone[trial] = guarantee.val
-            else:
-                clone[test_cell] = trial
+            # Reuse the current grid for every branch. The journal restores
+            # candidates, known values, rules, guarantees and branch-local memos.
+            mark = grid.trail_mark()
+            checked_guarantees = set(grid.guarantees)
+            try:
+                if use_guarantee:
+                    grid[trial] = guarantee.val
+                else:
+                    grid[test_cell] = trial
 
-            remaining = -1 if max_sols == -1 else max_sols - len(solutions)
-            branch_solutions = _solve_full(clone, steps, remaining, grid.guarantees)
+                remaining = -1 if max_sols == -1 else max_sols - len(solutions)
+                branch_solutions = _solve_full(
+                    grid,
+                    steps,
+                    remaining,
+                    checked_guarantees,
+                )
+            finally:
+                grid.trail_undo(mark)
+
             steps[depth - 1] += 1
             solutions.update(branch_solutions)
 

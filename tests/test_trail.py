@@ -8,6 +8,8 @@ from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
+from gridsolver.solver import solver
+from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.propagation import propagate_basic
 from gridsolver.solver.solve_nishio import nishio
 
@@ -143,3 +145,27 @@ def test_nishio_uses_trail_instead_of_deepcopy(monkeypatch):
     assert len(grid.rules) == 1
     assert not grid.rules_ia
     assert grid._trail_state.entries == []
+
+
+def test_recursive_search_uses_trail_instead_of_deepcopy(monkeypatch):
+    grid = Grid(1, 2, max_elem=2)
+    before = _state(grid)
+    steps: list[int] = []
+
+    def fail_deepcopy(self):
+        raise AssertionError("recursive search must not deepcopy branch grids")
+
+    monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
+    monkeypatch.setattr(
+        AtomicSolver,
+        "_solve_power_actions",
+        lambda self: iter(()),
+    )
+
+    solutions = solver._solve_full(grid, steps, 3, set())
+
+    assert len(solutions) == 3
+    assert _state(grid) == before
+    assert steps == []
+    assert grid._trail_state.entries == []
+    assert not grid._trail_state.marks
