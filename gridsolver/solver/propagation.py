@@ -1,5 +1,6 @@
 from array import ArrayType
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import Guarantee, InvalidGrid, Rule, RuleAlwaysSatisfied
@@ -7,6 +8,48 @@ from gridsolver.solver.solve_guarantees import filter_guarantees
 
 
 type PropagationSnapshot = tuple[bytes, int, int, int]
+
+
+@dataclass(slots=True)
+class BranchConsensus:
+    """Aggregate deductions shared by every observed valid branch."""
+
+    branch_count: int = 0
+    common_known: list[int] = field(default_factory=list)
+    candidate_union: list[set[int]] = field(default_factory=list)
+
+    def observe(self, grid: Grid) -> None:
+        """Merge one valid branch without retaining its full grid state."""
+        if self.branch_count == 0:
+            self.common_known.extend(grid._known)
+            self.candidate_union.extend(
+                set(possible) for possible in grid._candidates
+            )
+        else:
+            for cell, value in enumerate(grid._known):
+                if self.common_known[cell] != value:
+                    self.common_known[cell] = 0
+            for seen, possible in zip(
+                self.candidate_union,
+                grid._candidates,
+            ):
+                seen.update(possible)
+        self.branch_count += 1
+
+    def forced_value(self, cell: int) -> int:
+        if self.branch_count == 0:
+            return 0
+        return self.common_known[cell]
+
+    def common_eliminations(
+        self,
+        cell: int,
+        possible: set[int],
+    ) -> set[int]:
+        if self.branch_count == 0:
+            return set()
+        return possible - self.candidate_union[cell]
+
 
 _NO_GUARANTEES: tuple[Guarantee, ...] = ()
 

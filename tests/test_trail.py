@@ -1,16 +1,20 @@
+import ast
 import pickle
+from pathlib import Path
 
 import pytest
 
-from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.trail import TrailedSet
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
+from gridsolver.solver import solve_forcing_chain as forcing_chain_module
+from gridsolver.solver import solve_forcing_net as forcing_net_module
 from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
-from gridsolver.solver.propagation import propagate_basic
+from gridsolver.solver.propagation import BranchConsensus, propagate_basic
 from gridsolver.solver.solve_nishio import nishio
 
 
@@ -169,3 +173,117 @@ def test_recursive_search_uses_trail_instead_of_deepcopy(monkeypatch):
     assert steps == []
     assert grid._trail_state.entries == []
     assert not grid._trail_state.marks
+
+
+
+def test_branch_consensus_preserves_candidates_seen_in_any_valid_branch():
+    grid = Grid(1, 2, max_elem=2)
+    consensus = BranchConsensus()
+
+    for removed in (2, 1):
+        mark = grid.trail_mark()
+        grid._candidates[1].discard(removed)
+        consensus.observe(grid)
+        grid.trail_undo(mark)
+
+    assert consensus.branch_count == 2
+    assert consensus.forced_value(1) == 0
+    assert consensus.common_eliminations(1, grid._candidates[1]) == set()
+    assert grid._candidates[1] == {1, 2}
+
+
+def test_forcing_chain_uses_trail_and_merges_valid_branches(monkeypatch):
+    grid = Grid(1, 2, max_elem=2)
+
+    def fail_deepcopy(self):
+        raise AssertionError("forcing chain must not deepcopy branch grids")
+
+    def fake_propagation(branch: Grid) -> SolveStatus:
+        branch[1] = 2
+        return SolveStatus.NONE
+
+    monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
+    monkeypatch.setattr(
+        forcing_chain_module,
+        "_propagate_with_techniques",
+        fake_propagation,
+    )
+
+    forcing_chain_module.forcing_chain(grid)
+
+    assert tuple(grid._known) == (0, 0)
+    assert grid._candidates[0] == {1, 2}
+    assert grid._candidates[1] == {2}
+    assert grid.has_been_filled is False
+    assert grid._trail_state.entries == []
+    assert not grid._trail_state.marks
+    assert not forcing_chain_module._in_forcing_chain
+
+
+def test_forcing_net_uses_trail_and_merges_valid_branches(monkeypatch):
+    grid = Grid(1, 3, max_elem=2)
+
+    def fail_deepcopy(self):
+        raise AssertionError("forcing net must not deepcopy branch grids")
+
+    def fake_propagation(branch: Grid) -> SolveStatus:
+        branch[2] = 1
+        return SolveStatus.NONE
+
+    monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
+    monkeypatch.setattr(
+        forcing_net_module,
+        "propagate_basic",
+        fake_propagation,
+    )
+
+    forcing_net_module.forcing_net(grid)
+
+    assert tuple(grid._known) == (0, 0, 0)
+    assert grid._candidates[0] == {1, 2}
+    assert grid._candidates[1] == {1, 2}
+    assert grid._candidates[2] == {1}
+    assert grid.has_been_filled is False
+    assert grid._trail_state.entries == []
+    assert not grid._trail_state.marks
+
+
+def test_solver_and_rules_do_not_bypass_known_value_journal():
+    root = Path(__file__).resolve().parents[1] / "gridsolver"
+    violations: list[str] = []
+
+    for directory in (root / "rules", root / "solver"):
+        for path in directory.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                elif isinstance(
+                    node,
+                    (ast.AnnAssign, ast.AugAssign, ast.NamedExpr),
+                ):
+                    targets = [node.target]
+                elif isinstance(node, ast.Delete):
+                    targets = node.targets
+                else:
+                    continue
+
+                for target in targets:
+                    for part in ast.walk(target):
+                        if not isinstance(part, ast.Subscript):
+                            continue
+                        owner = part.value
+                        bypasses_journal = (
+                            isinstance(owner, ast.Name) and owner.id == "known"
+                        ) or (
+                            isinstance(owner, ast.Attribute)
+                            and owner.attr == "_known"
+                        )
+                        if bypasses_journal:
+                            relative = path.relative_to(root.parent)
+                            violations.append(f"{relative}:{part.lineno}")
+
+    assert not violations, (
+        "Known values must be changed through Grid.__setitem__ so trail "
+        f"rollback can journal them; direct writes: {violations}"
+    )

@@ -4,7 +4,7 @@ from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.logger import CoordToString
-from gridsolver.solver.propagation import propagate_basic
+from gridsolver.solver.propagation import BranchConsensus, propagate_basic
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -27,9 +27,10 @@ def forcing_net(grid: Grid) -> None:
         return
 
     pairs_tried = 0
-    for first_index in range(min(len(small_cells), 12)):
+    upper_bound = min(len(small_cells), 12)
+    for first_index in range(upper_bound):
         _, cell_a = small_cells[first_index]
-        for second_index in range(first_index + 1, min(len(small_cells), 12)):
+        for second_index in range(first_index + 1, upper_bound):
             _, cell_b = small_cells[second_index]
             values_a = sorted(candidates[cell_a])
             values_b = sorted(candidates[cell_b])
@@ -41,61 +42,65 @@ def forcing_net(grid: Grid) -> None:
             if pairs_tried > 30:
                 return
 
-            valid_clones: list[Grid] = []
+            valid_pairs: list[tuple[int, int]] = []
+            consensus = BranchConsensus()
             for value_a, value_b in itertools.product(values_a, values_b):
-                clone = grid.deepcopy()
+                mark = grid.trail_mark()
+                status = SolveStatus.INVALID
                 try:
-                    clone[cell_a] = value_a
-                    clone[cell_b] = value_b
-                    status = propagate_basic(clone)
-                except InvalidGrid:
-                    status = SolveStatus.INVALID
-                if status is not SolveStatus.INVALID:
-                    valid_clones.append(clone)
+                    try:
+                        grid[cell_a] = value_a
+                        grid[cell_b] = value_b
+                        status = propagate_basic(grid)
+                    except InvalidGrid:
+                        status = SolveStatus.INVALID
+                    if status is not SolveStatus.INVALID:
+                        valid_pairs.append((value_a, value_b))
+                        consensus.observe(grid)
+                finally:
+                    grid.trail_undo(mark)
 
-            if not valid_clones:
+            if not valid_pairs:
                 candidates[cell_a].clear()
                 raise InvalidGrid()
 
             made_progress = False
 
-            # Every valid branch fixes the same value.
             for cell in range(grid.len):
                 if cell in (cell_a, cell_b) or known[cell] > 0:
                     continue
-                forced = valid_clones[0]._known[cell]
-                if forced > 0 and all(clone._known[cell] == forced for clone in valid_clones[1:]):
-                    _lg.on and _lg.logr(
-                        "ForcingNet",
-                        f"all {len(valid_clones)} branches force {coord(cell)}={forced} "
-                        f"from net {coord(cell_a)}+{coord(cell_b)}",
-                        coord(cell),
-                    )
-                    candidates[cell].intersection_update((forced,))
-                    made_progress = True
-
-            # Every valid branch removes the same candidate.
-            for cell in range(grid.len):
-                if cell in (cell_a, cell_b) or known[cell] > 0 or len(candidates[cell]) <= 1:
+                forced_value = consensus.forced_value(cell)
+                if forced_value <= 0:
                     continue
-                common_eliminations: set[int] | None = None
-                for clone in valid_clones:
-                    eliminated = candidates[cell] - clone._candidates[cell]
-                    if common_eliminations is None:
-                        common_eliminations = eliminated
-                    else:
-                        common_eliminations &= eliminated
-                    if not common_eliminations:
-                        break
+                _lg.on and _lg.logr(
+                    "ForcingNet",
+                    f"all {consensus.branch_count} branches force "
+                    f"{coord(cell)}={forced_value} from net "
+                    f"{coord(cell_a)}+{coord(cell_b)}",
+                    coord(cell),
+                )
+                candidates[cell].intersection_update((forced_value,))
+                if not candidates[cell]:
+                    raise InvalidGrid()
+                made_progress = True
 
-                for value in common_eliminations or ():
-                    if value not in candidates[cell]:
-                        continue
+            for cell in range(grid.len):
+                if (
+                    cell in (cell_a, cell_b)
+                    or known[cell] > 0
+                    or len(candidates[cell]) <= 1
+                ):
+                    continue
+                common_eliminations = consensus.common_eliminations(
+                    cell,
+                    candidates[cell],
+                )
+                for value in sorted(common_eliminations):
                     _lg.on and _lg.logr(
                         "ForcingNet",
                         f"{value} removed from {coord(cell)} "
-                        f"(all {len(valid_clones)} branches of "
-                        f"net {coord(cell_a)}+{coord(cell_b)})",
+                        f"(all {consensus.branch_count} branches of net "
+                        f"{coord(cell_a)}+{coord(cell_b)})",
                         coord(cell),
                     )
                     candidates[cell].discard(value)
@@ -103,24 +108,25 @@ def forcing_net(grid: Grid) -> None:
                         raise InvalidGrid()
                     made_progress = True
 
-            # A tested value that appears in no valid pair is contradicted.
-            for cell, values, other_cell in (
-                (cell_a, values_a, cell_b),
-                (cell_b, values_b, cell_a),
+            valid_a = {value_a for value_a, _ in valid_pairs}
+            valid_b = {value_b for _, value_b in valid_pairs}
+            for cell, values, other_cell, valid_values in (
+                (cell_a, values_a, cell_b, valid_a),
+                (cell_b, values_b, cell_a, valid_b),
             ):
                 for value in values:
-                    if value not in candidates[cell]:
+                    if value not in candidates[cell] or value in valid_values:
                         continue
-                    if all(clone._known[cell] != value for clone in valid_clones):
-                        _lg.on and _lg.logr(
-                            "ForcingNet",
-                            f"{value} removed (contradicts with all values of {coord(other_cell)})",
-                            coord(cell),
-                        )
-                        candidates[cell].discard(value)
-                        if not candidates[cell]:
-                            raise InvalidGrid()
-                        made_progress = True
+                    _lg.on and _lg.logr(
+                        "ForcingNet",
+                        f"{value} removed (contradicts with all values of "
+                        f"{coord(other_cell)})",
+                        coord(cell),
+                    )
+                    candidates[cell].discard(value)
+                    if not candidates[cell]:
+                        raise InvalidGrid()
+                    made_progress = True
 
             if made_progress:
                 return
