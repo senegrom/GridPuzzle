@@ -21,3 +21,19 @@ Earlier isolated measurements also showed each group independently
 improving both cases, so the combined result is not a single-run
 scheduling artefact. These optimizations do not alter the technique
 hierarchy, branching policy, solution cap, or depth-gate defaults.
+
+
+## Second-stage runtime cleanup
+
+Two further isolated candidates were measured against the optimized
+baseline above, still with `depth_gate=None` and identical solution
+fingerprints:
+
+| Change | Blank 4x4 | Non-square 6x6 |
+|---|---:|---:|
+| Make timing/counters opt-in; skip singleton no-op journaling | 50.087 → 49.388 s (1.4%) | 23.362 → 23.212 s (0.6%) |
+| Cache guarantee grouping/sorting during filtering | 47.004 → 46.434 s (1.2%) | 22.650 → 22.371 s (1.2%) |
+
+The measurements were run independently to attribute each gain. Both
+changes preserve the full technique hierarchy and default branching
+behavior; depth gating remains disabled unless explicitly requested.

@@ -128,13 +128,19 @@ configuration is explicit through `set_colouring`.
 
 ### Performance notes
 
-- **Per-technique tries/hits/time:** `atomic_solver.POWER_TRIES`,
-  `POWER_HITS`, and `lg.time_stats` are reported by
-  `tests/technique_stats_harness.py`. June 2026 corpus measurements found
-  fish(4), finned-fish(3), fish(3), and hidden-tuples(7) had zero hits in
-  roughly 900–1400 tries while consuming most forcing-chain branch time.
-  Excluding them from inner branches made the corpus 6.6x faster with
-  identical solutions and hit profiles.
+- **Per-technique diagnostics are opt-in.** Normal solves do not update
+  `POWER_TRIES`, `POWER_HITS`, or `lg.time_stats`. Call
+  `atomic_solver.reset_power_stats()` to clear and enable collection in
+  the current context; call `disable_power_stats()` afterwards. The
+  technique-statistics harness does this explicitly. June 2026 corpus
+  measurements found fish(4), finned-fish(3), fish(3), and
+  hidden-tuples(7) had zero hits in roughly 900–1400 tries while consuming
+  most forcing-chain branch time. Excluding them from inner branches made
+  the corpus 6.6x faster with identical solutions and hit profiles.
+- **Guarantee filtering caches its value groups.** Grouping and sorting
+  depend only on the live guarantee set, so repeated propagation passes
+  reuse the guarantee-only cache until a guarantee is added, narrowed, or
+  deactivated. Trail rollback restores the parent cache reference.
 - **Fish dominates profiling** on 9x9 grids. Value-first iteration and the
   inlined size-2 fast path help; on 16x16 and larger grids,
   group-combination growth is the bottleneck.

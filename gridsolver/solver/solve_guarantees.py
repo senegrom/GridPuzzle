@@ -6,34 +6,47 @@ from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
 
+def _guarantees_by_value(grid: Grid) -> dict[int, tuple[Guarantee, ...]]:
+    """Return live guarantees grouped and size-sorted for filtering."""
+    grouped: dict[int, list[Guarantee]] = {}
+    for guarantee in grid.guarantees:
+        grouped.setdefault(guarantee.val, []).append(guarantee)
+    return {
+        value: tuple(
+            sorted(
+                per_value,
+                key=lambda guarantee: len(guarantee.cells),
+            )
+        )
+        for value, per_value in grouped.items()
+    }
+
+
 # noinspection PyProtectedMember
 def filter_guarantees(grid: Grid) -> None:
-    # remove duplicates - group by value, sort by cell count for efficient subset checks
-    gt_dic: dict[int, list[Guarantee]] = {}
-    for gt in grid.guarantees:
-        gt_dic.setdefault(gt.val, []).append(gt)
+    # Grouping and sorting depend only on the live guarantee set.
+    # Reuse the guarantee-only cache until that set changes.
+    grouped = grid.cached_guarantee_struct(
+        "filter_guarantees_by_value",
+        lambda: _guarantees_by_value(grid),
+    )
 
-    for val, gts in gt_dic.items():
-        if len(gts) < 2:
+    to_deactivate: set[Guarantee] = set()
+    for per_value in grouped.values():
+        if len(per_value) < 2:
             continue
-        gts.sort(key=lambda g: len(g.cells))
-        to_deactivate = []
-        for i, gt1 in enumerate(gts):
-            if gt1 not in grid.guarantees:
-                continue
-            for gt2 in gts[i + 1:]:
-                if gt2 not in grid.guarantees:
-                    continue
-                if gt1.cells <= gt2.cells:
-                    to_deactivate.append(gt2)
-        for gt in to_deactivate:
-            if gt in grid.guarantees:
-                grid.deactivate_gtee(gt)
-    del gt_dic
+        for index, smaller in enumerate(per_value):
+            for larger in per_value[index + 1:]:
+                if smaller.cells <= larger.cells:
+                    to_deactivate.add(larger)
 
-    for gt in list(grid.guarantees):
-        if gt in grid.guarantees:
-            update_from_guarantee(grid, gt)
+    for guarantee in to_deactivate:
+        if guarantee in grid.guarantees:
+            grid.deactivate_gtee(guarantee)
+
+    for guarantee in tuple(grid.guarantees):
+        if guarantee in grid.guarantees:
+            update_from_guarantee(grid, guarantee)
 
 
 # noinspection PyProtectedMember

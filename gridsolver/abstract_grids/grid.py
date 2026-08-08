@@ -138,8 +138,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._known[index] = value
         # An assignment outside the current candidate set intentionally empties
         # the set, making the trial branch invalid without corrupting the value
-        # domain stored in _known.
-        self._candidates[index].intersection_update((value,))
+        # domain stored in _known. Avoid journaling a no-op when a singleton
+        # candidate is merely promoted to a known value.
+        possible = self._candidates[index]
+        if len(possible) != 1 or value not in possible:
+            possible.intersection_update((value,))
 
     def __eq__(self, other: object) -> bool:
         if type(other) is not type(self):

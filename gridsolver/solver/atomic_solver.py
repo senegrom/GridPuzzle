@@ -1,5 +1,6 @@
 from collections import Counter
 from collections.abc import Callable, Iterator
+from contextvars import ContextVar
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import Guarantee, InvalidGrid
@@ -40,15 +41,29 @@ POWER_TRIES: Counter[str] = Counter()
 POWER_HITS: Counter[str] = Counter()
 POWER_ELIMS: Counter[str] = Counter()
 POWER_RULE_CHANGES: Counter[str] = Counter()
+_POWER_STATS_ENABLED: ContextVar[bool] = ContextVar(
+    "gridpuzzle_power_stats_enabled",
+    default=False,
+)
 
+
+def power_stats_enabled() -> bool:
+    return _POWER_STATS_ENABLED.get()
 
 
 def reset_power_stats() -> None:
+    """Clear and enable optional diagnostics in this context."""
     POWER_TRIES.clear()
     POWER_HITS.clear()
     POWER_ELIMS.clear()
     POWER_RULE_CHANGES.clear()
     _lg.time_stats.clear()
+    _POWER_STATS_ENABLED.set(True)
+
+
+def disable_power_stats() -> None:
+    """Disable diagnostics for subsequently constructed solvers."""
+    _POWER_STATS_ENABLED.set(False)
 
 
 def power_stats_table() -> str:
@@ -82,6 +97,8 @@ class AtomicSolver:
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
         self.depth_gate = depth_gate
+        self.collect_stats = power_stats_enabled()
+        self.collect_timing = self.collect_stats or _lg.on
 
     def solve_atomic(self) -> SolveStatus:
         _lg.logs(_MAX_LVL, "Solving rule-based")
@@ -92,7 +109,10 @@ class AtomicSolver:
         while self.grid.is_valid:
             before = self._state_snapshot()
             try:
-                with _lg.time_ctxt("update_step"):
+                if self.collect_timing:
+                    with _lg.time_ctxt("update_step"):
+                        self._update_step()
+                else:
                     self._update_step()
             except InvalidGrid:
                 invalid = True
@@ -113,15 +133,20 @@ class AtomicSolver:
             step_type = "basic"
             try:
                 for step_type in self._solve_power_actions():
-                    POWER_TRIES[step_type] += 1
+                    if self.collect_stats:
+                        POWER_TRIES[step_type] += 1
                     after_action = self._state_snapshot()
                     if after_action == after_basic:
                         continue
 
-                    POWER_HITS[step_type] += 1
-                    POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])
-                    if after_basic[2:] != after_action[2:]:
-                        POWER_RULE_CHANGES[step_type] += 1
+                    if self.collect_stats:
+                        POWER_HITS[step_type] += 1
+                        POWER_ELIMS[step_type] += max(
+                            0,
+                            after_basic[1] - after_action[1],
+                        )
+                        if after_basic[2:] != after_action[2:]:
+                            POWER_RULE_CHANGES[step_type] += 1
                     _update_known_from_candidates(
                         self.grid.__setitem__,
                         self.grid._candidates,
@@ -158,26 +183,36 @@ class AtomicSolver:
         return propagation_snapshot(self.grid)
 
     def _update_step(self) -> None:
-        _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
-        with _lg.time_ctxt("update_from_rules"):
+        _update_known_from_candidates(
+            self.grid.__setitem__,
+            self.grid._candidates,
+            self.grid._known,
+        )
+        if self.collect_timing:
+            with _lg.time_ctxt("update_from_rules"):
+                self._update_from_rules()
+            with _lg.time_ctxt("filter_guarantees"):
+                filter_guarantees(self.grid)
+        else:
             self._update_from_rules()
-        with _lg.time_ctxt("filter_guarantees"):
             filter_guarantees(self.grid)
 
     def _update_from_rules(self) -> None:
         _apply_rules(self.grid)
 
     def _act(self, label: str, action: Callable[[], None]) -> str:
-        """Run one power action and account for contradiction hits."""
-        with _lg.time_ctxt(label):
-            try:
+        """Run one power action and optionally account for diagnostics."""
+        try:
+            if self.collect_timing:
+                with _lg.time_ctxt(label):
+                    action()
+            else:
                 action()
-            except InvalidGrid:
-                # The generator raises before the consumer sees a label, so a
-                # contradiction must be counted here.
+        except InvalidGrid:
+            if self.collect_stats:
                 POWER_TRIES[label] += 1
                 POWER_HITS[label] += 1
-                raise
+            raise
         return label
 
     def _hidden_tuples(self, n: int) -> None:
