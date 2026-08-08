@@ -1,5 +1,6 @@
+import numbers
 from abc import ABC
-from collections.abc import Iterable, MutableSequence
+from collections.abc import Iterable, MutableSequence, Sequence
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import (
@@ -69,9 +70,46 @@ class SingleRelationRule(Rule, ABC):
         if not related:
             raise ValueError(f"{type(self).__name__} requires at least one related cell")
 
+        # Relation-rule callers commonly describe a complete neighbourhood
+        # around every origin cell.  At grid edges that naturally includes
+        # coordinates outside the grid, which are absent relations rather than
+        # malformed rules.  Clip only syntactically valid, same-form related
+        # cells that are out of bounds; leave malformed or mixed-form values in
+        # place so Rule.__init__ still rejects them.  The origin itself remains
+        # subject to strict validation below.
+        origin_is_index = isinstance(origin_cell, numbers.Integral) and not isinstance(
+            origin_cell, bool
+        )
+        cell_count = gsz.rows * gsz.cols
+        clipped_related: list[IdxType] = []
+        for related_cell in related:
+            if origin_is_index:
+                same_form = isinstance(
+                    related_cell, numbers.Integral
+                ) and not isinstance(related_cell, bool)
+                outside = same_form and not 0 <= int(related_cell) < cell_count
+            else:
+                same_form = (
+                    not isinstance(related_cell, (str, bytes, bytearray))
+                    and isinstance(related_cell, Sequence)
+                    and len(related_cell) == 2
+                    and all(
+                        isinstance(value, numbers.Integral)
+                        and not isinstance(value, bool)
+                        for value in related_cell
+                    )
+                )
+                if same_form:
+                    row, col = map(int, related_cell)
+                    outside = not (0 <= row < gsz.rows and 0 <= col < gsz.cols)
+                else:
+                    outside = False
+            if not outside:
+                clipped_related.append(related_cell)
+
         # Preserve the distinguished origin while canonicalising the related
         # set, so equivalent input orders hash and compare identically.
-        super().__init__(gsz, [origin_cell, *related], None)
+        super().__init__(gsz, [origin_cell, *clipped_related], None)
         if len(self.cells) < 2:
             raise ValueError(
                 f"{type(self).__name__} has no related cells inside the grid"

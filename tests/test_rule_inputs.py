@@ -7,6 +7,7 @@ from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce, SumRule
+from gridsolver.rules.uneq import DiffGe2Rule, UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 
 
@@ -46,6 +47,66 @@ def test_arithmetic_rule_does_not_silently_weaken_an_invalid_cage():
         not isinstance(rule, SumRule)
         for rule in grid.rules
     )
+
+
+@pytest.mark.parametrize("rule_cls", [UneqRule, DiffGe2Rule])
+@pytest.mark.parametrize(
+    "origin_cell, related_cells",
+    [
+        ((0, 0), [(-1, 0), (0, -1), (0, 1), (1, 0)]),
+        (0, [-1, 4, 1, 2]),
+    ],
+)
+def test_relation_rule_clips_outside_related_neighbours(
+    rule_cls,
+    origin_cell,
+    related_cells,
+):
+    grid = Grid(2)
+
+    rule = rule_cls(
+        grid,
+        origin_cell=origin_cell,
+        rel_cells=related_cells,
+    )
+
+    assert rule.origin_cell == 0
+    assert rule.rel_cells == frozenset({1, 2})
+    assert rule.cells == (0, 1, 2)
+
+
+@pytest.mark.parametrize("rule_cls", [UneqRule, DiffGe2Rule])
+def test_relation_rule_still_rejects_an_outside_origin(rule_cls):
+    grid = Grid(2)
+
+    with pytest.raises(ValueError, match="outside a 2x2 grid"):
+        rule_cls(grid, origin_cell=(-1, 0), rel_cells=[(0, 0)])
+
+
+@pytest.mark.parametrize("rule_cls", [UneqRule, DiffGe2Rule])
+def test_relation_rule_rejects_a_neighbourhood_entirely_outside_grid(rule_cls):
+    grid = Grid(2)
+
+    with pytest.raises(ValueError, match="no related cells inside the grid"):
+        rule_cls(
+            grid,
+            origin_cell=(0, 0),
+            rel_cells=[(-1, 0), (0, -1)],
+        )
+
+
+@pytest.mark.parametrize("rule_cls", [UneqRule, DiffGe2Rule])
+def test_relation_rule_does_not_clip_malformed_or_mixed_related_cells(rule_cls):
+    grid = Grid(2)
+
+    with pytest.raises(TypeError, match="Invalid rule coordinate"):
+        rule_cls(
+            grid,
+            origin_cell=(0, 0),
+            rel_cells=[(-1, 0), "not-a-coordinate"],
+        )
+    with pytest.raises(TypeError, match="must not mix integer and coordinate forms"):
+        rule_cls(grid, origin_cell=0, rel_cells=[4, (0, 1)])
 
 
 def test_bulk_rule_extension_is_atomic_when_a_later_rule_is_invalid():
