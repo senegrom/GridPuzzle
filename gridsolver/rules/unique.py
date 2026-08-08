@@ -6,6 +6,7 @@ from gridsolver.rules.rules import Guarantee, IdxType, InvalidGrid, Rule, RuleAl
 
 
 class ElementsAtMostOnce(Rule):
+    __slots__ = ()
     uses_guarantees = True  # _update_from_guarantees (and SaEAMO's cage filter)
 
     def __init__(
@@ -85,6 +86,8 @@ class ElementsAtMostOnce(Rule):
 
 
 class ElementsAtLeastOnce(Rule):
+    __slots__ = ()
+
     def __init__(
         self,
         gsz: GridSizeContainer,

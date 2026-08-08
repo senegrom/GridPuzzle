@@ -6,6 +6,7 @@ from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import Guarantee
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.solver_log import lg as _lg
+from gridsolver.solver.validation import validate_solutions
 
 
 GC_LEN_PARAM = 22
@@ -60,6 +61,11 @@ def solve(
         solutions = _solve_top_parallel(grid.deepcopy(), max_sols, processes)
     else:
         solutions = _solve_full(grid.deepcopy(), [], max_sols, set())
+
+    # Check every generated solution before capping the returned subset. This
+    # turns any future unsound deduction into an immediate, local failure rather
+    # than allowing a plausible-looking invalid grid to escape the solver.
+    validate_solutions(grid, solutions)
     solutions = _cap_solutions(solutions, max_sols)
 
     for index, solution in enumerate(sorted(solutions, key=_solution_key)):

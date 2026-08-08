@@ -1,159 +1,217 @@
 from abc import ABC
-from typing import Tuple, Set, Iterable, MutableSequence, FrozenSet
+from array import array
+from collections.abc import Iterable, MutableSequence
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
-from gridsolver.rules.rules import Rule, RuleAlwaysSatisfied, Guarantee, InvalidGrid, IdxType, _format_coord
+from gridsolver.rules.rules import (
+    Guarantee,
+    IdxType,
+    InvalidGrid,
+    Rule,
+    RuleAlwaysSatisfied,
+    _format_coord,
+)
 
 
 class IneqRule(Rule):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', '_lt_cell', '_gt_cell')
+    __slots__ = ("_lt_cell", "_gt_cell")
 
-    def __init__(self, gsz: GridSizeContainer, gt_cell: IdxType, lt_cell: IdxType):
+    def __init__(self, gsz: GridSizeContainer, gt_cell: IdxType, lt_cell: IdxType) -> None:
         super().__init__(gsz, [gt_cell, lt_cell], None)
         self._gt_cell, self._lt_cell = self.cells
 
-    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        plt = candidates[self._lt_cell]
-        pgt = candidates[self._gt_cell]
-        # plt must be < max(pgt); remove values >= max(pgt)
-        pgt_max = max(pgt) if pgt else 0
-        if plt and max(plt) >= pgt_max:
-            plt.difference_update([v for v in plt if v >= pgt_max])
-        # pgt must be > min(plt); remove values <= min(plt)
-        plt_min = min(plt) if plt else self._max_elem
-        if pgt and min(pgt) <= plt_min:
-            pgt.difference_update([v for v in pgt if v <= plt_min])
-        if not plt or not pgt:
+    def apply(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+        guarantees: Iterable[Guarantee] | None = None,
+    ) -> tuple[bool, None, None]:
+        possible_lt = candidates[self._lt_cell]
+        possible_gt = candidates[self._gt_cell]
+
+        # lt must be below some gt candidate; gt must be above some lt candidate.
+        gt_max = max(possible_gt) if possible_gt else 0
+        if possible_lt and max(possible_lt) >= gt_max:
+            possible_lt.difference_update(
+                tuple(value for value in possible_lt if value >= gt_max)
+            )
+
+        lt_min = min(possible_lt) if possible_lt else self._max_elem
+        if possible_gt and min(possible_gt) <= lt_min:
+            possible_gt.difference_update(
+                tuple(value for value in possible_gt if value <= lt_min)
+            )
+
+        if not possible_lt or not possible_gt:
             raise InvalidGrid()
         if known[self._gt_cell] > 0 and 0 < known[self._lt_cell] < known[self._gt_cell]:
             raise RuleAlwaysSatisfied()
         return False, None, None
 
     @property
-    def gt_cell(self):
+    def gt_cell(self) -> int:
         return self._gt_cell
 
     @property
-    def lt_cell(self):
+    def lt_cell(self) -> int:
         return self._lt_cell
 
 
 class SingleRelationRule(Rule, ABC):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'origin_cell', 'rel_cells')
+    __slots__ = ("origin_cell", "rel_cells")
 
-    def __init__(self, gsz: GridSizeContainer, origin_cell: IdxType,
-                 rel_cells: Iterable[IdxType]):
-        rel_cells = list(rel_cells)
-        super().__init__(gsz, [origin_cell] + sorted(rel_cells), None)
-        self.origin_cell: int = self.cells[0]
-        self.rel_cells: FrozenSet[int] = frozenset(self.cells[1:])
+    def __init__(
+        self,
+        gsz: GridSizeContainer,
+        origin_cell: IdxType,
+        rel_cells: Iterable[IdxType],
+    ) -> None:
+        related = list(rel_cells)
+        if not related:
+            raise ValueError(f"{type(self).__name__} requires at least one related cell")
 
-    def __repr__(self):
-        cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.rel_cells)
-        return f"{type(self).__name__}[{_format_coord(self.origin_cell, self._rows)}: {cell_str}]"
+        # Preserve the distinguished origin while canonicalising the related
+        # set, so equivalent input orders hash and compare identically.
+        super().__init__(gsz, [origin_cell, *related], None)
+        if len(self.cells) < 2:
+            raise ValueError(
+                f"{type(self).__name__} has no related cells inside the grid"
+            )
+        self.origin_cell = self.cells[0]
+        self.rel_cells = frozenset(self.cells[1:])
+        self.cells = array("I", [self.origin_cell, *sorted(self.rel_cells)])
+
+    def __repr__(self) -> str:
+        cell_str = ", ".join(_format_coord(cell, self._rows) for cell in self.rel_cells)
+        return (
+            f"{type(self).__name__}["
+            f"{_format_coord(self.origin_cell, self._rows)}: {cell_str}]"
+        )
 
 
 class UneqRule(SingleRelationRule):
+    __slots__ = ()
     uses_guarantees = True
 
-    def __init__(self, gsz: GridSizeContainer, origin_cell: IdxType,
-                 rel_cells: Iterable[IdxType]):
-        super().__init__(gsz, origin_cell, rel_cells)
+    def apply(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+        guarantees: Iterable[Guarantee] | None = None,
+    ) -> tuple[bool, None, None]:
+        guarantees = () if guarantees is None else guarantees
+        origin_known = known[self.origin_cell]
 
-    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        k = known[self.origin_cell]
-
-        if k > 0:
-            p: Set[int]
-            for p in (candidates[cell] for cell in self.rel_cells):
-                p.discard(k)
-                if not p:
+        if origin_known > 0:
+            for possible in (candidates[cell] for cell in self.rel_cells):
+                possible.discard(origin_known)
+                if not possible:
                     raise InvalidGrid()
 
-        por: Set[int] = candidates[self.origin_cell]
-        removed_values = set()
-        for kre in (known[cell] for cell in self.rel_cells):
-            if kre > 0 and kre not in removed_values:
-                por.discard(kre)
-                removed_values.add(kre)
-                if not por:
+        origin_candidates = candidates[self.origin_cell]
+        removed_values: set[int] = set()
+        for related_known in (known[cell] for cell in self.rel_cells):
+            if related_known > 0 and related_known not in removed_values:
+                origin_candidates.discard(related_known)
+                removed_values.add(related_known)
+                if not origin_candidates:
                     raise InvalidGrid()
 
-        interesting_gts = [gt for gt in guarantees if
-                           gt.val not in removed_values and
-                           gt.val in por and
-                           self.rel_cells >= gt.cells]
+        interesting_guarantees = (
+            guarantee
+            for guarantee in guarantees
+            if guarantee.val not in removed_values
+            and guarantee.val in origin_candidates
+            and self.rel_cells >= guarantee.cells
+        )
+        for guarantee in interesting_guarantees:
+            origin_candidates.discard(guarantee.val)
+            removed_values.add(guarantee.val)
+            if not origin_candidates:
+                raise InvalidGrid()
 
-        for gt in interesting_gts:
-            if gt.val not in removed_values:
-                por.discard(gt.val)
-                removed_values.add(gt.val)
-                if not por:
-                    raise InvalidGrid()
-
-        if k > 0 and all(0 < known[cell] != k for cell in self.rel_cells):
+        if origin_known > 0 and all(
+            0 < known[cell] != origin_known for cell in self.rel_cells
+        ):
             raise RuleAlwaysSatisfied()
         return False, None, None
 
 
 class DiffGe2Rule(SingleRelationRule):
+    __slots__ = ()
     uses_guarantees = True
 
-    def __init__(self, gsz: GridSizeContainer, origin_cell: IdxType, rel_cells: Iterable[IdxType]):
-        SingleRelationRule.__init__(self, gsz, origin_cell, rel_cells)
-
-    def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
-        k = known[self.origin_cell]
-        por = candidates[self.origin_cell]
-        if not por:
+    def apply(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+        guarantees: Iterable[Guarantee] | None = None,
+    ) -> tuple[bool, None, None]:
+        guarantees = () if guarantees is None else guarantees
+        origin_known = known[self.origin_cell]
+        origin_candidates = candidates[self.origin_cell]
+        if not origin_candidates:
             raise InvalidGrid()
 
-        def get_diff_set(kx, px):
-            if kx > 0:
-                return {kx - 1, kx, kx + 1}
-            elif max(px) == min(px) + 2:
-                return {min(px) + 1}
-            elif max(px) == min(px) + 1:
-                return {min(px), min(px) + 1}
-            else:
-                return None
+        def forbidden_nearby(value: int, possible: set[int]) -> set[int] | None:
+            if value > 0:
+                return {value - 1, value, value + 1}
+            if max(possible) == min(possible) + 2:
+                return {min(possible) + 1}
+            if max(possible) == min(possible) + 1:
+                return {min(possible), min(possible) + 1}
+            return None
 
-        kk = get_diff_set(k, por)
-        if kk:
-            for p in (candidates[cell] for cell in self.rel_cells):
-                p -= kk
-                if not p:
+        forbidden = forbidden_nearby(origin_known, origin_candidates)
+        if forbidden:
+            for possible in (candidates[cell] for cell in self.rel_cells):
+                possible -= forbidden
+                if not possible:
                     raise InvalidGrid()
 
-        for kre, pre in ((known[cell], candidates[cell]) for cell in self.rel_cells):
-            if not pre:
+        for related_known, related_candidates in (
+            (known[cell], candidates[cell]) for cell in self.rel_cells
+        ):
+            if not related_candidates:
                 raise InvalidGrid()
-            kk = get_diff_set(kre, pre)
-            if kk:
-                por -= kk
-                if not por:
+            forbidden = forbidden_nearby(related_known, related_candidates)
+            if forbidden:
+                origin_candidates -= forbidden
+                if not origin_candidates:
                     raise InvalidGrid()
 
-        removed_values1 = set()
-        removed_values2 = set()
-
-        rcso = self.rel_cells.union([self.origin_cell])
-        for gt in guarantees:
-            if gt.val not in removed_values1 and self.rel_cells >= gt.cells:
-                por -= {gt.val - 1, gt.val, gt.val + 1}
-                removed_values1.add(gt.val)
-                removed_values2.add(gt.val)
-                if not por:
+        removed_from_relations: set[int] = set()
+        removed_from_origin: set[int] = set()
+        all_cells = self.rel_cells | {self.origin_cell}
+        for guarantee in guarantees:
+            if (
+                guarantee.val not in removed_from_relations
+                and self.rel_cells >= guarantee.cells
+            ):
+                origin_candidates -= {
+                    guarantee.val - 1,
+                    guarantee.val,
+                    guarantee.val + 1,
+                }
+                removed_from_relations.add(guarantee.val)
+                removed_from_origin.add(guarantee.val)
+                if not origin_candidates:
                     raise InvalidGrid()
-            elif gt.val not in removed_values2 and rcso >= gt.cells:
-                por -= {gt.val - 1, gt.val + 1}
-                removed_values2.add(gt.val)
-                if not por:
+            elif (
+                guarantee.val not in removed_from_origin
+                and all_cells >= guarantee.cells
+            ):
+                origin_candidates -= {guarantee.val - 1, guarantee.val + 1}
+                removed_from_origin.add(guarantee.val)
+                if not origin_candidates:
                     raise InvalidGrid()
 
-        if k > 0:
-            forb = {k - 1, k, k + 1}
-            if all(0 < known[cell] and known[cell] not in forb for cell in self.rel_cells):
+        if origin_known > 0:
+            forbidden = {origin_known - 1, origin_known, origin_known + 1}
+            if all(
+                0 < known[cell] and known[cell] not in forbidden
+                for cell in self.rel_cells
+            ):
                 raise RuleAlwaysSatisfied()
 
         return False, None, None
