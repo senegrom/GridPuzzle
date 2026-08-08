@@ -1,4 +1,4 @@
-name: Benchmark trail engine
+name: Add independent randomized solver oracle
 
 on:
   push:
@@ -7,14 +7,14 @@ on:
       - .github/workflows/resume-trail-migration.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: trail-engine-benchmark
+  group: differential-oracle-migration
   cancel-in-progress: false
 
 jobs:
-  benchmark:
+  migrate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -29,120 +29,203 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install runtime dependencies
+      - name: Add independent Sudoku oracle and randomized checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > tests/test_differential.py <<'PY'
+          import logging
+          import random
+          from contextlib import contextmanager
+          from functools import lru_cache
+          from itertools import permutations, product
+
+          from gridsolver.abstract_grids.grid import SolveStatus
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+          from gridsolver.solver.atomic_solver import AtomicSolver
+
+
+          type Solution = tuple[int, ...]
+          type Puzzle = tuple[int, ...]
+
+
+          @lru_cache(maxsize=1)
+          def _sudoku4_solutions() -> tuple[Solution, ...]:
+              """Enumerate 4x4 Sudoku independently of GridPuzzle rules."""
+              row_options = tuple(permutations(range(1, 5)))
+              solutions: list[Solution] = []
+
+              for rows in product(row_options, repeat=4):
+                  if any(
+                      len({rows[row][col] for row in range(4)}) != 4
+                      for col in range(4)
+                  ):
+                      continue
+                  if any(
+                      len(
+                          {
+                              rows[row][col]
+                              for row in range(box_row, box_row + 2)
+                              for col in range(box_col, box_col + 2)
+                          }
+                      )
+                      != 4
+                      for box_row in (0, 2)
+                      for box_col in (0, 2)
+                  ):
+                      continue
+
+                  # Grid stores cells column-major; the oracle generates rows.
+                  solutions.append(
+                      tuple(rows[row][col] for col in range(4) for row in range(4))
+                  )
+
+              return tuple(sorted(solutions))
+
+
+          def _matching_solutions(puzzle: Puzzle) -> frozenset[Solution]:
+              return frozenset(
+                  solution
+                  for solution in _sudoku4_solutions()
+                  if all(
+                      clue == 0 or solution[cell] == clue
+                      for cell, clue in enumerate(puzzle)
+                  )
+              )
+
+
+          @lru_cache(maxsize=1)
+          def _differential_cases() -> tuple[tuple[Puzzle, frozenset[Solution]], ...]:
+              rng = random.Random(0x20260808)
+              solutions = _sudoku4_solutions()
+              cases: list[tuple[Puzzle, frozenset[Solution]]] = []
+              seen: set[Puzzle] = set()
+
+              attempts = 0
+              while len(cases) < 16 and attempts < 10_000:
+                  attempts += 1
+                  source = rng.choice(solutions)
+                  clue_count = rng.randint(6, 11)
+                  clue_cells = set(rng.sample(range(16), clue_count))
+                  puzzle = tuple(
+                      source[cell] if cell in clue_cells else 0
+                      for cell in range(16)
+                  )
+                  if puzzle in seen:
+                      continue
+                  expected = _matching_solutions(puzzle)
+                  if not 1 <= len(expected) <= 12:
+                      continue
+                  seen.add(puzzle)
+                  cases.append((puzzle, expected))
+
+              if len(cases) != 16:
+                  raise AssertionError("Could not construct bounded differential cases")
+
+              # Contradictions in a row, a column, and a box respectively.
+              for first, second, value in ((0, 4, 1), (0, 1, 2), (0, 5, 3)):
+                  invalid = [0] * 16
+                  invalid[first] = value
+                  invalid[second] = value
+                  puzzle = tuple(invalid)
+                  expected = _matching_solutions(puzzle)
+                  if expected:
+                      raise AssertionError("Invalid oracle fixture unexpectedly has solutions")
+                  cases.append((puzzle, expected))
+
+              return tuple(cases)
+
+
+          def _load(puzzle: Puzzle) -> Sudoku:
+              grid = Sudoku(2, 2, 2, 2)
+              grid.load(puzzle, row_wise=False)
+              return grid
+
+
+          @contextmanager
+          def _quiet_solver_logs():
+              previous = logging.root.manager.disable
+              logging.disable(10_000)
+              try:
+                  yield
+              finally:
+                  logging.disable(previous)
+
+
+          def test_independent_sudoku4_oracle_has_known_cardinality():
+              assert len(_sudoku4_solutions()) == 288
+
+
+          def test_random_sudoku4_solution_sets_match_independent_oracle():
+              with _quiet_solver_logs():
+                  for puzzle, expected in _differential_cases():
+                      actual = {
+                          tuple(solution)
+                          for solution in solver.solve(_load(puzzle), log_level=0)
+                      }
+                      assert actual == expected, f"puzzle={puzzle}"
+
+
+          def test_atomic_deductions_preserve_every_oracle_completion():
+              with _quiet_solver_logs():
+                  for puzzle, expected in _differential_cases():
+                      if not expected:
+                          continue
+
+                      grid = _load(puzzle)
+                      status = AtomicSolver(grid, [], set()).solve_atomic()
+                      assert status is not SolveStatus.INVALID, f"puzzle={puzzle}"
+
+                      for cell in range(grid.len):
+                          oracle_values = {
+                              solution[cell]
+                              for solution in expected
+                          }
+                          assert oracle_values <= grid._candidates[cell], (
+                              f"cell={cell}, puzzle={puzzle}, "
+                              f"lost={oracle_values - grid._candidates[cell]}"
+                          )
+                          known = grid._known[cell]
+                          if known > 0:
+                              assert oracle_values == {known}, (
+                                  f"unsound known {known} at cell={cell}, puzzle={puzzle}"
+                              )
+
+                      if status is SolveStatus.SOLVED:
+                          assert tuple(grid._known) in expected
+          PY
+
+      - name: Install and run differential validation
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q tests/test_differential.py
+          python -X dev -m pytest -q \
+            tests/test_cli_and_loading.py \
+            tests/test_hardening.py \
+            tests/test_regressions.py \
+            tests/test_solution_validation.py \
+            tests/test_solver_api.py \
+            tests/test_trail.py \
+            tests/test_differential.py \
+            tests/test_rule_metadata.py \
+            tests/test_basic.py \
+            tests/test_scale.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential"
 
-      - name: Compare pre-trail baseline with current engine
+      - name: Commit differential validation to master
         shell: bash
         run: |
           set -euo pipefail
-          git worktree add --detach /tmp/pre-trail 01aac27c2b3648c8455f6351eed9176436521e54
-
-          cat > /tmp/trail_benchmark.py <<'PY'
-          import gc
-          import json
-          import logging
-          import resource
-          import statistics
-          import sys
-          import time
-
-          from gridsolver.abstract_grids.grid_loading import create_from_str_and_class
-          from gridsolver.grid_classes.sudoku import Sudoku
-          from gridsolver.solver import solver
-
-
-          logging.disable(10_000)
-
-
-          def make_blank4():
-              return Sudoku(2, 2, 2, 2), -1, 288
-
-
-          def make_nonsquare6():
-              grid = Sudoku(3, 2, 2, 3)
-              grid.load(
-                  "123456654321........................",
-                  row_wise=False,
-              )
-              return grid, 20, 20
-
-
-          def make_hard9():
-              grid = create_from_str_and_class(
-                  "...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...",
-                  Sudoku,
-              )
-              return grid, -1, 1
-
-
-          CASES = {
-              "blank4_all": (make_blank4, 1),
-              "nonsquare6_cap20": (make_nonsquare6, 1),
-              "hard9_single": (make_hard9, 5),
-          }
-
-
-          def main() -> None:
-              case = sys.argv[1]
-              factory, repetitions = CASES[case]
-              durations = []
-              counts = []
-              for _ in range(repetitions):
-                  grid, max_sols, expected = factory()
-                  gc.collect()
-                  started = time.perf_counter()
-                  solutions = solver.solve(
-                      grid,
-                      max_sols=max_sols,
-                      processes=0,
-                  )
-                  durations.append(time.perf_counter() - started)
-                  counts.append(len(solutions))
-                  if len(solutions) != expected:
-                      raise SystemExit(
-                          f"{case}: expected {expected} solutions, got {len(solutions)}"
-                      )
-
-              print(
-                  json.dumps(
-                      {
-                          "case": case,
-                          "repetitions": repetitions,
-                          "seconds": durations,
-                          "median_seconds": statistics.median(durations),
-                          "solution_counts": counts,
-                          "max_rss_kib": resource.getrusage(
-                              resource.RUSAGE_SELF
-                          ).ru_maxrss,
-                      },
-                      sort_keys=True,
-                  )
-              )
-
-
-          if __name__ == "__main__":
-              main()
-          PY
-
-          run_case() {
-            local label="$1"
-            local directory="$2"
-            local case="$3"
-            echo "BENCHMARK ${label} ${case}"
-            (
-              cd "${directory}"
-              PYTHONHASHSEED=0 PYTHONPATH="${directory}" \
-                python /tmp/trail_benchmark.py "${case}"
-            )
-          }
-
-          for case in hard9_single blank4_all nonsquare6_cap20; do
-            run_case baseline /tmp/pre-trail "${case}"
-            run_case current "$GITHUB_WORKSPACE" "${case}"
-          done
+          git config user.name "senegrom"
+          git config user.email "6349874+senegrom@users.noreply.github.com"
+          git add tests/test_differential.py
+          git diff --cached --check
+          git commit -m "Add independent randomized Sudoku oracle"
+          git push origin HEAD:master
