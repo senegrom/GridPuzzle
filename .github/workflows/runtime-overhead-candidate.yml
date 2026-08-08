@@ -41,236 +41,248 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(
+                      f"{path}: expected one marker, found {text.count(old)}"
+                  )
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_between(
+              path: Path,
+              start_marker: str,
+              end_marker: str,
+              replacement: str,
+          ) -> None:
+              text = path.read_text(encoding="utf-8")
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              path.write_text(
+                  text[:start] + replacement + text[end:],
+                  encoding="utf-8",
+              )
 
           atomic = Path("gridsolver/solver/atomic_solver.py")
-          text = atomic.read_text(encoding="utf-8")
+          replace_once(
+              atomic,
+              "from collections.abc import Callable, Iterator\n",
+              (
+                  "from collections.abc import Callable, Iterator\n"
+                  "from contextvars import ContextVar\n"
+              ),
+          )
 
-          old = "from collections.abc import Callable, Iterator\n"
-          new = "from collections.abc import Callable, Iterator\nfrom contextvars import ContextVar\n"
-          if text.count(old) != 1:
-              raise SystemExit("atomic import marker changed")
-          text = text.replace(old, new, 1)
-
-          old = '''POWER_RULE_CHANGES: Counter[str] = Counter()
-
-
-
-def reset_power_stats() -> None:
-    POWER_TRIES.clear()
-    POWER_HITS.clear()
-    POWER_ELIMS.clear()
-    POWER_RULE_CHANGES.clear()
-    _lg.time_stats.clear()
-'''
-          new = '''POWER_RULE_CHANGES: Counter[str] = Counter()
-_POWER_STATS_ENABLED: ContextVar[bool] = ContextVar(
-    "gridpuzzle_power_stats_enabled",
-    default=False,
-)
+          replace_between(
+              atomic,
+              "POWER_RULE_CHANGES: Counter[str] = Counter()\n",
+              "def power_stats_table() -> str:\n",
+              dedent('''
+                  POWER_RULE_CHANGES: Counter[str] = Counter()
+                  _POWER_STATS_ENABLED: ContextVar[bool] = ContextVar(
+                      "gridpuzzle_power_stats_enabled",
+                      default=False,
+                  )
 
 
-def power_stats_enabled() -> bool:
-    return _POWER_STATS_ENABLED.get()
+                  def power_stats_enabled() -> bool:
+                      return _POWER_STATS_ENABLED.get()
 
 
-def reset_power_stats() -> None:
-    """Clear and enable optional per-technique diagnostics in this context."""
-    POWER_TRIES.clear()
-    POWER_HITS.clear()
-    POWER_ELIMS.clear()
-    POWER_RULE_CHANGES.clear()
-    _lg.time_stats.clear()
-    _POWER_STATS_ENABLED.set(True)
+                  def reset_power_stats() -> None:
+                      """Clear and enable optional diagnostics in this context."""
+                      POWER_TRIES.clear()
+                      POWER_HITS.clear()
+                      POWER_ELIMS.clear()
+                      POWER_RULE_CHANGES.clear()
+                      _lg.time_stats.clear()
+                      _POWER_STATS_ENABLED.set(True)
 
 
-def disable_power_stats() -> None:
-    """Disable diagnostic counters for subsequently constructed solvers."""
-    _POWER_STATS_ENABLED.set(False)
-'''
-          if text.count(old) != 1:
-              raise SystemExit("power-stat block marker changed")
-          text = text.replace(old, new, 1)
+                  def disable_power_stats() -> None:
+                      """Disable diagnostics for subsequently constructed solvers."""
+                      _POWER_STATS_ENABLED.set(False)
 
-          old = '''        self.hidden_pair_checked_gts = hidden_pair_checked_gts
-        self.depth_gate = depth_gate
-'''
-          new = '''        self.hidden_pair_checked_gts = hidden_pair_checked_gts
-        self.depth_gate = depth_gate
-        self.collect_stats = power_stats_enabled()
-        self.collect_timing = self.collect_stats or _lg.on
-'''
-          if text.count(old) != 1:
-              raise SystemExit("AtomicSolver initializer marker changed")
-          text = text.replace(old, new, 1)
 
-          old = '''            try:
-                with _lg.time_ctxt("update_step"):
-                    self._update_step()
-            except InvalidGrid:
-'''
-          new = '''            try:
-                if self.collect_timing:
-                    with _lg.time_ctxt("update_step"):
-                        self._update_step()
-                else:
-                    self._update_step()
-            except InvalidGrid:
-'''
-          if text.count(old) != 1:
-              raise SystemExit("update-step timing marker changed")
-          text = text.replace(old, new, 1)
+              ''').lstrip(),
+          )
 
-          old = '''                for step_type in self._solve_power_actions():
-                    POWER_TRIES[step_type] += 1
-                    after_action = self._state_snapshot()
-                    if after_action == after_basic:
-                        continue
+          replace_once(
+              atomic,
+              dedent('''
+                          self.hidden_pair_checked_gts = hidden_pair_checked_gts
+                          self.depth_gate = depth_gate
+              '''),
+              dedent('''
+                          self.hidden_pair_checked_gts = hidden_pair_checked_gts
+                          self.depth_gate = depth_gate
+                          self.collect_stats = power_stats_enabled()
+                          self.collect_timing = self.collect_stats or _lg.on
+              '''),
+          )
 
-                    POWER_HITS[step_type] += 1
-                    POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])
-                    if after_basic[2:] != after_action[2:]:
-                        POWER_RULE_CHANGES[step_type] += 1
-'''
-          new = '''                for step_type in self._solve_power_actions():
-                    if self.collect_stats:
-                        POWER_TRIES[step_type] += 1
-                    after_action = self._state_snapshot()
-                    if after_action == after_basic:
-                        continue
+          replace_once(
+              atomic,
+              dedent('''
+                          try:
+                              with _lg.time_ctxt("update_step"):
+                                  self._update_step()
+                          except InvalidGrid:
+              '''),
+              dedent('''
+                          try:
+                              if self.collect_timing:
+                                  with _lg.time_ctxt("update_step"):
+                                      self._update_step()
+                              else:
+                                  self._update_step()
+                          except InvalidGrid:
+              '''),
+          )
 
-                    if self.collect_stats:
-                        POWER_HITS[step_type] += 1
-                        POWER_ELIMS[step_type] += max(
-                            0,
-                            after_basic[1] - after_action[1],
-                        )
-                        if after_basic[2:] != after_action[2:]:
-                            POWER_RULE_CHANGES[step_type] += 1
-'''
-          if text.count(old) != 1:
-              raise SystemExit("power-stat update marker changed")
-          text = text.replace(old, new, 1)
+          replace_once(
+              atomic,
+              dedent('''
+                              for step_type in self._solve_power_actions():
+                                  POWER_TRIES[step_type] += 1
+                                  after_action = self._state_snapshot()
+                                  if after_action == after_basic:
+                                      continue
 
-          old = '''    def _update_step(self) -> None:
-        _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
-        with _lg.time_ctxt("update_from_rules"):
-            self._update_from_rules()
-        with _lg.time_ctxt("filter_guarantees"):
-            filter_guarantees(self.grid)
-'''
-          new = '''    def _update_step(self) -> None:
-        _update_known_from_candidates(
-            self.grid.__setitem__,
-            self.grid._candidates,
-            self.grid._known,
-        )
-        if self.collect_timing:
-            with _lg.time_ctxt("update_from_rules"):
-                self._update_from_rules()
-            with _lg.time_ctxt("filter_guarantees"):
-                filter_guarantees(self.grid)
-        else:
-            self._update_from_rules()
-            filter_guarantees(self.grid)
-'''
-          if text.count(old) != 1:
-              raise SystemExit("nested timing marker changed")
-          text = text.replace(old, new, 1)
+                                  POWER_HITS[step_type] += 1
+                                  POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])
+                                  if after_basic[2:] != after_action[2:]:
+                                      POWER_RULE_CHANGES[step_type] += 1
+              '''),
+              dedent('''
+                              for step_type in self._solve_power_actions():
+                                  if self.collect_stats:
+                                      POWER_TRIES[step_type] += 1
+                                  after_action = self._state_snapshot()
+                                  if after_action == after_basic:
+                                      continue
 
-          old = '''    def _act(self, label: str, action: Callable[[], None]) -> str:
-        """Run one power action and account for contradiction hits."""
-        with _lg.time_ctxt(label):
-            try:
-                action()
-            except InvalidGrid:
-                # The generator raises before the consumer sees a label, so a
-                # contradiction must be counted here.
-                POWER_TRIES[label] += 1
-                POWER_HITS[label] += 1
-                raise
-        return label
-'''
-          new = '''    def _act(self, label: str, action: Callable[[], None]) -> str:
-        """Run one power action and optionally account for diagnostics."""
-        try:
-            if self.collect_timing:
-                with _lg.time_ctxt(label):
-                    action()
-            else:
-                action()
-        except InvalidGrid:
-            # The generator raises before the consumer sees a label, so a
-            # contradiction must be counted here when diagnostics are active.
-            if self.collect_stats:
-                POWER_TRIES[label] += 1
-                POWER_HITS[label] += 1
-            raise
-        return label
-'''
-          if text.count(old) != 1:
-              raise SystemExit("_act marker changed")
-          atomic.write_text(text.replace(old, new, 1), encoding="utf-8")
+                                  if self.collect_stats:
+                                      POWER_HITS[step_type] += 1
+                                      POWER_ELIMS[step_type] += max(
+                                          0,
+                                          after_basic[1] - after_action[1],
+                                      )
+                                      if after_basic[2:] != after_action[2:]:
+                                          POWER_RULE_CHANGES[step_type] += 1
+              '''),
+          )
+
+          replace_between(
+              atomic,
+              "    def _update_step(self) -> None:\n",
+              "    def _update_from_rules(self) -> None:\n",
+              dedent('''
+                      def _update_step(self) -> None:
+                          _update_known_from_candidates(
+                              self.grid.__setitem__,
+                              self.grid._candidates,
+                              self.grid._known,
+                          )
+                          if self.collect_timing:
+                              with _lg.time_ctxt("update_from_rules"):
+                                  self._update_from_rules()
+                              with _lg.time_ctxt("filter_guarantees"):
+                                  filter_guarantees(self.grid)
+                          else:
+                              self._update_from_rules()
+                              filter_guarantees(self.grid)
+
+              ''').replace("\n", "\n    ").rstrip() + "\n\n",
+          )
+
+          replace_between(
+              atomic,
+              "    def _act(self, label: str, action: Callable[[], None]) -> str:\n",
+              "    def _hidden_tuples(self, n: int) -> None:\n",
+              dedent('''
+                      def _act(self, label: str, action: Callable[[], None]) -> str:
+                          """Run one power action and optionally account for diagnostics."""
+                          try:
+                              if self.collect_timing:
+                                  with _lg.time_ctxt(label):
+                                      action()
+                              else:
+                                  action()
+                          except InvalidGrid:
+                              if self.collect_stats:
+                                  POWER_TRIES[label] += 1
+                                  POWER_HITS[label] += 1
+                              raise
+                          return label
+
+              ''').replace("\n", "\n    ").rstrip() + "\n\n",
+          )
 
           grid = Path("gridsolver/abstract_grids/grid.py")
-          text = grid.read_text(encoding="utf-8")
-          old = '''        self._known[index] = value
-        # An assignment outside the current candidate set intentionally empties
-        # the set, making the trial branch invalid without corrupting the value
-        # domain stored in _known.
-        self._candidates[index].intersection_update((value,))
-'''
-          new = '''        self._known[index] = value
-        # An assignment outside the current candidate set intentionally empties
-        # the set, making the trial branch invalid without corrupting the value
-        # domain stored in _known. Avoid a no-op TrailedSet mutation when a
-        # singleton candidate is merely promoted to a known value.
-        possible = self._candidates[index]
-        if len(possible) != 1 or value not in possible:
-            possible.intersection_update((value,))
-'''
-          if text.count(old) != 1:
-              raise SystemExit("candidate synchronization marker changed")
-          grid.write_text(text.replace(old, new, 1), encoding="utf-8")
+          replace_once(
+              grid,
+              dedent('''
+                      self._known[index] = value
+                      # An assignment outside the current candidate set intentionally empties
+                      # the set, making the trial branch invalid without corrupting the value
+                      # domain stored in _known.
+                      self._candidates[index].intersection_update((value,))
+              '''),
+              dedent('''
+                      self._known[index] = value
+                      # An assignment outside the current candidate set intentionally empties
+                      # the set, making the trial branch invalid without corrupting the value
+                      # domain stored in _known. Avoid journaling a no-op when a singleton
+                      # candidate is merely promoted to a known value.
+                      possible = self._candidates[index]
+                      if len(possible) != 1 or value not in possible:
+                          possible.intersection_update((value,))
+              '''),
+          )
 
           Path("tests/test_runtime_overhead.py").write_text(
-              '''from gridsolver.abstract_grids.grid import Grid
-from gridsolver.grid_classes.sudoku import Sudoku
-from gridsolver.solver import atomic_solver, solver
-from gridsolver.solver.solver_log import lg
+              dedent('''
+                  from gridsolver.abstract_grids.grid import Grid
+                  from gridsolver.grid_classes.sudoku import Sudoku
+                  from gridsolver.solver import atomic_solver, solver
+                  from gridsolver.solver.solver_log import lg
 
 
-def test_singleton_assignment_does_not_journal_a_noop_candidate_change():
-    grid = Grid(1, 1, max_elem=2)
-    grid.get_candidates(0).intersection_update({1})
-    mark = grid.trail_mark()
+                  def test_singleton_assignment_does_not_journal_noop_candidate_change():
+                      grid = Grid(1, 1, max_elem=2)
+                      grid.get_candidates(0).intersection_update({1})
+                      mark = grid.trail_mark()
 
-    grid[0] = 1
+                      grid[0] = 1
 
-    assert [entry[0] for entry in grid._trail_state.entries] == ["known"]
-    grid.trail_undo(mark)
-    assert grid[0] == 0
-    assert grid.get_candidates(0) == {1}
+                      assert [entry[0] for entry in grid._trail_state.entries] == ["known"]
+                      grid.trail_undo(mark)
+                      assert grid[0] == 0
+                      assert grid.get_candidates(0) == {1}
 
 
-def test_power_statistics_are_opt_in():
-    atomic_solver.reset_power_stats()
-    atomic_solver.disable_power_stats()
-    assert not atomic_solver.power_stats_enabled()
+                  def test_power_statistics_are_opt_in():
+                      atomic_solver.reset_power_stats()
+                      atomic_solver.disable_power_stats()
+                      assert not atomic_solver.power_stats_enabled()
 
-    before_tries = atomic_solver.POWER_TRIES.copy()
-    before_times = lg.time_stats.copy()
-    solver.solve(Sudoku(2, 2, 2, 2), log_level=0, max_sols=1)
-    assert atomic_solver.POWER_TRIES == before_tries
-    assert lg.time_stats == before_times
+                      before_tries = atomic_solver.POWER_TRIES.copy()
+                      before_times = lg.time_stats.copy()
+                      solver.solve(Sudoku(2, 2, 2, 2), log_level=0, max_sols=1)
+                      assert atomic_solver.POWER_TRIES == before_tries
+                      assert lg.time_stats == before_times
 
-    try:
-        atomic_solver.reset_power_stats()
-        solver.solve(Sudoku(2, 2, 2, 2), log_level=0, max_sols=1)
-        assert atomic_solver.POWER_TRIES
-        assert lg.time_stats
-    finally:
-        atomic_solver.disable_power_stats()
-''',
+                      try:
+                          atomic_solver.reset_power_stats()
+                          solver.solve(Sudoku(2, 2, 2, 2), log_level=0, max_sols=1)
+                          assert atomic_solver.POWER_TRIES
+                          assert lg.time_stats
+                      finally:
+                          atomic_solver.disable_power_stats()
+              ''').lstrip(),
               encoding="utf-8",
           )
           PY
