@@ -61,9 +61,7 @@ jobs:
           -k "not test_parallel_trials_match_sequential"
 
       - name: Run guarantee-consumer metadata guard
-        run: >-
-          python -X dev -m pytest -q
-          tests/test_basic.py::test_uses_guarantees_flag_matches_apply_bodies
+        run: python -X dev -m pytest -q tests/test_rule_metadata.py
 
   examples:
     name: Python 3.14 / Representative examples
