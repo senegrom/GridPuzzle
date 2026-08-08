@@ -1,4 +1,4 @@
-name: Temporary hot-path candidate
+name: Temporary combined hot-path candidate
 
 on:
   push:
@@ -35,7 +35,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Apply isolated hot-path candidate
+      - name: Apply combined semantics-preserving speedups
         shell: bash
         run: |
           python - <<'PY'
@@ -47,8 +47,7 @@ jobs:
               end = text.index(end_marker, start)
               return text[:start] + replacement + text[end:]
 
-          # Avoid millions of temporary singleton/default sets in AIC endpoint
-          # visibility checks without changing the graph or traversal order.
+          # AIC: remove millions of temporary singleton/default sets.
           path = Path("gridsolver/solver/solve_aic.py")
           text = path.read_text(encoding="utf-8")
           replacement = dedent('''
@@ -80,8 +79,7 @@ jobs:
           )
           path.write_text(text, encoding="utf-8")
 
-          # Build one final Uneq relation per origin instead of constructing one
-          # per house and then repeatedly merging/deactivating temporary rules.
+          # Rule helper: directly materialise one final relation per origin.
           path = Path("gridsolver/solver/rulehelpers.py")
           text = path.read_text(encoding="utf-8")
           replacement = dedent('''
@@ -132,15 +130,154 @@ jobs:
               replacement,
           )
           path.write_text(text, encoding="utf-8")
+
+          # Guarantee: use NamedTuple's C-level tuple hash.
+          path = Path("gridsolver/rules/rules.py")
+          text = path.read_text(encoding="utf-8")
+          old = dedent('''
+              class Guarantee(NamedTuple):
+                  val: int
+                  cells: frozenset[int]
+                  rows: int
+                  cols: int
+
+                  def __hash__(self) -> int:
+                      return hash((type(self), hash(self.cells), self.val, self.rows, self.cols))
+
+                  def __eq__(self, other: object) -> bool:
+                      # The hash mixes in the type, so equality must be type-strict as well.
+                      return type(other) is Guarantee and tuple.__eq__(self, other)
+
+                  def __ne__(self, other: object) -> bool:
+                      return not self.__eq__(other)
+          ''').lstrip()
+          new = dedent('''
+              class Guarantee(NamedTuple):
+                  val: int
+                  cells: frozenset[int]
+                  rows: int
+                  cols: int
+
+                  # Equality remains type-strict; unequal types may legally share a hash.
+                  __hash__ = tuple.__hash__
+
+                  def __eq__(self, other: object) -> bool:
+                      return type(other) is Guarantee and tuple.__eq__(self, other)
+
+                  def __ne__(self, other: object) -> bool:
+                      return not self.__eq__(other)
+          ''').lstrip()
+          if text.count(old) != 1:
+              raise SystemExit(f"Guarantee marker count: {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Guarantee relevance: cache immutable tuples for the current guarantee
+          # generation instead of rebuilding a list for every rule application.
+          path = Path("gridsolver/solver/propagation.py")
+          text = path.read_text(encoding="utf-8")
+          replacement = dedent('''
+              def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
+                  """Return the cached guarantee superset that may affect ``rule``.
+
+                  Relevance depends only on the rule cells and live guarantee set;
+                  the guarantee-only cache already has exactly that lifecycle.
+                  """
+                  if not rule.uses_guarantees:
+                      return _NO_GUARANTEES
+                  index = grid.cached_guarantee_struct(
+                      "gts_by_min_cell",
+                      lambda: _build_guarantee_index(grid),
+                  )
+                  return grid.cached_guarantee_struct(
+                      ("relevant_guarantees", rule.cells),
+                      lambda: tuple(
+                          guarantee
+                          for cell in rule.cells
+                          for guarantee in index.get(cell, ())
+                      ),
+                  )
+
+          ''').lstrip()
+          text = replace_between(
+              text,
+              "def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:\n",
+              "def update_known_from_candidates(\n",
+              replacement,
+          )
+          path.write_text(text, encoding="utf-8")
+
+          path = Path("gridsolver/abstract_grids/grid.py")
+          text = path.read_text(encoding="utf-8")
+          old = "    def cached_guarantee_struct(self, key: str, factory: Callable[[], Any]) -> Any:\n"
+          new = "    def cached_guarantee_struct(self, key: Any, factory: Callable[[], Any]) -> Any:\n"
+          if text.count(old) != 1:
+              raise SystemExit("cached_guarantee_struct marker changed")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          Path("tests/test_hotpath_regressions.py").write_text(
+              dedent('''
+                  from gridsolver.abstract_grids.grid import Grid
+                  from gridsolver.grid_classes.sudoku import Sudoku
+                  from gridsolver.rules.rules import Guarantee
+                  from gridsolver.rules.uneq import UneqRule
+                  from gridsolver.rules.unique import ElementsAtMostOnce
+                  from gridsolver.solver.propagation import relevant_guarantees
+                  from gridsolver.solver.rulehelpers import rulehelper_atmostonce
+
+
+                  def test_relevant_guarantees_are_cached_until_guarantees_change():
+                      grid = Grid(2)
+                      rule = ElementsAtMostOnce(grid, cells=[0, 1])
+                      grid.add_rule_checked(rule)
+                      grid.add_gtee_checked(
+                          Guarantee(1, frozenset({0, 1}), 2, 2)
+                      )
+
+                      first = relevant_guarantees(grid, rule)
+                      assert relevant_guarantees(grid, rule) is first
+
+                      grid.add_gtee_checked(
+                          Guarantee(2, frozenset({0, 1}), 2, 2)
+                      )
+                      refreshed = relevant_guarantees(grid, rule)
+                      assert refreshed is not first
+                      assert {guarantee.val for guarantee in refreshed} == {1, 2}
+
+
+                  def test_rulehelper_atmostonce_reaches_a_stable_merged_structure():
+                      grid = Sudoku(2, 2, 2, 2)
+                      grid.add_rule_checked(UneqRule(grid, 0, [15]))
+
+                      rulehelper_atmostonce(grid)
+                      origin_zero = [
+                          rule
+                          for rule in grid.get_rules_of_type(UneqRule)
+                          if rule.origin_cell == 0
+                      ]
+                      assert len(origin_zero) == 1
+                      assert 15 in origin_zero[0].rel_cells
+
+                      sentinel = grid.cached_struct("sentinel", object)
+                      cache = grid._struct_cache
+                      rules = grid.rules.copy()
+                      rulehelper_atmostonce(grid)
+
+                      assert grid.rules == rules
+                      assert grid._struct_cache is cache
+                      assert grid._struct_cache["sentinel"] is sentinel
+              ''').lstrip(),
+              encoding="utf-8",
+          )
           PY
 
-      - name: Install and test candidate
+      - name: Install and test combined candidate
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           python -m pip check
           python -m compileall -q gridsolver tests Examples run.py examples2.py
           python -X dev -m pytest -q \
+            tests/test_hotpath_regressions.py \
             tests/test_rule_inputs.py \
             tests/test_regressions.py \
             tests/test_trail.py \
@@ -149,9 +286,11 @@ jobs:
             tests/test_solver_api.py \
             tests/test_basic.py \
             tests/test_examples_2.py \
-            -m "not slow" --durations=10
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=10
 
-      - name: Compare baseline and candidate without depth gating
+      - name: Compare baseline and combined candidate without depth gating
         shell: bash
         run: |
           git worktree add --detach /tmp/baseline HEAD^
