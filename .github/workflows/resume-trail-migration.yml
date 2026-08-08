@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: trail-cache-preservation
+  group: trail-cache-preservation-v2
   cancel-in-progress: false
 
 jobs:
@@ -89,9 +89,6 @@ jobs:
                           self._snapshot_token = snapshot_token
 
                       def __reduce__(self):
-                          # Pickle memoization preserves the shared TrailState. The token
-                          # makes active-scope round trips correct as well as the usual
-                          # inactive process-pool payloads.
                           return type(self), (
                               tuple(self),
                               self._trail_state,
@@ -102,7 +99,6 @@ jobs:
                           return repr(set(self))
 
                       def copy(self) -> set[int]:
-                          # Scratch copies must never journal back to the owning grid.
                           return set(self)
 
                       def _journal_snapshot(self) -> None:
@@ -215,27 +211,12 @@ jobs:
 
           grid_path = Path("gridsolver/abstract_grids/grid.py")
           grid = grid_path.read_text(encoding="utf-8")
+          trail_start = grid.find("    def trail_mark(self) -> int:\n")
+          trail_end = grid.find("    @property\n    def is_solved(self) -> bool:\n", trail_start)
+          if trail_start < 0 or trail_end < 0:
+              raise SystemExit("Grid trail method markers were not found")
 
-          old_mark = dedent('''
-                  def trail_mark(self) -> int:
-                      """Start a reversible mutation scope and return its LIFO token."""
-                      state = self._trail_state
-                      state.next_token += 1
-                      token = state.next_token
-                      state.marks.append(
-                          TrailFrame(
-                              token=token,
-                              start=len(state.entries),
-                              filled=self.has_been_filled,
-                          )
-                      )
-                      return token
-          ''')
-          old_mark = "".join(
-              f"    {line}\n" if line else "\n"
-              for line in old_mark.splitlines()
-          )
-          new_mark = dedent('''
+          trail_methods = dedent('''
                   def trail_mark(self) -> int:
                       """Start a reversible mutation scope and return its LIFO token."""
                       state = self._trail_state
@@ -251,62 +232,19 @@ jobs:
                           )
                       )
                       return token
-          ''')
-          new_mark = "".join(
-              f"    {line}\n" if line else "\n"
-              for line in new_mark.splitlines()
-          )
-          if old_mark not in grid:
-              raise SystemExit("Grid trail_mark block was not found")
-          grid = grid.replace(old_mark, new_mark, 1)
 
-          old_undo_loop = dedent('''
-                      structure_changed = False
-                      guarantee_changed = False
-                      for entry in reversed(state.entries[frame.start:]):
-                          tag = entry[0]
-                          if tag == "cand":
-                              _, possible, original = entry
-                              set.clear(possible)
-                              set.update(possible, original)
-                          elif tag == "known":
-                              _, index, old_value = entry
-                              self._known[index] = old_value
-                          elif tag == "rule+":
-                              _, rule = entry
-                              self.rules.discard(rule)
-                              structure_changed = True
-                          elif tag == "rule-":
-                              _, rule = entry
-                              self.rules_ia.discard(rule)
-                              self.rules.add(rule)
-                              structure_changed = True
-                          elif tag == "gt+":
-                              _, guarantee = entry
-                              self.guarantees.discard(guarantee)
-                              structure_changed = True
-                              guarantee_changed = True
-                          elif tag == "gt-":
-                              _, guarantee = entry
-                              self.guarantees_ia.discard(guarantee)
-                              self.guarantees.add(guarantee)
-                              structure_changed = True
-                              guarantee_changed = True
-                          else:
-                              raise RuntimeError(f"Unknown trail entry {tag!r}")
+                  def trail_undo(self, mark: int) -> None:
+                      """Undo every grid mutation in the matching innermost scope."""
+                      if isinstance(mark, bool) or not isinstance(mark, int):
+                          raise TypeError(
+                              "Trail mark must be an integer returned by trail_mark()"
+                          )
 
-                      del state.entries[frame.start:]
-                      self.has_been_filled = frame.filled
-                      if structure_changed:
-                          self._struct_cache.clear()
-                      if guarantee_changed:
-                          self._guarantee_cache.clear()
-          ''')
-          old_undo_loop = "".join(
-              f"    {line}\n" if line else "\n"
-              for line in old_undo_loop.splitlines()
-          )
-          new_undo_loop = dedent('''
+                      state = self._trail_state
+                      if not state.marks or state.marks[-1].token != mark:
+                          raise ValueError("Trail marks must be undone in LIFO order")
+                      frame = state.marks.pop()
+
                       for entry in reversed(state.entries[frame.start:]):
                           tag = entry[0]
                           if tag == "cand":
@@ -338,26 +276,31 @@ jobs:
                       self.has_been_filled = frame.filled
                       self._struct_cache = frame.struct_cache
                       self._guarantee_cache = frame.guarantee_cache
+
+                      # Candidate fingerprints computed in an abandoned branch are stale.
+                      for name, value in vars(self).items():
+                          if name.endswith("_memo") and hasattr(value, "clear"):
+                              value.clear()
+
           ''')
-          new_undo_loop = "".join(
+          trail_methods = "".join(
               f"    {line}\n" if line else "\n"
-              for line in new_undo_loop.splitlines()
+              for line in trail_methods.splitlines()
           )
-          if old_undo_loop not in grid:
-              raise SystemExit("Grid trail_undo rollback block was not found")
-          grid = grid.replace(old_undo_loop, new_undo_loop, 1)
+          grid = grid[:trail_start] + trail_methods + grid[trail_end:]
 
-          start_marker = "    def add_rule_checked(self, rule: Rule) -> None:\n"
-          end_marker = "    def cached_struct(self, key: str, factory: Callable[[], Any]) -> Any:\n"
-          start = grid.find(start_marker)
-          end = grid.find(end_marker, start)
-          if start < 0 or end < 0:
-              raise SystemExit("Grid mutation/cache block was not found")
+          mutation_start = grid.find("    def add_rule_checked(self, rule: Rule) -> None:\n")
+          mutation_end = grid.find(
+              "    def cached_struct(self, key: str, factory: Callable[[], Any]) -> Any:\n",
+              mutation_start,
+          )
+          if mutation_start < 0 or mutation_end < 0:
+              raise SystemExit("Grid mutation/cache markers were not found")
 
-          mutation_block = dedent('''
+          mutation_methods = dedent('''
                   def _invalidate_struct_cache(self) -> None:
                       # A trail frame owns the parent cache object. Branch invalidation
-                      # therefore swaps in a fresh dictionary instead of destroying it.
+                      # swaps in a new dictionary instead of destroying that object.
                       if self._trail_state.active:
                           self._struct_cache = {}
                       else:
@@ -403,12 +346,12 @@ jobs:
                       self._invalidate_guarantee_cache()
 
           ''')
-          mutation_block = "".join(
+          mutation_methods = "".join(
               f"    {line}\n" if line else "\n"
-              for line in mutation_block.splitlines()
+              for line in mutation_methods.splitlines()
           )
           grid_path.write_text(
-              grid[:start] + mutation_block + grid[end:],
+              grid[:mutation_start] + mutation_methods + grid[mutation_end:],
               encoding="utf-8",
           )
 
@@ -479,8 +422,6 @@ jobs:
                   assert len(grid._trail_state.entries) == outer_entries + 1
                   grid.trail_undo(inner)
 
-                  # The inner undo restores the outer token, so another outer
-                  # mutation does not create a duplicate outer snapshot.
                   possible.add(1)
                   assert len(grid._trail_state.entries) == outer_entries
                   grid.trail_undo(outer)
