@@ -105,10 +105,13 @@ consensus, Nishio, forcing-net, recursive-search, independent-oracle, and
 sequential/parallel equivalence tests. See `TRAIL_DESIGN.md` for the implemented
 invariants.
 
-**OPEN measurement gate:** establish a stable before/after benchmark record for
-representative single-solution and enumeration-heavy puzzles. Do not claim a
-speedup or change trail representation again without full solution-set
-equivalence and corpus measurements.
+**Measurement gate CLOSED (Aug 2026):** benchmarks/trail_baseline_2026-08-08.md
+records pre-trail d38f9c9 vs trail bb8d7d4 — performance-neutral on
+enumeration (blank 4x4 all-288: 41.0s -> 41.9s; nonsq 6x6 cap-20: 22.2s ->
+21.2s), identical solution sets; the hot-path series repaid the journaling
+overhead and the depth-gate wins ride on the trail foundation. The rule
+stands: do not change trail representation again without full solution-set
+equivalence and fresh corpus measurements.
 
 ## Independent/differential validation — BASELINE DONE; technique work OPEN
 

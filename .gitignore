@@ -135,3 +135,4 @@ dmypy.json
 test.py
 mypuz/
 _test/
+solve*.ipynb
