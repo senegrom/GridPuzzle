@@ -1,4 +1,4 @@
-name: Resume trail rollback migration
+name: Extend trail rollback into recursive search
 
 on:
   push:
@@ -10,11 +10,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: resume-trail-rollback-migration
+  group: recursive-search-trail-migration
   cancel-in-progress: false
 
 jobs:
-  resume:
+  migrate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -29,54 +29,101 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Apply the validated source migration
+      - name: Replace branch deep copies with trail scopes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          workflow = Path(".github/workflows/trail-phase1.yml").read_text(
-              encoding="utf-8"
-          ).splitlines()
-          start_marker = "          python - <<'PY'"
-          end_marker = "          PY"
-          start = workflow.index(start_marker) + 1
-          end = workflow.index(end_marker, start)
-          script = "\n".join(
-              line[10:] if line.startswith("          ") else line
-              for line in workflow[start:end]
-          ) + "\n"
-          Path("/tmp/apply_trail_phase1.py").write_text(script, encoding="utf-8")
-          PY
-          python /tmp/apply_trail_phase1.py
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Expected text not found in {path}: {old[:160]!r}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          # Workflow files must be updated through the connector, because the
-          # Actions token is deliberately denied workflow-write permission.
-          git checkout -- .github/workflows/ci.yml
+          replace_once(
+              "gridsolver/solver/solver.py",
+              '''            clone = grid.deepcopy()
+                  if use_guarantee:
+                      clone[trial] = guarantee.val
+                  else:
+                      clone[test_cell] = trial
 
-          python - <<'PY'
-          from pathlib import Path
+                  remaining = -1 if max_sols == -1 else max_sols - len(solutions)
+                  branch_solutions = _solve_full(clone, steps, remaining, grid.guarantees)
+                  steps[depth - 1] += 1
+                  solutions.update(branch_solutions)
+          '''.replace("\n          ", "\n"),
+              '''            # Reuse the current grid for every branch. The journal restores
+                  # candidates, known values, rules, guarantees and branch-local memos.
+                  mark = grid.trail_mark()
+                  checked_guarantees = set(grid.guarantees)
+                  try:
+                      if use_guarantee:
+                          grid[trial] = guarantee.val
+                      else:
+                          grid[test_cell] = trial
 
-          test_path = Path("tests/test_solution_validation.py")
+                      remaining = -1 if max_sols == -1 else max_sols - len(solutions)
+                      branch_solutions = _solve_full(
+                          grid,
+                          steps,
+                          remaining,
+                          checked_guarantees,
+                      )
+                  finally:
+                      grid.trail_undo(mark)
+
+                  steps[depth - 1] += 1
+                  solutions.update(branch_solutions)
+          '''.replace("\n          ", "\n"),
+          )
+
+          replace_once(
+              "tests/test_trail.py",
+              "from gridsolver.rules.unique import ElementsAtMostOnce\n"
+              "from gridsolver.solver.propagation import propagate_basic\n",
+              "from gridsolver.rules.unique import ElementsAtMostOnce\n"
+              "from gridsolver.solver import solver\n"
+              "from gridsolver.solver.atomic_solver import AtomicSolver\n"
+              "from gridsolver.solver.propagation import propagate_basic\n",
+          )
+
+          test_path = Path("tests/test_trail.py")
           text = test_path.read_text(encoding="utf-8")
-          old = '''    sudoku = Sudoku(2, 2, 2, 2)
-              duplicate_rows = ImmutableGrid([1] * 16, rows=4, cols=4, max_elem=4)
-              with pytest.raises(InvalidSolutionError, match="ElementsAtMostOnce"):
-                  validate_solution(sudoku, duplicate_rows)
+          addition = '''
+
+              def test_recursive_search_uses_trail_instead_of_deepcopy(monkeypatch):
+                  grid = Grid(1, 2, max_elem=2)
+                  before = _state(grid)
+                  steps: list[int] = []
+
+                  def fail_deepcopy(self):
+                      raise AssertionError("recursive search must not deepcopy branch grids")
+
+                  monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
+                  monkeypatch.setattr(
+                      AtomicSolver,
+                      "_solve_power_actions",
+                      lambda self: iter(()),
+                  )
+
+                  solutions = solver._solve_full(grid, steps, 3, set())
+
+                  assert len(solutions) == 3
+                  assert _state(grid) == before
+                  assert steps == []
+                  assert grid._trail_state.entries == []
+                  assert not grid._trail_state.marks
           '''.replace("\n          ", "\n")
-          new = '''    unique = Grid(1, 2, max_elem=2)
-              unique.add_rule_checked(ElementsAtMostOnce(unique, cells=[0, 1]))
-              duplicate_values = ImmutableGrid([1, 1], rows=1, cols=2, max_elem=2)
-              with pytest.raises(InvalidSolutionError, match="ElementsAtMostOnce"):
-                  validate_solution(unique, duplicate_values)
-          '''.replace("\n          ", "\n")
-          if old not in text:
-              raise SystemExit("Expected validation test block was not found")
-          test_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          if "def test_recursive_search_uses_trail_instead_of_deepcopy" in text:
+              raise SystemExit("Recursive trail regression already exists")
+          test_path.write_text(text.rstrip() + addition, encoding="utf-8")
           PY
 
-      - name: Install and validate migration
+      - name: Install and validate recursive trail search
         shell: bash
         run: |
           set -euo pipefail
@@ -97,19 +144,13 @@ jobs:
             -m "not slow" \
             -k "not test_parallel_trials_match_sequential"
 
-      - name: Commit source migration to master
+      - name: Commit recursive trail search to master
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "senegrom"
           git config user.email "6349874+senegrom@users.noreply.github.com"
-          git add \
-            pyproject.toml README.md DEVELOPMENT.md TODO.md \
-            gridsolver/abstract_grids/grid.py \
-            gridsolver/abstract_grids/trail.py \
-            gridsolver/solver/solve_nishio.py \
-            tests/test_solution_validation.py \
-            tests/test_trail.py
+          git add gridsolver/solver/solver.py tests/test_trail.py
           git diff --cached --check
-          git commit -m "Add reversible trail propagation for Nishio"
+          git commit -m "Reuse trail state across recursive search branches"
           git push origin HEAD:master
