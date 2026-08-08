@@ -1,4 +1,4 @@
-name: Explicit per-solve depth gating migration
+name: Explicit per-solve depth gating migration v2
 
 on:
   push:
