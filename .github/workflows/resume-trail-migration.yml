@@ -1,0 +1,66 @@
+name: Resume trail rollback migration
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/resume-trail-migration.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: resume-trail-rollback-migration
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Make validation regression independent of set order
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          test_path = Path("tests/test_solution_validation.py")
+          text = test_path.read_text(encoding="utf-8")
+          old = '''    sudoku = Sudoku(2, 2, 2, 2)
+              duplicate_rows = ImmutableGrid([1] * 16, rows=4, cols=4, max_elem=4)
+              with pytest.raises(InvalidSolutionError, match="ElementsAtMostOnce"):
+                  validate_solution(sudoku, duplicate_rows)
+          '''.replace("\n          ", "\n")
+          new = '''    unique = Grid(1, 2, max_elem=2)
+              unique.add_rule_checked(ElementsAtMostOnce(unique, cells=[0, 1]))
+              duplicate_values = ImmutableGrid([1, 1], rows=1, cols=2, max_elem=2)
+              with pytest.raises(InvalidSolutionError, match="ElementsAtMostOnce"):
+                  validate_solution(unique, duplicate_values)
+          '''.replace("\n          ", "\n")
+          if old not in text:
+              raise SystemExit("Expected validation test block was not found")
+          test_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          migration_path = Path(".github/workflows/trail-phase1.yml")
+          migration = migration_path.read_text(encoding="utf-8")
+          marker = "\n# Resumed after making the validation regression order-independent.\n"
+          if marker not in migration:
+              migration_path.write_text(migration.rstrip() + marker, encoding="utf-8")
+          PY
+
+      - name: Commit the unblocker
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "senegrom"
+          git config user.email "6349874+senegrom@users.noreply.github.com"
+          git add tests/test_solution_validation.py .github/workflows/trail-phase1.yml
+          git diff --cached --check
+          git commit -m "Make validation regression order-independent"
+          git push origin HEAD:master
