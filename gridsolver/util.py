@@ -1,19 +1,21 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from itertools import chain
 from typing import TypeVar
 
 
-def flatten(values: Iterable, ltypes=(Sequence,)) -> list:
-    """Return a flat list while treating strings and bytes as scalar values.
+def flatten(values: Iterable) -> list:
+    """Return a flat list and support one-shot iterables at every depth.
 
-    The previous implementation rebuilt the original outer container type.
-    That fails for one-shot iterables such as generators and is unnecessary for
-    every current caller, which needs a concrete sequence with ``len``.
+    Text and byte strings remain scalar once encountered inside the outer
+    iterable. The loader API accepts general iterables, so nested generators
+    must be flattened just like nested lists and tuples.
     """
 
     def iter_flat(items):
         for item in items:
-            if isinstance(item, ltypes) and not isinstance(item, (str, bytes, bytearray)):
+            if isinstance(item, (str, bytes, bytearray)):
+                yield item
+            elif isinstance(item, Iterable):
                 yield from iter_flat(item)
             else:
                 yield item
@@ -27,7 +29,7 @@ __T = TypeVar("__T")
 def peek(it: Iterable[__T]) -> tuple[__T, Iterable[__T]]:
     """Return the first item and an iterator that still yields that item.
 
-    Only the first item is consumed eagerly.  The old starred-unpack version
+    Only the first item is consumed eagerly. The old starred-unpack version
     materialised the complete iterable, which was surprisingly expensive for
     generators used to construct large rule sets.
     """
