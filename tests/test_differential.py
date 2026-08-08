@@ -4,10 +4,16 @@ from contextlib import contextmanager
 from functools import lru_cache
 from itertools import permutations, product
 
+import pytest
+
 from gridsolver.abstract_grids.grid import SolveStatus
+from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.solver import atomic_solver as atomic_solver_module
 from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
+from gridsolver.solver.propagation import propagate_basic
+from gridsolver.solver.validation import validate_solution
 
 
 type Solution = tuple[int, ...]
@@ -158,3 +164,135 @@ def test_atomic_deductions_preserve_every_oracle_completion():
 
             if status is SolveStatus.SOLVED:
                 assert tuple(grid._known) in expected
+
+
+_POWER_ACTION_LABELS = (
+    "locked_candidate",
+    "skyscraper",
+    "empty_rectangle",
+    "ineq_bounds",
+    "rulehelper_atmostonce",
+    "rulehelper_sum_atmostonce",
+    "rulehelper_house_sums",
+    "naked_tuples5",
+    "xy_wing",
+    "xyz_wing",
+    "w_wing",
+    "x_chain",
+    "xy_chain",
+    "als_xz",
+    "als_xy_wing",
+    "sue_de_coq",
+    "forcing_chain",
+    "hidden_tuples3",
+    "fish2",
+    "naked_tuples10",
+    "hidden_tuples4",
+    "fish3",
+    "finned-fish2",
+    "naked_tuples",
+    "hidden_tuples",
+    "aic",
+    "nishio",
+    "fish",
+    "finned-fish",
+    "forcing_net",
+)
+
+
+@lru_cache(maxsize=None)
+def _solution_pair_at_distance(distance: int) -> tuple[Solution, Solution]:
+    base = _sudoku4_solutions()[0]
+    for candidate in _sudoku4_solutions()[1:]:
+        if sum(left != right for left, right in zip(base, candidate)) == distance:
+            return base, candidate
+    raise AssertionError(f"No 4x4 Sudoku pair at Hamming distance {distance}")
+
+
+def _assert_completions_survive(
+    grid: Sudoku,
+    completions: tuple[Solution, ...],
+    *,
+    stage: str,
+) -> None:
+    for cell in range(grid.len):
+        oracle_values = {completion[cell] for completion in completions}
+        assert oracle_values <= grid._candidates[cell], (
+            f"{stage}: cell={cell}, "
+            f"lost={oracle_values - grid._candidates[cell]}"
+        )
+        known = grid._known[cell]
+        if known > 0:
+            assert oracle_values == {known}, (
+                f"{stage}: unsound known {known} at cell={cell}; "
+                f"oracle values are {oracle_values}"
+            )
+
+    # Also catch a technique that adds an invalid rule or guarantee without
+    # immediately removing a candidate.
+    for completion in completions:
+        validate_solution(
+            grid,
+            ImmutableGrid(completion, rows=4, cols=4, max_elem=4),
+        )
+
+
+def _grid_from_completions(completions: tuple[Solution, ...]) -> Sudoku:
+    grid = Sudoku(2, 2, 2, 2)
+    for cell, candidates in enumerate(grid._candidates):
+        candidates.intersection_update(
+            completion[cell] for completion in completions
+        )
+
+    status = propagate_basic(grid)
+    assert status is not SolveStatus.INVALID
+    _assert_completions_survive(grid, completions, stage="basic setup")
+    return grid
+
+
+def _exercise_each_power_action(
+    distance: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(atomic_solver_module, "DEPTH_GATE_K", None)
+    completions = _solution_pair_at_distance(distance)
+    grid = _grid_from_completions(completions)
+    atomic = AtomicSolver(grid, [], set())
+    labels: list[str] = []
+
+    with _quiet_solver_logs():
+        for label in atomic._solve_power_actions():
+            labels.append(label)
+            _assert_completions_survive(
+                grid,
+                completions,
+                stage=f"after {label}",
+            )
+
+            # The production solver restarts basic propagation after the first
+            # power-action hit. Do the same before exercising the next action so
+            # every technique receives its real precondition: a basic fixpoint.
+            status = propagate_basic(grid)
+            assert status is not SolveStatus.INVALID, label
+            _assert_completions_survive(
+                grid,
+                completions,
+                stage=f"after {label} + basic propagation",
+            )
+
+    assert tuple(labels) == _POWER_ACTION_LABELS
+
+
+def test_each_power_action_preserves_two_oracle_completions(monkeypatch):
+    """Execute every deduction tier against a small independently valid state."""
+    _exercise_each_power_action(4, monkeypatch)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("distance", [8, 12, 16])
+def test_each_power_action_preserves_broader_oracle_states(
+    distance,
+    monkeypatch,
+):
+    """Exercise every tier on progressively less constrained oracle states."""
+    _exercise_each_power_action(distance, monkeypatch)
