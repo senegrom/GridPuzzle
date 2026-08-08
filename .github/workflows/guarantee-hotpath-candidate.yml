@@ -1,0 +1,214 @@
+name: Temporary guarantee hot-path candidate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/guarantee-hotpath-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guarantee-hotpath-candidate
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply guarantee hot-path candidate
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          rules = Path("gridsolver/rules/rules.py")
+          text = rules.read_text(encoding="utf-8")
+          old = dedent('''
+              class Guarantee(NamedTuple):
+                  val: int
+                  cells: frozenset[int]
+                  rows: int
+                  cols: int
+
+                  def __hash__(self) -> int:
+                      return hash((type(self), hash(self.cells), self.val, self.rows, self.cols))
+
+                  def __eq__(self, other: object) -> bool:
+                      # The hash mixes in the type, so equality must be type-strict as well.
+                      return type(other) is Guarantee and tuple.__eq__(self, other)
+
+                  def __ne__(self, other: object) -> bool:
+                      return not self.__eq__(other)
+          ''').lstrip()
+          new = dedent('''
+              class Guarantee(NamedTuple):
+                  val: int
+                  cells: frozenset[int]
+                  rows: int
+                  cols: int
+
+                  # NamedTuple's C-level tuple hash avoids constructing and hashing
+                  # another tuple in Python. Equality remains intentionally type-strict.
+                  __hash__ = tuple.__hash__
+
+                  def __eq__(self, other: object) -> bool:
+                      return type(other) is Guarantee and tuple.__eq__(self, other)
+
+                  def __ne__(self, other: object) -> bool:
+                      return not self.__eq__(other)
+          ''').lstrip()
+          if text.count(old) != 1:
+              raise SystemExit(f"Guarantee marker count: {text.count(old)}")
+          rules.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          propagation = Path("gridsolver/solver/propagation.py")
+          text = propagation.read_text(encoding="utf-8")
+          start = text.index(
+              "def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:\n"
+          )
+          end = text.index("def update_known_from_candidates(\n", start)
+          replacement = dedent('''
+              def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
+                  """Return the cached guarantee superset that may affect ``rule``.
+
+                  Relevance depends only on the rule's cells and the current live
+                  guarantee generation. The guarantee-only cache already has exactly
+                  that invalidation and rollback lifecycle.
+                  """
+                  if not rule.uses_guarantees:
+                      return _NO_GUARANTEES
+                  index = grid.cached_guarantee_struct(
+                      "gts_by_min_cell",
+                      lambda: _build_guarantee_index(grid),
+                  )
+                  return grid.cached_guarantee_struct(
+                      ("relevant_guarantees", rule.cells),
+                      lambda: tuple(
+                          guarantee
+                          for cell in rule.cells
+                          for guarantee in index.get(cell, ())
+                      ),
+                  )
+
+          ''').lstrip()
+          propagation.write_text(
+              text[:start] + replacement + text[end:],
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Install and test candidate
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_rule_inputs.py \
+            tests/test_regressions.py \
+            tests/test_trail.py \
+            tests/test_differential.py \
+            tests/test_solution_validation.py \
+            tests/test_solver_api.py \
+            tests/test_basic.py \
+            tests/test_examples_2.py \
+            -m "not slow" --durations=10
+          python - <<'PY'
+          from gridsolver.abstract_grids.grid import Grid
+          from gridsolver.rules.rules import Guarantee
+          from gridsolver.rules.unique import ElementsAtMostOnce
+          from gridsolver.solver.propagation import relevant_guarantees
+
+          grid = Grid(2)
+          rule = ElementsAtMostOnce(grid, cells=[0, 1])
+          grid.add_rule_checked(rule)
+          grid.add_gtee_checked(Guarantee(1, frozenset({0, 1}), 2, 2))
+          first = relevant_guarantees(grid, rule)
+          second = relevant_guarantees(grid, rule)
+          assert first is second
+          grid.add_gtee_checked(Guarantee(2, frozenset({0, 1}), 2, 2))
+          third = relevant_guarantees(grid, rule)
+          assert third is not first
+          assert {guarantee.val for guarantee in third} == {1, 2}
+          PY
+
+      - name: Compare baseline and candidate without depth gating
+        shell: bash
+        run: |
+          git worktree add --detach /tmp/baseline HEAD^
+          cat > /tmp/hot_bench.py <<'PY'
+          import gc
+          import hashlib
+          import json
+          import logging
+          import sys
+          import time
+
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+
+          logging.disable(10_000)
+
+          case = sys.argv[1]
+          if case == "blank4_all":
+              grid = Sudoku(2, 2, 2, 2)
+              max_sols, expected = -1, 288
+          elif case == "nonsquare6_cap20":
+              grid = Sudoku(3, 2, 2, 3)
+              grid.load("123456654321........................", row_wise=False)
+              max_sols, expected = 20, 20
+          else:
+              raise SystemExit(case)
+
+          gc.collect()
+          started = time.perf_counter()
+          solutions = solver.solve(
+              grid,
+              log_level=0,
+              max_sols=max_sols,
+              depth_gate=None,
+          )
+          seconds = time.perf_counter() - started
+          if len(solutions) != expected:
+              raise SystemExit(f"{case}: expected {expected}, got {len(solutions)}")
+          payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
+          print(json.dumps({
+              "case": case,
+              "seconds": seconds,
+              "digest": hashlib.sha256(payload).hexdigest(),
+          }, sort_keys=True))
+          PY
+
+          run_case() {
+            local label="$1"
+            local directory="$2"
+            local case="$3"
+            echo "BENCH ${label} ${case}"
+            (cd "$directory" && PYTHONPATH="$directory" python /tmp/hot_bench.py "$case")
+          }
+
+          for case in blank4_all nonsquare6_cap20; do
+            run_case baseline /tmp/baseline "$case"
+            run_case candidate "$GITHUB_WORKSPACE" "$case"
+          done
