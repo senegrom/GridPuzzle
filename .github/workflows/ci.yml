@@ -47,6 +47,7 @@ jobs:
       - name: Run core and regression tests
         run: >-
           python -X dev -m pytest -q
+          tests/test_hardening.py
           tests/test_regressions.py
           tests/test_basic.py
           tests/test_scale.py
@@ -86,4 +87,7 @@ jobs:
         run: python -m compileall -q gridsolver tests run.py examples2.py
 
       - name: Run portable regression tests
-        run: python -X dev -m pytest -q tests/test_regressions.py
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_hardening.py
+          tests/test_regressions.py

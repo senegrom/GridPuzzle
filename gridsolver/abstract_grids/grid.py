@@ -1,13 +1,14 @@
 import itertools
 from array import array
+from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence, Sequence
 from enum import Enum
 from functools import partial
-from typing import Tuple, Set, Iterable, MutableSequence, Union, Callable, Optional, Iterator, \
-    MutableMapping, overload, List, Type, Dict, Any, Sequence, FrozenSet, TypeVar
+from numbers import Integral
+from typing import Any, TypeVar, overload
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
-from gridsolver.rules.rules import Rule, Guarantee, IdxType
+from gridsolver.rules.rules import Guarantee, IdxType, Rule
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.util import flatten
@@ -19,262 +20,323 @@ class SolveStatus(Enum):
     INVALID = -1
 
 
-def _load_preprocess_str(values: str):
+def _load_preprocess_str(values: str) -> str:
     if not isinstance(values, str):
-        raise TypeError(f"Cannot call _load_preprocess_str with {type(values).__name__}; expected str")
-    return values.strip().replace(" ", "") \
-        .replace("\n", "").replace("\r", "").replace("\t", "").replace(".", "0")
+        raise TypeError(f"Expected str, got {type(values).__name__}")
+    return (
+        values.strip()
+        .replace(" ", "")
+        .replace("\n", "")
+        .replace("\r", "")
+        .replace("\t", "")
+        .replace(".", "0")
+    )
 
 
-def _load_preprocess_str_space_sep(values: Union[str, Iterable[str]]):
+def _load_preprocess_str_space_sep(values: str | Iterable[str]) -> list[str]:
     if isinstance(values, str):
         values = values.strip().split("\n")
-    values = (x for value in values for x in value.split("\n"))
-    values = (x for value in values for x in value.split(" "))
-    values = (x for value in values for x in value.split("\t"))
-    values = (x.strip().replace(".", "0") for x in values)
-    values = (x for x in values if x)
-    return list(values)
+    lines = (line for value in values for line in value.split("\n"))
+    fields = (field for line in lines for field in line.split(" "))
+    fields = (field for value in fields for field in value.split("\t"))
+    fields = (field.strip().replace(".", "0") for field in fields)
+    return [field for field in fields if field]
 
 
-T_ = TypeVar("T_", bound=Rule)
+RuleT = TypeVar("RuleT", bound=Rule)
 
 
 class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
-    def __delitem__(self, i: int) -> None:
-        raise TypeError("Grid.__delitem__ not supported")
+    __hash__ = None
 
-    def insert(self, index: int, obj) -> None:
-        raise TypeError("Grid.insert not supported")
+    def __delitem__(self, index: int) -> None:
+        raise TypeError("Grid.__delitem__ is not supported")
 
-    def __init__(self, rows: int, cols: Optional[int] = None, max_elem: Optional[int] = None):
-        if cols is None:
-            cols = rows
-        if rows <= 0 or cols <= 0:
-            raise ValueError("Grid dimensions must be positive")
-        ImmutableGrid.__init__(self, array('I', [0] * (rows * cols)), rows, cols, max_elem)
+    def insert(self, index: int, value: int) -> None:
+        raise TypeError("Grid.insert is not supported")
+
+    def __init__(self, rows: int, cols: int | None = None, max_elem: int | None = None) -> None:
+        actual_cols = rows if cols is None else cols
+        ImmutableGrid.__init__(self, [0] * (rows * actual_cols), rows, actual_cols, max_elem)
         RuleContainer.__init__(self)
-        self._candidates: Tuple[Set[int]] = tuple(set(range(1, self.max_elem + 1)) for _ in range(len(self)))
+        self._candidates: tuple[set[int], ...] = tuple(
+            set(range(1, self.max_elem + 1)) for _ in range(self.len)
+        )
         self.has_been_filled = False
-        self._struct_cache: Dict[str, Any] = {}
+        self._struct_cache: dict[str, Any] = {}
 
     @overload
-    def __setitem__(self, i: int, val: int) -> None:
+    def __setitem__(self, key: int, value: int) -> None:
         ...
 
     @overload
-    def __setitem__(self, i: Tuple[int, int], val: int) -> None:
+    def __setitem__(self, key: tuple[int, int], value: int) -> None:
         ...
 
-    @overload
-    def __setitem__(self, i: IdxType, val: int) -> None:
-        ...
+    def __setitem__(self, key: IdxType, value: int) -> None:
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise TypeError(f"Grid values must be integers, got {value!r}")
+        value = int(value)
+        if not 0 <= value <= self.max_elem:
+            raise ValueError(f"Grid value {value} is outside 0..{self.max_elem}")
 
-    def __setitem__(self, key: IdxType, val: int) -> None:
+        index = self._get_index_from_key(key)
+        if isinstance(index, slice):
+            raise TypeError("Index slices are not supported for assignment")
+
+        current = self._known[index]
+        if current > 0 and value != current:
+            raise ValueError(
+                f"Grid assignments are monotone: cell {key!r} is already {current}, "
+                f"not {value}"
+            )
+
         self.has_been_filled = True
-        idx = self._get_index_from_key(key)
-        if isinstance(idx, slice):
-            raise TypeError("Index slices not supported for setting.")
-        self._known[idx] = val
-        if val > 0:
-            self._candidates[idx].intersection_update((val,))
+        if value == 0:
+            return
 
-    def __eq__(self, other: 'Grid') -> bool:
-        if not isinstance(other, type(self)):
+        self._known[index] = value
+        # An assignment outside the current candidate set intentionally empties
+        # the set, making the trial branch invalid without corrupting the value
+        # domain stored in _known.
+        self._candidates[index].intersection_update((value,))
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
             return False
-        return self._known == other._known and self._candidates == other._candidates and RuleContainer.__eq__(self,
-                                                                                                              other)
+        return (
+            self.rows == other.rows
+            and self.cols == other.cols
+            and self.max_elem == other.max_elem
+            and self._known == other._known
+            and self._candidates == other._candidates
+            and RuleContainer.__eq__(self, other)
+        )
 
-    def __ne__(self, other: 'Grid') -> bool:
+    def __ne__(self, other: object) -> bool:
         return not self == other
 
-    # noinspection PyArgumentList
-    def __deepcopy__(self, memo: MutableMapping = None) -> 'Grid':
+    def __deepcopy__(self, memo: MutableMapping[int, Any] | None = None) -> "Grid":
         return self.deepcopy()
 
-    def deepcopy(self) -> 'Grid':
+    def deepcopy(self) -> "Grid":
         cls = type(self)
         result = cls.__new__(cls)
         result.rows = self.rows
         result.cols = self.cols
         result.max_elem = self.max_elem
         result.len = self.len
-        result._known = array('I', self._known)
-        result._candidates = tuple(s.copy() for s in self._candidates)
+        result._known = array("I", self._known)
+        result._candidates = tuple(possible.copy() for possible in self._candidates)
         result.rules = self.rules.copy()
         result.rules_ia = self.rules_ia.copy()
         result.guarantees = self.guarantees.copy()
         result.guarantees_ia = self.guarantees_ia.copy()
         result.has_been_filled = self.has_been_filled
+        result.name = self.name
         result._struct_cache = {}
         return result
 
     @property
     def is_solved(self) -> bool:
-        known = self._known
-        candidates = self._candidates
-        for i in range(self.len):
-            k = known[i]
-            if k <= 0 or k not in candidates[i]:
+        for cell, value in enumerate(self._known):
+            if value <= 0 or value not in self._candidates[cell]:
                 return False
         return True
 
     @property
     def is_valid(self) -> bool:
-        for p in self._candidates:
-            if not p:
-                return False
-        return True
+        return all(self._candidates)
 
-    def get_candidates(self, key: IdxType) -> Set[int]:
-        return self._candidates[self._get_index_from_key(key)]
+    def get_candidates(self, key: IdxType) -> set[int]:
+        index = self._get_index_from_key(key)
+        if isinstance(index, slice):
+            raise TypeError("Candidate slices are not supported")
+        return self._candidates[index]
 
-    def get_smallest_candidate_set_gt1(self) -> Tuple[int, Set[int]]:
-        candidates_where_len_gt1 = ((i, pp) for i, pp in enumerate(self._candidates) if len(pp) > 1)
-        mysorted = min(candidates_where_len_gt1, key=lambda x: len(x[1]))
-        return mysorted
+    def get_smallest_candidate_set_gt1(self) -> tuple[int, set[int]]:
+        return min(
+            (
+                (cell, possible)
+                for cell, possible in enumerate(self._candidates)
+                if len(possible) > 1
+            ),
+            key=lambda item: len(item[1]),
+        )
 
-    def get_smallest_guarantee(self) -> Optional[Guarantee]:
+    def get_smallest_guarantee(self) -> Guarantee | None:
         if not self.guarantees:
             return None
-        mysorted = min(self.guarantees, key=lambda gt: len(gt.cells))
-        return mysorted
+        return min(self.guarantees, key=lambda guarantee: len(guarantee.cells))
 
-    def add_rule_checked(self, rule: Rule):
-        # only clear the struct cache on an actual change: rules are re-derived
-        # and re-added every round, and no-op re-adds would otherwise wipe the
-        # cache (and the epoch gates living in it) thousands of times per solve
+    def add_rule_checked(self, rule: Rule) -> None:
         if rule not in self.rules_ia and rule not in self.rules:
             self.rules.add(rule)
             self._struct_cache.clear()
 
-    def deactivate_rule(self, rule: Rule):
+    def deactivate_rule(self, rule: Rule) -> None:
         self.rules.remove(rule)
         self.rules_ia.add(rule)
         self._struct_cache.clear()
 
-    def add_gtee_checked(self, gtee: Guarantee):
-        if gtee not in self.guarantees_ia and gtee not in self.guarantees:
-            self.guarantees.add(gtee)
+    def add_gtee_checked(self, guarantee: Guarantee) -> None:
+        if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:
+            self.guarantees.add(guarantee)
             self._struct_cache.clear()
 
-    def deactivate_gtee(self, gtee: Guarantee):
-        self.guarantees.remove(gtee)
-        self.guarantees_ia.add(gtee)
+    def deactivate_gtee(self, guarantee: Guarantee) -> None:
+        self.guarantees.remove(guarantee)
+        self.guarantees_ia.add(guarantee)
         self._struct_cache.clear()
 
     def cached_struct(self, key: str, factory: Callable[[], Any]) -> Any:
-        """Memoize a rule/guarantee-derived structure on this grid.
-
-        The cache is cleared whenever a rule or guarantee is added or
-        deactivated, and is never shared with deepcopy clones. Cached
-        objects are returned as-is — callers must not mutate them."""
+        """Memoize a structure derived from rules or guarantees on this grid."""
         try:
             return self._struct_cache[key]
         except KeyError:
-            val = factory()
-            self._struct_cache[key] = val
-            return val
+            value = factory()
+            self._struct_cache[key] = value
+            return value
 
-    def _load_preprocess_sequence(self, values: Union[str, Iterable[int], Iterable[Iterable[int]]],
-                                  /, space_sep=False, assert_length=None):
-        if assert_length is None:
-            assert_length = len(self._known)
+    def _load_preprocess_sequence(
+        self,
+        values: str | Iterable[int] | Iterable[Iterable[int]],
+        /,
+        space_sep: bool = False,
+        assert_length: int | None = None,
+    ) -> str | list:
+        expected_length = self.len if assert_length is None else assert_length
         if not isinstance(values, str):
             values = flatten(values)
 
         if isinstance(values, str):
-            if space_sep:
-                values = _load_preprocess_str_space_sep(values)
-            else:
-                values = _load_preprocess_str(values)
+            values = (
+                _load_preprocess_str_space_sep(values)
+                if space_sep
+                else _load_preprocess_str(values)
+            )
 
-        if len(values) != assert_length:
-            raise ValueError(f"len: {len(values)} != {assert_length}")
+        if len(values) != expected_length:
+            raise ValueError(f"Expected {expected_length} values, got {len(values)}")
         self.has_been_filled = True
         return values
 
-    def load(self, values: Union[str, Sequence[int], Sequence[Iterable[int]]], /,
-             row_wise=True, space_sep=False):
-
+    def load(
+        self,
+        values: str | Iterable[int] | Iterable[Iterable[int]],
+        /,
+        row_wise: bool = True,
+        space_sep: bool = False,
+    ) -> None:
         if self.has_been_filled:
             raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
         values = self._load_preprocess_sequence(values, space_sep=space_sep)
 
-        def to_int(nk):
+        def to_int(raw_value: object) -> int:
             try:
-                return int(nk)
-            except ValueError:
-                return int(nk, base=36)
+                return int(raw_value)
+            except (TypeError, ValueError):
+                try:
+                    return int(raw_value, base=36)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"Cannot parse grid value {raw_value!r}") from exc
 
         if row_wise:
-            for i, nk in enumerate(values):
-                row, col = divmod(i, self.cols)
-                self[(row, col)] = to_int(nk)
+            for index, raw_value in enumerate(values):
+                row, col = divmod(index, self.cols)
+                self[(row, col)] = to_int(raw_value)
         else:
-            for i, nk in enumerate(values):
-                self[i] = to_int(nk)
+            for index, raw_value in enumerate(values):
+                self[index] = to_int(raw_value)
 
-    def _str_header(self, detailed=False):
-
-        s = f"{self.__class__.__name__}({self.rows},{self.cols})" + \
-            f" - [{len(self.rules)} rls, {len(self.rules_ia)} ria, {len(self.guarantees)} gts," \
-            f" {len(self.guarantees_ia)} gia]"
+    def _str_header(self, detailed: bool = False) -> str:
+        header = (
+            f"{self.__class__.__name__}({self.rows},{self.cols})"
+            f" - [{len(self.rules)} rls, {len(self.rules_ia)} ria, "
+            f"{len(self.guarantees)} gts, {len(self.guarantees_ia)} gia]"
+        )
 
         if detailed:
-            grp1 = {t: list(set(r.cells) for r in grp) for t, grp in
-                    itertools.groupby(sorted(self.rules, key=lambda x: type(x).__name__), lambda x: type(x).__name__)}
-            grp2 = {t: list(set(r.cells) for r in grp) for t, grp in
-                    itertools.groupby(sorted(self.rules_ia, key=lambda x: type(x).__name__),
-                                      lambda x: type(x).__name__)}
-            s1 = '\n'.join(map(str, (f"  {len(grp):6} \t {key}" for key, grp in grp1.items())))
-            s2 = '\n'.join(map(str, (f"  {len(grp):6} \t {key}" for key, grp in grp2.items())))
-            s += f"\n{s1}\n  ───────\n{s2}"
+            active_groups = {
+                name: [set(rule.cells) for rule in group]
+                for name, group in itertools.groupby(
+                    sorted(self.rules, key=lambda rule: type(rule).__name__),
+                    lambda rule: type(rule).__name__,
+                )
+            }
+            inactive_groups = {
+                name: [set(rule.cells) for rule in group]
+                for name, group in itertools.groupby(
+                    sorted(self.rules_ia, key=lambda rule: type(rule).__name__),
+                    lambda rule: type(rule).__name__,
+                )
+            }
+            active = "\n".join(
+                f"  {len(group):6} \t {name}" for name, group in active_groups.items()
+            )
+            inactive = "\n".join(
+                f"  {len(group):6} \t {name}" for name, group in inactive_groups.items()
+            )
+            header += f"\n{active}\n  ───────\n{inactive}"
 
-        return s
+        return header
 
-    def ext_rules(self, rule_cls: Type[Rule], kwargs_list: List[Dict[str, Any]] = None,
-                  fun_it: Iterable[Callable[[Rule], Iterable]] = None) -> None:
+    def ext_rules(
+        self,
+        rule_cls: type[Rule],
+        kwargs_list: list[dict[str, Any]] | None = None,
+        fun_it: Iterable[Callable[[Rule], Iterable]] | None = None,
+    ) -> None:
         if kwargs_list is None and fun_it is None:
             new_rules = (rule_cls(self),)
         elif kwargs_list is not None and fun_it is None:
             new_rules = (rule_cls(self, **kwargs) for kwargs in kwargs_list)
         elif kwargs_list is None and fun_it is not None:
-            new_rules = (rule_cls(self, cell_creator=fun) for fun in fun_it)
+            new_rules = (rule_cls(self, cell_creator=cell_creator) for cell_creator in fun_it)
         else:
-            fun_it = list(fun_it)  # may be a one-shot generator; it is iterated once per kwargs
-            new_rules = (rule_cls(self, cell_creator=fun, **kwargs) for kwargs in kwargs_list for fun in fun_it)
+            cell_creators = list(fun_it)
+            new_rules = (
+                rule_cls(self, cell_creator=cell_creator, **kwargs)
+                for kwargs in kwargs_list
+                for cell_creator in cell_creators
+            )
 
         for rule in new_rules:
             self.add_rule_checked(rule)
 
     @property
     def row_rule_applicators(self) -> Iterator[Callable[[Rule], Iterable]]:
-        # noinspection PyTypeChecker
-        return (partial(Rule.cells_as_row_or_column, idx=i, row_wise=True) for i in range(self.rows))
+        return (
+            partial(Rule.cells_as_row_or_column, idx=index, row_wise=True)
+            for index in range(self.rows)
+        )
 
     @property
     def col_rule_applicators(self) -> Iterator[Callable[[Rule], Iterable]]:
-        # noinspection PyTypeChecker
-        return (partial(Rule.cells_as_row_or_column, idx=i, row_wise=False) for i in range(self.cols))
+        return (
+            partial(Rule.cells_as_row_or_column, idx=index, row_wise=False)
+            for index in range(self.cols)
+        )
 
-    def get_rule_cells_of_type(self, class_: Type[Rule]) -> List[FrozenSet[int]]:
+    def get_rule_cells_of_type(self, class_: type[Rule]) -> list[frozenset[int]]:
         return [frozenset(rule.cells) for rule in self.get_rules_of_type(class_)]
 
-    def get_rules_of_type(self, class_: Type[T_]) -> List[T_]:
+    def get_rules_of_type(self, class_: type[RuleT]) -> list[RuleT]:
         return [rule for rule in self.rules if isinstance(rule, class_)]
 
     @property
-    def unique_rule_cells(self) -> List[FrozenSet[int]]:
-        """cached; do not mutate"""
-        return self.cached_struct("unique_rule_cells", lambda: self.get_rule_cells_of_type(ElementsAtMostOnce))
+    def unique_rule_cells(self) -> list[frozenset[int]]:
+        """Cached; callers must not mutate the returned structure."""
+        return self.cached_struct(
+            "unique_rule_cells",
+            lambda: self.get_rule_cells_of_type(ElementsAtMostOnce),
+        )
 
     @property
-    def weak_links(self) -> List[Set[int]]:
-        """the weak links originating from a cell in a dictionary (cached; do not mutate)"""
+    def weak_links(self) -> list[set[int]]:
+        """Cached weak links originating from each cell; do not mutate."""
 
-        def build():
-            # Single-pass over UneqRules instead of filtering per cell
+        def build() -> list[set[int]]:
             result = [set() for _ in range(self.len)]
             for rule in self.rules:
                 if isinstance(rule, UneqRule):
@@ -284,66 +346,76 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return self.cached_struct("weak_links", build)
 
     @property
-    def semi_strong_links(self) -> Dict[int, List[Set[int]]]:
-        """the semi-strong links originating from a cell in a dictionary for targets of the same number
-        (cached; do not mutate)"""
+    def semi_strong_links(self) -> dict[int, list[set[int]]]:
+        """Cached same-value semi-strong links; do not mutate."""
 
-        def build():
-            # Single-pass: for each length-2 guarantee, add both cells to each other's links
-            links = {val: [set() for _ in range(self.len)] for val in range(1, self.max_elem + 1)}
-            for gt in self.guarantees:
-                if len(gt.cells) == 2:
-                    cells = list(gt.cells)
-                    a, b = cells[0], cells[1]
-                    links[gt.val][a].add(b)
-                    links[gt.val][b].add(a)
+        def build() -> dict[int, list[set[int]]]:
+            links = {
+                value: [set() for _ in range(self.len)]
+                for value in range(1, self.max_elem + 1)
+            }
+            for guarantee in self.guarantees:
+                if len(guarantee.cells) == 2:
+                    first, second = guarantee.cells
+                    links[guarantee.val][first].add(second)
+                    links[guarantee.val][second].add(first)
             return links
 
         return self.cached_struct("semi_strong_links", build)
 
     @property
-    def semi_strong_links_all(self) -> Dict[int, List[Set[Tuple[int, int]]]]:
-        """the semi-strong links originating from a cell in a dictionary for all targets.
-        Built fresh per call (depends on candidates); shallow-copies the cached base lists
-        because every element is replaced below."""
-        ssl: Dict[int, List[Set[Union[int, Tuple[int, int]]]]] = \
-            {val: list(lst) for val, lst in self.semi_strong_links.items()}
-        c2 = self.get_cells_with_candidate_length(2)
-        c2_dic = {val: {cell for cell, cand in c2 if val in cand} for val in range(1, self.max_elem + 1)}
+    def semi_strong_links_all(self) -> dict[int, list[set[tuple[int, int]]]]:
+        links = {value: list(per_cell) for value, per_cell in self.semi_strong_links.items()}
+        bivalue_cells = self.get_cells_with_candidate_length(2)
+        cells_by_value = {
+            value: {cell for cell, possible in bivalue_cells if value in possible}
+            for value in range(1, self.max_elem + 1)
+        }
 
-        for val in range(1, self.max_elem + 1):
+        for value in range(1, self.max_elem + 1):
             for cell in range(self.len):
-                ssl[val][cell] = {(val, x) for x in ssl[val][cell]}
-                if cell in c2_dic[val]:
-                    other: int = self._candidates[cell].difference((val,)).pop()
-                    ssl[val][cell].add((other, cell))
+                links[value][cell] = {(value, target) for target in links[value][cell]}
+                if cell in cells_by_value[value]:
+                    other = next(iter(self._candidates[cell] - {value}))
+                    links[value][cell].add((other, cell))
 
-        # noinspection PyTypeChecker
-        return ssl
+        return links
 
     @property
-    def guarantee_cells_by_value(self) -> Dict[int, List[FrozenSet]]:
-        """cached; do not mutate"""
+    def guarantee_cells_by_value(self) -> dict[int, list[frozenset[int]]]:
+        """Cached; callers must not mutate the returned structure."""
         return self.cached_struct(
             "guarantee_cells_by_value",
-            lambda: {i: [gt.cells for gt in self.guarantees if gt.val == i] for i in range(1, self.max_elem + 1)})
+            lambda: {
+                value: [
+                    guarantee.cells
+                    for guarantee in self.guarantees
+                    if guarantee.val == value
+                ]
+                for value in range(1, self.max_elem + 1)
+            },
+        )
 
-    def get_guarantees_shorter_than(self, ll: int) -> List[Guarantee]:
-        return [gt for gt in self.guarantees if len(gt.cells) <= ll]
+    def get_guarantees_shorter_than(self, length: int) -> list[Guarantee]:
+        return [guarantee for guarantee in self.guarantees if len(guarantee.cells) <= length]
 
-    def get_cells_with_candidate_length(self, i) -> List[Tuple[int, Set[int]]]:
-        return [(cell, self._candidates[cell]) for cell, cts in enumerate(self._candidates) if len(cts) == i]
+    def get_cells_with_candidate_length(self, length: int) -> list[tuple[int, set[int]]]:
+        return [
+            (cell, self._candidates[cell])
+            for cell, possible in enumerate(self._candidates)
+            if len(possible) == length
+        ]
 
 
-def pairs(it: Iterable):
-    iterator = iter(it)
+def pairs[T](values: Iterable[T]) -> Iterator[tuple[T, T]]:
+    iterator = iter(values)
     while True:
         try:
-            a = next(iterator)
+            first = next(iterator)
         except StopIteration:
             return
         try:
-            b = next(iterator)
+            second = next(iterator)
         except StopIteration as exc:
             raise ValueError("Expected complete pairs, got an unpaired final value") from exc
-        yield a, b
+        yield first, second
