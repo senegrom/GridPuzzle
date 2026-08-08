@@ -1,0 +1,365 @@
+name: Temporary runtime-overhead candidate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/runtime-overhead-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-overhead-candidate
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply runtime-overhead candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          atomic = Path("gridsolver/solver/atomic_solver.py")
+          text = atomic.read_text(encoding="utf-8")
+
+          old = "from collections.abc import Callable, Iterator\n"
+          new = "from collections.abc import Callable, Iterator\nfrom contextvars import ContextVar\n"
+          if text.count(old) != 1:
+              raise SystemExit("atomic import marker changed")
+          text = text.replace(old, new, 1)
+
+          old = '''POWER_RULE_CHANGES: Counter[str] = Counter()
+
+
+
+def reset_power_stats() -> None:
+    POWER_TRIES.clear()
+    POWER_HITS.clear()
+    POWER_ELIMS.clear()
+    POWER_RULE_CHANGES.clear()
+    _lg.time_stats.clear()
+'''
+          new = '''POWER_RULE_CHANGES: Counter[str] = Counter()
+_POWER_STATS_ENABLED: ContextVar[bool] = ContextVar(
+    "gridpuzzle_power_stats_enabled",
+    default=False,
+)
+
+
+def power_stats_enabled() -> bool:
+    return _POWER_STATS_ENABLED.get()
+
+
+def reset_power_stats() -> None:
+    """Clear and enable optional per-technique diagnostics in this context."""
+    POWER_TRIES.clear()
+    POWER_HITS.clear()
+    POWER_ELIMS.clear()
+    POWER_RULE_CHANGES.clear()
+    _lg.time_stats.clear()
+    _POWER_STATS_ENABLED.set(True)
+
+
+def disable_power_stats() -> None:
+    """Disable diagnostic counters for subsequently constructed solvers."""
+    _POWER_STATS_ENABLED.set(False)
+'''
+          if text.count(old) != 1:
+              raise SystemExit("power-stat block marker changed")
+          text = text.replace(old, new, 1)
+
+          old = '''        self.hidden_pair_checked_gts = hidden_pair_checked_gts
+        self.depth_gate = depth_gate
+'''
+          new = '''        self.hidden_pair_checked_gts = hidden_pair_checked_gts
+        self.depth_gate = depth_gate
+        self.collect_stats = power_stats_enabled()
+        self.collect_timing = self.collect_stats or _lg.on
+'''
+          if text.count(old) != 1:
+              raise SystemExit("AtomicSolver initializer marker changed")
+          text = text.replace(old, new, 1)
+
+          old = '''            try:
+                with _lg.time_ctxt("update_step"):
+                    self._update_step()
+            except InvalidGrid:
+'''
+          new = '''            try:
+                if self.collect_timing:
+                    with _lg.time_ctxt("update_step"):
+                        self._update_step()
+                else:
+                    self._update_step()
+            except InvalidGrid:
+'''
+          if text.count(old) != 1:
+              raise SystemExit("update-step timing marker changed")
+          text = text.replace(old, new, 1)
+
+          old = '''                for step_type in self._solve_power_actions():
+                    POWER_TRIES[step_type] += 1
+                    after_action = self._state_snapshot()
+                    if after_action == after_basic:
+                        continue
+
+                    POWER_HITS[step_type] += 1
+                    POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])
+                    if after_basic[2:] != after_action[2:]:
+                        POWER_RULE_CHANGES[step_type] += 1
+'''
+          new = '''                for step_type in self._solve_power_actions():
+                    if self.collect_stats:
+                        POWER_TRIES[step_type] += 1
+                    after_action = self._state_snapshot()
+                    if after_action == after_basic:
+                        continue
+
+                    if self.collect_stats:
+                        POWER_HITS[step_type] += 1
+                        POWER_ELIMS[step_type] += max(
+                            0,
+                            after_basic[1] - after_action[1],
+                        )
+                        if after_basic[2:] != after_action[2:]:
+                            POWER_RULE_CHANGES[step_type] += 1
+'''
+          if text.count(old) != 1:
+              raise SystemExit("power-stat update marker changed")
+          text = text.replace(old, new, 1)
+
+          old = '''    def _update_step(self) -> None:
+        _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
+        with _lg.time_ctxt("update_from_rules"):
+            self._update_from_rules()
+        with _lg.time_ctxt("filter_guarantees"):
+            filter_guarantees(self.grid)
+'''
+          new = '''    def _update_step(self) -> None:
+        _update_known_from_candidates(
+            self.grid.__setitem__,
+            self.grid._candidates,
+            self.grid._known,
+        )
+        if self.collect_timing:
+            with _lg.time_ctxt("update_from_rules"):
+                self._update_from_rules()
+            with _lg.time_ctxt("filter_guarantees"):
+                filter_guarantees(self.grid)
+        else:
+            self._update_from_rules()
+            filter_guarantees(self.grid)
+'''
+          if text.count(old) != 1:
+              raise SystemExit("nested timing marker changed")
+          text = text.replace(old, new, 1)
+
+          old = '''    def _act(self, label: str, action: Callable[[], None]) -> str:
+        """Run one power action and account for contradiction hits."""
+        with _lg.time_ctxt(label):
+            try:
+                action()
+            except InvalidGrid:
+                # The generator raises before the consumer sees a label, so a
+                # contradiction must be counted here.
+                POWER_TRIES[label] += 1
+                POWER_HITS[label] += 1
+                raise
+        return label
+'''
+          new = '''    def _act(self, label: str, action: Callable[[], None]) -> str:
+        """Run one power action and optionally account for diagnostics."""
+        try:
+            if self.collect_timing:
+                with _lg.time_ctxt(label):
+                    action()
+            else:
+                action()
+        except InvalidGrid:
+            # The generator raises before the consumer sees a label, so a
+            # contradiction must be counted here when diagnostics are active.
+            if self.collect_stats:
+                POWER_TRIES[label] += 1
+                POWER_HITS[label] += 1
+            raise
+        return label
+'''
+          if text.count(old) != 1:
+              raise SystemExit("_act marker changed")
+          atomic.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          grid = Path("gridsolver/abstract_grids/grid.py")
+          text = grid.read_text(encoding="utf-8")
+          old = '''        self._known[index] = value
+        # An assignment outside the current candidate set intentionally empties
+        # the set, making the trial branch invalid without corrupting the value
+        # domain stored in _known.
+        self._candidates[index].intersection_update((value,))
+'''
+          new = '''        self._known[index] = value
+        # An assignment outside the current candidate set intentionally empties
+        # the set, making the trial branch invalid without corrupting the value
+        # domain stored in _known. Avoid a no-op TrailedSet mutation when a
+        # singleton candidate is merely promoted to a known value.
+        possible = self._candidates[index]
+        if len(possible) != 1 or value not in possible:
+            possible.intersection_update((value,))
+'''
+          if text.count(old) != 1:
+              raise SystemExit("candidate synchronization marker changed")
+          grid.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          Path("tests/test_runtime_overhead.py").write_text(
+              '''from gridsolver.abstract_grids.grid import Grid
+from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.solver import atomic_solver, solver
+from gridsolver.solver.solver_log import lg
+
+
+def test_singleton_assignment_does_not_journal_a_noop_candidate_change():
+    grid = Grid(1, 1, max_elem=2)
+    grid.get_candidates(0).intersection_update({1})
+    mark = grid.trail_mark()
+
+    grid[0] = 1
+
+    assert [entry[0] for entry in grid._trail_state.entries] == ["known"]
+    grid.trail_undo(mark)
+    assert grid[0] == 0
+    assert grid.get_candidates(0) == {1}
+
+
+def test_power_statistics_are_opt_in():
+    atomic_solver.reset_power_stats()
+    atomic_solver.disable_power_stats()
+    assert not atomic_solver.power_stats_enabled()
+
+    before_tries = atomic_solver.POWER_TRIES.copy()
+    before_times = lg.time_stats.copy()
+    solver.solve(Sudoku(2, 2, 2, 2), log_level=0, max_sols=1)
+    assert atomic_solver.POWER_TRIES == before_tries
+    assert lg.time_stats == before_times
+
+    try:
+        atomic_solver.reset_power_stats()
+        solver.solve(Sudoku(2, 2, 2, 2), log_level=0, max_sols=1)
+        assert atomic_solver.POWER_TRIES
+        assert lg.time_stats
+    finally:
+        atomic_solver.disable_power_stats()
+''',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Install and test candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_runtime_overhead.py \
+            tests/test_hotpath_regressions.py \
+            tests/test_regressions.py \
+            tests/test_trail.py \
+            tests/test_solver_api.py \
+            tests/test_differential.py \
+            tests/test_examples_2.py \
+            -m "not slow" --durations=10
+
+      - name: Compare full default solver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/baseline HEAD^
+          cat > /tmp/runtime_bench.py <<'PY'
+          import gc
+          import hashlib
+          import json
+          import logging
+          import statistics
+          import sys
+          import time
+
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+
+          logging.disable(10_000)
+
+          def factory(case):
+              if case == "blank4_all":
+                  return Sudoku(2, 2, 2, 2), -1, 288
+              if case == "nonsquare6_cap20":
+                  grid = Sudoku(3, 2, 2, 3)
+                  grid.load("123456654321........................", row_wise=False)
+                  return grid, 20, 20
+              raise SystemExit(case)
+
+          case = sys.argv[1]
+          durations = []
+          digest = None
+          for _ in range(2):
+              gc.collect()
+              grid, max_sols, expected = factory(case)
+              start = time.perf_counter()
+              solutions = solver.solve(
+                  grid,
+                  log_level=0,
+                  max_sols=max_sols,
+                  depth_gate=None,
+              )
+              durations.append(time.perf_counter() - start)
+              if len(solutions) != expected:
+                  raise SystemExit(f"{case}: expected {expected}, got {len(solutions)}")
+              payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
+              current = hashlib.sha256(payload).hexdigest()
+              if digest is None:
+                  digest = current
+              elif current != digest:
+                  raise SystemExit(f"{case}: nondeterministic solution set")
+          print(json.dumps({
+              "case": case,
+              "seconds": durations,
+              "median": statistics.median(durations),
+              "digest": digest,
+          }, sort_keys=True))
+          PY
+
+          run_case() {
+            local label="$1"
+            local directory="$2"
+            local case="$3"
+            echo "BENCH ${label} ${case}"
+            (cd "$directory" && PYTHONPATH="$directory" python /tmp/runtime_bench.py "$case")
+          }
+
+          for case in blank4_all nonsquare6_cap20; do
+            run_case baseline /tmp/baseline "$case"
+            run_case candidate "$GITHUB_WORKSPACE" "$case"
+          done
