@@ -1,0 +1,323 @@
+name: Transactional fish memo migration
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/fish-memo-migration.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: transactional-fish-memo-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Implement transactional fish memo rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Expected text not found in {path}: {old[:180]!r}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+          trail = Path("gridsolver/abstract_grids/trail.py")
+          text = trail.read_text(encoding="utf-8")
+          if "class TrailedDict" in text:
+              raise SystemExit("TrailedDict already exists")
+          text += dedent(r'''
+
+
+              _MISSING = object()
+
+
+              class TrailedDict(dict[Any, Any]):
+                  """A dict that snapshots once per active trail frame before mutation."""
+
+                  __slots__ = ("_trail_state", "_snapshot_token")
+
+                  def __init__(
+                      self,
+                      values: Any = (),
+                      trail_state: TrailState | None = None,
+                      **kwargs: Any,
+                  ) -> None:
+                      super().__init__(values, **kwargs)
+                      self._trail_state = TrailState() if trail_state is None else trail_state
+                      self._snapshot_token = 0
+
+                  def __reduce__(self):
+                      return type(self), (tuple(self.items()), self._trail_state)
+
+                  def copy(self) -> dict[Any, Any]:
+                      return dict(self)
+
+                  def _record_snapshot(self) -> None:
+                      state = self._trail_state
+                      if not state.active or self._snapshot_token == state.token:
+                          return
+                      state.entries.append(
+                          ("map", self, tuple(self.items()), self._snapshot_token)
+                      )
+                      self._snapshot_token = state.token
+
+                  def __setitem__(self, key: Any, value: Any) -> None:
+                      if key in self and dict.__getitem__(self, key) == value:
+                          return
+                      self._record_snapshot()
+                      dict.__setitem__(self, key, value)
+
+                  def __delitem__(self, key: Any) -> None:
+                      if key not in self:
+                          dict.__delitem__(self, key)
+                      self._record_snapshot()
+                      dict.__delitem__(self, key)
+
+                  def clear(self) -> None:
+                      if not self:
+                          return
+                      self._record_snapshot()
+                      dict.clear(self)
+
+                  def pop(self, key: Any, default: Any = _MISSING) -> Any:
+                      if key not in self:
+                          if default is _MISSING:
+                              raise KeyError(key)
+                          return default
+                      self._record_snapshot()
+                      return dict.pop(self, key)
+
+                  def popitem(self) -> tuple[Any, Any]:
+                      if not self:
+                          return dict.popitem(self)
+                      self._record_snapshot()
+                      return dict.popitem(self)
+
+                  def setdefault(self, key: Any, default: Any = None) -> Any:
+                      if key in self:
+                          return dict.__getitem__(self, key)
+                      self._record_snapshot()
+                      return dict.setdefault(self, key, default)
+
+                  def update(self, *args: Any, **kwargs: Any) -> None:
+                      if not args and not kwargs:
+                          return
+                      self._record_snapshot()
+                      dict.update(self, *args, **kwargs)
+
+                  def __ior__(self, other: Any):
+                      self.update(other)
+                      return self
+              ''')
+          trail.write_text(text, encoding="utf-8")
+
+          replace_once(
+              "gridsolver/abstract_grids/grid.py",
+              '''            if tag == "cand":
+                          _, possible, original, previous_token = entry
+                          set.clear(possible)
+                          set.update(possible, original)
+                          possible._snapshot_token = previous_token
+                      elif tag == "known":
+              ''',
+              '''            if tag == "cand":
+                          _, possible, original, previous_token = entry
+                          set.clear(possible)
+                          set.update(possible, original)
+                          possible._snapshot_token = previous_token
+                      elif tag == "map":
+                          _, mapping, original, previous_token = entry
+                          dict.clear(mapping)
+                          dict.update(mapping, original)
+                          mapping._snapshot_token = previous_token
+                      elif tag == "known":
+              ''',
+          )
+          replace_once(
+              "gridsolver/abstract_grids/grid.py",
+              '''        # Branch-local candidate fingerprints are stale after rollback.
+                      for name, value in vars(self).items():
+                          if name.endswith("_memo") and hasattr(value, "clear"):
+                              value.clear()
+              ''',
+              "",
+          )
+
+          replace_once(
+              "gridsolver/solver/solve_fish.py",
+              "from gridsolver.abstract_grids.grid import Grid\n",
+              "from gridsolver.abstract_grids.grid import Grid\n"
+              "from gridsolver.abstract_grids.trail import TrailedDict\n",
+          )
+          replace_once(
+              "gridsolver/solver/solve_fish.py",
+              '''def _value_memo(grid: Grid):
+                      memo = getattr(grid, "_fish_value_memo", None)
+                      if memo is None:
+                          memo = {}
+                          grid._fish_value_memo = memo
+                      return memo
+              ''',
+              '''def _value_memo(grid: Grid) -> TrailedDict:
+                      memo = getattr(grid, "_fish_value_memo", None)
+                      if (
+                          not isinstance(memo, TrailedDict)
+                          or memo._trail_state is not grid._trail_state
+                      ):
+                          memo = TrailedDict(() if memo is None else memo, grid._trail_state)
+                          grid._fish_value_memo = memo
+                      return memo
+              ''',
+          )
+
+          replace_once(
+              "tests/test_trail.py",
+              "from gridsolver.abstract_grids.trail import TrailedSet\n",
+              "from gridsolver.abstract_grids.trail import TrailedDict, TrailedSet\n",
+          )
+          replace_once(
+              "tests/test_trail.py",
+              "from gridsolver.solver.solve_nishio import nishio\n",
+              "from gridsolver.solver.solve_fish import _value_memo\n"
+              "from gridsolver.solver.solve_nishio import nishio\n",
+          )
+
+          tests = Path("tests/test_trail.py")
+          text = tests.read_text(encoding="utf-8")
+          if "def test_trailed_dict_restores_parent_and_nested_state():" in text:
+              raise SystemExit("Transactional memo tests already exist")
+          text += dedent(r'''
+
+
+              def test_trailed_dict_restores_parent_and_nested_state():
+                  grid = Grid(2)
+                  memo = TrailedDict({("root", 1): "parent"}, grid._trail_state)
+                  grid._fish_value_memo = memo
+                  parent = dict(memo)
+
+                  outer = grid.trail_mark()
+                  memo[("root", 1)] = "outer"
+                  memo[("outer", 2)] = "branch"
+                  outer_state = dict(memo)
+
+                  inner = grid.trail_mark()
+                  memo.clear()
+                  memo[("inner", 3)] = "nested"
+                  grid.trail_undo(inner)
+                  assert dict(memo) == outer_state
+
+                  memo[("after-inner", 4)] = "outer-again"
+                  grid.trail_undo(outer)
+                  assert dict(memo) == parent
+                  assert memo._snapshot_token == 0
+                  assert not grid._trail_state.entries
+                  assert not grid._trail_state.frames
+
+
+              def test_fish_memo_uses_grid_trail_and_survives_rollback():
+                  grid = Grid(2)
+                  memo = _value_memo(grid)
+                  memo[(2, 1)] = ("parent",)
+                  parent = dict(memo)
+
+                  assert isinstance(memo, TrailedDict)
+                  assert memo._trail_state is grid._trail_state
+
+                  mark = grid.trail_mark()
+                  memo[(2, 1)] = ("branch",)
+                  memo[(2, 2)] = ("branch-only",)
+                  grid._candidates[0].discard(1)
+                  grid.trail_undo(mark)
+
+                  assert _value_memo(grid) is memo
+                  assert dict(memo) == parent
+                  assert grid._candidates[0] == {1, 2}
+
+
+              def test_pickled_fish_memo_rebinds_to_restored_grid_trail():
+                  grid = Grid(2)
+                  memo = _value_memo(grid)
+                  memo[(2, 1)] = ("parent",)
+
+                  restored = pickle.loads(pickle.dumps(grid))
+                  restored_memo = _value_memo(restored)
+                  parent = dict(restored_memo)
+
+                  assert isinstance(restored_memo, TrailedDict)
+                  assert restored_memo._trail_state is restored._trail_state
+
+                  mark = restored.trail_mark()
+                  restored_memo[(2, 1)] = ("branch",)
+                  restored_memo[(2, 2)] = ("branch-only",)
+                  restored.trail_undo(mark)
+
+                  assert dict(restored_memo) == parent
+              ''')
+          tests.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Install and validate transactional memo rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_trail.py \
+            tests/test_basic.py::test_fish_value_memo_invalidation \
+            tests/test_differential.py
+          python -X dev -m pytest -q \
+            tests/test_cli_and_loading.py \
+            tests/test_hardening.py \
+            tests/test_regressions.py \
+            tests/test_solution_validation.py \
+            tests/test_solver_api.py \
+            tests/test_trail.py \
+            tests/test_differential.py \
+            tests/test_rule_metadata.py \
+            tests/test_basic.py \
+            tests/test_scale.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential"
+
+      - name: Commit transactional memo support to master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "senegrom"
+          git config user.email "6349874+senegrom@users.noreply.github.com"
+          git add \
+            gridsolver/abstract_grids/trail.py \
+            gridsolver/abstract_grids/grid.py \
+            gridsolver/solver/solve_fish.py \
+            tests/test_trail.py
+          git diff --cached --check
+          git commit -m "Make fish memo rollback transactional"
+          git push origin HEAD:master
