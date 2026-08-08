@@ -218,6 +218,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 set.clear(possible)
                 set.update(possible, original)
                 possible._snapshot_token = previous_token
+            elif tag == "map":
+                _, mapping, original, previous_token = entry
+                dict.clear(mapping)
+                dict.update(mapping, original)
+                mapping._snapshot_token = previous_token
             elif tag == "known":
                 _, index, old_value = entry
                 self._known[index] = old_value
@@ -243,10 +248,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._struct_cache = frame.struct_cache
         self._guarantee_cache = frame.guarantee_cache
 
-        # Candidate fingerprints computed in an abandoned branch are stale.
-        for name, value in vars(self).items():
-            if name.endswith("_memo") and hasattr(value, "clear"):
-                value.clear()
+
 
     @property
     def is_solved(self) -> bool:

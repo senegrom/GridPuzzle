@@ -164,3 +164,115 @@ class TrailedSet(set[int]):
     def __ixor__(self, other: Iterable[int]):
         self.symmetric_difference_update(other)
         return self
+
+
+
+_MISSING = object()
+
+
+class TrailedDict(dict[Any, Any]):
+    """A mapping that snapshots itself once per active trail token."""
+
+    __slots__ = ("_trail_state", "_snapshot_token")
+
+    def __init__(
+        self,
+        values: Any = (),
+        trail_state: TrailState | None = None,
+        snapshot_token: int = 0,
+        **kwargs: Any,
+    ) -> None:
+        self._trail_state = (
+            TrailState() if trail_state is None else trail_state
+        )
+        self._snapshot_token = snapshot_token
+        dict.__init__(self)
+        dict.update(self, values, **kwargs)
+
+    def __reduce__(self):
+        return type(self), (
+            tuple(self.items()),
+            self._trail_state,
+            self._snapshot_token,
+        )
+
+    def copy(self) -> dict[Any, Any]:
+        return dict(self)
+
+    def _journal_snapshot(self) -> None:
+        state = self._trail_state
+        frame = state.marks[-1]
+        if self._snapshot_token == frame.token:
+            return
+        previous_token = self._snapshot_token
+        state.entries.append(
+            ("map", self, tuple(self.items()), previous_token)
+        )
+        self._snapshot_token = frame.token
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        state = self._trail_state
+        if not state.marks:
+            dict.__setitem__(self, key, value)
+            return
+        if key in self and dict.__getitem__(self, key) == value:
+            return
+        self._journal_snapshot()
+        dict.__setitem__(self, key, value)
+
+    def __delitem__(self, key: Any) -> None:
+        state = self._trail_state
+        if not state.marks:
+            dict.__delitem__(self, key)
+            return
+        if key not in self:
+            dict.__delitem__(self, key)
+            return
+        self._journal_snapshot()
+        dict.__delitem__(self, key)
+
+    def clear(self) -> None:
+        if not self:
+            return
+        state = self._trail_state
+        if state.marks:
+            self._journal_snapshot()
+        dict.clear(self)
+
+    def pop(self, key: Any, default: Any = _MISSING) -> Any:
+        state = self._trail_state
+        if key not in self:
+            if default is _MISSING:
+                raise KeyError(key)
+            return default
+        if state.marks:
+            self._journal_snapshot()
+        return dict.pop(self, key)
+
+    def popitem(self) -> tuple[Any, Any]:
+        state = self._trail_state
+        if not self:
+            return dict.popitem(self)
+        if state.marks:
+            self._journal_snapshot()
+        return dict.popitem(self)
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        if key in self:
+            return dict.__getitem__(self, key)
+        state = self._trail_state
+        if state.marks:
+            self._journal_snapshot()
+        return dict.setdefault(self, key, default)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        if not args and not kwargs:
+            return
+        state = self._trail_state
+        if state.marks:
+            self._journal_snapshot()
+        dict.update(self, *args, **kwargs)
+
+    def __ior__(self, other: Any):
+        self.update(other)
+        return self

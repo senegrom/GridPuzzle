@@ -2,6 +2,7 @@ import itertools
 from typing import FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.trail import TrailedDict
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -34,20 +35,21 @@ def _relevant_urs_by_val(grid: Grid, unique_rules, gt_dic) -> dict:
     return grid.cached_struct("fish_relevant_urs", build)
 
 
-def _value_memo(grid: Grid) -> dict:
-    """Per-value dirty tracking: fish pattern detection reads only the value's
-    guarantees and the relevant houses (never candidates), so when those are
-    value-equal to the last completed pass, re-running would re-derive exactly
-    the already-applied (idempotent) eliminations — the value can be skipped.
-    Keyed (finned, f, value) -> (frozenset of gts, frozenset of houses); kept
-    as a plain grid attribute so it survives struct-cache rebuilds and is
-    deliberately NOT copied to deepcopy clones (they recompute, which is safe)."""
+def _value_memo(grid: Grid) -> TrailedDict:
+    """Return per-value fish fingerprints tied to the grid trail.
+
+    Parent memo entries survive speculative branches, while branch-only
+    fingerprints roll back with candidates, rules, and guarantees. A
+    deepcopy still starts without this optional cache and recomputes it.
+    """
     memo = getattr(grid, "_fish_value_memo", None)
-    if memo is None:
-        memo = {}
+    if (
+        not isinstance(memo, TrailedDict)
+        or memo._trail_state is not grid._trail_state
+    ):
+        memo = TrailedDict(() if memo is None else memo, grid._trail_state)
         grid._fish_value_memo = memo
     return memo
-
 
 # noinspection PyProtectedMember
 def fish(grid: Grid, max_fish=2) -> None:

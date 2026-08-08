@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
-from gridsolver.abstract_grids.trail import TrailedSet
+from gridsolver.abstract_grids.trail import TrailedDict, TrailedSet
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.uneq import UneqRule
@@ -15,6 +15,7 @@ from gridsolver.solver import solve_forcing_net as forcing_net_module
 from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.propagation import BranchConsensus, propagate_basic
+from gridsolver.solver.solve_fish import _value_memo
 from gridsolver.solver.solve_nishio import nishio
 
 
@@ -361,3 +362,87 @@ def test_nested_candidate_tokens_restore_outer_first_touch_state():
 
     assert possible == {1, 2}
     assert possible._snapshot_token == 0
+
+
+
+def test_trailed_dict_mutators_are_fully_reversible():
+    grid = Grid(2)
+    memo = TrailedDict({"a": 1, "b": 2}, grid._trail_state)
+    before = dict(memo)
+    mark = grid.trail_mark()
+
+    memo["c"] = 3
+    memo.setdefault("d", 4)
+    memo.update({"e": 5})
+    memo |= {"f": 6}
+    memo.pop("a")
+    del memo["b"]
+    memo.popitem()
+    memo.clear()
+
+    grid.trail_undo(mark)
+    assert dict(memo) == before
+    assert memo._snapshot_token == 0
+    assert not grid._trail_state.entries
+    assert not grid._trail_state.marks
+
+
+def test_trailed_dict_restores_nested_boundaries():
+    grid = Grid(2)
+    memo = TrailedDict({("root", 1): "parent"}, grid._trail_state)
+    parent = dict(memo)
+
+    outer = grid.trail_mark()
+    memo[("root", 1)] = "outer"
+    memo[("outer", 2)] = "branch"
+    outer_state = dict(memo)
+
+    inner = grid.trail_mark()
+    memo.clear()
+    memo[("inner", 3)] = "nested"
+    grid.trail_undo(inner)
+    assert dict(memo) == outer_state
+
+    memo[("after-inner", 4)] = "outer-again"
+    grid.trail_undo(outer)
+    assert dict(memo) == parent
+
+
+def test_fish_memo_uses_grid_trail_and_survives_rollback():
+    grid = Grid(2)
+    memo = _value_memo(grid)
+    memo[(False, 2, 1)] = ("parent",)
+    parent = dict(memo)
+
+    assert isinstance(memo, TrailedDict)
+    assert memo._trail_state is grid._trail_state
+
+    mark = grid.trail_mark()
+    memo[(False, 2, 1)] = ("branch",)
+    memo[(False, 2, 2)] = ("branch-only",)
+    grid._candidates[0].discard(1)
+    grid.trail_undo(mark)
+
+    assert _value_memo(grid) is memo
+    assert dict(memo) == parent
+    assert grid._candidates[0] == {1, 2}
+
+
+def test_pickled_fish_memo_shares_the_restored_grid_trail():
+    grid = Grid(2)
+    memo = _value_memo(grid)
+    memo[(False, 2, 1)] = ("parent",)
+
+    restored = pickle.loads(pickle.dumps(grid))
+    restored_memo = _value_memo(restored)
+    parent = dict(restored_memo)
+
+    assert isinstance(restored_memo, TrailedDict)
+    assert restored_memo._trail_state is restored._trail_state
+
+    mark = restored.trail_mark()
+    restored_memo[(False, 2, 1)] = ("branch",)
+    restored_memo[(False, 2, 2)] = ("branch-only",)
+    restored.trail_undo(mark)
+
+    assert dict(restored_memo) == parent
