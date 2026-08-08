@@ -1,4 +1,4 @@
-name: Clone and process payload hardening
+name: Clone and process payload hardening v2
 
 on:
   push:
@@ -31,7 +31,21 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply clone and worker-payload hardening
-        run: python .github/scripts/clone_process_hardening.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("gridsolver/solver/solver.py")
+          text = path.read_text(encoding="utf-8")
+          current = "    return max_sols, processes, depth_gate\n\ndef solve(\n"
+          normalized = "    return max_sols, processes, depth_gate\ndef solve(\n"
+          if current not in text:
+              raise SystemExit("Solve-option boundary not found")
+          path.write_text(text.replace(current, normalized, 1), encoding="utf-8")
+          PY
+          python .github/scripts/clone_process_hardening.py
 
       - name: Install and validate clone semantics
         shell: bash
