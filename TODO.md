@@ -81,9 +81,12 @@ process-wide statistics and logging state.
 
 ## Depth-gated technique tiers — DONE as an explicit per-solve option
 
-`atomic_solver.DEPTH_GATE_K` runs only the cheap tier below a chosen search
-depth. Historical measurements at K=1: blank 4x4 37.0s -> 2.6s; non-square
-6x6 400.9s -> 7.7s with identical solutions.
+`solve(..., depth_gate=K)` runs only the cheap tier below the chosen search
+depth (the former atomic_solver.DEPTH_GATE_K module flag was migrated to this
+explicit per-solve option, default off). Historical measurements at K=1:
+blank 4x4 37.0s -> 2.6s; non-square 6x6 400.9s -> 7.7s with identical
+solutions; benchmarks/README.md records the CI-runner numbers (86.3x at K=0
+on blank enumeration).
 
 **OPEN:** decide whether to adopt a default after scheduled extended CI measures
 K=1..2 across single-solution hard puzzles and the slow Latin-square corpus.
