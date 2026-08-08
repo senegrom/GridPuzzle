@@ -498,7 +498,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._struct_cache[key] = value
             return value
 
-    def cached_guarantee_struct(self, key: str, factory: Callable[[], Any]) -> Any:
+    def cached_guarantee_struct(self, key: Any, factory: Callable[[], Any]) -> Any:
         """Memoize a structure affected only by the live guarantee set."""
         try:
             return self._guarantee_cache[key]

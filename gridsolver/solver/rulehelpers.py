@@ -13,31 +13,43 @@ _MAX_SAEAMO_CELLS = 8  # cap derived sum-cages: partition enumeration grows
 
 
 def rulehelper_atmostonce(grid: Grid) -> None:
-    unique_rule_cells = grid.unique_rule_cells
+    """Materialise the union of all active inequalities per origin cell."""
+    desired: list[set[int]] = [set() for _ in range(grid.len)]
+    for cells in grid.unique_rule_cells:
+        if len(cells) <= 1:
+            continue
+        for cell in cells:
+            desired[cell].update(cells)
+            desired[cell].discard(cell)
 
-    for cells in unique_rule_cells:
-        if len(cells) > 1:
-            for cell in cells:
-                new_rule = uneq.UneqRule(grid, cell, cells - {cell})
-                grid.add_rule_checked(new_rule)
+    existing_by_origin: dict[int, list[uneq.UneqRule]] = {}
+    for rule in grid.get_rules_of_type(uneq.UneqRule):
+        existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
 
-    uneq_rules: List[uneq.UneqRule] = grid.get_rules_of_type(uneq.UneqRule)
+    additions: list[uneq.UneqRule] = []
+    to_deactivate: list[uneq.UneqRule] = []
+    for origin, required in enumerate(desired):
+        existing = existing_by_origin.get(origin, [])
+        merged = set(required)
+        for rule in existing:
+            merged.update(rule.rel_cells)
+        if not merged:
+            continue
 
-    for oc in range(grid.len):
-        uneq_rule_cells_oc = {(frozenset(rule.rel_cells), rule) for rule in uneq_rules if
-                              rule.origin_cell == oc}
-        if len(uneq_rule_cells_oc) > 1:
-            uni = frozenset.union(*(cells for cells, _ in uneq_rule_cells_oc))
+        target = frozenset(merged)
+        keeper = next(
+            (rule for rule in existing if rule.rel_cells == target),
+            None,
+        )
+        to_deactivate.extend(
+            rule for rule in existing if rule is not keeper
+        )
+        if keeper is None:
+            additions.append(uneq.UneqRule(grid, origin, target))
 
-            for cells, rl in uneq_rule_cells_oc.copy():
-                if cells < uni:
-                    grid.deactivate_rule(rl)
-                    uneq_rule_cells_oc.remove((cells, rl))
-
-            if not uneq_rule_cells_oc:
-                new_rule = uneq.UneqRule(grid, oc, uni)
-                grid.add_rule_checked(new_rule)
-
+    for rule in to_deactivate:
+        grid.deactivate_rule(rule)
+    grid.add_rules_checked(additions)
 
 def rulehelper_house_sums(grid: Grid) -> None:
     """Rule of 45 (innies): every complete house sums to n(n+1)/2.

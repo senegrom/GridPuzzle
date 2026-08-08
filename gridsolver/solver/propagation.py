@@ -72,13 +72,10 @@ def _build_guarantee_index(grid: Grid) -> dict[int, list[Guarantee]]:
 
 
 def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
-    """Return an exact superset of guarantees that may affect ``rule``.
+    """Return the cached guarantee superset that may affect ``rule``.
 
-    Every current consumer requires a guarantee's cells to be a subset of the
-    rule cells. Its minimum cell must therefore occur in the rule, so an index
-    by minimum cell avoids scanning every live guarantee for every rule. The
-    index is invalidated only when guarantees change, not when unrelated rules
-    deactivate during propagation.
+    Relevance depends only on the rule cells and live guarantee set;
+    the guarantee-only cache already has exactly that lifecycle.
     """
     if not rule.uses_guarantees:
         return _NO_GUARANTEES
@@ -86,8 +83,14 @@ def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
         "gts_by_min_cell",
         lambda: _build_guarantee_index(grid),
     )
-    return [guarantee for cell in rule.cells for guarantee in index.get(cell, ())]
-
+    return grid.cached_guarantee_struct(
+        ("relevant_guarantees", rule.cells),
+        lambda: tuple(
+            guarantee
+            for cell in rule.cells
+            for guarantee in index.get(cell, ())
+        ),
+    )
 
 def update_known_from_candidates(
     setitem: Callable[[int, int], None],

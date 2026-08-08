@@ -30,11 +30,10 @@ class Guarantee(NamedTuple):
     rows: int
     cols: int
 
-    def __hash__(self) -> int:
-        return hash((type(self), hash(self.cells), self.val, self.rows, self.cols))
+    # Equality remains type-strict; unequal types may legally share a hash.
+    __hash__ = tuple.__hash__
 
     def __eq__(self, other: object) -> bool:
-        # The hash mixes in the type, so equality must be type-strict as well.
         return type(other) is Guarantee and tuple.__eq__(self, other)
 
     def __ne__(self, other: object) -> bool:

@@ -143,19 +143,21 @@ def alternating_inference_chain(grid: Grid) -> None:
                     _add(weak, gnode, (peer, val))
                     _add(weak, (peer, val), gnode)
 
-    def _get_cells(node: Node) -> Set[int]:
-        """Get the cell(s) of a node."""
-        n, _ = node
-        if isinstance(n, frozenset):
-            return n
-        return {n}
+
+    def _get_cells(node: Node) -> FrozenSet[int] | tuple[int]:
+        """Return an existing group or a compact singleton view."""
+        cells, _ = node
+        if isinstance(cells, frozenset):
+            return cells
+        return (cells,)
 
     def _cells_see_all(target_cell: int, node: Node) -> bool:
-        """Check if target_cell sees all cells in node."""
-        for nc in _get_cells(node):
-            if nc not in cell_peers.get(target_cell, set()):
-                return False
-        return True
+        """Whether target_cell sees every cell in node, allocation-free."""
+        cells, _ = node
+        peers = cell_peers[target_cell]
+        if isinstance(cells, frozenset):
+            return cells <= peers
+        return cells in peers
 
     # --- BFS for AICs ---
     max_depth = 9
