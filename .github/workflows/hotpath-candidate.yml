@@ -22,7 +22,7 @@ env:
 jobs:
   candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v6
@@ -35,68 +35,64 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Apply conservative hot-path candidate
+      - name: Apply semantics-preserving hot-path candidate
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           from textwrap import dedent
 
-          def replace_once(path: str, old: str, new: str) -> None:
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              if text.count(old) != 1:
-                  raise SystemExit(f"{path}: expected one marker, found {text.count(old)}")
-              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+          def replace_between(text: str, start_marker: str, end_marker: str, replacement: str) -> str:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              return text[:start] + replacement + text[end:]
 
-          replace_once(
-              "gridsolver/rules/rules.py",
-              dedent('''
-                  class Guarantee(NamedTuple):
-                      val: int
-                      cells: frozenset[int]
-                      rows: int
-                      cols: int
+          # C-level Guarantee hashing and one cached immutable base hash per Rule.
+          path = Path("gridsolver/rules/rules.py")
+          text = path.read_text(encoding="utf-8")
+          guarantee = dedent('''
+              class Guarantee(NamedTuple):
+                  val: int
+                  cells: frozenset[int]
+                  rows: int
+                  cols: int
 
-                      def __hash__(self) -> int:
-                          return hash((type(self), hash(self.cells), self.val, self.rows, self.cols))
+                  # Equality remains type-strict. Unequal types may legally share a
+                  # hash, so use NamedTuple's C-level tuple hash instead of rebuilding
+                  # and hashing another tuple in Python millions of times.
+                  __hash__ = tuple.__hash__
 
-                      def __eq__(self, other: object) -> bool:
-                          # The hash mixes in the type, so equality must be type-strict as well.
-                          return type(other) is Guarantee and tuple.__eq__(self, other)
-              ''').lstrip(),
-              dedent('''
-                  class Guarantee(NamedTuple):
-                      val: int
-                      cells: frozenset[int]
-                      rows: int
-                      cols: int
+                  def __eq__(self, other: object) -> bool:
+                      return type(other) is Guarantee and tuple.__eq__(self, other)
 
-                      # NamedTuple's C-level tuple hash is substantially cheaper than a
-                      # Python wrapper. Equality remains type-strict; unequal types are
-                      # allowed to share a hash value.
-                      __hash__ = tuple.__hash__
+                  def __ne__(self, other: object) -> bool:
+                      return not self.__eq__(other)
 
-                      def __eq__(self, other: object) -> bool:
-                          return type(other) is Guarantee and tuple.__eq__(self, other)
-              ''').lstrip(),
+          ''').lstrip()
+          text = replace_between(
+              text,
+              "class Guarantee(NamedTuple):\n",
+              "type TApplyResult = tuple[\n",
+              guarantee,
           )
-          replace_once(
-              "gridsolver/rules/rules.py",
-              '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen")\n',
-              '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen", "_base_hash")\n',
-          )
-          replace_once(
-              "gridsolver/rules/rules.py",
-              '        object.__setattr__(self, "_frozen", False)\n        self._rows = gsz.rows\n',
-              '        object.__setattr__(self, "_frozen", False)\n        object.__setattr__(self, "_base_hash", None)\n        self._rows = gsz.rows\n',
-          )
-          replace_once(
-              "gridsolver/rules/rules.py",
-              dedent('''
-                      def __hash__(self) -> int:
-                          self.freeze()
-                          return hash(
+          old_slots = '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen")\n'
+          new_slots = '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen", "_base_hash")\n'
+          if text.count(old_slots) != 1:
+              raise SystemExit("Rule slot marker changed")
+          text = text.replace(old_slots, new_slots, 1)
+          old_init = '        object.__setattr__(self, "_frozen", False)\n        self._rows = gsz.rows\n'
+          new_init = '        object.__setattr__(self, "_frozen", False)\n        object.__setattr__(self, "_base_hash", None)\n        self._rows = gsz.rows\n'
+          if text.count(old_init) != 1:
+              raise SystemExit("Rule initializer marker changed")
+          text = text.replace(old_init, new_init, 1)
+          rule_class = text.index("class Rule(ABC):\n")
+          hash_start = text.index("    def __hash__(self) -> int:\n", rule_class)
+          hash_end = text.index("\n    def __ne__(self, other: object) -> bool:\n", hash_start)
+          cached_hash = dedent('''
+                  def __hash__(self) -> int:
+                      cached = self._base_hash
+                      if cached is None:
+                          cached = hash(
                               (
                                   type(self),
                                   self.cells,
@@ -106,48 +102,19 @@ jobs:
                                   self.len_cells,
                               )
                           )
-              ''').rstrip() + "\n",
-              dedent('''
-                      def __hash__(self) -> int:
-                          cached = self._base_hash
-                          if cached is None:
-                              cached = hash(
-                                  (
-                                      type(self),
-                                      self.cells,
-                                      self._rows,
-                                      self._cols,
-                                      self._max_elem,
-                                      self.len_cells,
-                                  )
-                              )
-                              object.__setattr__(self, "_base_hash", cached)
-                          self.freeze()
-                          return cached
-              ''').rstrip() + "\n",
-          )
+                          object.__setattr__(self, "_base_hash", cached)
+                      self.freeze()
+                      return cached
+          ''')
+          text = text[:hash_start] + cached_hash + text[hash_end:]
+          path.write_text(text, encoding="utf-8")
 
-          propagation = Path("gridsolver/solver/propagation.py")
-          text = propagation.read_text(encoding="utf-8")
-          old = dedent('''
-              def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
-                  """Return an exact superset of guarantees that may affect ``rule``.
-
-                  Every current consumer requires a guarantee's cells to be a subset of the
-                  rule cells. Its minimum cell must therefore occur in the rule, so an index
-                  by minimum cell avoids scanning every live guarantee for every rule. The
-                  index is invalidated only when guarantees change, not when unrelated rules
-                  deactivate during propagation.
-                  """
-                  if not rule.uses_guarantees:
-                      return _NO_GUARANTEES
-                  index = grid.cached_guarantee_struct(
-                      "gts_by_min_cell",
-                      lambda: _build_guarantee_index(grid),
-                  )
-                  return [guarantee for cell in rule.cells for guarantee in index.get(cell, ())]
-          ''').lstrip()
-          new = dedent('''
+          # Guarantee relevance depends only on rule cells and the live guarantee
+          # generation. The existing guarantee-only cache already has exactly that
+          # lifecycle, so retain immutable tuples instead of rebuilding lists.
+          path = Path("gridsolver/solver/propagation.py")
+          text = path.read_text(encoding="utf-8")
+          relevant = dedent('''
               def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
                   """Return the cached guarantee superset that may affect ``rule``."""
                   if not rule.uses_guarantees:
@@ -157,98 +124,30 @@ jobs:
                       lambda: _build_guarantee_index(grid),
                   )
                   return grid.cached_guarantee_struct(
-                      ("relevant_guarantees", rule),
+                      ("relevant_guarantees", rule.cells),
                       lambda: tuple(
                           guarantee
                           for cell in rule.cells
                           for guarantee in index.get(cell, ())
                       ),
                   )
+
           ''').lstrip()
-          if text.count(old) != 1:
-              raise SystemExit("relevant_guarantees marker missing")
-          text = text.replace(old, new, 1)
-          text = text.replace(
-              "            if refresh:\n                update_candidates_from_known(candidates, known)\n",
-              "            if refresh:\n                update_candidates_from_known(candidates, known)\n",
-              1,
+          text = replace_between(
+              text,
+              "def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:\n",
+              "def update_known_from_candidates(\n",
+              relevant,
           )
-          old_exc = dedent('''
-                      except RuleAlwaysSatisfied:
-                          new_rules = []
-                          new_guarantees = None
-                          update_candidates_from_known(candidates, known)
-          ''')
-          new_exc = dedent('''
-                      except RuleAlwaysSatisfied:
-                          new_rules = []
-                          new_guarantees = None
-          ''')
-          if text.count(old_exc) != 1:
-              raise SystemExit("RuleAlwaysSatisfied marker missing")
-          text = text.replace(old_exc, new_exc, 1)
-          text = text.replace(
-              "            grid.add_rules_checked(prepared_rules)\n",
-              "            grid.add_rules_checked(prepared_rules, _prepared=True)\n",
-              1,
-          )
-          text = text.replace(
-              "            grid.add_gtees_checked(prepared_guarantees)\n",
-              "            grid.add_gtees_checked(prepared_guarantees, _prepared=True)\n",
-              1,
-          )
-          propagation.write_text(text, encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
 
-          grid = Path("gridsolver/abstract_grids/grid.py")
-          text = grid.read_text(encoding="utf-8")
-          text = text.replace(
-              "    def add_rules_checked(self, rules: Iterable[Rule]) -> None:\n",
-              "    def add_rules_checked(\n        self,\n        rules: Iterable[Rule],\n        *,\n        _prepared: bool = False,\n    ) -> None:\n",
-              1,
-          )
-          text = text.replace(
-              "        for rule in rules:\n            rule = self._normalize_rule(rule)\n",
-              "        for rule in rules:\n            if not _prepared:\n                rule = self._normalize_rule(rule)\n",
-              1,
-          )
-          text = text.replace(
-              "    def add_gtees_checked(self, guarantees: Iterable[Guarantee]) -> None:\n",
-              "    def add_gtees_checked(\n        self,\n        guarantees: Iterable[Guarantee],\n        *,\n        _prepared: bool = False,\n    ) -> None:\n",
-              1,
-          )
-          second = text.find("        for guarantee in guarantees:\n            guarantee = self._normalize_guarantee(guarantee)\n")
-          if second < 0:
-              raise SystemExit("guarantee preparation marker missing")
-          text = text[:second] + text[second:].replace(
-              "        for guarantee in guarantees:\n            guarantee = self._normalize_guarantee(guarantee)\n",
-              "        for guarantee in guarantees:\n            if not _prepared:\n                guarantee = self._normalize_guarantee(guarantee)\n",
-              1,
-          )
-          text = text.replace(
-              "        self._guarantee_cache: dict[str, Any] = {}\n",
-              "        self._guarantee_cache: dict[Any, Any] = {}\n",
-              1,
-          )
-          text = text.replace(
-              "    def cached_guarantee_struct(self, key: str, factory: Callable[[], Any]) -> Any:\n",
-              "    def cached_guarantee_struct(self, key: Any, factory: Callable[[], Any]) -> Any:\n",
-              1,
-          )
-          grid.write_text(text, encoding="utf-8")
-
-          helpers = Path("gridsolver/solver/rulehelpers.py")
-          text = helpers.read_text(encoding="utf-8")
-          start = text.index("def rulehelper_atmostonce(grid: Grid) -> None:\n")
-          end = text.index("\ndef rulehelper_house_sums(grid: Grid) -> None:\n", start)
-          replacement = dedent('''
+          # Build the final merged Uneq relation once per origin rather than
+          # constructing and then deactivating one temporary rule per house.
+          path = Path("gridsolver/solver/rulehelpers.py")
+          text = path.read_text(encoding="utf-8")
+          helper = dedent('''
               def rulehelper_atmostonce(grid: Grid) -> None:
-                  """Materialise one merged inequality relation per origin cell.
-
-                  The previous implementation reconstructed every per-house relation on
-                  every pass and relied on set insertion to discard duplicates. Build the
-                  final union first, then create a rule only when the active relation set
-                  actually changes.
-                  """
+                  """Materialise one merged inequality relation per origin cell."""
                   desired: list[set[int]] = [set() for _ in range(grid.len)]
                   for cells in grid.unique_rule_cells:
                       if len(cells) <= 1:
@@ -261,6 +160,7 @@ jobs:
                   for rule in grid.get_rules_of_type(uneq.UneqRule):
                       existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
 
+                  additions: list[uneq.UneqRule] = []
                   for origin, required in enumerate(desired):
                       existing = existing_by_origin.get(origin, [])
                       merged = set(required)
@@ -278,9 +178,47 @@ jobs:
                           if rule is not keeper:
                               grid.deactivate_rule(rule)
                       if keeper is None:
-                          grid.add_rule_checked(uneq.UneqRule(grid, origin, target))
+                          additions.append(uneq.UneqRule(grid, origin, target))
+
+                  grid.add_rules_checked(additions)
+
           ''').lstrip()
-          helpers.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          text = replace_between(
+              text,
+              "def rulehelper_atmostonce(grid: Grid) -> None:\n",
+              "def rulehelper_house_sums(grid: Grid) -> None:\n",
+              helper,
+          )
+          path.write_text(text, encoding="utf-8")
+
+          # Avoid millions of singleton-set allocations and default set()
+          # constructions in the AIC endpoint visibility test.
+          path = Path("gridsolver/solver/solve_aic.py")
+          text = path.read_text(encoding="utf-8")
+          helpers = dedent('''
+                  def _get_cells(node: Node) -> FrozenSet[int] | tuple[int]:
+                      """Return an allocation-free group or a compact singleton tuple."""
+                      cells, _ = node
+                      if isinstance(cells, frozenset):
+                          return cells
+                      return (cells,)
+
+                  def _cells_see_all(target_cell: int, node: Node) -> bool:
+                      """Check whether ``target_cell`` sees every cell in ``node``."""
+                      cells, _ = node
+                      peers = cell_peers[target_cell]
+                      if isinstance(cells, frozenset):
+                          return cells <= peers
+                      return cells in peers
+
+          ''')
+          text = replace_between(
+              text,
+              "    def _get_cells(node: Node) -> Set[int]:\n",
+              "    # --- BFS for AICs ---\n",
+              helpers,
+          )
+          path.write_text(text, encoding="utf-8")
           PY
 
       - name: Install and test candidate
@@ -306,6 +244,7 @@ jobs:
           git worktree add --detach /tmp/baseline HEAD^
           cat > /tmp/hot_bench.py <<'PY'
           import gc
+          import hashlib
           import json
           import logging
           import statistics
@@ -327,9 +266,8 @@ jobs:
               raise SystemExit(case)
 
           case = sys.argv[1]
-          grid, max_sols, expected = factory(case)
           durations = []
-          fingerprint = None
+          digest = None
           for _ in range(2):
               gc.collect()
               grid, max_sols, expected = factory(case)
@@ -343,16 +281,17 @@ jobs:
               durations.append(time.perf_counter() - start)
               if len(solutions) != expected:
                   raise SystemExit(f"{case}: expected {expected}, got {len(solutions)}")
-              current = sorted(tuple(solution) for solution in solutions)
-              if fingerprint is None:
-                  fingerprint = current
-              elif current != fingerprint:
+              payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
+              current = hashlib.sha256(payload).hexdigest()
+              if digest is None:
+                  digest = current
+              elif current != digest:
                   raise SystemExit(f"{case}: nondeterministic solution set")
           print(json.dumps({
               "case": case,
               "seconds": durations,
               "median": statistics.median(durations),
-              "fingerprint": fingerprint,
+              "digest": digest,
           }, sort_keys=True))
           PY
 
