@@ -35,543 +35,528 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
-          def replace(path: str, old: str, new: str) -> None:
+          def replace_once(path: str, old: str, new: str) -> None:
               target = Path(path)
               text = target.read_text(encoding="utf-8")
               if old not in text:
                   raise SystemExit(f"Expected text not found in {path}: {old[:120]!r}")
               target.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          Path("gridsolver/abstract_grids/trail.py").write_text(r'''from collections.abc import Callable, Iterable
-          from dataclasses import dataclass, field
-          from typing import Any
+          def replace_all(path: str, old: str, new: str, expected: int) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(
+                      f"Expected {expected} occurrences in {path}, found {count}: {old!r}"
+                  )
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          Path("gridsolver/abstract_grids/trail.py").write_text(dedent(r'''
+              from collections.abc import Callable, Iterable
+              from dataclasses import dataclass, field
+              from typing import Any
 
 
-          type TrailEntry = tuple[Any, ...]
+              type TrailEntry = tuple[Any, ...]
 
 
-          @dataclass(slots=True)
-          class TrailState:
-              """Shared journal state for one grid and all of its candidate sets."""
+              @dataclass(slots=True)
+              class TrailState:
+                  """Shared journal state for one grid and all of its candidate sets."""
 
-              entries: list[TrailEntry] = field(default_factory=list)
-              marks: list[int] = field(default_factory=list)
+                  entries: list[TrailEntry] = field(default_factory=list)
+                  marks: list[int] = field(default_factory=list)
 
-              @property
-              def active(self) -> bool:
-                  return bool(self.marks)
+                  @property
+                  def active(self) -> bool:
+                      return bool(self.marks)
 
 
-          class TrailedSet(set[int]):
-              """A set that journals mutations while its owning grid has a trail mark."""
+              class TrailedSet(set[int]):
+                  """A set that journals mutations while its owning grid has a trail mark."""
 
-              __slots__ = ("_trail_state",)
+                  __slots__ = ("_trail_state",)
 
-              def __init__(
-                  self,
-                  values: Iterable[int] = (),
-                  trail_state: TrailState | None = None,
-              ) -> None:
-                  super().__init__(values)
-                  self._trail_state = TrailState() if trail_state is None else trail_state
+                  def __init__(
+                      self,
+                      values: Iterable[int] = (),
+                      trail_state: TrailState | None = None,
+                  ) -> None:
+                      super().__init__(values)
+                      self._trail_state = TrailState() if trail_state is None else trail_state
 
-              def __reduce__(self):
-                  # Preserve the shared TrailState when a Grid is pickled for a
-                  # process-pool worker. Pickle's memo keeps the state shared by
-                  # every candidate set and by the Grid itself.
-                  return type(self), (tuple(self), self._trail_state)
+                  def __reduce__(self):
+                      # Preserve the shared TrailState when a Grid is pickled for a
+                      # process-pool worker. Pickle's memo keeps the state shared by
+                      # every candidate set and by the Grid itself.
+                      return type(self), (tuple(self), self._trail_state)
 
-              def __repr__(self) -> str:
-                  # Keep logging and diagnostics identical to ordinary sets.
-                  return repr(set(self))
+                  def __repr__(self) -> str:
+                      # Keep logging and diagnostics identical to ordinary sets.
+                      return repr(set(self))
 
-              def copy(self) -> set[int]:
-                  # Algorithmic scratch copies should not journal back to the grid.
-                  return set(self)
+                  def copy(self) -> set[int]:
+                      # Algorithmic scratch copies should not journal back to the grid.
+                      return set(self)
 
-              def _record_change(self, before: frozenset[int]) -> None:
-                  after = frozenset(self)
-                  removed = before - after
-                  added = after - before
-                  if removed or added:
-                      self._trail_state.entries.append(("cand", self, removed, added))
+                  def _record_change(self, before: frozenset[int]) -> None:
+                      after = frozenset(self)
+                      removed = before - after
+                      added = after - before
+                      if removed or added:
+                          self._trail_state.entries.append(("cand", self, removed, added))
 
-              def _mutate(self, operation: Callable[..., Any], /, *args: Any) -> None:
-                  if not self._trail_state.active:
+                  def _mutate(self, operation: Callable[..., Any], /, *args: Any) -> None:
+                      if not self._trail_state.active:
+                          operation(self, *args)
+                          return
+                      before = frozenset(self)
                       operation(self, *args)
-                      return
-                  before = frozenset(self)
-                  operation(self, *args)
-                  self._record_change(before)
+                      self._record_change(before)
 
-              def add(self, element: int) -> None:
-                  self._mutate(set.add, element)
+                  def add(self, element: int) -> None:
+                      self._mutate(set.add, element)
 
-              def clear(self) -> None:
-                  self._mutate(set.clear)
+                  def clear(self) -> None:
+                      self._mutate(set.clear)
 
-              def difference_update(self, *others: Iterable[int]) -> None:
-                  self._mutate(set.difference_update, *others)
+                  def difference_update(self, *others: Iterable[int]) -> None:
+                      self._mutate(set.difference_update, *others)
 
-              def discard(self, element: int) -> None:
-                  self._mutate(set.discard, element)
+                  def discard(self, element: int) -> None:
+                      self._mutate(set.discard, element)
 
-              def intersection_update(self, *others: Iterable[int]) -> None:
-                  self._mutate(set.intersection_update, *others)
+                  def intersection_update(self, *others: Iterable[int]) -> None:
+                      self._mutate(set.intersection_update, *others)
 
-              def pop(self) -> int:
-                  if not self._trail_state.active:
-                      return set.pop(self)
-                  before = frozenset(self)
-                  value = set.pop(self)
-                  self._record_change(before)
-                  return value
+                  def pop(self) -> int:
+                      if not self._trail_state.active:
+                          return set.pop(self)
+                      before = frozenset(self)
+                      value = set.pop(self)
+                      self._record_change(before)
+                      return value
 
-              def remove(self, element: int) -> None:
-                  self._mutate(set.remove, element)
+                  def remove(self, element: int) -> None:
+                      self._mutate(set.remove, element)
 
-              def symmetric_difference_update(self, other: Iterable[int]) -> None:
-                  self._mutate(set.symmetric_difference_update, other)
+                  def symmetric_difference_update(self, other: Iterable[int]) -> None:
+                      self._mutate(set.symmetric_difference_update, other)
 
-              def update(self, *others: Iterable[int]) -> None:
-                  self._mutate(set.update, *others)
+                  def update(self, *others: Iterable[int]) -> None:
+                      self._mutate(set.update, *others)
 
-              def __iand__(self, other: Iterable[int]):
-                  self.intersection_update(other)
-                  return self
+                  def __iand__(self, other: Iterable[int]):
+                      self.intersection_update(other)
+                      return self
 
-              def __ior__(self, other: Iterable[int]):
-                  self.update(other)
-                  return self
+                  def __ior__(self, other: Iterable[int]):
+                      self.update(other)
+                      return self
 
-              def __isub__(self, other: Iterable[int]):
-                  self.difference_update(other)
-                  return self
+                  def __isub__(self, other: Iterable[int]):
+                      self.difference_update(other)
+                      return self
 
-              def __ixor__(self, other: Iterable[int]):
-                  self.symmetric_difference_update(other)
-                  return self
-          '''.replace("\n          ", "\n").lstrip(), encoding="utf-8")
+                  def __ixor__(self, other: Iterable[int]):
+                      self.symmetric_difference_update(other)
+                      return self
+          ''').lstrip(), encoding="utf-8")
 
-          replace(
+          replace_once(
               "gridsolver/abstract_grids/grid.py",
               "from gridsolver.abstract_grids.rule_container import RuleContainer\n",
               "from gridsolver.abstract_grids.rule_container import RuleContainer\n"
               "from gridsolver.abstract_grids.trail import TrailState, TrailedSet\n",
           )
-          replace(
+          replace_once(
               "gridsolver/abstract_grids/grid.py",
-              '''        RuleContainer.__init__(self)
-                  self._candidates: tuple[set[int], ...] = tuple(
-                      set(range(1, self.max_elem + 1)) for _ in range(self.len)
-                  )
-          '''.replace("\n          ", "\n"),
-              '''        RuleContainer.__init__(self)
-                  self._trail_state = TrailState()
-                  self._candidates: tuple[TrailedSet, ...] = tuple(
-                      TrailedSet(range(1, self.max_elem + 1), self._trail_state)
-                      for _ in range(self.len)
-                  )
-          '''.replace("\n          ", "\n"),
+              "        RuleContainer.__init__(self)\n"
+              "        self._candidates: tuple[set[int], ...] = tuple(\n"
+              "            set(range(1, self.max_elem + 1)) for _ in range(self.len)\n"
+              "        )\n",
+              "        RuleContainer.__init__(self)\n"
+              "        self._trail_state = TrailState()\n"
+              "        self._candidates: tuple[TrailedSet, ...] = tuple(\n"
+              "            TrailedSet(range(1, self.max_elem + 1), self._trail_state)\n"
+              "            for _ in range(self.len)\n"
+              "        )\n",
           )
-          replace(
+          replace_once(
               "gridsolver/abstract_grids/grid.py",
-              '''        self._known[index] = value
-                  # An assignment outside the current candidate set intentionally empties
-          '''.replace("\n          ", "\n"),
-              '''        if current != value and self._trail_state.active:
-                      self._trail_state.entries.append(("known", index, current))
-                  self._known[index] = value
-                  # An assignment outside the current candidate set intentionally empties
-          '''.replace("\n          ", "\n"),
+              "        self._known[index] = value\n"
+              "        # An assignment outside the current candidate set intentionally empties\n",
+              "        if current != value and self._trail_state.active:\n"
+              "            self._trail_state.entries.append((\"known\", index, current))\n"
+              "        self._known[index] = value\n"
+              "        # An assignment outside the current candidate set intentionally empties\n",
           )
-          replace(
+          replace_once(
               "gridsolver/abstract_grids/grid.py",
-              '''        result._known = array("I", self._known)
-                  result._candidates = tuple(possible.copy() for possible in self._candidates)
-          '''.replace("\n          ", "\n"),
-              '''        result._known = array("I", self._known)
-                  result._trail_state = TrailState()
-                  result._candidates = tuple(
-                      TrailedSet(possible, result._trail_state) for possible in self._candidates
-                  )
-          '''.replace("\n          ", "\n"),
+              "        result._known = array(\"I\", self._known)\n"
+              "        result._candidates = tuple(possible.copy() for possible in self._candidates)\n",
+              "        result._known = array(\"I\", self._known)\n"
+              "        result._trail_state = TrailState()\n"
+              "        result._candidates = tuple(\n"
+              "            TrailedSet(possible, result._trail_state) for possible in self._candidates\n"
+              "        )\n",
           )
-          replace(
+          replace_once(
               "gridsolver/abstract_grids/grid.py",
-              '''        result._guarantee_cache = {}
-                  return result
-
-              @property
-              def is_solved(self) -> bool:
-          '''.replace("\n          ", "\n"),
-              '''        result._guarantee_cache = {}
-                  return result
-
-              def trail_mark(self) -> int:
-                  """Start a reversible mutation scope and return its LIFO mark."""
-                  state = self._trail_state
-                  mark = len(state.entries)
-                  state.marks.append(mark)
-                  # A marker also restores API-visible fill state and guarantees
-                  # distinct marks for nested scopes that make no other changes.
-                  state.entries.append(("filled", self.has_been_filled))
-                  return mark
-
-              def trail_undo(self, mark: int) -> None:
-                  """Undo every grid mutation since ``mark`` in reverse order."""
-                  if isinstance(mark, bool) or not isinstance(mark, int):
-                      raise TypeError("Trail mark must be an integer returned by trail_mark()")
-
-                  state = self._trail_state
-                  if not state.marks or state.marks[-1] != mark:
-                      raise ValueError("Trail marks must be undone in LIFO order")
-                  state.marks.pop()
-
-                  structure_changed = False
-                  guarantee_changed = False
-                  for entry in reversed(state.entries[mark:]):
-                      tag = entry[0]
-                      if tag == "cand":
-                          _, possible, removed, added = entry
-                          # Bypass TrailedSet overrides while replaying the journal.
-                          set.difference_update(possible, added)
-                          set.update(possible, removed)
-                      elif tag == "known":
-                          _, index, old_value = entry
-                          self._known[index] = old_value
-                      elif tag == "filled":
-                          _, old_value = entry
-                          self.has_been_filled = old_value
-                      elif tag == "rule+":
-                          _, rule = entry
-                          self.rules.discard(rule)
-                          structure_changed = True
-                      elif tag == "rule-":
-                          _, rule = entry
-                          self.rules_ia.discard(rule)
-                          self.rules.add(rule)
-                          structure_changed = True
-                      elif tag == "gt+":
-                          _, guarantee = entry
-                          self.guarantees.discard(guarantee)
-                          structure_changed = True
-                          guarantee_changed = True
-                      elif tag == "gt-":
-                          _, guarantee = entry
-                          self.guarantees_ia.discard(guarantee)
-                          self.guarantees.add(guarantee)
-                          structure_changed = True
-                          guarantee_changed = True
-                      else:
-                          raise RuntimeError(f"Unknown trail entry {tag!r}")
-
-                  del state.entries[mark:]
-                  if structure_changed:
-                      self._struct_cache.clear()
-                  if guarantee_changed:
-                      self._guarantee_cache.clear()
-
-                  # Candidate-dependent technique memos cannot survive an undo:
-                  # their fingerprints may describe eliminations from a discarded
-                  # branch. Clear any current or future per-grid memo uniformly.
-                  for name, value in vars(self).items():
-                      if name.endswith("_memo") and hasattr(value, "clear"):
-                          value.clear()
-
-              @property
-              def is_solved(self) -> bool:
-          '''.replace("\n          ", "\n"),
+              "        result._guarantee_cache = {}\n"
+              "        return result\n\n"
+              "    @property\n"
+              "    def is_solved(self) -> bool:\n",
+              "        result._guarantee_cache = {}\n"
+              "        return result\n\n"
+              "    def trail_mark(self) -> int:\n"
+              "        \"\"\"Start a reversible mutation scope and return its LIFO mark.\"\"\"\n"
+              "        state = self._trail_state\n"
+              "        mark = len(state.entries)\n"
+              "        state.marks.append(mark)\n"
+              "        # Restore API-visible fill state and make empty nested marks distinct.\n"
+              "        state.entries.append((\"filled\", self.has_been_filled))\n"
+              "        return mark\n\n"
+              "    def trail_undo(self, mark: int) -> None:\n"
+              "        \"\"\"Undo every grid mutation since ``mark`` in reverse order.\"\"\"\n"
+              "        if isinstance(mark, bool) or not isinstance(mark, int):\n"
+              "            raise TypeError(\"Trail mark must be an integer returned by trail_mark()\")\n\n"
+              "        state = self._trail_state\n"
+              "        if not state.marks or state.marks[-1] != mark:\n"
+              "            raise ValueError(\"Trail marks must be undone in LIFO order\")\n"
+              "        state.marks.pop()\n\n"
+              "        structure_changed = False\n"
+              "        guarantee_changed = False\n"
+              "        for entry in reversed(state.entries[mark:]):\n"
+              "            tag = entry[0]\n"
+              "            if tag == \"cand\":\n"
+              "                _, possible, removed, added = entry\n"
+              "                set.difference_update(possible, added)\n"
+              "                set.update(possible, removed)\n"
+              "            elif tag == \"known\":\n"
+              "                _, index, old_value = entry\n"
+              "                self._known[index] = old_value\n"
+              "            elif tag == \"filled\":\n"
+              "                _, old_value = entry\n"
+              "                self.has_been_filled = old_value\n"
+              "            elif tag == \"rule+\":\n"
+              "                _, rule = entry\n"
+              "                self.rules.discard(rule)\n"
+              "                structure_changed = True\n"
+              "            elif tag == \"rule-\":\n"
+              "                _, rule = entry\n"
+              "                self.rules_ia.discard(rule)\n"
+              "                self.rules.add(rule)\n"
+              "                structure_changed = True\n"
+              "            elif tag == \"gt+\":\n"
+              "                _, guarantee = entry\n"
+              "                self.guarantees.discard(guarantee)\n"
+              "                structure_changed = True\n"
+              "                guarantee_changed = True\n"
+              "            elif tag == \"gt-\":\n"
+              "                _, guarantee = entry\n"
+              "                self.guarantees_ia.discard(guarantee)\n"
+              "                self.guarantees.add(guarantee)\n"
+              "                structure_changed = True\n"
+              "                guarantee_changed = True\n"
+              "            else:\n"
+              "                raise RuntimeError(f\"Unknown trail entry {tag!r}\")\n\n"
+              "        del state.entries[mark:]\n"
+              "        if structure_changed:\n"
+              "            self._struct_cache.clear()\n"
+              "        if guarantee_changed:\n"
+              "            self._guarantee_cache.clear()\n\n"
+              "        # Branch-local candidate fingerprints are stale after rollback.\n"
+              "        for name, value in vars(self).items():\n"
+              "            if name.endswith(\"_memo\") and hasattr(value, \"clear\"):\n"
+              "                value.clear()\n\n"
+              "    @property\n"
+              "    def is_solved(self) -> bool:\n",
           )
-          replace(
+          replace_once(
               "gridsolver/abstract_grids/grid.py",
-              '''    def add_rule_checked(self, rule: Rule) -> None:
-                  if rule not in self.rules_ia and rule not in self.rules:
-                      self.rules.add(rule)
-                      self._struct_cache.clear()
-
-              def deactivate_rule(self, rule: Rule) -> None:
-                  self.rules.remove(rule)
-                  self.rules_ia.add(rule)
-                  self._struct_cache.clear()
-
-              def add_gtee_checked(self, guarantee: Guarantee) -> None:
-                  if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:
-                      self.guarantees.add(guarantee)
-                      self._struct_cache.clear()
-                      self._guarantee_cache.clear()
-
-              def deactivate_gtee(self, guarantee: Guarantee) -> None:
-                  self.guarantees.remove(guarantee)
-                  self.guarantees_ia.add(guarantee)
-                  self._struct_cache.clear()
-                  self._guarantee_cache.clear()
-          '''.replace("\n          ", "\n"),
-              '''    def add_rule_checked(self, rule: Rule) -> None:
-                  if rule not in self.rules_ia and rule not in self.rules:
-                      self.rules.add(rule)
-                      if self._trail_state.active:
-                          self._trail_state.entries.append(("rule+", rule))
-                      self._struct_cache.clear()
-
-              def deactivate_rule(self, rule: Rule) -> None:
-                  self.rules.remove(rule)
-                  self.rules_ia.add(rule)
-                  if self._trail_state.active:
-                      self._trail_state.entries.append(("rule-", rule))
-                  self._struct_cache.clear()
-
-              def add_gtee_checked(self, guarantee: Guarantee) -> None:
-                  if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:
-                      self.guarantees.add(guarantee)
-                      if self._trail_state.active:
-                          self._trail_state.entries.append(("gt+", guarantee))
-                      self._struct_cache.clear()
-                      self._guarantee_cache.clear()
-
-              def deactivate_gtee(self, guarantee: Guarantee) -> None:
-                  self.guarantees.remove(guarantee)
-                  self.guarantees_ia.add(guarantee)
-                  if self._trail_state.active:
-                      self._trail_state.entries.append(("gt-", guarantee))
-                  self._struct_cache.clear()
-                  self._guarantee_cache.clear()
-          '''.replace("\n          ", "\n"),
+              "    def add_rule_checked(self, rule: Rule) -> None:\n"
+              "        if rule not in self.rules_ia and rule not in self.rules:\n"
+              "            self.rules.add(rule)\n"
+              "            self._struct_cache.clear()\n\n"
+              "    def deactivate_rule(self, rule: Rule) -> None:\n"
+              "        self.rules.remove(rule)\n"
+              "        self.rules_ia.add(rule)\n"
+              "        self._struct_cache.clear()\n\n"
+              "    def add_gtee_checked(self, guarantee: Guarantee) -> None:\n"
+              "        if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:\n"
+              "            self.guarantees.add(guarantee)\n"
+              "            self._struct_cache.clear()\n"
+              "            self._guarantee_cache.clear()\n\n"
+              "    def deactivate_gtee(self, guarantee: Guarantee) -> None:\n"
+              "        self.guarantees.remove(guarantee)\n"
+              "        self.guarantees_ia.add(guarantee)\n"
+              "        self._struct_cache.clear()\n"
+              "        self._guarantee_cache.clear()\n",
+              "    def add_rule_checked(self, rule: Rule) -> None:\n"
+              "        if rule not in self.rules_ia and rule not in self.rules:\n"
+              "            self.rules.add(rule)\n"
+              "            if self._trail_state.active:\n"
+              "                self._trail_state.entries.append((\"rule+\", rule))\n"
+              "            self._struct_cache.clear()\n\n"
+              "    def deactivate_rule(self, rule: Rule) -> None:\n"
+              "        self.rules.remove(rule)\n"
+              "        self.rules_ia.add(rule)\n"
+              "        if self._trail_state.active:\n"
+              "            self._trail_state.entries.append((\"rule-\", rule))\n"
+              "        self._struct_cache.clear()\n\n"
+              "    def add_gtee_checked(self, guarantee: Guarantee) -> None:\n"
+              "        if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:\n"
+              "            self.guarantees.add(guarantee)\n"
+              "            if self._trail_state.active:\n"
+              "                self._trail_state.entries.append((\"gt+\", guarantee))\n"
+              "            self._struct_cache.clear()\n"
+              "            self._guarantee_cache.clear()\n\n"
+              "    def deactivate_gtee(self, guarantee: Guarantee) -> None:\n"
+              "        self.guarantees.remove(guarantee)\n"
+              "        self.guarantees_ia.add(guarantee)\n"
+              "        if self._trail_state.active:\n"
+              "            self._trail_state.entries.append((\"gt-\", guarantee))\n"
+              "        self._struct_cache.clear()\n"
+              "        self._guarantee_cache.clear()\n",
           )
 
-          Path("gridsolver/solver/solve_nishio.py").write_text(r'''from gridsolver.abstract_grids.grid import Grid, SolveStatus
-          from gridsolver.rules.rules import InvalidGrid
-          from gridsolver.solver import solve_forcing_chain as _solve_fc
-          from gridsolver.solver.logger import CoordToString
-          from gridsolver.solver.propagation import propagate_basic
-          from gridsolver.solver.solver_log import lg as _lg
+          Path("gridsolver/solver/solve_nishio.py").write_text(dedent(r'''
+              from gridsolver.abstract_grids.grid import Grid, SolveStatus
+              from gridsolver.rules.rules import InvalidGrid
+              from gridsolver.solver import solve_forcing_chain as _solve_fc
+              from gridsolver.solver.logger import CoordToString
+              from gridsolver.solver.propagation import propagate_basic
+              from gridsolver.solver.solver_log import lg as _lg
 
 
-          # noinspection PyProtectedMember
-          def nishio(grid: Grid) -> None:
-              """Eliminate candidates whose basic-propagation branch contradicts."""
-              if _solve_fc._in_forcing_chain:
-                  return
+              # noinspection PyProtectedMember
+              def nishio(grid: Grid) -> None:
+                  """Eliminate candidates whose basic-propagation branch contradicts."""
+                  if _solve_fc._in_forcing_chain:
+                      return
 
-              candidates = grid._candidates
-              known = grid._known
-              coord = CoordToString(grid.rows)
+                  candidates = grid._candidates
+                  known = grid._known
+                  coord = CoordToString(grid.rows)
 
-              for cell in range(grid.len):
-                  if known[cell] > 0 or len(candidates[cell]) <= 1:
-                      continue
-
-                  made_progress = False
-                  for value in sorted(candidates[cell]):
-                      mark = grid.trail_mark()
-                      branch_valid = False
-                      reason = "invalid grid"
-                      try:
-                          grid[cell] = value
-                          status = propagate_basic(grid)
-                          branch_valid = status is not SolveStatus.INVALID and grid.is_valid
-                          if not branch_valid:
-                              empty_cells = [
-                                  index
-                                  for index, possible in enumerate(grid._candidates)
-                                  if not possible
-                              ]
-                              if empty_cells:
-                                  reason = f"empty candidates at {coord(empty_cells[0])}"
-                      except InvalidGrid:
-                          branch_valid = False
-                      finally:
-                          grid.trail_undo(mark)
-
-                      if branch_valid:
+                  for cell in range(grid.len):
+                      if known[cell] > 0 or len(candidates[cell]) <= 1:
                           continue
 
-                      _lg.on and _lg.logr(
-                          "Nishio",
-                          f"{value} removed ({reason})",
-                          coord(cell),
-                      )
-                      candidates[cell].discard(value)
-                      if not candidates[cell]:
-                          raise InvalidGrid()
-                      made_progress = True
+                      made_progress = False
+                      for value in sorted(candidates[cell]):
+                          mark = grid.trail_mark()
+                          branch_valid = False
+                          reason = "invalid grid"
+                          try:
+                              grid[cell] = value
+                              status = propagate_basic(grid)
+                              branch_valid = status is not SolveStatus.INVALID and grid.is_valid
+                              if not branch_valid:
+                                  empty_cells = [
+                                      index
+                                      for index, possible in enumerate(grid._candidates)
+                                      if not possible
+                                  ]
+                                  if empty_cells:
+                                      reason = f"empty candidates at {coord(empty_cells[0])}"
+                          except InvalidGrid:
+                              branch_valid = False
+                          finally:
+                              grid.trail_undo(mark)
 
-                  if made_progress:
-                      return
-          '''.replace("\n          ", "\n").lstrip(), encoding="utf-8")
+                          if branch_valid:
+                              continue
 
-          Path("tests/test_trail.py").write_text(r'''import pickle
+                          _lg.on and _lg.logr(
+                              "Nishio",
+                              f"{value} removed ({reason})",
+                              coord(cell),
+                          )
+                          candidates[cell].discard(value)
+                          if not candidates[cell]:
+                              raise InvalidGrid()
+                          made_progress = True
 
-          import pytest
+                      if made_progress:
+                          return
+          ''').lstrip(), encoding="utf-8")
 
-          from gridsolver.abstract_grids.grid import Grid
-          from gridsolver.abstract_grids.trail import TrailedSet
-          from gridsolver.grid_classes.sudoku import Sudoku
-          from gridsolver.rules.rules import Guarantee
-          from gridsolver.rules.uneq import UneqRule
-          from gridsolver.rules.unique import ElementsAtMostOnce
-          from gridsolver.solver.propagation import propagate_basic
-          from gridsolver.solver.solve_nishio import nishio
+          Path("tests/test_trail.py").write_text(dedent(r'''
+              import pickle
 
+              import pytest
 
-          def _state(grid: Grid):
-              return (
-                  tuple(grid._known),
-                  tuple(frozenset(possible) for possible in grid._candidates),
-                  frozenset(grid.rules),
-                  frozenset(grid.rules_ia),
-                  frozenset(grid.guarantees),
-                  frozenset(grid.guarantees_ia),
-                  grid.has_been_filled,
-              )
-
-
-          def test_candidate_mutators_are_fully_reversible():
-              grid = Grid(2)
-              before = _state(grid)
-              mark = grid.trail_mark()
-              possible = grid._candidates[0]
-
-              possible.discard(1)
-              possible.add(1)
-              possible.difference_update({2})
-              possible.update({2})
-              possible.intersection_update({2})
-              possible.symmetric_difference_update({1, 2})
-              possible |= {2}
-              possible &= {1, 2}
-              possible -= {2}
-              possible ^= {1, 2}
-              possible.pop()
-              possible.clear()
-
-              grid.trail_undo(mark)
-              assert _state(grid) == before
-              assert grid._trail_state.entries == []
-              assert not grid._trail_state.marks
+              from gridsolver.abstract_grids.grid import Grid
+              from gridsolver.abstract_grids.trail import TrailedSet
+              from gridsolver.grid_classes.sudoku import Sudoku
+              from gridsolver.rules.rules import Guarantee
+              from gridsolver.rules.uneq import UneqRule
+              from gridsolver.rules.unique import ElementsAtMostOnce
+              from gridsolver.solver.propagation import propagate_basic
+              from gridsolver.solver.solve_nishio import nishio
 
 
-          def test_nested_marks_restore_each_boundary():
-              grid = Grid(2)
-              possible = grid._candidates[0]
-              outer = grid.trail_mark()
-              possible.discard(1)
-              outer_state = _state(grid)
-
-              inner = grid.trail_mark()
-              possible.discard(2)
-              grid.trail_undo(inner)
-              assert _state(grid) == outer_state
-
-              grid.trail_undo(outer)
-              assert possible == {1, 2}
+              def _state(grid: Grid):
+                  return (
+                      tuple(grid._known),
+                      tuple(frozenset(possible) for possible in grid._candidates),
+                      frozenset(grid.rules),
+                      frozenset(grid.rules_ia),
+                      frozenset(grid.guarantees),
+                      frozenset(grid.guarantees_ia),
+                      grid.has_been_filled,
+                  )
 
 
-          def test_marks_must_be_undone_in_lifo_order():
-              grid = Grid(2)
-              outer = grid.trail_mark()
-              inner = grid.trail_mark()
-              with pytest.raises(ValueError, match="LIFO"):
-                  grid.trail_undo(outer)
-              grid.trail_undo(inner)
-              grid.trail_undo(outer)
+              def test_candidate_mutators_are_fully_reversible():
+                  grid = Grid(2)
+                  before = _state(grid)
+                  mark = grid.trail_mark()
+                  possible = grid._candidates[0]
 
+                  possible.discard(1)
+                  possible.add(1)
+                  possible.difference_update({2})
+                  possible.update({2})
+                  possible.intersection_update({2})
+                  possible.symmetric_difference_update({1, 2})
+                  possible |= {2}
+                  possible &= {1, 2}
+                  possible -= {2}
+                  possible ^= {1, 2}
+                  possible.pop()
+                  possible.clear()
 
-          def test_known_rules_and_guarantees_rollback_together():
-              grid = Grid(2)
-              base_rule = ElementsAtMostOnce(grid, [0, 1])
-              added_rule = ElementsAtMostOnce(grid, [2, 3])
-              base_guarantee = Guarantee(1, frozenset({0, 1}), grid.rows, grid.cols)
-              added_guarantee = Guarantee(2, frozenset({2, 3}), grid.rows, grid.cols)
-              grid.add_rule_checked(base_rule)
-              grid.add_gtee_checked(base_guarantee)
-              before = _state(grid)
-
-              mark = grid.trail_mark()
-              grid[0] = 1
-              grid.deactivate_rule(base_rule)
-              grid.add_rule_checked(added_rule)
-              grid.deactivate_gtee(base_guarantee)
-              grid.add_gtee_checked(added_guarantee)
-              grid.trail_undo(mark)
-
-              assert _state(grid) == before
-
-
-          def test_basic_propagation_can_be_rolled_back_exactly():
-              grid = Sudoku(2, 2, 2, 2)
-              before = _state(grid)
-              mark = grid.trail_mark()
-              try:
-                  grid[0] = 1
-                  propagate_basic(grid)
-                  assert _state(grid) != before
-              finally:
                   grid.trail_undo(mark)
-              assert _state(grid) == before
+                  assert _state(grid) == before
+                  assert grid._trail_state.entries == []
+                  assert not grid._trail_state.marks
 
 
-          def test_deepcopy_and_pickle_rebind_candidate_journals():
-              grid = Grid(2)
-              clone = grid.deepcopy()
-              restored = pickle.loads(pickle.dumps(grid))
+              def test_nested_marks_restore_each_boundary():
+                  grid = Grid(2)
+                  possible = grid._candidates[0]
+                  outer = grid.trail_mark()
+                  possible.discard(1)
+                  outer_state = _state(grid)
 
-              for candidate_grid in (clone, restored):
-                  assert all(isinstance(possible, TrailedSet) for possible in candidate_grid._candidates)
-                  before = _state(candidate_grid)
-                  mark = candidate_grid.trail_mark()
-                  candidate_grid._candidates[0].discard(1)
-                  candidate_grid.trail_undo(mark)
-                  assert _state(candidate_grid) == before
+                  inner = grid.trail_mark()
+                  possible.discard(2)
+                  grid.trail_undo(inner)
+                  assert _state(grid) == outer_state
+
+                  grid.trail_undo(outer)
+                  assert possible == {1, 2}
 
 
-          def test_nishio_uses_trail_instead_of_deepcopy(monkeypatch):
-              grid = Grid(2)
-              grid[1] = 1
-              grid.add_rule_checked(UneqRule(grid, origin_cell=0, rel_cells=[1]))
+              def test_marks_must_be_undone_in_lifo_order():
+                  grid = Grid(2)
+                  outer = grid.trail_mark()
+                  inner = grid.trail_mark()
+                  with pytest.raises(ValueError, match="LIFO"):
+                      grid.trail_undo(outer)
+                  grid.trail_undo(inner)
+                  grid.trail_undo(outer)
 
-              def fail_deepcopy(self):
-                  raise AssertionError("Nishio must not deepcopy trial grids")
 
-              monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
-              nishio(grid)
+              def test_known_rules_and_guarantees_rollback_together():
+                  grid = Grid(2)
+                  base_rule = ElementsAtMostOnce(grid, [0, 1])
+                  added_rule = ElementsAtMostOnce(grid, [2, 3])
+                  base_guarantee = Guarantee(1, frozenset({0, 1}), grid.rows, grid.cols)
+                  added_guarantee = Guarantee(2, frozenset({2, 3}), grid.rows, grid.cols)
+                  grid.add_rule_checked(base_rule)
+                  grid.add_gtee_checked(base_guarantee)
+                  before = _state(grid)
 
-              assert grid._known[0] == 0
-              assert grid._known[1] == 1
-              assert grid._candidates[0] == {2}
-              assert len(grid.rules) == 1
-              assert not grid.rules_ia
-              assert grid._trail_state.entries == []
-          '''.replace("\n          ", "\n").lstrip(), encoding="utf-8")
+                  mark = grid.trail_mark()
+                  grid[0] = 1
+                  grid.deactivate_rule(base_rule)
+                  grid.add_rule_checked(added_rule)
+                  grid.deactivate_gtee(base_guarantee)
+                  grid.add_gtee_checked(added_guarantee)
+                  grid.trail_undo(mark)
 
-          replace("pyproject.toml", 'requires-python = ">=3.14,<3.15"', 'requires-python = ">=3.14"')
-          replace(
-              ".github/workflows/ci.yml",
-              "          tests/test_solver_api.py\n          tests/test_basic.py",
-              "          tests/test_solver_api.py\n          tests/test_trail.py\n          tests/test_basic.py",
-          )
-          replace(
+                  assert _state(grid) == before
+
+
+              def test_basic_propagation_can_be_rolled_back_exactly():
+                  grid = Sudoku(2, 2, 2, 2)
+                  before = _state(grid)
+                  mark = grid.trail_mark()
+                  try:
+                      grid[0] = 1
+                      propagate_basic(grid)
+                      assert _state(grid) != before
+                  finally:
+                      grid.trail_undo(mark)
+                  assert _state(grid) == before
+
+
+              def test_deepcopy_and_pickle_rebind_candidate_journals():
+                  grid = Grid(2)
+                  clone = grid.deepcopy()
+                  restored = pickle.loads(pickle.dumps(grid))
+
+                  for candidate_grid in (clone, restored):
+                      assert all(
+                          isinstance(possible, TrailedSet)
+                          for possible in candidate_grid._candidates
+                      )
+                      before = _state(candidate_grid)
+                      mark = candidate_grid.trail_mark()
+                      candidate_grid._candidates[0].discard(1)
+                      candidate_grid.trail_undo(mark)
+                      assert _state(candidate_grid) == before
+
+
+              def test_nishio_uses_trail_instead_of_deepcopy(monkeypatch):
+                  grid = Grid(2)
+                  grid[1] = 1
+                  grid.add_rule_checked(UneqRule(grid, origin_cell=0, rel_cells=[1]))
+
+                  def fail_deepcopy(self):
+                      raise AssertionError("Nishio must not deepcopy trial grids")
+
+                  monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
+                  nishio(grid)
+
+                  assert grid._known[0] == 0
+                  assert grid._known[1] == 1
+                  assert grid._candidates[0] == {2}
+                  assert len(grid.rules) == 1
+                  assert not grid.rules_ia
+                  assert grid._trail_state.entries == []
+          ''').lstrip(), encoding="utf-8")
+
+          replace_once("pyproject.toml", 'requires-python = ">=3.14,<3.15"', 'requires-python = ">=3.14"')
+          replace_all(
               ".github/workflows/ci.yml",
               "          tests/test_solver_api.py\n",
               "          tests/test_solver_api.py\n          tests/test_trail.py\n",
+              expected=2,
           )
-          replace(
+          replace_once(
               "README.md",
               "**Runtime requirement: Python 3.14.** Older Python versions are intentionally unsupported.",
               "**Runtime requirement: Python 3.14 or newer.** Older Python versions are intentionally unsupported; newer releases are not artificially capped.",
           )
-          replace(
+          replace_once(
               "README.md",
               "GitHub Actions targets Python 3.14 only. Linux runs the bounded suite plus representative end-to-end examples; Windows runs a portable regression smoke suite.",
               "GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux runs the bounded suite plus representative end-to-end examples, and Windows runs a portable regression smoke suite.",
           )
-          replace(
+          replace_once(
               "DEVELOPMENT.md",
               "GridPuzzle targets **Python 3.14 only**. Compatibility branches, CI jobs, dependency pins, and syntax constraints for older Python releases should not be added unless the support policy changes explicitly.",
               "GridPuzzle targets **Python 3.14 and newer**. Python 3.14 is the tested minimum; compatibility branches, CI jobs, dependency pins, and syntax constraints for older releases should not be added unless the support policy changes explicitly. Do not add an artificial upper bound for future Python releases.",
           )
-          replace(
+          replace_once(
               "TODO.md",
               "GridPuzzle now targets Python 3.14 only.",
               "GridPuzzle now requires Python 3.14 or newer.",
