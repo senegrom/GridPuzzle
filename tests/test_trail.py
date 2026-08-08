@@ -292,3 +292,72 @@ def test_solver_and_rules_do_not_bypass_known_value_journal():
         "Known values must be changed through Grid.__setitem__ so trail "
         f"rollback can journal them; direct writes: {violations}"
     )
+
+
+
+def test_nested_trails_restore_parent_cache_objects():
+    grid = Grid(2)
+    root_struct_value = object()
+    root_guarantee_value = object()
+    grid._struct_cache["root"] = root_struct_value
+    grid._guarantee_cache["root"] = root_guarantee_value
+    root_struct_cache = grid._struct_cache
+    root_guarantee_cache = grid._guarantee_cache
+
+    outer = grid.trail_mark()
+    outer_rule = ElementsAtMostOnce(grid, [0, 1])
+    grid.add_rule_checked(outer_rule)
+    assert grid._struct_cache is not root_struct_cache
+    assert grid._guarantee_cache is root_guarantee_cache
+    outer_struct_value = object()
+    grid._struct_cache["outer"] = outer_struct_value
+    outer_struct_cache = grid._struct_cache
+    outer_guarantee_cache = grid._guarantee_cache
+
+    inner = grid.trail_mark()
+    inner_guarantee = Guarantee(
+        1,
+        frozenset({0, 1}),
+        grid.rows,
+        grid.cols,
+    )
+    grid.add_gtee_checked(inner_guarantee)
+    assert grid._struct_cache is not outer_struct_cache
+    assert grid._guarantee_cache is not outer_guarantee_cache
+    grid.trail_undo(inner)
+
+    assert grid._struct_cache is outer_struct_cache
+    assert grid._guarantee_cache is outer_guarantee_cache
+    assert grid._struct_cache["outer"] is outer_struct_value
+    assert inner_guarantee not in grid.guarantees
+
+    grid.trail_undo(outer)
+
+    assert grid._struct_cache is root_struct_cache
+    assert grid._guarantee_cache is root_guarantee_cache
+    assert grid._struct_cache["root"] is root_struct_value
+    assert grid._guarantee_cache["root"] is root_guarantee_value
+    assert outer_rule not in grid.rules
+    assert grid._trail_state.entries == []
+    assert not grid._trail_state.marks
+
+
+def test_nested_candidate_tokens_restore_outer_first_touch_state():
+    grid = Grid(2)
+    possible = grid._candidates[0]
+
+    outer = grid.trail_mark()
+    possible.discard(1)
+    outer_entries = len(grid._trail_state.entries)
+
+    inner = grid.trail_mark()
+    possible.discard(2)
+    assert len(grid._trail_state.entries) == outer_entries + 1
+    grid.trail_undo(inner)
+
+    possible.add(1)
+    assert len(grid._trail_state.entries) == outer_entries
+    grid.trail_undo(outer)
+
+    assert possible == {1, 2}
+    assert possible._snapshot_token == 0

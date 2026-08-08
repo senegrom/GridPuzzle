@@ -8,12 +8,13 @@ type TrailEntry = tuple[Any, ...]
 
 @dataclass(slots=True)
 class TrailFrame:
-    """One reversible scope, including first-touch candidate snapshots."""
+    """One reversible scope and the parent caches it must restore."""
 
     token: int
     start: int
     filled: bool
-    touched_candidates: set[int] = field(default_factory=set)
+    struct_cache: dict[str, Any]
+    guarantee_cache: dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -30,40 +31,45 @@ class TrailState:
 
 
 class TrailedSet(set[int]):
-    """A set that snapshots itself on first mutation in each trail scope."""
+    """A set that snapshots itself once per active trail token."""
 
-    __slots__ = ("_trail_state",)
+    __slots__ = ("_trail_state", "_snapshot_token")
 
     def __init__(
         self,
         values: Iterable[int] = (),
         trail_state: TrailState | None = None,
+        snapshot_token: int = 0,
     ) -> None:
         super().__init__(values)
         self._trail_state = (
             TrailState() if trail_state is None else trail_state
         )
+        self._snapshot_token = snapshot_token
 
     def __reduce__(self):
-        # Pickle memoization preserves the one shared TrailState across
-        # the Grid and all candidate sets in process-pool payloads.
-        return type(self), (tuple(self), self._trail_state)
+        return type(self), (
+            tuple(self),
+            self._trail_state,
+            self._snapshot_token,
+        )
 
     def __repr__(self) -> str:
         return repr(set(self))
 
     def copy(self) -> set[int]:
-        # Scratch copies must never journal back to the owning grid.
         return set(self)
 
     def _journal_snapshot(self) -> None:
         state = self._trail_state
         frame = state.marks[-1]
-        identity = id(self)
-        if identity in frame.touched_candidates:
+        if self._snapshot_token == frame.token:
             return
-        frame.touched_candidates.add(identity)
-        state.entries.append(("cand", self, tuple(self)))
+        previous_token = self._snapshot_token
+        state.entries.append(
+            ("cand", self, tuple(self), previous_token)
+        )
+        self._snapshot_token = frame.token
 
     def add(self, element: int) -> None:
         state = self._trail_state
