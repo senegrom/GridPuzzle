@@ -9,7 +9,7 @@ from typing import Any, TypeVar, overload
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
-from gridsolver.abstract_grids.trail import TrailState, TrailedSet
+from gridsolver.abstract_grids.trail import TrailFrame, TrailState, TrailedSet
 from gridsolver.rules.rules import Guarantee, IdxType, Rule
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
@@ -181,39 +181,44 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result._guarantee_cache = {}
         return result
 
+
     def trail_mark(self) -> int:
-        """Start a reversible mutation scope and return its LIFO mark."""
+        """Start a reversible mutation scope and return its LIFO token."""
         state = self._trail_state
-        mark = len(state.entries)
-        state.marks.append(mark)
-        # Restore API-visible fill state and make empty nested marks distinct.
-        state.entries.append(("filled", self.has_been_filled))
-        return mark
+        state.next_token += 1
+        token = state.next_token
+        state.marks.append(
+            TrailFrame(
+                token=token,
+                start=len(state.entries),
+                filled=self.has_been_filled,
+            )
+        )
+        return token
 
     def trail_undo(self, mark: int) -> None:
-        """Undo every grid mutation since ``mark`` in reverse order."""
+        """Undo every grid mutation in the matching innermost scope."""
         if isinstance(mark, bool) or not isinstance(mark, int):
-            raise TypeError("Trail mark must be an integer returned by trail_mark()")
+            raise TypeError(
+                "Trail mark must be an integer returned by trail_mark()"
+            )
 
         state = self._trail_state
-        if not state.marks or state.marks[-1] != mark:
+        if not state.marks or state.marks[-1].token != mark:
             raise ValueError("Trail marks must be undone in LIFO order")
-        state.marks.pop()
+        frame = state.marks.pop()
 
         structure_changed = False
         guarantee_changed = False
-        for entry in reversed(state.entries[mark:]):
+        for entry in reversed(state.entries[frame.start:]):
             tag = entry[0]
             if tag == "cand":
-                _, possible, removed, added = entry
-                set.difference_update(possible, added)
-                set.update(possible, removed)
+                _, possible, original = entry
+                set.clear(possible)
+                set.update(possible, original)
             elif tag == "known":
                 _, index, old_value = entry
                 self._known[index] = old_value
-            elif tag == "filled":
-                _, old_value = entry
-                self.has_been_filled = old_value
             elif tag == "rule+":
                 _, rule = entry
                 self.rules.discard(rule)
@@ -237,13 +242,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             else:
                 raise RuntimeError(f"Unknown trail entry {tag!r}")
 
-        del state.entries[mark:]
+        del state.entries[frame.start:]
+        self.has_been_filled = frame.filled
         if structure_changed:
             self._struct_cache.clear()
         if guarantee_changed:
             self._guarantee_cache.clear()
 
-        # Branch-local candidate fingerprints are stale after rollback.
+        # Candidate fingerprints computed in an abandoned branch are stale.
         for name, value in vars(self).items():
             if name.endswith("_memo") and hasattr(value, "clear"):
                 value.clear()

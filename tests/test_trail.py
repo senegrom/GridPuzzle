@@ -49,6 +49,11 @@ def test_candidate_mutators_are_fully_reversible():
     possible.pop()
     possible.clear()
 
+    candidate_entries = [
+        entry for entry in grid._trail_state.entries if entry[0] == "cand"
+    ]
+    assert len(candidate_entries) == 1
+
     grid.trail_undo(mark)
     assert _state(grid) == before
     assert grid._trail_state.entries == []
