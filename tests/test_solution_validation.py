@@ -74,7 +74,7 @@ def test_frequent_rule_types_do_not_allocate_instance_dicts():
 
 
 def test_relation_rules_are_order_independent_and_accept_no_guarantee_list():
-    grid = Grid(2)
+    grid = Grid(2, max_elem=4)
     first = UneqRule(grid, origin_cell=0, rel_cells=[1, 2])
     second = UneqRule(grid, origin_cell=0, rel_cells=[2, 1])
 
