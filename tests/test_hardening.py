@@ -4,7 +4,7 @@ from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.sudoku import Sudoku
-from gridsolver.rules.rules import Rule
+from gridsolver.rules.rules import Guarantee, Rule
 from gridsolver.solver import solver
 
 
@@ -92,6 +92,30 @@ def test_immutable_grid_validates_shape_and_hides_backing_array():
         known[0] = 2
     assert grid.known == (1, 2)
     assert hash(grid) == original_hash
+
+
+def test_guarantee_cache_survives_rule_churn_only():
+    grid = Grid(2)
+    builds = 0
+
+    def build():
+        nonlocal builds
+        builds += 1
+        return object()
+
+    first = grid.cached_guarantee_struct("sentinel", build)
+    grid.add_rule_checked(_NoOpRule(grid, cells=[0]))
+    assert grid.cached_guarantee_struct("sentinel", build) is first
+    assert builds == 1
+
+    guarantee = Guarantee(1, frozenset({0}), grid.rows, grid.cols)
+    grid.add_gtee_checked(guarantee)
+    second = grid.cached_guarantee_struct("sentinel", build)
+    assert second is not first
+    assert builds == 2
+
+    clone = grid.deepcopy()
+    assert clone._guarantee_cache == {}
 
 
 def test_solver_options_are_explicit():

@@ -1,103 +1,109 @@
 # TODO
 
-Deferred solver ideas (June 2026 review). Ordered by expected payoff.
-July 2026: the known-issues list and most engine items below were implemented —
-records kept with their measurements; the genuinely open items are marked OPEN.
+Deferred solver ideas from the June–August 2026 reviews, ordered by expected payoff.
+Completed and rejected experiments remain recorded with measurements so they are not repeated blindly. GridPuzzle now targets Python 3.14 only.
 
-## Rules-layer scan issues (June 2026) — ALL FIXED July 2026
+## Rules-layer scan issues — DONE
 
-1. **DONE: ProdRule float division** -> divmod integer arithmetic, plus a
-   divisor prune; >2^53 case pinned by test_prodrule_integer_exact_beyond_float.
-2. **DONE: factorial landmine** -> `_filter_new_sum_candidates` now uses
-   Regin (1994) alldifferent filtering (bipartite matching + SCC of the
-   residual digraph) instead of k! permutations, with in-cage guarantees as
-   per-value position restrictions — equivalence fuzz-pinned
-   (test_saeamo_regin_matches_bruteforce). Derived cages capped at 8 cells
-   (_MAX_SAEAMO_CELLS). Corpus: killer-d 7.0s -> 0.4s, killer-c 2.6s -> 0.3s.
-3. **DONE: DiagonalLatinSquare renamed** to PandiagonalLatinSquare; a true
-   two-main-diagonals DiagonalLatinSquare added; loader + 9 example headers
-   migrated.
-4. **DONE (minors)**: ImmutableGrid eq/hash include dimensions AND are
-   process-stable (crc32-based — hash(bytes) is salted per process, which
-   broke cross-process solution merging); Guarantee type-strict eq; SumRule
-   tmin prune; InvalidGrid raised at both silent-empty sites; guarantee scans
-   pre-filtered per rule via a min-cell bucket index in the struct cache
-   (atomic_solver._relevant_gts — the n=100 cost driver); run.py -c accepts
-   all loader classes; _partition_dic bounded.
+1. **DONE: ProdRule and DivRule exact arithmetic** — integer multiplication and
+   `divmod`; values beyond `2**53` are regression-pinned.
+2. **DONE: factorial landmine** — `_filter_new_sum_candidates` uses Régin-style
+   all-different filtering (bipartite matching plus residual SCCs) instead of
+   `k!` permutations, with guarantee restrictions applied per value. Derived
+   cages remain capped at eight cells. Measured Killer examples fell from
+   7.0s to 0.4s and 2.6s to 0.3s.
+3. **DONE: Latin-square naming** — `PandiagonalLatinSquare` names the wraparound
+   variant; a true two-main-diagonal `DiagonalLatinSquare` is separate.
+4. **DONE: identity and input hardening** — immutable-grid hashes are
+   process-stable and include shape/value domain; mutable backing arrays are no
+   longer exposed; public dimensions, coordinates, assignments, cage formats,
+   and one-shot iterable inputs are validated.
+5. **DONE: propagation unification** — ordinary atomic propagation, Nishio, and
+   forcing-net trial propagation share the same rule/guarantee application and
+   fixpoint machinery. Explicit `InvalidGrid` is authoritative.
 
-## REJECTED (July 2026): adaptive technique gating by inner hit rate
+## REJECTED: adaptive technique gating by inner hit rate
 
-Implemented and fully measured, then reverted. Gate = skip AIC inside FC
-after 30 inner tries below 50% hit rate, stats per solve lineage. Corpus
-looked perfect (t-hard 218s -> 137s, pandiagonal-11x11 flat: rates 36% vs
-65% separate cleanly) — but the full suite exposed the flaw: the pandiagonal
-ENUMERATION test doubled (1006s -> 2072s). Per-file instrumentation:
-13x13-DB#1-15-W4 solves in ~450s with inner AIC and 1871s once gated, and
-its root hit rate over the first 30 tries is 27% — BELOW t-hard's 36% where
-AIC is dead weight. Hit rate does not order techniques by value across grid
-families, so no threshold works; scoping variants (per-subtree fresh stats,
-root-only gating) were also measured and recovered almost nothing
-(1869s/1819s). The unrealized prize stays: t-hard would be 37% faster with a
-correct signal. That signal must measure VALUE, e.g. attribute each inner
-hit to whether its FC branch then concludes (contradiction/solved) vs stalls
-— plumbing through the FC branch loop, sketched but not built.
+Implemented and fully measured, then reverted. Gate = skip AIC inside forcing
+chains after 30 inner tries below a 50% hit rate. The representative corpus
+looked promising (`t-hard` 218s -> 137s), but full enumeration exposed the
+flaw: the pandiagonal test doubled from 1006s to 2072s. One 13x13 puzzle solved
+in about 450s with inner AIC and 1871s once gated, despite an early root hit
+rate below the supposedly unproductive threshold. Hit rate alone does not
+order technique value across grid families.
 
-## OPEN: guarantee-index rebuild rate on sum-rule-heavy grids
+A future signal must measure downstream value — for example, whether a hit
+causes a forcing-chain branch to conclude rather than merely changing state.
 
-`_relevant_gts` caches its min-cell bucket index in `_struct_cache`, which
-`deactivate_rule` clears unconditionally — and Sum/Prod/SaEAMO rules deactivate
-themselves on every apply once a cell is known, so the index is rebuilt
-mid-loop. Measured on a 9x9 killer (review instrumentation, July 2026): 299
-rebuilds against 2817 uses, guarantee-visits 540509 -> 90947 (6x) — a clear win
-there. But on a grid where nearly every rule is a sum rule the rebuild rate
-approaches 1:1 and the index becomes a net loss. Correctness is unaffected
-either way. Fix if it ever shows up: version the index on a monotone
-guarantee-generation counter instead of the shared struct cache. (The cheap
-half — skipping the index entirely for rules that never read guarantees — is
-already done via `Rule.uses_guarantees`.)
+## Guarantee-index lifecycle — DONE August 2026
 
-## Speeding up house-rich grids (pandiagonals) — general mechanisms only
+The per-rule minimum-cell guarantee index previously lived in the general
+structural cache. Every rule deactivation cleared that cache, so sum-heavy
+puzzles repeatedly rebuilt an index whose inputs had not changed. Earlier
+instrumentation on a 9x9 Killer measured 299 rebuilds for 2817 uses and a
+sixfold reduction in visited guarantees when the index was available.
 
-1. **DONE for fish/finned (June 2026): per-value dirty fingerprints**
-   (solve_fish._value_memo). Open remainder: same idea for x_chain/skyscraper
-   — both cheap (~1.5s corpus); revisit only if profiles change.
-2. **DONE (June 2026): hit-rate instrumentation + FC-inner exclusion** of
-   zero-hit tiers -> corpus 6.6x faster; slow pandiagonal suite test
-   3h09m -> 22m28s. Exclusion, not reordering, is the lever.
-3. **REJECTED (June 2026): pruned recursion in fish enumeration** — exactly
-   equivalent, measured 12% slower cold; the memo already covers the win case.
-4. **OPEN, long term: per-value candidate bitmasks** maintained incrementally
-   on the Grid; subset tests become int ops and the bitmask doubles as the
-   fingerprint for idea 1. Invasive (all mutation sites need an API).
+`Grid` now has a guarantee-only cache. Rule churn leaves it intact; adding or
+deactivating a guarantee clears it. Guarantee-only structures such as
+`semi_strong_links`, `guarantee_cells_by_value`, and the relevance index share
+this lifecycle. Clones and process-pool payloads deliberately start with empty
+caches.
 
-## Parallel top-level trials — DONE July 2026 (opt-in)
+## Speeding up house-rich grids — general mechanisms only
 
-solve(grid, processes=N) distributes first-level branches over a process
-pool (solve_parallel.py). Measured: blank 4x4 38.5s -> 14.1s; 6x6
-non-square-box 1408-solution enumeration 400.7s -> 129.6s on 8 processes;
-identical solution sets (slow-marked regression test). OPEN: free-threaded
-3.14 thread pool variant would drop the pickle/spawn overhead.
+1. **DONE for fish/finned fish:** per-value dirty fingerprints
+   (`solve_fish._value_memo`). The same idea for X-chain/skyscraper remains low
+   priority because both are cheap in current profiles.
+2. **DONE:** hit-rate instrumentation plus forcing-chain inner exclusion of
+   zero-hit tiers made the corpus 6.6x faster; the slow pandiagonal suite fell
+   from 3h09m to about 22m28s with identical solutions.
+3. **REJECTED:** pruned recursion in fish enumeration was equivalent but 12%
+   slower with the existing memo.
+4. **OPEN, long term:** maintain per-value candidate bitmasks incrementally.
+   Subset tests become integer operations and the mask doubles as a dirty
+   fingerprint. This is invasive because every candidate mutation needs to go
+   through an API.
 
-## Depth-gated technique tiers — DONE July 2026 (flag, off by default)
+## Parallel top-level trials — DONE, opt-in
 
-atomic_solver.DEPTH_GATE_K: at backtracking depth > K only the cheap tier
-runs (through naked_tuples5). Enumeration measurements at K=1: blank 4x4
-37.0s -> 2.6s (14x), nonsq 6x6 400.9s -> 7.7s (52x), same solutions. OPEN:
-decide default adoption — needs the slow lsq suite measured with K=1..2
-(single-solution hard puzzles may trade the other way), or an adaptive
-variant (gate only when node throughput is high).
+`solve(grid, processes=N)` distributes deterministic first-level branches over
+a process pool. Historical measurements: blank 4x4 38.5s -> 14.1s; non-square
+6x6 enumeration 400.7s -> 129.6s on eight processes. Python 3.14 forkserver/
+spawn-compatible execution is smoke-tested on Linux and Windows, and positive
+`max_sols` now returns a deterministic branch-priority subset.
 
-## Trail-based propagation instead of deepcopy-per-trial — OPEN (designed)
+**OPEN:** evaluate a free-threaded Python 3.14 thread-pool implementation. It
+could avoid pickle/startup costs, but must be benchmarked against the existing
+process pool and requires eliminating or context-localising the remaining
+process-wide statistics and logging state.
 
-Design doc: TRAIL_DESIGN.md (July 2026). TrailedSet journaling, phased
-nishio -> FC/FN -> backtracking; fish-memo staleness is the soundness trap;
-corpus-within-10% gate on phase 1. The biggest remaining engine win for
-enumeration workloads; composes with (and partially overlaps) the parallel
-trials and depth gate above.
+## Depth-gated technique tiers — DONE as an opt-in flag
 
-## Fish (parked — see FISH_REWRITE.md)
+`atomic_solver.DEPTH_GATE_K` runs only the cheap tier below a chosen search
+depth. Historical measurements at K=1: blank 4x4 37.0s -> 2.6s; non-square
+6x6 400.9s -> 7.7s with identical solutions.
 
-Base-first rewrite was implemented, validated equivalent, measured 5.5x
-slower, reverted. Remaining options change solver behaviour and need an
-owner decision: textbook-base restriction or incremental (dirty-tracking)
-fish.
+**OPEN:** decide whether to adopt a default after scheduled extended CI measures
+K=1..2 across single-solution hard puzzles and the slow Latin-square corpus.
+
+## Trail-based propagation instead of deepcopy-per-trial — OPEN, designed
+
+See `TRAIL_DESIGN.md`. Proposed phases: Nishio, then forcing chain/net, then
+backtracking. Fish-memo staleness is the principal soundness risk. Require
+solution-set equivalence and a representative-corpus performance gate after
+each phase. This remains the largest credible engine win for enumeration-heavy
+workloads and composes with parallel top-level trials.
+
+## Independent/differential validation — OPEN
+
+Add a deliberately simple brute-force oracle for random small grids and compare
+complete solution sets. Then test each advanced technique against the set of
+surviving completions: a sound deduction must never remove a candidate used by
+any valid completion. Parser fuzzing and round-trip fixtures should accompany
+this work.
+
+## Fish — parked; see `FISH_REWRITE.md`
+
+A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
+and reverted. Remaining options alter solver behaviour and need an explicit
+choice: textbook-base restriction or deeper incremental dirty tracking.

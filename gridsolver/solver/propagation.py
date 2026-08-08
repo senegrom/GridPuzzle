@@ -12,12 +12,7 @@ _NO_GUARANTEES: tuple[Guarantee, ...] = ()
 
 
 def propagation_snapshot(grid: Grid) -> PropagationSnapshot:
-    """Return the complete monotone state used for fixpoint detection.
-
-    Known values only become set, candidates only shrink, and inactive rule and
-    guarantee sets only grow. Tracking all four components therefore detects
-    value, candidate, and structural progress without copying the grid.
-    """
+    """Return the complete monotone state used for fixpoint detection."""
     return (
         bytes(grid._known),
         sum(len(candidates) for candidates in grid._candidates),
@@ -38,11 +33,16 @@ def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
 
     Every current consumer requires a guarantee's cells to be a subset of the
     rule cells. Its minimum cell must therefore occur in the rule, so an index
-    by minimum cell avoids scanning every live guarantee for every rule.
+    by minimum cell avoids scanning every live guarantee for every rule. The
+    index is invalidated only when guarantees change, not when unrelated rules
+    deactivate during propagation.
     """
     if not rule.uses_guarantees:
         return _NO_GUARANTEES
-    index = grid.cached_struct("gts_by_min_cell", lambda: _build_guarantee_index(grid))
+    index = grid.cached_guarantee_struct(
+        "gts_by_min_cell",
+        lambda: _build_guarantee_index(grid),
+    )
     return [guarantee for cell in rule.cells for guarantee in index.get(cell, ())]
 
 

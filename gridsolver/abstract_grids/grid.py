@@ -6,6 +6,7 @@ from functools import partial
 from numbers import Integral
 from typing import Any, TypeVar, overload
 
+from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
 from gridsolver.rules.rules import Guarantee, IdxType, Rule
@@ -56,14 +57,24 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         raise TypeError("Grid.insert is not supported")
 
     def __init__(self, rows: int, cols: int | None = None, max_elem: int | None = None) -> None:
-        actual_cols = rows if cols is None else cols
-        ImmutableGrid.__init__(self, [0] * (rows * actual_cols), rows, actual_cols, max_elem)
+        size = GridSizeContainer(rows, cols, max_elem)
+        ImmutableGrid.__init__(
+            self,
+            [0] * size.len,
+            size.rows,
+            size.cols,
+            size.max_elem,
+        )
         RuleContainer.__init__(self)
         self._candidates: tuple[set[int], ...] = tuple(
             set(range(1, self.max_elem + 1)) for _ in range(self.len)
         )
         self.has_been_filled = False
         self._struct_cache: dict[str, Any] = {}
+        # Guarantee-only structures survive rule churn. This matters on
+        # sum-heavy puzzles where rules deactivate frequently but guarantees do
+        # not; rebuilding the guarantee index on every rule update was wasted.
+        self._guarantee_cache: dict[str, Any] = {}
 
     @overload
     def __setitem__(self, key: int, value: int) -> None:
@@ -135,6 +146,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.has_been_filled = self.has_been_filled
         result.name = self.name
         result._struct_cache = {}
+        result._guarantee_cache = {}
         return result
 
     @property
@@ -183,19 +195,30 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if guarantee not in self.guarantees_ia and guarantee not in self.guarantees:
             self.guarantees.add(guarantee)
             self._struct_cache.clear()
+            self._guarantee_cache.clear()
 
     def deactivate_gtee(self, guarantee: Guarantee) -> None:
         self.guarantees.remove(guarantee)
         self.guarantees_ia.add(guarantee)
         self._struct_cache.clear()
+        self._guarantee_cache.clear()
 
     def cached_struct(self, key: str, factory: Callable[[], Any]) -> Any:
-        """Memoize a structure derived from rules or guarantees on this grid."""
+        """Memoize a structure affected by rules or guarantees."""
         try:
             return self._struct_cache[key]
         except KeyError:
             value = factory()
             self._struct_cache[key] = value
+            return value
+
+    def cached_guarantee_struct(self, key: str, factory: Callable[[], Any]) -> Any:
+        """Memoize a structure affected only by the live guarantee set."""
+        try:
+            return self._guarantee_cache[key]
+        except KeyError:
+            value = factory()
+            self._guarantee_cache[key] = value
             return value
 
     def _load_preprocess_sequence(
@@ -361,7 +384,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                     links[guarantee.val][second].add(first)
             return links
 
-        return self.cached_struct("semi_strong_links", build)
+        return self.cached_guarantee_struct("semi_strong_links", build)
 
     @property
     def semi_strong_links_all(self) -> dict[int, list[set[tuple[int, int]]]]:
@@ -384,7 +407,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     @property
     def guarantee_cells_by_value(self) -> dict[int, list[frozenset[int]]]:
         """Cached; callers must not mutate the returned structure."""
-        return self.cached_struct(
+        return self.cached_guarantee_struct(
             "guarantee_cells_by_value",
             lambda: {
                 value: [

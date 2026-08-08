@@ -2,8 +2,7 @@
 
 The implementation does not rely on ``fork`` semantics: the worker entry point
 is module-level and every payload is picklable, so Python 3.14's platform
-start methods (forkserver on most POSIX systems and spawn on Windows/macOS)
-are exercised by the regression suite.
+start methods are exercised by the regression suite.
 """
 
 import concurrent.futures
@@ -41,13 +40,10 @@ def solve_parallel_trials(
     max_sols: int,
     processes: int,
 ) -> set[ImmutableGrid]:
-    """Solve branches concurrently while consuming results in branch order.
-
-    Futures still execute in parallel, but deterministic consumption means a
-    positive ``max_sols`` returns the same branch-priority subset on repeated
-    runs instead of depending on process completion timing.
-    """
+    """Solve branches concurrently while consuming results in branch order."""
+    # Derived caches are cheap to rebuild and can dominate pickled payloads.
     grid._struct_cache.clear()
+    grid._guarantee_cache.clear()
     ordered_branches = sorted(branches)
     solutions: set[ImmutableGrid] = set()
 
