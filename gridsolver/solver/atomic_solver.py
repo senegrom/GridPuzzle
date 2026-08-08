@@ -1,46 +1,49 @@
-from array import ArrayType
 from collections import Counter
-from typing import Tuple, Set, List, Optional, Callable
+from collections.abc import Callable, Iterator
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
-from gridsolver.rules.rules import RuleAlwaysSatisfied, InvalidGrid, Guarantee
+from gridsolver.rules.rules import Guarantee, InvalidGrid
+from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
+from gridsolver.solver.propagation import (
+    PropagationSnapshot,
+    apply_rules as _apply_rules,
+    propagation_snapshot,
+    relevant_guarantees as _relevant_gts,
+    update_candidates_from_known as _update_candidates_from_known,
+    update_known_from_candidates as _update_known_from_candidates,
+)
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_house_sums, rulehelper_sum_atmostonce
-from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
 from gridsolver.solver.solve_aic import alternating_inference_chain
 from gridsolver.solver.solve_als import als_xy_wing, als_xz
-from gridsolver.solver.solve_fish import fish, finned_fish
-from gridsolver.solver.solve_nishio import nishio
-from gridsolver.solver import solve_forcing_chain as _solve_fc
+from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
+from gridsolver.solver.solve_empty_rectangle import empty_rectangle
+from gridsolver.solver.solve_fish import finned_fish, fish
 from gridsolver.solver.solve_forcing_chain import forcing_chain
 from gridsolver.solver.solve_forcing_net import forcing_net
-from gridsolver.solver.solve_guarantees import remove_hidden_tuples, filter_guarantees
-from gridsolver.solver.solve_empty_rectangle import empty_rectangle
+from gridsolver.solver.solve_guarantees import filter_guarantees, remove_hidden_tuples
 from gridsolver.solver.solve_ineq_bounds import ineq_bounds
 from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_naked_tuples import remove_naked_tuples
+from gridsolver.solver.solve_nishio import nishio
 from gridsolver.solver.solve_skyscraper import skyscraper
 from gridsolver.solver.solve_sue_de_coq import sue_de_coq
 from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
 
 
-# Technique statistics, aggregated process-wide (including the inner solvers
-# of forcing-chain branches). A "try" is one execution of a power action; a
-# "hit" is an execution after which the grid state changed; "elims" counts the
-# candidates removed by hits; "rulechg" counts hits that changed the
-# rule/guarantee sets (e.g. the rulehelpers, which eliminate nothing directly).
-POWER_TRIES: Counter = Counter()
-POWER_HITS: Counter = Counter()
-POWER_ELIMS: Counter = Counter()
-POWER_RULE_CHANGES: Counter = Counter()
+# Technique statistics are aggregated process-wide, including forcing-chain
+# branch solvers. A try is one action execution; a hit changes the monotone
+# propagation snapshot; elims counts removed candidates; rulechg counts hits
+# that changed rule or guarantee sets without necessarily removing candidates.
+POWER_TRIES: Counter[str] = Counter()
+POWER_HITS: Counter[str] = Counter()
+POWER_ELIMS: Counter[str] = Counter()
+POWER_RULE_CHANGES: Counter[str] = Counter()
 
-
-# Depth-gated technique tiers: at backtracking depth > DEPTH_GATE_K only the
-# cheap tier runs (through naked_tuples5) — deep contradictions usually surface
-# from cheap propagation, trading more nodes for much cheaper nodes. Behavior-
-# affecting, so off by default; enable per run and measure (see TODO.md).
-DEPTH_GATE_K: Optional[int] = None
+# At backtracking depth greater than this value, run only the cheap tier.
+# Behaviour-affecting and therefore disabled by default.
+DEPTH_GATE_K: int | None = None
 
 
 def reset_power_stats() -> None:
@@ -52,76 +55,91 @@ def reset_power_stats() -> None:
 
 
 def power_stats_table() -> str:
-    """Aligned per-technique table: tries, hits, hit rate, eliminations,
-    rule-changing hits, cumulative seconds."""
-    labels = sorted(set(POWER_TRIES) | set(_lg.time_stats), key=lambda x: -_lg.time_stats.get(x, 0.0))
+    """Return an aligned per-technique statistics table."""
+    labels = sorted(
+        set(POWER_TRIES) | set(_lg.time_stats),
+        key=lambda label: -_lg.time_stats.get(label, 0.0),
+    )
     lines = [f"{'technique':24} {'tries':>9} {'hits':>6} {'hit%':>7} {'elims':>7} {'rulechg':>8} {'time[s]':>9}"]
     for label in labels:
         tries = POWER_TRIES.get(label, 0)
         hits = POWER_HITS.get(label, 0)
         rate = f"{100 * hits / tries:.2f}" if tries else "-"
-        lines.append(f"{label:24} {tries:>9} {hits:>6} {rate:>7} {POWER_ELIMS.get(label, 0):>7}"
-                     f" {POWER_RULE_CHANGES.get(label, 0):>8} {_lg.time_stats.get(label, 0.0):>9.1f}")
+        lines.append(
+            f"{label:24} {tries:>9} {hits:>6} {rate:>7} {POWER_ELIMS.get(label, 0):>7}"
+            f" {POWER_RULE_CHANGES.get(label, 0):>8} {_lg.time_stats.get(label, 0.0):>9.1f}"
+        )
     return "\n".join(lines)
 
 
 # noinspection PyProtectedMember
 class AtomicSolver:
-    def __init__(self, grid: Grid, upsteps: List[int],
-                 hidden_pair_checked_gts: Set[Guarantee]):
+    def __init__(
+        self,
+        grid: Grid,
+        upsteps: list[int],
+        hidden_pair_checked_gts: set[Guarantee],
+    ) -> None:
         self.grid = grid
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
 
     def solve_atomic(self) -> SolveStatus:
-        _lg.logs(_MAX_LVL, f"Solving rule-based")
+        _lg.logs(_MAX_LVL, "Solving rule-based")
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
-        steps: int = 0
-        old: Optional[Tuple[bytes, int, int, int]] = None
+        steps = 0
         invalid = False
 
         while self.grid.is_valid:
-            do_step = True
-            step_type = "basic"
-
-            break_outer = True
-            if old is not None and old == self._state_snapshot():
-                try:
-                    for step_type in self._solve_power_actions():
-                        POWER_TRIES[step_type] += 1
-                        new_snap = self._state_snapshot()
-                        if old != new_snap:
-                            POWER_HITS[step_type] += 1
-                            POWER_ELIMS[step_type] += max(0, old[1] - new_snap[1])
-                            if old[2:] != new_snap[2:]:
-                                POWER_RULE_CHANGES[step_type] += 1
-                            break_outer = False
-                            do_step = False
-                            _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates,
-                                                          self.grid._known)
-                            break
-                except InvalidGrid:
-                    invalid = True
-                    break
-                if break_outer:
-                    break
-
+            before = self._state_snapshot()
             try:
                 with _lg.time_ctxt("update_step"):
-                    if do_step:
-                        if old is None:
-                            self._update_step()
-                        old = self._state_snapshot()
-                        self._update_step()
+                    self._update_step()
             except InvalidGrid:
                 invalid = True
                 break
 
-            _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
-            _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
-            steps = steps + 1
+            after_basic = self._state_snapshot()
+            if after_basic != before:
+                self._log_step(steps, "basic")
+                steps += 1
+                continue
 
-        status: SolveStatus
+            # Rules have had a final validation pass, so a solved grid can stop
+            # before attempting every expensive power action.
+            if self.grid.is_solved:
+                break
+
+            action_hit = False
+            step_type = "basic"
+            try:
+                for step_type in self._solve_power_actions():
+                    POWER_TRIES[step_type] += 1
+                    after_action = self._state_snapshot()
+                    if after_action == after_basic:
+                        continue
+
+                    POWER_HITS[step_type] += 1
+                    POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])
+                    if after_basic[2:] != after_action[2:]:
+                        POWER_RULE_CHANGES[step_type] += 1
+                    _update_known_from_candidates(
+                        self.grid.__setitem__,
+                        self.grid._candidates,
+                        self.grid._known,
+                    )
+                    action_hit = True
+                    break
+            except InvalidGrid:
+                invalid = True
+                break
+
+            if not action_hit:
+                break
+
+            self._log_step(steps, step_type)
+            steps += 1
+
         if invalid or not self.grid.is_valid:
             status = SolveStatus.INVALID
         elif self.grid.is_solved:
@@ -133,18 +151,12 @@ class AtomicSolver:
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         return status
 
-    def _state_snapshot(self) -> Tuple[bytes, int, int, int]:
-        # Knowns only get set and candidates only shrink (monotone), so the
-        # first two fields change iff cell state changed. The rule/guarantee
-        # set sizes make rule-only progress (rulehelpers deriving new rules)
-        # count as progress too, so the new rules get another propagation round
-        # instead of falling through to backtracking; any mutation is visible
-        # because the inactive sets only ever grow (a deactivate+add pair that
-        # keeps the active count equal still bumps field four). Termination:
-        # rule versions per original rule are bounded by its cell count.
-        g = self.grid
-        return (bytes(g._known), sum(len(s) for s in g._candidates),
-                len(g.rules) + len(g.guarantees), len(g.rules_ia) + len(g.guarantees_ia))
+    def _log_step(self, steps: int, step_type: str) -> None:
+        _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
+        _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
+
+    def _state_snapshot(self) -> PropagationSnapshot:
+        return propagation_snapshot(self.grid)
 
     def _update_step(self) -> None:
         _update_known_from_candidates(self.grid.__setitem__, self.grid._candidates, self.grid._known)
@@ -153,34 +165,17 @@ class AtomicSolver:
         with _lg.time_ctxt("filter_guarantees"):
             filter_guarantees(self.grid)
 
-    # rule updates
     def _update_from_rules(self) -> None:
-        for rule in list(self.grid.rules):
-            try:
-                do_refresh, new_rules, new_gts = rule.apply(
-                    self.grid._known, self.grid._candidates, _relevant_gts(self.grid, rule))
-                if do_refresh:
-                    _update_candidates_from_known(self.grid._candidates, self.grid._known)
-            except RuleAlwaysSatisfied:
-                new_rules = []
-                new_gts = None
-                _update_candidates_from_known(self.grid._candidates, self.grid._known)
-            if new_rules is not None:
-                self.grid.deactivate_rule(rule)
-                for new_rule in new_rules:
-                    self.grid.add_rule_checked(new_rule)
-            if new_gts is not None:
-                for gt in new_gts:
-                    self.grid.add_gtee_checked(gt)
+        _apply_rules(self.grid)
 
-    def _act(self, label: str, fn) -> str:
-        """Run one power action under its timer. A raised InvalidGrid kills the
-        generator before the consumer can count the execution, yet a proven
-        contradiction is the most decisive kind of hit — count it here."""
+    def _act(self, label: str, action: Callable[[], None]) -> str:
+        """Run one power action and account for contradiction hits."""
         with _lg.time_ctxt(label):
             try:
-                fn()
+                action()
             except InvalidGrid:
+                # The generator raises before the consumer sees a label, so a
+                # contradiction must be counted here.
                 POWER_TRIES[label] += 1
                 POWER_HITS[label] += 1
                 raise
@@ -188,8 +183,15 @@ class AtomicSolver:
 
     def _hidden_tuples(self, n: int) -> None:
         if self.hidden_pair_checked_gts:
-            remove_hidden_tuples(self.grid, n,
-                                 [gt for gt in self.grid.guarantees if gt not in self.hidden_pair_checked_gts])
+            remove_hidden_tuples(
+                self.grid,
+                n,
+                [
+                    guarantee
+                    for guarantee in self.grid.guarantees
+                    if guarantee not in self.hidden_pair_checked_gts
+                ],
+            )
         else:
             remove_hidden_tuples(self.grid, n, None)
 
@@ -197,91 +199,50 @@ class AtomicSolver:
         self._hidden_tuples(_MAX_HIDDEN_TUPLE)
         self.hidden_pair_checked_gts = set(self.grid.guarantees)
 
-    def _solve_power_actions(self):
-        g = self.grid
-        # Tiers guarded by `not in_fc` cost the bulk of solve time with ~zero
-        # hit rates outside house-rich grids (tests/technique_stats_harness.py)
-        # and ~90% of their executions happen inside forcing-chain branches;
-        # they are skipped there, mirroring the nishio/forcing_net exclusion,
-        # and still run at the outer level for full deductive power.
-        in_fc = _solve_fc._in_forcing_chain
-        yield self._act("locked_candidate", lambda: locked_candidate(g))
-        yield self._act("skyscraper", lambda: skyscraper(g))
-        yield self._act("empty_rectangle", lambda: empty_rectangle(g))
-        yield self._act("ineq_bounds", lambda: ineq_bounds(g))
-        yield self._act("rulehelper_atmostonce", lambda: rulehelper_atmostonce(g))
-        yield self._act("rulehelper_sum_atmostonce", lambda: rulehelper_sum_atmostonce(g))
-        yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(g))
-        yield self._act("naked_tuples5", lambda: remove_naked_tuples(g, 5))
-        if DEPTH_GATE_K is not None and not in_fc and len(self.upsteps) > DEPTH_GATE_K:
+    def _solve_power_actions(self) -> Iterator[str]:
+        grid = self.grid
+        # Expensive zero-hit tiers are skipped inside forcing-chain branches but
+        # retained at the outer level for full deductive power.
+        in_forcing_chain = bool(_solve_fc._in_forcing_chain)
+
+        yield self._act("locked_candidate", lambda: locked_candidate(grid))
+        yield self._act("skyscraper", lambda: skyscraper(grid))
+        yield self._act("empty_rectangle", lambda: empty_rectangle(grid))
+        yield self._act("ineq_bounds", lambda: ineq_bounds(grid))
+        yield self._act("rulehelper_atmostonce", lambda: rulehelper_atmostonce(grid))
+        yield self._act("rulehelper_sum_atmostonce", lambda: rulehelper_sum_atmostonce(grid))
+        yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(grid))
+        yield self._act("naked_tuples5", lambda: remove_naked_tuples(grid, 5))
+
+        if DEPTH_GATE_K is not None and not in_forcing_chain and len(self.upsteps) > DEPTH_GATE_K:
             return
-        yield self._act("xy_wing", lambda: xy_wing(g))
-        yield self._act("xyz_wing", lambda: xyz_wing(g))
-        yield self._act("w_wing", lambda: w_wing(g))
-        yield self._act("x_chain", lambda: x_chain(g))
-        yield self._act("xy_chain", lambda: xy_chain(g))
-        yield self._act("als_xz", lambda: als_xz(g))
-        yield self._act("als_xy_wing", lambda: als_xy_wing(g))
-        yield self._act("sue_de_coq", lambda: sue_de_coq(g))
-        yield self._act("forcing_chain", lambda: forcing_chain(g))
+
+        yield self._act("xy_wing", lambda: xy_wing(grid))
+        yield self._act("xyz_wing", lambda: xyz_wing(grid))
+        yield self._act("w_wing", lambda: w_wing(grid))
+        yield self._act("x_chain", lambda: x_chain(grid))
+        yield self._act("xy_chain", lambda: xy_chain(grid))
+        yield self._act("als_xz", lambda: als_xz(grid))
+        yield self._act("als_xy_wing", lambda: als_xy_wing(grid))
+        yield self._act("sue_de_coq", lambda: sue_de_coq(grid))
+        yield self._act("forcing_chain", lambda: forcing_chain(grid))
         yield self._act("hidden_tuples3", lambda: self._hidden_tuples(3))
-        yield self._act("fish2", lambda: fish(g, 2))
-        yield self._act("naked_tuples10", lambda: remove_naked_tuples(g, 10))
+        yield self._act("fish2", lambda: fish(grid, 2))
+        yield self._act("naked_tuples10", lambda: remove_naked_tuples(grid, 10))
         yield self._act("hidden_tuples4", lambda: self._hidden_tuples(4))
-        if not in_fc:
-            yield self._act("fish3", lambda: fish(g, 3))
-        yield self._act("finned-fish2", lambda: finned_fish(g, 2))
-        yield self._act("naked_tuples", lambda: remove_naked_tuples(g))
-        if not in_fc:
+        if not in_forcing_chain:
+            yield self._act("fish3", lambda: fish(grid, 3))
+        yield self._act("finned-fish2", lambda: finned_fish(grid, 2))
+        yield self._act("naked_tuples", lambda: remove_naked_tuples(grid))
+        if not in_forcing_chain:
             yield self._act("hidden_tuples", self._hidden_tuples_max)
-        yield self._act("aic", lambda: alternating_inference_chain(g))
-        yield self._act("nishio", lambda: nishio(g))
-        if not in_fc:
-            yield self._act("fish", lambda: fish(g, _MAX_FISH))
-            yield self._act("finned-fish", lambda: finned_fish(g, _MAX_FISH - 1))
-        yield self._act("forcing_net", lambda: forcing_net(g))
+        yield self._act("aic", lambda: alternating_inference_chain(grid))
+        yield self._act("nishio", lambda: nishio(grid))
+        if not in_forcing_chain:
+            yield self._act("fish", lambda: fish(grid, _MAX_FISH))
+            yield self._act("finned-fish", lambda: finned_fish(grid, _MAX_FISH - 1))
+        yield self._act("forcing_net", lambda: forcing_net(grid))
 
 
 _MAX_HIDDEN_TUPLE = 7
 _MAX_FISH = 4
-
-
-def _relevant_gts(grid: Grid, rule) -> list:
-    """Guarantees possibly relevant to `rule`: every consumer filters on
-    gt.cells being a subset of the rule's (unknown) cells, which implies the
-    guarantee's minimum cell lies in rule.cells — so bucketing by min cell
-    yields an exact superset at a fraction of iterating all live guarantees
-    (a large per-round cost on grids with many guarantees). The index lives in
-    the struct cache and is rebuilt only when guarantees actually change.
-
-    Rules that never read the argument (Sum/Prod/Div/Diff/Ineq/AtLeastOnce)
-    skip the list construction entirely."""
-    if not rule.uses_guarantees:
-        return _NO_GTS
-    index = grid.cached_struct(
-        "gts_by_min_cell",
-        lambda: _build_gt_index(grid))
-    return [gt for cell in rule.cells for gt in index.get(cell, ())]
-
-
-_NO_GTS: list = []
-
-
-def _build_gt_index(grid: Grid) -> dict:
-    idx: dict = {}
-    for gt in grid.guarantees:
-        idx.setdefault(min(gt.cells), []).append(gt)
-    return idx
-
-
-def _update_known_from_candidates(setitem: Callable[[int, int], None], possible: Tuple[Set[int]],
-                                  known: ArrayType) -> None:
-    for i, p in enumerate(possible):
-        if len(p) == 1 and known[i] == 0:
-            setitem(i, next(iter(p)))
-
-
-def _update_candidates_from_known(possible: Tuple[Set[int]], known: ArrayType) -> None:
-    for p, k in zip(possible, known):
-        if k > 0 and len(p) > 1:
-            p.intersection_update((k,))

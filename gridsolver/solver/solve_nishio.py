@@ -1,55 +1,48 @@
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid
-from gridsolver.solver.logger import CoordToString
 from gridsolver.solver import solve_forcing_chain as _solve_fc
-from gridsolver.solver.solve_forcing_net import _propagate_basic
+from gridsolver.solver.logger import CoordToString
+from gridsolver.solver.propagation import propagate_basic
 from gridsolver.solver.solver_log import lg as _lg
 
 
 # noinspection PyProtectedMember
 def nishio(grid: Grid) -> None:
-    """Nishio technique (single-digit forcing).
-
-    For each unsolved cell and each candidate: hypothetically place it,
-    propagate basic constraints (rules + guarantees). If the grid becomes
-    invalid (some cell has no candidates — which includes guarantee violations
-    like "digit D has nowhere to go in house H"), the candidate is eliminated.
-
-    The guarantee system (ElementsAtLeastOnce → filter_guarantees) already
-    checks that every digit has at least one cell in every house, so no
-    separate house check is needed.
-    """
+    """Eliminate candidates whose basic-propagation branch contradicts."""
     if _solve_fc._in_forcing_chain:
         return
 
-    cands = grid._candidates
+    candidates = grid._candidates
     known = grid._known
-    c = CoordToString(grid.rows)
+    coord = CoordToString(grid.rows)
 
     for cell in range(grid.len):
-        if known[cell] > 0 or len(cands[cell]) <= 1:
+        if known[cell] > 0 or len(candidates[cell]) <= 1:
             continue
 
         made_progress = False
-        for val in list(cands[cell]):
+        for value in sorted(candidates[cell]):
             clone = grid.deepcopy()
-            clone[cell] = val
-            cc = clone._candidates
-            status = _propagate_basic(clone)
+            try:
+                clone[cell] = value
+                status = propagate_basic(clone)
+            except InvalidGrid:
+                status = SolveStatus.INVALID
 
-            if status == SolveStatus.INVALID or not clone.is_valid:
-                # Find what went wrong for the log message. Some custom rules
-                # can report InvalidGrid without emptying a candidate set, so
-                # the returned status is authoritative.
-                empty = [i for i in range(grid.len) if not cc[i]]
-                reason = f"empty candidates at {c(empty[0])}" if empty else "invalid grid"
-                _lg.on and _lg.logr("Nishio",
-                         f"{val} removed ({reason})",
-                         c(cell))
-                cands[cell].discard(val)
-                if not cands[cell]:
-                    raise InvalidGrid()
-                made_progress = True
+            if status is not SolveStatus.INVALID and clone.is_valid:
+                continue
+
+            empty_cells = [index for index, possible in enumerate(clone._candidates) if not possible]
+            reason = f"empty candidates at {coord(empty_cells[0])}" if empty_cells else "invalid grid"
+            _lg.on and _lg.logr(
+                "Nishio",
+                f"{value} removed ({reason})",
+                coord(cell),
+            )
+            candidates[cell].discard(value)
+            if not candidates[cell]:
+                raise InvalidGrid()
+            made_progress = True
 
         if made_progress:
             return

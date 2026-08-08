@@ -12,8 +12,9 @@ from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import InvalidGrid, Rule
 from gridsolver.rules.sumrules import DiffRule, DivRule, SumAndElementsAtMostOnce
 from gridsolver.solver import solve_forcing_chain as forcing_chain_module
+from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
-from gridsolver.solver.solve_forcing_net import _propagate_basic
+from gridsolver.solver.propagation import propagate_basic
 from gridsolver.solver.solve_nishio import nishio
 from gridsolver.util import peek
 
@@ -51,7 +52,7 @@ def test_basic_trial_propagation_tracks_candidate_only_progress():
     grid = Grid(1, 1, max_elem=4)
     grid.add_rule_checked(_PeelOneCandidatePerPass(grid, cells=[0]))
 
-    assert _propagate_basic(grid) == SolveStatus.SOLVED
+    assert propagate_basic(grid) == SolveStatus.SOLVED
     assert grid[0] == 1
     assert grid.get_candidates(0) == {1}
 
@@ -82,6 +83,20 @@ def test_forcing_chain_guard_is_context_local():
     finally:
         flag.reset(token)
     assert not flag
+
+
+def test_parallel_trials_work_with_python_314_start_methods():
+    puzzle = "12344321........"
+    sequential = Sudoku(2, 2, 2, 2)
+    sequential.load(puzzle)
+    parallel = Sudoku(2, 2, 2, 2)
+    parallel.load(puzzle)
+
+    sequential_solutions = solver.solve(sequential, log_level=0)
+    parallel_solutions = solver.solve(parallel, log_level=0, processes=2)
+
+    assert len(sequential_solutions) == 4
+    assert sequential_solutions == parallel_solutions
 
 
 def test_peek_consumes_only_the_first_item_eagerly():
@@ -177,13 +192,13 @@ def test_division_rule_does_not_accept_a_rounded_float_ratio():
 
 
 def test_arithmetic_rules_validate_public_inputs():
-    gsz = GridSizeContainer(1, 2, 2)
+    grid_size = GridSizeContainer(1, 2, 2)
     with pytest.raises(ValueError, match="positive"):
-        DivRule(gsz, cells=[0, 1], target=0)
+        DivRule(grid_size, cells=[0, 1], target=0)
     with pytest.raises(ValueError, match="exactly two"):
-        DivRule(gsz, cells=[0], target=2)
+        DivRule(grid_size, cells=[0], target=2)
     with pytest.raises(ValueError, match="non-negative"):
-        DiffRule(gsz, cells=[0, 1], target=-1)
+        DiffRule(grid_size, cells=[0, 1], target=-1)
 
 
 def test_killer_cages_accept_mixed_coordinate_representations():
