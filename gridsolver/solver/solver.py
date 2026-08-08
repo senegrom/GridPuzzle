@@ -54,6 +54,7 @@ def _validate_solve_options(
 
     return max_sols, processes, depth_gate
 
+
 def solve(
     grid: Grid,
     log_level: int | None = None,
@@ -149,8 +150,12 @@ def _solve_top_parallel(
         branches = [(test_cell, value) for value in values]
 
     _lg.logs(0, f"Parallel: {len(branches)} top-level branches on {processes} processes")
+    # Root propagation may populate large structural and fish caches. They
+    # are cheap to rebuild independently and expensive to pickle once per
+    # submitted branch, so workers receive one cache-free state clone.
+    worker_seed = grid.deepcopy()
     return solve_parallel_trials(
-        grid,
+        worker_seed,
         branches,
         max_sols,
         processes,

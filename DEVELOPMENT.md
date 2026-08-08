@@ -55,7 +55,9 @@ coverage.
 `Grid.deepcopy()` shallow-copies rule and guarantee sets but shares Rule
 objects. This is safe because Rule objects never mutate after construction;
 `@cached_property` values are deterministic. Candidate sets and trail state are
-new per clone, and structural caches deliberately start empty.
+new per clone, and structural caches deliberately start empty. Subclasses that
+add instance state must override `Grid._copy_extra_state_to()` and detach that
+state explicitly.
 
 **Forcing chain uses the full AtomicSolver for trial branches.**
 A `ContextVar`-backed recursion flag prevents forcing-chain recursion without
@@ -135,7 +137,9 @@ configuration is explicit through `set_colouring`.
   stale fingerprints can skip required eliminations.
 - **Manual `Grid.deepcopy()`** replaces `copy.deepcopy`; it remains relevant
   for API isolation and process-pool payloads even though per-node search no
-  longer clones.
+  longer clones. After root propagation, process workers receive a fresh
+  cache-free clone so large structural and fish memo state is not serialized
+  once per submitted branch.
 - **Rule iteration snapshots** use `list(self.grid.rules)` instead of copying a
   set.
 - **Snapshot change detection** tracks known bytes, total candidate count, and

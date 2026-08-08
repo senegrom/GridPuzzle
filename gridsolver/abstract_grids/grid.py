@@ -156,6 +156,15 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def __ne__(self, other: object) -> bool:
         return not self == other
 
+    def _copy_extra_state_to(self, result: "Grid") -> None:
+        """Copy subclass-owned instance state into ``result``.
+
+        The base implementation owns all state required by the built-in
+        grid classes. Extension classes that add mutable instance fields
+        should override this hook and detach those fields explicitly.
+        Solver caches and trail journals must never be copied here.
+        """
+
     def __deepcopy__(self, memo: MutableMapping[int, Any] | None = None) -> "Grid":
         return self.deepcopy()
 
@@ -179,9 +188,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.name = self.name
         result._struct_cache = {}
         result._guarantee_cache = {}
+        self._copy_extra_state_to(result)
         return result
-
-
 
     def trail_mark(self) -> int:
         """Start a reversible mutation scope and return its LIFO token."""
