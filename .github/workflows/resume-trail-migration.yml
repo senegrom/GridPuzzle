@@ -1,4 +1,4 @@
-name: Reuse sibling guarantee snapshot
+name: Transactional fish memo trail
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sibling-guarantee-snapshot
+  group: transactional-fish-memo
   cancel-in-progress: false
 
 jobs:
@@ -29,48 +29,392 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Hoist immutable parent guarantee snapshot out of sibling loop
+      - name: Journal mutable memo mappings with the grid trail
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
-          path = Path("gridsolver/solver/solver.py")
-          text = path.read_text(encoding="utf-8")
-          old = (
-              "        trials = sorted(guarantee.cells) if use_guarantee else values\n"
-              "        solutions: set[ImmutableGrid] = set()\n\n"
-              "        for trial in trials:\n"
-          )
-          new = (
-              "        trials = sorted(guarantee.cells) if use_guarantee else values\n"
-              "        solutions: set[ImmutableGrid] = set()\n"
-              "        # AtomicSolver only reads the incoming snapshot and replaces its\n"
-              "        # own reference after a full hidden-tuple pass. All sibling branches\n"
-              "        # therefore share this one immutable-by-convention parent snapshot.\n"
-              "        checked_guarantees = set(grid.guarantees)\n\n"
-              "        for trial in trials:\n"
-          )
-          if old not in text:
-              raise SystemExit("Recursive branch-loop marker was not found")
-          text = text.replace(old, new, 1)
 
-          old = (
-              "            mark = grid.trail_mark()\n"
-              "            checked_guarantees = set(grid.guarantees)\n"
-              "            try:\n"
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Expected text not found in {path}: {old[:160]!r}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+          Path("gridsolver/abstract_grids/trail.py").write_text(
+              dedent(r'''
+              from collections.abc import Iterable
+              from dataclasses import dataclass, field
+              from typing import Any
+
+
+              type TrailEntry = tuple[Any, ...]
+
+
+              @dataclass(slots=True)
+              class TrailFrame:
+                  mark: int
+                  token: int
+                  filled: bool
+                  struct_cache: dict
+                  guarantee_cache: dict
+
+
+              @dataclass(slots=True)
+              class TrailState:
+                  entries: list[TrailEntry] = field(default_factory=list)
+                  frames: list[TrailFrame] = field(default_factory=list)
+                  next_token: int = 1
+
+                  @property
+                  def active(self) -> bool:
+                      return bool(self.frames)
+
+                  @property
+                  def token(self) -> int:
+                      return self.frames[-1].token if self.frames else 0
+
+
+              class TrailedSet(set[int]):
+                  """A set that snapshots once per active trail frame before mutation."""
+
+                  __slots__ = ("_trail_state", "_snapshot_token")
+
+                  def __init__(
+                      self,
+                      values: Iterable[int] = (),
+                      trail_state: TrailState | None = None,
+                  ) -> None:
+                      super().__init__(values)
+                      self._trail_state = TrailState() if trail_state is None else trail_state
+                      self._snapshot_token = 0
+
+                  def __reduce__(self):
+                      # Pickle's memo preserves the shared TrailState used by the Grid and
+                      # all candidate sets when a top-level branch is sent to a worker.
+                      return type(self), (tuple(self), self._trail_state)
+
+                  def __repr__(self) -> str:
+                      # Keep logging and diagnostics identical to ordinary sets.
+                      return repr(set(self))
+
+                  def copy(self) -> set[int]:
+                      # Algorithmic scratch copies should not journal back to the grid.
+                      return set(self)
+
+                  def _record_snapshot(self) -> None:
+                      state = self._trail_state
+                      if not state.active or self._snapshot_token == state.token:
+                          return
+                      state.entries.append(
+                          ("cand", self, frozenset(self), self._snapshot_token)
+                      )
+                      self._snapshot_token = state.token
+
+                  def add(self, element: int) -> None:
+                      self._record_snapshot()
+                      set.add(self, element)
+
+                  def clear(self) -> None:
+                      if not self:
+                          return
+                      self._record_snapshot()
+                      set.clear(self)
+
+                  def difference_update(self, *others: Iterable[int]) -> None:
+                      self._record_snapshot()
+                      set.difference_update(self, *others)
+
+                  def discard(self, element: int) -> None:
+                      if element not in self:
+                          return
+                      self._record_snapshot()
+                      set.discard(self, element)
+
+                  def intersection_update(self, *others: Iterable[int]) -> None:
+                      self._record_snapshot()
+                      set.intersection_update(self, *others)
+
+                  def pop(self) -> int:
+                      if not self:
+                          return set.pop(self)
+                      self._record_snapshot()
+                      return set.pop(self)
+
+                  def remove(self, element: int) -> None:
+                      if element not in self:
+                          set.remove(self, element)
+                      self._record_snapshot()
+                      set.remove(self, element)
+
+                  def symmetric_difference_update(self, other: Iterable[int]) -> None:
+                      self._record_snapshot()
+                      set.symmetric_difference_update(self, other)
+
+                  def update(self, *others: Iterable[int]) -> None:
+                      self._record_snapshot()
+                      set.update(self, *others)
+
+                  def __iand__(self, other: Iterable[int]):
+                      self.intersection_update(other)
+                      return self
+
+                  def __ior__(self, other: Iterable[int]):
+                      self.update(other)
+                      return self
+
+                  def __isub__(self, other: Iterable[int]):
+                      self.difference_update(other)
+                      return self
+
+                  def __ixor__(self, other: Iterable[int]):
+                      self.symmetric_difference_update(other)
+                      return self
+
+
+              _MISSING = object()
+
+
+              class TrailedDict(dict[Any, Any]):
+                  """A dict that snapshots once per active trail frame before mutation."""
+
+                  __slots__ = ("_trail_state", "_snapshot_token")
+
+                  def __init__(
+                      self,
+                      values: Any = (),
+                      trail_state: TrailState | None = None,
+                      **kwargs: Any,
+                  ) -> None:
+                      super().__init__(values, **kwargs)
+                      self._trail_state = TrailState() if trail_state is None else trail_state
+                      self._snapshot_token = 0
+
+                  def __reduce__(self):
+                      return type(self), (tuple(self.items()), self._trail_state)
+
+                  def copy(self) -> dict[Any, Any]:
+                      return dict(self)
+
+                  def _record_snapshot(self) -> None:
+                      state = self._trail_state
+                      if not state.active or self._snapshot_token == state.token:
+                          return
+                      state.entries.append(
+                          ("map", self, tuple(self.items()), self._snapshot_token)
+                      )
+                      self._snapshot_token = state.token
+
+                  def __setitem__(self, key: Any, value: Any) -> None:
+                      if key in self and dict.__getitem__(self, key) == value:
+                          return
+                      self._record_snapshot()
+                      dict.__setitem__(self, key, value)
+
+                  def __delitem__(self, key: Any) -> None:
+                      if key not in self:
+                          dict.__delitem__(self, key)
+                      self._record_snapshot()
+                      dict.__delitem__(self, key)
+
+                  def clear(self) -> None:
+                      if not self:
+                          return
+                      self._record_snapshot()
+                      dict.clear(self)
+
+                  def pop(self, key: Any, default: Any = _MISSING) -> Any:
+                      if key not in self:
+                          if default is _MISSING:
+                              raise KeyError(key)
+                          return default
+                      self._record_snapshot()
+                      return dict.pop(self, key)
+
+                  def popitem(self) -> tuple[Any, Any]:
+                      if not self:
+                          return dict.popitem(self)
+                      self._record_snapshot()
+                      return dict.popitem(self)
+
+                  def setdefault(self, key: Any, default: Any = None) -> Any:
+                      if key in self:
+                          return dict.__getitem__(self, key)
+                      self._record_snapshot()
+                      return dict.setdefault(self, key, default)
+
+                  def update(self, *args: Any, **kwargs: Any) -> None:
+                      if not args and not kwargs:
+                          return
+                      self._record_snapshot()
+                      dict.update(self, *args, **kwargs)
+
+                  def __ior__(self, other: Any):
+                      self.update(other)
+                      return self
+              ''').lstrip(),
+              encoding="utf-8",
           )
-          new = (
-              "            mark = grid.trail_mark()\n"
-              "            try:\n"
+
+          replace_once(
+              "gridsolver/abstract_grids/grid.py",
+              '''            if tag == "cand":
+                          _, possible, original, previous_token = entry
+                          set.clear(possible)
+                          set.update(possible, original)
+                          possible._snapshot_token = previous_token
+                      elif tag == "known":
+              ''',
+              '''            if tag == "cand":
+                          _, possible, original, previous_token = entry
+                          set.clear(possible)
+                          set.update(possible, original)
+                          possible._snapshot_token = previous_token
+                      elif tag == "map":
+                          _, mapping, original, previous_token = entry
+                          dict.clear(mapping)
+                          dict.update(mapping, original)
+                          mapping._snapshot_token = previous_token
+                      elif tag == "known":
+              ''',
           )
-          if old not in text:
-              raise SystemExit("Per-branch guarantee snapshot marker was not found")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          replace_once(
+              "gridsolver/abstract_grids/grid.py",
+              '''        self.has_been_filled = frame.filled
+                      self._struct_cache = frame.struct_cache
+                      self._guarantee_cache = frame.guarantee_cache
+
+                      # Branch-local candidate fingerprints are stale after rollback.
+                      for name, value in vars(self).items():
+                          if name.endswith("_memo") and hasattr(value, "clear"):
+                              value.clear()
+              ''',
+              '''        self.has_been_filled = frame.filled
+                      self._struct_cache = frame.struct_cache
+                      self._guarantee_cache = frame.guarantee_cache
+              ''',
+          )
+
+          replace_once(
+              "gridsolver/solver/solve_fish.py",
+              "from gridsolver.abstract_grids.grid import Grid\n",
+              "from gridsolver.abstract_grids.grid import Grid\n"
+              "from gridsolver.abstract_grids.trail import TrailedDict\n",
+          )
+          replace_once(
+              "gridsolver/solver/solve_fish.py",
+              '''def _value_memo(grid: Grid):
+                      memo = getattr(grid, "_fish_value_memo", None)
+                      if memo is None:
+                          memo = {}
+                          grid._fish_value_memo = memo
+                      return memo
+              ''',
+              '''def _value_memo(grid: Grid) -> TrailedDict:
+                      memo = getattr(grid, "_fish_value_memo", None)
+                      if (
+                          not isinstance(memo, TrailedDict)
+                          or memo._trail_state is not grid._trail_state
+                      ):
+                          memo = TrailedDict(() if memo is None else memo, grid._trail_state)
+                          grid._fish_value_memo = memo
+                      return memo
+              ''',
+          )
+
+          replace_once(
+              "tests/test_trail.py",
+              "from gridsolver.abstract_grids.trail import TrailedSet\n",
+              "from gridsolver.abstract_grids.trail import TrailedDict, TrailedSet\n",
+          )
+          replace_once(
+              "tests/test_trail.py",
+              "from gridsolver.solver.solve_nishio import nishio\n",
+              "from gridsolver.solver.solve_fish import _value_memo\n"
+              "from gridsolver.solver.solve_nishio import nishio\n",
+          )
+
+          tests = Path("tests/test_trail.py")
+          text = tests.read_text(encoding="utf-8")
+          marker = "def test_trailed_dict_restores_parent_and_nested_state():"
+          if marker in text:
+              raise SystemExit("Transactional memo tests already exist")
+          text += dedent(r'''
+
+
+              def test_trailed_dict_restores_parent_and_nested_state():
+                  grid = Grid(2)
+                  memo = TrailedDict({("root", 1): "parent"}, grid._trail_state)
+                  grid._fish_value_memo = memo
+                  parent = dict(memo)
+
+                  outer = grid.trail_mark()
+                  memo[("root", 1)] = "outer"
+                  memo[("outer", 2)] = "branch"
+                  outer_state = dict(memo)
+
+                  inner = grid.trail_mark()
+                  memo.clear()
+                  memo[("inner", 3)] = "nested"
+                  grid.trail_undo(inner)
+                  assert dict(memo) == outer_state
+
+                  memo[("after-inner", 4)] = "outer-again"
+                  grid.trail_undo(outer)
+                  assert dict(memo) == parent
+                  assert memo._snapshot_token == 0
+                  assert not grid._trail_state.entries
+                  assert not grid._trail_state.frames
+
+
+              def test_fish_memo_uses_grid_trail_and_survives_rollback():
+                  grid = Grid(2)
+                  memo = _value_memo(grid)
+                  memo[(2, 1)] = ("parent",)
+                  parent = dict(memo)
+
+                  assert isinstance(memo, TrailedDict)
+                  assert memo._trail_state is grid._trail_state
+
+                  mark = grid.trail_mark()
+                  memo[(2, 1)] = ("branch",)
+                  memo[(2, 2)] = ("branch-only",)
+                  grid._candidates[0].discard(1)
+                  grid.trail_undo(mark)
+
+                  assert _value_memo(grid) is memo
+                  assert dict(memo) == parent
+                  assert grid._candidates[0] == {1, 2}
+
+
+              def test_pickled_fish_memo_rebinds_to_restored_grid_trail():
+                  grid = Grid(2)
+                  memo = _value_memo(grid)
+                  memo[(2, 1)] = ("parent",)
+
+                  restored = pickle.loads(pickle.dumps(grid))
+                  restored_memo = _value_memo(restored)
+                  parent = dict(restored_memo)
+
+                  assert isinstance(restored_memo, TrailedDict)
+                  assert restored_memo._trail_state is restored._trail_state
+
+                  mark = restored.trail_mark()
+                  restored_memo[(2, 1)] = ("branch",)
+                  restored_memo[(2, 2)] = ("branch-only",)
+                  restored.trail_undo(mark)
+
+                  assert dict(restored_memo) == parent
+              ''')
+          tests.write_text(text, encoding="utf-8")
           PY
 
-      - name: Install and validate sibling snapshot reuse
+      - name: Install and validate transactional memo rollback
         shell: bash
         run: |
           set -euo pipefail
@@ -78,6 +422,10 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip check
           python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_trail.py \
+            tests/test_basic.py::test_fish_value_memo_invalidation \
+            tests/test_differential.py
           python -X dev -m pytest -q \
             tests/test_cli_and_loading.py \
             tests/test_hardening.py \
@@ -92,13 +440,17 @@ jobs:
             -m "not slow" \
             -k "not test_parallel_trials_match_sequential"
 
-      - name: Commit sibling snapshot reuse to master
+      - name: Commit transactional memo support to master
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "senegrom"
           git config user.email "6349874+senegrom@users.noreply.github.com"
-          git add gridsolver/solver/solver.py
+          git add \
+            gridsolver/abstract_grids/trail.py \
+            gridsolver/abstract_grids/grid.py \
+            gridsolver/solver/solve_fish.py \
+            tests/test_trail.py
           git diff --cached --check
-          git commit -m "Reuse guarantee snapshot across sibling branches"
+          git commit -m "Make fish memo rollback transactional"
           git push origin HEAD:master
