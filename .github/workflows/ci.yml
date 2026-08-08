@@ -57,6 +57,7 @@ jobs:
           tests/test_regressions.py
           tests/test_solution_validation.py
           tests/test_solver_api.py
+          tests/test_trail.py
           tests/test_basic.py
           tests/test_scale.py
           -m "not slow"
@@ -126,3 +127,4 @@ jobs:
           tests/test_regressions.py
           tests/test_solution_validation.py
           tests/test_solver_api.py
+          tests/test_trail.py
