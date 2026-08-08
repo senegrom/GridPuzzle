@@ -55,6 +55,9 @@ jobs:
           tests/test_cli_and_loading.py
           tests/test_hardening.py
           tests/test_iterable_loading.py
+          tests/test_hotpath_regressions.py
+          tests/test_runtime_overhead.py
+          tests/test_guarantee_filter_cache.py
           tests/test_rule_inputs.py
           tests/test_regressions.py
           tests/test_solution_validation.py
@@ -129,6 +132,9 @@ jobs:
           tests/test_cli_and_loading.py
           tests/test_hardening.py
           tests/test_iterable_loading.py
+          tests/test_hotpath_regressions.py
+          tests/test_runtime_overhead.py
+          tests/test_guarantee_filter_cache.py
           tests/test_rule_inputs.py
           tests/test_regressions.py
           tests/test_solution_validation.py
