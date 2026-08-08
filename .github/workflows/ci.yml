@@ -20,27 +20,20 @@ env:
 
 jobs:
   test:
-    name: Python ${{ matrix.python-version }}
+    name: Python 3.14 / Linux
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.14"]
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.14
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            requirements.txt
-            requirements-dev.txt
+          cache-dependency-path: pyproject.toml
 
       - name: Install project and development dependencies
         run: |
@@ -53,7 +46,7 @@ jobs:
 
       - name: Run core and regression tests
         run: >-
-          python -m pytest -q
+          python -X dev -m pytest -q
           tests/test_regressions.py
           tests/test_basic.py
           tests/test_scale.py
@@ -61,9 +54,36 @@ jobs:
 
       - name: Run guarantee-consumer metadata guard
         run: >-
-          python -m pytest -q
+          python -X dev -m pytest -q
           tests/test_basic.py::test_uses_guarantees_flag_matches_apply_bodies
 
       - name: Run representative end-to-end examples
-        if: matrix.python-version == '3.14'
-        run: python -m pytest -q tests/test_examples_2.py
+        run: python -X dev -m pytest -q tests/test_examples_2.py
+
+  windows-smoke:
+    name: Python 3.14 / Windows smoke
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+
+      - name: Compile Python sources
+        run: python -m compileall -q gridsolver tests run.py examples2.py
+
+      - name: Run portable regression tests
+        run: python -X dev -m pytest -q tests/test_regressions.py

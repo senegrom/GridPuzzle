@@ -7,7 +7,7 @@ name = "gridpuzzle-solver"
 version = "0.1.0"
 description = "Constraint-propagation solver for Sudoku, Killer Sudoku, Futoshiki, KenKen, and Latin squares"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 license = { file = "LICENSE" }
 authors = [{ name = "senegrom" }]
 dependencies = [
@@ -18,10 +18,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
     "Topic :: Games/Entertainment :: Puzzle Games",
 ]
@@ -34,6 +31,8 @@ include = ["gridsolver*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers"]
+xfail_strict = true
 log_cli = true
 log_cli_level = 10
 log_cli_format = "%(message)s"
