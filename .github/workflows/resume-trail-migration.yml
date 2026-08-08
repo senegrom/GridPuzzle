@@ -1,4 +1,4 @@
-name: Remove forcing-technique branch clones
+name: Benchmark trail engine
 
 on:
   push:
@@ -7,14 +7,14 @@ on:
       - .github/workflows/resume-trail-migration.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: forcing-technique-trail-migration
+  group: trail-engine-benchmark
   cancel-in-progress: false
 
 jobs:
-  migrate:
+  benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -29,583 +29,120 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Reuse one grid across forcing branches
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          from textwrap import dedent
-
-          propagation_path = Path("gridsolver/solver/propagation.py")
-          propagation = propagation_path.read_text(encoding="utf-8")
-          old_import = "from collections.abc import Callable, Iterable\n"
-          new_import = (
-              "from collections.abc import Callable, Iterable\n"
-              "from dataclasses import dataclass, field\n"
-          )
-          if old_import not in propagation:
-              raise SystemExit("Propagation import marker was not found")
-          propagation = propagation.replace(old_import, new_import, 1)
-
-          old_alias = (
-              "type PropagationSnapshot = tuple[bytes, int, int, int]\n\n"
-              "_NO_GUARANTEES: tuple[Guarantee, ...] = ()\n"
-          )
-          new_alias = dedent('''
-              type PropagationSnapshot = tuple[bytes, int, int, int]
-
-
-              @dataclass(slots=True)
-              class BranchConsensus:
-                  """Aggregate deductions shared by every observed valid branch."""
-
-                  branch_count: int = 0
-                  common_known: list[int] = field(default_factory=list)
-                  candidate_union: list[set[int]] = field(default_factory=list)
-
-                  def observe(self, grid: Grid) -> None:
-                      """Merge one valid branch without retaining its full grid state."""
-                      if self.branch_count == 0:
-                          self.common_known.extend(grid._known)
-                          self.candidate_union.extend(
-                              set(possible) for possible in grid._candidates
-                          )
-                      else:
-                          for cell, value in enumerate(grid._known):
-                              if self.common_known[cell] != value:
-                                  self.common_known[cell] = 0
-                          for seen, possible in zip(
-                              self.candidate_union,
-                              grid._candidates,
-                          ):
-                              seen.update(possible)
-                      self.branch_count += 1
-
-                  def forced_value(self, cell: int) -> int:
-                      if self.branch_count == 0:
-                          return 0
-                      return self.common_known[cell]
-
-                  def common_eliminations(
-                      self,
-                      cell: int,
-                      possible: set[int],
-                  ) -> set[int]:
-                      if self.branch_count == 0:
-                          return set()
-                      return possible - self.candidate_union[cell]
-
-
-              _NO_GUARANTEES: tuple[Guarantee, ...] = ()
-          ''').lstrip()
-          if old_alias not in propagation:
-              raise SystemExit("Propagation type-alias marker was not found")
-          propagation_path.write_text(
-              propagation.replace(old_alias, new_alias, 1),
-              encoding="utf-8",
-          )
-
-          Path("gridsolver/solver/solve_forcing_chain.py").write_text(
-              dedent(r'''
-                  from contextvars import ContextVar, Token
-
-                  from gridsolver.abstract_grids.grid import Grid, SolveStatus
-                  from gridsolver.rules.rules import InvalidGrid
-                  from gridsolver.solver.logger import CoordToString
-                  from gridsolver.solver.propagation import BranchConsensus
-                  from gridsolver.solver.solver_log import lg as _lg
-
-
-                  class _ContextFlag:
-                      """Boolean-compatible flag whose value is local to the current context."""
-
-                      def __init__(self, name: str):
-                          self._value: ContextVar[bool] = ContextVar(name, default=False)
-
-                      def __bool__(self) -> bool:
-                          return self._value.get()
-
-                      def set(self, value: bool) -> Token:
-                          return self._value.set(value)
-
-                      def reset(self, token: Token) -> None:
-                          self._value.reset(token)
-
-
-                  _in_forcing_chain = _ContextFlag("gridpuzzle_in_forcing_chain")
-
-                  MAX_FORCING_CHAIN_CANDIDATES = 4
-
-
-                  def _propagate_with_techniques(grid: Grid) -> SolveStatus:
-                      """Propagate with cheap techniques while recursive trials are disabled."""
-                      from gridsolver.solver.atomic_solver import AtomicSolver
-
-                      return AtomicSolver(grid, [], set()).solve_atomic()
-
-
-                  # noinspection PyProtectedMember
-                  def forcing_chain(grid: Grid) -> None:
-                      """Apply deductions shared by every valid value of a small cell."""
-                      if _in_forcing_chain:
-                          return
-
-                      candidates = grid._candidates
-                      known = grid._known
-                      coord = CoordToString(grid.rows)
-
-                      target_cells = []
-                      for cell in range(grid.len):
-                          count = len(candidates[cell])
-                          if (
-                              known[cell] == 0
-                              and 2 <= count <= MAX_FORCING_CHAIN_CANDIDATES
-                          ):
-                              target_cells.append((count, cell))
-                      target_cells.sort()
-
-                      if not target_cells:
-                          return
-
-                      token = _in_forcing_chain.set(True)
-                      try:
-                          for _, cell in target_cells:
-                              values = sorted(candidates[cell])
-                              statuses: list[SolveStatus] = []
-                              consensus = BranchConsensus()
-
-                              for value in values:
-                                  mark = grid.trail_mark()
-                                  status = SolveStatus.INVALID
-                                  try:
-                                      grid[cell] = value
-                                      try:
-                                          status = _propagate_with_techniques(grid)
-                                      except InvalidGrid:
-                                          status = SolveStatus.INVALID
-                                      if status is not SolveStatus.INVALID:
-                                          consensus.observe(grid)
-                                  finally:
-                                      grid.trail_undo(mark)
-                                  statuses.append(status)
-
-                              valid_indices = [
-                                  index
-                                  for index, status in enumerate(statuses)
-                                  if status is not SolveStatus.INVALID
-                              ]
-                              invalid_count = len(values) - len(valid_indices)
-
-                              if len(valid_indices) == 1:
-                                  survivor = values[valid_indices[0]]
-                                  _lg.on and _lg.logr(
-                                      "ForcingChain",
-                                      f"{invalid_count} of {len(values)} branches contradict, "
-                                      f"forcing {coord(cell)}={survivor}",
-                                      coord(cell),
-                                  )
-                                  candidates[cell].intersection_update((survivor,))
-                                  if not candidates[cell]:
-                                      raise InvalidGrid()
-                                  return
-
-                              if not valid_indices:
-                                  candidates[cell].clear()
-                                  raise InvalidGrid()
-
-                              if invalid_count > 0:
-                                  for index, status in enumerate(statuses):
-                                      if status is not SolveStatus.INVALID:
-                                          continue
-                                      value = values[index]
-                                      if value not in candidates[cell]:
-                                          continue
-                                      _lg.on and _lg.logr(
-                                          "ForcingChain",
-                                          f"{value} contradicts, removed from {coord(cell)}",
-                                          coord(cell),
-                                      )
-                                      candidates[cell].discard(value)
-                                  if not candidates[cell]:
-                                      raise InvalidGrid()
-                                  return
-
-                              made_progress = False
-
-                              for other_cell in range(grid.len):
-                                  if other_cell == cell or known[other_cell] > 0:
-                                      continue
-                                  forced_value = consensus.forced_value(other_cell)
-                                  if forced_value <= 0:
-                                      continue
-                                  _lg.on and _lg.logr(
-                                      "ForcingChain",
-                                      f"all {consensus.branch_count} branches force "
-                                      f"{coord(other_cell)}={forced_value} from {coord(cell)}",
-                                      coord(other_cell),
-                                  )
-                                  candidates[other_cell].intersection_update((forced_value,))
-                                  if not candidates[other_cell]:
-                                      raise InvalidGrid()
-                                  made_progress = True
-
-                              for other_cell in range(grid.len):
-                                  if (
-                                      other_cell == cell
-                                      or known[other_cell] > 0
-                                      or len(candidates[other_cell]) <= 1
-                                  ):
-                                      continue
-                                  common_eliminations = consensus.common_eliminations(
-                                      other_cell,
-                                      candidates[other_cell],
-                                  )
-                                  for value in sorted(common_eliminations):
-                                      _lg.on and _lg.logr(
-                                          "ForcingChain",
-                                          f"{value} removed from {coord(other_cell)} "
-                                          f"(all {consensus.branch_count} branches eliminate)",
-                                          coord(other_cell),
-                                      )
-                                      candidates[other_cell].discard(value)
-                                      if not candidates[other_cell]:
-                                          raise InvalidGrid()
-                                      made_progress = True
-
-                              if made_progress:
-                                  return
-                      finally:
-                          _in_forcing_chain.reset(token)
-              ''').lstrip(),
-              encoding="utf-8",
-          )
-
-          Path("gridsolver/solver/solve_forcing_net.py").write_text(
-              dedent(r'''
-                  import itertools
-
-                  from gridsolver.abstract_grids.grid import Grid, SolveStatus
-                  from gridsolver.rules.rules import InvalidGrid
-                  from gridsolver.solver import solve_forcing_chain as _solve_fc
-                  from gridsolver.solver.logger import CoordToString
-                  from gridsolver.solver.propagation import BranchConsensus, propagate_basic
-                  from gridsolver.solver.solver_log import lg as _lg
-
-
-                  # noinspection PyProtectedMember
-                  def forcing_net(grid: Grid) -> None:
-                      """Apply deductions shared by every valid assignment of two small cells."""
-                      if _solve_fc._in_forcing_chain:
-                          return
-
-                      candidates = grid._candidates
-                      known = grid._known
-                      coord = CoordToString(grid.rows)
-
-                      small_cells = sorted(
-                          (len(candidates[cell]), cell)
-                          for cell in range(grid.len)
-                          if known[cell] == 0 and 2 <= len(candidates[cell]) <= 4
-                      )
-                      if len(small_cells) < 2:
-                          return
-
-                      pairs_tried = 0
-                      upper_bound = min(len(small_cells), 12)
-                      for first_index in range(upper_bound):
-                          _, cell_a = small_cells[first_index]
-                          for second_index in range(first_index + 1, upper_bound):
-                              _, cell_b = small_cells[second_index]
-                              values_a = sorted(candidates[cell_a])
-                              values_b = sorted(candidates[cell_b])
-
-                              if len(values_a) * len(values_b) > 16:
-                                  continue
-
-                              pairs_tried += 1
-                              if pairs_tried > 30:
-                                  return
-
-                              valid_pairs: list[tuple[int, int]] = []
-                              consensus = BranchConsensus()
-                              for value_a, value_b in itertools.product(values_a, values_b):
-                                  mark = grid.trail_mark()
-                                  status = SolveStatus.INVALID
-                                  try:
-                                      try:
-                                          grid[cell_a] = value_a
-                                          grid[cell_b] = value_b
-                                          status = propagate_basic(grid)
-                                      except InvalidGrid:
-                                          status = SolveStatus.INVALID
-                                      if status is not SolveStatus.INVALID:
-                                          valid_pairs.append((value_a, value_b))
-                                          consensus.observe(grid)
-                                  finally:
-                                      grid.trail_undo(mark)
-
-                              if not valid_pairs:
-                                  candidates[cell_a].clear()
-                                  raise InvalidGrid()
-
-                              made_progress = False
-
-                              for cell in range(grid.len):
-                                  if cell in (cell_a, cell_b) or known[cell] > 0:
-                                      continue
-                                  forced_value = consensus.forced_value(cell)
-                                  if forced_value <= 0:
-                                      continue
-                                  _lg.on and _lg.logr(
-                                      "ForcingNet",
-                                      f"all {consensus.branch_count} branches force "
-                                      f"{coord(cell)}={forced_value} from net "
-                                      f"{coord(cell_a)}+{coord(cell_b)}",
-                                      coord(cell),
-                                  )
-                                  candidates[cell].intersection_update((forced_value,))
-                                  if not candidates[cell]:
-                                      raise InvalidGrid()
-                                  made_progress = True
-
-                              for cell in range(grid.len):
-                                  if (
-                                      cell in (cell_a, cell_b)
-                                      or known[cell] > 0
-                                      or len(candidates[cell]) <= 1
-                                  ):
-                                      continue
-                                  common_eliminations = consensus.common_eliminations(
-                                      cell,
-                                      candidates[cell],
-                                  )
-                                  for value in sorted(common_eliminations):
-                                      _lg.on and _lg.logr(
-                                          "ForcingNet",
-                                          f"{value} removed from {coord(cell)} "
-                                          f"(all {consensus.branch_count} branches of net "
-                                          f"{coord(cell_a)}+{coord(cell_b)})",
-                                          coord(cell),
-                                      )
-                                      candidates[cell].discard(value)
-                                      if not candidates[cell]:
-                                          raise InvalidGrid()
-                                      made_progress = True
-
-                              valid_a = {value_a for value_a, _ in valid_pairs}
-                              valid_b = {value_b for _, value_b in valid_pairs}
-                              for cell, values, other_cell, valid_values in (
-                                  (cell_a, values_a, cell_b, valid_a),
-                                  (cell_b, values_b, cell_a, valid_b),
-                              ):
-                                  for value in values:
-                                      if value not in candidates[cell] or value in valid_values:
-                                          continue
-                                      _lg.on and _lg.logr(
-                                          "ForcingNet",
-                                          f"{value} removed (contradicts with all values of "
-                                          f"{coord(other_cell)})",
-                                          coord(cell),
-                                      )
-                                      candidates[cell].discard(value)
-                                      if not candidates[cell]:
-                                          raise InvalidGrid()
-                                      made_progress = True
-
-                              if made_progress:
-                                  return
-              ''').lstrip(),
-              encoding="utf-8",
-          )
-
-          test_path = Path("tests/test_trail.py")
-          tests = test_path.read_text(encoding="utf-8")
-          old_imports = "import pickle\n\nimport pytest\n"
-          new_imports = "import ast\nimport pickle\nfrom pathlib import Path\n\nimport pytest\n"
-          if old_imports not in tests:
-              raise SystemExit("Trail-test standard-library import marker was not found")
-          tests = tests.replace(old_imports, new_imports, 1)
-
-          old_grid_import = "from gridsolver.abstract_grids.grid import Grid\n"
-          new_grid_import = "from gridsolver.abstract_grids.grid import Grid, SolveStatus\n"
-          if old_grid_import not in tests:
-              raise SystemExit("Trail-test Grid import marker was not found")
-          tests = tests.replace(old_grid_import, new_grid_import, 1)
-
-          old_solver_import = "from gridsolver.solver import solver\n"
-          new_solver_import = (
-              "from gridsolver.solver import solve_forcing_chain as forcing_chain_module\n"
-              "from gridsolver.solver import solve_forcing_net as forcing_net_module\n"
-              "from gridsolver.solver import solver\n"
-          )
-          if old_solver_import not in tests:
-              raise SystemExit("Trail-test solver import marker was not found")
-          tests = tests.replace(old_solver_import, new_solver_import, 1)
-
-          old_propagation_import = (
-              "from gridsolver.solver.propagation import propagate_basic\n"
-          )
-          new_propagation_import = (
-              "from gridsolver.solver.propagation import BranchConsensus, propagate_basic\n"
-          )
-          if old_propagation_import not in tests:
-              raise SystemExit("Trail-test propagation import marker was not found")
-          tests = tests.replace(old_propagation_import, new_propagation_import, 1)
-
-          if "def test_forcing_chain_uses_trail" in tests:
-              raise SystemExit("Forcing-technique trail regressions already exist")
-
-          tests += dedent('''
-
-
-              def test_branch_consensus_preserves_candidates_seen_in_any_valid_branch():
-                  grid = Grid(1, 2, max_elem=2)
-                  consensus = BranchConsensus()
-
-                  for removed in (2, 1):
-                      mark = grid.trail_mark()
-                      grid._candidates[1].discard(removed)
-                      consensus.observe(grid)
-                      grid.trail_undo(mark)
-
-                  assert consensus.branch_count == 2
-                  assert consensus.forced_value(1) == 0
-                  assert consensus.common_eliminations(1, grid._candidates[1]) == set()
-                  assert grid._candidates[1] == {1, 2}
-
-
-              def test_forcing_chain_uses_trail_and_merges_valid_branches(monkeypatch):
-                  grid = Grid(1, 2, max_elem=2)
-
-                  def fail_deepcopy(self):
-                      raise AssertionError("forcing chain must not deepcopy branch grids")
-
-                  def fake_propagation(branch: Grid) -> SolveStatus:
-                      branch[1] = 2
-                      return SolveStatus.NONE
-
-                  monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
-                  monkeypatch.setattr(
-                      forcing_chain_module,
-                      "_propagate_with_techniques",
-                      fake_propagation,
-                  )
-
-                  forcing_chain_module.forcing_chain(grid)
-
-                  assert tuple(grid._known) == (0, 0)
-                  assert grid._candidates[0] == {1, 2}
-                  assert grid._candidates[1] == {2}
-                  assert grid.has_been_filled is False
-                  assert grid._trail_state.entries == []
-                  assert not grid._trail_state.marks
-                  assert not forcing_chain_module._in_forcing_chain
-
-
-              def test_forcing_net_uses_trail_and_merges_valid_branches(monkeypatch):
-                  grid = Grid(1, 3, max_elem=2)
-
-                  def fail_deepcopy(self):
-                      raise AssertionError("forcing net must not deepcopy branch grids")
-
-                  def fake_propagation(branch: Grid) -> SolveStatus:
-                      branch[2] = 1
-                      return SolveStatus.NONE
-
-                  monkeypatch.setattr(Grid, "deepcopy", fail_deepcopy)
-                  monkeypatch.setattr(
-                      forcing_net_module,
-                      "propagate_basic",
-                      fake_propagation,
-                  )
-
-                  forcing_net_module.forcing_net(grid)
-
-                  assert tuple(grid._known) == (0, 0, 0)
-                  assert grid._candidates[0] == {1, 2}
-                  assert grid._candidates[1] == {1, 2}
-                  assert grid._candidates[2] == {1}
-                  assert grid.has_been_filled is False
-                  assert grid._trail_state.entries == []
-                  assert not grid._trail_state.marks
-
-
-              def test_solver_and_rules_do_not_bypass_known_value_journal():
-                  root = Path(__file__).resolve().parents[1] / "gridsolver"
-                  violations: list[str] = []
-
-                  for directory in (root / "rules", root / "solver"):
-                      for path in directory.rglob("*.py"):
-                          tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-                          for node in ast.walk(tree):
-                              if isinstance(node, ast.Assign):
-                                  targets = node.targets
-                              elif isinstance(
-                                  node,
-                                  (ast.AnnAssign, ast.AugAssign, ast.NamedExpr),
-                              ):
-                                  targets = [node.target]
-                              elif isinstance(node, ast.Delete):
-                                  targets = node.targets
-                              else:
-                                  continue
-
-                              for target in targets:
-                                  for part in ast.walk(target):
-                                      if not isinstance(part, ast.Subscript):
-                                          continue
-                                      owner = part.value
-                                      bypasses_journal = (
-                                          isinstance(owner, ast.Name) and owner.id == "known"
-                                      ) or (
-                                          isinstance(owner, ast.Attribute)
-                                          and owner.attr == "_known"
-                                      )
-                                      if bypasses_journal:
-                                          relative = path.relative_to(root.parent)
-                                          violations.append(f"{relative}:{part.lineno}")
-
-                  assert not violations, (
-                      "Known values must be changed through Grid.__setitem__ so trail "
-                      f"rollback can journal them; direct writes: {violations}"
-                  )
-          ''')
-          test_path.write_text(tests, encoding="utf-8")
-          PY
-
-      - name: Install and validate forcing-technique trails
+      - name: Install runtime dependencies
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           python -m pip check
-          python -m compileall -q gridsolver tests Examples run.py examples2.py
-          python -X dev -m pytest -q \
-            tests/test_cli_and_loading.py \
-            tests/test_hardening.py \
-            tests/test_regressions.py \
-            tests/test_solution_validation.py \
-            tests/test_solver_api.py \
-            tests/test_trail.py \
-            tests/test_rule_metadata.py \
-            tests/test_basic.py \
-            tests/test_scale.py \
-            -m "not slow" \
-            -k "not test_parallel_trials_match_sequential"
 
-      - name: Commit forcing-technique trails to master
+      - name: Compare pre-trail baseline with current engine
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "senegrom"
-          git config user.email "6349874+senegrom@users.noreply.github.com"
-          git add \
-            gridsolver/solver/propagation.py \
-            gridsolver/solver/solve_forcing_chain.py \
-            gridsolver/solver/solve_forcing_net.py \
-            tests/test_trail.py
-          git diff --cached --check
-          git commit -m "Reuse trail state in forcing techniques"
-          git push origin HEAD:master
+          git worktree add --detach /tmp/pre-trail 01aac27c2b3648c8455f6351eed9176436521e54
+
+          cat > /tmp/trail_benchmark.py <<'PY'
+          import gc
+          import json
+          import logging
+          import resource
+          import statistics
+          import sys
+          import time
+
+          from gridsolver.abstract_grids.grid_loading import create_from_str_and_class
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+
+
+          logging.disable(10_000)
+
+
+          def make_blank4():
+              return Sudoku(2, 2, 2, 2), -1, 288
+
+
+          def make_nonsquare6():
+              grid = Sudoku(3, 2, 2, 3)
+              grid.load(
+                  "123456654321........................",
+                  row_wise=False,
+              )
+              return grid, 20, 20
+
+
+          def make_hard9():
+              grid = create_from_str_and_class(
+                  "...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...",
+                  Sudoku,
+              )
+              return grid, -1, 1
+
+
+          CASES = {
+              "blank4_all": (make_blank4, 1),
+              "nonsquare6_cap20": (make_nonsquare6, 1),
+              "hard9_single": (make_hard9, 5),
+          }
+
+
+          def main() -> None:
+              case = sys.argv[1]
+              factory, repetitions = CASES[case]
+              durations = []
+              counts = []
+              for _ in range(repetitions):
+                  grid, max_sols, expected = factory()
+                  gc.collect()
+                  started = time.perf_counter()
+                  solutions = solver.solve(
+                      grid,
+                      max_sols=max_sols,
+                      processes=0,
+                  )
+                  durations.append(time.perf_counter() - started)
+                  counts.append(len(solutions))
+                  if len(solutions) != expected:
+                      raise SystemExit(
+                          f"{case}: expected {expected} solutions, got {len(solutions)}"
+                      )
+
+              print(
+                  json.dumps(
+                      {
+                          "case": case,
+                          "repetitions": repetitions,
+                          "seconds": durations,
+                          "median_seconds": statistics.median(durations),
+                          "solution_counts": counts,
+                          "max_rss_kib": resource.getrusage(
+                              resource.RUSAGE_SELF
+                          ).ru_maxrss,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+
+          if __name__ == "__main__":
+              main()
+          PY
+
+          run_case() {
+            local label="$1"
+            local directory="$2"
+            local case="$3"
+            echo "BENCHMARK ${label} ${case}"
+            (
+              cd "${directory}"
+              PYTHONHASHSEED=0 PYTHONPATH="${directory}" \
+                python /tmp/trail_benchmark.py "${case}"
+            )
+          }
+
+          for case in hard9_single blank4_all nonsquare6_cap20; do
+            run_case baseline /tmp/pre-trail "${case}"
+            run_case current "$GITHUB_WORKSPACE" "${case}"
+          done
