@@ -1,5 +1,11 @@
 from pathlib import Path
-from textwrap import dedent
+from textwrap import dedent, indent
+
+
+def block(source: str, spaces: int = 0) -> str:
+    """Return a normalized source block with an exact leading indentation."""
+    normalized = dedent(source).strip("\n") + "\n"
+    return indent(normalized, " " * spaces)
 
 
 def replace_once(path: str, old: str, new: str) -> None:
@@ -13,84 +19,88 @@ def replace_once(path: str, old: str, new: str) -> None:
 # atomic_solver.py: move behaviour policy onto each solver instance.
 replace_once(
     "gridsolver/solver/atomic_solver.py",
-    dedent(
+    block(
         '''
         # At backtracking depth greater than this value, run only the cheap tier.
         # Behaviour-affecting and therefore disabled by default.
         DEPTH_GATE_K: int | None = None
 
-
         '''
-    ).lstrip(),
+    ),
     "",
 )
 replace_once(
     "gridsolver/solver/atomic_solver.py",
-    dedent(
+    block(
         '''
-            def __init__(
-                self,
-                grid: Grid,
-                upsteps: list[int],
-                hidden_pair_checked_gts: set[Guarantee],
-            ) -> None:
-                self.grid = grid
-                self.upsteps = upsteps
-                self.hidden_pair_checked_gts = hidden_pair_checked_gts
-        '''
+        def __init__(
+            self,
+            grid: Grid,
+            upsteps: list[int],
+            hidden_pair_checked_gts: set[Guarantee],
+        ) -> None:
+            self.grid = grid
+            self.upsteps = upsteps
+            self.hidden_pair_checked_gts = hidden_pair_checked_gts
+        ''',
+        4,
     ),
-    dedent(
+    block(
         '''
-            def __init__(
-                self,
-                grid: Grid,
-                upsteps: list[int],
-                hidden_pair_checked_gts: set[Guarantee],
-                depth_gate: int | None = None,
-            ) -> None:
-                self.grid = grid
-                self.upsteps = upsteps
-                self.hidden_pair_checked_gts = hidden_pair_checked_gts
-                self.depth_gate = depth_gate
-        '''
+        def __init__(
+            self,
+            grid: Grid,
+            upsteps: list[int],
+            hidden_pair_checked_gts: set[Guarantee],
+            depth_gate: int | None = None,
+        ) -> None:
+            self.grid = grid
+            self.upsteps = upsteps
+            self.hidden_pair_checked_gts = hidden_pair_checked_gts
+            self.depth_gate = depth_gate
+        ''',
+        4,
     ),
 )
 replace_once(
     "gridsolver/solver/atomic_solver.py",
     '        yield self._act("forcing_chain", lambda: forcing_chain(grid))\n',
-    dedent(
+    block(
         '''
-                yield self._act(
-                    "forcing_chain",
-                    lambda: forcing_chain(grid, self.depth_gate),
-                )
-        '''
+        yield self._act(
+            "forcing_chain",
+            lambda: forcing_chain(grid, self.depth_gate),
+        )
+        ''',
+        8,
     ),
 )
 replace_once(
     "gridsolver/solver/atomic_solver.py",
-    dedent(
+    block(
         '''
-                if DEPTH_GATE_K is not None and not in_forcing_chain and len(self.upsteps) > DEPTH_GATE_K:
-                    return
-        '''
+        if DEPTH_GATE_K is not None and not in_forcing_chain and len(self.upsteps) > DEPTH_GATE_K:
+            return
+        ''',
+        8,
     ),
-    dedent(
+    block(
         '''
-                if (
-                    self.depth_gate is not None
-                    and not in_forcing_chain
-                    and len(self.upsteps) > self.depth_gate
-                ):
-                    return
-        '''
+        if (
+            self.depth_gate is not None
+            and not in_forcing_chain
+            and len(self.upsteps) > self.depth_gate
+        ):
+            return
+        ''',
+        8,
     ),
 )
 
 # Forcing-chain branches inherit the option explicitly.
 replace_once(
     "gridsolver/solver/solve_forcing_chain.py",
-    dedent(
+    block(
         '''
         def _propagate_with_techniques(grid: Grid) -> SolveStatus:
             """Propagate with cheap techniques while recursive trials are disabled."""
@@ -99,7 +109,7 @@ replace_once(
             return AtomicSolver(grid, [], set()).solve_atomic()
         '''
     ),
-    dedent(
+    block(
         '''
         def _propagate_with_techniques(
             grid: Grid,
@@ -133,7 +143,7 @@ solver_path = Path("gridsolver/solver/solver.py")
 solver_text = solver_path.read_text(encoding="utf-8")
 validator_start = solver_text.index("def _validate_solve_options(")
 validator_end = solver_text.index("\n\ndef solve(", validator_start)
-validator = dedent(
+validator = block(
     '''
     def _validate_solve_options(
         max_sols: int,
@@ -160,13 +170,13 @@ validator = dedent(
 
         return max_sols, processes, depth_gate
     '''
-).strip()
+).rstrip("\n")
 solver_text = solver_text[:validator_start] + validator + solver_text[validator_end:]
 solver_path.write_text(solver_text, encoding="utf-8")
 
 replace_once(
     "gridsolver/solver/solver.py",
-    dedent(
+    block(
         '''
         def solve(
             grid: Grid,
@@ -177,7 +187,7 @@ replace_once(
             max_sols, processes = _validate_solve_options(max_sols, processes)
         '''
     ),
-    dedent(
+    block(
         '''
         def solve(
             grid: Grid,
@@ -203,36 +213,38 @@ replace_once(
 replace_once(
     "gridsolver/solver/solver.py",
     "        solutions = _solve_top_parallel(grid.deepcopy(), max_sols, processes)\n",
-    dedent(
+    block(
         '''
-                solutions = _solve_top_parallel(
-                    grid.deepcopy(),
-                    max_sols,
-                    processes,
-                    depth_gate,
-                )
-        '''
+        solutions = _solve_top_parallel(
+            grid.deepcopy(),
+            max_sols,
+            processes,
+            depth_gate,
+        )
+        ''',
+        8,
     ),
 )
 replace_once(
     "gridsolver/solver/solver.py",
     "        solutions = _solve_full(grid.deepcopy(), [], max_sols, set())\n",
-    dedent(
+    block(
         '''
-                solutions = _solve_full(
-                    grid.deepcopy(),
-                    [],
-                    max_sols,
-                    set(),
-                    depth_gate,
-                )
-        '''
+        solutions = _solve_full(
+            grid.deepcopy(),
+            [],
+            max_sols,
+            set(),
+            depth_gate,
+        )
+        ''',
+        8,
     ),
 )
 replace_once(
     "gridsolver/solver/solver.py",
     "def _solve_top_parallel(grid: Grid, max_sols: int, processes: int) -> set[ImmutableGrid]:\n",
-    dedent(
+    block(
         '''
         def _solve_top_parallel(
             grid: Grid,
@@ -246,35 +258,37 @@ replace_once(
 replace_once(
     "gridsolver/solver/solver.py",
     "    status = AtomicSolver(grid, [0], set()).solve_atomic()\n",
-    dedent(
+    block(
         '''
-            status = AtomicSolver(
-                grid,
-                [0],
-                set(),
-                depth_gate=depth_gate,
-            ).solve_atomic()
-        '''
+        status = AtomicSolver(
+            grid,
+            [0],
+            set(),
+            depth_gate=depth_gate,
+        ).solve_atomic()
+        ''',
+        4,
     ),
 )
 replace_once(
     "gridsolver/solver/solver.py",
     "    return solve_parallel_trials(grid, branches, max_sols, processes)\n",
-    dedent(
+    block(
         '''
-            return solve_parallel_trials(
-                grid,
-                branches,
-                max_sols,
-                processes,
-                depth_gate,
-            )
-        '''
+        return solve_parallel_trials(
+            grid,
+            branches,
+            max_sols,
+            processes,
+            depth_gate,
+        )
+        ''',
+        4,
     ),
 )
 replace_once(
     "gridsolver/solver/solver.py",
-    dedent(
+    block(
         '''
         def _solve_full(
             grid: Grid,
@@ -284,7 +298,7 @@ replace_once(
         ) -> set[ImmutableGrid]:
         '''
     ),
-    dedent(
+    block(
         '''
         def _solve_full(
             grid: Grid,
@@ -299,52 +313,55 @@ replace_once(
 replace_once(
     "gridsolver/solver/solver.py",
     "        status = AtomicSolver(grid, steps, hidden_pair_checked_gts).solve_atomic()\n",
-    dedent(
+    block(
         '''
-                status = AtomicSolver(
-                    grid,
-                    steps,
-                    hidden_pair_checked_gts,
-                    depth_gate=depth_gate,
-                ).solve_atomic()
-        '''
+        status = AtomicSolver(
+            grid,
+            steps,
+            hidden_pair_checked_gts,
+            depth_gate=depth_gate,
+        ).solve_atomic()
+        ''',
+        8,
     ),
 )
 replace_once(
     "gridsolver/solver/solver.py",
-    dedent(
+    block(
         '''
-                    branch_solutions = _solve_full(
-                        grid,
-                        steps,
-                        remaining,
-                        checked_guarantees,
-                    )
-        '''
+        branch_solutions = _solve_full(
+            grid,
+            steps,
+            remaining,
+            checked_guarantees,
+        )
+        ''',
+        16,
     ),
-    dedent(
+    block(
         '''
-                    branch_solutions = _solve_full(
-                        grid,
-                        steps,
-                        remaining,
-                        checked_guarantees,
-                        depth_gate,
-                    )
-        '''
+        branch_solutions = _solve_full(
+            grid,
+            steps,
+            remaining,
+            checked_guarantees,
+            depth_gate,
+        )
+        ''',
+        16,
     ),
 )
 
 # Process-pool workers receive the threshold in their pickled payload.
 replace_once(
     "gridsolver/solver/solve_parallel.py",
-    dedent(
+    block(
         '''
         def _solve_branch(payload: tuple[Grid, int, int, int]) -> set[ImmutableGrid]:
             grid, cell, value, max_sols = payload
         '''
     ),
-    dedent(
+    block(
         '''
         def _solve_branch(
             payload: tuple[Grid, int, int, int, int | None],
@@ -360,7 +377,7 @@ replace_once(
 )
 replace_once(
     "gridsolver/solver/solve_parallel.py",
-    dedent(
+    block(
         '''
         def solve_parallel_trials(
             grid: Grid,
@@ -370,7 +387,7 @@ replace_once(
         ) -> set[ImmutableGrid]:
         '''
     ),
-    dedent(
+    block(
         '''
         def solve_parallel_trials(
             grid: Grid,
@@ -385,185 +402,200 @@ replace_once(
 replace_once(
     "gridsolver/solver/solve_parallel.py",
     "            pool.submit(_solve_branch, (grid, cell, value, max_sols))\n",
-    dedent(
+    block(
         '''
-                    pool.submit(
-                        _solve_branch,
-                        (grid, cell, value, max_sols, depth_gate),
-                    )
-        '''
+        pool.submit(
+            _solve_branch,
+            (grid, cell, value, max_sols, depth_gate),
+        )
+        ''',
+        12,
     ),
 )
 
 # CLI exposure.
 replace_once(
     "run.py",
-    dedent(
+    block(
         '''
-            parser.add_argument(
-                "--max-solutions",
-                type=_solution_limit,
-                default=-1,
-                help="Maximum returned solutions; -1 means unlimited",
-            )
-        '''
+        parser.add_argument(
+            "--max-solutions",
+            type=_solution_limit,
+            default=-1,
+            help="Maximum returned solutions; -1 means unlimited",
+        )
+        ''',
+        4,
     ),
-    dedent(
+    block(
         '''
-            parser.add_argument(
-                "--max-solutions",
-                type=_solution_limit,
-                default=-1,
-                help="Maximum returned solutions; -1 means unlimited",
-            )
-            parser.add_argument(
-                "--depth-gate",
-                type=_non_negative_int,
-                default=None,
-                help=(
-                    "At backtracking depths deeper than this value, run only "
-                    "cheap deductions; disabled by default"
-                ),
-            )
-        '''
+        parser.add_argument(
+            "--max-solutions",
+            type=_solution_limit,
+            default=-1,
+            help="Maximum returned solutions; -1 means unlimited",
+        )
+        parser.add_argument(
+            "--depth-gate",
+            type=_non_negative_int,
+            default=None,
+            help=(
+                "At backtracking depths deeper than this value, run only "
+                "cheap deductions; disabled by default"
+            ),
+        )
+        ''',
+        4,
     ),
 )
 replace_once(
     "run.py",
-    dedent(
+    block(
         '''
-                max_sols=args.max_solutions,
-                processes=args.processes,
-            )
-        '''
+        max_sols=args.max_solutions,
+        processes=args.processes,
+        )
+        ''',
+        8,
     ),
-    dedent(
+    block(
         '''
-                max_sols=args.max_solutions,
-                processes=args.processes,
-                depth_gate=args.depth_gate,
-            )
-        '''
+        max_sols=args.max_solutions,
+        processes=args.processes,
+        depth_gate=args.depth_gate,
+        )
+        ''',
+        8,
     ),
 )
 
 # CLI and public-option tests.
 replace_once(
     "tests/test_cli_and_loading.py",
-    dedent(
+    block(
         '''
-                    "--max-solutions",
-                    "2",
-                    "--colour",
-        '''
+        "--max-solutions",
+        "2",
+        "--colour",
+        ''',
+        12,
     ),
-    dedent(
+    block(
         '''
-                    "--max-solutions",
-                    "2",
-                    "--depth-gate",
-                    "1",
-                    "--colour",
-        '''
-    ),
-)
-replace_once(
-    "tests/test_cli_and_loading.py",
-    dedent(
-        '''
-            assert args.max_solutions == 2
-            assert args.colour == "No"
-        '''
-    ),
-    dedent(
-        '''
-            assert args.max_solutions == 2
-            assert args.depth_gate == 1
-            assert args.colour == "No"
-        '''
+        "--max-solutions",
+        "2",
+        "--depth-gate",
+        "1",
+        "--colour",
+        ''',
+        12,
     ),
 )
 replace_once(
     "tests/test_cli_and_loading.py",
-    dedent(
+    block(
         '''
-            with pytest.raises(SystemExit):
-                parser.parse_args([*common, "--processes", "not-an-int"])
-        '''
+        assert args.max_solutions == 2
+        assert args.colour == "No"
+        ''',
+        4,
     ),
-    dedent(
+    block(
         '''
-            with pytest.raises(SystemExit):
-                parser.parse_args([*common, "--processes", "not-an-int"])
-            with pytest.raises(SystemExit):
-                parser.parse_args([*common, "--depth-gate", "-1"])
-            with pytest.raises(SystemExit):
-                parser.parse_args([*common, "--depth-gate", "not-an-int"])
+        assert args.max_solutions == 2
+        assert args.depth_gate == 1
+        assert args.colour == "No"
+        ''',
+        4,
+    ),
+)
+replace_once(
+    "tests/test_cli_and_loading.py",
+    block(
         '''
+        with pytest.raises(SystemExit):
+            parser.parse_args([*common, "--processes", "not-an-int"])
+        ''',
+        4,
+    ),
+    block(
+        '''
+        with pytest.raises(SystemExit):
+            parser.parse_args([*common, "--processes", "not-an-int"])
+        with pytest.raises(SystemExit):
+            parser.parse_args([*common, "--depth-gate", "-1"])
+        with pytest.raises(SystemExit):
+            parser.parse_args([*common, "--depth-gate", "not-an-int"])
+        ''',
+        4,
     ),
 )
 replace_once(
     "tests/test_hardening.py",
-    dedent(
+    block(
         '''
-            with pytest.raises(TypeError, match="processes"):
-                solver.solve(Grid(1), processes=1.5)
+        with pytest.raises(TypeError, match="processes"):
+            solver.solve(Grid(1), processes=1.5)
 
-            assert solver.solve(Grid(1), max_sols=0) == set()
-        '''
+        assert solver.solve(Grid(1), max_sols=0) == set()
+        ''',
+        4,
     ),
-    dedent(
+    block(
         '''
-            with pytest.raises(TypeError, match="processes"):
-                solver.solve(Grid(1), processes=1.5)
-            with pytest.raises(ValueError, match="depth_gate"):
-                solver.solve(Grid(1), depth_gate=-1)
-            with pytest.raises(TypeError, match="depth_gate"):
-                solver.solve(Grid(1), depth_gate=True)
-            with pytest.raises(TypeError, match="depth_gate"):
-                solver.solve(Grid(1), depth_gate=1.5)
+        with pytest.raises(TypeError, match="processes"):
+            solver.solve(Grid(1), processes=1.5)
+        with pytest.raises(ValueError, match="depth_gate"):
+            solver.solve(Grid(1), depth_gate=-1)
+        with pytest.raises(TypeError, match="depth_gate"):
+            solver.solve(Grid(1), depth_gate=True)
+        with pytest.raises(TypeError, match="depth_gate"):
+            solver.solve(Grid(1), depth_gate=1.5)
 
-            assert solver.solve(Grid(1), max_sols=0, depth_gate=0) == set()
-        '''
+        assert solver.solve(Grid(1), max_sols=0, depth_gate=0) == set()
+        ''',
+        4,
     ),
 )
 replace_once(
     "tests/test_hardening.py",
-    dedent(
+    block(
         '''
-            parallel = solver.solve(_small_sudoku(), log_level=0, max_sols=2, processes=2)
+        parallel = solver.solve(_small_sudoku(), log_level=0, max_sols=2, processes=2)
 
-            assert len(first) == 2
-            assert first == second == parallel
-        '''
+        assert len(first) == 2
+        assert first == second == parallel
+        ''',
+        4,
     ),
-    dedent(
+    block(
         '''
-            parallel = solver.solve(
-                _small_sudoku(),
-                log_level=0,
-                max_sols=2,
-                processes=2,
-            )
-            gated = solver.solve(
-                _small_sudoku(),
-                log_level=0,
-                max_sols=2,
-                depth_gate=0,
-            )
-            parallel_gated = solver.solve(
-                _small_sudoku(),
-                log_level=0,
-                max_sols=2,
-                processes=2,
-                depth_gate=0,
-            )
-            after_gated = solver.solve(_small_sudoku(), log_level=0, max_sols=2)
+        parallel = solver.solve(
+            _small_sudoku(),
+            log_level=0,
+            max_sols=2,
+            processes=2,
+        )
+        gated = solver.solve(
+            _small_sudoku(),
+            log_level=0,
+            max_sols=2,
+            depth_gate=0,
+        )
+        parallel_gated = solver.solve(
+            _small_sudoku(),
+            log_level=0,
+            max_sols=2,
+            processes=2,
+            depth_gate=0,
+        )
+        after_gated = solver.solve(_small_sudoku(), log_level=0, max_sols=2)
 
-            assert len(first) == 2
-            assert first == second == parallel
-            assert first == gated == parallel_gated == after_gated
-        '''
+        assert len(first) == 2
+        assert first == second == parallel
+        assert first == gated == parallel_gated == after_gated
+        ''',
+        4,
     ),
 )
 
@@ -575,7 +607,7 @@ replace_once(
 )
 replace_once(
     "tests/test_differential.py",
-    dedent(
+    block(
         '''
         def _exercise_each_power_action(
             distance: int,
@@ -598,7 +630,7 @@ replace_once(
 )
 replace_once(
     "tests/test_differential.py",
-    dedent(
+    block(
         '''
         def test_each_power_action_preserves_broader_oracle_states(
             distance,
@@ -629,7 +661,7 @@ readme_path = Path("README.md")
 readme = readme_path.read_text(encoding="utf-8")
 args_start = readme.index("## Arguments\n")
 args_end = readme.index("\n## Rule types\n", args_start)
-args_section = dedent(
+args_section = block(
     '''
     ## Arguments
 
@@ -653,14 +685,14 @@ args_section = dedent(
 
     Run `gridpuzzle --help` for the complete parser-generated option list.
     '''
-).lstrip()
+)
 readme_path.write_text(readme[:args_start] + args_section + readme[args_end:], encoding="utf-8")
 
 # Align development notes and the TODO record.
 development_path = Path("DEVELOPMENT.md")
 development = development_path.read_text(encoding="utf-8")
 anchor = "**Speculative work uses reversible trails.**\n"
-insertion = dedent(
+insertion = block(
     '''
     **Depth gating is explicit per solve.**
     `solver.solve(..., depth_gate=K)` passes the threshold through recursive and
