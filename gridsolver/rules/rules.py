@@ -87,12 +87,16 @@ class Rule(ABC):
         cell_count = self._rows * self._cols
         normalized: list[int] = []
         if isinstance(first, numbers.Integral) and not isinstance(first, bool):
-            for cell in raw_cells:
-                if isinstance(cell, bool) or not isinstance(cell, numbers.Integral):
+            for raw_cell in raw_cells:
+                if isinstance(raw_cell, bool) or not isinstance(raw_cell, numbers.Integral):
                     raise TypeError("Rule cells must not mix integer and coordinate forms")
-                cell = int(cell)
-                if 0 <= cell < cell_count:
-                    normalized.append(cell)
+                cell = int(raw_cell)
+                if not 0 <= cell < cell_count:
+                    raise ValueError(
+                        f"{type(self).__name__} cell {cell} is outside "
+                        f"0..{cell_count - 1}"
+                    )
+                normalized.append(cell)
         else:
             for coordinate in raw_cells:
                 if (
@@ -106,11 +110,13 @@ class Rule(ABC):
                 ):
                     raise TypeError(f"Invalid rule coordinate {coordinate!r}")
                 row, col = map(int, coordinate)
-                if 0 <= row < self._rows and 0 <= col < self._cols:
-                    normalized.append(row + col * self._rows)
+                if not (0 <= row < self._rows and 0 <= col < self._cols):
+                    raise ValueError(
+                        f"{type(self).__name__} coordinate {(row, col)!r} is outside "
+                        f"a {self._rows}x{self._cols} grid"
+                    )
+                normalized.append(row + col * self._rows)
 
-        if not normalized:
-            raise ValueError(f"{type(self).__name__} has no cells inside the grid")
         if len(normalized) != len(set(normalized)):
             raise ValueError(f"{type(self).__name__} cells must be unique")
 
