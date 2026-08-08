@@ -140,6 +140,10 @@ def _solve_full(
         use_guarantee = guarantee is not None and len(guarantee.cells) < len(values)
         trials = sorted(guarantee.cells) if use_guarantee else values
         solutions: set[ImmutableGrid] = set()
+        # AtomicSolver only reads the incoming snapshot and replaces its
+        # own reference after a full hidden-tuple pass. All sibling branches
+        # therefore share this one immutable-by-convention parent snapshot.
+        checked_guarantees = set(grid.guarantees)
 
         for trial in trials:
             depth = len(steps)
@@ -161,7 +165,6 @@ def _solve_full(
             # Reuse the current grid for every branch. The journal restores
             # candidates, known values, rules, guarantees and branch-local memos.
             mark = grid.trail_mark()
-            checked_guarantees = set(grid.guarantees)
             try:
                 if use_guarantee:
                     grid[trial] = guarantee.val
