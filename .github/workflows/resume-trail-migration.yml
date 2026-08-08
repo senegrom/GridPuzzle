@@ -35,65 +35,64 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
-          def replace_once(path: str, old: str, new: str) -> None:
-              target = Path(path)
-              text = target.read_text(encoding="utf-8")
-              if old not in text:
-                  raise SystemExit(f"Expected text not found in {path}: {old[:160]!r}")
-              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+          solver_path = Path("gridsolver/solver/solver.py")
+          text = solver_path.read_text(encoding="utf-8")
+          start_marker = "            clone = grid.deepcopy()\n"
+          end_marker = "            solutions.update(branch_solutions)\n"
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit("Recursive branch deepcopy marker was not found")
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit("Recursive branch end marker was not found")
+          end += len(end_marker)
 
-          replace_once(
-              "gridsolver/solver/solver.py",
-              '''            clone = grid.deepcopy()
-                  if use_guarantee:
-                      clone[trial] = guarantee.val
-                  else:
-                      clone[test_cell] = trial
-
-                  remaining = -1 if max_sols == -1 else max_sols - len(solutions)
-                  branch_solutions = _solve_full(clone, steps, remaining, grid.guarantees)
-                  steps[depth - 1] += 1
-                  solutions.update(branch_solutions)
-          '''.replace("\n          ", "\n"),
-              '''            # Reuse the current grid for every branch. The journal restores
-                  # candidates, known values, rules, guarantees and branch-local memos.
-                  mark = grid.trail_mark()
-                  checked_guarantees = set(grid.guarantees)
-                  try:
-                      if use_guarantee:
-                          grid[trial] = guarantee.val
-                      else:
-                          grid[test_cell] = trial
-
-                      remaining = -1 if max_sols == -1 else max_sols - len(solutions)
-                      branch_solutions = _solve_full(
-                          grid,
-                          steps,
-                          remaining,
-                          checked_guarantees,
-                      )
-                  finally:
-                      grid.trail_undo(mark)
-
-                  steps[depth - 1] += 1
-                  solutions.update(branch_solutions)
-          '''.replace("\n          ", "\n"),
+          replacement = (
+              "            # Reuse the current grid for every branch. The journal restores\n"
+              "            # candidates, known values, rules, guarantees and branch-local memos.\n"
+              "            mark = grid.trail_mark()\n"
+              "            checked_guarantees = set(grid.guarantees)\n"
+              "            try:\n"
+              "                if use_guarantee:\n"
+              "                    grid[trial] = guarantee.val\n"
+              "                else:\n"
+              "                    grid[test_cell] = trial\n\n"
+              "                remaining = -1 if max_sols == -1 else max_sols - len(solutions)\n"
+              "                branch_solutions = _solve_full(\n"
+              "                    grid,\n"
+              "                    steps,\n"
+              "                    remaining,\n"
+              "                    checked_guarantees,\n"
+              "                )\n"
+              "            finally:\n"
+              "                grid.trail_undo(mark)\n\n"
+              "            steps[depth - 1] += 1\n"
+              "            solutions.update(branch_solutions)\n"
           )
-
-          replace_once(
-              "tests/test_trail.py",
-              "from gridsolver.rules.unique import ElementsAtMostOnce\n"
-              "from gridsolver.solver.propagation import propagate_basic\n",
-              "from gridsolver.rules.unique import ElementsAtMostOnce\n"
-              "from gridsolver.solver import solver\n"
-              "from gridsolver.solver.atomic_solver import AtomicSolver\n"
-              "from gridsolver.solver.propagation import propagate_basic\n",
-          )
+          solver_path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
 
           test_path = Path("tests/test_trail.py")
           text = test_path.read_text(encoding="utf-8")
-          addition = '''
+          import_marker = (
+              "from gridsolver.rules.unique import ElementsAtMostOnce\n"
+              "from gridsolver.solver.propagation import propagate_basic\n"
+          )
+          import_replacement = (
+              "from gridsolver.rules.unique import ElementsAtMostOnce\n"
+              "from gridsolver.solver import solver\n"
+              "from gridsolver.solver.atomic_solver import AtomicSolver\n"
+              "from gridsolver.solver.propagation import propagate_basic\n"
+          )
+          if import_marker not in text:
+              raise SystemExit("Trail-test import marker was not found")
+          text = text.replace(import_marker, import_replacement, 1)
+
+          if "def test_recursive_search_uses_trail_instead_of_deepcopy" in text:
+              raise SystemExit("Recursive trail regression already exists")
+          addition = dedent('''
+
 
               def test_recursive_search_uses_trail_instead_of_deepcopy(monkeypatch):
                   grid = Grid(1, 2, max_elem=2)
@@ -117,9 +116,7 @@ jobs:
                   assert steps == []
                   assert grid._trail_state.entries == []
                   assert not grid._trail_state.marks
-          '''.replace("\n          ", "\n")
-          if "def test_recursive_search_uses_trail_instead_of_deepcopy" in text:
-              raise SystemExit("Recursive trail regression already exists")
+          ''')
           test_path.write_text(text.rstrip() + addition, encoding="utf-8")
           PY
 
