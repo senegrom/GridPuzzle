@@ -1,6 +1,6 @@
 import itertools
 from array import array
-from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence, Sequence
+from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence
 from enum import Enum
 from functools import partial
 from numbers import Integral

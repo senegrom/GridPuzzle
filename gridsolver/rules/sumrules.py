@@ -1,5 +1,4 @@
 import collections
-import itertools
 import reprlib
 from functools import cached_property
 from numbers import Integral

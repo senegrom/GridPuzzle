@@ -9,19 +9,12 @@ import concurrent.futures
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
-
-
-def _solution_key(solution: ImmutableGrid) -> tuple[int, int, int, tuple[int, ...]]:
-    return solution.rows, solution.cols, solution.max_elem, tuple(solution)
-
-
-def _cap_solutions(
-    solutions: set[ImmutableGrid],
-    max_sols: int,
-) -> set[ImmutableGrid]:
-    if max_sols > 0 and len(solutions) > max_sols:
-        return set(sorted(solutions, key=_solution_key)[:max_sols])
-    return solutions
+from gridsolver.solver.atomic_solver import (
+    PowerStats,
+    collect_power_stats,
+    current_power_stats,
+)
+from gridsolver.solver.solver import _cap_solutions
 
 
 def _solve_branch(
@@ -34,6 +27,14 @@ def _solve_branch(
     _lg.set_lvl(0)
     grid[cell] = value
     return _solver._solve_full(grid, [0], max_sols, set(), depth_gate)
+
+
+def _solve_branch_with_stats(
+    payload: tuple[Grid, int, int, int, int | None],
+) -> tuple[set[ImmutableGrid], PowerStats]:
+    with collect_power_stats() as stats:
+        solutions = _solve_branch(payload)
+    return solutions, stats
 
 
 def solve_parallel_trials(
@@ -49,17 +50,25 @@ def solve_parallel_trials(
     grid._guarantee_cache.clear()
     ordered_branches = sorted(branches)
     solutions: set[ImmutableGrid] = set()
+    stats = current_power_stats()
+    worker = _solve_branch_with_stats if stats is not None else _solve_branch
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as pool:
         futures = [
             pool.submit(
-                _solve_branch,
+                worker,
                 (grid, cell, value, max_sols, depth_gate),
             )
             for cell, value in ordered_branches
         ]
         for index, future in enumerate(futures):
-            solutions.update(future.result())
+            result = future.result()
+            if stats is None:
+                branch_solutions = result
+            else:
+                branch_solutions, branch_stats = result
+                stats.merge(branch_stats)
+            solutions.update(branch_solutions)
             if 0 < max_sols <= len(solutions):
                 for pending in futures[index + 1 :]:
                     pending.cancel()

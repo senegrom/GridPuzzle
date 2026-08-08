@@ -1,6 +1,9 @@
 from collections import Counter
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass, field
+from time import perf_counter
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import Guarantee, InvalidGrid
@@ -10,8 +13,6 @@ from gridsolver.solver.propagation import (
     PropagationSnapshot,
     apply_rules as _apply_rules,
     propagation_snapshot,
-    relevant_guarantees as _relevant_gts,
-    update_candidates_from_known as _update_candidates_from_known,
     update_known_from_candidates as _update_known_from_candidates,
 )
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_house_sums, rulehelper_sum_atmostonce
@@ -33,55 +34,77 @@ from gridsolver.solver.solve_wing import xy_wing, xyz_wing
 from gridsolver.solver.solver_log import lg as _lg
 
 
-# Technique statistics are aggregated process-wide, including forcing-chain
-# branch solvers. A try is one action execution; a hit changes the monotone
-# propagation snapshot; elims counts removed candidates; rulechg counts hits
-# that changed rule or guarantee sets without necessarily removing candidates.
-POWER_TRIES: Counter[str] = Counter()
-POWER_HITS: Counter[str] = Counter()
-POWER_ELIMS: Counter[str] = Counter()
-POWER_RULE_CHANGES: Counter[str] = Counter()
-_POWER_STATS_ENABLED: ContextVar[bool] = ContextVar(
-    "gridpuzzle_power_stats_enabled",
-    default=False,
+@dataclass(slots=True)
+class PowerStats:
+    """Optional per-solve technique diagnostics."""
+
+    tries: Counter[str] = field(default_factory=Counter)
+    hits: Counter[str] = field(default_factory=Counter)
+    eliminations: Counter[str] = field(default_factory=Counter)
+    rule_changes: Counter[str] = field(default_factory=Counter)
+    timings: dict[str, float] = field(default_factory=dict)
+
+    @contextmanager
+    def time(self, label: str) -> Iterator[None]:
+        started = perf_counter()
+        try:
+            yield
+        finally:
+            self.timings[label] = (
+                self.timings.get(label, 0.0) + perf_counter() - started
+            )
+
+    def merge(self, other: "PowerStats") -> None:
+        """Merge one independent worker or corpus result."""
+        self.tries.update(other.tries)
+        self.hits.update(other.hits)
+        self.eliminations.update(other.eliminations)
+        self.rule_changes.update(other.rule_changes)
+        for label, elapsed in other.timings.items():
+            self.timings[label] = self.timings.get(label, 0.0) + elapsed
+
+    def table(self) -> str:
+        """Return an aligned per-technique statistics table."""
+        labels = sorted(
+            set(self.tries) | set(self.timings),
+            key=lambda label: (-self.timings.get(label, 0.0), label),
+        )
+        lines = [
+            f"{'technique':24} {'tries':>9} {'hits':>6} {'hit%':>7} "
+            f"{'elims':>7} {'rulechg':>8} {'time[s]':>9}"
+        ]
+        for label in labels:
+            tries = self.tries.get(label, 0)
+            hits = self.hits.get(label, 0)
+            rate = f"{100 * hits / tries:.2f}" if tries else "-"
+            lines.append(
+                f"{label:24} {tries:>9} {hits:>6} {rate:>7} "
+                f"{self.eliminations.get(label, 0):>7} "
+                f"{self.rule_changes.get(label, 0):>8} "
+                f"{self.timings.get(label, 0.0):>9.1f}"
+            )
+        return "\n".join(lines)
+
+
+_POWER_STATS: ContextVar[PowerStats | None] = ContextVar(
+    "gridpuzzle_power_stats",
+    default=None,
 )
 
 
-def power_stats_enabled() -> bool:
-    return _POWER_STATS_ENABLED.get()
+def current_power_stats() -> PowerStats | None:
+    return _POWER_STATS.get()
 
 
-def reset_power_stats() -> None:
-    """Clear and enable optional diagnostics in this context."""
-    POWER_TRIES.clear()
-    POWER_HITS.clear()
-    POWER_ELIMS.clear()
-    POWER_RULE_CHANGES.clear()
-    _lg.time_stats.clear()
-    _POWER_STATS_ENABLED.set(True)
-
-
-def disable_power_stats() -> None:
-    """Disable diagnostics for subsequently constructed solvers."""
-    _POWER_STATS_ENABLED.set(False)
-
-
-def power_stats_table() -> str:
-    """Return an aligned per-technique statistics table."""
-    labels = sorted(
-        set(POWER_TRIES) | set(_lg.time_stats),
-        key=lambda label: -_lg.time_stats.get(label, 0.0),
-    )
-    lines = [f"{'technique':24} {'tries':>9} {'hits':>6} {'hit%':>7} {'elims':>7} {'rulechg':>8} {'time[s]':>9}"]
-    for label in labels:
-        tries = POWER_TRIES.get(label, 0)
-        hits = POWER_HITS.get(label, 0)
-        rate = f"{100 * hits / tries:.2f}" if tries else "-"
-        lines.append(
-            f"{label:24} {tries:>9} {hits:>6} {rate:>7} {POWER_ELIMS.get(label, 0):>7}"
-            f" {POWER_RULE_CHANGES.get(label, 0):>8} {_lg.time_stats.get(label, 0.0):>9.1f}"
-        )
-    return "\n".join(lines)
+@contextmanager
+def collect_power_stats() -> Iterator[PowerStats]:
+    """Collect diagnostics in this solve context and its nested solvers."""
+    stats = PowerStats()
+    token = _POWER_STATS.set(stats)
+    try:
+        yield stats
+    finally:
+        _POWER_STATS.reset(token)
 
 
 # noinspection PyProtectedMember
@@ -97,8 +120,8 @@ class AtomicSolver:
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
         self.depth_gate = depth_gate
-        self.collect_stats = power_stats_enabled()
-        self.collect_timing = self.collect_stats or _lg.on
+        self.stats = current_power_stats()
+        self.collect_timing = self.stats is not None or _lg.on
 
     def solve_atomic(self) -> SolveStatus:
         _lg.logs(_MAX_LVL, "Solving rule-based")
@@ -109,7 +132,10 @@ class AtomicSolver:
         while self.grid.is_valid:
             before = self._state_snapshot()
             try:
-                if self.collect_timing:
+                if self.stats is not None:
+                    with self.stats.time("update_step"):
+                        self._update_step()
+                elif self.collect_timing:
                     with _lg.time_ctxt("update_step"):
                         self._update_step()
                 else:
@@ -133,20 +159,20 @@ class AtomicSolver:
             step_type = "basic"
             try:
                 for step_type in self._solve_power_actions():
-                    if self.collect_stats:
-                        POWER_TRIES[step_type] += 1
+                    if self.stats is not None:
+                        self.stats.tries[step_type] += 1
                     after_action = self._state_snapshot()
                     if after_action == after_basic:
                         continue
 
-                    if self.collect_stats:
-                        POWER_HITS[step_type] += 1
-                        POWER_ELIMS[step_type] += max(
+                    if self.stats is not None:
+                        self.stats.hits[step_type] += 1
+                        self.stats.eliminations[step_type] += max(
                             0,
                             after_basic[1] - after_action[1],
                         )
                         if after_basic[2:] != after_action[2:]:
-                            POWER_RULE_CHANGES[step_type] += 1
+                            self.stats.rule_changes[step_type] += 1
                     _update_known_from_candidates(
                         self.grid.__setitem__,
                         self.grid._candidates,
@@ -188,7 +214,12 @@ class AtomicSolver:
             self.grid._candidates,
             self.grid._known,
         )
-        if self.collect_timing:
+        if self.stats is not None:
+            with self.stats.time("update_from_rules"):
+                self._update_from_rules()
+            with self.stats.time("filter_guarantees"):
+                filter_guarantees(self.grid)
+        elif self.collect_timing:
             with _lg.time_ctxt("update_from_rules"):
                 self._update_from_rules()
             with _lg.time_ctxt("filter_guarantees"):
@@ -203,15 +234,18 @@ class AtomicSolver:
     def _act(self, label: str, action: Callable[[], None]) -> str:
         """Run one power action and optionally account for diagnostics."""
         try:
-            if self.collect_timing:
+            if self.stats is not None:
+                with self.stats.time(label):
+                    action()
+            elif self.collect_timing:
                 with _lg.time_ctxt(label):
                     action()
             else:
                 action()
         except InvalidGrid:
-            if self.collect_stats:
-                POWER_TRIES[label] += 1
-                POWER_HITS[label] += 1
+            if self.stats is not None:
+                self.stats.tries[label] += 1
+                self.stats.hits[label] += 1
             raise
         return label
 

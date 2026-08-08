@@ -11,7 +11,6 @@ grand total. Used to make data-driven decisions about power-list tiering
 """
 import sys
 import time
-from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,7 +20,6 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 import examples2
 from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str
 from gridsolver.solver import atomic_solver, solver
-from gridsolver.solver.solver_log import lg as _lg
 
 CORPUS = [
     ("sudoku-mith", lambda: create_from_str(
@@ -41,42 +39,23 @@ CORPUS = [
 
 
 def run(quick: bool) -> None:
-    grand_tries: Counter = Counter()
-    grand_hits: Counter = Counter()
-    grand_elims: Counter = Counter()
-    grand_rulechg: Counter = Counter()
-    grand_time: dict = {}
+    grand = atomic_solver.PowerStats()
 
     for name, loader in CORPUS:
         if quick and name == "pandiagonal-11x11":
             print(f"skipping {name} (--quick)")
             continue
-        atomic_solver.reset_power_stats()
-        t0 = time.perf_counter()
-        sols = solver.solve(loader(), log_level=0)
-        wall = time.perf_counter() - t0
+        with atomic_solver.collect_power_stats() as stats:
+            t0 = time.perf_counter()
+            sols = solver.solve(loader(), log_level=0)
+            wall = time.perf_counter() - t0
         assert len(sols) == 1, f"{name}: expected unique solution, got {len(sols)}"
         print(f"\n=== {name}: {len(sols)} solution(s) in {wall:.1f}s ===", flush=True)
-        print(atomic_solver.power_stats_table(), flush=True)
-        grand_tries.update(atomic_solver.POWER_TRIES)
-        grand_hits.update(atomic_solver.POWER_HITS)
-        grand_elims.update(atomic_solver.POWER_ELIMS)
-        grand_rulechg.update(atomic_solver.POWER_RULE_CHANGES)
-        for k, v in _lg.time_stats.items():
-            grand_time[k] = grand_time.get(k, 0.0) + v
+        print(stats.table(), flush=True)
+        grand.merge(stats)
 
-    atomic_solver.POWER_TRIES.clear()
-    atomic_solver.POWER_TRIES.update(grand_tries)
-    atomic_solver.POWER_HITS.clear()
-    atomic_solver.POWER_HITS.update(grand_hits)
-    atomic_solver.POWER_ELIMS.clear()
-    atomic_solver.POWER_ELIMS.update(grand_elims)
-    atomic_solver.POWER_RULE_CHANGES.clear()
-    atomic_solver.POWER_RULE_CHANGES.update(grand_rulechg)
-    _lg.time_stats.clear()
-    _lg.time_stats.update(grand_time)
     print("\n=== GRAND TOTAL ===", flush=True)
-    print(atomic_solver.power_stats_table(), flush=True)
+    print(grand.table(), flush=True)
 
 
 if __name__ == "__main__":

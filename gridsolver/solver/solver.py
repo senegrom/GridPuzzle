@@ -1,4 +1,3 @@
-import gc
 from numbers import Integral
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
@@ -7,9 +6,6 @@ from gridsolver.rules.rules import Guarantee
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.solver_log import lg as _lg
 from gridsolver.solver.validation import validate_solutions
-
-
-GC_LEN_PARAM = 22
 
 
 def set_loglevel(level: int) -> None:
@@ -73,8 +69,16 @@ def solve(
         processes,
         depth_gate,
     )
-    if log_level is not None:
-        set_loglevel(log_level)
+    with _lg.solve_context(log_level):
+        return _solve_validated(grid, max_sols, processes, depth_gate)
+
+
+def _solve_validated(
+    grid: Grid,
+    max_sols: int,
+    processes: int,
+    depth_gate: int | None,
+) -> set[ImmutableGrid]:
     if max_sols == 0:
         return set()
 
@@ -172,9 +176,6 @@ def _solve_full(
 ) -> set[ImmutableGrid]:
     steps.append(0)
     try:
-        if len(steps) == len(grid) - GC_LEN_PARAM:
-            gc.collect()
-
         status = AtomicSolver(
             grid,
             steps,

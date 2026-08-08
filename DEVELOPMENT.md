@@ -119,6 +119,12 @@ KenKen puzzles.
 Importing the solver does not initialize Colorama or mutate stdout. Terminal
 configuration is explicit through `set_colouring`.
 
+Verbosity and changed-grid rendering buffers are context-local. A
+`solve(..., log_level=N)` override lasts only for that call and is restored on
+exit; concurrent solves therefore do not overwrite each other's log level or
+comparison buffer. Colour and root-handler configuration remain application
+level by design.
+
 - **Windows terminal / Colorama mode:** `just_fix_windows_console()` enables
   ANSI handling without repeatedly wrapping stdout.
 - **Rich on a terminal with `stdout.buffer`:** Colorama is deinitialized,
@@ -128,11 +134,13 @@ configuration is explicit through `set_colouring`.
 
 ### Performance notes
 
-- **Per-technique diagnostics are opt-in.** Normal solves do not update
-  `POWER_TRIES`, `POWER_HITS`, or `lg.time_stats`. Call
-  `atomic_solver.reset_power_stats()` to clear and enable collection in
-  the current context; call `disable_power_stats()` afterwards. The
-  technique-statistics harness does this explicitly. June 2026 corpus
+- **Per-technique diagnostics are opt-in and context-local.** Normal solves do
+  not update counters or collect timings. Use
+  `with atomic_solver.collect_power_stats() as stats:` and render the result
+  with `stats.table()`. Nested solvers share that explicit context, parallel
+  workers return independent summaries which the parent merges, and concurrent
+  solve contexts do not share mutable counters. The technique-statistics
+  harness uses this API. June 2026 corpus
   measurements found fish(4), finned-fish(3), fish(3), and
   hidden-tuples(7) had zero hits in roughly 900–1400 tries while consuming
   most forcing-chain branch time. Excluding them from inner branches made

@@ -3,6 +3,7 @@ import sys
 import time
 from collections.abc import Iterable, Set
 from contextlib import contextmanager
+from contextvars import ContextVar
 from enum import Enum
 from typing import Any
 
@@ -166,11 +167,46 @@ class CoordToString:
 class GridLogger:
     def __init__(self, logger: logging.Logger, level: int) -> None:
         self.lg = logger
-        self.set_lvl(level)
-        self.grid_buf: str | None = None
-        self.time_stats: dict[str, float] = {}
+        self.lg.setLevel(1)
+        self._detail_level: ContextVar[int] = ContextVar(
+            f"gridpuzzle_log_level_{logger.name}_{id(self)}",
+            default=self._normalize_level(level),
+        )
+        self._grid_buf: ContextVar[str | None] = ContextVar(
+            f"gridpuzzle_grid_buffer_{logger.name}_{id(self)}",
+            default=None,
+        )
+
+    @staticmethod
+    def _normalize_level(level: int) -> int:
+        if level < 0:
+            return MAX_LVL + level + 1
+        return level
+
+    @property
+    def detail_level(self) -> int:
+        return self._detail_level.get()
+
+    def is_enabled(self, level: int) -> bool:
+        return level <= self.detail_level and self.lg.isEnabledFor(_lvl(level))
+
+    @contextmanager
+    def solve_context(self, level: int | None):
+        """Isolate one solve's verbosity and changed-grid rendering buffer."""
+        level_token = None
+        if level is not None:
+            level_token = self._detail_level.set(self._normalize_level(level))
+        buffer_token = self._grid_buf.set(None)
+        try:
+            yield
+        finally:
+            self._grid_buf.reset(buffer_token)
+            if level_token is not None:
+                self._detail_level.reset(level_token)
 
     def logs(self, level: int, message: str, header: bool = False) -> None:
+        if not self.is_enabled(level):
+            return
         if header:
             message = f"{C['B']}{message}{C['X']}"
         self.lg.log(_lvl(level), message)
@@ -182,7 +218,6 @@ class GridLogger:
             yield
         finally:
             delta = time.perf_counter() - start
-            self.time_stats[label] = self.time_stats.get(label, 0.0) + delta
             if delta > TIME_DELTA_LOG_MIN:
                 self.logd(f"{label} took {delta}s.")
 
@@ -191,7 +226,7 @@ class GridLogger:
 
     @property
     def on(self) -> bool:
-        return self.lg.isEnabledFor(_lvl(1))
+        return self.is_enabled(1)
 
     def logr(self, rule_name: str, message: str, item: Any) -> None:
         if not any(rule_name.startswith(prefix) for prefix in _RULE_LOG_FILTER):
@@ -210,7 +245,7 @@ class GridLogger:
         format_args=None,
         **kwargs,
     ) -> None:
-        if not self.lg.isEnabledFor(_lvl(level)):
+        if not self.is_enabled(level):
             return
         if format_args is None:
             format_args = PrettyPrintArgs(args=grid.format_args, **kwargs)
@@ -218,13 +253,14 @@ class GridLogger:
         self.logs(level, header)
         original = rendered
 
-        if self.grid_buf and len(self.grid_buf) == len(rendered):
+        previous = self._grid_buf.get()
+        if previous and len(previous) == len(rendered):
             changed: list[str] = []
-            for current, previous in zip(rendered, self.grid_buf):
-                if current == previous:
+            for current, old in zip(rendered, previous):
+                if current == old:
                     changed.append(current)
                 elif current == " ":
-                    changed.extend((C["RR"], previous, C["X"]))
+                    changed.extend((C["RR"], old, C["X"]))
                 elif current == "=":
                     changed.extend((C["GG"], current, C["X"]))
                 else:
@@ -232,12 +268,10 @@ class GridLogger:
             rendered = "".join(changed)
 
         self.logs(level, rendered)
-        self.grid_buf = original
+        self._grid_buf.set(original)
 
     def set_lvl(self, level: int) -> None:
-        if level < 0:
-            level = MAX_LVL + level + 1
-        self.lg.setLevel(_lvl(level))
+        self._detail_level.set(self._normalize_level(level))
 
 
 def get_log(class_: type | str, level: int) -> GridLogger:

@@ -70,6 +70,8 @@ class Rule(ABC):
         gsz: GridSizeContainer,
         cells: Iterable[IdxType] | None = None,
         cell_creator: TCellCreator | None = None,
+        *,
+        _clip_outside_after_first: bool = False,
     ) -> None:
         object.__setattr__(self, "_frozen", False)
         self._rows = gsz.rows
@@ -97,18 +99,20 @@ class Rule(ABC):
         cell_count = self._rows * self._cols
         normalized: list[int] = []
         if isinstance(first, numbers.Integral) and not isinstance(first, bool):
-            for raw_cell in raw_cells:
+            for position, raw_cell in enumerate(raw_cells):
                 if isinstance(raw_cell, bool) or not isinstance(raw_cell, numbers.Integral):
                     raise TypeError("Rule cells must not mix integer and coordinate forms")
                 cell = int(raw_cell)
                 if not 0 <= cell < cell_count:
+                    if _clip_outside_after_first and position > 0:
+                        continue
                     raise ValueError(
                         f"{type(self).__name__} cell {cell} is outside "
                         f"0..{cell_count - 1}"
                     )
                 normalized.append(cell)
         else:
-            for coordinate in raw_cells:
+            for position, coordinate in enumerate(raw_cells):
                 if (
                     isinstance(coordinate, (str, bytes, bytearray))
                     or not isinstance(coordinate, Sequence)
@@ -121,6 +125,8 @@ class Rule(ABC):
                     raise TypeError(f"Invalid rule coordinate {coordinate!r}")
                 row, col = map(int, coordinate)
                 if not (0 <= row < self._rows and 0 <= col < self._cols):
+                    if _clip_outside_after_first and position > 0:
+                        continue
                     raise ValueError(
                         f"{type(self).__name__} coordinate {(row, col)!r} is outside "
                         f"a {self._rows}x{self._cols} grid"
