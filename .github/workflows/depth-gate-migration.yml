@@ -1,4 +1,4 @@
-name: Explicit per-solve depth gating migration v2
+name: Explicit per-solve depth gating migration v3
 
 on:
   push:
@@ -30,7 +30,50 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply migration
-        run: python .github/scripts/depth_gate_migration.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("run.py")
+          text = path.read_text(encoding="utf-8")
+          old = (
+              "        max_sols=args.max_solutions,\n"
+              "        processes=args.processes,\n"
+              "    )\n"
+          )
+          normalized = (
+              "        max_sols=args.max_solutions,\n"
+              "        processes=args.processes,\n"
+              "        )\n"
+          )
+          if old not in text:
+              raise SystemExit("CLI solve call not found")
+          path.write_text(text.replace(old, normalized, 1), encoding="utf-8")
+          PY
+          python .github/scripts/depth_gate_migration.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("run.py")
+          text = path.read_text(encoding="utf-8")
+          old = (
+              "        max_sols=args.max_solutions,\n"
+              "        processes=args.processes,\n"
+              "        depth_gate=args.depth_gate,\n"
+              "        )\n"
+          )
+          formatted = (
+              "        max_sols=args.max_solutions,\n"
+              "        processes=args.processes,\n"
+              "        depth_gate=args.depth_gate,\n"
+              "    )\n"
+          )
+          if old not in text:
+              raise SystemExit("Migrated CLI solve call not found")
+          path.write_text(text.replace(old, formatted, 1), encoding="utf-8")
+          PY
 
       - name: Install and validate explicit solve options
         shell: bash
