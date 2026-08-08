@@ -9,6 +9,7 @@ from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee, Rule
+from gridsolver.rules.sumrules import DiffRule, DivRule, ProdRule, SumRule
 from gridsolver.solver import solver
 
 
@@ -128,12 +129,39 @@ def test_grid_load_validates_the_complete_payload_before_mutating():
     assert grid.known == (1, 3, 2, 4)
 
 
-def test_rule_rejects_empty_or_fully_outside_cell_sets():
+def test_rule_rejects_empty_outside_or_duplicate_cell_sets():
     grid = Grid(2)
     with pytest.raises(ValueError, match="must not be empty"):
         _NoOpRule(grid, cells=[])
     with pytest.raises(ValueError, match="no cells inside"):
         _NoOpRule(grid, cells=[(9, 9)])
+    with pytest.raises(ValueError, match="unique"):
+        _NoOpRule(grid, cells=[0, 0])
+
+
+def test_arithmetic_rule_targets_and_symmetric_identity_are_canonical():
+    grid_size = GridSizeContainer(1, 2, max_elem=4)
+
+    with pytest.raises(TypeError, match="integers"):
+        SumRule(grid_size, cells=[0, 1], mysum=1.5)
+    with pytest.raises(TypeError, match="integers"):
+        ProdRule(grid_size, cells=[0, 1], target=True)
+    with pytest.raises(TypeError, match="integers"):
+        DiffRule(grid_size, cells=[0, 1], target="1")
+    with pytest.raises(TypeError, match="integers"):
+        DivRule(grid_size, cells=[0, 1], target=2.0)
+    with pytest.raises(ValueError, match="positive"):
+        ProdRule(grid_size, cells=[0, 1], target=0)
+
+    forward_diff = DiffRule(grid_size, cells=[0, 1], target=1)
+    reverse_diff = DiffRule(grid_size, cells=[1, 0], target=1)
+    forward_div = DivRule(grid_size, cells=[0, 1], target=2)
+    reverse_div = DivRule(grid_size, cells=[1, 0], target=2)
+
+    assert forward_diff == reverse_diff
+    assert hash(forward_diff) == hash(reverse_diff)
+    assert forward_div == reverse_div
+    assert hash(forward_div) == hash(reverse_div)
 
 
 def test_immutable_grid_validates_shape_domain_and_hides_backing_array():

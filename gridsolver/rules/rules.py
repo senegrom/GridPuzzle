@@ -111,6 +111,8 @@ class Rule(ABC):
 
         if not normalized:
             raise ValueError(f"{type(self).__name__} has no cells inside the grid")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError(f"{type(self).__name__} cells must be unique")
 
         self.cells: ArrayType = array("I", normalized)
         self.len_cells = len(self.cells)

@@ -1,7 +1,9 @@
 import collections
 import itertools
 import reprlib
+from array import array
 from functools import cached_property
+from numbers import Integral
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -9,14 +11,20 @@ from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, Invalid
 from gridsolver.rules.unique import ElementsAtMostOnce
 
 
+def _integer_target(name: str, target: object) -> int:
+    if isinstance(target, bool) or not isinstance(target, Integral):
+        raise TypeError(f"{name} targets must be integers, got {target!r}")
+    return int(target)
+
+
 class SumRule(Rule):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'sum')
+    __slots__ = ("sum",)
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], mysum: int):
         if gsz is not None and cells is not None:
-            cells = sorted(list(cells))
             super().__init__(gsz, cells, None)
-        self.sum: int = mysum
+            self.cells = array("I", sorted(self.cells))
+        self.sum = _integer_target("Sum", mysum)
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
             Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
@@ -84,9 +92,10 @@ class SumRule(Rule):
 
 
 class DiffRule(Rule):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'diff')
+    __slots__ = ("diff",)
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        target = _integer_target("Difference", target)
         if target < 0:
             raise ValueError("Difference targets must be non-negative")
         if gsz is not None and cells is not None:
@@ -94,7 +103,9 @@ class DiffRule(Rule):
             if len(cells) != 2:
                 raise ValueError("Difference cages must contain exactly two cells")
             super().__init__(gsz, cells, None)
-        self.diff: int = target
+            if self.cells[0] > self.cells[1]:
+                self.cells.reverse()
+        self.diff = target
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
             Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
@@ -156,13 +167,16 @@ class DiffRule(Rule):
 
 
 class ProdRule(Rule):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'prod')
+    __slots__ = ("prod",)
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        target = _integer_target("Product", target)
+        if target <= 0:
+            raise ValueError("Product targets must be positive")
         if gsz is not None and cells is not None:
-            cells = sorted(list(cells))
             super().__init__(gsz, cells, None)
-        self.prod: int = target
+            self.cells = array("I", sorted(self.cells))
+        self.prod = target
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
             Tuple[bool, Optional[Iterable[Rule]], Optional[Iterable[Guarantee]]]:
@@ -237,9 +251,10 @@ class ProdRule(Rule):
 
 
 class DivRule(Rule):
-    __slots__ = ('cells', '_rows', '_cols', '_max_elem', 'len_cells', 'div')
+    __slots__ = ("div",)
 
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], target: int):
+        target = _integer_target("Division", target)
         if target <= 0:
             raise ValueError("Division targets must be positive")
         if gsz is not None and cells is not None:
@@ -247,7 +262,9 @@ class DivRule(Rule):
             if len(cells) != 2:
                 raise ValueError("Division cages must contain exactly two cells")
             super().__init__(gsz, cells, None)
-        self.div: int = target
+            if self.cells[0] > self.cells[1]:
+                self.cells.reverse()
+        self.div = target
 
     def __hash__(self):
         return hash((super().__hash__(), self.div))
@@ -503,6 +520,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         return result
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
+        guarantees = () if guarantees is None else guarantees
         my_known, new_candidates, new_candidate_cells = self._process_new_candidate_cells(known, candidates)
 
         lk = len(my_known)
@@ -524,6 +542,8 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         candidates_union = set.union(*new_candidates)
         new_sum_candidates = (sp - my_known for sp in self.sum_candidates if my_known <= sp)
         new_sum_candidates = [sp for sp in new_sum_candidates if sp <= candidates_union]
+        if not new_sum_candidates:
+            self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         new_candidate_sets = frozenset().union(*new_sum_candidates)
         for p in new_candidates:
             p &= new_candidate_sets
