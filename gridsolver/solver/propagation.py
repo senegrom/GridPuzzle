@@ -124,13 +124,27 @@ def apply_rules(grid: Grid) -> None:
             new_guarantees = None
             update_candidates_from_known(candidates, known)
 
-        if new_rules is not None:
+        # Rule implementations may return generators. Materialise and validate both
+        # outputs before deactivating the source rule or changing either live set.
+        prepared_rules = (
+            None
+            if new_rules is None
+            else tuple(grid._normalize_rule(new_rule) for new_rule in new_rules)
+        )
+        prepared_guarantees = (
+            None
+            if new_guarantees is None
+            else tuple(
+                grid._normalize_guarantee(guarantee)
+                for guarantee in new_guarantees
+            )
+        )
+
+        if prepared_rules is not None:
             grid.deactivate_rule(rule)
-            for new_rule in new_rules:
-                grid.add_rule_checked(new_rule)
-        if new_guarantees is not None:
-            for guarantee in new_guarantees:
-                grid.add_gtee_checked(guarantee)
+            grid.add_rules_checked(prepared_rules)
+        if prepared_guarantees is not None:
+            grid.add_gtees_checked(prepared_guarantees)
 
 
 def propagate_once(grid: Grid) -> None:

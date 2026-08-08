@@ -357,13 +357,32 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             rule.cells = canonical
         return rule.freeze()
 
+    def add_rules_checked(self, rules: Iterable[Rule]) -> None:
+        """Validate a complete rule batch, then commit it in one mutation."""
+        additions: list[Rule] = []
+        seen: set[Rule] = set()
+        for rule in rules:
+            rule = self._normalize_rule(rule)
+            if (
+                rule in seen
+                or rule in self.rules_ia
+                or rule in self.rules
+            ):
+                continue
+            seen.add(rule)
+            additions.append(rule)
+
+        if not additions:
+            return
+        self.rules.update(additions)
+        if self._trail_state.active:
+            self._trail_state.entries.extend(
+                ("rule+", rule) for rule in additions
+            )
+        self._invalidate_struct_cache()
+
     def add_rule_checked(self, rule: Rule) -> None:
-        rule = self._normalize_rule(rule)
-        if rule not in self.rules_ia and rule not in self.rules:
-            self.rules.add(rule)
-            if self._trail_state.active:
-                self._trail_state.entries.append(("rule+", rule))
-            self._invalidate_struct_cache()
+        self.add_rules_checked((rule,))
 
     def deactivate_rule(self, rule: Rule) -> None:
         self.rules.remove(rule)
@@ -434,17 +453,33 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
         return Guarantee(value, frozenset(cells), rows, cols)
 
+    def add_gtees_checked(self, guarantees: Iterable[Guarantee]) -> None:
+        """Validate a complete guarantee batch, then commit it atomically."""
+        additions: list[Guarantee] = []
+        seen: set[Guarantee] = set()
+        for guarantee in guarantees:
+            guarantee = self._normalize_guarantee(guarantee)
+            if (
+                guarantee in seen
+                or guarantee in self.guarantees_ia
+                or guarantee in self.guarantees
+            ):
+                continue
+            seen.add(guarantee)
+            additions.append(guarantee)
+
+        if not additions:
+            return
+        self.guarantees.update(additions)
+        if self._trail_state.active:
+            self._trail_state.entries.extend(
+                ("gt+", guarantee) for guarantee in additions
+            )
+        self._invalidate_struct_cache()
+        self._invalidate_guarantee_cache()
+
     def add_gtee_checked(self, guarantee: Guarantee) -> None:
-        guarantee = self._normalize_guarantee(guarantee)
-        if (
-            guarantee not in self.guarantees_ia
-            and guarantee not in self.guarantees
-        ):
-            self.guarantees.add(guarantee)
-            if self._trail_state.active:
-                self._trail_state.entries.append(("gt+", guarantee))
-            self._invalidate_struct_cache()
-            self._invalidate_guarantee_cache()
+        self.add_gtees_checked((guarantee,))
 
     def deactivate_gtee(self, guarantee: Guarantee) -> None:
         self.guarantees.remove(guarantee)
@@ -572,11 +607,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 for cell_creator in cell_creators
             )
 
-        # Construct every rule before committing the first one. A bad later
-        # constructor must not leave a partially extended grid.
-        rules = list(new_rules)
-        for rule in rules:
-            self.add_rule_checked(rule)
+        # add_rules_checked materialises and validates the entire generator before
+        # changing the live rule set.
+        self.add_rules_checked(new_rules)
 
     @property
     def row_rule_applicators(self) -> Iterator[Callable[[Rule], Iterable]]:

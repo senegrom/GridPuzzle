@@ -42,8 +42,7 @@ class KillerSudoku(Sudoku):
                 SumAndElementsAtMostOnce(gsz=self, cells=cells, mysum=cage_sum)
             )
 
-        for rule in rules:
-            self.add_rule_checked(rule)
+        self.add_rules_checked(rules)
 
     @staticmethod
     def _load_preprocess_colon_split(

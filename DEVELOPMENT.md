@@ -57,6 +57,10 @@ objects. Rule cells are immutable tuples, and hashing or registration freezes
 all existing instance fields; attempts to alter cells, targets, or dimensions
 then fail. Registration also rejects rules for another shape or value domain.
 Deterministic `@cached_property` values may still be populated after freezing.
+Rule and guarantee batches are fully validated before the first live-set
+mutation. A malformed later replacement therefore cannot deactivate its
+source rule or leave a partial batch behind; each successful batch also
+invalidates structural caches only once.
 Candidate sets and trail state are
 new per clone, and structural caches deliberately start empty. Subclasses that
 add instance state must override `Grid._copy_extra_state_to()` and detach that

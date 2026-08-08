@@ -5,10 +5,11 @@ import pytest
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
-from gridsolver.rules.rules import Guarantee
+from gridsolver.rules.rules import Guarantee, Rule
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce, SumRule
 from gridsolver.rules.uneq import DiffGe2Rule, UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
+from gridsolver.solver.propagation import apply_rules
 
 
 @pytest.mark.parametrize(
@@ -309,3 +310,165 @@ def test_grid_rejects_non_rules_and_pre_registration_cell_corruption():
 
     assert not grid.rules
     assert not rule._frozen
+
+
+
+class _StructuralOutputRule(Rule):
+    __slots__ = ("replacement_rules", "replacement_guarantees")
+
+    def __init__(
+        self,
+        grid,
+        *,
+        replacement_rules=None,
+        replacement_guarantees=None,
+    ):
+        super().__init__(grid, cells=[0])
+        self.replacement_rules = replacement_rules
+        self.replacement_guarantees = replacement_guarantees
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, self.replacement_rules, self.replacement_guarantees
+
+
+class _CountingGrid(Grid):
+    def __init__(self):
+        super().__init__(2)
+        self.struct_invalidations = 0
+        self.guarantee_invalidations = 0
+
+    def _invalidate_struct_cache(self):
+        self.struct_invalidations += 1
+        super()._invalidate_struct_cache()
+
+    def _invalidate_guarantee_cache(self):
+        self.guarantee_invalidations += 1
+        super()._invalidate_guarantee_cache()
+
+
+def test_rule_batch_validates_every_item_before_first_mutation():
+    grid = Grid(2)
+    valid = ElementsAtMostOnce(grid, cells=[0, 1])
+    incompatible = ElementsAtMostOnce(Grid(3), cells=[0, 1, 2])
+    cache_value = grid.cached_struct("sentinel", object)
+    cache = grid._struct_cache
+    mark = grid.trail_mark()
+
+    with pytest.raises(ValueError, match="dimensions"):
+        grid.add_rules_checked((valid, incompatible))
+
+    assert not grid.rules
+    assert not grid.rules_ia
+    assert not grid._trail_state.entries
+    assert grid._struct_cache is cache
+    assert grid._struct_cache["sentinel"] is cache_value
+    grid.trail_undo(mark)
+
+
+def test_guarantee_batch_validates_every_item_before_first_mutation():
+    grid = Grid(2)
+    valid = Guarantee(1, frozenset({0, 1}), 2, 2)
+    invalid = Guarantee(3, frozenset({2, 3}), 2, 2)
+    struct_value = grid.cached_struct("sentinel", object)
+    guarantee_value = grid.cached_guarantee_struct("sentinel", object)
+    struct_cache = grid._struct_cache
+    guarantee_cache = grid._guarantee_cache
+    mark = grid.trail_mark()
+
+    with pytest.raises(ValueError, match="outside 1..2"):
+        grid.add_gtees_checked((valid, invalid))
+
+    assert not grid.guarantees
+    assert not grid.guarantees_ia
+    assert not grid._trail_state.entries
+    assert grid._struct_cache is struct_cache
+    assert grid._guarantee_cache is guarantee_cache
+    assert grid._struct_cache["sentinel"] is struct_value
+    assert grid._guarantee_cache["sentinel"] is guarantee_value
+    grid.trail_undo(mark)
+
+
+def test_successful_batches_invalidate_each_cache_once_and_undo_exactly():
+    grid = _CountingGrid()
+    rules = (
+        ElementsAtMostOnce(grid, cells=[0, 1]),
+        ElementsAtMostOnce(grid, cells=[2, 3]),
+    )
+    guarantees = (
+        Guarantee(1, frozenset({0, 1}), 2, 2),
+        Guarantee(2, frozenset({2, 3}), 2, 2),
+    )
+    before = (
+        grid.rules.copy(),
+        grid.guarantees.copy(),
+        grid._struct_cache,
+        grid._guarantee_cache,
+    )
+    mark = grid.trail_mark()
+
+    grid.add_rules_checked(rules)
+    grid.add_gtees_checked(guarantees)
+
+    assert grid.rules == set(rules)
+    assert grid.guarantees == set(guarantees)
+    assert grid.struct_invalidations == 2
+    assert grid.guarantee_invalidations == 1
+    assert [entry[0] for entry in grid._trail_state.entries] == [
+        "rule+",
+        "rule+",
+        "gt+",
+        "gt+",
+    ]
+
+    grid.trail_undo(mark)
+    assert grid.rules == before[0]
+    assert grid.guarantees == before[1]
+    assert grid._struct_cache is before[2]
+    assert grid._guarantee_cache is before[3]
+    assert not grid._trail_state.entries
+
+
+def test_rule_outputs_are_validated_before_source_deactivation():
+    grid = Grid(2)
+    valid = ElementsAtMostOnce(grid, cells=[1, 2])
+    incompatible = ElementsAtMostOnce(Grid(3), cells=[0, 1, 2])
+    source = _StructuralOutputRule(
+        grid,
+        replacement_rules=(valid, incompatible),
+    )
+    grid.add_rule_checked(source)
+    cache_value = grid.cached_struct("sentinel", object)
+    cache = grid._struct_cache
+    mark = grid.trail_mark()
+
+    with pytest.raises(ValueError, match="dimensions"):
+        apply_rules(grid)
+
+    assert source in grid.rules
+    assert valid not in grid.rules
+    assert not grid.rules_ia
+    assert not grid._trail_state.entries
+    assert grid._struct_cache is cache
+    assert grid._struct_cache["sentinel"] is cache_value
+    grid.trail_undo(mark)
+
+
+def test_invalid_guarantee_output_does_not_deactivate_satisfied_source():
+    grid = Grid(2)
+    invalid = Guarantee(3, frozenset({0}), 2, 2)
+    source = _StructuralOutputRule(
+        grid,
+        replacement_rules=(),
+        replacement_guarantees=(invalid,),
+    )
+    grid.add_rule_checked(source)
+    mark = grid.trail_mark()
+
+    with pytest.raises(ValueError, match="outside 1..2"):
+        apply_rules(grid)
+
+    assert source in grid.rules
+    assert not grid.rules_ia
+    assert not grid.guarantees
+    assert not grid._trail_state.entries
+    grid.trail_undo(mark)

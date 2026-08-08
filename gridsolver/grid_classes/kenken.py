@@ -47,8 +47,7 @@ class Kenken(UniqueSquareGrid):
     def ext_target_cells(self, target_cells: Iterable[_CellTuple]) -> None:
         """Add arithmetic cages atomically."""
         rules = [self.make_rule(target_cell) for target_cell in target_cells]
-        for rule in rules:
-            self.add_rule_checked(rule)
+        self.add_rules_checked(rules)
 
     def load(
         self,
