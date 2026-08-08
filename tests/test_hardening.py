@@ -69,6 +69,29 @@ def test_grid_coordinates_and_assignments_are_validated():
         grid[0] = 2
 
 
+def test_grid_load_validates_the_complete_payload_before_mutating():
+    grid = Grid(2, max_elem=4)
+
+    with pytest.raises(TypeError, match="integers or strings"):
+        grid.load([1, 2, 3, 4.0])
+    assert not grid.has_been_filled
+    assert grid.known == (0, 0, 0, 0)
+
+    with pytest.raises(TypeError, match="integers or strings"):
+        grid.load([1, 2, 3, True])
+    assert not grid.has_been_filled
+    assert grid.known == (0, 0, 0, 0)
+
+    with pytest.raises(ValueError, match="outside"):
+        grid.load([1, 2, 3, 5])
+    assert not grid.has_been_filled
+    assert grid.known == (0, 0, 0, 0)
+    assert all(possible == {1, 2, 3, 4} for possible in grid._candidates)
+
+    grid.load([1, 2, 3, 4])
+    assert grid.known == (1, 3, 2, 4)
+
+
 def test_rule_rejects_empty_or_fully_outside_cell_sets():
     grid = Grid(2)
     with pytest.raises(ValueError, match="must not be empty"):
@@ -77,11 +100,13 @@ def test_rule_rejects_empty_or_fully_outside_cell_sets():
         _NoOpRule(grid, cells=[(9, 9)])
 
 
-def test_immutable_grid_validates_shape_and_hides_backing_array():
+def test_immutable_grid_validates_shape_domain_and_hides_backing_array():
     with pytest.raises(ValueError, match="Expected 2"):
         ImmutableGrid([1], rows=1, cols=2, max_elem=2)
     with pytest.raises(ValueError, match="non-negative"):
         ImmutableGrid([1, -1], rows=1, cols=2, max_elem=2)
+    with pytest.raises(ValueError, match="outside"):
+        ImmutableGrid([1, 3], rows=1, cols=2, max_elem=2)
 
     grid = ImmutableGrid([1, 2], rows=1, cols=2, max_elem=2)
     known = grid.known
@@ -92,6 +117,20 @@ def test_immutable_grid_validates_shape_and_hides_backing_array():
         known[0] = 2
     assert grid.known == (1, 2)
     assert hash(grid) == original_hash
+
+
+def test_smallest_guarantee_uses_a_stable_total_order():
+    grid = Grid(2)
+    expected = Guarantee(1, frozenset({2, 3}), grid.rows, grid.cols)
+    grid.guarantees.update(
+        {
+            Guarantee(2, frozenset({0, 1}), grid.rows, grid.cols),
+            expected,
+            Guarantee(1, frozenset({0, 1, 2}), grid.rows, grid.cols),
+        }
+    )
+
+    assert grid.get_smallest_guarantee() == expected
 
 
 def test_guarantee_cache_survives_rule_churn_only():

@@ -35,6 +35,8 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
             value = int(value)
             if value < 0:
                 raise ValueError(f"Grid values must be non-negative, got {value}")
+            if value > self.max_elem:
+                raise ValueError(f"Grid value {value} is outside 0..{self.max_elem}")
             normalized.append(value)
 
         self._known: ArrayType = array("I", normalized)

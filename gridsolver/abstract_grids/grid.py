@@ -44,6 +44,30 @@ def _load_preprocess_str_space_sep(values: str | Iterable[str]) -> list[str]:
     return [field for field in fields if field]
 
 
+def _parse_load_value(raw_value: object, max_elem: int) -> int:
+    """Parse one load token without permissive numeric coercion."""
+    if isinstance(raw_value, bool):
+        raise TypeError(f"Grid values must be integers or strings, got {raw_value!r}")
+
+    if isinstance(raw_value, Integral):
+        value = int(raw_value)
+    elif isinstance(raw_value, (str, bytes, bytearray)):
+        token = bytes(raw_value) if isinstance(raw_value, bytearray) else raw_value
+        try:
+            value = int(token)
+        except ValueError:
+            try:
+                value = int(token, base=36)
+            except ValueError as exc:
+                raise ValueError(f"Cannot parse grid value {raw_value!r}") from exc
+    else:
+        raise TypeError(f"Grid values must be integers or strings, got {raw_value!r}")
+
+    if not 0 <= value <= max_elem:
+        raise ValueError(f"Grid value {value} is outside 0..{max_elem}")
+    return value
+
+
 RuleT = TypeVar("RuleT", bound=Rule)
 
 
@@ -179,7 +203,16 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def get_smallest_guarantee(self) -> Guarantee | None:
         if not self.guarantees:
             return None
-        return min(self.guarantees, key=lambda guarantee: len(guarantee.cells))
+        return min(
+            self.guarantees,
+            key=lambda guarantee: (
+                len(guarantee.cells),
+                guarantee.val,
+                tuple(sorted(guarantee.cells)),
+                guarantee.rows,
+                guarantee.cols,
+            ),
+        )
 
     def add_rule_checked(self, rule: Rule) -> None:
         if rule not in self.rules_ia and rule not in self.rules:
@@ -241,7 +274,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
         if len(values) != expected_length:
             raise ValueError(f"Expected {expected_length} values, got {len(values)}")
-        self.has_been_filled = True
         return values
 
     def load(
@@ -253,24 +285,22 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     ) -> None:
         if self.has_been_filled:
             raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
-        values = self._load_preprocess_sequence(values, space_sep=space_sep)
 
-        def to_int(raw_value: object) -> int:
-            try:
-                return int(raw_value)
-            except (TypeError, ValueError):
-                try:
-                    return int(raw_value, base=36)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(f"Cannot parse grid value {raw_value!r}") from exc
+        raw_values = self._load_preprocess_sequence(values, space_sep=space_sep)
+        # Parse and range-check the complete payload before the first mutation.
+        # A malformed input therefore leaves the grid blank and retryable.
+        parsed_values = [
+            _parse_load_value(raw_value, self.max_elem)
+            for raw_value in raw_values
+        ]
 
         if row_wise:
-            for index, raw_value in enumerate(values):
+            for index, value in enumerate(parsed_values):
                 row, col = divmod(index, self.cols)
-                self[(row, col)] = to_int(raw_value)
+                self[(row, col)] = value
         else:
-            for index, raw_value in enumerate(values):
-                self[index] = to_int(raw_value)
+            for index, value in enumerate(parsed_values):
+                self[index] = value
 
     def _str_header(self, detailed: bool = False) -> str:
         header = (
