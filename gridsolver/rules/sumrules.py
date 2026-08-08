@@ -1,7 +1,6 @@
 import collections
 import itertools
 import reprlib
-from array import array
 from functools import cached_property
 from numbers import Integral
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
@@ -23,7 +22,7 @@ class SumRule(Rule):
     def __init__(self, gsz: Optional[GridSizeContainer], cells: Optional[Iterable[IdxType]], mysum: int):
         if gsz is not None and cells is not None:
             super().__init__(gsz, cells, None)
-            self.cells = array("I", sorted(self.cells))
+            self.cells = tuple(sorted(self.cells))
         self.sum = _integer_target("Sum", mysum)
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
@@ -104,7 +103,7 @@ class DiffRule(Rule):
                 raise ValueError("Difference cages must contain exactly two cells")
             super().__init__(gsz, cells, None)
             if self.cells[0] > self.cells[1]:
-                self.cells.reverse()
+                self.cells = tuple(reversed(self.cells))
         self.diff = target
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
@@ -175,7 +174,7 @@ class ProdRule(Rule):
             raise ValueError("Product targets must be positive")
         if gsz is not None and cells is not None:
             super().__init__(gsz, cells, None)
-            self.cells = array("I", sorted(self.cells))
+            self.cells = tuple(sorted(self.cells))
         self.prod = target
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None) -> \
@@ -263,7 +262,7 @@ class DivRule(Rule):
                 raise ValueError("Division cages must contain exactly two cells")
             super().__init__(gsz, cells, None)
             if self.cells[0] > self.cells[1]:
-                self.cells.reverse()
+                self.cells = tuple(reversed(self.cells))
         self.div = target
 
     def __hash__(self):

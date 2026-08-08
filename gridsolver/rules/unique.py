@@ -1,4 +1,3 @@
-from array import array
 from collections.abc import Iterable, MutableSequence
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -19,7 +18,7 @@ class ElementsAtMostOnce(Rule):
         # so cooperative super() would route this constructor through
         # SumRule.__init__ with the cell_creator argument as a temporary sum.
         Rule.__init__(self, gsz, cells, cell_creator)
-        self.cells = array("I", sorted(self.cells))
+        self.cells = tuple(sorted(self.cells))
 
     def apply(
         self,
@@ -95,7 +94,7 @@ class ElementsAtLeastOnce(Rule):
         cell_creator=None,
     ) -> None:
         Rule.__init__(self, gsz, cells, cell_creator)
-        self.cells = array("I", sorted(self.cells))
+        self.cells = tuple(sorted(self.cells))
 
     def apply(
         self,

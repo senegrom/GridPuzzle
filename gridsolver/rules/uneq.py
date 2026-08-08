@@ -1,5 +1,4 @@
 from abc import ABC
-from array import array
 from collections.abc import Iterable, MutableSequence
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -79,7 +78,7 @@ class SingleRelationRule(Rule, ABC):
             )
         self.origin_cell = self.cells[0]
         self.rel_cells = frozenset(self.cells[1:])
-        self.cells = array("I", [self.origin_cell, *sorted(self.rel_cells)])
+        self.cells = (self.origin_cell, *sorted(self.rel_cells))
 
     def __repr__(self) -> str:
         cell_str = ", ".join(_format_coord(cell, self._rows) for cell in self.rel_cells)

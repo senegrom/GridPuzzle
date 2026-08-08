@@ -314,7 +314,51 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         else:
             self._guarantee_cache.clear()
 
+    def _normalize_rule(self, rule: Rule) -> Rule:
+        """Validate one rule before hashing or changing grid state."""
+        if not isinstance(rule, Rule):
+            raise TypeError("Rules must be Rule instances")
+        if (rule._rows, rule._cols) != (self.rows, self.cols):
+            raise ValueError(
+                f"Rule dimensions {(rule._rows, rule._cols)} do not match "
+                f"grid dimensions {(self.rows, self.cols)}"
+            )
+        if rule._max_elem != self.max_elem:
+            raise ValueError(
+                f"Rule value domain 1..{rule._max_elem} does not match "
+                f"grid value domain 1..{self.max_elem}"
+            )
+
+        try:
+            raw_cells = tuple(rule.cells)
+        except TypeError as exc:
+            raise TypeError("Rule cells must be an iterable of integers") from exc
+        if not raw_cells:
+            raise ValueError("Rule cells must not be empty")
+
+        cells: list[int] = []
+        for raw_cell in raw_cells:
+            if isinstance(raw_cell, bool) or not isinstance(raw_cell, Integral):
+                raise TypeError("Rule cells must be integers")
+            cell = int(raw_cell)
+            if not 0 <= cell < self.len:
+                raise ValueError(f"Rule cell {cell} is outside 0..{self.len - 1}")
+            cells.append(cell)
+        if len(cells) != len(set(cells)):
+            raise ValueError("Rule cells must be unique")
+        if rule.len_cells != len(cells):
+            raise ValueError(
+                f"Rule len_cells={rule.len_cells!r} does not match "
+                f"its {len(cells)} cells"
+            )
+
+        canonical = tuple(cells)
+        if rule.cells != canonical:
+            rule.cells = canonical
+        return rule.freeze()
+
     def add_rule_checked(self, rule: Rule) -> None:
+        rule = self._normalize_rule(rule)
         if rule not in self.rules_ia and rule not in self.rules:
             self.rules.add(rule)
             if self._trail_state.active:

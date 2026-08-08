@@ -1,6 +1,5 @@
 import numbers
 from abc import ABC, abstractmethod
-from array import ArrayType, array
 from collections.abc import Callable, Iterable, MutableSequence, Sequence
 from typing import NamedTuple
 
@@ -50,11 +49,22 @@ type TApplyResult = tuple[
 
 
 class Rule(ABC):
-    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells")
+    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen")
 
     # False lets the solver skip per-rule guarantee-list construction. Every
     # subclass whose apply() body reads guarantees must set this to True.
     uses_guarantees = False
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_frozen", False) and hasattr(self, name):
+            raise AttributeError(
+                f"{type(self).__name__} is immutable after hashing or registration"
+            )
+        object.__setattr__(self, name, value)
+
+    def freeze(self) -> "Rule":
+        object.__setattr__(self, "_frozen", True)
+        return self
 
     def __init__(
         self,
@@ -62,6 +72,7 @@ class Rule(ABC):
         cells: Iterable[IdxType] | None = None,
         cell_creator: TCellCreator | None = None,
     ) -> None:
+        object.__setattr__(self, "_frozen", False)
         self._rows = gsz.rows
         self._cols = gsz.cols
         self._max_elem = gsz.max_elem
@@ -120,7 +131,7 @@ class Rule(ABC):
         if len(normalized) != len(set(normalized)):
             raise ValueError(f"{type(self).__name__} cells must be unique")
 
-        self.cells: ArrayType = array("I", normalized)
+        self.cells: tuple[int, ...] = tuple(normalized)
         self.len_cells = len(self.cells)
 
     def cells_as_row_or_column(self, idx: int, row_wise: bool) -> Iterable[IdxType]:
@@ -153,10 +164,11 @@ class Rule(ABC):
         )
 
     def __hash__(self) -> int:
+        self.freeze()
         return hash(
             (
                 type(self),
-                bytes(self.cells),
+                self.cells,
                 self._rows,
                 self._cols,
                 self._max_elem,

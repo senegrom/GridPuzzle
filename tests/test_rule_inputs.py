@@ -1,10 +1,12 @@
+import pickle
+
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.rules.rules import Guarantee
-from gridsolver.rules.sumrules import SumRule
+from gridsolver.rules.sumrules import SumAndElementsAtMostOnce, SumRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 
 
@@ -157,3 +159,92 @@ def test_killer_rejects_unused_definitions_atomically_and_is_retryable():
 
     grid.load_with_dic(layout, {"a": 10, "b": 10, "c": 10, "d": 10})
     assert grid.has_been_filled
+
+
+
+def test_registered_rules_are_immutable_and_hash_stable():
+    grid = Grid(2)
+    rule = SumRule(grid, cells=[1, 0], mysum=3)
+    grid.add_rule_checked(rule)
+    original_hash = hash(rule)
+
+    assert rule.cells == (0, 1)
+    assert rule in grid.rules
+
+    with pytest.raises(AttributeError, match="immutable"):
+        rule.cells = (0,)
+    with pytest.raises(AttributeError, match="immutable"):
+        rule.len_cells = 1
+    with pytest.raises(AttributeError, match="immutable"):
+        rule.sum = 4
+    with pytest.raises(TypeError):
+        rule.cells[0] = 1
+
+    assert hash(rule) == original_hash
+    assert rule in grid.rules
+
+
+def test_hashing_a_rule_freezes_it_even_outside_a_grid():
+    rule = ElementsAtMostOnce(Grid(2), cells=[0, 1])
+    original_hash = hash(rule)
+
+    with pytest.raises(AttributeError, match="immutable"):
+        rule.cells = (0, 2)
+
+    assert hash(rule) == original_hash
+
+
+def test_frozen_rules_pickle_and_cached_properties_still_work():
+    grid = Grid(2)
+    cage = SumAndElementsAtMostOnce(grid, cells=[0, 1], mysum=3)
+    grid.add_rule_checked(cage)
+
+    assert cage.sum_candidates
+    assert cage.candidates == frozenset({1, 2})
+
+    restored = pickle.loads(pickle.dumps(cage))
+    assert restored == cage
+    assert hash(restored) == hash(cage)
+    assert restored.sum_candidates == cage.sum_candidates
+    with pytest.raises(AttributeError, match="immutable"):
+        restored.sum = 4
+
+
+@pytest.mark.parametrize(
+    "target, message",
+    [
+        (Grid(3), "dimensions"),
+        (Grid(2, 2, max_elem=3), "value domain"),
+    ],
+)
+def test_grid_rejects_rules_for_an_incompatible_shape_or_domain(target, message):
+    source = Grid(2)
+    rule = ElementsAtMostOnce(source, cells=[0, 1])
+    target.cached_struct("sentinel", object)
+    cache = target._struct_cache
+    mark = target.trail_mark()
+
+    with pytest.raises(ValueError, match=message):
+        target.add_rule_checked(rule)
+
+    assert not target.rules
+    assert not target.rules_ia
+    assert not target._trail_state.entries
+    assert target._struct_cache is cache
+    grid_cache_value = target._struct_cache["sentinel"]
+    target.trail_undo(mark)
+    assert target._struct_cache["sentinel"] is grid_cache_value
+
+
+def test_grid_rejects_non_rules_and_pre_registration_cell_corruption():
+    grid = Grid(2)
+    with pytest.raises(TypeError, match="Rule instances"):
+        grid.add_rule_checked(object())
+
+    rule = ElementsAtMostOnce(grid, cells=[0, 1])
+    rule.cells = (0, 4)
+    with pytest.raises(ValueError, match="outside 0..3"):
+        grid.add_rule_checked(rule)
+
+    assert not grid.rules
+    assert not rule._frozen
