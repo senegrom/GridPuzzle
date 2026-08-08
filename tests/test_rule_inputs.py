@@ -1,6 +1,8 @@
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.grid_classes.kenken import Kenken
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.sumrules import SumRule
 from gridsolver.rules.unique import ElementsAtMostOnce
@@ -42,7 +44,6 @@ def test_arithmetic_rule_does_not_silently_weaken_an_invalid_cage():
         not isinstance(rule, SumRule)
         for rule in grid.rules
     )
-
 
 
 def test_bulk_rule_extension_is_atomic_when_a_later_rule_is_invalid():
@@ -117,3 +118,42 @@ def test_guarantee_is_canonicalised_and_rolls_back_transactionally():
     assert not grid.guarantees
     assert not grid.guarantees_ia
     assert not grid._trail_state.entries
+
+
+def test_kenken_rejects_unused_definitions_atomically_and_is_retryable():
+    grid = Kenken(n=2)
+    before_rules = grid.rules.copy()
+
+    with pytest.raises(ValueError, match="Unused KenKen"):
+        grid.load_with_dic(
+            "aabb",
+            {
+                "a": ("+", 3),
+                "b": ("+", 3),
+                "z": ("+", 1),
+            },
+        )
+
+    assert not grid.has_been_filled
+    assert grid.rules == before_rules
+
+    grid.load_with_dic("aabb", {"a": ("+", 3), "b": ("+", 3)})
+    assert grid.has_been_filled
+
+
+def test_killer_rejects_unused_definitions_atomically_and_is_retryable():
+    grid = KillerSudoku(None, 2, 2, 2, 2)
+    before_rules = grid.rules.copy()
+    layout = "aaaabbbbccccdddd"
+
+    with pytest.raises(ValueError, match="Unused Killer Sudoku"):
+        grid.load_with_dic(
+            layout,
+            {"a": 10, "b": 10, "c": 10, "d": 10, "z": 1},
+        )
+
+    assert not grid.has_been_filled
+    assert grid.rules == before_rules
+
+    grid.load_with_dic(layout, {"a": 10, "b": 10, "c": 10, "d": 10})
+    assert grid.has_been_filled

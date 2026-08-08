@@ -118,6 +118,11 @@ class Kenken(UniqueSquareGrid):
                     (first, second) if row_wise else (second, first)
                 )
 
+        unused_labels = set(dic).difference(final_dic)
+        if unused_labels:
+            rendered = ", ".join(sorted(repr(label) for label in unused_labels))
+            raise ValueError(f"Unused KenKen cage definitions: {rendered}")
+
         # Build every rule before changing the grid, then commit the complete set.
         self.ext_target_cells(final_dic.values())
         self.has_been_filled = True
