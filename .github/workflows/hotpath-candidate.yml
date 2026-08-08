@@ -40,6 +40,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
           def replace_between(text: str, start_marker: str, end_marker: str, replacement: str) -> str:
               start = text.index(start_marker)
@@ -50,22 +51,27 @@ jobs:
           # visibility checks without changing the graph or traversal order.
           path = Path("gridsolver/solver/solve_aic.py")
           text = path.read_text(encoding="utf-8")
-          replacement = '''    def _get_cells(node: Node) -> FrozenSet[int] | tuple[int]:
-        """Return an existing group or a compact singleton view."""
-        cells, _ = node
-        if isinstance(cells, frozenset):
-            return cells
-        return (cells,)
+          replacement = dedent('''
+              def _get_cells(node: Node) -> FrozenSet[int] | tuple[int]:
+                  """Return an existing group or a compact singleton view."""
+                  cells, _ = node
+                  if isinstance(cells, frozenset):
+                      return cells
+                  return (cells,)
 
-    def _cells_see_all(target_cell: int, node: Node) -> bool:
-        """Whether target_cell sees every cell in node, allocation-free."""
-        cells, _ = node
-        peers = cell_peers[target_cell]
-        if isinstance(cells, frozenset):
-            return cells <= peers
-        return cells in peers
+              def _cells_see_all(target_cell: int, node: Node) -> bool:
+                  """Whether target_cell sees every cell in node, allocation-free."""
+                  cells, _ = node
+                  peers = cell_peers[target_cell]
+                  if isinstance(cells, frozenset):
+                      return cells <= peers
+                  return cells in peers
 
-'''
+          ''')
+          replacement = "".join(
+              f"    {line}\n" if line else "\n"
+              for line in replacement.splitlines()
+          )
           text = replace_between(
               text,
               "    def _get_cells(node: Node) -> Set[int]:\n",
@@ -78,44 +84,47 @@ jobs:
           # per house and then repeatedly merging/deactivating temporary rules.
           path = Path("gridsolver/solver/rulehelpers.py")
           text = path.read_text(encoding="utf-8")
-          replacement = '''def rulehelper_atmostonce(grid: Grid) -> None:
-    """Materialise the union of all active inequalities per origin cell."""
-    desired: list[set[int]] = [set() for _ in range(grid.len)]
-    for cells in grid.unique_rule_cells:
-        if len(cells) <= 1:
-            continue
-        for cell in cells:
-            desired[cell].update(cells)
-            desired[cell].discard(cell)
+          replacement = dedent('''
+              def rulehelper_atmostonce(grid: Grid) -> None:
+                  """Materialise the union of all active inequalities per origin cell."""
+                  desired: list[set[int]] = [set() for _ in range(grid.len)]
+                  for cells in grid.unique_rule_cells:
+                      if len(cells) <= 1:
+                          continue
+                      for cell in cells:
+                          desired[cell].update(cells)
+                          desired[cell].discard(cell)
 
-    existing_by_origin: dict[int, list[uneq.UneqRule]] = {}
-    for rule in grid.get_rules_of_type(uneq.UneqRule):
-        existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
+                  existing_by_origin: dict[int, list[uneq.UneqRule]] = {}
+                  for rule in grid.get_rules_of_type(uneq.UneqRule):
+                      existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
 
-    additions: list[uneq.UneqRule] = []
-    to_deactivate: list[uneq.UneqRule] = []
-    for origin, required in enumerate(desired):
-        existing = existing_by_origin.get(origin, [])
-        merged = set(required)
-        for rule in existing:
-            merged.update(rule.rel_cells)
-        if not merged:
-            continue
+                  additions: list[uneq.UneqRule] = []
+                  to_deactivate: list[uneq.UneqRule] = []
+                  for origin, required in enumerate(desired):
+                      existing = existing_by_origin.get(origin, [])
+                      merged = set(required)
+                      for rule in existing:
+                          merged.update(rule.rel_cells)
+                      if not merged:
+                          continue
 
-        target = frozenset(merged)
-        keeper = next(
-            (rule for rule in existing if rule.rel_cells == target),
-            None,
-        )
-        to_deactivate.extend(rule for rule in existing if rule is not keeper)
-        if keeper is None:
-            additions.append(uneq.UneqRule(grid, origin, target))
+                      target = frozenset(merged)
+                      keeper = next(
+                          (rule for rule in existing if rule.rel_cells == target),
+                          None,
+                      )
+                      to_deactivate.extend(
+                          rule for rule in existing if rule is not keeper
+                      )
+                      if keeper is None:
+                          additions.append(uneq.UneqRule(grid, origin, target))
 
-    for rule in to_deactivate:
-        grid.deactivate_rule(rule)
-    grid.add_rules_checked(additions)
+                  for rule in to_deactivate:
+                      grid.deactivate_rule(rule)
+                  grid.add_rules_checked(additions)
 
-'''
+          ''').lstrip()
           text = replace_between(
               text,
               "def rulehelper_atmostonce(grid: Grid) -> None:\n",
