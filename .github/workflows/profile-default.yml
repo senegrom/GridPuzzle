@@ -1,0 +1,88 @@
+name: Temporary default-solver profile
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/profile-default.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profile-default-solver
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip check
+
+      - name: Profile default full solver
+        shell: bash
+        run: |
+          cat > /tmp/profile_default.py <<'PY'
+          import logging
+          import sys
+
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+
+          logging.disable(10_000)
+
+          case = sys.argv[1]
+          if case == "blank4":
+              grid = Sudoku(2, 2, 2, 2)
+              expected = 288
+              max_sols = -1
+          elif case == "nonsquare6":
+              grid = Sudoku(3, 2, 2, 3)
+              grid.load("123456654321........................", row_wise=False)
+              expected = 20
+              max_sols = 20
+          else:
+              raise SystemExit(case)
+
+          solutions = solver.solve(
+              grid,
+              log_level=0,
+              max_sols=max_sols,
+              depth_gate=None,
+          )
+          if len(solutions) != expected:
+              raise SystemExit(f"expected {expected}, got {len(solutions)}")
+          PY
+
+          python -m cProfile -o /tmp/blank4.prof /tmp/profile_default.py blank4
+          python -m cProfile -o /tmp/nonsquare6.prof /tmp/profile_default.py nonsquare6
+
+          python - <<'PY'
+          import pstats
+
+          for name in ("blank4", "nonsquare6"):
+              print(f"\n===== {name}: cumulative =====")
+              pstats.Stats(f"/tmp/{name}.prof").strip_dirs().sort_stats("cumulative").print_stats(60)
+              print(f"\n===== {name}: internal time =====")
+              pstats.Stats(f"/tmp/{name}.prof").strip_dirs().sort_stats("tottime").print_stats(60)
+          PY
