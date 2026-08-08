@@ -29,7 +29,11 @@ def _cap_solutions(
     return solutions
 
 
-def _validate_solve_options(max_sols: int, processes: int) -> tuple[int, int]:
+def _validate_solve_options(
+    max_sols: int,
+    processes: int,
+    depth_gate: int | None,
+) -> tuple[int, int, int | None]:
     for name, value in (("max_sols", max_sols), ("processes", processes)):
         if isinstance(value, bool) or not isinstance(value, Integral):
             raise TypeError(f"{name} must be an integer")
@@ -40,16 +44,34 @@ def _validate_solve_options(max_sols: int, processes: int) -> tuple[int, int]:
         raise ValueError("max_sols must be -1 (unlimited) or non-negative")
     if processes < 0:
         raise ValueError("processes must be non-negative")
-    return max_sols, processes
 
+    if depth_gate is not None:
+        if isinstance(depth_gate, bool) or not isinstance(depth_gate, Integral):
+            raise TypeError("depth_gate must be None or a non-negative integer")
+        depth_gate = int(depth_gate)
+        if depth_gate < 0:
+            raise ValueError("depth_gate must be non-negative")
+
+    return max_sols, processes, depth_gate
 
 def solve(
     grid: Grid,
     log_level: int | None = None,
     max_sols: int = -1,
     processes: int = 0,
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
-    max_sols, processes = _validate_solve_options(max_sols, processes)
+    """Solve a grid without mutating it.
+
+    ``depth_gate`` is an optional backtracking-depth threshold. At
+    deeper nodes only the cheap deduction tier runs before search.
+    ``None`` preserves the complete technique hierarchy everywhere.
+    """
+    max_sols, processes, depth_gate = _validate_solve_options(
+        max_sols,
+        processes,
+        depth_gate,
+    )
     if log_level is not None:
         set_loglevel(log_level)
     if max_sols == 0:
@@ -58,9 +80,20 @@ def solve(
     # Solving operates exclusively on clones. The caller may therefore reuse,
     # extend, or load the original grid after this function returns.
     if processes > 1:
-        solutions = _solve_top_parallel(grid.deepcopy(), max_sols, processes)
+        solutions = _solve_top_parallel(
+            grid.deepcopy(),
+            max_sols,
+            processes,
+            depth_gate,
+        )
     else:
-        solutions = _solve_full(grid.deepcopy(), [], max_sols, set())
+        solutions = _solve_full(
+            grid.deepcopy(),
+            [],
+            max_sols,
+            set(),
+            depth_gate,
+        )
 
     # Check every generated solution before capping the returned subset. This
     # turns any future unsound deduction into an immediate, local failure rather
@@ -78,11 +111,21 @@ def solve(
     return solutions
 
 
-def _solve_top_parallel(grid: Grid, max_sols: int, processes: int) -> set[ImmutableGrid]:
+def _solve_top_parallel(
+    grid: Grid,
+    max_sols: int,
+    processes: int,
+    depth_gate: int | None,
+) -> set[ImmutableGrid]:
     """Run one atomic pass, then distribute deterministic first-level branches."""
     from gridsolver.solver.solve_parallel import solve_parallel_trials
 
-    status = AtomicSolver(grid, [0], set()).solve_atomic()
+    status = AtomicSolver(
+        grid,
+        [0],
+        set(),
+        depth_gate=depth_gate,
+    ).solve_atomic()
     if status is SolveStatus.SOLVED:
         return {
             ImmutableGrid(
@@ -106,7 +149,13 @@ def _solve_top_parallel(grid: Grid, max_sols: int, processes: int) -> set[Immuta
         branches = [(test_cell, value) for value in values]
 
     _lg.logs(0, f"Parallel: {len(branches)} top-level branches on {processes} processes")
-    return solve_parallel_trials(grid, branches, max_sols, processes)
+    return solve_parallel_trials(
+        grid,
+        branches,
+        max_sols,
+        processes,
+        depth_gate,
+    )
 
 
 def _solve_full(
@@ -114,13 +163,19 @@ def _solve_full(
     steps: list[int],
     max_sols: int,
     hidden_pair_checked_gts: set[Guarantee],
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     steps.append(0)
     try:
         if len(steps) == len(grid) - GC_LEN_PARAM:
             gc.collect()
 
-        status = AtomicSolver(grid, steps, hidden_pair_checked_gts).solve_atomic()
+        status = AtomicSolver(
+            grid,
+            steps,
+            hidden_pair_checked_gts,
+            depth_gate=depth_gate,
+        ).solve_atomic()
         if status is SolveStatus.SOLVED:
             return {
                 ImmutableGrid(
@@ -177,6 +232,7 @@ def _solve_full(
                     steps,
                     remaining,
                     checked_guarantees,
+                    depth_gate,
                 )
             finally:
                 grid.trail_undo(mark)

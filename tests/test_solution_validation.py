@@ -48,7 +48,7 @@ def test_solve_refuses_an_invalid_internal_result(monkeypatch):
     monkeypatch.setattr(
         solver,
         "_solve_full",
-        lambda grid, steps, max_sols, checked: {invalid},
+        lambda grid, steps, max_sols, checked, depth_gate=None: {invalid},
     )
 
     with pytest.raises(InvalidSolutionError, match="changes given cell"):

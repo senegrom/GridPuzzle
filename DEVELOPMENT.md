@@ -39,6 +39,11 @@ one mutable grid through transactional trail scopes.
 candidates, rules, guarantees, fill state, and caches are not used as mutable
 search state.
 
+**Depth gating is explicit per solve.**
+`solver.solve(..., depth_gate=K)` passes the threshold through recursive and
+process-pool branches. No module-global policy is read, so concurrent solves
+can use different thresholds safely. `None` is the default and retains all
+techniques at every depth.
 **Speculative work uses reversible trails.**
 Candidate sets are `TrailedSet` objects that snapshot once per nested frame.
 Known assignments, rule/guarantee transitions, parent cache dictionaries, and

@@ -204,7 +204,10 @@ def test_forcing_chain_uses_trail_and_merges_valid_branches(monkeypatch):
     def fail_deepcopy(self):
         raise AssertionError("forcing chain must not deepcopy branch grids")
 
-    def fake_propagation(branch: Grid) -> SolveStatus:
+    def fake_propagation(
+        branch: Grid,
+        depth_gate: int | None = None,
+    ) -> SolveStatus:
         branch[1] = 2
         return SolveStatus.NONE
 

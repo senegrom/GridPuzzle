@@ -59,6 +59,8 @@ def test_cli_parser_exposes_parallel_and_solution_limits():
             "3",
             "--max-solutions",
             "2",
+            "--depth-gate",
+            "1",
             "--colour",
             "No",
         ]
@@ -68,6 +70,7 @@ def test_cli_parser_exposes_parallel_and_solution_limits():
     assert args.puzzle_class == "latinsquare"
     assert args.processes == 3
     assert args.max_solutions == 2
+    assert args.depth_gate == 1
     assert args.colour == "No"
 
 
@@ -81,6 +84,10 @@ def test_cli_parser_rejects_invalid_worker_and_solution_limits():
         parser.parse_args([*common, "--max-solutions", "-2"])
     with pytest.raises(SystemExit):
         parser.parse_args([*common, "--processes", "not-an-int"])
+    with pytest.raises(SystemExit):
+        parser.parse_args([*common, "--depth-gate", "-1"])
+    with pytest.raises(SystemExit):
+        parser.parse_args([*common, "--depth-gate", "not-an-int"])
 
 
 def test_get_log_does_not_reconfigure_the_root_logger():

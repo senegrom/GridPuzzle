@@ -9,7 +9,6 @@ import pytest
 from gridsolver.abstract_grids.grid import SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.sudoku import Sudoku
-from gridsolver.solver import atomic_solver as atomic_solver_module
 from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.propagation import propagate_basic
@@ -250,11 +249,7 @@ def _grid_from_completions(completions: tuple[Solution, ...]) -> Sudoku:
     return grid
 
 
-def _exercise_each_power_action(
-    distance: int,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(atomic_solver_module, "DEPTH_GATE_K", None)
+def _exercise_each_power_action(distance: int) -> None:
     completions = _solution_pair_at_distance(distance)
     grid = _grid_from_completions(completions)
     atomic = AtomicSolver(grid, [], set())
@@ -283,16 +278,13 @@ def _exercise_each_power_action(
     assert tuple(labels) == _POWER_ACTION_LABELS
 
 
-def test_each_power_action_preserves_two_oracle_completions(monkeypatch):
+def test_each_power_action_preserves_two_oracle_completions():
     """Execute every deduction tier against a small independently valid state."""
-    _exercise_each_power_action(4, monkeypatch)
+    _exercise_each_power_action(4)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("distance", [8, 12, 16])
-def test_each_power_action_preserves_broader_oracle_states(
-    distance,
-    monkeypatch,
-):
+def test_each_power_action_preserves_broader_oracle_states(distance):
     """Exercise every tier on progressively less constrained oracle states."""
-    _exercise_each_power_action(distance, monkeypatch)
+    _exercise_each_power_action(distance)

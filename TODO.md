@@ -79,7 +79,7 @@ could avoid pickle/startup costs, but must be benchmarked against the existing
 process pool and requires eliminating or context-localising the remaining
 process-wide statistics and logging state.
 
-## Depth-gated technique tiers — DONE as an opt-in flag
+## Depth-gated technique tiers — DONE as an explicit per-solve option
 
 `atomic_solver.DEPTH_GATE_K` runs only the cheap tier below a chosen search
 depth. Historical measurements at K=1: blank 4x4 37.0s -> 2.6s; non-square

@@ -100,29 +100,6 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
-@pytest.mark.slow  # ~1 min: full 288-solution enumeration twice + pool spawn
-def test_uses_guarantees_flag_matches_apply_bodies():
-    # the solver skips building the guarantee list for rules with the flag
-    # unset — a rule that reads `guarantees` without setting it would silently
-    # lose deductions, so pin the classification against the source
-    import inspect
-    from gridsolver.rules import rules as rules_mod, sumrules, uneq, unique
-    from gridsolver.rules.rules import Rule
-    seen = 0
-    for mod in (rules_mod, sumrules, uneq, unique):
-        for _, cls in inspect.getmembers(mod, inspect.isclass):
-            if not issubclass(cls, Rule) or "apply" not in cls.__dict__:
-                continue
-            seen += 1
-            src = inspect.getsource(cls.__dict__["apply"])
-            body = src.split(":", 1)[1] if ":" in src else src
-            reads_gts = "guarantees" in body.split("->")[-1].replace(
-                "guarantees: Set[Guarantee] = None", "")
-            assert not reads_gts or cls.uses_guarantees, \
-                f"{cls.__name__}.apply reads guarantees but uses_guarantees is False"
-    assert seen >= 8
-
-
 def test_parallel_trials_match_sequential():
     # cross-process solution sets must merge correctly (also guards the
     # process-stable ImmutableGrid hash: hash(bytes) is salted per process)

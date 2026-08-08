@@ -24,14 +24,16 @@ def _cap_solutions(
     return solutions
 
 
-def _solve_branch(payload: tuple[Grid, int, int, int]) -> set[ImmutableGrid]:
-    grid, cell, value, max_sols = payload
+def _solve_branch(
+    payload: tuple[Grid, int, int, int, int | None],
+) -> set[ImmutableGrid]:
+    grid, cell, value, max_sols, depth_gate = payload
     from gridsolver.solver import solver as _solver
     from gridsolver.solver.solver_log import lg as _lg
 
     _lg.set_lvl(0)
     grid[cell] = value
-    return _solver._solve_full(grid, [0], max_sols, set())
+    return _solver._solve_full(grid, [0], max_sols, set(), depth_gate)
 
 
 def solve_parallel_trials(
@@ -39,6 +41,7 @@ def solve_parallel_trials(
     branches: list[tuple[int, int]],
     max_sols: int,
     processes: int,
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Solve branches concurrently while consuming results in branch order."""
     # Derived caches are cheap to rebuild and can dominate pickled payloads.
@@ -49,7 +52,10 @@ def solve_parallel_trials(
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as pool:
         futures = [
-            pool.submit(_solve_branch, (grid, cell, value, max_sols))
+            pool.submit(
+                _solve_branch,
+                (grid, cell, value, max_sols, depth_gate),
+            )
             for cell, value in ordered_branches
         ]
         for index, future in enumerate(futures):

@@ -41,9 +41,6 @@ POWER_HITS: Counter[str] = Counter()
 POWER_ELIMS: Counter[str] = Counter()
 POWER_RULE_CHANGES: Counter[str] = Counter()
 
-# At backtracking depth greater than this value, run only the cheap tier.
-# Behaviour-affecting and therefore disabled by default.
-DEPTH_GATE_K: int | None = None
 
 
 def reset_power_stats() -> None:
@@ -79,10 +76,12 @@ class AtomicSolver:
         grid: Grid,
         upsteps: list[int],
         hidden_pair_checked_gts: set[Guarantee],
+        depth_gate: int | None = None,
     ) -> None:
         self.grid = grid
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
+        self.depth_gate = depth_gate
 
     def solve_atomic(self) -> SolveStatus:
         _lg.logs(_MAX_LVL, "Solving rule-based")
@@ -214,7 +213,11 @@ class AtomicSolver:
         yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(grid))
         yield self._act("naked_tuples5", lambda: remove_naked_tuples(grid, 5))
 
-        if DEPTH_GATE_K is not None and not in_forcing_chain and len(self.upsteps) > DEPTH_GATE_K:
+        if (
+            self.depth_gate is not None
+            and not in_forcing_chain
+            and len(self.upsteps) > self.depth_gate
+        ):
             return
 
         yield self._act("xy_wing", lambda: xy_wing(grid))
@@ -225,7 +228,10 @@ class AtomicSolver:
         yield self._act("als_xz", lambda: als_xz(grid))
         yield self._act("als_xy_wing", lambda: als_xy_wing(grid))
         yield self._act("sue_de_coq", lambda: sue_de_coq(grid))
-        yield self._act("forcing_chain", lambda: forcing_chain(grid))
+        yield self._act(
+            "forcing_chain",
+            lambda: forcing_chain(grid, self.depth_gate),
+        )
         yield self._act("hidden_tuples3", lambda: self._hidden_tuples(3))
         yield self._act("fish2", lambda: fish(grid, 2))
         yield self._act("naked_tuples10", lambda: remove_naked_tuples(grid, 10))

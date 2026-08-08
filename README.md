@@ -63,30 +63,25 @@ The hardest built-in test puzzle (`example_t`) is solved entirely without backtr
 
 ## Arguments
 
-```
-usage: run.py [-h] [-m MODULE] [-s STR]
-              [-c {sudoku,killersudoku,futoshiki,kenken,latinsquare,diagonallatinsquare,pandiagonallatinsquare}]
-              [-o {No,Colorama,Rich}] [-f FILE]
-              [-e {a,b,c,d,f,m,s,t}] [-d DETAIL] [-v]
+The installed `gridpuzzle` command and `python run.py` expose the same
+options. Use `--processes N` for top-level process-pool search and
+`--max-solutions N` to cap the deterministic returned subset.
 
-Solve grid puzzle
+`--depth-gate K` is an opt-in performance policy: at backtracking depths
+deeper than `K`, the solver runs only the cheap deduction tier before
+branching. The default is disabled, preserving the full technique hierarchy
+at every search node. The equivalent library call is:
 
-options:
-  -h, --help            show this help message and exit
-  -m MODULE, --module MODULE
-                        module file to load puzzle from
-  -s STR, --str STR     string to load puzzle from
-  -c {sudoku,killersudoku,futoshiki,kenken,latinsquare,diagonallatinsquare,pandiagonallatinsquare}, --class_ {...}
-                        puzzle class
-  -o {No,Colorama,Rich}, --colour {No,Colorama,Rich}
-                        colour output mode (default: Colorama)
-  -f FILE, --file FILE  puzzle string file to load puzzle from
-  -e {a,b,c,d,f,m,s,t}, --example {a,b,c,d,f,m,s,t}
-                        choose one of the default example puzzles
-  -d DETAIL, --detail DETAIL
-                        detail of log output (higher means more intermediate steps)
-  -v, --verbose         print very detailed log output (every step)
+```python
+solutions = solver.solve(
+    grid,
+    processes=0,
+    max_sols=-1,
+    depth_gate=None,
+)
 ```
+
+Run `gridpuzzle --help` for the complete parser-generated option list.
 
 ## Rule types
 

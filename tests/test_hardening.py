@@ -230,17 +230,43 @@ def test_solver_options_are_explicit():
         solver.solve(Grid(1), processes=-1)
     with pytest.raises(TypeError, match="processes"):
         solver.solve(Grid(1), processes=1.5)
+    with pytest.raises(ValueError, match="depth_gate"):
+        solver.solve(Grid(1), depth_gate=-1)
+    with pytest.raises(TypeError, match="depth_gate"):
+        solver.solve(Grid(1), depth_gate=True)
+    with pytest.raises(TypeError, match="depth_gate"):
+        solver.solve(Grid(1), depth_gate=1.5)
 
-    assert solver.solve(Grid(1), max_sols=0) == set()
+    assert solver.solve(Grid(1), max_sols=0, depth_gate=0) == set()
 
 
 def test_capped_solution_subset_is_deterministic_across_process_modes():
     first = solver.solve(_small_sudoku(), log_level=0, max_sols=2)
     second = solver.solve(_small_sudoku(), log_level=0, max_sols=2)
-    parallel = solver.solve(_small_sudoku(), log_level=0, max_sols=2, processes=2)
+    parallel = solver.solve(
+        _small_sudoku(),
+        log_level=0,
+        max_sols=2,
+        processes=2,
+    )
+    gated = solver.solve(
+        _small_sudoku(),
+        log_level=0,
+        max_sols=2,
+        depth_gate=0,
+    )
+    parallel_gated = solver.solve(
+        _small_sudoku(),
+        log_level=0,
+        max_sols=2,
+        processes=2,
+        depth_gate=0,
+    )
+    after_gated = solver.solve(_small_sudoku(), log_level=0, max_sols=2)
 
     assert len(first) == 2
     assert first == second == parallel
+    assert first == gated == parallel_gated == after_gated
 
 
 @pytest.mark.parametrize("puzzle", [".........", "12......."])
