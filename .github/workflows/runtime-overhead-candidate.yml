@@ -41,13 +41,18 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
+          from textwrap import dedent, indent
 
-          def replace_once(path: Path, old: str, new: str) -> None:
+          def replace_once(
+              path: Path,
+              label: str,
+              old: str,
+              new: str,
+          ) -> None:
               text = path.read_text(encoding="utf-8")
               if text.count(old) != 1:
                   raise SystemExit(
-                      f"{path}: expected one marker, found {text.count(old)}"
+                      f"{path} {label}: expected one marker, found {text.count(old)}"
                   )
               path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
@@ -68,6 +73,7 @@ jobs:
           atomic = Path("gridsolver/solver/atomic_solver.py")
           replace_once(
               atomic,
+              "import",
               "from collections.abc import Callable, Iterator\n",
               (
                   "from collections.abc import Callable, Iterator\n"
@@ -111,75 +117,77 @@ jobs:
 
           replace_once(
               atomic,
-              dedent('''
-                          self.hidden_pair_checked_gts = hidden_pair_checked_gts
-                          self.depth_gate = depth_gate
-              '''),
-              dedent('''
-                          self.hidden_pair_checked_gts = hidden_pair_checked_gts
-                          self.depth_gate = depth_gate
-                          self.collect_stats = power_stats_enabled()
-                          self.collect_timing = self.collect_stats or _lg.on
-              '''),
+              "initializer",
+              (
+                  "        self.hidden_pair_checked_gts = hidden_pair_checked_gts\n"
+                  "        self.depth_gate = depth_gate\n"
+              ),
+              (
+                  "        self.hidden_pair_checked_gts = hidden_pair_checked_gts\n"
+                  "        self.depth_gate = depth_gate\n"
+                  "        self.collect_stats = power_stats_enabled()\n"
+                  "        self.collect_timing = self.collect_stats or _lg.on\n"
+              ),
           )
 
           replace_once(
               atomic,
-              dedent('''
-                          try:
-                              with _lg.time_ctxt("update_step"):
-                                  self._update_step()
-                          except InvalidGrid:
-              '''),
-              dedent('''
-                          try:
-                              if self.collect_timing:
-                                  with _lg.time_ctxt("update_step"):
-                                      self._update_step()
-                              else:
-                                  self._update_step()
-                          except InvalidGrid:
-              '''),
+              "outer timing",
+              (
+                  "            try:\n"
+                  "                with _lg.time_ctxt(\"update_step\"):\n"
+                  "                    self._update_step()\n"
+                  "            except InvalidGrid:\n"
+              ),
+              (
+                  "            try:\n"
+                  "                if self.collect_timing:\n"
+                  "                    with _lg.time_ctxt(\"update_step\"):\n"
+                  "                        self._update_step()\n"
+                  "                else:\n"
+                  "                    self._update_step()\n"
+                  "            except InvalidGrid:\n"
+              ),
           )
 
           replace_once(
               atomic,
-              dedent('''
-                              for step_type in self._solve_power_actions():
-                                  POWER_TRIES[step_type] += 1
-                                  after_action = self._state_snapshot()
-                                  if after_action == after_basic:
-                                      continue
-
-                                  POWER_HITS[step_type] += 1
-                                  POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])
-                                  if after_basic[2:] != after_action[2:]:
-                                      POWER_RULE_CHANGES[step_type] += 1
-              '''),
-              dedent('''
-                              for step_type in self._solve_power_actions():
-                                  if self.collect_stats:
-                                      POWER_TRIES[step_type] += 1
-                                  after_action = self._state_snapshot()
-                                  if after_action == after_basic:
-                                      continue
-
-                                  if self.collect_stats:
-                                      POWER_HITS[step_type] += 1
-                                      POWER_ELIMS[step_type] += max(
-                                          0,
-                                          after_basic[1] - after_action[1],
-                                      )
-                                      if after_basic[2:] != after_action[2:]:
-                                          POWER_RULE_CHANGES[step_type] += 1
-              '''),
+              "power counters",
+              (
+                  "                for step_type in self._solve_power_actions():\n"
+                  "                    POWER_TRIES[step_type] += 1\n"
+                  "                    after_action = self._state_snapshot()\n"
+                  "                    if after_action == after_basic:\n"
+                  "                        continue\n\n"
+                  "                    POWER_HITS[step_type] += 1\n"
+                  "                    POWER_ELIMS[step_type] += max(0, after_basic[1] - after_action[1])\n"
+                  "                    if after_basic[2:] != after_action[2:]:\n"
+                  "                        POWER_RULE_CHANGES[step_type] += 1\n"
+              ),
+              (
+                  "                for step_type in self._solve_power_actions():\n"
+                  "                    if self.collect_stats:\n"
+                  "                        POWER_TRIES[step_type] += 1\n"
+                  "                    after_action = self._state_snapshot()\n"
+                  "                    if after_action == after_basic:\n"
+                  "                        continue\n\n"
+                  "                    if self.collect_stats:\n"
+                  "                        POWER_HITS[step_type] += 1\n"
+                  "                        POWER_ELIMS[step_type] += max(\n"
+                  "                            0,\n"
+                  "                            after_basic[1] - after_action[1],\n"
+                  "                        )\n"
+                  "                        if after_basic[2:] != after_action[2:]:\n"
+                  "                            POWER_RULE_CHANGES[step_type] += 1\n"
+              ),
           )
 
           replace_between(
               atomic,
               "    def _update_step(self) -> None:\n",
               "    def _update_from_rules(self) -> None:\n",
-              dedent('''
+              indent(
+                  dedent('''
                       def _update_step(self) -> None:
                           _update_known_from_candidates(
                               self.grid.__setitem__,
@@ -195,14 +203,17 @@ jobs:
                               self._update_from_rules()
                               filter_guarantees(self.grid)
 
-              ''').replace("\n", "\n    ").rstrip() + "\n\n",
+                  ''').lstrip(),
+                  "    ",
+              ),
           )
 
           replace_between(
               atomic,
               "    def _act(self, label: str, action: Callable[[], None]) -> str:\n",
               "    def _hidden_tuples(self, n: int) -> None:\n",
-              dedent('''
+              indent(
+                  dedent('''
                       def _act(self, label: str, action: Callable[[], None]) -> str:
                           """Run one power action and optionally account for diagnostics."""
                           try:
@@ -218,29 +229,32 @@ jobs:
                               raise
                           return label
 
-              ''').replace("\n", "\n    ").rstrip() + "\n\n",
+                  ''').lstrip(),
+                  "    ",
+              ),
           )
 
           grid = Path("gridsolver/abstract_grids/grid.py")
           replace_once(
               grid,
-              dedent('''
-                      self._known[index] = value
-                      # An assignment outside the current candidate set intentionally empties
-                      # the set, making the trial branch invalid without corrupting the value
-                      # domain stored in _known.
-                      self._candidates[index].intersection_update((value,))
-              '''),
-              dedent('''
-                      self._known[index] = value
-                      # An assignment outside the current candidate set intentionally empties
-                      # the set, making the trial branch invalid without corrupting the value
-                      # domain stored in _known. Avoid journaling a no-op when a singleton
-                      # candidate is merely promoted to a known value.
-                      possible = self._candidates[index]
-                      if len(possible) != 1 or value not in possible:
-                          possible.intersection_update((value,))
-              '''),
+              "candidate synchronization",
+              (
+                  "        self._known[index] = value\n"
+                  "        # An assignment outside the current candidate set intentionally empties\n"
+                  "        # the set, making the trial branch invalid without corrupting the value\n"
+                  "        # domain stored in _known.\n"
+                  "        self._candidates[index].intersection_update((value,))\n"
+              ),
+              (
+                  "        self._known[index] = value\n"
+                  "        # An assignment outside the current candidate set intentionally empties\n"
+                  "        # the set, making the trial branch invalid without corrupting the value\n"
+                  "        # domain stored in _known. Avoid journaling a no-op when a singleton\n"
+                  "        # candidate is merely promoted to a known value.\n"
+                  "        possible = self._candidates[index]\n"
+                  "        if len(possible) != 1 or value not in possible:\n"
+                  "            possible.intersection_update((value,))\n"
+              ),
           )
 
           Path("tests/test_runtime_overhead.py").write_text(
