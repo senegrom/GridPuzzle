@@ -77,7 +77,7 @@ replace_between(
     "    def __ne__(self, other: object) -> bool:\n",
     '''    def __hash__(self) -> int:
         cached = getattr(self, "_base_hash_cache", None)
-        if cached is not None:
+        if cached is not None and getattr(self, "_frozen", False):
             return cached
 
         self.freeze()
@@ -167,6 +167,18 @@ Path("tests/test_rule_hash_cache.py").write_text(
 
             monkeypatch.setattr(rules_module, "_stable_rule_type_tag", fail)
             assert hash(rule) == first
+
+
+        def test_unfrozen_injected_cache_is_ignored_and_overwritten():
+            grid = Grid(2)
+            rule = ElementsAtMostOnce(grid, cells=[0, 1])
+            equivalent = ElementsAtMostOnce(grid, cells=[0, 1])
+            rule._base_hash_cache = 1
+
+            assert not rule._frozen
+            assert hash(rule) == hash(equivalent)
+            assert rule._frozen
+            assert rule._base_hash_cache != 1
 
 
         @pytest.mark.parametrize("rule", _rules())
