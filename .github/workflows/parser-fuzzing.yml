@@ -77,16 +77,12 @@ jobs:
       - name: Apply validated candidate
         run: python .github/scripts/apply_parser_fuzzing.py
 
-      - name: Commit source, tests, and permanent CI coverage
+      - name: Commit validated source and tests
         shell: bash
         run: |
           set -euo pipefail
           git diff --check
-          git rm \
-            .github/scripts/apply_parser_fuzzing.py \
-            .github/workflows/parser-fuzzing.yml
           git add \
-            .github/workflows/ci.yml \
             TODO.md \
             gridsolver/abstract_grids/grid.py \
             tests/test_parser_fuzzing.py
