@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - .github/scripts/apply_relation_rule_hotpath.py
+      - .github/scripts/run_relation_rule_hotpath.py
       - .github/scripts/relation_rule_benchmark.py
       - .github/workflows/relation-rule-hotpath.yml
   workflow_dispatch:
@@ -41,7 +42,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply candidate
-        run: python .github/scripts/apply_relation_rule_hotpath.py
+        run: python .github/scripts/run_relation_rule_hotpath.py
 
       - name: Install, compile, and validate
         run: |
@@ -72,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python .github/scripts/apply_relation_rule_hotpath.py
+          python .github/scripts/run_relation_rule_hotpath.py
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           git worktree add --detach /tmp/baseline 0f86010b8cf432ce408ac03ec4fff0117331c872
