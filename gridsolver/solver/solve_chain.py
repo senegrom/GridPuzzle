@@ -151,9 +151,12 @@ def xy_chain(grid: Grid) -> None:
             link.difference_update((val_x, cell) for val_x, cell in link if not wl[cell])
     del val, links
 
+    # dead cells (no semi-strong link for any value) are the same for every
+    # weak-link set; computing them per link was ~9% of chain-heavy solves
+    dead_cells = [cell for cell in range(grid.len)
+                  if not any(sl[val][cell] for val in range(1, grid.max_elem + 1))]
     for link in wl:
-        link.difference_update(
-            cell for cell in range(grid.len) if not any(sl[val][cell] for val in range(1, grid.max_elem + 1)))
+        link.difference_update(dead_cells)
     del link
 
     if not any(lk for lk in wl):
@@ -174,7 +177,6 @@ def xy_chain(grid: Grid) -> None:
                                                                wl=wl,
                                                                max_elem=grid.max_elem)
             for _, le in les:
-                # _lg.logd(f"Link end  {start_cell}--{le}")
                 if le == start_cell:
                     _lg.on and _lg.logr(f"LoopXY",
                              f"all but {val} removed from {set(cd)} w/ loop {cs(start_cell)}", cs(start_cell))

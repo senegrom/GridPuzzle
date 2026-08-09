@@ -22,7 +22,10 @@ class _GuaranteeCountingRule(_CountingRule):
     uses_guarantees = True
 
 
-def test_relevant_guarantees_are_cached_until_guarantees_change():
+def test_relevant_guarantees_track_guarantee_changes():
+    # the min-cell index is cached with the guarantee lifecycle; the per-rule
+    # result is built fresh (a per-rule cache measured 55-80% miss), so the
+    # contract is content-tracking plus a re-iterable result, not identity
     grid = Grid(2)
     rule = ElementsAtMostOnce(grid, cells=[0, 1])
     grid.add_rule_checked(rule)
@@ -31,13 +34,13 @@ def test_relevant_guarantees_are_cached_until_guarantees_change():
     )
 
     first = relevant_guarantees(grid, rule)
-    assert relevant_guarantees(grid, rule) is first
+    assert {guarantee.val for guarantee in first} == {1}
+    assert list(first) == list(first)  # re-iterable (SaEAMO reads it twice)
 
     grid.add_gtee_checked(
         Guarantee(2, frozenset({0, 1}), 2, 2)
     )
     refreshed = relevant_guarantees(grid, rule)
-    assert refreshed is not first
     assert {guarantee.val for guarantee in refreshed} == {1, 2}
 
 

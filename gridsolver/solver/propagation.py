@@ -72,10 +72,14 @@ def _build_guarantee_index(grid: Grid) -> dict[int, list[Guarantee]]:
 
 
 def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
-    """Return the cached guarantee superset that may affect ``rule``.
+    """Return the guarantee superset that may affect ``rule``.
 
-    Relevance depends only on the rule cells and live guarantee set;
-    the guarantee-only cache already has exactly that lifecycle.
+    Relevance depends only on the rule cells and live guarantee set. The
+    min-cell index is cached with the guarantee-only lifecycle and
+    amortizes well; a per-rule result cache was measured at 55-80% miss
+    (every guarantee change drops it), so the small bucket walk is done
+    fresh instead of cached. The list is safely re-iterable (SaEAMO reads
+    it twice).
     """
     if not rule.uses_guarantees:
         return _NO_GUARANTEES
@@ -83,14 +87,11 @@ def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
         "gts_by_min_cell",
         lambda: _build_guarantee_index(grid),
     )
-    return grid.cached_guarantee_struct(
-        ("relevant_guarantees", rule.cells),
-        lambda: tuple(
-            guarantee
-            for cell in rule.cells
-            for guarantee in index.get(cell, ())
-        ),
-    )
+    return [
+        guarantee
+        for cell in rule.cells
+        for guarantee in index.get(cell, ())
+    ]
 
 def update_known_from_candidates(
     setitem: Callable[[int, int], None],

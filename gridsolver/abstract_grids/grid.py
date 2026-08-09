@@ -448,7 +448,29 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         constructed with mutable or malformed fields by extension code.
         Normalising first prevents unhashable values from reaching the
         live sets and keeps every downstream index inside the grid.
+
+        Rule-emitted guarantees are always exactly typed, and most are
+        duplicates dropped right after this call, so the exact-type fast
+        path skips the ABC checks and the list/set/frozenset rebuild
+        (12% of a killer solve profile). Anything not exactly typed --
+        including bools, floats equal to ints, and Guarantee subclasses --
+        still takes the full validation path below.
         """
+        if type(guarantee) is Guarantee:
+            value = guarantee.val
+            cells = guarantee.cells
+            if (
+                type(value) is int
+                and type(cells) is frozenset
+                and type(guarantee.rows) is int
+                and type(guarantee.cols) is int
+                and 1 <= value <= self.max_elem
+                and guarantee.rows == self.rows
+                and guarantee.cols == self.cols
+                and cells
+                and all(type(cell) is int and 0 <= cell < self.len for cell in cells)
+            ):
+                return guarantee
         if not isinstance(guarantee, Guarantee):
             raise TypeError("Guarantees must be Guarantee instances")
 

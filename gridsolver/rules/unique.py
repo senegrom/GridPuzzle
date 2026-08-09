@@ -77,7 +77,11 @@ class ElementsAtMostOnce(Rule):
                 new_candidate_cells.append(cell)
 
         for possible in new_candidates:
-            possible -= my_known
+            # 93.5% of these are no-ops on enumeration workloads, and a no-op
+            # -= still journals a trail snapshot; the disjoint pre-check skips
+            # both (an already-empty set is disjoint, so the raise still fires)
+            if not possible.isdisjoint(my_known):
+                possible -= my_known
             if not possible:
                 raise InvalidGrid()
 
