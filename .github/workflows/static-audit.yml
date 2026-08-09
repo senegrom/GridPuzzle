@@ -1,4 +1,4 @@
-name: Temporary static audit
+name: Temporary static audit cleanup
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: static-audit
+  group: static-audit-cleanup
   cancel-in-progress: false
 
 env:
@@ -19,12 +19,14 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  audit:
+  clean-and-promote:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
@@ -32,25 +34,44 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install audit tools
+      - name: Install project and Ruff
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" ruff vulture
+          python -m pip install -e ".[dev]" ruff
           python -m pip check
 
-      - name: Ruff correctness and unused-code scan
+      - name: Apply verified fixes
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           ruff check gridsolver run.py examples2.py tests \
-            --select F,E9 \
-            --output-format concise || true
+            --select F401,F541 \
+            --fix
+          ruff check gridsolver run.py examples2.py tests \
+            --select F,E9
 
-      - name: High-confidence dead-code scan
+      - name: Validate affected paths
         shell: bash
         run: |
-          set -o pipefail
-          vulture gridsolver run.py examples2.py \
-            --min-confidence 80 || true
+          set -euo pipefail
+          python -m compileall -q gridsolver tests run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_regressions.py \
+            tests/test_basic.py \
+            tests/test_hotpath_regressions.py \
+            -m "not slow" \
+            --durations=10
+
+      - name: Commit fixes and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git rm .github/workflows/static-audit.yml
+          git add gridsolver tests
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove verified static-analysis cruft"
+          git push origin HEAD:master
