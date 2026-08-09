@@ -344,7 +344,10 @@ def _admissible_assignments(values: FrozenSet[int], cand_sets: Sequence[Set[int]
     partition admits nothing", silently losing solutions)."""
     k = len(cand_sets)
     vals = list(values)
-    assert len(vals) == k, (values, k)
+    if len(vals) != k:
+        raise ValueError(
+            "Expected one candidate set for every assignment value"
+        )
     edges = {}
     for v in vals:
         allowed = restrict.get(v)

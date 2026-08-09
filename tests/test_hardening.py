@@ -1,4 +1,6 @@
+import ast
 from itertools import permutations, product
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,7 @@ from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee, Rule
 from gridsolver.rules.sumrules import DiffRule, DivRule, ProdRule, SumRule
 from gridsolver.solver import solver
+from gridsolver.solver.solve_fish import finned_fish, fish
 
 
 class _NoOpRule(Rule):
@@ -329,3 +332,33 @@ def test_pretty_print_rejects_invalid_shape_before_rendering():
         pretty_print(2, 2, 2, [0])
     with pytest.raises(TypeError, match="known must be a sequence"):
         pretty_print(1, 1, 1, "0")
+
+
+@pytest.mark.parametrize("action", (fish, finned_fish))
+def test_fish_size_is_validated_without_assertions(action):
+    grid = Grid(1)
+
+    with pytest.raises(TypeError, match="max_fish must be an integer"):
+        action(grid, True)
+    with pytest.raises(TypeError, match="max_fish must be an integer"):
+        action(grid, 2.5)
+    with pytest.raises(ValueError, match="max_fish must be at least 2"):
+        action(grid, 1)
+
+
+def test_production_sources_do_not_use_optimization_sensitive_assertions():
+    root = Path(__file__).resolve().parents[1] / "gridsolver"
+    violations = []
+
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        violations.extend(
+            f"{path.relative_to(root.parent)}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assert)
+        )
+
+    assert not violations, (
+        "Production correctness checks must not disappear under python -O; "
+        f"replace assertions with explicit exceptions: {violations}"
+    )

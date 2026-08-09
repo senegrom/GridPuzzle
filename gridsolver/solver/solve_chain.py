@@ -26,7 +26,10 @@ def w_wing(grid: Grid) -> None:
 
     for key, cells in c2_dic.items():
         key_l = list(key)
-        assert len(key_l) == 2
+        if len(key_l) != 2:
+            raise RuntimeError(
+                "Bivalue candidate group did not contain two values"
+            )
 
         # every cell starts a chain: the wing case is symmetric in the pair so
         # one direction would suffice, but the LoopW elimination is per-start

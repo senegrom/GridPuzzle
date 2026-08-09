@@ -1,4 +1,5 @@
 import itertools
+from numbers import Integral
 from typing import FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
@@ -8,6 +9,15 @@ from gridsolver.solver.solver_log import lg as _lg
 
 
 # todo endo fins
+
+
+def _fish_size(max_fish: object) -> int:
+    if isinstance(max_fish, bool) or not isinstance(max_fish, Integral):
+        raise TypeError("max_fish must be an integer")
+    max_fish = int(max_fish)
+    if max_fish < 2:
+        raise ValueError("max_fish must be at least 2")
+    return max_fish
 
 
 def _relevant_urs_by_val(grid: Grid, unique_rules, gt_dic) -> dict:
@@ -53,7 +63,7 @@ def _value_memo(grid: Grid) -> TrailedDict:
 
 # noinspection PyProtectedMember
 def fish(grid: Grid, max_fish=2) -> None:
-    assert max_fish >= 2
+    max_fish = _fish_size(max_fish)
     c = CoordToString(grid.rows)
     unique_rules = grid.unique_rule_cells
     if not unique_rules:
@@ -165,7 +175,7 @@ def fish(grid: Grid, max_fish=2) -> None:
 
 
 def finned_fish(grid: Grid, max_fish=2) -> None:
-    assert max_fish >= 2
+    max_fish = _fish_size(max_fish)
     c = CoordToString(grid.rows)
     unique_rules = grid.unique_rule_cells
     if not unique_rules:
