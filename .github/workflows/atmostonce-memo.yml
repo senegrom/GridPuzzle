@@ -1,3 +1,4 @@
+# Corrected cache-identity assertion; this workflow self-removes after evaluation.
 name: Evaluate at-most-once helper memoization
 
 on:
