@@ -1,5 +1,6 @@
 name: Temporary serialized worker seed candidate
 
+# Candidate patch revision 2: preserve function-body indentation.
 on:
   push:
     branches: [master]
