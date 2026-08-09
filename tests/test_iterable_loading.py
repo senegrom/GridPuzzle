@@ -1,4 +1,6 @@
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid_loading import create_from_str_and_class
+from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.util import flatten
 
 
@@ -60,3 +62,30 @@ def test_grid_load_validates_fully_nested_generators_before_mutating():
 
     assert grid.known == (0, 0, 0, 0)
     assert not grid.has_been_filled
+
+
+def test_dot_blank_tokens_match_compact_nested_and_generator_routes():
+    compact = create_from_str_and_class("1..2", "latinsquare")
+    tokens = create_from_str_and_class(
+        (token for token in ("1", ".", ".", "2")),
+        "latinsquare",
+    )
+    nested = LatinSquare(2)
+    nested.load((("1", " . "), (".", "2")))
+
+    assert tokens == compact
+    assert nested == compact
+    assert compact.known == (1, 0, 0, 2)
+
+
+def test_dot_blank_tokens_accept_bytes_and_bytearray():
+    byte_grid = Grid(1)
+    bytearray_grid = Grid(1)
+
+    byte_grid.load([b" . "])
+    bytearray_grid.load([bytearray(b" . ")])
+
+    assert byte_grid.known == (0,)
+    assert bytearray_grid.known == (0,)
+    assert byte_grid.has_been_filled
+    assert bytearray_grid.has_been_filled

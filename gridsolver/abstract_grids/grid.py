@@ -46,28 +46,47 @@ def _load_preprocess_str_space_sep(values: str | Iterable[str]) -> list[str]:
 
 
 def _parse_load_value(raw_value: object, max_elem: int) -> int:
-    """Parse one load token without permissive numeric coercion."""
+    """Parse one load token without permissive numeric coercion.
+
+    Compact puzzle strings translate ``.`` to zero before this function.
+    Iterable token routes must accept the same blank marker explicitly so
+    string, nested-list, generator, bytes, and bytearray inputs agree.
+    """
     if isinstance(raw_value, bool):
-        raise TypeError(f"Grid values must be integers or strings, got {raw_value!r}")
+        raise TypeError(
+            f"Grid values must be integers or strings, got {raw_value!r}"
+        )
 
     if isinstance(raw_value, Integral):
         value = int(raw_value)
     elif isinstance(raw_value, (str, bytes, bytearray)):
-        token = bytes(raw_value) if isinstance(raw_value, bytearray) else raw_value
-        try:
-            value = int(token)
-        except ValueError:
+        token = (
+            bytes(raw_value)
+            if isinstance(raw_value, bytearray)
+            else raw_value
+        )
+        token = token.strip()
+        blank = b"." if isinstance(token, bytes) else "."
+        if token == blank:
+            value = 0
+        else:
             try:
-                value = int(token, base=36)
-            except ValueError as exc:
-                raise ValueError(f"Cannot parse grid value {raw_value!r}") from exc
+                value = int(token)
+            except ValueError:
+                try:
+                    value = int(token, base=36)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Cannot parse grid value {raw_value!r}"
+                    ) from exc
     else:
-        raise TypeError(f"Grid values must be integers or strings, got {raw_value!r}")
+        raise TypeError(
+            f"Grid values must be integers or strings, got {raw_value!r}"
+        )
 
     if not 0 <= value <= max_elem:
         raise ValueError(f"Grid value {value} is outside 0..{max_elem}")
     return value
-
 
 def _boolean_option(name: str, value: object) -> bool:
     if not isinstance(value, bool):
