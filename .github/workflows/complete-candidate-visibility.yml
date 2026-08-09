@@ -1,0 +1,74 @@
+name: Validate complete candidate visibility
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/complete-candidate-visibility.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: complete-candidate-visibility
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply complete visibility graph
+        run: python .github/scripts/apply_complete_candidate_visibility.py
+
+      - name: Install and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_topology_cache_lifecycle.py \
+            tests/test_rule_only_cache.py \
+            tests/test_differential.py \
+            tests/test_action_dispatch.py \
+            tests/test_hotpath_regressions.py \
+            tests/test_regressions.py \
+            tests/test_examples_2.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=15
+
+      - name: Commit validated source and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/scripts/apply_complete_candidate_visibility.py \
+            .github/workflows/complete-candidate-visibility.yml
+          git add -A
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Include explicit weak links in candidate visibility"
+          git pull --rebase origin master
+          git push origin HEAD:master
