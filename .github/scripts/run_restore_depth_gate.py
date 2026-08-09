@@ -8,7 +8,9 @@ source = path.read_text(encoding="utf-8")
 replacements = {
     '    "    def solve_atomic(\\n",\n': '    "    def solve_atomic(",\n',
     '    "    def _solve_power_actions(\\n",\n': '    "    def _solve_power_actions(",\n',
+    '    "def _init_worker(\\n",\n': '    "def _init_worker(",\n',
     '    "def _fresh_worker_grid(\\n",\n': '    "def _fresh_worker_grid(",\n',
+    '    "def build_parser(\\n",\n': '    "def build_parser(",\n',
 }
 for old, new in replacements.items():
     if source.count(old) != 1:
