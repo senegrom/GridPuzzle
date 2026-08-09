@@ -237,17 +237,22 @@ class AtomicSolver:
     def _update_from_rules(self) -> None:
         _apply_rules(self.grid)
 
-    def _act(self, label: str, action: Callable[[], None]) -> str:
-        """Run one power action and optionally account for diagnostics."""
+    def _act(
+        self,
+        label: str,
+        action: Callable[..., None],
+        *args: object,
+    ) -> str:
+        """Run one power action without allocating an adapter closure."""
         try:
             if self.stats is not None:
                 with self.stats.time(label):
-                    action()
+                    action(*args)
             elif self.collect_timing:
                 with _lg.time_ctxt(label):
-                    action()
+                    action(*args)
             else:
-                action()
+                action(*args)
         except InvalidGrid:
             if self.stats is not None:
                 self.stats.tries[label] += 1
@@ -279,25 +284,30 @@ class AtomicSolver:
         # retained at the outer level for full deductive power.
         in_forcing_chain = bool(_solve_fc._in_forcing_chain)
 
-        yield self._act("locked_candidate", lambda: locked_candidate(grid))
-        yield self._act("skyscraper", lambda: skyscraper(grid))
-        yield self._act("empty_rectangle", lambda: empty_rectangle(grid))
-        yield self._act("ineq_bounds", lambda: ineq_bounds(grid))
+        yield self._act("locked_candidate", locked_candidate, grid)
+        yield self._act("skyscraper", skyscraper, grid)
+        yield self._act("empty_rectangle", empty_rectangle, grid)
+        yield self._act("ineq_bounds", ineq_bounds, grid)
         yield self._act(
             "rulehelper_atmostonce",
-            lambda: rulehelper_atmostonce(grid),
+            rulehelper_atmostonce,
+            grid,
         )
         yield self._act(
             "rulehelper_sum_atmostonce",
-            lambda: rulehelper_sum_atmostonce(grid),
+            rulehelper_sum_atmostonce,
+            grid,
         )
         yield self._act(
             "rulehelper_house_sums",
-            lambda: rulehelper_house_sums(grid),
+            rulehelper_house_sums,
+            grid,
         )
         yield self._act(
             "naked_tuples5",
-            lambda: remove_naked_tuples(grid, 5),
+            remove_naked_tuples,
+            grid,
+            5,
         )
 
         # Search depth is zero-based although the recursion bookkeeping list
@@ -311,46 +321,52 @@ class AtomicSolver:
         ):
             return
 
-        yield self._act("xy_wing", lambda: xy_wing(grid))
-        yield self._act("xyz_wing", lambda: xyz_wing(grid))
-        yield self._act("w_wing", lambda: w_wing(grid))
-        yield self._act("x_chain", lambda: x_chain(grid))
-        yield self._act("xy_chain", lambda: xy_chain(grid))
+        yield self._act("xy_wing", xy_wing, grid)
+        yield self._act("xyz_wing", xyz_wing, grid)
+        yield self._act("w_wing", w_wing, grid)
+        yield self._act("x_chain", x_chain, grid)
+        yield self._act("xy_chain", xy_chain, grid)
         topology = CandidateTopology.build(grid)
         als_analysis = ALSAnalysis.build(grid, topology)
-        yield self._act("als_xz", lambda: als_xz(grid, als_analysis))
+        yield self._act("als_xz", als_xz, grid, als_analysis)
         yield self._act(
             "als_xy_wing",
-            lambda: als_xy_wing(grid, als_analysis),
+            als_xy_wing,
+            grid,
+            als_analysis,
         )
-        yield self._act("sue_de_coq", lambda: sue_de_coq(grid))
-        yield self._act("forcing_chain", lambda: forcing_chain(grid))
-        yield self._act("hidden_tuples3", lambda: self._hidden_tuples(3))
-        yield self._act("fish2", lambda: fish(grid, 2))
+        yield self._act("sue_de_coq", sue_de_coq, grid)
+        yield self._act("forcing_chain", forcing_chain, grid)
+        yield self._act("hidden_tuples3", self._hidden_tuples, 3)
+        yield self._act("fish2", fish, grid, 2)
         yield self._act(
             "naked_tuples10",
-            lambda: remove_naked_tuples(grid, 10),
+            remove_naked_tuples,
+            grid,
+            10,
         )
-        yield self._act("hidden_tuples4", lambda: self._hidden_tuples(4))
+        yield self._act("hidden_tuples4", self._hidden_tuples, 4)
         if not in_forcing_chain:
-            yield self._act("fish3", lambda: fish(grid, 3))
-        if not in_forcing_chain:
-            yield self._act("finned-fish2", lambda: finned_fish(grid, 2))
-        yield self._act("naked_tuples", lambda: remove_naked_tuples(grid))
+            yield self._act("fish3", fish, grid, 3)
+            yield self._act("finned-fish2", finned_fish, grid, 2)
+        yield self._act("naked_tuples", remove_naked_tuples, grid)
         if not in_forcing_chain:
             yield self._act("hidden_tuples", self._hidden_tuples_max)
         yield self._act(
             "aic",
-            lambda: alternating_inference_chain(grid, topology),
+            alternating_inference_chain,
+            grid,
+            topology,
         )
-        yield self._act("nishio", lambda: nishio(grid))
+        yield self._act("nishio", nishio, grid)
         if not in_forcing_chain:
-            yield self._act("fish", lambda: fish(grid, _MAX_FISH))
+            yield self._act("fish", fish, grid, _MAX_FISH)
             yield self._act(
                 "finned-fish",
-                lambda: finned_fish(grid, _MAX_FISH - 1),
+                finned_fish,
+                grid,
+                _MAX_FISH - 1,
             )
-        yield self._act("forcing_net", lambda: forcing_net(grid))
-
+        yield self._act("forcing_net", forcing_net, grid)
 _MAX_HIDDEN_TUPLE = 7
 _MAX_FISH = 4
