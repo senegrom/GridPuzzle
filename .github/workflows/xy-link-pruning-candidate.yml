@@ -1,0 +1,286 @@
+name: Temporary XY-link pruning candidate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/xy-link-pruning-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xy-link-pruning-candidate
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate-benchmark-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('gridsolver/solver/solve_chain.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    for link in wl:
+                  link.difference_update(
+                      cell for cell in range(grid.len) if not any(sl[val][cell] for val in range(1, grid.max_elem + 1)))
+              del link
+          '''
+          new = '''    strong_cells = {
+                  cell
+                  for cell in range(grid.len)
+                  if any(
+                      sl[val][cell]
+                      for val in range(1, grid.max_elem + 1)
+                  )
+              }
+              for link in wl:
+                  link.intersection_update(strong_cells)
+              del link
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'XY pruning marker count: {text.count(old)}')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              '    valid_cells = [(cell, cands[cell]) for cell, cts in enumerate(cands) if len(cts) > 1]\n',
+              '    valid_cells = [(cell, cts) for cell, cts in enumerate(cands) if len(cts) > 1]\n',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+
+          Path('tests/test_xy_link_pruning.py').write_text(
+              '''import random
+
+
+def _reference(weak_links, strong_links, max_elem):
+    result = [links.copy() for links in weak_links]
+    for links in result:
+        links.difference_update(
+            cell
+            for cell in range(len(result))
+            if not any(
+                strong_links[value][cell]
+                for value in range(1, max_elem + 1)
+            )
+        )
+    return result
+
+
+def _candidate(weak_links, strong_links, max_elem):
+    result = [links.copy() for links in weak_links]
+    strong_cells = {
+        cell
+        for cell in range(len(result))
+        if any(
+            strong_links[value][cell]
+            for value in range(1, max_elem + 1)
+        )
+    }
+    for links in result:
+        links.intersection_update(strong_cells)
+    return result
+
+
+def test_xy_link_pruning_is_equivalent_on_random_graphs():
+    rng = random.Random(0)
+    for cells in (1, 2, 9, 25, 81):
+        for max_elem in (1, 2, 4, 9):
+            for _ in range(20):
+                weak_links = [
+                    {cell for cell in range(cells) if rng.random() < 0.25}
+                    for _ in range(cells)
+                ]
+                strong_links = {
+                    value: [
+                        ({(value, cell)} if rng.random() < 0.2 else set())
+                        for cell in range(cells)
+                    ]
+                    for value in range(1, max_elem + 1)
+                }
+                assert _candidate(
+                    weak_links, strong_links, max_elem
+                ) == _reference(weak_links, strong_links, max_elem)
+''',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Install and validate candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_xy_link_pruning.py \
+            tests/test_differential.py \
+            tests/test_technique_soundness.py \
+            tests/test_hotpath_regressions.py \
+            tests/test_regressions.py \
+            tests/test_hardening.py \
+            tests/test_examples_2.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=15
+
+      - name: Benchmark default ungated solver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/xy-baseline HEAD^
+          cat > /tmp/xy-benchmark.py <<'PY'
+          import json
+          import math
+          import os
+          import statistics
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+
+          cases = {
+              "sudo1": ("tests/test_basic.py::test_sudo1", 2),
+              "nonsquare": ("tests/test_basic.py::test_sudo_nonsq", 2),
+              "sudo2": ("tests/test_basic.py::test_sudo2", 4),
+          }
+          roots = {
+              "baseline": Path("/tmp/xy-baseline"),
+              "candidate": Path(os.environ["GITHUB_WORKSPACE"]),
+          }
+          results = {label: {case: [] for case in cases} for label in roots}
+          for case, (node, repeats) in cases.items():
+              for repeat in range(repeats):
+                  order = (
+                      ("baseline", "candidate")
+                      if repeat % 2 == 0
+                      else ("candidate", "baseline")
+                  )
+                  for label in order:
+                      root = roots[label]
+                      env = os.environ.copy()
+                      env["PYTHONPATH"] = str(root)
+                      env["PYTHONHASHSEED"] = "0"
+                      started = time.perf_counter()
+                      completed = subprocess.run(
+                          [sys.executable, "-m", "pytest", "-q", node],
+                          cwd=root,
+                          env=env,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT,
+                          text=True,
+                          timeout=300,
+                      )
+                      elapsed = time.perf_counter() - started
+                      if completed.returncode:
+                          print(completed.stdout)
+                          raise SystemExit(f"{label} {case} failed")
+                      results[label][case].append(elapsed)
+
+          summary = {}
+          ratios = []
+          for case in cases:
+              baseline = statistics.median(results["baseline"][case])
+              candidate = statistics.median(results["candidate"][case])
+              ratio = candidate / baseline
+              ratios.append(ratio)
+              summary[case] = {
+                  "baseline_seconds": results["baseline"][case],
+                  "candidate_seconds": results["candidate"][case],
+                  "baseline_median": baseline,
+                  "candidate_median": candidate,
+                  "change_percent": 100 * (ratio - 1),
+              }
+          geomean = math.prod(ratios) ** (1 / len(ratios))
+          promote = (
+              geomean <= 0.9975
+              and max(ratios) <= 1.03
+              and min(ratios) <= 0.99
+          )
+          payload = {
+              "summary": summary,
+              "geomean_change_percent": 100 * (geomean - 1),
+              "promote": promote,
+          }
+          Path('/tmp/xy-result.json').write_text(
+              json.dumps(payload, indent=2), encoding='utf-8'
+          )
+          if promote:
+              Path('/tmp/xy-promote').touch()
+          print(json.dumps(payload, indent=2))
+          PY
+          python /tmp/xy-benchmark.py
+
+      - name: Promote or reject and remove experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/xy-promote ]]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path('/tmp/xy-result.json').read_text())
+          lines = [
+              '# XY-link pruning benchmark — 2026-08-09',
+              '',
+              'The candidate computes the strong-link-capable cell set once '
+              'instead of rescanning the full grid for every weak-link set.',
+              '',
+              f"Geometric-mean change: {result['geomean_change_percent']:.2f}%.",
+              '',
+              '| Case | Baseline median | Candidate median | Change |',
+              '|---|---:|---:|---:|',
+          ]
+          for name, values in result['summary'].items():
+              lines.append(
+                  f"| {name} | {values['baseline_median']:.3f}s | "
+                  f"{values['candidate_median']:.3f}s | "
+                  f"{values['change_percent']:+.2f}% |"
+              )
+          Path('benchmarks/xy_link_pruning_2026-08-09.md').write_text(
+              '\n'.join(lines) + '\n', encoding='utf-8'
+          )
+          PY
+            git add \
+              gridsolver/solver/solve_chain.py \
+              tests/test_xy_link_pruning.py \
+              benchmarks/xy_link_pruning_2026-08-09.md
+            message="Avoid repeated XY-link grid scans"
+          else
+            git checkout -- gridsolver/solver/solve_chain.py
+            rm -f tests/test_xy_link_pruning.py
+            message="Reject XY-link pruning benchmark"
+          fi
+          rm -f .github/workflows/xy-link-pruning-candidate.yml
+          git add -A
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "$message"
+          git pull --rebase origin master
+          git push origin HEAD:master
