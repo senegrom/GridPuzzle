@@ -1,14 +1,16 @@
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str
-from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
-from gridsolver.rules.uneq import UneqRule, DiffGe2Rule
 
 
 def get_example(args) -> Grid:
+    # "s"/"f"/"m" are the same puzzles the Examples package defines; import
+    # them instead of duplicating the definitions (drift risk). Lazy imports
+    # keep unrelated example choices from paying construction cost.
     if args.example == "s":
-        g = create_from_str("Sudoku::..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2.")
+        from Examples import exampleSudoku
+        g = exampleSudoku.g
 
     elif args.example == "t":
         g = Sudoku()
@@ -20,18 +22,8 @@ def get_example(args) -> Grid:
              [0, 9, 0, 0, 0, 0, 4, 0, 0]], row_wise=True)
 
     elif args.example == "f":
-        n = 5
-        g = Futoshiki(n)
-        g.ext_ineqs([((1, 0), (1, 1)), ((2, 3), (3, 3)), ((4, 4), (3, 4)), ((3, 4), (3, 3)), ((2, 2), (3, 2)),
-                     ((4, 3), (4, 4))])
-
-        g[0, 0] = 1
-        g[0, 1] = 2
-        g[0, 2] = 3
-        g[0, 3] = 4
-        #
-        g[1, 0] = 3
-        g[4, 0] = 4
+        from Examples import exampleFutoshiki
+        g = exampleFutoshiki.g
 
     elif args.example == "b":
         g = KillerSudoku()
@@ -137,19 +129,8 @@ def get_example(args) -> Grid:
                   "s": 6, "t": 9, "u": 7, "v": 26, "w": 23, "x": 12, "y": 26, "z": 21, "0": 12, "1": 10})
 
     elif args.example == "m":
-        n = 9
-        g = Sudoku()
-        g[4, 2] = 1
-        g[5, 6] = 2
-        g.ext_rules(UneqRule, [{"origin_cell": (r, c),
-                                "rel_cells": [(r - 1, c - 1), (r, c - 1), (r + 1, c - 1), (r - 1, c),
-                                              (r + 1, c), (r - 1, c + 1), (r, c + 1), (r + 1, c + 1),
-                                              (r - 2, c - 1), (r - 2, c + 1), (r + 2, c - 1), (r + 2, c + 1),
-                                              (r - 1, c - 2), (r - 1, c + 2), (r + 1, c - 2), (r + 1, c + 2)]} for r in
-                               range(n) for c in range(n)], None)
-        g.ext_rules(DiffGe2Rule, [{"origin_cell": (r, c),
-                                   "rel_cells": [(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)]} for r in
-                                  range(n) for c in range(n)], None)
+        from Examples import miracleSudoku
+        g = miracleSudoku.g
 
     else:
         raise ValueError("Example choice not supported: " + str(args.example))

@@ -139,7 +139,7 @@ level by design.
 - **Windows terminal / Colorama mode:** `just_fix_windows_console()` enables
   ANSI handling without repeatedly wrapping stdout.
 - **Rich on a terminal with `stdout.buffer`:** Colorama is deinitialized,
-  stdout is wrapped as UTF-8, and Rich uses `Console(force_terminal=True)`.
+  stdout is wrapped as UTF-8, and Rich uses its default terminal detection.
 - **Jupyter:** stdout is an `OutStream` without `.buffer`; Rich uses
   `Console(force_jupyter=True)`.
 

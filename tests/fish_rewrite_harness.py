@@ -211,13 +211,14 @@ def capture_states(grid: Grid, max_states: int) -> list:
     return states
 
 
+# NOTE (Aug 2026): the original sudoku-mith and killer-c capture puzzles
+# rotted after the June technique re-tiering — both now solve via earlier
+# techniques before any fish call runs, capturing zero states (so did a
+# 16x16 candidate). Only house-rich grids still reach the fish tiers;
+# both entries below are probe-verified to capture real states.
 PUZZLES = [
-    ("sudoku-mith", lambda: create_from_str(
-        "Sudoku::...13.....1...45....2....6.1..3...7.2...5...8.4...6..9.5....7....67...9.....89...")),
-    ("killer-c", lambda: create_from_str(
-        "KillerSudoku::"
-        "aaabbbccc defffgghi dejkkklhi dejjkllhi mennnoohp mqrrsttup mqqrstuup vvvwwwxxx yyywwwzzz"
-        " : a6b24c15d12e24f19g3h20i6j15k16l23m23n17o10p18q22r9s4t18u11v12w33x18y10z17".replace(" ", "\n"))),
+    ("pandiagonal-7x7-Z3", lambda: create_from_file(
+        _PROJECT_ROOT / "Examples/LatinSquares/Pandiagonals/7x7-1to9only-Z3-NT.clp")),
     ("pandiagonal-11x11", lambda: create_from_file(
         _PROJECT_ROOT / "Examples/LatinSquares/Pandiagonals/11x11-1to9only-W4.clp")),
 ]
