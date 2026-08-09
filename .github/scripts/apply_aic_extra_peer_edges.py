@@ -153,7 +153,7 @@ replace_once(
                     add_link(weak, (first, value), (second, value))
                     add_link(weak, (second, value), (first, value))
 
-    if not strong:
+    # Different-value weak links in one cell.
 ''',
     '''    # Same-value weak links within complete houses retain the established
     # fast path. Add only the genuinely missing non-house peer edges afterwards.
@@ -171,7 +171,7 @@ replace_once(
         add_link(weak, first, second)
         add_link(weak, second, first)
 
-    if not strong:
+    # Different-value weak links in one cell.
 ''',
     "AIC extra weak edges",
 )
