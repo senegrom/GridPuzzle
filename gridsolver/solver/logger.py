@@ -5,6 +5,7 @@ from collections.abc import Iterable, Set
 from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import Enum
+from numbers import Integral
 from typing import Any
 
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
@@ -156,7 +157,9 @@ class CoordToString:
     def coord(self, index: int | Iterable[int]) -> str:
         if isinstance(index, Iterable):
             if isinstance(index, Set):
-                return "{" + ", ".join(self._coord_prim(value) for value in index) + "}"
+                return "{" + ", ".join(
+                    self._coord_prim(value) for value in sorted(index)
+                ) + "}"
             return "[" + ", ".join(self._coord_prim(value) for value in index) + "]"
         return self._coord_prim(index)
 
@@ -184,6 +187,9 @@ class GridLogger:
 
     @staticmethod
     def _normalize_level(level: int) -> int:
+        if isinstance(level, bool) or not isinstance(level, Integral):
+            raise TypeError("log level must be an integer")
+        level = int(level)
         if level < 0:
             return MAX_LVL + level + 1
         return level

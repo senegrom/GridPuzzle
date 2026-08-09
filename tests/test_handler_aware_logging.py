@@ -1,9 +1,11 @@
 import io
 import logging
 
+import pytest
+
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.solver import solver
-from gridsolver.solver.logger import GridLogger
+from gridsolver.solver.logger import CoordToString, GridLogger, MAX_LVL
 
 
 def test_null_handler_is_not_treated_as_visible_output(monkeypatch):
@@ -53,3 +55,30 @@ def test_silent_solver_does_not_sort_solutions_for_rendering(
         raw.handlers[:] = old_handlers
         raw.propagate = old_propagate
     assert len(solutions) == 1
+
+
+@pytest.mark.parametrize("bad_level", (True, False, 1.5, "1", object()))
+def test_public_log_levels_reject_coercive_values(bad_level):
+    raw = logging.getLogger(f"gridpuzzle-invalid-level-{id(bad_level)}")
+    with pytest.raises(TypeError, match="log level must be an integer"):
+        GridLogger(raw, bad_level)
+
+    logger = GridLogger(raw, 0)
+    with pytest.raises(TypeError, match="log level must be an integer"):
+        logger.set_lvl(bad_level)
+    with pytest.raises(TypeError, match="log level must be an integer"):
+        with logger.solve_context(bad_level):
+            pass
+    with pytest.raises(TypeError, match="log level must be an integer"):
+        solver.solve(Sudoku(1, 1, 1, 1), log_level=bad_level)
+
+
+def test_negative_log_level_shorthand_is_preserved():
+    raw = logging.getLogger("gridpuzzle-negative-level")
+    logger = GridLogger(raw, -1)
+    assert logger.detail_level == MAX_LVL
+
+
+def test_coordinate_sets_render_in_stable_numeric_order():
+    render = CoordToString(3)
+    assert render({8, 0, 4}) == "{(0, 0), (1, 1), (2, 2)}"
