@@ -472,3 +472,16 @@ def test_invalid_guarantee_output_does_not_deactivate_satisfied_source():
     assert not grid.guarantees
     assert not grid._trail_state.entries
     grid.trail_undo(mark)
+
+
+def test_failed_rule_batch_does_not_freeze_the_valid_prefix():
+    grid = Grid(2)
+    valid = ElementsAtMostOnce(grid, cells=[0, 1])
+    invalid = ElementsAtMostOnce(Grid(3), cells=[0, 1, 2])
+
+    with pytest.raises(ValueError, match="dimensions"):
+        grid.add_rules_checked((valid, invalid))
+
+    assert not valid._frozen
+    valid.cells = (0, 2)
+    assert valid.cells == (0, 2)

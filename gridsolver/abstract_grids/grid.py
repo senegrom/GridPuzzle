@@ -362,8 +362,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         else:
             self._guarantee_cache.clear()
 
-    def _normalize_rule(self, rule: Rule) -> Rule:
-        """Validate one rule before hashing or changing grid state."""
+    def _validate_rule(self, rule: Rule) -> tuple[Rule, tuple[int, ...]]:
+        """Validate one rule without hashing, freezing, or changing it."""
         if not isinstance(rule, Rule):
             raise TypeError("Rules must be Rule instances")
         if (rule._rows, rule._cols) != (self.rows, self.cols):
@@ -399,18 +399,26 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 f"Rule len_cells={rule.len_cells!r} does not match "
                 f"its {len(cells)} cells"
             )
-
-        canonical = tuple(cells)
-        if rule.cells != canonical:
-            rule.cells = canonical
-        return rule.freeze()
+        return rule, tuple(cells)
 
     def add_rules_checked(self, rules: Iterable[Rule]) -> None:
-        """Validate a complete rule batch, then commit it in one mutation."""
+        """Validate a complete rule batch, then commit it in one mutation.
+
+        Validation deliberately finishes before canonicalising or hashing any
+        rule. Hashing freezes Rule objects, so a malformed later item must not
+        make a valid caller-owned prefix immutable when the batch is rejected.
+        """
+        staged = [self._validate_rule(rule) for rule in rules]
+
+        # Canonicalisation is safe only after every item has validated. The
+        # following membership checks hash (and therefore freeze) the rules.
+        for rule, canonical_cells in staged:
+            if rule.cells != canonical_cells:
+                rule.cells = canonical_cells
+
         additions: list[Rule] = []
         seen: set[Rule] = set()
-        for rule in rules:
-            rule = self._normalize_rule(rule)
+        for rule, _ in staged:
             if (
                 rule in seen
                 or rule in self.rules_ia
@@ -429,7 +437,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 ("rule+", rule) for rule in additions
             )
         self._invalidate_struct_cache()
-
     def add_rule_checked(self, rule: Rule) -> None:
         self.add_rules_checked((rule,))
 

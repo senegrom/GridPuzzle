@@ -133,7 +133,10 @@ def apply_rules(grid: Grid) -> None:
         prepared_rules = (
             None
             if new_rules is None
-            else tuple(grid._normalize_rule(new_rule) for new_rule in new_rules)
+            else tuple(
+                grid._validate_rule(new_rule)[0]
+                for new_rule in new_rules
+            )
         )
         prepared_guarantees = (
             None

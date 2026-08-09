@@ -50,13 +50,14 @@ def solve(
     processes: int = 0,
 ) -> set[ImmutableGrid]:
     """Solve a grid without mutating it."""
+    if not isinstance(grid, Grid):
+        raise TypeError("grid must be a Grid instance")
     max_sols, processes = _validate_solve_options(
         max_sols,
         processes,
     )
     with _lg.solve_context(log_level):
         return _solve_validated(grid, max_sols, processes)
-
 
 def _solve_validated(
     grid: Grid,

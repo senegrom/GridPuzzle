@@ -1,5 +1,7 @@
 import pickle
 
+import pytest
+
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.solver import solve_parallel as parallel_module
 from gridsolver.solver import solver
@@ -221,3 +223,9 @@ def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
     assert pool.exited
     assert not any(future.cancelled for future in pool.futures)
     _assert_compact_worker_payloads(pool)
+
+
+@pytest.mark.parametrize("max_sols", (-1, 0))
+def test_solve_rejects_non_grid_inputs_even_for_an_empty_result_cap(max_sols):
+    with pytest.raises(TypeError, match="grid must be a Grid instance"):
+        solver.solve(object(), max_sols=max_sols)
