@@ -125,3 +125,37 @@ def test_rule_watcher_identity_survives_guarantee_churn():
         grid._trail_state.dirty.rule_cells.add(0)
         apply_rules(grid)
         assert grid._rule_cache["propagation_rules_by_cell"] is watchers
+
+
+def test_weak_links_are_symmetric_for_a_single_directional_rule():
+    grid = Grid(1, 3, max_elem=3)
+    grid.add_rule_checked(
+        UneqRule(grid, origin_cell=0, rel_cells=[1, 2])
+    )
+
+    links = grid.weak_links
+
+    assert links[0] == {1, 2}
+    assert links[1] == {0}
+    assert links[2] == {0}
+
+
+def test_weak_link_symmetry_survives_cache_and_trail_lifecycles():
+    grid = Grid(1, 3, max_elem=3)
+    root_rule = UneqRule(grid, origin_cell=0, rel_cells=[1])
+    grid.add_rule_checked(root_rule)
+    root_links = grid.weak_links
+    mark = grid.trail_mark()
+
+    branch_rule = UneqRule(grid, origin_cell=1, rel_cells=[2])
+    grid.add_rule_checked(branch_rule)
+    branch_links = grid.weak_links
+    assert branch_links[1] == {0, 2}
+    assert branch_links[2] == {1}
+
+    grid.trail_undo(mark)
+
+    assert grid.weak_links is root_links
+    assert grid.weak_links[0] == {1}
+    assert grid.weak_links[1] == {0}
+    assert not grid.weak_links[2]

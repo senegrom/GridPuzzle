@@ -865,8 +865,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         def build() -> list[set[int]]:
             result = [set() for _ in range(self.len)]
             for rule in self.rules:
-                if isinstance(rule, UneqRule):
-                    result[rule.origin_cell].update(rule.rel_cells)
+                if not isinstance(rule, UneqRule):
+                    continue
+                origin = rule.origin_cell
+                result[origin].update(rule.rel_cells)
+                for related in rule.rel_cells:
+                    result[related].add(origin)
             return result
 
         return self.cached_rule_struct("weak_links", build)
