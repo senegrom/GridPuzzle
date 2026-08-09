@@ -1,5 +1,6 @@
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee
+from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver.candidate_topology import CandidateTopology
 from gridsolver.solver.solve_als import _cell_houses, _full_houses
@@ -65,3 +66,28 @@ def test_rule_only_topology_cache_restores_across_trail_rollback():
     restored = CandidateTopology.build(grid)
     assert restored.peer_masks is parent_topology.peer_masks
     assert _cell_houses(grid, _full_houses(grid)) is parent_houses
+
+
+def test_candidate_topology_includes_explicit_non_house_weak_links():
+    grid = Sudoku(2, 2, 2, 2)
+    # Cells 0 and 6 share no row, column, or 2x2 box.
+    grid.add_rule_checked(UneqRule(grid, origin_cell=0, rel_cells=[6]))
+
+    topology = CandidateTopology.build(grid)
+
+    assert topology.peer_masks[0] & (1 << 6)
+    assert topology.peer_masks[6] & (1 << 0)
+    assert topology.visible_from_mask(1 << 0) & (1 << 6)
+    assert topology.visible_from_mask(1 << 6) & (1 << 0)
+
+
+def test_candidate_topology_keeps_house_visibility_before_rulehelper_materialisation():
+    grid = Sudoku(2, 2, 2, 2)
+    assert not grid.get_rules_of_type(UneqRule)
+
+    topology = CandidateTopology.build(grid)
+
+    # Same row, same column and same box are visible from the first cell even
+    # before rulehelper_atmostonce creates pairwise relation rules.
+    for peer in (1, 4, 5):
+        assert topology.peer_masks[0] & (1 << peer)

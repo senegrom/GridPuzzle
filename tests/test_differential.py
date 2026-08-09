@@ -9,6 +9,7 @@ import pytest
 from gridsolver.abstract_grids.grid import SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.uneq import UneqRule
 from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.propagation import propagate_basic
@@ -288,3 +289,31 @@ def test_each_power_action_preserves_two_oracle_completions():
 def test_each_power_action_preserves_broader_oracle_states(distance):
     """Exercise every tier on progressively less constrained oracle states."""
     _exercise_each_power_action(distance)
+
+
+def test_power_actions_preserve_completions_with_non_house_weak_link():
+    completions = tuple(
+        solution
+        for solution in _sudoku4_solutions()
+        if solution[0] != solution[6]
+    )[:2]
+    assert len(completions) == 2
+
+    grid = _grid_from_completions(completions)
+    grid.add_rule_checked(UneqRule(grid, origin_cell=0, rel_cells=[6]))
+    atomic = AtomicSolver(grid, [], set())
+
+    with _quiet_solver_logs():
+        for label in atomic._solve_power_actions():
+            _assert_completions_survive(
+                grid,
+                completions,
+                stage=f"non-house weak link after {label}",
+            )
+            status = propagate_basic(grid)
+            assert status is not SolveStatus.INVALID, label
+            _assert_completions_survive(
+                grid,
+                completions,
+                stage=f"non-house weak link after {label} + basic",
+            )

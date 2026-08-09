@@ -42,7 +42,11 @@ class CandidateTopology:
         house_masks = tuple(cells_mask(house) for house in houses)
 
         def build_peer_masks() -> tuple[int, ...]:
-            peers = [0] * grid.len
+            # Complete houses remain authoritative even when their pairwise
+            # UneqRule materialisation has not run yet. Explicit UneqRule
+            # relations add equally valid non-house visibility (anti-king,
+            # anti-knight, custom extensions, and similar constraints).
+            peers = [cells_mask(links) for links in grid.weak_links]
             for house, house_mask in zip(houses, house_masks):
                 for cell in house:
                     peers[cell] |= house_mask & ~(1 << cell)
