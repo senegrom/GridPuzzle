@@ -94,16 +94,33 @@ def _solve_validated(
 
     # Solving operates exclusively on clones. The caller may therefore reuse,
     # extend, or load the original grid after this function returns.
+    working_grid = grid.deepcopy()
     if processes > 1:
-        solutions = _solve_top_parallel(
-            grid.deepcopy(),
+        if depth_gate is None:
+            # Preserve the pre-gate call shape when the experiment is unused.
+            solutions = _solve_top_parallel(
+                working_grid,
+                max_sols,
+                processes,
+            )
+        else:
+            solutions = _solve_top_parallel(
+                working_grid,
+                max_sols,
+                processes,
+                depth_gate,
+            )
+    elif depth_gate is None:
+        # Preserve the pre-gate call shape when the experiment is unused.
+        solutions = _solve_full(
+            working_grid,
+            [],
             max_sols,
-            processes,
-            depth_gate,
+            set(),
         )
     else:
         solutions = _solve_full(
-            grid.deepcopy(),
+            working_grid,
             [],
             max_sols,
             set(),
