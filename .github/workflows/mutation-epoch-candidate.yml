@@ -43,10 +43,15 @@ jobs:
           from pathlib import Path
           from textwrap import dedent
 
+          def lines(*parts: str) -> str:
+              return "".join(part + "\n" for part in parts)
+
           def replace_once(path: Path, old: str, new: str) -> None:
               text = path.read_text(encoding="utf-8")
               if text.count(old) != 1:
-                  raise SystemExit(f"{path}: expected one marker, found {text.count(old)}")
+                  raise SystemExit(
+                      f"{path}: expected one marker, found {text.count(old)}"
+                  )
               path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
           trail = Path("gridsolver/abstract_grids/trail.py")
@@ -267,89 +272,107 @@ jobs:
           grid = Path("gridsolver/abstract_grids/grid.py")
           replace_once(
               grid,
-              '''        if current != value and self._trail_state.active:
-              self._trail_state.entries.append(("known", index, current))
-          self._known[index] = value
-          ''',
-              '''        if current != value:
-              if self._trail_state.active:
-                  self._trail_state.entries.append(("known", index, current))
-              self._known[index] = value
-              self._trail_state.version += 1
-          ''',
+              lines(
+                  "        if current != value and self._trail_state.active:",
+                  "            self._trail_state.entries.append((\"known\", index, current))",
+                  "        self._known[index] = value",
+              ),
+              lines(
+                  "        if current != value:",
+                  "            if self._trail_state.active:",
+                  "                self._trail_state.entries.append((\"known\", index, current))",
+                  "            self._known[index] = value",
+                  "            self._trail_state.version += 1",
+              ),
           )
           replace_once(
               grid,
-              '''                guarantee_cache=self._guarantee_cache,
-              )
-          ''',
-              '''                guarantee_cache=self._guarantee_cache,
-                  version=state.version,
-              )
-          ''',
+              lines(
+                  "                guarantee_cache=self._guarantee_cache,",
+                  "            )",
+              ),
+              lines(
+                  "                guarantee_cache=self._guarantee_cache,",
+                  "                version=state.version,",
+                  "            )",
+              ),
           )
           replace_once(
               grid,
-              '''        self._struct_cache = frame.struct_cache
-          self._guarantee_cache = frame.guarantee_cache
-          ''',
-              '''        self._struct_cache = frame.struct_cache
-          self._guarantee_cache = frame.guarantee_cache
-          state.version = frame.version
-          ''',
+              lines(
+                  "        self._struct_cache = frame.struct_cache",
+                  "        self._guarantee_cache = frame.guarantee_cache",
+              ),
+              lines(
+                  "        self._struct_cache = frame.struct_cache",
+                  "        self._guarantee_cache = frame.guarantee_cache",
+                  "        state.version = frame.version",
+              ),
           )
           replace_once(
               grid,
-              '''        self.rules.update(additions)
-          if self._trail_state.active:
-          ''',
-              '''        self.rules.update(additions)
-          self._trail_state.version += 1
-          if self._trail_state.active:
-          ''',
+              lines(
+                  "        self.rules.update(additions)",
+                  "        if self._trail_state.active:",
+              ),
+              lines(
+                  "        self.rules.update(additions)",
+                  "        self._trail_state.version += 1",
+                  "        if self._trail_state.active:",
+              ),
           )
           replace_once(
               grid,
-              '''        self.rules.remove(rule)
-          self.rules_ia.add(rule)
-          if self._trail_state.active:
-          ''',
-              '''        self.rules.remove(rule)
-          self.rules_ia.add(rule)
-          self._trail_state.version += 1
-          if self._trail_state.active:
-          ''',
+              lines(
+                  "        self.rules.remove(rule)",
+                  "        self.rules_ia.add(rule)",
+                  "        if self._trail_state.active:",
+              ),
+              lines(
+                  "        self.rules.remove(rule)",
+                  "        self.rules_ia.add(rule)",
+                  "        self._trail_state.version += 1",
+                  "        if self._trail_state.active:",
+              ),
           )
           replace_once(
               grid,
-              '''        self.guarantees.update(additions)
-          if self._trail_state.active:
-          ''',
-              '''        self.guarantees.update(additions)
-          self._trail_state.version += 1
-          if self._trail_state.active:
-          ''',
+              lines(
+                  "        self.guarantees.update(additions)",
+                  "        if self._trail_state.active:",
+              ),
+              lines(
+                  "        self.guarantees.update(additions)",
+                  "        self._trail_state.version += 1",
+                  "        if self._trail_state.active:",
+              ),
           )
           replace_once(
               grid,
-              '''        self.guarantees.remove(guarantee)
-          self.guarantees_ia.add(guarantee)
-          if self._trail_state.active:
-          ''',
-              '''        self.guarantees.remove(guarantee)
-          self.guarantees_ia.add(guarantee)
-          self._trail_state.version += 1
-          if self._trail_state.active:
-          ''',
+              lines(
+                  "        self.guarantees.remove(guarantee)",
+                  "        self.guarantees_ia.add(guarantee)",
+                  "        if self._trail_state.active:",
+              ),
+              lines(
+                  "        self.guarantees.remove(guarantee)",
+                  "        self.guarantees_ia.add(guarantee)",
+                  "        self._trail_state.version += 1",
+                  "        if self._trail_state.active:",
+              ),
           )
 
           propagation = Path("gridsolver/solver/propagation.py")
           text = propagation.read_text(encoding="utf-8")
-          text = text.replace(
-              "type PropagationSnapshot = tuple[bytes, int, int, int]\n",
-              "type PropagationSnapshot = int | tuple[int, int, int, int]\n",
-              1,
-          )
+          old = dedent('''
+              type PropagationSnapshot = tuple[bytes, int, int, int]
+          ''').lstrip()
+          new = dedent('''
+              type PropagationSnapshot = int | tuple[int, int, int, int]
+          ''').lstrip()
+          if text.count(old) != 1:
+              raise SystemExit("propagation snapshot type marker changed")
+          text = text.replace(old, new, 1)
           old = dedent('''
               def propagation_snapshot(grid: Grid) -> PropagationSnapshot:
                   """Return the complete monotone state used for fixpoint detection."""
@@ -366,7 +389,7 @@ jobs:
                   *,
                   detailed: bool = False,
               ) -> PropagationSnapshot:
-                  """Return an O(1) mutation epoch, with optional diagnostic counts."""
+                  """Return an O(1) mutation epoch, with optional diagnostics."""
                   version = grid._trail_state.version
                   if not detailed:
                       return version
@@ -378,21 +401,23 @@ jobs:
                   )
           ''').lstrip()
           if text.count(old) != 1:
-              raise SystemExit("propagation snapshot marker changed")
+              raise SystemExit("propagation snapshot function marker changed")
           propagation.write_text(text.replace(old, new, 1), encoding="utf-8")
 
           atomic = Path("gridsolver/solver/atomic_solver.py")
           replace_once(
               atomic,
-              '''    def _state_snapshot(self) -> PropagationSnapshot:
-              return propagation_snapshot(self.grid)
-          ''',
-              '''    def _state_snapshot(self) -> PropagationSnapshot:
-              return propagation_snapshot(
-                  self.grid,
-                  detailed=self.stats is not None,
-              )
-          ''',
+              lines(
+                  "    def _state_snapshot(self) -> PropagationSnapshot:",
+                  "        return propagation_snapshot(self.grid)",
+              ),
+              lines(
+                  "    def _state_snapshot(self) -> PropagationSnapshot:",
+                  "        return propagation_snapshot(",
+                  "            self.grid,",
+                  "            detailed=self.stats is not None,",
+                  "        )",
+              ),
           )
 
           Path("tests/test_mutation_epoch.py").write_text(
@@ -532,7 +557,9 @@ jobs:
               )
               durations.append(time.perf_counter() - started)
               if len(solutions) != expected:
-                  raise SystemExit(f"{case}: expected {expected}, got {len(solutions)}")
+                  raise SystemExit(
+                      f"{case}: expected {expected}, got {len(solutions)}"
+                  )
               payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
               current = hashlib.sha256(payload).hexdigest()
               if digest is None:
