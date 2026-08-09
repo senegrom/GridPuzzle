@@ -96,15 +96,9 @@ grid_path.write_text(
 
 propagation_path = Path("gridsolver/solver/propagation.py")
 propagation_text = propagation_path.read_text(encoding="utf-8")
-old_preparation = dedent('''
-        prepared_rules = (
-            None
-            if new_rules is None
-            else tuple(grid._normalize_rule(new_rule) for new_rule in new_rules)
-        )
-''').strip("\n")
-new_preparation = dedent('''
-        prepared_rules = (
+start = propagation_text.index("        prepared_rules = (")
+end = propagation_text.index("        prepared_guarantees = (", start)
+new_preparation = '''        prepared_rules = (
             None
             if new_rules is None
             else tuple(
@@ -112,11 +106,9 @@ new_preparation = dedent('''
                 for new_rule in new_rules
             )
         )
-''').strip("\n")
-if propagation_text.count(old_preparation) != 1:
-    raise SystemExit("rule-output preparation block changed")
+'''
 propagation_path.write_text(
-    propagation_text.replace(old_preparation, new_preparation, 1),
+    propagation_text[:start] + new_preparation + propagation_text[end:],
     encoding="utf-8",
 )
 
