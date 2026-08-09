@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - .github/scripts/apply_transactional_api_hardening.py
       - .github/workflows/transactional-api-hardening.yml
   workflow_dispatch:
 
