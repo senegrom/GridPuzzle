@@ -41,26 +41,28 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
+
+          def lines(*parts: str) -> str:
+              return "".join(part + "\n" for part in parts)
 
           path = Path("gridsolver/solver/solve_parallel.py")
           text = path.read_text(encoding="utf-8")
-          old = dedent('''
-                      if 0 < max_sols <= len(solutions):
-                          for pending in futures[index + 1 :]:
-                              pending.cancel()
-                          break
-          ''')
-          new = dedent('''
-                      if 0 < max_sols <= len(solutions):
-                          for pending in futures[index + 1 :]:
-                              pending.cancel()
-                          # Python 3.14 can stop branches already running. Without
-                          # this, context-manager exit waits for every worker after
-                          # the deterministic capped subset is complete.
-                          pool.terminate_workers()
-                          break
-          ''')
+          old = lines(
+              "            if 0 < max_sols <= len(solutions):",
+              "                for pending in futures[index + 1 :]:",
+              "                    pending.cancel()",
+              "                break",
+          )
+          new = lines(
+              "            if 0 < max_sols <= len(solutions):",
+              "                for pending in futures[index + 1 :]:",
+              "                    pending.cancel()",
+              "                # Python 3.14 can stop branches already running. Without",
+              "                # this, context-manager exit waits for every worker after",
+              "                # the deterministic capped subset is complete.",
+              "                pool.terminate_workers()",
+              "                break",
+          )
           if text.count(old) != 1:
               raise SystemExit(f"cap marker count: {text.count(old)}")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
