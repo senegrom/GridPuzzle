@@ -122,10 +122,12 @@ enumeration, and 0.76% on non-square 6x6 cap-20. Blank-4x4 cap-1 improved only
 0.72%. Keep clone-per-task unless a materially cheaper rollback mechanism is
 demonstrated. See `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
 
-**OPEN:** evaluate a free-threaded Python 3.14 thread-pool implementation. It
-could avoid pickle/startup costs, but must be benchmarked against the existing
-process pool and requires eliminating or context-localising the remaining
-process-wide statistics and logging state.
+**REJECTED:** free-threaded Python 3.14 thread-pool top-level search. On CPython
+3.14.7t with two workers it passed solver-API, differential, and exact
+solution-set checks. Threads improved a synthetic 1,000-trivial-branch case by
+59.62%, but regressed blank-4x4 cap-1 by 4.22%, full blank-4x4 enumeration by
+4.83%, and non-square 6x6 cap-20 by 4.32%. Keep the process pool for real solver
+workloads. See `benchmarks/free_threaded_threads_rejected_2026-08-09.md`.
 
 ## Trail-based propagation instead of deepcopy-per-trial — DONE August 2026
 
@@ -149,17 +151,20 @@ overhead while retaining transactional branch isolation. The rule
 stands: do not change trail representation again without full solution-set
 equivalence and fresh corpus measurements.
 
-## Independent/differential validation — BASELINE DONE; technique work OPEN
+## Independent/differential validation — technique baseline DONE; fuzzing OPEN
 
 `tests/test_differential.py` independently enumerates all 288 4x4 Sudoku
 solutions, generates deterministic bounded puzzle cases, compares complete
 solver solution sets, includes contradictory fixtures, and verifies that a
 full `AtomicSolver` pass never removes a value used by any surviving oracle
-completion.
+completion. It also executes every power action individually against candidate
+states derived from independently valid completion pairs, checking after each
+action and subsequent basic propagation that no oracle completion is lost and
+that emitted structural constraints remain valid.
 
-**OPEN:** extend this from whole-solver checking to individual advanced
-techniques, using candidate states derived from known completion sets. Add
-parser fuzzing and round-trip fixtures for every supported input format.
+**OPEN:** add deterministic parser fuzzing and round-trip fixtures for every
+supported input format. Broader per-technique completion-derived states remain
+in the slow differential shard.
 
 ## Scheduled extended CI — DONE August 2026
 
