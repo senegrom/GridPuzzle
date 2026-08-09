@@ -11,6 +11,8 @@ replacements = {
     '    "def _init_worker(\\n",\n': '    "def _init_worker(",\n',
     '    "def _fresh_worker_grid(\\n",\n': '    "def _fresh_worker_grid(",\n',
     '    "def build_parser(\\n",\n': '    "def build_parser(",\n',
+    '    "def _load_grid(\\n",\n': '    "def _load_grid(",\n',
+    '    "def main(\\n",\n': '    "def main(",\n',
 }
 for old, new in replacements.items():
     if source.count(old) != 1:
