@@ -91,16 +91,23 @@ subset. Four-process cap-1 measurements improved by 1.80% on blank 4x4 and
 0.80% on the non-square 6x6 case, with identical solution hashes. See
 `benchmarks/parallel_cap_termination_2026-08-09.md`.
 
-Outstanding futures are now bounded to the worker count and replenished in
-branch order. This avoids queuing repeated grid payloads that a small positive
-cap may never need. Queue-focused cap-1 cases improved by 11.48% at 100
-branches and 57.26% at 1,000 branches; blank-4x4 cap-1 improved by 0.85%, with
-identical solutions. See `benchmarks/bounded_parallel_submission_2026-08-09.md`.
+Outstanding futures are bounded to the worker count and replenished in branch
+order. This avoids queuing repeated grid payloads that a small positive cap may
+never need. Queue-focused cap-1 cases improved by 11.48% at 100 branches and
+57.26% at 1,000 branches; blank-4x4 cap-1 improved by 0.85%, with identical
+solutions. See `benchmarks/bounded_parallel_submission_2026-08-09.md`.
 
-**OPEN:** evaluate a process initializer plus a trailed worker-local root grid,
-so each worker receives the root payload once instead of once per submitted
-branch. This is more invasive and must prove exact rollback across multiple
-tasks handled by the same worker.
+Each process now receives one serialized, cache-free root grid through its
+initializer. Every task uses the optimized `Grid.deepcopy()` path locally, so
+branch payloads contain only four scalars rather than the complete puzzle.
+Measurements improved by 20.06% at 1,000 branches, 1.55% on blank-4x4 cap-1,
+1.04% on full blank-4x4 enumeration, and 2.80% on non-square 6x6 cap-20, with
+identical solution sets. See `benchmarks/worker_root_clone_2026-08-09.md`.
+
+**OPEN:** evaluate a trailed worker-local root grid to remove the remaining
+per-task `Grid.deepcopy()`. This must prove exact rollback after success,
+contradiction, and exceptions, including optional memo attributes and subclass
+state, before it can replace the safer clone-per-task design.
 
 **OPEN:** evaluate a free-threaded Python 3.14 thread-pool implementation. It
 could avoid pickle/startup costs, but must be benchmarked against the existing
