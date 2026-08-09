@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - .github/scripts/apply_rule_only_cache.py
+      - .github/scripts/run_rule_only_cache.py
       - .github/scripts/rule_only_cache_benchmark.py
       - .github/workflows/rule-only-cache.yml
   workflow_dispatch:
@@ -41,7 +42,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply candidate
-        run: python .github/scripts/apply_rule_only_cache.py
+        run: python .github/scripts/run_rule_only_cache.py
 
       - name: Install, compile, and validate
         run: |
@@ -72,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python .github/scripts/apply_rule_only_cache.py
+          python .github/scripts/run_rule_only_cache.py
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           git worktree add --detach /tmp/baseline 0020485d62ac5ad3a6cd4faa721c7bf3e1d23d42
