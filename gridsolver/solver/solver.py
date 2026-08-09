@@ -106,12 +106,20 @@ def _solve_validated(
     validate_solutions(grid, solutions)
     solutions = _cap_solutions(solutions, max_sols)
 
-    for index, solution in enumerate(sorted(solutions, key=_solution_key)):
-        _lg.logs(0, f"Solution {index}", header=True)
-        _lg.logg(0, solution, format_args=grid.format_args, rules=grid.rules)
+    if _lg.is_enabled(0):
+        for index, solution in enumerate(
+            sorted(solutions, key=_solution_key)
+        ):
+            _lg.logs(0, f"Solution {index}", header=True)
+            _lg.logg(
+                0,
+                solution,
+                format_args=grid.format_args,
+                rules=grid.rules,
+            )
 
-    if not solutions:
-        _lg.logs(0, "No solution found.", header=True)
+        if not solutions:
+            _lg.logs(0, "No solution found.", header=True)
 
     return solutions
 
@@ -208,20 +216,26 @@ def _solve_full(
 
         for trial in trials:
             depth = len(steps)
-            if use_guarantee:
-                _lg.logstep(
-                    depth,
-                    steps,
-                    f"Trial (guarantee) [{trial % grid.rows},{trial // grid.rows}] "
-                    f"== {guarantee.val} with {len(solutions)} previous solutions",
-                )
-            else:
-                _lg.logstep(
-                    depth,
-                    steps,
-                    f"Trial [{test_cell % grid.rows},{test_cell // grid.rows}] "
-                    f"== {trial} with {len(solutions)} previous solutions",
-                )
+            if _lg.is_enabled(depth):
+                if use_guarantee:
+                    _lg.logstep(
+                        depth,
+                        steps,
+                        f"Trial (guarantee) "
+                        f"[{trial % grid.rows},{trial // grid.rows}] "
+                        f"== {guarantee.val} with "
+                        f"{len(solutions)} previous solutions",
+                    )
+                else:
+                    _lg.logstep(
+                        depth,
+                        steps,
+                        f"Trial "
+                        f"[{test_cell % grid.rows},"
+                        f"{test_cell // grid.rows}] "
+                        f"== {trial} with "
+                        f"{len(solutions)} previous solutions",
+                    )
 
             # Reuse the current grid for every branch. The journal restores
             # candidates, known values, rules, guarantees and branch-local memos.

@@ -122,10 +122,12 @@ class AtomicSolver:
         self.depth_gate = depth_gate
         self.stats = current_power_stats()
         self.collect_timing = self.stats is not None or _lg.on
+        self.verbose_logging = _lg.is_enabled(_MAX_LVL)
 
     def solve_atomic(self) -> SolveStatus:
-        _lg.logs(_MAX_LVL, "Solving rule-based")
-        _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
+        if self.verbose_logging:
+            _lg.logs(_MAX_LVL, "Solving rule-based")
+            _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         steps = 0
         invalid = False
 
@@ -197,11 +199,14 @@ class AtomicSolver:
         else:
             status = SolveStatus.NONE
 
-        _lg.logs(_MAX_LVL, f"Done after {steps} steps: \t{status}")
-        _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
+        if self.verbose_logging:
+            _lg.logs(_MAX_LVL, f"Done after {steps} steps: \t{status}")
+            _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
         return status
 
     def _log_step(self, steps: int, step_type: str) -> None:
+        if not self.verbose_logging:
+            return
         _lg.logstep(_MAX_LVL, self.upsteps, f"{steps} ({step_type})")
         _lg.logg(_MAX_LVL, self.grid, print_candidates=True)
 

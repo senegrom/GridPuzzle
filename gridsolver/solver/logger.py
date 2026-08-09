@@ -176,6 +176,11 @@ class GridLogger:
             f"gridpuzzle_grid_buffer_{logger.name}_{id(self)}",
             default=None,
         )
+        # None means uncached; -1 means no non-null handler.
+        self._output_threshold: ContextVar[int | None] = ContextVar(
+            f"gridpuzzle_output_threshold_{logger.name}_{id(self)}",
+            default=None,
+        )
 
     @staticmethod
     def _normalize_level(level: int) -> int:
@@ -187,8 +192,29 @@ class GridLogger:
     def detail_level(self) -> int:
         return self._detail_level.get()
 
+    def _configured_output_threshold(self) -> int:
+        """Lowest handler level reachable from this logger, or -1."""
+        current: logging.Logger | None = self.lg
+        threshold: int | None = None
+        while current is not None:
+            for handler in current.handlers:
+                if isinstance(handler, logging.NullHandler):
+                    continue
+                if threshold is None or handler.level < threshold:
+                    threshold = handler.level
+            if not current.propagate:
+                break
+            current = current.parent
+        return -1 if threshold is None else threshold
+
     def is_enabled(self, level: int) -> bool:
-        return level <= self.detail_level and self.lg.isEnabledFor(_lvl(level))
+        log_level = _lvl(level)
+        if level > self.detail_level or not self.lg.isEnabledFor(log_level):
+            return False
+        threshold = self._output_threshold.get()
+        if threshold is None:
+            threshold = self._configured_output_threshold()
+        return threshold >= 0 and log_level >= threshold
 
     @contextmanager
     def solve_context(self, level: int | None):
@@ -197,9 +223,13 @@ class GridLogger:
         if level is not None:
             level_token = self._detail_level.set(self._normalize_level(level))
         buffer_token = self._grid_buf.set(None)
+        output_token = self._output_threshold.set(
+            self._configured_output_threshold()
+        )
         try:
             yield
         finally:
+            self._output_threshold.reset(output_token)
             self._grid_buf.reset(buffer_token)
             if level_token is not None:
                 self._detail_level.reset(level_token)
