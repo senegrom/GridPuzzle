@@ -1,5 +1,6 @@
 name: Temporary constructor boundary hardening
 
+# Patch revision 2: use exact single-line and indented source markers.
 on:
   push:
     branches: [master]
