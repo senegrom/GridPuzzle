@@ -1,0 +1,73 @@
+name: Temporary transactional API hardening
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/transactional-api-hardening.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: transactional-api-hardening
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply transactional hardening
+        run: python .github/scripts/apply_transactional_api_hardening.py
+
+      - name: Install and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_rule_inputs.py \
+            tests/test_solver_api.py \
+            tests/test_regressions.py \
+            tests/test_differential.py \
+            -m "not slow" \
+            --durations=10
+
+      - name: Commit validated changes and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git rm \
+            .github/scripts/apply_transactional_api_hardening.py \
+            .github/workflows/transactional-api-hardening.yml
+          git add \
+            gridsolver/abstract_grids/grid.py \
+            gridsolver/solver/solver.py \
+            tests/test_rule_inputs.py \
+            tests/test_solver_api.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Keep failed rule batches and solve inputs transactional"
+          git push origin HEAD:master
