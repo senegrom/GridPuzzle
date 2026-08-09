@@ -1,4 +1,5 @@
 import math
+from numbers import Integral
 from collections import deque
 from itertools import chain
 from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union
@@ -38,18 +39,69 @@ class PrettyPrintArgs:
                                inner_grid_col=0, inner_grid_row=0)
 
 
-def pretty_print(rows: int, cols: int, max_elem: int, known: Sequence[int], candidates: Tuple[Set[int]] = None,
-                 args: PrettyPrintArgs = None, ineqs: Set[Tuple[int, int]] = None) -> str:
-    max_dgt = math.floor(math.log10(max_elem)) + 1
+def _positive_integer(name: str, value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise TypeError(f"{name} must be an integer")
+    value = int(value)
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def pretty_print(
+    rows: int,
+    cols: int,
+    max_elem: int,
+    known: Sequence[int],
+    candidates: Sequence[Set[int]] | None = None,
+    args: PrettyPrintArgs | None = None,
+    ineqs: Set[Tuple[int, int]] | None = None,
+) -> str:
+    rows = _positive_integer("rows", rows)
+    cols = _positive_integer("cols", cols)
+    max_elem = _positive_integer("max_elem", max_elem)
+    expected = rows * cols
+
+    if isinstance(known, (str, bytes, bytearray)):
+        raise TypeError("known must be a sequence of grid values")
+    if len(known) != expected:
+        raise ValueError(f"Expected {expected} known values, got {len(known)}")
+
     if args is None:
         args = PrettyPrintArgs()
-    assert candidates is not None
-    assert ineqs is not None
+    elif not isinstance(args, PrettyPrintArgs):
+        raise TypeError("args must be a PrettyPrintArgs instance")
+    if ineqs is None:
+        ineqs = set()
 
-    if args.print_candidates:
-        return _show_candidate_square(rows, cols, max_dgt, max_elem, args=args, ineqs=ineqs, candidates=candidates)
-    else:
-        return _simple_square(rows, cols, max_dgt, args=args, ineqs=ineqs, content=known)
+    max_dgt = math.floor(math.log10(max_elem)) + 1
+    if not args.print_candidates:
+        return _simple_square(
+            rows,
+            cols,
+            max_dgt,
+            args=args,
+            ineqs=ineqs,
+            content=known,
+        )
+
+    if candidates is None:
+        raise ValueError(
+            "candidates are required when print_candidates is enabled"
+        )
+    if len(candidates) != expected:
+        raise ValueError(
+            f"Expected {expected} candidate sets, got {len(candidates)}"
+        )
+    return _show_candidate_square(
+        rows,
+        cols,
+        max_dgt,
+        max_elem,
+        args=args,
+        ineqs=ineqs,
+        candidates=candidates,
+    )
 
 
 def _simple_square(rows: int, cols: int, max_dgt: int, content: Iterable[int],
@@ -147,7 +199,8 @@ class _BoxStringMaker:
 
     def sep_row(self, sep: str, mylen: Iterable[int], row_idx=None):
         string_builder = [CORNER_MARKER]
-        assert row_idx is not None or sep != "I", 'row_idx is None and sep == "I"'
+        if sep == "I" and row_idx is None:
+            raise ValueError("row_idx is required for inequality separators")
         element = row_idx
         is_sep_col = False
         for ll in mylen:

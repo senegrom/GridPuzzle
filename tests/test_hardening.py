@@ -5,6 +5,7 @@ import pytest
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
+from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs, pretty_print
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
@@ -293,3 +294,38 @@ def test_futoshiki_solver_matches_independent_complete_oracle():
     expected = _latin_oracle(3, "." * 9, inequalities)
 
     assert actual == expected
+
+
+def test_pretty_print_defaults_render_without_optional_structures():
+    rendered = pretty_print(2, 2, 2, [1, 0, 0, 2])
+
+    assert "1" in rendered
+    assert "2" in rendered
+    assert rendered.endswith("\n")
+
+
+def test_pretty_print_candidate_mode_requires_complete_candidates():
+    args = PrettyPrintArgs(print_candidates=True)
+
+    with pytest.raises(ValueError, match="candidates are required"):
+        pretty_print(2, 2, 2, [0, 0, 0, 0], args=args)
+    with pytest.raises(ValueError, match="Expected 4 candidate sets"):
+        pretty_print(
+            2,
+            2,
+            2,
+            [0, 0, 0, 0],
+            candidates=[{1, 2}],
+            args=args,
+        )
+
+
+def test_pretty_print_rejects_invalid_shape_before_rendering():
+    with pytest.raises(TypeError, match="rows must be an integer"):
+        pretty_print(True, 2, 2, [0, 0, 0, 0])
+    with pytest.raises(ValueError, match="max_elem must be positive"):
+        pretty_print(2, 2, 0, [0, 0, 0, 0])
+    with pytest.raises(ValueError, match="Expected 4 known values"):
+        pretty_print(2, 2, 2, [0])
+    with pytest.raises(TypeError, match="known must be a sequence"):
+        pretty_print(1, 1, 1, "0")
