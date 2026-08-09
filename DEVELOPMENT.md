@@ -77,6 +77,13 @@ new per clone, and structural caches deliberately start empty. Subclasses that
 add instance state must override `Grid._copy_extra_state_to()` and detach that
 state explicitly.
 
+**Depth gating is explicit, parked, and disabled by default.**
+`solve(..., depth_gate=K)` retains the experimental cheap-tier cutoff without
+changing ordinary solves. The root has search depth zero: full techniques run
+through depth `K`, and deeper backtracking nodes stop after the cheap tier.
+`None` runs the complete hierarchy everywhere. Do not enable a gate in normal
+call sites or CI examples; it remains available only for explicit experiments.
+
 **Forcing chain uses the full AtomicSolver for trial branches.**
 A `ContextVar`-backed recursion flag prevents forcing-chain recursion without
 leaking state between concurrent solves. The inner solver runs all techniques

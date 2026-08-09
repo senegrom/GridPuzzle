@@ -28,7 +28,8 @@ def _cap_solutions(
 def _validate_solve_options(
     max_sols: int,
     processes: int,
-) -> tuple[int, int]:
+    depth_gate: int | None,
+) -> tuple[int, int, int | None]:
     for name, value in (("max_sols", max_sols), ("processes", processes)):
         if isinstance(value, bool) or not isinstance(value, Integral):
             raise TypeError(f"{name} must be an integer")
@@ -40,7 +41,16 @@ def _validate_solve_options(
     if processes < 0:
         raise ValueError("processes must be non-negative")
 
-    return max_sols, processes
+    if depth_gate is not None:
+        if isinstance(depth_gate, bool) or not isinstance(depth_gate, Integral):
+            raise TypeError(
+                "depth_gate must be None or a non-negative integer"
+            )
+        depth_gate = int(depth_gate)
+        if depth_gate < 0:
+            raise ValueError("depth_gate must be non-negative")
+
+    return max_sols, processes, depth_gate
 
 
 def solve(
@@ -48,21 +58,36 @@ def solve(
     log_level: int | None = None,
     max_sols: int = -1,
     processes: int = 0,
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
-    """Solve a grid without mutating it."""
+    """Solve a grid without mutating it.
+
+    ``depth_gate`` is retained as an explicit experiment switch. Search
+    depth starts at zero for the root: full techniques run through depth
+    ``K`` and only the cheap tier runs below it. ``None`` (the default)
+    runs the complete technique hierarchy at every search node.
+    """
     if not isinstance(grid, Grid):
         raise TypeError("grid must be a Grid instance")
-    max_sols, processes = _validate_solve_options(
+    max_sols, processes, depth_gate = _validate_solve_options(
         max_sols,
         processes,
+        depth_gate,
     )
     with _lg.solve_context(log_level):
-        return _solve_validated(grid, max_sols, processes)
+        return _solve_validated(
+            grid,
+            max_sols,
+            processes,
+            depth_gate,
+        )
+
 
 def _solve_validated(
     grid: Grid,
     max_sols: int,
     processes: int,
+    depth_gate: int | None,
 ) -> set[ImmutableGrid]:
     if max_sols == 0:
         return set()
@@ -74,6 +99,7 @@ def _solve_validated(
             grid.deepcopy(),
             max_sols,
             processes,
+            depth_gate,
         )
     else:
         solutions = _solve_full(
@@ -81,6 +107,7 @@ def _solve_validated(
             [],
             max_sols,
             set(),
+            depth_gate,
         )
 
     # Check every generated solution before capping the returned subset. This
@@ -111,11 +138,17 @@ def _solve_top_parallel(
     grid: Grid,
     max_sols: int,
     processes: int,
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Run one atomic pass, then distribute deterministic first-level branches."""
     from gridsolver.solver.solve_parallel import solve_parallel_trials
 
-    status = AtomicSolver(grid, [0], set()).solve_atomic()
+    status = AtomicSolver(
+        grid,
+        [0],
+        set(),
+        depth_gate=depth_gate,
+    ).solve_atomic()
     if status is SolveStatus.SOLVED:
         return {
             ImmutableGrid(
@@ -138,16 +171,29 @@ def _solve_top_parallel(
     else:
         branches = [(test_cell, value) for value in values]
 
-    _lg.logs(0, f"Parallel: {len(branches)} top-level branches on {processes} processes")
+    _lg.logs(
+        0,
+        f"Parallel: {len(branches)} top-level branches on {processes} processes",
+    )
     # Root propagation may populate large structural and fish caches. They
     # are cheap to rebuild independently and expensive to pickle once per
     # submitted branch, so workers receive one cache-free state clone.
     worker_seed = grid.deepcopy()
+    if depth_gate is None:
+        # Preserve the pre-gate call shape and hot path exactly when the
+        # experiment switch is unused.
+        return solve_parallel_trials(
+            worker_seed,
+            branches,
+            max_sols,
+            processes,
+        )
     return solve_parallel_trials(
         worker_seed,
         branches,
         max_sols,
         processes,
+        depth_gate=depth_gate,
     )
 
 
@@ -156,10 +202,16 @@ def _solve_full(
     steps: list[int],
     max_sols: int,
     hidden_pair_checked_gts: set[Guarantee],
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     steps.append(0)
     try:
-        status = AtomicSolver(grid, steps, hidden_pair_checked_gts).solve_atomic()
+        status = AtomicSolver(
+            grid,
+            steps,
+            hidden_pair_checked_gts,
+            depth_gate=depth_gate,
+        ).solve_atomic()
         if status is SolveStatus.SOLVED:
             return {
                 ImmutableGrid(
@@ -176,7 +228,10 @@ def _solve_full(
         test_cell, possible = grid.get_smallest_candidate_set_gt1()
         guarantee = grid.get_smallest_guarantee()
         values = sorted(possible)
-        use_guarantee = guarantee is not None and len(guarantee.cells) < len(values)
+        use_guarantee = (
+            guarantee is not None
+            and len(guarantee.cells) < len(values)
+        )
         trials = sorted(guarantee.cells) if use_guarantee else values
         solutions: set[ImmutableGrid] = set()
         # AtomicSolver only reads the incoming snapshot and replaces its
@@ -216,12 +271,17 @@ def _solve_full(
                 else:
                     grid[test_cell] = trial
 
-                remaining = -1 if max_sols == -1 else max_sols - len(solutions)
+                remaining = (
+                    -1
+                    if max_sols == -1
+                    else max_sols - len(solutions)
+                )
                 branch_solutions = _solve_full(
                     grid,
                     steps,
                     remaining,
                     checked_guarantees,
+                    depth_gate,
                 )
             finally:
                 grid.trail_undo(mark)
@@ -230,7 +290,10 @@ def _solve_full(
             solutions.update(branch_solutions)
 
             if 0 < max_sols <= len(solutions):
-                _lg.logs(0, f"Step {steps} - Reached max_sols == {max_sols}")
+                _lg.logs(
+                    0,
+                    f"Step {steps} - Reached max_sols == {max_sols}",
+                )
                 return _cap_solutions(solutions, max_sols)
 
         return solutions

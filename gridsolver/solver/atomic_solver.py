@@ -115,10 +115,12 @@ class AtomicSolver:
         grid: Grid,
         upsteps: list[int],
         hidden_pair_checked_gts: set[Guarantee],
+        depth_gate: int | None = None,
     ) -> None:
         self.grid = grid
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
+        self.depth_gate = depth_gate
         self.stats = current_power_stats()
         self.collect_timing = self.stats is not None or _lg.on
         self.verbose_logging = _lg.is_enabled(_MAX_LVL)
@@ -281,10 +283,33 @@ class AtomicSolver:
         yield self._act("skyscraper", lambda: skyscraper(grid))
         yield self._act("empty_rectangle", lambda: empty_rectangle(grid))
         yield self._act("ineq_bounds", lambda: ineq_bounds(grid))
-        yield self._act("rulehelper_atmostonce", lambda: rulehelper_atmostonce(grid))
-        yield self._act("rulehelper_sum_atmostonce", lambda: rulehelper_sum_atmostonce(grid))
-        yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(grid))
-        yield self._act("naked_tuples5", lambda: remove_naked_tuples(grid, 5))
+        yield self._act(
+            "rulehelper_atmostonce",
+            lambda: rulehelper_atmostonce(grid),
+        )
+        yield self._act(
+            "rulehelper_sum_atmostonce",
+            lambda: rulehelper_sum_atmostonce(grid),
+        )
+        yield self._act(
+            "rulehelper_house_sums",
+            lambda: rulehelper_house_sums(grid),
+        )
+        yield self._act(
+            "naked_tuples5",
+            lambda: remove_naked_tuples(grid, 5),
+        )
+
+        # Search depth is zero-based although the recursion bookkeeping list
+        # contains one root entry. The gate never changes forcing-chain inner
+        # propagation, which continues to use the full non-recursive hierarchy.
+        search_depth = max(0, len(self.upsteps) - 1)
+        if (
+            self.depth_gate is not None
+            and not in_forcing_chain
+            and search_depth > self.depth_gate
+        ):
+            return
 
         yield self._act("xy_wing", lambda: xy_wing(grid))
         yield self._act("xyz_wing", lambda: xyz_wing(grid))
@@ -302,7 +327,10 @@ class AtomicSolver:
         yield self._act("forcing_chain", lambda: forcing_chain(grid))
         yield self._act("hidden_tuples3", lambda: self._hidden_tuples(3))
         yield self._act("fish2", lambda: fish(grid, 2))
-        yield self._act("naked_tuples10", lambda: remove_naked_tuples(grid, 10))
+        yield self._act(
+            "naked_tuples10",
+            lambda: remove_naked_tuples(grid, 10),
+        )
         yield self._act("hidden_tuples4", lambda: self._hidden_tuples(4))
         if not in_forcing_chain:
             yield self._act("fish3", lambda: fish(grid, 3))
@@ -318,9 +346,11 @@ class AtomicSolver:
         yield self._act("nishio", lambda: nishio(grid))
         if not in_forcing_chain:
             yield self._act("fish", lambda: fish(grid, _MAX_FISH))
-            yield self._act("finned-fish", lambda: finned_fish(grid, _MAX_FISH - 1))
+            yield self._act(
+                "finned-fish",
+                lambda: finned_fish(grid, _MAX_FISH - 1),
+            )
         yield self._act("forcing_net", lambda: forcing_net(grid))
-
 
 _MAX_HIDDEN_TUPLE = 7
 _MAX_FISH = 4

@@ -129,6 +129,14 @@ solution-set checks. Threads improved a synthetic 1,000-trivial-branch case by
 4.83%, and non-square 6x6 cap-20 by 4.32%. Keep the process pool for real solver
 workloads. See `benchmarks/free_threaded_threads_rejected_2026-08-09.md`.
 
+## Depth-gated technique tiers — retained, parked, default off
+
+`solve(..., depth_gate=K)` remains available as an explicit experiment switch.
+Search depth is zero-based: `K=0` runs the full hierarchy at the root and only
+the cheap tier in descendants. `None` is the default and preserves the complete
+technique hierarchy everywhere. No default adoption or routine CI use is
+planned; revisit only with broad corpus evidence and an explicit policy change.
+
 ## Trail-based propagation instead of deepcopy-per-trial — DONE August 2026
 
 Nishio, forcing chains, forcing nets, and recursive backtracking now use nested

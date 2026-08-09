@@ -20,15 +20,37 @@ from gridsolver.solver.solver import _cap_solutions
 
 
 _WORKER_ROOT_GRID: Grid | None = None
+_WORKER_DEPTH_GATE: int | None = None
 
 
-def _init_worker(grid_payload: bytes) -> None:
+def _init_worker(worker_payload: bytes) -> None:
     """Unpickle one immutable-by-convention root grid per worker."""
-    global _WORKER_ROOT_GRID
-    root = pickle.loads(grid_payload)
-    if not isinstance(root, Grid):
-        raise TypeError("Parallel worker root payload did not contain a Grid")
+    global _WORKER_ROOT_GRID, _WORKER_DEPTH_GATE
+    decoded = pickle.loads(worker_payload)
+    if isinstance(decoded, Grid):
+        # Backwards-compatible direct initialisation used by tests and
+        # third-party embedding code written before depth_gate existed.
+        root = decoded
+        depth_gate = None
+    elif (
+        isinstance(decoded, tuple)
+        and len(decoded) == 2
+        and isinstance(decoded[0], Grid)
+    ):
+        root, depth_gate = decoded
+    else:
+        raise TypeError(
+            "Parallel worker payload did not contain a Grid"
+        )
+
+    if depth_gate is not None and (
+        type(depth_gate) is not int or depth_gate < 0
+    ):
+        raise TypeError(
+            "Parallel worker depth_gate must be None or a non-negative int"
+        )
     _WORKER_ROOT_GRID = root
+    _WORKER_DEPTH_GATE = depth_gate
 
 
 def _fresh_worker_grid() -> Grid:
@@ -50,7 +72,13 @@ def _solve_branch(
 
     _lg.set_lvl(0)
     grid[cell] = value
-    return _solver._solve_full(grid, [0], max_sols, set())
+    return _solver._solve_full(
+        grid,
+        [0],
+        max_sols,
+        set(),
+        _WORKER_DEPTH_GATE,
+    )
 
 
 def _solve_branch_with_stats(
@@ -66,6 +94,7 @@ def solve_parallel_trials(
     branches: list[tuple[int, int]],
     max_sols: int,
     processes: int,
+    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Solve branches concurrently while consuming results in branch order."""
     # Derived caches are cheap to rebuild and can dominate pickled payloads.
@@ -76,18 +105,18 @@ def solve_parallel_trials(
     stats = current_power_stats()
     worker = _solve_branch_with_stats if stats is not None else _solve_branch
 
-    # Serialize the root once. Each worker receives that immutable payload once
-    # through its initializer, then uses the optimized Grid.deepcopy() path for
-    # every task instead of repeatedly transmitting the full grid through the
-    # executor queue.
-    grid_payload = pickle.dumps(
-        grid,
+    # Serialize the root and the explicit per-solve gate once. Each worker
+    # receives that immutable payload through its initializer; task payloads
+    # remain the same compact three-scalar tuples as before.
+    worker_root = grid if depth_gate is None else (grid, depth_gate)
+    worker_payload = pickle.dumps(
+        worker_root,
         protocol=pickle.HIGHEST_PROTOCOL,
     )
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=processes,
         initializer=_init_worker,
-        initargs=(grid_payload,),
+        initargs=(worker_payload,),
     ) as pool:
         # Keep no more than one outstanding branch per worker. Submitting every
         # branch up front queues work that a small positive solution cap may

@@ -45,8 +45,17 @@ def _solution_limit(raw_value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Solve a grid puzzle")
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("-m", "--module", help="Python module containing puzzle object g")
-    source.add_argument("-s", "--str", dest="puzzle_string", help="Puzzle string")
+    source.add_argument(
+        "-m",
+        "--module",
+        help="Python module containing puzzle object g",
+    )
+    source.add_argument(
+        "-s",
+        "--str",
+        dest="puzzle_string",
+        help="Puzzle string",
+    )
     source.add_argument("-f", "--file", help="Puzzle file")
     source.add_argument(
         "-e",
@@ -95,6 +104,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=_solution_limit,
         default=-1,
         help="Maximum returned solutions; -1 means unlimited",
+    )
+    parser.add_argument(
+        "--depth-gate",
+        type=_non_negative_int,
+        default=None,
+        help=(
+            "Run only cheap deductions below this backtracking depth; "
+            "disabled by default"
+        ),
     )
     parser.add_argument(
         "--space-separated",
@@ -164,6 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         grid,
         max_sols=args.max_solutions,
         processes=args.processes,
+        depth_gate=args.depth_gate,
     )
     _LOG.logs(0, f"Took {time.perf_counter() - start:.4f}s to execute.")
     return 0
