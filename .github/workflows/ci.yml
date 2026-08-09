@@ -60,6 +60,7 @@ jobs:
           tests/test_action_dispatch.py
           tests/test_rule_hash_cache.py
           tests/test_rule_only_cache.py
+          tests/test_topology_cache_lifecycle.py
           tests/test_extension_validation.py
           tests/test_hotpath_regressions.py
           tests/test_runtime_overhead.py
@@ -143,6 +144,7 @@ jobs:
           tests/test_action_dispatch.py
           tests/test_rule_hash_cache.py
           tests/test_rule_only_cache.py
+          tests/test_topology_cache_lifecycle.py
           tests/test_extension_validation.py
           tests/test_hotpath_regressions.py
           tests/test_runtime_overhead.py
