@@ -93,8 +93,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         RuleContainer.__init__(self)
         self._trail_state = TrailState()
         self._candidates: tuple[TrailedSet, ...] = tuple(
-            TrailedSet(range(1, self.max_elem + 1), self._trail_state)
-            for _ in range(self.len)
+            TrailedSet(
+                range(1, self.max_elem + 1),
+                self._trail_state,
+                cell=cell,
+            )
+            for cell in range(self.len)
         )
         self.has_been_filled = False
         self._struct_cache: dict[str, Any] = {}
@@ -135,6 +139,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
         if current != value and self._trail_state.active:
             self._trail_state.entries.append(("known", index, current))
+        if current != value:
+            self._trail_state.dirty.mark_cell(index)
         self._known[index] = value
         # An assignment outside the current candidate set intentionally empties
         # the set, making the trial branch invalid without corrupting the value
@@ -181,7 +187,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result._known = array("I", self._known)
         result._trail_state = TrailState()
         result._candidates = tuple(
-            TrailedSet(possible, result._trail_state) for possible in self._candidates
+            TrailedSet(possible, result._trail_state, cell=cell)
+            for cell, possible in enumerate(self._candidates)
         )
         result.rules = self.rules.copy()
         result.rules_ia = self.rules_ia.copy()
@@ -206,6 +213,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 filled=self.has_been_filled,
                 struct_cache=self._struct_cache,
                 guarantee_cache=self._guarantee_cache,
+                dirty_state=state.dirty.copy(),
             )
         )
         return token
@@ -258,6 +266,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.has_been_filled = frame.filled
         self._struct_cache = frame.struct_cache
         self._guarantee_cache = frame.guarantee_cache
+        state.dirty = frame.dirty_state
 
 
 
@@ -279,14 +288,34 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return self._candidates[index]
 
     def get_smallest_candidate_set_gt1(self) -> tuple[int, set[int]]:
-        return min(
-            (
-                (cell, possible)
-                for cell, possible in enumerate(self._candidates)
-                if len(possible) > 1
-            ),
-            key=lambda item: len(item[1]),
+        def build_branch_peers() -> tuple[frozenset[int], ...]:
+            peers = [set() for _ in range(self.len)]
+            for rule in self.rules:
+                rule_cells = set(rule.cells)
+                for cell in rule.cells:
+                    peers[cell].update(rule_cells - {cell})
+            return tuple(frozenset(items) for items in peers)
+
+        branch_peers = self.cached_struct(
+            "branch_peers",
+            build_branch_peers,
         )
+        best: tuple[tuple[int, int, int], int, set[int]] | None = None
+        for cell, possible in enumerate(self._candidates):
+            if len(possible) <= 1:
+                continue
+            pressure = sum(
+                len(possible & self._candidates[peer])
+                for peer in branch_peers[cell]
+                if self._known[peer] == 0
+            )
+            key = (len(possible), -pressure, cell)
+            if best is None or key < best[0]:
+                best = key, cell, possible
+
+        if best is None:
+            raise ValueError("No cell has more than one candidate")
+        return best[1], best[2]
 
     def get_smallest_guarantee(self) -> Guarantee | None:
         if not self.guarantees:
@@ -378,6 +407,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if not additions:
             return
         self.rules.update(additions)
+        self._trail_state.dirty.rules.update(additions)
         if self._trail_state.active:
             self._trail_state.entries.extend(
                 ("rule+", rule) for rule in additions
@@ -390,6 +420,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def deactivate_rule(self, rule: Rule) -> None:
         self.rules.remove(rule)
         self.rules_ia.add(rule)
+        self._trail_state.dirty.rules.discard(rule)
         if self._trail_state.active:
             self._trail_state.entries.append(("rule-", rule))
         self._invalidate_struct_cache()
@@ -474,6 +505,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if not additions:
             return
         self.guarantees.update(additions)
+        dirty = self._trail_state.dirty
+        dirty.guarantees.update(additions)
+        dirty.guarantee_rule_cells.update(
+            min(guarantee.cells) for guarantee in additions
+        )
+        dirty.guarantee_relations = True
         if self._trail_state.active:
             self._trail_state.entries.extend(
                 ("gt+", guarantee) for guarantee in additions
@@ -487,6 +524,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def deactivate_gtee(self, guarantee: Guarantee) -> None:
         self.guarantees.remove(guarantee)
         self.guarantees_ia.add(guarantee)
+        self._trail_state.dirty.guarantees.discard(guarantee)
         if self._trail_state.active:
             self._trail_state.entries.append(("gt-", guarantee))
         self._invalidate_struct_cache()
@@ -509,6 +547,84 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             value = factory()
             self._guarantee_cache[key] = value
             return value
+
+    def take_dirty_rules(self) -> tuple[Rule, ...]:
+        """Consume the active rules affected since the previous rule pass."""
+        dirty = self._trail_state.dirty
+        if dirty.all_rules:
+            selected = set(self.rules)
+        else:
+            selected = dirty.rules & self.rules
+            watched_cells = dirty.rule_cells | dirty.guarantee_rule_cells
+            if watched_cells:
+                def build_rule_watchers() -> tuple[tuple[Rule, ...], ...]:
+                    watchers: list[list[Rule]] = [
+                        [] for _ in range(self.len)
+                    ]
+                    for rule in self.rules:
+                        for cell in rule.cells:
+                            watchers[cell].append(rule)
+                    return tuple(tuple(items) for items in watchers)
+
+                by_cell = self.cached_struct(
+                    "propagation_rules_by_cell",
+                    build_rule_watchers,
+                )
+                for cell in dirty.rule_cells:
+                    selected.update(by_cell[cell])
+                for cell in dirty.guarantee_rule_cells:
+                    selected.update(
+                        rule
+                        for rule in by_cell[cell]
+                        if rule.uses_guarantees
+                    )
+
+        dirty.all_rules = False
+        dirty.rules.clear()
+        dirty.rule_cells.clear()
+        dirty.guarantee_rule_cells.clear()
+        return tuple(rule for rule in self.rules if rule in selected)
+
+    def take_dirty_guarantees(self) -> tuple[Guarantee, ...]:
+        """Consume live guarantees affected by candidate or known changes."""
+        dirty = self._trail_state.dirty
+        if dirty.all_guarantees:
+            selected = set(self.guarantees)
+        else:
+            selected = dirty.guarantees & self.guarantees
+            if dirty.guarantee_cells:
+                def build_guarantee_watchers(
+                ) -> tuple[tuple[Guarantee, ...], ...]:
+                    watchers: list[list[Guarantee]] = [
+                        [] for _ in range(self.len)
+                    ]
+                    for guarantee in self.guarantees:
+                        for cell in guarantee.cells:
+                            watchers[cell].append(guarantee)
+                    return tuple(tuple(items) for items in watchers)
+
+                by_cell = self.cached_guarantee_struct(
+                    "propagation_guarantees_by_cell",
+                    build_guarantee_watchers,
+                )
+                for cell in dirty.guarantee_cells:
+                    selected.update(by_cell[cell])
+
+        dirty.all_guarantees = False
+        dirty.guarantees.clear()
+        dirty.guarantee_cells.clear()
+        return tuple(
+            guarantee
+            for guarantee in self.guarantees
+            if guarantee in selected
+        )
+
+    def take_dirty_guarantee_relations(self) -> bool:
+        """Return whether guarantee subset relationships need recomputing."""
+        dirty = self._trail_state.dirty
+        result = dirty.guarantee_relations
+        dirty.guarantee_relations = False
+        return result
 
     def _load_preprocess_sequence(
         self,

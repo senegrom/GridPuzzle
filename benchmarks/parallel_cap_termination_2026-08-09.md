@@ -7,8 +7,8 @@ terminated so leaving the executor context does not wait for branches whose
 results cannot affect the requested capped subset.
 
 Measurements used CPython 3.14.6 on GitHub's Ubuntu runner, four worker
-processes, `PYTHONHASHSEED=0`, `depth_gate=None`, and two timed repetitions per
-case. The returned solution was hashed in both implementations.
+processes, `PYTHONHASHSEED=0`, the complete technique hierarchy, and two timed
+repetitions per case. The returned solution was hashed in both implementations.
 
 | Case | Baseline median | Candidate median | Change |
 | --- | ---: | ---: | ---: |

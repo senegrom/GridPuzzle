@@ -1,8 +1,8 @@
 # Silent logging and hot-call experiments — 2026-08-09
 
 All measurements used CPython 3.14.6 on GitHub's Ubuntu runner,
-`PYTHONHASHSEED=0`, the complete default technique hierarchy
-(`depth_gate=None`), two timed repetitions per case, and SHA-256
+`PYTHONHASHSEED=0`, the complete default technique hierarchy,
+two timed repetitions per case, and SHA-256
 comparison of the complete returned solution sets.
 
 ## Accepted: handler-aware lazy logging

@@ -24,73 +24,64 @@ def _guarantees_by_value(grid: Grid) -> dict[int, tuple[Guarantee, ...]]:
 
 # noinspection PyProtectedMember
 def filter_guarantees(grid: Grid) -> None:
-    # Grouping and sorting depend only on the live guarantee set.
-    # Reuse the guarantee-only cache until that set changes.
-    grouped = grid.cached_guarantee_struct(
-        "filter_guarantees_by_value",
-        lambda: _guarantees_by_value(grid),
-    )
+    pending = grid.take_dirty_guarantees()
 
-    to_deactivate: set[Guarantee] = set()
-    for per_value in grouped.values():
-        if len(per_value) < 2:
-            continue
-        for index, smaller in enumerate(per_value):
-            for larger in per_value[index + 1:]:
-                if smaller.cells <= larger.cells:
-                    to_deactivate.add(larger)
+    if grid.take_dirty_guarantee_relations():
+        grouped = grid.cached_guarantee_struct(
+            "filter_guarantees_by_value",
+            lambda: _guarantees_by_value(grid),
+        )
+        to_deactivate: set[Guarantee] = set()
+        for per_value in grouped.values():
+            if len(per_value) < 2:
+                continue
+            for index, smaller in enumerate(per_value):
+                for larger in per_value[index + 1:]:
+                    if smaller.cells <= larger.cells:
+                        to_deactivate.add(larger)
 
-    for guarantee in to_deactivate:
-        if guarantee in grid.guarantees:
-            grid.deactivate_gtee(guarantee)
+        for guarantee in to_deactivate:
+            if guarantee in grid.guarantees:
+                grid.deactivate_gtee(guarantee)
 
-    for guarantee in tuple(grid.guarantees):
+    for guarantee in pending:
         if guarantee in grid.guarantees:
             update_from_guarantee(grid, guarantee)
 
 
 # noinspection PyProtectedMember
-def update_from_guarantee(grid: Grid, gt: Guarantee):
-    first_idx = -1
-    is_single = True
+def update_from_guarantee(grid: Grid, gt: Guarantee) -> None:
+    """Apply one live guarantee with a single pass over its cells."""
     cands = grid._candidates
     known = grid._known
+    eligible: list[int] = []
+
     for cell in gt.cells:
-        if gt.val in cands[cell]:
-            if first_idx == -1:
-                first_idx = cell
-            else:
-                is_single = False
         if gt.val == known[cell]:
             grid.deactivate_gtee(gt)
             return
+        if known[cell] == 0 and gt.val in cands[cell]:
+            eligible.append(cell)
 
-    if is_single:
-        if first_idx == -1:
-            cands[next(iter(gt.cells))].clear()
-            raise InvalidGrid()
-        pfi: Set[int] = cands[first_idx]
-        kfi = known[first_idx]
-        if kfi == 0 and gt.val in pfi:
-            grid[first_idx] = gt.val  # via __setitem__ so the candidate set is pruned too
-            grid.deactivate_gtee(gt)
-            return
-        else:
-            pfi.clear()
-            raise InvalidGrid()
+    if not eligible:
+        cands[next(iter(gt.cells))].clear()
+        raise InvalidGrid()
 
-    if any(known[cell] > 0 or gt.val not in cands[cell] for cell in gt.cells):
+    if len(eligible) == 1:
+        grid[eligible[0]] = gt.val
         grid.deactivate_gtee(gt)
+        return
 
-        new_cells = frozenset(cell for cell in gt.cells if known[cell] == 0 and
-                              gt.val in cands[cell])
-
-        if not new_cells:
-            cands[next(iter(gt.cells))].clear()
-            raise InvalidGrid()
-
-        new_gt = Guarantee(val=gt.val, cells=new_cells, rows=grid.rows, cols=grid.cols)
-        grid.add_gtee_checked(new_gt)
+    if len(eligible) != len(gt.cells):
+        grid.deactivate_gtee(gt)
+        grid.add_gtee_checked(
+            Guarantee(
+                val=gt.val,
+                cells=frozenset(eligible),
+                rows=grid.rows,
+                cols=grid.cols,
+            )
+        )
 
 
 def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length,

@@ -54,13 +54,12 @@ def test_parallel_workers_receive_a_cache_free_root_seed(monkeypatch):
         self.grid._fish_value_memo = {"large": object()}
         return SolveStatus.NONE
 
-    def fake_parallel(seed, branches, max_sols, processes, depth_gate=None):
+    def fake_parallel(seed, branches, max_sols, processes):
         captured.update(
             seed=seed,
             branches=branches,
             max_sols=max_sols,
             processes=processes,
-            depth_gate=depth_gate,
         )
         return set()
 
@@ -71,7 +70,7 @@ def test_parallel_workers_receive_a_cache_free_root_seed(monkeypatch):
         fake_parallel,
     )
 
-    assert solver._solve_top_parallel(grid, 3, 2, 1) == set()
+    assert solver._solve_top_parallel(grid, 3, 2) == set()
 
     seed = captured["seed"]
     assert seed is not grid
@@ -85,7 +84,6 @@ def test_parallel_workers_receive_a_cache_free_root_seed(monkeypatch):
     assert captured["branches"] == [(0, 1), (0, 2)]
     assert captured["max_sols"] == 3
     assert captured["processes"] == 2
-    assert captured["depth_gate"] == 1
     assert grid._struct_cache
     assert grid._guarantee_cache
     assert hasattr(grid, "_fish_value_memo")
@@ -108,8 +106,8 @@ def test_worker_root_creates_isolated_branch_grids(monkeypatch):
     assert second.get_candidates(0) == {1, 2}
     assert parallel_module._WORKER_ROOT_GRID.get_candidates(0) == {1, 2}
 
-    first_solutions = parallel_module._solve_branch((0, 1, 1, 0))
-    second_solutions = parallel_module._solve_branch((0, 2, 1, 0))
+    first_solutions = parallel_module._solve_branch((0, 1, 1))
+    second_solutions = parallel_module._solve_branch((0, 2, 1))
     assert {tuple(solution) for solution in first_solutions} == {(1,)}
     assert {tuple(solution) for solution in second_solutions} == {(2,)}
     assert parallel_module._WORKER_ROOT_GRID.known == (0,)
@@ -176,7 +174,7 @@ def _assert_compact_worker_payloads(pool):
     assert pool.initializer is parallel_module._init_worker
     assert len(pool.initargs) == 1
     assert isinstance(pool.initargs[0], bytes)
-    assert all(len(payload) == 4 for payload in pool.payloads)
+    assert all(len(payload) == 3 for payload in pool.payloads)
     assert all(
         not any(isinstance(item, Grid) for item in payload)
         for payload in pool.payloads

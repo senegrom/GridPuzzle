@@ -41,20 +41,20 @@ def _fresh_worker_grid() -> Grid:
 
 
 def _solve_branch(
-    payload: tuple[int, int, int, int | None],
+    payload: tuple[int, int, int],
 ) -> set[ImmutableGrid]:
-    cell, value, max_sols, depth_gate = payload
+    cell, value, max_sols = payload
     grid = _fresh_worker_grid()
     from gridsolver.solver import solver as _solver
     from gridsolver.solver.solver_log import lg as _lg
 
     _lg.set_lvl(0)
     grid[cell] = value
-    return _solver._solve_full(grid, [0], max_sols, set(), depth_gate)
+    return _solver._solve_full(grid, [0], max_sols, set())
 
 
 def _solve_branch_with_stats(
-    payload: tuple[int, int, int, int | None],
+    payload: tuple[int, int, int],
 ) -> tuple[set[ImmutableGrid], PowerStats]:
     with collect_power_stats() as stats:
         solutions = _solve_branch(payload)
@@ -66,7 +66,6 @@ def solve_parallel_trials(
     branches: list[tuple[int, int]],
     max_sols: int,
     processes: int,
-    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Solve branches concurrently while consuming results in branch order."""
     # Derived caches are cheap to rebuild and can dominate pickled payloads.
@@ -97,7 +96,7 @@ def solve_parallel_trials(
         futures = deque(
             pool.submit(
                 worker,
-                (cell, value, max_sols, depth_gate),
+                (cell, value, max_sols),
             )
             for cell, value in ordered_branches[:initial_count]
         )
@@ -129,7 +128,7 @@ def solve_parallel_trials(
                 futures.append(
                     pool.submit(
                         worker,
-                        (cell, value, max_sols, depth_gate),
+                        (cell, value, max_sols),
                     )
                 )
 

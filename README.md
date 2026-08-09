@@ -53,7 +53,8 @@ The solver uses constraint propagation with a hierarchy of increasingly powerful
 - **Forcing Net** — test all value combinations of two cells simultaneously for common deductions
 
 #### Last resort
-- **Backtracking** with the MRV (Minimum Remaining Values) heuristic
+- **Backtracking** with MRV (Minimum Remaining Values), breaking ties by the
+  candidate pressure from neighbouring constraints
 
 ### Technique effectiveness
 
@@ -67,17 +68,13 @@ The installed `gridpuzzle` command and `python run.py` expose the same
 options. Use `--processes N` for top-level process-pool search and
 `--max-solutions N` to cap the deterministic returned subset.
 
-`--depth-gate K` is an opt-in performance policy: at backtracking depths
-deeper than `K`, the solver runs only the cheap deduction tier before
-branching. The default is disabled, preserving the full technique hierarchy
-at every search node. The equivalent library call is:
+The equivalent library call is:
 
 ```python
 solutions = solver.solve(
     grid,
     processes=0,
     max_sols=-1,
-    depth_gate=None,
 )
 ```
 

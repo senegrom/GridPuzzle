@@ -113,7 +113,7 @@ def apply_rules(grid: Grid) -> None:
     known = grid._known
     candidates = grid._candidates
 
-    for rule in list(grid.rules):
+    for rule in grid.take_dirty_rules():
         try:
             refresh, new_rules, new_guarantees = rule.apply(
                 known,

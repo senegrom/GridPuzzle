@@ -29,11 +29,13 @@ It contains:
 
 - a stack of `TrailFrame` objects;
 - an append-only entry journal for the active nested scopes;
-- monotonically increasing frame tokens.
+- monotonically increasing frame tokens;
+- the event-driven propagation dirty state.
 
 A frame records its token, the journal start position, `has_been_filled`, and
-the parent structural and guarantee-cache dictionaries. Marks must be undone
-in strict LIFO order.
+the parent structural and guarantee-cache dictionaries. It also snapshots the
+parent dirty worklists and full-pass flags. Marks must be undone in strict LIFO
+order.
 
 ### Candidate sets
 
@@ -67,6 +69,21 @@ A branch never clears a cache object owned by its parent frame. Structural
 invalidation inside a trail scope swaps in a fresh dictionary. Undo restores
 the parent dictionary references recorded by the frame. The guarantee-only
 cache follows the same rule.
+
+### Event-driven propagation
+
+Every candidate set knows its cell index. An actual candidate mutation, or a
+new known assignment, marks that cell for both rule and guarantee propagation.
+Rule and guarantee additions queue the new object directly. Cached per-cell
+watcher maps expand cell events into only the live constraints that can observe
+them; guarantee additions separately wake guarantee-consuming rules through a
+minimum-cell superset index.
+
+New grids and explicit clones begin with full-pass flags set, ensuring every
+constraint is applied once before incremental selection begins. A trail frame
+copies the complete dirty state. Undo restores that copy after replaying the
+journal, so work consumed inside a branch and work created only by that branch
+both disappear at the rollback boundary.
 
 ### Fish memoisation
 
@@ -129,8 +146,12 @@ enumeration by 1.98%, non-square 6x6 cap-20 by 0.76%, and a 1,000-branch case by
 5. Parent cache objects and fish fingerprints are restored, not merely cleared.
 6. A `deepcopy` or pickle round trip creates or preserves a coherent shared
    trail state for its candidate sets and memo mapping.
-7. Caller-owned grids remain unmodified by `solve()`.
-8. Process-pool tasks never solve the worker initializer root in place.
+7. Every actual candidate mutation identifies its cell to the shared dirty
+   state, including after pickle restoration.
+8. Dirty worklists and full-pass flags roll back with the same frame as the
+   candidates, rules, guarantees, and caches they describe.
+9. Caller-owned grids remain unmodified by `solve()`.
+10. Process-pool tasks never solve the worker initializer root in place.
 
 ## Test coverage
 
@@ -146,7 +167,8 @@ enumeration by 1.98%, non-square 6x6 cap-20 by 0.76%, and a 1,000-branch case by
 - forcing-chain and forcing-net consensus;
 - recursive backtracking without per-node deep copies;
 - deterministic sequential/parallel equivalence;
-- transactional fish memo rollback.
+- transactional fish memo rollback;
+- dirty-worklist selectivity, pickle coherence, and exact rollback.
 
 `tests/test_solver_api.py` covers process-pool root initialisation, isolated
 per-task clones, compact task payloads, bounded submission, capped worker

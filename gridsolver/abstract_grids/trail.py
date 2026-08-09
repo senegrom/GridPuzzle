@@ -7,6 +7,36 @@ type TrailEntry = tuple[Any, ...]
 
 
 @dataclass(slots=True)
+class PropagationDirtyState:
+    """Pending rule and guarantee work for one reversible grid state."""
+
+    rule_cells: set[int] = field(default_factory=set)
+    guarantee_cells: set[int] = field(default_factory=set)
+    rules: set[Any] = field(default_factory=set)
+    guarantees: set[Any] = field(default_factory=set)
+    guarantee_rule_cells: set[int] = field(default_factory=set)
+    all_rules: bool = True
+    all_guarantees: bool = True
+    guarantee_relations: bool = True
+
+    def copy(self) -> "PropagationDirtyState":
+        return type(self)(
+            rule_cells=self.rule_cells.copy(),
+            guarantee_cells=self.guarantee_cells.copy(),
+            rules=self.rules.copy(),
+            guarantees=self.guarantees.copy(),
+            guarantee_rule_cells=self.guarantee_rule_cells.copy(),
+            all_rules=self.all_rules,
+            all_guarantees=self.all_guarantees,
+            guarantee_relations=self.guarantee_relations,
+        )
+
+    def mark_cell(self, cell: int) -> None:
+        self.rule_cells.add(cell)
+        self.guarantee_cells.add(cell)
+
+
+@dataclass(slots=True)
 class TrailFrame:
     """One reversible scope and the parent caches it must restore."""
 
@@ -15,6 +45,7 @@ class TrailFrame:
     filled: bool
     struct_cache: dict[str, Any]
     guarantee_cache: dict[str, Any]
+    dirty_state: PropagationDirtyState
 
 
 @dataclass(slots=True)
@@ -24,6 +55,7 @@ class TrailState:
     entries: list[TrailEntry] = field(default_factory=list)
     marks: list[TrailFrame] = field(default_factory=list)
     next_token: int = 0
+    dirty: PropagationDirtyState = field(default_factory=PropagationDirtyState)
 
     @property
     def active(self) -> bool:
@@ -33,25 +65,28 @@ class TrailState:
 class TrailedSet(set[int]):
     """A set that snapshots itself once per active trail token."""
 
-    __slots__ = ("_trail_state", "_snapshot_token")
+    __slots__ = ("_trail_state", "_snapshot_token", "_cell")
 
     def __init__(
         self,
         values: Iterable[int] = (),
         trail_state: TrailState | None = None,
         snapshot_token: int = 0,
+        cell: int = -1,
     ) -> None:
         super().__init__(values)
         self._trail_state = (
             TrailState() if trail_state is None else trail_state
         )
         self._snapshot_token = snapshot_token
+        self._cell = cell
 
     def __reduce__(self):
         return type(self), (
             tuple(self),
             self._trail_state,
             self._snapshot_token,
+            self._cell,
         )
 
     def __repr__(self) -> str:
@@ -71,15 +106,18 @@ class TrailedSet(set[int]):
         )
         self._snapshot_token = frame.token
 
+    def _mark_changed(self) -> None:
+        if self._cell >= 0:
+            self._trail_state.dirty.mark_cell(self._cell)
+
     def add(self, element: int) -> None:
         state = self._trail_state
-        if not state.marks:
-            set.add(self, element)
-            return
         if element in self:
             return
-        self._journal_snapshot()
+        if state.marks:
+            self._journal_snapshot()
         set.add(self, element)
+        self._mark_changed()
 
     def clear(self) -> None:
         if not self:
@@ -88,6 +126,7 @@ class TrailedSet(set[int]):
         if state.marks:
             self._journal_snapshot()
         set.clear(self)
+        self._mark_changed()
 
     def difference_update(self, *others: Iterable[int]) -> None:
         if not others:
@@ -95,17 +134,19 @@ class TrailedSet(set[int]):
         state = self._trail_state
         if state.marks:
             self._journal_snapshot()
+        previous_length = len(self)
         set.difference_update(self, *others)
+        if len(self) != previous_length:
+            self._mark_changed()
 
     def discard(self, element: int) -> None:
         state = self._trail_state
-        if not state.marks:
-            set.discard(self, element)
-            return
         if element not in self:
             return
-        self._journal_snapshot()
+        if state.marks:
+            self._journal_snapshot()
         set.discard(self, element)
+        self._mark_changed()
 
     def intersection_update(self, *others: Iterable[int]) -> None:
         if not others:
@@ -113,33 +154,39 @@ class TrailedSet(set[int]):
         state = self._trail_state
         if state.marks:
             self._journal_snapshot()
+        previous_length = len(self)
         set.intersection_update(self, *others)
+        if len(self) != previous_length:
+            self._mark_changed()
 
     def pop(self) -> int:
         state = self._trail_state
-        if not state.marks:
-            return set.pop(self)
         if not self:
             return set.pop(self)
-        self._journal_snapshot()
-        return set.pop(self)
+        if state.marks:
+            self._journal_snapshot()
+        result = set.pop(self)
+        self._mark_changed()
+        return result
 
     def remove(self, element: int) -> None:
         state = self._trail_state
-        if not state.marks:
-            set.remove(self, element)
-            return
         if element not in self:
             set.remove(self, element)
             return
-        self._journal_snapshot()
+        if state.marks:
+            self._journal_snapshot()
         set.remove(self, element)
+        self._mark_changed()
 
     def symmetric_difference_update(self, other: Iterable[int]) -> None:
+        previous = set(self)
         state = self._trail_state
         if state.marks:
             self._journal_snapshot()
         set.symmetric_difference_update(self, other)
+        if self != previous:
+            self._mark_changed()
 
     def update(self, *others: Iterable[int]) -> None:
         if not others:
@@ -147,7 +194,10 @@ class TrailedSet(set[int]):
         state = self._trail_state
         if state.marks:
             self._journal_snapshot()
+        previous_length = len(self)
         set.update(self, *others)
+        if len(self) != previous_length:
+            self._mark_changed()
 
     def __iand__(self, other: Iterable[int]):
         self.intersection_update(other)

@@ -5,7 +5,7 @@ every executor task. The accepted implementation serializes that cache-free
 root once in the parent, installs one immutable-by-convention root in each
 worker through `ProcessPoolExecutor.initializer`, and creates each branch with
 the project's purpose-built `Grid.deepcopy()` method. Task payloads now contain
-only the cell, value, solution cap, and depth gate.
+only the cell, value, and solution cap.
 
 This keeps exact per-task isolation: known values, candidates, rules,
 guarantees, caches, trails, and subclass-owned state are detached before the

@@ -71,10 +71,20 @@ case with identical solution hashes. See
    from 3h09m to about 22m28s with identical solutions.
 3. **REJECTED:** pruned recursion in fish enumeration was equivalent but 12%
    slower with the existing memo.
-4. **OPEN, long term:** maintain per-value candidate bitmasks incrementally.
-   Subset tests become integer operations and the mask doubles as a dirty
-   fingerprint. This is invasive because every candidate mutation needs to go
-   through an API.
+4. **PARTIAL:** AIC, ALS-XZ, and ALS-XY-Wing now share one immutable per-value
+   candidate-bitmask and peer-topology snapshot at each stalled state. Keeping
+   those masks incrementally updated remains open; the event-driven candidate
+   mutation hooks now make that possible, but benchmark evidence is still
+   required before adding more per-mutation bookkeeping.
+
+## Event-driven basic propagation — DONE August 2026
+
+Candidate and known-value changes now queue only rules and guarantees watching
+the changed cells. New constraints are queued directly, guarantee additions
+wake only relevant guarantee-consuming rules, and dominance comparisons rerun
+only when the live guarantee relation can change. Dirty queues are snapshotted
+and restored with every trail frame and survive pickle round trips with their
+candidate-cell identities intact.
 
 ## Parallel top-level trials — DONE, opt-in
 
@@ -99,7 +109,7 @@ solutions. See `benchmarks/bounded_parallel_submission_2026-08-09.md`.
 
 Each process now receives one serialized, cache-free root grid through its
 initializer. Every task uses the optimized `Grid.deepcopy()` path locally, so
-branch payloads contain only four scalars rather than the complete puzzle.
+branch payloads contain only three scalars rather than the complete puzzle.
 Measurements improved by 20.06% at 1,000 branches, 1.55% on blank-4x4 cap-1,
 1.04% on full blank-4x4 enumeration, and 2.80% on non-square 6x6 cap-20, with
 identical solution sets. See `benchmarks/worker_root_clone_2026-08-09.md`.
@@ -116,18 +126,6 @@ demonstrated. See `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
 could avoid pickle/startup costs, but must be benchmarked against the existing
 process pool and requires eliminating or context-localising the remaining
 process-wide statistics and logging state.
-
-## Depth-gated technique tiers — DONE as an explicit per-solve option
-
-`solve(..., depth_gate=K)` runs only the cheap tier below the chosen search
-depth (the former atomic_solver.DEPTH_GATE_K module flag was migrated to this
-explicit per-solve option, default off). Historical measurements at K=1:
-blank 4x4 37.0s -> 2.6s; non-square 6x6 400.9s -> 7.7s with identical
-solutions; benchmarks/README.md records the CI-runner numbers (86.3x at K=0
-on blank enumeration).
-
-**OPEN:** decide whether to adopt a default after scheduled extended CI measures
-K=1..2 across single-solution hard puzzles and the slow Latin-square corpus.
 
 ## Trail-based propagation instead of deepcopy-per-trial — DONE August 2026
 
@@ -147,7 +145,7 @@ invariants.
 records pre-trail d38f9c9 vs trail bb8d7d4 — performance-neutral on
 enumeration (blank 4x4 all-288: 41.0s -> 41.9s; nonsq 6x6 cap-20: 22.2s ->
 21.2s), identical solution sets; the hot-path series repaid the journaling
-overhead and the depth-gate wins ride on the trail foundation. The rule
+overhead while retaining transactional branch isolation. The rule
 stands: do not change trail representation again without full solution-set
 equivalence and fresh corpus measurements.
 

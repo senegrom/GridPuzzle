@@ -8,7 +8,7 @@ Ubuntu runner before and after four semantics-preserving changes:
 - C-level tuple hashing for `Guarantee`;
 - cached per-cell-set relevant-guarantee tuples.
 
-Every run used `depth_gate=None`, sequential solving, disabled log
+Every run used the complete technique hierarchy, sequential solving, disabled log
 rendering, `PYTHONHASHSEED=0`, and exact deterministic solution-set
 fingerprints. The fingerprints were identical before and after.
 
@@ -20,13 +20,13 @@ fingerprints. The fingerprints were identical before and after.
 Earlier isolated measurements also showed each group independently
 improving both cases, so the combined result is not a single-run
 scheduling artefact. These optimizations do not alter the technique
-hierarchy, branching policy, solution cap, or depth-gate defaults.
+hierarchy, branching policy, or solution cap.
 
 
 ## Second-stage runtime cleanup
 
 Two further isolated candidates were measured against the optimized
-baseline above, still with `depth_gate=None` and identical solution
+baseline above, still with the complete hierarchy and identical solution
 fingerprints:
 
 | Change | Blank 4x4 | Non-square 6x6 |
@@ -36,4 +36,4 @@ fingerprints:
 
 The measurements were run independently to attribute each gain. Both
 changes preserve the full technique hierarchy and default branching
-behavior; depth gating remains disabled unless explicitly requested.
+behavior.

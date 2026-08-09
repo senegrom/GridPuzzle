@@ -16,10 +16,9 @@ Interpretation: the trail rework on its own is performance-neutral on
 enumeration workloads — the journaling overhead roughly cancels the saved
 deepcopies at these grid sizes — and the subsequent hot-path series (see
 default_hotpath_2026-08-08.md) repaid the overhead. The trail engine's value
-is structural: reversible propagation is what makes cheap speculative
-branches (depth gate, nishio, forcing techniques) and the recorded
-depth-gate wins (README.md: 86x at gate 0 on blank enumeration) possible
-without per-branch grid copies.
+is structural: reversible propagation lets recursive search, Nishio, and
+forcing techniques explore speculative branches without per-branch grid
+copies.
 
 Numbers are single-run and environment-sensitive; treat the equivalence
 result as the hard fact and the timings as trend-level.

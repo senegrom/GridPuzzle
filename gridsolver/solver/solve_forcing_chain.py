@@ -28,23 +28,15 @@ _in_forcing_chain = _ContextFlag("gridpuzzle_in_forcing_chain")
 MAX_FORCING_CHAIN_CANDIDATES = 4
 
 
-def _propagate_with_techniques(
-    grid: Grid,
-    depth_gate: int | None,
-) -> SolveStatus:
+def _propagate_with_techniques(grid: Grid) -> SolveStatus:
     """Propagate while recursive trials are disabled."""
     from gridsolver.solver.atomic_solver import AtomicSolver
 
-    return AtomicSolver(
-        grid,
-        [],
-        set(),
-        depth_gate=depth_gate,
-    ).solve_atomic()
+    return AtomicSolver(grid, [], set()).solve_atomic()
 
 
 # noinspection PyProtectedMember
-def forcing_chain(grid: Grid, depth_gate: int | None = None) -> None:
+def forcing_chain(grid: Grid) -> None:
     """Apply deductions shared by every valid value of a small cell."""
     if _in_forcing_chain:
         return
@@ -79,7 +71,7 @@ def forcing_chain(grid: Grid, depth_gate: int | None = None) -> None:
                 try:
                     grid[cell] = value
                     try:
-                        status = _propagate_with_techniques(grid, depth_gate)
+                        status = _propagate_with_techniques(grid)
                     except InvalidGrid:
                         status = SolveStatus.INVALID
                     if status is not SolveStatus.INVALID:

@@ -24,7 +24,7 @@ solve(grid)
         → hidden tuples, fish, finned fish    # combinatorial
         → AIC, Nishio                         # contradiction-based
         → forcing net                         # last deductive resort
-    → if NONE: MRV backtracking
+    → if NONE: MRV backtracking with deterministic peer-pressure tie-breaking
        using nested trail_mark()/trail_undo() scopes
 ```
 
@@ -39,17 +39,28 @@ one mutable grid through transactional trail scopes.
 candidates, rules, guarantees, fill state, and caches are not used as mutable
 search state.
 
-**Depth gating is explicit per solve.**
-`solver.solve(..., depth_gate=K)` passes the threshold through recursive and
-process-pool branches. No module-global policy is read, so concurrent solves
-can use different thresholds safely. `None` is the default and retains all
-techniques at every depth.
 **Speculative work uses reversible trails.**
 Candidate sets are `TrailedSet` objects that snapshot once per nested frame.
 Known assignments, rule/guarantee transitions, parent cache dictionaries, and
-fish dirty fingerprints are restored by `trail_undo()`. Every speculative
-scope must undo in `finally`. See `TRAIL_DESIGN.md` for the invariants and test
-coverage.
+fish dirty fingerprints are restored by `trail_undo()`. The event-driven
+propagation queue is part of the same frame state, so sibling branches cannot
+inherit consumed or branch-only work. Every speculative scope must undo in
+`finally`. See `TRAIL_DESIGN.md` for the invariants and test coverage.
+
+**Basic propagation is event-driven.**
+Candidate and known-value changes mark their cells dirty. Cached watcher maps
+then revisit only rules and guarantees touching those cells; newly registered
+rules and guarantees are queued explicitly. Guarantee additions also wake only
+guarantee-consuming rules that can contain them. The first pass after a clone
+still schedules every live constraint, and structural changes invalidate the
+watcher maps.
+
+**AIC and ALS share one candidate topology snapshot.**
+At a stalled atomic state, full houses, peer bitmasks, per-value candidate
+bitmasks, ALS sets, and restricted-common links are built once for the adjacent
+ALS-XZ and ALS-XY-Wing actions. AIC reuses the same immutable topology if no
+intervening action changes the grid. Any action hit ends that power-action pass,
+so a changed state always rebuilds the snapshot.
 
 **Rules are immutable and shared across explicit clones.**
 `Grid.deepcopy()` shallow-copies rule and guarantee sets but shares Rule
@@ -145,10 +156,11 @@ level by design.
   hidden-tuples(7) had zero hits in roughly 900–1400 tries while consuming
   most forcing-chain branch time. Excluding them from inner branches made
   the corpus 6.6x faster with identical solutions and hit profiles.
-- **Guarantee filtering caches its value groups.** Grouping and sorting
-  depend only on the live guarantee set, so repeated propagation passes
-  reuse the guarantee-only cache until a guarantee is added, narrowed, or
-  deactivated. Trail rollback restores the parent cache reference.
+- **Guarantee propagation is incremental.** Each guarantee is evaluated in one
+  pass over its cells, and unchanged guarantees are skipped until a watched
+  candidate or known value changes. Subset-dominance grouping is recomputed
+  only after the live guarantee set grows. Guarantee-only caches survive rule
+  churn, and trail rollback restores their parent reference.
 - **Fish dominates profiling** on 9x9 grids. Value-first iteration and the
   inlined size-2 fast path help; on 16x16 and larger grids,
   group-combination growth is the bottleneck.
@@ -161,8 +173,10 @@ level by design.
   longer clones. After root propagation, process workers receive a fresh
   cache-free clone so large structural and fish memo state is not serialized
   once per submitted branch.
-- **Rule iteration snapshots** use `list(self.grid.rules)` instead of copying a
-  set.
+- **Rule and guarantee watcher indexes** turn basic propagation from repeated
+  full-set scans into dirty-cell worklists. The indexes are structural caches:
+  consumers must not mutate them, and rule/guarantee registration invalidates
+  them before the next selection pass.
 - **Snapshot change detection** tracks known bytes, total candidate count, and
   active/inactive rule and guarantee counts. The state is monotone, so this
   captures candidate, value, and structural progress without deep comparison.

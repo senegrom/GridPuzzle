@@ -204,10 +204,7 @@ def test_forcing_chain_uses_trail_and_merges_valid_branches(monkeypatch):
     def fail_deepcopy(self):
         raise AssertionError("forcing chain must not deepcopy branch grids")
 
-    def fake_propagation(
-        branch: Grid,
-        depth_gate: int | None = None,
-    ) -> SolveStatus:
+    def fake_propagation(branch: Grid) -> SolveStatus:
         branch[1] = 2
         return SolveStatus.NONE
 
@@ -449,3 +446,40 @@ def test_pickled_fish_memo_shares_the_restored_grid_trail():
     restored.trail_undo(mark)
 
     assert dict(restored_memo) == parent
+
+
+def test_propagation_dirty_state_is_restored_with_trail_frame():
+    grid = Grid(2)
+    grid.take_dirty_rules()
+    grid.take_dirty_guarantees()
+    grid.take_dirty_guarantee_relations()
+    parent = grid._trail_state.dirty.copy()
+
+    mark = grid.trail_mark()
+    grid._candidates[0].discard(1)
+    assert grid._trail_state.dirty.rule_cells == {0}
+    assert grid._trail_state.dirty.guarantee_cells == {0}
+
+    grid.trail_undo(mark)
+
+    restored = grid._trail_state.dirty
+    assert restored.rule_cells == parent.rule_cells
+    assert restored.guarantee_cells == parent.guarantee_cells
+    assert restored.rules == parent.rules
+    assert restored.guarantees == parent.guarantees
+    assert restored.guarantee_rule_cells == parent.guarantee_rule_cells
+    assert restored.all_rules == parent.all_rules
+    assert restored.all_guarantees == parent.all_guarantees
+    assert restored.guarantee_relations == parent.guarantee_relations
+
+
+def test_pickled_candidates_retain_their_dirty_watcher_cells():
+    restored = pickle.loads(pickle.dumps(Grid(2)))
+    restored.take_dirty_rules()
+    restored.take_dirty_guarantees()
+    restored.take_dirty_guarantee_relations()
+
+    restored._candidates[2].discard(1)
+
+    assert restored._trail_state.dirty.rule_cells == {2}
+    assert restored._trail_state.dirty.guarantee_cells == {2}

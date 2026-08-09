@@ -8,6 +8,7 @@ from time import perf_counter
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import Guarantee, InvalidGrid
 from gridsolver.solver import solve_forcing_chain as _solve_fc
+from gridsolver.solver.candidate_topology import CandidateTopology
 from gridsolver.solver.logger import MAX_LVL as _MAX_LVL
 from gridsolver.solver.propagation import (
     PropagationSnapshot,
@@ -17,7 +18,7 @@ from gridsolver.solver.propagation import (
 )
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce, rulehelper_house_sums, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_aic import alternating_inference_chain
-from gridsolver.solver.solve_als import als_xy_wing, als_xz
+from gridsolver.solver.solve_als import ALSAnalysis, als_xy_wing, als_xz
 from gridsolver.solver.solve_chain import w_wing, x_chain, xy_chain
 from gridsolver.solver.solve_empty_rectangle import empty_rectangle
 from gridsolver.solver.solve_fish import finned_fish, fish
@@ -114,12 +115,10 @@ class AtomicSolver:
         grid: Grid,
         upsteps: list[int],
         hidden_pair_checked_gts: set[Guarantee],
-        depth_gate: int | None = None,
     ) -> None:
         self.grid = grid
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
-        self.depth_gate = depth_gate
         self.stats = current_power_stats()
         self.collect_timing = self.stats is not None or _lg.on
         self.verbose_logging = _lg.is_enabled(_MAX_LVL)
@@ -287,25 +286,20 @@ class AtomicSolver:
         yield self._act("rulehelper_house_sums", lambda: rulehelper_house_sums(grid))
         yield self._act("naked_tuples5", lambda: remove_naked_tuples(grid, 5))
 
-        if (
-            self.depth_gate is not None
-            and not in_forcing_chain
-            and len(self.upsteps) > self.depth_gate
-        ):
-            return
-
         yield self._act("xy_wing", lambda: xy_wing(grid))
         yield self._act("xyz_wing", lambda: xyz_wing(grid))
         yield self._act("w_wing", lambda: w_wing(grid))
         yield self._act("x_chain", lambda: x_chain(grid))
         yield self._act("xy_chain", lambda: xy_chain(grid))
-        yield self._act("als_xz", lambda: als_xz(grid))
-        yield self._act("als_xy_wing", lambda: als_xy_wing(grid))
-        yield self._act("sue_de_coq", lambda: sue_de_coq(grid))
+        topology = CandidateTopology.build(grid)
+        als_analysis = ALSAnalysis.build(grid, topology)
+        yield self._act("als_xz", lambda: als_xz(grid, als_analysis))
         yield self._act(
-            "forcing_chain",
-            lambda: forcing_chain(grid, self.depth_gate),
+            "als_xy_wing",
+            lambda: als_xy_wing(grid, als_analysis),
         )
+        yield self._act("sue_de_coq", lambda: sue_de_coq(grid))
+        yield self._act("forcing_chain", lambda: forcing_chain(grid))
         yield self._act("hidden_tuples3", lambda: self._hidden_tuples(3))
         yield self._act("fish2", lambda: fish(grid, 2))
         yield self._act("naked_tuples10", lambda: remove_naked_tuples(grid, 10))
@@ -316,7 +310,10 @@ class AtomicSolver:
         yield self._act("naked_tuples", lambda: remove_naked_tuples(grid))
         if not in_forcing_chain:
             yield self._act("hidden_tuples", self._hidden_tuples_max)
-        yield self._act("aic", lambda: alternating_inference_chain(grid))
+        yield self._act(
+            "aic",
+            lambda: alternating_inference_chain(grid, topology),
+        )
         yield self._act("nishio", lambda: nishio(grid))
         if not in_forcing_chain:
             yield self._act("fish", lambda: fish(grid, _MAX_FISH))
