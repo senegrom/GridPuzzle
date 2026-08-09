@@ -1,0 +1,154 @@
+name: Promote silent logging optimization
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/promote-silent-logging.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-silent-logging
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply the benchmarked candidate exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          workflow = Path(
+              ".github/workflows/silent-logging-candidate-fix.yml"
+          ).read_text(encoding="utf-8")
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = dedent(workflow[start:end])
+          exec(compile(script, "silent-logging-promotion", "exec"), {})
+          PY
+
+      - name: Record the measured experiments
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > benchmarks/silent_logging_2026-08-09.md <<'EOF'
+          # Silent logging and hot-call experiments — 2026-08-09
+
+          All measurements used CPython 3.14.6 on GitHub's Ubuntu runner,
+          `PYTHONHASHSEED=0`, the complete default technique hierarchy
+          (`depth_gate=None`), two timed repetitions per case, and SHA-256
+          comparison of the complete returned solution sets.
+
+          ## Accepted: handler-aware lazy logging
+
+          Ordinary API use without an explicitly configured output handler no
+          longer treats the library's `NullHandler` as visible output. Expensive
+          display-only work is guarded before formatting or sorting, and atomic
+          solver step rendering is skipped before constructing messages.
+
+          | Case | Baseline median | Candidate median | Change |
+          | --- | ---: | ---: | ---: |
+          | Blank 4x4, all 288 solutions | 49.542 s | 48.603 s | -1.89% |
+          | Non-square 6x6, first 20 solutions | 23.299 s | 23.241 s | -0.25% |
+
+          Solution hashes were identical in both cases. The targeted candidate
+          suite passed 61 tests with three deliberately deselected cases before
+          promotion; the promoted source then passed the complete bounded suite.
+
+          ## Rejected: mutation epoch for fixpoint snapshots
+
+          Replacing the complete propagation snapshot with a trailed mutation
+          counter was correct in the targeted suite but did not repay the added
+          mutation bookkeeping and rollback complexity.
+
+          | Case | Baseline median | Candidate median | Change |
+          | --- | ---: | ---: | ---: |
+          | Blank 4x4, all 288 solutions | 49.270 s | 49.045 s | -0.46% |
+          | Non-square 6x6, first 20 solutions | 23.364 s | 23.327 s | -0.16% |
+
+          ## Rejected: removing power-action lambdas
+
+          Passing callables and positional arguments directly to `_act` removed
+          closure allocation but weakened typing and made the action table less
+          readable for a result within runner noise.
+
+          | Case | Baseline median | Candidate median | Change |
+          | --- | ---: | ---: | ---: |
+          | Blank 4x4, all 288 solutions | 41.555 s | 41.285 s | -0.65% |
+          | Non-square 6x6, first 20 solutions | 19.853 s | 19.831 s | -0.11% |
+
+          These two rejected designs should not be retried without a materially
+          different representation or a workload demonstrating a larger gain.
+          EOF
+
+      - name: Install and run the complete bounded validation suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          gridpuzzle --help >/dev/null
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=20
+          rm -rf build dist *.egg-info
+
+      - name: Remove temporary experiment workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm \
+            .github/workflows/call-overhead-candidate.yml \
+            .github/workflows/call-overhead-candidate-fix.yml \
+            .github/workflows/call-overhead-candidate-fix2.yml \
+            .github/workflows/call-overhead-candidate-fix3.yml \
+            .github/workflows/silent-logging-candidate.yml \
+            .github/workflows/silent-logging-candidate-fix.yml \
+            .github/workflows/promote-silent-logging.yml
+
+      - name: Commit and push the validated change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add \
+            gridsolver/solver/logger.py \
+            gridsolver/solver/atomic_solver.py \
+            gridsolver/solver/solver.py \
+            tests/test_handler_aware_logging.py \
+            benchmarks/silent_logging_2026-08-09.md
+          git status --short
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Optimize silent solver logging"
+          git push origin HEAD:master
