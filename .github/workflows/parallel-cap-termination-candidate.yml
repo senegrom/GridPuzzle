@@ -1,0 +1,114 @@
+name: Temporary capped-parallel termination candidate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/parallel-cap-termination-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parallel-cap-termination-candidate
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply Python 3.14 worker termination candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          path = Path("gridsolver/solver/solve_parallel.py")
+          text = path.read_text(encoding="utf-8")
+          old = dedent('''
+                      if 0 < max_sols <= len(solutions):
+                          for pending in futures[index + 1 :]:
+                              pending.cancel()
+                          break
+          ''')
+          new = dedent('''
+                      if 0 < max_sols <= len(solutions):
+                          for pending in futures[index + 1 :]:
+                              pending.cancel()
+                          # Python 3.14 can stop branches already running. Without
+                          # this, context-manager exit waits for every worker after
+                          # the deterministic capped subset is complete.
+                          pool.terminate_workers()
+                          break
+          ''')
+          if text.count(old) != 1:
+              raise SystemExit(f"cap marker count: {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Install and run focused correctness checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests benchmarks
+          python benchmarks/parallel_cap_candidate_harness.py --unit
+          python -X dev -m pytest -q \
+            tests/test_hardening.py::test_capped_solution_subset_is_deterministic_across_process_modes \
+            tests/test_regressions.py::test_parallel_trials_work_with_python_314_start_methods \
+            tests/test_runtime_overhead.py::test_parallel_workers_return_and_merge_power_statistics \
+            --durations=10
+
+      - name: Compare capped parallel completion time
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/baseline HEAD^
+
+          run_case() {
+            local directory="$1"
+            local case="$2"
+            (cd "$directory" && PYTHONPATH="$directory" python \
+              "$GITHUB_WORKSPACE/benchmarks/parallel_cap_candidate_harness.py" \
+              --case "$case" --repeats 2)
+          }
+
+          for case in blank4_cap1 nonsquare6_cap1; do
+            baseline="$(run_case /tmp/baseline "$case")"
+            candidate="$(run_case "$GITHUB_WORKSPACE" "$case")"
+            echo "BASELINE ${baseline}"
+            echo "CANDIDATE ${candidate}"
+            BASELINE="$baseline" CANDIDATE="$candidate" python - <<'PY'
+          import json
+          import os
+
+          baseline = json.loads(os.environ["BASELINE"])
+          candidate = json.loads(os.environ["CANDIDATE"])
+          if baseline["digest"] != candidate["digest"]:
+              raise SystemExit("baseline and candidate solution hashes differ")
+          change = 100 * (candidate["median"] / baseline["median"] - 1)
+          print(f"CHANGE {baseline['case']}: {change:+.2f}%")
+          PY
+          done
