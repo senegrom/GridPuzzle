@@ -4,6 +4,10 @@ from pathlib import Path
 from textwrap import dedent
 
 
+def lines(*parts: str) -> str:
+    return "".join(part + "\n" for part in parts)
+
+
 path = Path("gridsolver/solver/solve_parallel.py")
 text = path.read_text(encoding="utf-8")
 
@@ -58,21 +62,24 @@ replacement = dedent('''
 ''').lstrip()
 text = text[:start] + replacement + text[end:]
 
-pool_marker = (
-    "    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as pool:\n"
+pool_marker = lines(
+    "    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as pool:"
 )
 if text.count(pool_marker) != 1:
     raise SystemExit(f"process-pool marker count: {text.count(pool_marker)}")
 text = text.replace(
     pool_marker,
-    dedent('''
-        grid_payload = pickle.dumps(grid, protocol=pickle.HIGHEST_PROTOCOL)
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=processes,
-            initializer=_init_worker,
-            initargs=(grid_payload,),
-        ) as pool:
-    ''').lstrip(),
+    lines(
+        "    grid_payload = pickle.dumps(",
+        "        grid,",
+        "        protocol=pickle.HIGHEST_PROTOCOL,",
+        "    )",
+        "    with concurrent.futures.ProcessPoolExecutor(",
+        "        max_workers=processes,",
+        "        initializer=_init_worker,",
+        "        initargs=(grid_payload,),",
+        "    ) as pool:",
+    ),
     1,
 )
 
