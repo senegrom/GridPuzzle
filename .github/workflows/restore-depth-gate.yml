@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - .github/scripts/apply_restore_depth_gate.py
+      - .github/scripts/run_restore_depth_gate.py
       - .github/workflows/restore-depth-gate.yml
   workflow_dispatch:
 
@@ -40,7 +41,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply candidate
-        run: python .github/scripts/apply_restore_depth_gate.py
+        run: python .github/scripts/run_restore_depth_gate.py
 
       - name: Install and compile
         run: |
@@ -53,6 +54,7 @@ jobs:
       - name: Run API, parallel, CLI, rollback, and example tests
         run: >-
           python -X dev -m pytest -q
+          tests/test_depth_gate.py
           tests/test_solver_api.py
           tests/test_cli_and_loading.py
           tests/test_runtime_overhead.py
@@ -75,7 +77,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply validated candidate
-        run: python .github/scripts/apply_restore_depth_gate.py
+        run: python .github/scripts/run_restore_depth_gate.py
 
       - name: Commit validated source, tests, and documentation
         shell: bash
@@ -89,8 +91,7 @@ jobs:
             gridsolver/solver/atomic_solver.py \
             gridsolver/solver/solve_parallel.py \
             gridsolver/solver/solver.py \
-            tests/test_cli_and_loading.py \
-            tests/test_solver_api.py
+            tests/test_depth_gate.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Restore explicit default-off depth gate"
