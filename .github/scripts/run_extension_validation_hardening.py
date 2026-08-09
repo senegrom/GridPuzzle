@@ -30,12 +30,12 @@ if text.count(marker) != 1:
     raise SystemExit("Validation rule marker changed")
 text = text.replace(marker, helper + marker, 1)
 
-old_apply = "            result = rule.apply(known, candidates, guarantees)\n"
-new_apply = '''            result = rule.apply(
-                known,
-                candidates,
-                _relevant_guarantees_for_rule(rule, guarantees),
-            )
+old_apply = "        result = rule.apply(known, candidates, guarantees)\n"
+new_apply = '''        result = rule.apply(
+            known,
+            candidates,
+            _relevant_guarantees_for_rule(rule, guarantees),
+        )
 '''
 if text.count(old_apply) != 1:
     raise SystemExit("Validation custom apply marker changed")
