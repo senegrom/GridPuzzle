@@ -4,10 +4,14 @@ from pathlib import Path
 from textwrap import dedent
 
 
+def lines(*parts: str) -> str:
+    return "".join(part + "\n" for part in parts)
+
+
 pretty_path = Path("gridsolver/abstract_grids/pretty_print.py")
 text = pretty_path.read_text(encoding="utf-8")
 start = text.index("class PrettyPrintArgs:\n")
-end = text.index("def _positive_integer(\n", start)
+end = text.index("def _positive_integer(", start)
 replacement = dedent('''
     class PrettyPrintArgs:
 
@@ -189,21 +193,21 @@ class Sudoku(UniqueSquareGrid):
 if sudoku.count(class_marker) != 1:
     raise SystemExit("Sudoku class marker changed")
 sudoku = sudoku.replace(class_marker, helper, 1)
-old_dimensions = dedent('''
-        dimensions = (rows_in_box, cols_in_box, box_rows, box_cols)
-        if any(value <= 0 for value in dimensions):
-            raise ValueError("Sudoku box dimensions must be positive")
-
-        n: int = rows_in_box * box_rows
-''')
-new_dimensions = dedent('''
-        rows_in_box = _box_dimension("rows_in_box", rows_in_box)
-        cols_in_box = _box_dimension("cols_in_box", cols_in_box)
-        box_rows = _box_dimension("box_rows", box_rows)
-        box_cols = _box_dimension("box_cols", box_cols)
-
-        n: int = rows_in_box * box_rows
-''')
+old_dimensions = lines(
+    "        dimensions = (rows_in_box, cols_in_box, box_rows, box_cols)",
+    "        if any(value <= 0 for value in dimensions):",
+    "            raise ValueError(\"Sudoku box dimensions must be positive\")",
+    "",
+    "        n: int = rows_in_box * box_rows",
+)
+new_dimensions = lines(
+    "        rows_in_box = _box_dimension(\"rows_in_box\", rows_in_box)",
+    "        cols_in_box = _box_dimension(\"cols_in_box\", cols_in_box)",
+    "        box_rows = _box_dimension(\"box_rows\", box_rows)",
+    "        box_cols = _box_dimension(\"box_cols\", box_cols)",
+    "",
+    "        n: int = rows_in_box * box_rows",
+)
 if sudoku.count(old_dimensions) != 1:
     raise SystemExit("Sudoku dimension marker changed")
 sudoku_path.write_text(
