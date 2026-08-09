@@ -1,6 +1,8 @@
 import numbers
+import zlib
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, MutableSequence, Sequence
+from functools import cache
 from typing import NamedTuple
 
 from gridsolver import util
@@ -40,6 +42,15 @@ class Guarantee(NamedTuple):
         return not self.__eq__(other)
 
 
+@cache
+def _stable_rule_type_tag(rule_type: type["Rule"]) -> int:
+    """Return a deterministic integer tag for a concrete rule class."""
+    identity = (
+        f"{rule_type.__module__}\0{rule_type.__qualname__}"
+    ).encode("utf-8")
+    return zlib.crc32(identity)
+
+
 type TApplyResult = tuple[
     bool,
     Iterable["Rule"] | None,
@@ -48,7 +59,15 @@ type TApplyResult = tuple[
 
 
 class Rule(ABC):
-    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen")
+    __slots__ = (
+        "cells",
+        "_rows",
+        "_cols",
+        "_max_elem",
+        "len_cells",
+        "_frozen",
+        "_base_hash_cache",
+    )
 
     # False lets the solver skip per-rule guarantee-list construction. Every
     # subclass whose apply() body reads guarantees must set this to True.
@@ -74,6 +93,7 @@ class Rule(ABC):
         _clip_outside_after_first: bool = False,
     ) -> None:
         object.__setattr__(self, "_frozen", False)
+        object.__setattr__(self, "_base_hash_cache", None)
         self._rows = gsz.rows
         self._cols = gsz.cols
         self._max_elem = gsz.max_elem
@@ -169,10 +189,17 @@ class Rule(ABC):
         )
 
     def __hash__(self) -> int:
+        cached = getattr(self, "_base_hash_cache", None)
+        if cached is not None and getattr(self, "_frozen", False):
+            return cached
+
         self.freeze()
-        return hash(
+        # The cache survives pickle round trips. Avoid type/string hashes,
+        # which are process-local, by reducing the class identity to a
+        # deterministic integer and hashing only integers/tuples of integers.
+        cached = hash(
             (
-                type(self),
+                _stable_rule_type_tag(type(self)),
                 self.cells,
                 self._rows,
                 self._cols,
@@ -180,6 +207,8 @@ class Rule(ABC):
                 self.len_cells,
             )
         )
+        object.__setattr__(self, "_base_hash_cache", cached)
+        return cached
 
     def __ne__(self, other: object) -> bool:
         return not self == other
