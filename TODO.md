@@ -49,6 +49,16 @@ deactivating a guarantee clears it. Guarantee-only structures such as
 this lifecycle. Clones and process-pool payloads deliberately start with empty
 caches.
 
+## Silent library logging overhead — DONE August 2026
+
+The import-time `NullHandler` is no longer treated as visible output. Handler
+reachability is cached for each solve, display-only formatting and solution
+sorting are guarded before work begins, and atomic step rendering is skipped
+when no configured handler can emit it. Ordinary silent API use improved by
+1.89% on complete blank-4x4 enumeration and 0.25% on the non-square 6x6 cap-20
+case with identical solution hashes. See
+`benchmarks/silent_logging_2026-08-09.md`.
+
 ## Speeding up house-rich grids — general mechanisms only
 
 1. **DONE for fish/finned fish:** per-value dirty fingerprints
@@ -72,7 +82,18 @@ caches.
 a process pool. Historical measurements: blank 4x4 38.5s -> 14.1s; non-square
 6x6 enumeration 400.7s -> 129.6s on eight processes. Python 3.14 forkserver/
 spawn-compatible execution is smoke-tested on Linux and Windows, and positive
-`max_sols` now returns a deterministic branch-priority subset.
+`max_sols` returns a deterministic branch-priority subset.
+
+Capped solves now cancel pending futures and call Python 3.14's
+`terminate_workers()` after enough branch-ordered solutions exist, rather than
+waiting for already-running siblings whose results cannot affect the returned
+subset. Four-process cap-1 measurements improved by 1.80% on blank 4x4 and
+0.80% on the non-square 6x6 case, with identical solution hashes. See
+`benchmarks/parallel_cap_termination_2026-08-09.md`.
+
+**OPEN:** bound the number of submitted branch futures to the worker count and
+replenish them in deterministic order. This may reduce repeated grid pickling
+and queue memory, especially when a small positive cap stops early.
 
 **OPEN:** evaluate a free-threaded Python 3.14 thread-pool implementation. It
 could avoid pickle/startup costs, but must be benchmarked against the existing

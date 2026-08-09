@@ -72,6 +72,10 @@ def solve_parallel_trials(
             if 0 < max_sols <= len(solutions):
                 for pending in futures[index + 1 :]:
                     pending.cancel()
+                # Python 3.14 can stop branches already running. Without this,
+                # context-manager exit waits for every worker after the
+                # deterministic capped subset is complete.
+                pool.terminate_workers()
                 break
 
     return _cap_solutions(solutions, max_sols)

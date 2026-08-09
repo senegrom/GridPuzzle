@@ -87,3 +87,80 @@ def test_parallel_workers_receive_a_cache_free_root_seed(monkeypatch):
     assert grid._struct_cache
     assert grid._guarantee_cache
     assert hasattr(grid, "_fish_value_memo")
+
+
+class _FakeFuture:
+    def __init__(self, result):
+        self._result = result
+        self.cancelled = False
+
+    def result(self):
+        return self._result
+
+    def cancel(self):
+        self.cancelled = True
+        return True
+
+
+class _FakeProcessPool:
+    def __init__(self, results):
+        self._results = iter(results)
+        self.futures = []
+        self.terminated = False
+        self.exited = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.exited = True
+
+    def submit(self, worker, payload):
+        future = _FakeFuture(next(self._results))
+        self.futures.append(future)
+        return future
+
+    def terminate_workers(self):
+        self.terminated = True
+
+
+def test_capped_parallel_search_terminates_unneeded_workers(monkeypatch):
+    pool = _FakeProcessPool(({"first"}, {"second"}, {"third"}))
+    monkeypatch.setattr(
+        parallel_module.concurrent.futures,
+        "ProcessPoolExecutor",
+        lambda max_workers: pool,
+    )
+
+    result = parallel_module.solve_parallel_trials(
+        Grid(1, 1, max_elem=3),
+        [(0, 1), (0, 2), (0, 3)],
+        max_sols=1,
+        processes=3,
+    )
+
+    assert result == {"first"}
+    assert pool.terminated
+    assert pool.exited
+    assert all(future.cancelled for future in pool.futures[1:])
+
+
+def test_unlimited_parallel_search_does_not_terminate_workers(monkeypatch):
+    pool = _FakeProcessPool(({"first"}, {"second"}, {"third"}))
+    monkeypatch.setattr(
+        parallel_module.concurrent.futures,
+        "ProcessPoolExecutor",
+        lambda max_workers: pool,
+    )
+
+    result = parallel_module.solve_parallel_trials(
+        Grid(1, 1, max_elem=3),
+        [(0, 1), (0, 2), (0, 3)],
+        max_sols=-1,
+        processes=3,
+    )
+
+    assert result == {"first", "second", "third"}
+    assert not pool.terminated
+    assert pool.exited
+    assert not any(future.cancelled for future in pool.futures)
