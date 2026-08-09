@@ -135,6 +135,16 @@ class PrettyPrintArgs:
             ),
         )
 
+        if not self.print_candidates:
+            if self.sep_in_ve and self.inner_grid_col == 0:
+                raise ValueError(
+                    "inner_grid_col must be positive when sep_in_ve is enabled"
+                )
+            if self.sep_in_ho and self.inner_grid_row == 0:
+                raise ValueError(
+                    "inner_grid_row must be positive when sep_in_ho is enabled"
+                )
+
     def __copy__(self):
         return PrettyPrintArgs(args=self)
 
@@ -165,31 +175,155 @@ def _positive_integer(name: str, value: int) -> int:
     return value
 
 
+def _grid_value(name: str, value: object, maximum: int, minimum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise TypeError(f"{name} must contain integers")
+    value = int(value)
+    if not minimum <= value <= maximum:
+        raise ValueError(
+            f"{name} value {value} is outside {minimum}..{maximum}"
+        )
+    return value
+
+
+def _known_values(
+    known: Iterable[int],
+    expected: int,
+    max_elem: int,
+) -> tuple[int, ...]:
+    if isinstance(known, (str, bytes, bytearray)):
+        raise TypeError("known must be a sequence or iterable of grid values")
+    try:
+        values = tuple(known)
+    except TypeError as exc:
+        raise TypeError("known must be a sequence or iterable of grid values") from exc
+    if len(values) != expected:
+        raise ValueError(
+            f"Expected {expected} known values, got {len(values)}"
+        )
+    return tuple(
+        _grid_value("known", value, max_elem, 0)
+        for value in values
+    )
+
+
+def _candidate_values(
+    candidates: Iterable[Iterable[int]],
+    expected: int,
+    max_elem: int,
+) -> tuple[frozenset[int], ...]:
+    if isinstance(candidates, (str, bytes, bytearray)):
+        raise TypeError("candidates must be an iterable of candidate sets")
+    try:
+        raw_candidates = tuple(candidates)
+    except TypeError as exc:
+        raise TypeError(
+            "candidates must be an iterable of candidate sets"
+        ) from exc
+    if len(raw_candidates) != expected:
+        raise ValueError(
+            f"Expected {expected} candidate sets, got "
+            f"{len(raw_candidates)}"
+        )
+
+    normalized: list[frozenset[int]] = []
+    for cell, raw_values in enumerate(raw_candidates):
+        if isinstance(raw_values, (str, bytes, bytearray)):
+            raise TypeError(
+                f"candidates[{cell}] must be an iterable of integers"
+            )
+        try:
+            values = tuple(raw_values)
+        except TypeError as exc:
+            raise TypeError(
+                f"candidates[{cell}] must be an iterable of integers"
+            ) from exc
+        normalized.append(
+            frozenset(
+                _grid_value(
+                    f"candidates[{cell}]",
+                    value,
+                    max_elem,
+                    1,
+                )
+                for value in values
+            )
+        )
+    return tuple(normalized)
+
+
+def _inequality_pairs(
+    ineqs: Iterable[Sequence[int]] | None,
+    rows: int,
+    expected: int,
+) -> set[tuple[int, int]]:
+    if ineqs is None:
+        return set()
+    if isinstance(ineqs, (str, bytes, bytearray)):
+        raise TypeError("ineqs must be an iterable of directed cell pairs")
+    try:
+        raw_pairs = tuple(ineqs)
+    except TypeError as exc:
+        raise TypeError(
+            "ineqs must be an iterable of directed cell pairs"
+        ) from exc
+
+    normalized: set[tuple[int, int]] = set()
+    for raw_pair in raw_pairs:
+        if isinstance(raw_pair, (str, bytes, bytearray)):
+            raise TypeError("Each inequality must be a two-cell sequence")
+        try:
+            pair = tuple(raw_pair)
+        except TypeError as exc:
+            raise TypeError(
+                "Each inequality must be a two-cell sequence"
+            ) from exc
+        if len(pair) != 2:
+            raise ValueError("Each inequality must contain exactly two cells")
+        first = _grid_value("inequality cell", pair[0], expected - 1, 0)
+        second = _grid_value("inequality cell", pair[1], expected - 1, 0)
+        if first == second:
+            raise ValueError("Inequality cells must be distinct")
+
+        vertical = (
+            abs(first - second) == 1
+            and first // rows == second // rows
+        )
+        horizontal = (
+            abs(first - second) == rows
+            and first % rows == second % rows
+        )
+        if not vertical and not horizontal:
+            raise ValueError(
+                f"Inequality cells {(first, second)} are not adjacent"
+            )
+        normalized.add((first, second))
+    return normalized
+
+
 def pretty_print(
     rows: int,
     cols: int,
     max_elem: int,
-    known: Sequence[int],
-    candidates: Sequence[Set[int]] | None = None,
+    known: Iterable[int],
+    candidates: Iterable[Iterable[int]] | None = None,
     args: PrettyPrintArgs | None = None,
-    ineqs: Set[Tuple[int, int]] | None = None,
+    ineqs: Iterable[Sequence[int]] | None = None,
 ) -> str:
     rows = _positive_integer("rows", rows)
     cols = _positive_integer("cols", cols)
     max_elem = _positive_integer("max_elem", max_elem)
     expected = rows * cols
-
-    if isinstance(known, (str, bytes, bytearray)):
-        raise TypeError("known must be a sequence of grid values")
-    if len(known) != expected:
-        raise ValueError(f"Expected {expected} known values, got {len(known)}")
+    known_values = _known_values(known, expected, max_elem)
 
     if args is None:
         args = PrettyPrintArgs()
     elif not isinstance(args, PrettyPrintArgs):
         raise TypeError("args must be a PrettyPrintArgs instance")
-    if ineqs is None:
-        ineqs = set()
+    else:
+        # Snapshot and revalidate mutable public attributes.
+        args = PrettyPrintArgs(args=args)
+    inequality_pairs = _inequality_pairs(ineqs, rows, expected)
 
     max_dgt = math.floor(math.log10(max_elem)) + 1
     if not args.print_candidates:
@@ -198,26 +332,27 @@ def pretty_print(
             cols,
             max_dgt,
             args=args,
-            ineqs=ineqs,
-            content=known,
+            ineqs=inequality_pairs,
+            content=known_values,
         )
 
     if candidates is None:
         raise ValueError(
             "candidates are required when print_candidates is enabled"
         )
-    if len(candidates) != expected:
-        raise ValueError(
-            f"Expected {expected} candidate sets, got {len(candidates)}"
-        )
+    candidate_values = _candidate_values(
+        candidates,
+        expected,
+        max_elem,
+    )
     return _show_candidate_square(
         rows,
         cols,
         max_dgt,
         max_elem,
         args=args,
-        ineqs=ineqs,
-        candidates=candidates,
+        ineqs=inequality_pairs,
+        candidates=candidate_values,
     )
 
 

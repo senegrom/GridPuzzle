@@ -402,3 +402,65 @@ def test_pretty_print_args_validate_inner_grid_dimensions_and_parent():
     child = PrettyPrintArgs(args=parent, sep_in_ho=1)
     assert child.inner_grid_row == "sqrt"
     assert child.sep_in_ho == 1
+
+
+@pytest.mark.parametrize("bad", (True, 1.5, -1, 3))
+def test_pretty_print_rejects_invalid_known_values(bad):
+    error = TypeError if isinstance(bad, (bool, float)) else ValueError
+    with pytest.raises(error):
+        pretty_print(1, 1, 2, [bad])
+
+
+def test_pretty_print_validates_candidate_domains_and_shapes():
+    args = PrettyPrintArgs(print_candidates=True)
+
+    with pytest.raises(TypeError, match=r"candidates\[0\]"):
+        pretty_print(1, 1, 2, [0], candidates=[1], args=args)
+    with pytest.raises(TypeError, match="must contain integers"):
+        pretty_print(1, 1, 2, [0], candidates=[{True}], args=args)
+    with pytest.raises(ValueError, match="outside 1..2"):
+        pretty_print(1, 1, 2, [0], candidates=[{0}], args=args)
+    with pytest.raises(ValueError, match="outside 1..2"):
+        pretty_print(1, 1, 2, [0], candidates=[{3}], args=args)
+
+
+def test_pretty_print_validates_directed_adjacent_inequalities():
+    args = PrettyPrintArgs(
+        sep_in_ve=4,
+        sep_in_ho=4,
+        inner_grid_row=1,
+        inner_grid_col=1,
+    )
+
+    rendered = pretty_print(2, 2, 2, [0, 0, 0, 0], args=args, ineqs={(0, 2)})
+    assert "<" in rendered
+
+    with pytest.raises(ValueError, match="exactly two cells"):
+        pretty_print(2, 2, 2, [0, 0, 0, 0], ineqs={(0, 1, 2)})
+    with pytest.raises(TypeError, match="must contain integers"):
+        pretty_print(2, 2, 2, [0, 0, 0, 0], ineqs={(False, 1)})
+    with pytest.raises(ValueError, match="outside 0..3"):
+        pretty_print(2, 2, 2, [0, 0, 0, 0], ineqs={(0, 4)})
+    with pytest.raises(ValueError, match="must be distinct"):
+        pretty_print(2, 2, 2, [0, 0, 0, 0], ineqs={(0, 0)})
+    with pytest.raises(ValueError, match="not adjacent"):
+        pretty_print(2, 2, 2, [0, 0, 0, 0], ineqs={(0, 3)})
+
+
+def test_pretty_print_args_reject_zero_inner_dimensions_with_separators():
+    with pytest.raises(ValueError, match="inner_grid_col must be positive"):
+        PrettyPrintArgs(sep_in_ve=1)
+    with pytest.raises(ValueError, match="inner_grid_row must be positive"):
+        PrettyPrintArgs(sep_in_ho=1)
+
+    # Candidate rendering supplies its own one-cell inner grid.
+    args = PrettyPrintArgs(print_candidates=True, sep_in_ve=1, sep_in_ho=1)
+    rendered = pretty_print(1, 1, 2, [0], candidates=[{1, 2}], args=args)
+    assert "1" in rendered and "2" in rendered
+
+
+def test_pretty_print_revalidates_mutated_args_snapshot():
+    args = PrettyPrintArgs()
+    args.sep_in_ve = 1
+    with pytest.raises(ValueError, match="inner_grid_col must be positive"):
+        pretty_print(1, 1, 1, [0], args=args)
