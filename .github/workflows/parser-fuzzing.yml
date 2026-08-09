@@ -1,0 +1,96 @@
+name: Temporary parser fuzzing and whitespace hardening
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/scripts/apply_parser_fuzzing.py
+      - .github/workflows/parser-fuzzing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: parser-fuzzing-hardening
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: random
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate:
+    name: Validate / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply candidate
+        run: python .github/scripts/apply_parser_fuzzing.py
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+
+      - name: Compile sources
+        run: python -m compileall -q gridsolver tests run.py examples2.py
+
+      - name: Run parser, loader, rollback, and representative tests
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_parser_fuzzing.py
+          tests/test_cli_and_loading.py
+          tests/test_iterable_loading.py
+          tests/test_hardening.py
+          tests/test_regressions.py
+          tests/test_examples_2.py
+          -m "not slow"
+          --durations=10
+
+  promote:
+    name: Promote validated parser changes
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply validated candidate
+        run: python .github/scripts/apply_parser_fuzzing.py
+
+      - name: Commit source, tests, and permanent CI coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git rm \
+            .github/scripts/apply_parser_fuzzing.py \
+            .github/workflows/parser-fuzzing.yml
+          git add \
+            .github/workflows/ci.yml \
+            TODO.md \
+            gridsolver/abstract_grids/grid.py \
+            tests/test_parser_fuzzing.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Fix whitespace parsing and add deterministic parser fuzzing"
+          git push origin HEAD:master
