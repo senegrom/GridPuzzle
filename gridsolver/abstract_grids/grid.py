@@ -147,6 +147,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         )
         self.has_been_filled = False
         self._struct_cache: dict[str, Any] = {}
+        # Rule-only structures survive guarantee churn. This matters during
+        # speculative propagation, where guarantees narrow and deactivate far
+        # more frequently than the active rule graph changes.
+        self._rule_cache: dict[str, Any] = {}
         # Guarantee-only structures survive rule churn. This matters on
         # sum-heavy puzzles where rules deactivate frequently but guarantees do
         # not; rebuilding the guarantee index on every rule update was wasted.
@@ -242,6 +246,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.has_been_filled = self.has_been_filled
         result.name = self.name
         result._struct_cache = {}
+        result._rule_cache = {}
         result._guarantee_cache = {}
         self._copy_extra_state_to(result)
         return result
@@ -257,6 +262,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 start=len(state.entries),
                 filled=self.has_been_filled,
                 struct_cache=self._struct_cache,
+                rule_cache=self._rule_cache,
                 guarantee_cache=self._guarantee_cache,
                 dirty_state=state.dirty.copy(),
             )
@@ -310,6 +316,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         del state.entries[frame.start:]
         self.has_been_filled = frame.filled
         self._struct_cache = frame.struct_cache
+        self._rule_cache = frame.rule_cache
         self._guarantee_cache = frame.guarantee_cache
         state.dirty = frame.dirty_state
 
@@ -341,7 +348,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                     peers[cell].update(rule_cells - {cell})
             return tuple(frozenset(items) for items in peers)
 
-        branch_peers = self.cached_struct(
+        branch_peers = self.cached_rule_struct(
             "branch_peers",
             build_branch_peers,
         )
@@ -384,6 +391,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._struct_cache = {}
         else:
             self._struct_cache.clear()
+
+    def _invalidate_rule_cache(self) -> None:
+        if self._trail_state.active:
+            self._rule_cache = {}
+        else:
+            self._rule_cache.clear()
 
     def _invalidate_guarantee_cache(self) -> None:
         if self._trail_state.active:
@@ -465,7 +478,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._trail_state.entries.extend(
                 ("rule+", rule) for rule in additions
             )
+        self._invalidate_rule_cache()
         self._invalidate_struct_cache()
+
     def add_rule_checked(self, rule: Rule) -> None:
         self.add_rules_checked((rule,))
 
@@ -475,6 +490,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._trail_state.dirty.rules.discard(rule)
         if self._trail_state.active:
             self._trail_state.entries.append(("rule-", rule))
+        self._invalidate_rule_cache()
         self._invalidate_struct_cache()
 
     def _normalize_guarantee(self, guarantee: Guarantee) -> Guarantee:
@@ -613,6 +629,15 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._struct_cache[key] = value
             return value
 
+    def cached_rule_struct(self, key: Any, factory: Callable[[], Any]) -> Any:
+        """Memoize a structure affected only by the live rule set."""
+        try:
+            return self._rule_cache[key]
+        except KeyError:
+            value = factory()
+            self._rule_cache[key] = value
+            return value
+
     def cached_guarantee_struct(self, key: Any, factory: Callable[[], Any]) -> Any:
         """Memoize a structure affected only by the live guarantee set."""
         try:
@@ -640,7 +665,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                             watchers[cell].append(rule)
                     return tuple(tuple(items) for items in watchers)
 
-                by_cell = self.cached_struct(
+                by_cell = self.cached_rule_struct(
                     "propagation_rules_by_cell",
                     build_rule_watchers,
                 )
@@ -828,7 +853,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     @property
     def unique_rule_cells(self) -> list[frozenset[int]]:
         """Cached; callers must not mutate the returned structure."""
-        return self.cached_struct(
+        return self.cached_rule_struct(
             "unique_rule_cells",
             lambda: self.get_rule_cells_of_type(ElementsAtMostOnce),
         )
@@ -844,7 +869,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                     result[rule.origin_cell].update(rule.rel_cells)
             return result
 
-        return self.cached_struct("weak_links", build)
+        return self.cached_rule_struct("weak_links", build)
 
     @property
     def semi_strong_links(self) -> dict[int, list[set[int]]]:

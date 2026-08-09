@@ -99,6 +99,7 @@ def solve_parallel_trials(
     """Solve branches concurrently while consuming results in branch order."""
     # Derived caches are cheap to rebuild and can dominate pickled payloads.
     grid._struct_cache.clear()
+    grid._rule_cache.clear()
     grid._guarantee_cache.clear()
     ordered_branches = sorted(branches)
     solutions: set[ImmutableGrid] = set()

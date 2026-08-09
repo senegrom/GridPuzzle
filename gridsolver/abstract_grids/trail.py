@@ -44,6 +44,7 @@ class TrailFrame:
     start: int
     filled: bool
     struct_cache: dict[str, Any]
+    rule_cache: dict[str, Any]
     guarantee_cache: dict[str, Any]
     dirty_state: PropagationDirtyState
 
