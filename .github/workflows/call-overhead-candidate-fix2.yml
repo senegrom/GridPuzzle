@@ -1,0 +1,200 @@
+name: Temporary hardened call-overhead candidate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/call-overhead-candidate-fix2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: call-overhead-candidate-fix2
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply hardened allocation and lazy-logging candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          workflow = Path(".github/workflows/call-overhead-candidate.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = dedent(workflow[start:end])
+
+          broken_start = script.index(
+              "old = dedent('''\n            if use_guarantee:"
+          )
+          broken_end_marker = "replace_once(solver, old, new)\n"
+          broken_end = (
+              script.index(broken_end_marker, broken_start)
+              + len(broken_end_marker)
+          )
+
+          source_lines = [
+              "        for trial in trials:",
+              "            depth = len(steps)",
+              "            if _lg.is_enabled(depth):",
+              "                if use_guarantee:",
+              "                    _lg.logstep(",
+              "                        depth,",
+              "                        steps,",
+              "                        f\"Trial (guarantee) \"",
+              "                        f\"[{trial % grid.rows},{trial // grid.rows}] \"",
+              "                        f\"== {guarantee.val} with \"",
+              "                        f\"{len(solutions)} previous solutions\",",
+              "                    )",
+              "                else:",
+              "                    _lg.logstep(",
+              "                        depth,",
+              "                        steps,",
+              "                        f\"Trial \"",
+              "                        f\"[{test_cell % grid.rows},\"",
+              "                        f\"{test_cell // grid.rows}] \"",
+              "                        f\"== {trial} with \"",
+              "                        f\"{len(solutions)} previous solutions\",",
+              "                    )",
+              "",
+          ]
+          corrected_lines = [
+              "replace_between(",
+              "    solver,",
+              repr("        for trial in trials:\n") + ",",
+              "    (",
+              "        \"            # Reuse the current grid for every branch. \"",
+              "        \"The journal restores\\n\"",
+              "    ),",
+              "    lines(",
+              *["        " + repr(line) + "," for line in source_lines],
+              "    ),",
+              ")",
+          ]
+          corrected = "\n".join(corrected_lines) + "\n"
+          script = script[:broken_start] + corrected + script[broken_end:]
+          exec(compile(script, "call-overhead-candidate", "exec"), {})
+          PY
+
+      - name: Install and test candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_call_overhead.py \
+            tests/test_runtime_overhead.py \
+            tests/test_hotpath_regressions.py \
+            tests/test_trail.py \
+            tests/test_regressions.py \
+            tests/test_hardening.py \
+            tests/test_solver_api.py \
+            tests/test_differential.py \
+            tests/test_examples_2.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=10
+
+      - name: Compare full default solver without depth gating
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/baseline HEAD^
+          cat > /tmp/call_bench.py <<'PY'
+          import gc
+          import hashlib
+          import json
+          import logging
+          import statistics
+          import sys
+          import time
+
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+
+          logging.disable(10_000)
+
+          def factory(case):
+              if case == "blank4_all":
+                  return Sudoku(2, 2, 2, 2), -1, 288
+              if case == "nonsquare6_cap20":
+                  grid = Sudoku(3, 2, 2, 3)
+                  grid.load("123456654321........................", row_wise=False)
+                  return grid, 20, 20
+              raise SystemExit(case)
+
+          case = sys.argv[1]
+          durations = []
+          digest = None
+          for _ in range(2):
+              gc.collect()
+              grid, max_sols, expected = factory(case)
+              started = time.perf_counter()
+              solutions = solver.solve(
+                  grid,
+                  log_level=0,
+                  max_sols=max_sols,
+                  depth_gate=None,
+              )
+              durations.append(time.perf_counter() - started)
+              if len(solutions) != expected:
+                  raise SystemExit(
+                      f"{case}: expected {expected}, got {len(solutions)}"
+                  )
+              payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
+              current = hashlib.sha256(payload).hexdigest()
+              if digest is None:
+                  digest = current
+              elif current != digest:
+                  raise SystemExit(f"{case}: nondeterministic solution set")
+          print(json.dumps({
+              "case": case,
+              "seconds": durations,
+              "median": statistics.median(durations),
+              "digest": digest,
+          }, sort_keys=True))
+          PY
+
+          run_case() {
+            local label="$1"
+            local directory="$2"
+            local case="$3"
+            echo "BENCH ${label} ${case}"
+            (cd "$directory" && PYTHONPATH="$directory" python /tmp/call_bench.py "$case")
+          }
+
+          for case in blank4_all nonsquare6_cap20; do
+            run_case baseline /tmp/baseline "$case"
+            run_case candidate "$GITHUB_WORKSPACE" "$case"
+          done
