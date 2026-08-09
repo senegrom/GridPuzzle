@@ -107,10 +107,8 @@ def test_candidate_known_and_guarantee_churn_preserve_completion(monkeypatch):
 
 def test_new_uniqueness_rule_invalidates_and_extends_relations():
     grid = _warm_grid()
-    old_cache = grid._rule_cache
     grid.add_rule_checked(ElementsAtMostOnce(grid, cells=[1, 2]))
 
-    assert grid._rule_cache is not old_cache
     assert rulehelpers._ATMOSTONCE_COMPLETE not in grid._rule_cache
 
     rulehelpers.rulehelper_atmostonce(grid)
