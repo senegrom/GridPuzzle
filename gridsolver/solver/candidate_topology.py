@@ -28,33 +28,48 @@ class CandidateTopology:
     houses: tuple[frozenset[int], ...]
     house_masks: tuple[int, ...]
     peer_masks: tuple[int, ...]
+    extra_peer_masks: tuple[int, ...]
     candidate_masks: tuple[int, ...]
     unsolved_mask: int
     all_cells_mask: int
 
     @classmethod
     def build(cls, grid: Grid) -> "CandidateTopology":
+        unique_groups = tuple(grid.unique_rule_cells)
         houses = tuple(
-            house
-            for house in grid.unique_rule_cells
-            if len(house) == grid.max_elem
+            group
+            for group in unique_groups
+            if len(group) == grid.max_elem
         )
         house_masks = tuple(cells_mask(house) for house in houses)
 
-        def build_peer_masks() -> tuple[int, ...]:
-            # Complete houses remain authoritative even when their pairwise
-            # UneqRule materialisation has not run yet. Explicit UneqRule
-            # relations add equally valid non-house visibility (anti-king,
-            # anti-knight, custom extensions, and similar constraints).
-            peers = [cells_mask(links) for links in grid.weak_links]
+        def build_peer_masks() -> tuple[tuple[int, ...], tuple[int, ...]]:
+            house_peers = [0] * grid.len
             for house, house_mask in zip(houses, house_masks):
                 for cell in house:
-                    peers[cell] |= house_mask & ~(1 << cell)
-            return tuple(peers)
+                    house_peers[cell] |= house_mask & ~(1 << cell)
 
-        peer_masks = grid.cached_rule_struct(
+            # Start from complete-house visibility, then add partial
+            # at-most-once groups and explicit UneqRule relations.
+            peers = house_peers.copy()
+            for group in unique_groups:
+                if len(group) == grid.max_elem:
+                    continue
+                group_mask = cells_mask(group)
+                for cell in group:
+                    peers[cell] |= group_mask & ~(1 << cell)
+            for cell, links in enumerate(grid.weak_links):
+                peers[cell] |= cells_mask(links)
+
+            return tuple(house_peers), tuple(peers)
+
+        house_peer_masks, peer_masks = grid.cached_rule_struct(
             "cell_peer_masks",
             build_peer_masks,
+        )
+        extra_peer_masks = tuple(
+            peers & ~house_peers
+            for peers, house_peers in zip(peer_masks, house_peer_masks)
         )
 
         per_value = [0] * (grid.max_elem + 1)
@@ -72,6 +87,7 @@ class CandidateTopology:
             houses=houses,
             house_masks=house_masks,
             peer_masks=peer_masks,
+            extra_peer_masks=extra_peer_masks,
             candidate_masks=tuple(per_value),
             unsolved_mask=unsolved_mask,
             all_cells_mask=(1 << grid.len) - 1,

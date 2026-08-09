@@ -1,4 +1,5 @@
 from collections import deque
+from collections.abc import Iterator
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
@@ -12,6 +13,23 @@ from gridsolver.solver.solver_log import lg as _lg
 
 
 type Node = tuple[int | frozenset[int], int]
+
+
+def _extra_same_value_weak_pairs(
+    topology: CandidateTopology,
+) -> Iterator[tuple[Node, Node]]:
+    """Yield non-house same-value peer pairs once in stable cell order."""
+    if not any(topology.extra_peer_masks):
+        return
+    for value in range(1, topology.grid.max_elem + 1):
+        remaining = topology.candidate_masks[value]
+        while remaining:
+            first_bit = remaining & -remaining
+            first = first_bit.bit_length() - 1
+            remaining ^= first_bit
+            extra = topology.extra_peer_masks[first] & remaining
+            for second in iter_cells(extra):
+                yield (first, value), (second, value)
 
 
 # noinspection PyProtectedMember
@@ -91,7 +109,8 @@ def alternating_inference_chain(
     if not strong:
         return
 
-    # Same-value weak links within complete houses.
+    # Same-value weak links within complete houses retain the established
+    # fast path. Add only the genuinely missing non-house peer edges afterwards.
     for house_mask in topology.house_masks:
         for value in range(1, grid.max_elem + 1):
             cells = tuple(
@@ -101,6 +120,10 @@ def alternating_inference_chain(
                 for second in cells[index + 1:]:
                     add_link(weak, (first, value), (second, value))
                     add_link(weak, (second, value), (first, value))
+
+    for first, second in _extra_same_value_weak_pairs(topology):
+        add_link(weak, first, second)
+        add_link(weak, second, first)
 
     # Different-value weak links in one cell.
     for cell, possible in enumerate(cands):
