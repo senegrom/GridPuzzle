@@ -6,7 +6,7 @@ on:
     branches: [master]
     paths:
       - .github/workflows/benchmarks.yml
-      - benchmarks/**
+      - benchmarks/depth_gate.py
   schedule:
     - cron: "41 4 1 * *"
 

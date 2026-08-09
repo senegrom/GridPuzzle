@@ -124,8 +124,10 @@ class _FakeProcessPool:
         self.terminated = True
 
 
-def test_capped_parallel_search_terminates_unneeded_workers(monkeypatch):
-    pool = _FakeProcessPool(({"first"}, {"second"}, {"third"}))
+def test_capped_parallel_search_bounds_submissions_and_terminates(monkeypatch):
+    pool = _FakeProcessPool(
+        ({"first"}, {"second"}, {"third"}, {"fourth"}, {"fifth"})
+    )
     monkeypatch.setattr(
         parallel_module.concurrent.futures,
         "ProcessPoolExecutor",
@@ -133,20 +135,23 @@ def test_capped_parallel_search_terminates_unneeded_workers(monkeypatch):
     )
 
     result = parallel_module.solve_parallel_trials(
-        Grid(1, 1, max_elem=3),
-        [(0, 1), (0, 2), (0, 3)],
+        Grid(1, 1, max_elem=5),
+        [(0, value) for value in range(1, 6)],
         max_sols=1,
-        processes=3,
+        processes=2,
     )
 
     assert result == {"first"}
+    assert len(pool.futures) == 2
     assert pool.terminated
     assert pool.exited
-    assert all(future.cancelled for future in pool.futures[1:])
+    assert pool.futures[1].cancelled
 
 
-def test_unlimited_parallel_search_does_not_terminate_workers(monkeypatch):
-    pool = _FakeProcessPool(({"first"}, {"second"}, {"third"}))
+def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
+    pool = _FakeProcessPool(
+        ({"first"}, {"second"}, {"third"}, {"fourth"}, {"fifth"})
+    )
     monkeypatch.setattr(
         parallel_module.concurrent.futures,
         "ProcessPoolExecutor",
@@ -154,13 +159,14 @@ def test_unlimited_parallel_search_does_not_terminate_workers(monkeypatch):
     )
 
     result = parallel_module.solve_parallel_trials(
-        Grid(1, 1, max_elem=3),
-        [(0, 1), (0, 2), (0, 3)],
+        Grid(1, 1, max_elem=5),
+        [(0, value) for value in range(1, 6)],
         max_sols=-1,
-        processes=3,
+        processes=2,
     )
 
-    assert result == {"first", "second", "third"}
+    assert result == {"first", "second", "third", "fourth", "fifth"}
+    assert len(pool.futures) == 5
     assert not pool.terminated
     assert pool.exited
     assert not any(future.cancelled for future in pool.futures)

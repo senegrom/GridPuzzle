@@ -84,16 +84,23 @@ a process pool. Historical measurements: blank 4x4 38.5s -> 14.1s; non-square
 spawn-compatible execution is smoke-tested on Linux and Windows, and positive
 `max_sols` returns a deterministic branch-priority subset.
 
-Capped solves now cancel pending futures and call Python 3.14's
+Capped solves cancel pending futures and call Python 3.14's
 `terminate_workers()` after enough branch-ordered solutions exist, rather than
 waiting for already-running siblings whose results cannot affect the returned
 subset. Four-process cap-1 measurements improved by 1.80% on blank 4x4 and
 0.80% on the non-square 6x6 case, with identical solution hashes. See
 `benchmarks/parallel_cap_termination_2026-08-09.md`.
 
-**OPEN:** bound the number of submitted branch futures to the worker count and
-replenish them in deterministic order. This may reduce repeated grid pickling
-and queue memory, especially when a small positive cap stops early.
+Outstanding futures are now bounded to the worker count and replenished in
+branch order. This avoids queuing repeated grid payloads that a small positive
+cap may never need. Queue-focused cap-1 cases improved by 11.48% at 100
+branches and 57.26% at 1,000 branches; blank-4x4 cap-1 improved by 0.85%, with
+identical solutions. See `benchmarks/bounded_parallel_submission_2026-08-09.md`.
+
+**OPEN:** evaluate a process initializer plus a trailed worker-local root grid,
+so each worker receives the root payload once instead of once per submitted
+branch. This is more invasive and must prove exact rollback across multiple
+tasks handled by the same worker.
 
 **OPEN:** evaluate a free-threaded Python 3.14 thread-pool implementation. It
 could avoid pickle/startup costs, but must be benchmarked against the existing
