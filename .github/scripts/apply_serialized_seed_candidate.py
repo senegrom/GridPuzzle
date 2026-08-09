@@ -87,5 +87,19 @@ old_payload = "(grid, cell, value, max_sols, depth_gate)"
 if text.count(old_payload) != 2:
     raise SystemExit(f"branch payload marker count: {text.count(old_payload)}")
 text = text.replace(old_payload, "(cell, value, max_sols, depth_gate)")
-
 path.write_text(text, encoding="utf-8")
+
+# The permanent fake executors predate initializer/initargs support. Adapt them
+# only inside this experiment; a promoted implementation will retain this test
+# update and add explicit assertions for the initializer payload.
+test_path = Path("tests/test_solver_api.py")
+test_text = test_path.read_text(encoding="utf-8")
+old_factory = "lambda max_workers: pool,"
+if test_text.count(old_factory) != 2:
+    raise SystemExit(
+        f"fake ProcessPoolExecutor marker count: {test_text.count(old_factory)}"
+    )
+test_path.write_text(
+    test_text.replace(old_factory, "lambda max_workers, **kwargs: pool,"),
+    encoding="utf-8",
+)
