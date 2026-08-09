@@ -1,0 +1,60 @@
+name: Temporary promote direct action dispatch
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/promote-direct-action-dispatch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-direct-action-dispatch
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: random
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply validated candidate
+        run: python .github/scripts/apply_direct_action_dispatch.py
+
+      - name: Revalidate focused suite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests run.py examples2.py
+          python -X dev -m pytest -q tests/test_action_dispatch.py tests/test_depth_gate.py tests/test_runtime_overhead.py tests/test_hotpath_regressions.py tests/test_regressions.py tests/test_differential.py tests/test_examples_2.py -m "not slow" --durations=10
+
+      - name: Commit validated source and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add \
+            gridsolver/solver/atomic_solver.py \
+            tests/test_action_dispatch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Dispatch power actions without closure allocation"
+          git push origin HEAD:master
