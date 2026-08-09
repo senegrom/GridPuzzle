@@ -104,10 +104,13 @@ Measurements improved by 20.06% at 1,000 branches, 1.55% on blank-4x4 cap-1,
 1.04% on full blank-4x4 enumeration, and 2.80% on non-square 6x6 cap-20, with
 identical solution sets. See `benchmarks/worker_root_clone_2026-08-09.md`.
 
-**OPEN:** evaluate a trailed worker-local root grid to remove the remaining
-per-task `Grid.deepcopy()`. This must prove exact rollback after success,
-contradiction, and exceptions, including optional memo attributes and subclass
-state, before it can replace the safer clone-per-task design.
+**REJECTED:** mutating that worker root directly inside a guarded trail scope.
+The design passed Linux and Windows rollback, contradiction, exception,
+differential, extension-fallback, and statistics checks, but regressed the
+selected clone baseline by 3.11% at 1,000 branches, 1.98% on full blank-4x4
+enumeration, and 0.76% on non-square 6x6 cap-20. Blank-4x4 cap-1 improved only
+0.72%. Keep clone-per-task unless a materially cheaper rollback mechanism is
+demonstrated. See `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
 
 **OPEN:** evaluate a free-threaded Python 3.14 thread-pool implementation. It
 could avoid pickle/startup costs, but must be benchmarked against the existing
