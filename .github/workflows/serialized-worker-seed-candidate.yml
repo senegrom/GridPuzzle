@@ -1,6 +1,6 @@
 name: Temporary serialized worker seed candidate
 
-# Candidate patch revision 3: adapt ProcessPoolExecutor test doubles.
+# Candidate patch revision 4: repeated real-puzzle timings.
 on:
   push:
     branches: [master]
@@ -94,7 +94,7 @@ jobs:
               --case "$case" --repeats "$repeats")
           }
 
-          for specification in fanout1000:3 payload1mb_fanout100:3 blank4_all:1; do
+          for specification in blank4_cap1:5 blank4_all:3 nonsquare6_cap20:2; do
             case="${specification%%:*}"
             repeats="${specification##*:}"
             baseline="$(run_case /tmp/baseline "$case" "$repeats")"
