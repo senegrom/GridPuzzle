@@ -4,7 +4,6 @@ import pytest
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus, pairs
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
-from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku

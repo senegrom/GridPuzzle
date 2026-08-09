@@ -23,7 +23,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from gridsolver.abstract_grids.grid import Grid
-from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str
+from gridsolver.abstract_grids.grid_loading import create_from_file
 from gridsolver.solver import solver
 import gridsolver.solver.atomic_solver as _am
 from gridsolver.solver.solve_fish import fish as current_fish, finned_fish as current_finned_fish

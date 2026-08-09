@@ -2,7 +2,7 @@ import math
 from numbers import Integral
 from collections import deque
 from itertools import chain
-from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence, Union
+from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence
 
 
 class PrettyPrintArgs:
