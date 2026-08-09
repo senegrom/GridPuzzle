@@ -13,6 +13,18 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def replace_between(
+    path: Path,
+    start_marker: str,
+    end_marker: str,
+    replacement: str,
+) -> None:
+    text = path.read_text(encoding="utf-8")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+
 path = Path("gridsolver/rules/rules.py")
 replace_once(
     path,
@@ -43,62 +55,49 @@ replace_once(
 replace_once(
     path,
     '    __slots__ = ("cells", "_rows", "_cols", "_max_elem", "len_cells", "_frozen")\n',
-    dedent('''
-            __slots__ = (
-                "cells",
-                "_rows",
-                "_cols",
-                "_max_elem",
-                "len_cells",
-                "_frozen",
-                "_base_hash_cache",
-            )
-    ''').lstrip(),
+    '''    __slots__ = (
+        "cells",
+        "_rows",
+        "_cols",
+        "_max_elem",
+        "len_cells",
+        "_frozen",
+        "_base_hash_cache",
+    )
+''',
 )
 replace_once(
     path,
     '        object.__setattr__(self, "_frozen", False)\n',
     '        object.__setattr__(self, "_frozen", False)\n        object.__setattr__(self, "_base_hash_cache", None)\n',
 )
-replace_once(
+replace_between(
     path,
-    dedent('''
-            def __hash__(self) -> int:
-                self.freeze()
-                return hash(
-                    (
-                        type(self),
-                        self.cells,
-                        self._rows,
-                        self._cols,
-                        self._max_elem,
-                        self.len_cells,
-                    )
-                )
-    ''').lstrip(),
-    dedent('''
-            def __hash__(self) -> int:
-                cached = getattr(self, "_base_hash_cache", None)
-                if cached is not None:
-                    return cached
+    "    def __hash__(self) -> int:\n",
+    "    def __ne__(self, other: object) -> bool:\n",
+    '''    def __hash__(self) -> int:
+        cached = getattr(self, "_base_hash_cache", None)
+        if cached is not None:
+            return cached
 
-                self.freeze()
-                # The cache survives pickle round trips. Avoid type/string hashes,
-                # which are process-local, by reducing the class identity to a
-                # deterministic integer and hashing only integers/tuples of integers.
-                cached = hash(
-                    (
-                        _stable_rule_type_tag(type(self)),
-                        self.cells,
-                        self._rows,
-                        self._cols,
-                        self._max_elem,
-                        self.len_cells,
-                    )
-                )
-                object.__setattr__(self, "_base_hash_cache", cached)
-                return cached
-    ''').lstrip(),
+        self.freeze()
+        # The cache survives pickle round trips. Avoid type/string hashes,
+        # which are process-local, by reducing the class identity to a
+        # deterministic integer and hashing only integers/tuples of integers.
+        cached = hash(
+            (
+                _stable_rule_type_tag(type(self)),
+                self.cells,
+                self._rows,
+                self._cols,
+                self._max_elem,
+                self.len_cells,
+            )
+        )
+        object.__setattr__(self, "_base_hash_cache", cached)
+        return cached
+
+''',
 )
 
 Path("tests/test_rule_hash_cache.py").write_text(
