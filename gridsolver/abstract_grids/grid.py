@@ -36,13 +36,23 @@ def _load_preprocess_str(values: str) -> str:
 
 
 def _load_preprocess_str_space_sep(values: str | Iterable[str]) -> list[str]:
+    """Split whitespace-delimited tokens without rewriting token contents."""
     if isinstance(values, str):
-        values = values.strip().split("\n")
-    lines = (line for value in values for line in value.split("\n"))
-    fields = (field for line in lines for field in line.split(" "))
-    fields = (field for value in fields for field in value.split("\t"))
-    fields = (field.strip().replace(".", "0") for field in fields)
-    return [field for field in fields if field]
+        parts = (values,)
+    else:
+        try:
+            parts = tuple(values)
+        except TypeError as exc:
+            raise TypeError(
+                "Space-separated input must be str or an iterable of strings"
+            ) from exc
+        if any(not isinstance(part, str) for part in parts):
+            raise TypeError(
+                "Space-separated input iterables must contain only strings"
+            )
+
+    fields = (field for part in parts for field in part.split())
+    return ["0" if field == "." else field for field in fields]
 
 
 def _parse_load_value(raw_value: object, max_elem: int) -> int:

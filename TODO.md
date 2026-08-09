@@ -151,7 +151,7 @@ overhead while retaining transactional branch isolation. The rule
 stands: do not change trail representation again without full solution-set
 equivalence and fresh corpus measurements.
 
-## Independent/differential validation — technique baseline DONE; fuzzing OPEN
+## Independent/differential validation — baseline DONE
 
 `tests/test_differential.py` independently enumerates all 288 4x4 Sudoku
 solutions, generates deterministic bounded puzzle cases, compares complete
@@ -162,9 +162,13 @@ states derived from independently valid completion pairs, checking after each
 action and subsequent basic propagation that no oracle completion is lost and
 that emitted structural constraints remain valid.
 
-**OPEN:** add deterministic parser fuzzing and round-trip fixtures for every
-supported input format. Broader per-technique completion-derived states remain
-in the slow differential shard.
+`tests/test_parser_fuzzing.py` deterministically exercises every supported
+parser family across compact strings, arbitrary whitespace-separated strings,
+prefixed and class-explicit factories, nested one-shot iterables, mapping-based
+cage loaders, row-wise/column-wise modes, and UTF-8 file round trips. Malformed
+Futoshiki mutations are checked for transactional rollback and retryability.
+Broader per-technique completion-derived states remain in the slow differential
+shard.
 
 ## Scheduled extended CI — DONE August 2026
 
