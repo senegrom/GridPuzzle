@@ -143,11 +143,29 @@ def _run_case(case: str):
         return _fanout_case(1000)
     if case == "payload1mb_fanout100":
         return _fanout_case(100, 1_000_000)
+    if case == "blank4_cap1":
+        return solver.solve(
+            Sudoku(2, 2, 2, 2),
+            log_level=0,
+            max_sols=1,
+            processes=2,
+            depth_gate=None,
+        )
     if case == "blank4_all":
         return solver.solve(
             Sudoku(2, 2, 2, 2),
             log_level=0,
             max_sols=-1,
+            processes=2,
+            depth_gate=None,
+        )
+    if case == "nonsquare6_cap20":
+        grid = Sudoku(3, 2, 2, 3)
+        grid.load("123456654321........................", row_wise=False)
+        return solver.solve(
+            grid,
+            log_level=0,
+            max_sols=20,
             processes=2,
             depth_gate=None,
         )
@@ -194,7 +212,13 @@ def main() -> None:
     parser.add_argument("--unit", action="store_true")
     parser.add_argument(
         "--case",
-        choices=("fanout1000", "payload1mb_fanout100", "blank4_all"),
+        choices=(
+            "fanout1000",
+            "payload1mb_fanout100",
+            "blank4_cap1",
+            "blank4_all",
+            "nonsquare6_cap20",
+        ),
     )
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
