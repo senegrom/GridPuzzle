@@ -1,3 +1,4 @@
+# Corrected source marker; this workflow self-removes after evaluation.
 name: Evaluate additive AIC non-house visibility
 
 on:
