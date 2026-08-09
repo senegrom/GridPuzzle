@@ -1,0 +1,56 @@
+name: Temporary static audit
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/static-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-audit
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install audit tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" ruff vulture
+          python -m pip check
+
+      - name: Ruff correctness and unused-code scan
+        shell: bash
+        run: |
+          set -o pipefail
+          ruff check gridsolver run.py examples2.py tests \
+            --select F,E9 \
+            --output-format concise || true
+
+      - name: High-confidence dead-code scan
+        shell: bash
+        run: |
+          set -o pipefail
+          vulture gridsolver run.py examples2.py \
+            --min-confidence 80 || true
