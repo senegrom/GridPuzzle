@@ -3,10 +3,11 @@
 ## Status
 
 Implemented in August 2026. Nishio, forcing chains, forcing nets, and recursive
-backtracking now use reversible trail scopes instead of a complete
+backtracking use reversible trail scopes instead of a complete
 `Grid.deepcopy()` for every speculative branch. `Grid.deepcopy()` remains for
-the public non-mutating solve boundary and for independent process-pool branch
-payloads.
+the public non-mutating solve boundary and for each independent process-pool
+task. A process receives one serialized root grid through its initializer, then
+creates each task locally through the purpose-built copy path.
 
 The implementation is correctness-gated. No performance claim should be made
 without a repeatable corpus benchmark, because Python-level journaling also
@@ -98,6 +99,25 @@ Where a branch result must survive rollback, it is first converted to immutable
 or detached data: an `ImmutableGrid`, a candidate intersection, a known-value
 consensus, or a copied guarantee snapshot.
 
+### Process-pool boundary
+
+The process pool intentionally keeps a stronger isolation boundary than nested
+in-process speculation:
+
+1. the parent serializes one cache-free root grid;
+2. each worker unpickles that root once in its initializer;
+3. every submitted task calls `Grid.deepcopy()` on the worker root;
+4. only the compact branch tuple crosses the executor queue.
+
+This avoids repeatedly transmitting the complete puzzle while preserving
+subclass copy hooks, fresh trails, empty derived caches, and complete task
+isolation. Directly mutating the worker root under an outer trail was tested
+with a conservative base-class guard and passed success, contradiction,
+exception, optional-memo, differential, and extension-fallback checks on Linux
+and Windows. It was nevertheless rejected because it regressed full blank-4x4
+enumeration by 1.98%, non-square 6x6 cap-20 by 0.76%, and a 1,000-branch case by
+3.11%; see `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
+
 ## Correctness invariants
 
 1. Trail marks are integer tokens and are undone in LIFO order only.
@@ -110,6 +130,7 @@ consensus, or a copied guarantee snapshot.
 6. A `deepcopy` or pickle round trip creates or preserves a coherent shared
    trail state for its candidate sets and memo mapping.
 7. Caller-owned grids remain unmodified by `solve()`.
+8. Process-pool tasks never solve the worker initializer root in place.
 
 ## Test coverage
 
@@ -127,22 +148,22 @@ consensus, or a copied guarantee snapshot.
 - deterministic sequential/parallel equivalence;
 - transactional fish memo rollback.
 
+`tests/test_solver_api.py` covers process-pool root initialisation, isolated
+per-task clones, compact task payloads, bounded submission, capped worker
+termination, and unlimited replenishment.
+
 `tests/test_differential.py` independently enumerates the complete 4x4 Sudoku
 solution space and checks both complete returned solution sets and candidate
 soundness after an atomic deduction pass.
 
-## Remaining measurement work
+## Measurement record
 
-The original expectation was a large gain on enumeration-heavy puzzles, but
-trail containers impose Python-level mutation overhead outside speculative
-branches too. Record repeatable durations for at least:
+The original trail implementation was approximately performance-neutral on the
+selected enumeration cases: blank 4x4 all-288 moved from 41.0s to 41.9s, while
+non-square 6x6 cap-20 moved from 22.2s to 21.2s, with identical solution sets.
+See `benchmarks/trail_baseline_2026-08-08.md`.
 
-- blank 4x4 complete enumeration;
-- non-square 6x6 bounded enumeration;
-- a hard single-solution Sudoku;
-- representative Killer and KenKen puzzles;
-- the slow pandiagonal corpus.
-
-Compare identical commits and environments, retain complete solution-set
-checks, and reject any representation change that regresses the supported
-corpus materially even when one microbenchmark improves.
+The trail representation is therefore considered closed unless a replacement
+is validated against complete solution sets and a broader corpus. The rejected
+worker-root reuse experiment confirms that removing a copy can still lose once
+Python-level journaling and cleanup are included.
