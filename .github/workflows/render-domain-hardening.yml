@@ -1,5 +1,6 @@
 name: Temporary rendering-domain hardening
 
+# Revision 2 preserves the established "known must be a sequence" prefix.
 on:
   push:
     branches: [master]
@@ -36,7 +37,26 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply rendering-domain hardening
-        run: python .github/scripts/apply_render_domain_hardening.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/apply_render_domain_hardening.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("gridsolver/abstract_grids/pretty_print.py")
+          text = path.read_text(encoding="utf-8")
+          old = "known must be an iterable of grid values"
+          if text.count(old) != 2:
+              raise SystemExit(f"known error-message marker count: {text.count(old)}")
+          path.write_text(
+              text.replace(
+                  old,
+                  "known must be a sequence or iterable of grid values",
+              ),
+              encoding="utf-8",
+          )
+          PY
 
       - name: Install and validate
         shell: bash
