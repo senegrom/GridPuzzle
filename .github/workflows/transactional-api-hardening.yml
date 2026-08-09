@@ -65,6 +65,7 @@ jobs:
             .github/workflows/transactional-api-hardening.yml
           git add \
             gridsolver/abstract_grids/grid.py \
+            gridsolver/solver/propagation.py \
             gridsolver/solver/solver.py \
             tests/test_rule_inputs.py \
             tests/test_solver_api.py
