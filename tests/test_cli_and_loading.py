@@ -130,6 +130,19 @@ def test_loader_rejects_unsupported_grid_subclasses_early():
         create_from_str_and_class("0", _UnsupportedGrid)
 
 
+def test_loader_rejects_unsupported_class_before_consuming_input():
+    consumed: list[str] = []
+
+    def values():
+        consumed.append("consumed")
+        yield "0"
+
+    with pytest.raises(ValueError, match="is not supported"):
+        create_from_str_and_class(values(), _UnsupportedGrid)
+
+    assert consumed == []
+
+
 def test_loader_rejects_ambiguous_top_level_bytes():
     with pytest.raises(TypeError, match="decoded to str"):
         create_from_str_and_class(b"1", Sudoku)

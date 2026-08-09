@@ -28,6 +28,29 @@ _PUZZLE_CLASSES: dict[str, PuzzleClass] = {
 }
 
 
+def _resolve_puzzle_class(class_: PuzzleClass | str) -> PuzzleClass:
+    """Validate and resolve a supported class before consuming puzzle input."""
+    if isinstance(class_, str):
+        key = class_.strip().lower()
+        try:
+            return _PUZZLE_CLASSES[key]
+        except KeyError as exc:
+            supported = ", ".join(sorted(_PUZZLE_CLASSES))
+            raise ValueError(
+                f"Puzzle class {key!r} is not supported; choose one of {supported}"
+            ) from exc
+
+    if not isinstance(class_, type) or not issubclass(class_, Grid):
+        raise TypeError("class_ must be a supported Grid subclass or class name")
+    if class_ not in _PUZZLE_CLASSES.values():
+        supported = ", ".join(sorted(_PUZZLE_CLASSES))
+        raise ValueError(
+            f"Puzzle class {class_.__name__!r} is not supported; "
+            f"choose one of {supported}"
+        )
+    return class_
+
+
 def create_from_file(
     path: Path | str,
     /,
@@ -75,6 +98,8 @@ def create_from_str_and_class(
 ) -> Grid:
     """Load a puzzle string when its concrete grid class is known separately."""
     row_wise, space_sep = _validate_load_options(row_wise, space_sep)
+    class_ = _resolve_puzzle_class(class_)
+
     if isinstance(values, str):
         normalized: str | list[str] = (
             _load_preprocess_str_space_sep(values)
@@ -87,22 +112,6 @@ def create_from_str_and_class(
         normalized = list(values)
     else:
         raise TypeError(f"Puzzle input must be str or iterable, got {type(values).__name__}")
-
-    if isinstance(class_, str):
-        key = class_.strip().lower()
-        try:
-            class_ = _PUZZLE_CLASSES[key]
-        except KeyError as exc:
-            supported = ", ".join(sorted(_PUZZLE_CLASSES))
-            raise ValueError(f"Puzzle class {key!r} is not supported; choose one of {supported}") from exc
-    elif not isinstance(class_, type) or not issubclass(class_, Grid):
-        raise TypeError("class_ must be a supported Grid subclass or class name")
-    elif class_ not in _PUZZLE_CLASSES.values():
-        supported = ", ".join(sorted(_PUZZLE_CLASSES))
-        raise ValueError(
-            f"Puzzle class {class_.__name__!r} is not supported; "
-            f"choose one of {supported}"
-        )
 
     try:
         return _create_from_str_and_class(
