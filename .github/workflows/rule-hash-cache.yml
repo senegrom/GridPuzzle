@@ -1,0 +1,166 @@
+name: Temporary rule hash cache candidate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/scripts/apply_rule_hash_cache.py
+      - .github/scripts/rule_hash_benchmark.py
+      - .github/workflows/rule-hash-cache.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rule-hash-cache
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: random
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate:
+    name: Validate / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply candidate
+        run: python .github/scripts/apply_rule_hash_cache.py
+
+      - name: Install, compile, and validate
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests run.py examples2.py
+          python -X dev -m pytest -q tests/test_rule_hash_cache.py tests/test_rule_inputs.py tests/test_solution_validation.py tests/test_trail.py tests/test_solver_api.py tests/test_regressions.py tests/test_differential.py tests/test_examples_2.py -m "not slow" --durations=10
+
+  benchmark:
+    name: Full default-solver timings
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply candidate and install project
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/apply_rule_hash_cache.py
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          git worktree add --detach /tmp/baseline 60361bd0af0a293aa9808b70300ffc3c5fdee584
+
+      - name: Compare full hierarchy with depth gate disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rule-hash-results
+
+          run_one() {
+            local label="$1"
+            local directory="$2"
+            local case_name="$3"
+            local output
+            output="$(
+              cd "$directory"
+              PYTHONPATH="$directory" python \
+                "$GITHUB_WORKSPACE/.github/scripts/rule_hash_benchmark.py" \
+                "$case_name"
+            )"
+            echo "${label} ${output}"
+            echo "$output" >> "/tmp/rule-hash-results/${label}-${case_name}.jsonl"
+          }
+
+          for case_name in blank4_all nonsquare6_cap20; do
+            run_one baseline /tmp/baseline "$case_name"
+            run_one candidate "$GITHUB_WORKSPACE" "$case_name"
+            run_one candidate "$GITHUB_WORKSPACE" "$case_name"
+            run_one baseline /tmp/baseline "$case_name"
+            run_one baseline /tmp/baseline "$case_name"
+            run_one candidate "$GITHUB_WORKSPACE" "$case_name"
+          done
+
+          for repetition in 1 2 3 4 5; do
+            run_one baseline /tmp/baseline killer_a
+            run_one candidate "$GITHUB_WORKSPACE" killer_a
+          done
+
+          for case_name in blank4_all nonsquare6_cap20 killer_a; do
+            CASE_NAME="$case_name" python - <<'PY'
+          import json
+          import os
+          import statistics
+          from pathlib import Path
+
+          case_name = os.environ["CASE_NAME"]
+          root = Path("/tmp/rule-hash-results")
+
+          def load(label):
+              return [
+                  json.loads(line)
+                  for line in (root / f"{label}-{case_name}.jsonl")
+                  .read_text(encoding="utf-8")
+                  .splitlines()
+              ]
+
+          baseline = load("baseline")
+          candidate = load("candidate")
+          identities = {
+              (row["digest"], row["cardinality"])
+              for row in baseline + candidate
+          }
+          if len(identities) != 1:
+              raise SystemExit(
+                  f"{case_name}: baseline and candidate solutions differ"
+              )
+
+          base_median = statistics.median(
+              row["seconds"] for row in baseline
+          )
+          candidate_median = statistics.median(
+              row["seconds"] for row in candidate
+          )
+          change = 100 * (candidate_median / base_median - 1)
+          print(
+              json.dumps(
+                  {
+                      "case": case_name,
+                      "baseline_seconds": [row["seconds"] for row in baseline],
+                      "candidate_seconds": [row["seconds"] for row in candidate],
+                      "baseline_median": base_median,
+                      "candidate_median": candidate_median,
+                      "change_percent": change,
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+          )
+          PY
+          done
