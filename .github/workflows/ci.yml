@@ -57,6 +57,7 @@ jobs:
           tests/test_iterable_loading.py
           tests/test_hotpath_regressions.py
           tests/test_runtime_overhead.py
+          tests/test_handler_aware_logging.py
           tests/test_guarantee_filter_cache.py
           tests/test_rule_inputs.py
           tests/test_regressions.py
@@ -134,6 +135,7 @@ jobs:
           tests/test_iterable_loading.py
           tests/test_hotpath_regressions.py
           tests/test_runtime_overhead.py
+          tests/test_handler_aware_logging.py
           tests/test_guarantee_filter_cache.py
           tests/test_rule_inputs.py
           tests/test_regressions.py
