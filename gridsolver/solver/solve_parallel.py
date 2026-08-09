@@ -6,6 +6,7 @@ start methods are exercised by the regression suite.
 """
 
 import concurrent.futures
+import pickle
 from collections import deque
 
 from gridsolver.abstract_grids.grid import Grid
@@ -18,10 +19,32 @@ from gridsolver.solver.atomic_solver import (
 from gridsolver.solver.solver import _cap_solutions
 
 
+_WORKER_ROOT_GRID: Grid | None = None
+
+
+def _init_worker(grid_payload: bytes) -> None:
+    """Unpickle one immutable-by-convention root grid per worker."""
+    global _WORKER_ROOT_GRID
+    root = pickle.loads(grid_payload)
+    if not isinstance(root, Grid):
+        raise TypeError("Parallel worker root payload did not contain a Grid")
+    _WORKER_ROOT_GRID = root
+
+
+def _fresh_worker_grid() -> Grid:
+    root = _WORKER_ROOT_GRID
+    if root is None:
+        raise RuntimeError("Parallel worker root grid was not initialised")
+    # Grid.deepcopy is purpose-built for branch isolation: it copies puzzle
+    # state, resets trails and derived caches, and invokes subclass copy hooks.
+    return root.deepcopy()
+
+
 def _solve_branch(
-    payload: tuple[Grid, int, int, int, int | None],
+    payload: tuple[int, int, int, int | None],
 ) -> set[ImmutableGrid]:
-    grid, cell, value, max_sols, depth_gate = payload
+    cell, value, max_sols, depth_gate = payload
+    grid = _fresh_worker_grid()
     from gridsolver.solver import solver as _solver
     from gridsolver.solver.solver_log import lg as _lg
 
@@ -31,7 +54,7 @@ def _solve_branch(
 
 
 def _solve_branch_with_stats(
-    payload: tuple[Grid, int, int, int, int | None],
+    payload: tuple[int, int, int, int | None],
 ) -> tuple[set[ImmutableGrid], PowerStats]:
     with collect_power_stats() as stats:
         solutions = _solve_branch(payload)
@@ -54,15 +77,27 @@ def solve_parallel_trials(
     stats = current_power_stats()
     worker = _solve_branch_with_stats if stats is not None else _solve_branch
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as pool:
+    # Serialize the root once. Each worker receives that immutable payload once
+    # through its initializer, then uses the optimized Grid.deepcopy() path for
+    # every task instead of repeatedly transmitting the full grid through the
+    # executor queue.
+    grid_payload = pickle.dumps(
+        grid,
+        protocol=pickle.HIGHEST_PROTOCOL,
+    )
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=processes,
+        initializer=_init_worker,
+        initargs=(grid_payload,),
+    ) as pool:
         # Keep no more than one outstanding branch per worker. Submitting every
-        # branch up front repeats grid pickling and queues work that a small
-        # positive solution cap may never need.
+        # branch up front queues work that a small positive solution cap may
+        # never need.
         initial_count = min(processes, len(ordered_branches))
         futures = deque(
             pool.submit(
                 worker,
-                (grid, cell, value, max_sols, depth_gate),
+                (cell, value, max_sols, depth_gate),
             )
             for cell, value in ordered_branches[:initial_count]
         )
@@ -94,7 +129,7 @@ def solve_parallel_trials(
                 futures.append(
                     pool.submit(
                         worker,
-                        (grid, cell, value, max_sols, depth_gate),
+                        (cell, value, max_sols, depth_gate),
                     )
                 )
 

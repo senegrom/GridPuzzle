@@ -1,3 +1,5 @@
+import pickle
+
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.solver import solve_parallel as parallel_module
 from gridsolver.solver import solver
@@ -89,6 +91,30 @@ def test_parallel_workers_receive_a_cache_free_root_seed(monkeypatch):
     assert hasattr(grid, "_fish_value_memo")
 
 
+def test_worker_root_creates_isolated_branch_grids(monkeypatch):
+    monkeypatch.setattr(parallel_module, "_WORKER_ROOT_GRID", None)
+    root = Grid(1, 1, max_elem=2)
+    parallel_module._init_worker(
+        pickle.dumps(root, protocol=pickle.HIGHEST_PROTOCOL)
+    )
+
+    first = parallel_module._fresh_worker_grid()
+    second = parallel_module._fresh_worker_grid()
+
+    assert first is not second
+    assert first is not parallel_module._WORKER_ROOT_GRID
+    assert second is not parallel_module._WORKER_ROOT_GRID
+    first.get_candidates(0).discard(2)
+    assert second.get_candidates(0) == {1, 2}
+    assert parallel_module._WORKER_ROOT_GRID.get_candidates(0) == {1, 2}
+
+    first_solutions = parallel_module._solve_branch((0, 1, 1, 0))
+    second_solutions = parallel_module._solve_branch((0, 2, 1, 0))
+    assert {tuple(solution) for solution in first_solutions} == {(1,)}
+    assert {tuple(solution) for solution in second_solutions} == {(2,)}
+    assert parallel_module._WORKER_ROOT_GRID.known == (0,)
+
+
 class _FakeFuture:
     def __init__(self, result):
         self._result = result
@@ -106,8 +132,19 @@ class _FakeProcessPool:
     def __init__(self, results):
         self._results = iter(results)
         self.futures = []
+        self.payloads = []
+        self.max_workers = None
+        self.initializer = None
+        self.initargs = ()
         self.terminated = False
         self.exited = False
+
+    def configure(self, *, max_workers, initializer, initargs):
+        self.max_workers = max_workers
+        self.initializer = initializer
+        self.initargs = initargs
+        initializer(*initargs)
+        return self
 
     def __enter__(self):
         return self
@@ -116,6 +153,7 @@ class _FakeProcessPool:
         self.exited = True
 
     def submit(self, worker, payload):
+        self.payloads.append(payload)
         future = _FakeFuture(next(self._results))
         self.futures.append(future)
         return future
@@ -124,15 +162,32 @@ class _FakeProcessPool:
         self.terminated = True
 
 
+def _install_fake_pool(monkeypatch, pool):
+    monkeypatch.setattr(parallel_module, "_WORKER_ROOT_GRID", None)
+    monkeypatch.setattr(
+        parallel_module.concurrent.futures,
+        "ProcessPoolExecutor",
+        lambda **kwargs: pool.configure(**kwargs),
+    )
+
+
+def _assert_compact_worker_payloads(pool):
+    assert pool.max_workers == 2
+    assert pool.initializer is parallel_module._init_worker
+    assert len(pool.initargs) == 1
+    assert isinstance(pool.initargs[0], bytes)
+    assert all(len(payload) == 4 for payload in pool.payloads)
+    assert all(
+        not any(isinstance(item, Grid) for item in payload)
+        for payload in pool.payloads
+    )
+
+
 def test_capped_parallel_search_bounds_submissions_and_terminates(monkeypatch):
     pool = _FakeProcessPool(
         ({"first"}, {"second"}, {"third"}, {"fourth"}, {"fifth"})
     )
-    monkeypatch.setattr(
-        parallel_module.concurrent.futures,
-        "ProcessPoolExecutor",
-        lambda max_workers: pool,
-    )
+    _install_fake_pool(monkeypatch, pool)
 
     result = parallel_module.solve_parallel_trials(
         Grid(1, 1, max_elem=5),
@@ -146,17 +201,14 @@ def test_capped_parallel_search_bounds_submissions_and_terminates(monkeypatch):
     assert pool.terminated
     assert pool.exited
     assert pool.futures[1].cancelled
+    _assert_compact_worker_payloads(pool)
 
 
 def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
     pool = _FakeProcessPool(
         ({"first"}, {"second"}, {"third"}, {"fourth"}, {"fifth"})
     )
-    monkeypatch.setattr(
-        parallel_module.concurrent.futures,
-        "ProcessPoolExecutor",
-        lambda max_workers: pool,
-    )
+    _install_fake_pool(monkeypatch, pool)
 
     result = parallel_module.solve_parallel_trials(
         Grid(1, 1, max_elem=5),
@@ -170,3 +222,4 @@ def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
     assert not pool.terminated
     assert pool.exited
     assert not any(future.cancelled for future in pool.futures)
+    _assert_compact_worker_payloads(pool)
