@@ -11,21 +11,129 @@ class PrettyPrintArgs:
     def _none_alternate(arg1, arg2, default):
         return (default if arg2 is None else arg2) if arg1 is None else arg1
 
-    def __init__(self, sep_up: int = None, print_candidates: bool = None, sep_lo: int = None, sep_ri: int = None,
-                 sep_le: int = None, inner_grid_row: Union[int, str] = None, inner_grid_col: Union[int, str] = None,
-                 sep_in_ve: int = None, sep_in_ho: int = None, args: 'PrettyPrintArgs' = None):
-        self.sep_up: int = PrettyPrintArgs._none_alternate(sep_up, args.sep_up if args else None, 2)
-        self.sep_lo: int = PrettyPrintArgs._none_alternate(sep_lo, args.sep_lo if args else None, 2)
-        self.sep_le: int = PrettyPrintArgs._none_alternate(sep_le, args.sep_le if args else None, 2)
-        self.sep_ri: int = PrettyPrintArgs._none_alternate(sep_ri, args.sep_ri if args else None, 2)
-        self.sep_in_ve: int = PrettyPrintArgs._none_alternate(sep_in_ve, args.sep_in_ve if args else None, 0)
-        self.sep_in_ho: int = PrettyPrintArgs._none_alternate(sep_in_ho, args.sep_in_ho if args else None, 0)
-        self.print_candidates: bool = PrettyPrintArgs._none_alternate(print_candidates,
-                                                                      args.print_candidates if args else None, False)
-        self.inner_grid_row: Union[int, str] = PrettyPrintArgs._none_alternate(inner_grid_row,
-                                                                               args.inner_grid_row if args else None, 0)
-        self.inner_grid_col: Union[int, str] = PrettyPrintArgs._none_alternate(inner_grid_col,
-                                                                               args.inner_grid_col if args else None, 0)
+    @staticmethod
+    def _separator(name: str, value: object, maximum: int) -> int:
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise TypeError(f"{name} must be an integer")
+        value = int(value)
+        if not 0 <= value <= maximum:
+            raise ValueError(
+                f"{name} must be between 0 and {maximum}"
+            )
+        return value
+
+    @staticmethod
+    def _inner_dimension(name: str, value: object) -> int | str:
+        if value == "sqrt":
+            return value
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise TypeError(
+                f"{name} must be a non-negative integer or 'sqrt'"
+            )
+        value = int(value)
+        if value < 0:
+            raise ValueError(
+                f"{name} must be non-negative or 'sqrt'"
+            )
+        return value
+
+    def __init__(
+        self,
+        sep_up: int | None = None,
+        print_candidates: bool | None = None,
+        sep_lo: int | None = None,
+        sep_ri: int | None = None,
+        sep_le: int | None = None,
+        inner_grid_row: int | str | None = None,
+        inner_grid_col: int | str | None = None,
+        sep_in_ve: int | None = None,
+        sep_in_ho: int | None = None,
+        args: 'PrettyPrintArgs | None' = None,
+    ) -> None:
+        if args is not None and not isinstance(args, PrettyPrintArgs):
+            raise TypeError("args must be a PrettyPrintArgs instance")
+
+        inherited = args
+        self.sep_up = self._separator(
+            "sep_up",
+            self._none_alternate(
+                sep_up,
+                inherited.sep_up if inherited else None,
+                2,
+            ),
+            2,
+        )
+        self.sep_lo = self._separator(
+            "sep_lo",
+            self._none_alternate(
+                sep_lo,
+                inherited.sep_lo if inherited else None,
+                2,
+            ),
+            2,
+        )
+        self.sep_le = self._separator(
+            "sep_le",
+            self._none_alternate(
+                sep_le,
+                inherited.sep_le if inherited else None,
+                2,
+            ),
+            2,
+        )
+        self.sep_ri = self._separator(
+            "sep_ri",
+            self._none_alternate(
+                sep_ri,
+                inherited.sep_ri if inherited else None,
+                2,
+            ),
+            2,
+        )
+        self.sep_in_ve = self._separator(
+            "sep_in_ve",
+            self._none_alternate(
+                sep_in_ve,
+                inherited.sep_in_ve if inherited else None,
+                0,
+            ),
+            4,
+        )
+        self.sep_in_ho = self._separator(
+            "sep_in_ho",
+            self._none_alternate(
+                sep_in_ho,
+                inherited.sep_in_ho if inherited else None,
+                0,
+            ),
+            4,
+        )
+
+        raw_print_candidates = self._none_alternate(
+            print_candidates,
+            inherited.print_candidates if inherited else None,
+            False,
+        )
+        if not isinstance(raw_print_candidates, bool):
+            raise TypeError("print_candidates must be a boolean")
+        self.print_candidates = raw_print_candidates
+
+        self.inner_grid_row = self._inner_dimension(
+            "inner_grid_row",
+            self._none_alternate(
+                inner_grid_row,
+                inherited.inner_grid_row if inherited else None,
+                0,
+            ),
+        )
+        self.inner_grid_col = self._inner_dimension(
+            "inner_grid_col",
+            self._none_alternate(
+                inner_grid_col,
+                inherited.inner_grid_col if inherited else None,
+                0,
+            ),
+        )
 
     def __copy__(self):
         return PrettyPrintArgs(args=self)
@@ -35,8 +143,17 @@ class PrettyPrintArgs:
 
     @staticmethod
     def blank() -> 'PrettyPrintArgs':
-        return PrettyPrintArgs(sep_up=0, sep_lo=0, sep_le=0, sep_ri=0, sep_in_ve=0, sep_in_ho=0, print_candidates=False,
-                               inner_grid_col=0, inner_grid_row=0)
+        return PrettyPrintArgs(
+            sep_up=0,
+            sep_lo=0,
+            sep_le=0,
+            sep_ri=0,
+            sep_in_ve=0,
+            sep_in_ho=0,
+            print_candidates=False,
+            inner_grid_col=0,
+            inner_grid_row=0,
+        )
 
 
 def _positive_integer(name: str, value: int) -> int:

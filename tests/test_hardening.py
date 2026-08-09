@@ -362,3 +362,43 @@ def test_production_sources_do_not_use_optimization_sensitive_assertions():
         "Production correctness checks must not disappear under python -O; "
         f"replace assertions with explicit exceptions: {violations}"
     )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "name"),
+    (
+        ({"rows_in_box": True, "cols_in_box": 1, "box_rows": 1, "box_cols": 1}, "rows_in_box"),
+        ({"rows_in_box": 1, "cols_in_box": True, "box_rows": 1, "box_cols": 1}, "cols_in_box"),
+        ({"rows_in_box": 1, "cols_in_box": 1, "box_rows": True, "box_cols": 1}, "box_rows"),
+        ({"rows_in_box": 1, "cols_in_box": 1, "box_rows": 1, "box_cols": True}, "box_cols"),
+        ({"rows_in_box": 1.0, "cols_in_box": 1, "box_rows": 1, "box_cols": 1}, "rows_in_box"),
+    ),
+)
+def test_sudoku_box_dimensions_reject_coercive_values(kwargs, name):
+    with pytest.raises(TypeError, match=rf"{name} must be an integer"):
+        Sudoku(**kwargs)
+
+
+def test_pretty_print_args_validate_separator_domains():
+    with pytest.raises(TypeError, match="sep_up must be an integer"):
+        PrettyPrintArgs(sep_up=True)
+    with pytest.raises(ValueError, match="sep_up must be between 0 and 2"):
+        PrettyPrintArgs(sep_up=3)
+    with pytest.raises(ValueError, match="sep_in_ve must be between 0 and 4"):
+        PrettyPrintArgs(sep_in_ve=-1)
+    with pytest.raises(TypeError, match="print_candidates must be a boolean"):
+        PrettyPrintArgs(print_candidates=1)
+
+
+def test_pretty_print_args_validate_inner_grid_dimensions_and_parent():
+    with pytest.raises(TypeError, match="inner_grid_row"):
+        PrettyPrintArgs(inner_grid_row="square")
+    with pytest.raises(ValueError, match="inner_grid_col"):
+        PrettyPrintArgs(inner_grid_col=-1)
+    with pytest.raises(TypeError, match="args must be a PrettyPrintArgs"):
+        PrettyPrintArgs(args=object())
+
+    parent = PrettyPrintArgs(inner_grid_row="sqrt", sep_in_ho=4)
+    child = PrettyPrintArgs(args=parent, sep_in_ho=1)
+    assert child.inner_grid_row == "sqrt"
+    assert child.sep_in_ho == 1
