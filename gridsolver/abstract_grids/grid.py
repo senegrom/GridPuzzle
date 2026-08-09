@@ -69,6 +69,22 @@ def _parse_load_value(raw_value: object, max_elem: int) -> int:
     return value
 
 
+def _boolean_option(name: str, value: object) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(f"{name} must be a boolean")
+    return value
+
+
+def _validate_load_options(
+    row_wise: object,
+    space_sep: object,
+) -> tuple[bool, bool]:
+    return (
+        _boolean_option("row_wise", row_wise),
+        _boolean_option("space_sep", space_sep),
+    )
+
+
 RuleT = TypeVar("RuleT", bound=Rule)
 
 
@@ -655,6 +671,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         row_wise: bool = True,
         space_sep: bool = False,
     ) -> None:
+        row_wise, space_sep = _validate_load_options(row_wise, space_sep)
         if self.has_been_filled:
             raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
 

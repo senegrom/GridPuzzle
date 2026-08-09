@@ -2,11 +2,15 @@ import logging
 
 import pytest
 
+from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import (
     create_from_file,
     create_from_str,
     create_from_str_and_class,
 )
+from gridsolver.grid_classes.futoshiki import Futoshiki
+from gridsolver.grid_classes.kenken import Kenken
+from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.solver.logger import get_log
@@ -91,3 +95,78 @@ def test_get_log_does_not_reconfigure_the_root_logger():
 
     assert tuple(root.handlers) == before
     assert any(isinstance(handler, logging.NullHandler) for handler in wrapped.lg.handlers)
+
+
+@pytest.mark.parametrize("name", ("row_wise", "space_sep"))
+def test_grid_load_rejects_non_boolean_options_and_remains_retryable(name):
+    grid = Grid(1)
+
+    with pytest.raises(TypeError, match=rf"{name} must be a boolean"):
+        grid.load("0", **{name: 1})
+
+    assert not grid.has_been_filled
+    grid.load("1")
+    assert grid.known == (1,)
+
+
+@pytest.mark.parametrize("name", ("row_wise", "space_sep"))
+def test_loader_factories_reject_non_boolean_options(name):
+    with pytest.raises(TypeError, match=rf"{name} must be a boolean"):
+        create_from_str("Sudoku::1", **{name: "yes"})
+
+
+def test_file_loader_validates_options_before_reading(tmp_path):
+    missing = tmp_path / "missing.txt"
+    with pytest.raises(TypeError, match="row_wise must be a boolean"):
+        create_from_file(missing, row_wise=1)
+
+
+class _UnsupportedGrid(Grid):
+    pass
+
+
+def test_loader_rejects_unsupported_grid_subclasses_early():
+    with pytest.raises(ValueError, match="is not supported"):
+        create_from_str_and_class("0", _UnsupportedGrid)
+
+
+def test_loader_rejects_ambiguous_top_level_bytes():
+    with pytest.raises(TypeError, match="decoded to str"):
+        create_from_str_and_class(b"1", Sudoku)
+
+
+def test_cage_split_rejects_bytes_and_non_string_iterable_parts():
+    with pytest.raises(TypeError, match="decoded to str"):
+        KillerSudoku._load_preprocess_colon_split(b"a:a1")
+    with pytest.raises(TypeError, match="only strings"):
+        KillerSudoku._load_preprocess_colon_split(iter(("a", 1, ":a1")))
+
+
+@pytest.mark.parametrize(
+    "grid, payload",
+    (
+        (KillerSudoku(None, 1, 1, 1, 1), "a:a\N{SUPERSCRIPT TWO}"),
+        (Kenken(None, 1), "a:a+\N{SUPERSCRIPT TWO}"),
+    ),
+)
+def test_cage_dictionary_numbers_are_ascii_digits(grid, payload):
+    with pytest.raises(ValueError, match="string format invalid"):
+        grid.load(payload)
+    assert not grid.has_been_filled
+
+
+def test_specialized_loaders_validate_flags_before_mutation():
+    futoshiki = Futoshiki(1)
+    killer = KillerSudoku(None, 1, 1, 1, 1)
+    kenken = Kenken(None, 1)
+
+    with pytest.raises(TypeError, match="space_sep must be a boolean"):
+        futoshiki.load("0", space_sep=1)
+    with pytest.raises(TypeError, match="row_wise must be a boolean"):
+        killer.load("a:a1", row_wise=1)
+    with pytest.raises(TypeError, match="row_wise must be a boolean"):
+        kenken.load_with_dic("a", {"a": ("+", 1)}, row_wise="yes")
+
+    for grid in (futoshiki, killer, kenken):
+        assert not grid.has_been_filled
+        assert not grid.rules_ia

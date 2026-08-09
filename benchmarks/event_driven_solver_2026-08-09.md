@@ -24,12 +24,13 @@ Fingerprints matched exactly:
 - blank 4x4: `5aa8608840428b800a8f6d7376bff20f9cf7a37934b15de803fd55cd45edae05`;
 - non-square 6x6: `9b75bededa18d5a75747022f1cc3120367906ffc0d3c0d624778419d2a4e801f`.
 
-The final rebased source passed the complete suite: 217 tests in 1970.56 s
-(32:50), including the slow pandiagonal corpus, 49x49 through 100x100 scales,
-broader advanced-technique oracle states, and full 288-solution
-sequential/parallel equivalence. The longest cases were pandiagonal Latin
-squares at 660.89 s and the 25x25+/36x36 Sudoku group at 651.19 s; the
-deterministic 100x100 scale test completed in 9.46 s.
+The final source, after rebasing onto the input/rendering hardening work and
+integrating its loading-boundary checks directly, passed the complete suite:
+249 tests in 1781.06 s (29:41). This includes the slow pandiagonal corpus,
+49x49 through 100x100 scales, broader advanced-technique oracle states, and
+full 288-solution sequential/parallel equivalence. The longest cases were the
+25x25+/36x36 Sudoku group at 627.33 s and pandiagonal Latin squares at
+572.14 s; the deterministic 100x100 scale test completed in 10.71 s.
 
 The individual mechanisms were developed and checked in sequence. In the
 same-tree non-square benchmark, adding the MRV pressure tie-break changed the

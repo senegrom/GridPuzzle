@@ -2,7 +2,13 @@ from collections.abc import Iterable, Mapping
 from numbers import Integral
 from typing import NamedTuple
 
-from gridsolver.abstract_grids.grid import _load_preprocess_str, _load_preprocess_str_space_sep, pairs
+from gridsolver.abstract_grids.grid import (
+    _boolean_option,
+    _load_preprocess_str,
+    _load_preprocess_str_space_sep,
+    _validate_load_options,
+    pairs,
+)
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
@@ -50,11 +56,15 @@ class KillerSudoku(Sudoku):
     ) -> tuple[str, str]:
         if isinstance(sum_cells_and_dic, str):
             text = sum_cells_and_dic
+        elif isinstance(sum_cells_and_dic, (bytes, bytearray)):
+            raise TypeError("Cage input bytes must be decoded to str first")
         elif isinstance(sum_cells_and_dic, Iterable):
-            # Materialise once so one-shot iterables are not consumed by a
-            # separate membership check. Newlines are stripped later by the
-            # normal puzzle preprocessors.
-            text = "\n".join(str(part) for part in sum_cells_and_dic)
+            # Materialise once so one-shot iterables remain supported, but do
+            # not silently stringify malformed tokens.
+            parts = list(sum_cells_and_dic)
+            if any(not isinstance(part, str) for part in parts):
+                raise TypeError("Cage input iterables must contain only strings")
+            text = "\n".join(parts)
         else:
             raise TypeError(
                 f"Input type {type(sum_cells_and_dic).__name__} is not supported"
@@ -75,6 +85,7 @@ class KillerSudoku(Sudoku):
         space_sep: bool = False,
     ) -> None:
         """Load a cage layout followed by a single-character sum dictionary."""
+        row_wise, space_sep = _validate_load_options(row_wise, space_sep)
         sum_cells, dictionary_text = self._load_preprocess_colon_split(
             sum_cells_and_dic
         )
@@ -91,7 +102,10 @@ class KillerSudoku(Sudoku):
             label = dictionary_text[index]
             index += 1
             start = index
-            while index < len(dictionary_text) and dictionary_text[index].isnumeric():
+            while (
+                index < len(dictionary_text)
+                and "0" <= dictionary_text[index] <= "9"
+            ):
                 index += 1
             if index == start:
                 raise ValueError("KillerSudoku string format invalid")
@@ -110,6 +124,7 @@ class KillerSudoku(Sudoku):
         row_wise: bool = True,
     ) -> None:
         """Load a single-character cage layout plus a mapping of cage sums."""
+        row_wise = _boolean_option("row_wise", row_wise)
         if self.has_been_filled:
             raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
 

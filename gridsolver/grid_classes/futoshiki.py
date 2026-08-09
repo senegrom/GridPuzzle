@@ -1,6 +1,10 @@
 from collections.abc import Iterable, Sequence
 
-from gridsolver.abstract_grids.grid import _load_preprocess_str, _load_preprocess_str_space_sep
+from gridsolver.abstract_grids.grid import (
+    _load_preprocess_str,
+    _load_preprocess_str_space_sep,
+    _validate_load_options,
+)
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
 from gridsolver.abstract_grids.unique_square_grid import UniqueSquareGrid
 from gridsolver.rules.uneq import IneqRule
@@ -34,6 +38,7 @@ class Futoshiki(UniqueSquareGrid):
         row_wise: bool = True,
         space_sep: bool = False,
     ) -> None:
+        row_wise, space_sep = _validate_load_options(row_wise, space_sep)
         # Validate logical tokens rather than raw string length. Direct
         # multiline and whitespace-separated input is normalized first.
         if isinstance(values, str):
@@ -87,5 +92,4 @@ class Futoshiki(UniqueSquareGrid):
                 raise ValueError(f"Cannot parse inequality symbol {symbol!r}")
 
         super().load(grid_values, row_wise=row_wise, space_sep=False)
-        for rule in new_rules:
-            self.add_rule_checked(rule)
+        self.add_rules_checked(new_rules)
