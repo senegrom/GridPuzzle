@@ -1,67 +1,4 @@
-"""Memoize stable at-most-once relation materialisation."""
-
-from pathlib import Path
-
-
-SOURCE = Path("gridsolver/solver/rulehelpers.py")
-TEST = Path("tests/test_atmostonce_memo.py")
-
-
-def replace_once(text: str, old: str, new: str, label: str) -> str:
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"{label}: expected one marker, found {count}")
-    return text.replace(old, new, 1)
-
-
-text = SOURCE.read_text(encoding="utf-8")
-text = replace_once(
-    text,
-    '''def rulehelper_atmostonce(grid: Grid) -> None:
-    """Materialise the union of all active inequalities per origin cell."""
-    desired: list[set[int]] = [set() for _ in range(grid.len)]
-''',
-    '''_ATMOSTONCE_COMPLETE = "rulehelper_atmostonce_complete"
-
-
-def rulehelper_atmostonce(grid: Grid) -> None:
-    """Materialise the union of all active inequalities per origin cell.
-
-    The result depends only on the active rule graph. Candidate, known-value,
-    and guarantee churn therefore reuse a rule-cache completion marker; every
-    rule addition or deactivation invalidates that cache automatically.
-    """
-    if grid._rule_cache.get(_ATMOSTONCE_COMPLETE) is True:
-        return
-
-    desired: list[set[int]] = [set() for _ in range(grid.len)]
-''',
-    "helper header",
-)
-text = replace_once(
-    text,
-    '''    for rule in to_deactivate:
-        grid.deactivate_rule(rule)
-    grid.add_rules_checked(additions)
-
-def _house_sums_memo(grid: Grid) -> TrailedDict:
-''',
-    '''    for rule in to_deactivate:
-        grid.deactivate_rule(rule)
-    grid.add_rules_checked(additions)
-    # Structural mutations above may have swapped/cleared the rule cache, so
-    # publish completion only after the final graph is installed.
-    grid._rule_cache[_ATMOSTONCE_COMPLETE] = True
-
-
-def _house_sums_memo(grid: Grid) -> TrailedDict:
-''',
-    "helper completion",
-)
-SOURCE.write_text(text, encoding="utf-8")
-
-TEST.write_text(
-    '''import pytest
+import pytest
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import Guarantee
@@ -153,6 +90,3 @@ def test_interrupted_materialisation_does_not_publish_completion(monkeypatch):
         rulehelpers.rulehelper_atmostonce(grid)
 
     assert rulehelpers._ATMOSTONCE_COMPLETE not in grid._rule_cache
-''',
-    encoding="utf-8",
-)

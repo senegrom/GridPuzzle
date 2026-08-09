@@ -13,8 +13,19 @@ _MAX_SAEAMO_CELLS = 8  # cap derived sum-cages: partition enumeration grows
 # derived cages there are at most 8 cells anyway; starts biting at 10x10)
 
 
+_ATMOSTONCE_COMPLETE = "rulehelper_atmostonce_complete"
+
+
 def rulehelper_atmostonce(grid: Grid) -> None:
-    """Materialise the union of all active inequalities per origin cell."""
+    """Materialise the union of all active inequalities per origin cell.
+
+    The result depends only on the active rule graph. Candidate, known-value,
+    and guarantee churn therefore reuse a rule-cache completion marker; every
+    rule addition or deactivation invalidates that cache automatically.
+    """
+    if grid._rule_cache.get(_ATMOSTONCE_COMPLETE) is True:
+        return
+
     desired: list[set[int]] = [set() for _ in range(grid.len)]
     for cells in grid.unique_rule_cells:
         if len(cells) <= 1:
@@ -51,6 +62,10 @@ def rulehelper_atmostonce(grid: Grid) -> None:
     for rule in to_deactivate:
         grid.deactivate_rule(rule)
     grid.add_rules_checked(additions)
+    # Structural mutations above may have swapped/cleared the rule cache, so
+    # publish completion only after the final graph is installed.
+    grid._rule_cache[_ATMOSTONCE_COMPLETE] = True
+
 
 def _house_sums_memo(grid: Grid) -> TrailedDict:
     """Trail-journaled memo for the house-sums pass, mirroring the fish
