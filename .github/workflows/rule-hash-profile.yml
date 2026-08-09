@@ -1,0 +1,46 @@
+name: Temporary rule-hash profile
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/scripts/profile_rule_hashing.py
+      - .github/workflows/rule-hash-profile.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rule-hash-profile
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+
+      - name: Profile rule hashing
+        run: |
+          python .github/scripts/profile_rule_hashing.py blank4_all
+          python .github/scripts/profile_rule_hashing.py nonsquare6_cap20
