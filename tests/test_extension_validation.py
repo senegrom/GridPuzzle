@@ -147,3 +147,44 @@ def test_emitted_constraint_metadata_must_match_source_grid():
         match="dimensions or value domain",
     ):
         validate_solution(grid, _solution())
+
+
+class _CaptureGuarantees(Rule):
+    uses_guarantees = True
+
+    def __init__(self, grid, seen):
+        super().__init__(grid, cells=[0])
+        self.seen = seen
+
+    def apply(self, known, candidates, guarantees=None):
+        self.seen.append(tuple(guarantees or ()))
+        return False, None, None
+
+
+def test_custom_rule_receives_only_active_relevant_guarantees():
+    grid = Grid(1, 2, max_elem=2)
+    seen = []
+    grid.add_rule_checked(_CaptureGuarantees(grid, seen))
+
+    active = Guarantee(1, frozenset({0}), 1, 2)
+    inactive = Guarantee(2, frozenset({0, 1}), 1, 2)
+    irrelevant = Guarantee(2, frozenset({1}), 1, 2)
+    grid.add_gtees_checked((active, inactive, irrelevant))
+    grid.deactivate_gtee(inactive)
+
+    validate_solution(grid, _solution((1, 2)))
+
+    assert seen == [(active,)]
+
+
+def test_source_rule_metadata_is_wrapped_as_invalid_solution():
+    grid = Grid(1, 2, max_elem=2)
+    rule = ElementsAtMostOnce(grid, cells=[0, 1])
+    rule.cells = (0, 2)
+    rule.len_cells = 2
+    # Deliberately bypass the checked registration API to model corrupted
+    # extension state without freezing the invalid rule in a set.
+    grid.rules = [rule]
+
+    with pytest.raises(InvalidSolutionError, match="Malformed rule"):
+        validate_solution(grid, _solution((1, 2)))

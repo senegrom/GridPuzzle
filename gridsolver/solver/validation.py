@@ -40,6 +40,7 @@ class _ValidationPlan:
     candidates: tuple[frozenset[int], ...]
     rules: tuple[Rule, ...]
     guarantees: tuple[Guarantee, ...]
+    active_guarantees: tuple[Guarantee, ...]
 
 
 @dataclass(slots=True)
@@ -107,15 +108,24 @@ def _canonical_guarantee(
     return Guarantee(value, frozenset(cells), rows, cols)
 
 
+def _canonical_guarantee_is_satisfied(
+    guarantee: Guarantee,
+    values: Sequence[int],
+) -> bool:
+    return any(
+        values[cell] == guarantee.val
+        for cell in guarantee.cells
+    )
+
+
 def _guarantee_is_satisfied(
     guarantee: object,
     values: Sequence[int],
     plan: _ValidationPlan,
 ) -> bool:
-    canonical = _canonical_guarantee(guarantee, plan)
-    return any(
-        values[cell] == canonical.val
-        for cell in canonical.cells
+    return _canonical_guarantee_is_satisfied(
+        _canonical_guarantee(guarantee, plan),
+        values,
     )
 
 
@@ -236,8 +246,10 @@ def _rule_is_satisfied(
     *,
     path: frozenset[int] = frozenset(),
     budget: _FallbackBudget | None = None,
+    metadata_validated: bool = False,
 ) -> bool:
-    rule = _validate_rule_metadata(rule, plan)
+    if not metadata_validated:
+        rule = _validate_rule_metadata(rule, plan)
     cell_values = tuple(values[cell] for cell in rule.cells)
 
     if isinstance(rule, SumAndElementsAtMostOnce):
@@ -326,7 +338,7 @@ def _rule_is_satisfied(
         )
     )
     if any(
-        not _guarantee_is_satisfied(guarantee, values, plan)
+        not _canonical_guarantee_is_satisfied(guarantee, values)
         for guarantee in emitted_guarantees
     ):
         return False
@@ -351,8 +363,9 @@ def _rule_is_satisfied(
 
 
 def _build_validation_plan(source: Grid) -> _ValidationPlan:
-    rules = tuple(source.rules) + tuple(source.rules_ia)
-    raw_guarantees = tuple(source.guarantees) + tuple(source.guarantees_ia)
+    raw_rules = tuple(source.rules) + tuple(source.rules_ia)
+    raw_active_guarantees = tuple(source.guarantees)
+    raw_inactive_guarantees = tuple(source.guarantees_ia)
     partial = _ValidationPlan(
         rows=source.rows,
         cols=source.cols,
@@ -364,20 +377,35 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
             frozenset(possible)
             for possible in source._candidates
         ),
-        rules=rules,
+        rules=(),
         guarantees=(),
+        active_guarantees=(),
     )
-    canonical_guarantees: list[Guarantee] = []
-    for guarantee in raw_guarantees:
+
+    validated_rules: list[Rule] = []
+    for rule in raw_rules:
         try:
-            canonical_guarantees.append(
-                _canonical_guarantee(guarantee, partial)
-            )
+            validated_rules.append(_validate_rule_metadata(rule, partial))
         except (TypeError, ValueError) as exc:
             raise InvalidSolutionError(
-                f"Malformed guarantee in source grid: {guarantee!r}: {exc}"
+                f"Malformed rule in source grid: {rule!r}: {exc}"
             ) from exc
-    guarantees = tuple(canonical_guarantees)
+
+    def canonicalize_guarantees(
+        raw_guarantees: tuple[Guarantee, ...],
+    ) -> tuple[Guarantee, ...]:
+        canonical: list[Guarantee] = []
+        for guarantee in raw_guarantees:
+            try:
+                canonical.append(_canonical_guarantee(guarantee, partial))
+            except (TypeError, ValueError) as exc:
+                raise InvalidSolutionError(
+                    f"Malformed guarantee in source grid: {guarantee!r}: {exc}"
+                ) from exc
+        return tuple(canonical)
+
+    active_guarantees = canonicalize_guarantees(raw_active_guarantees)
+    inactive_guarantees = canonicalize_guarantees(raw_inactive_guarantees)
     return _ValidationPlan(
         rows=partial.rows,
         cols=partial.cols,
@@ -386,8 +414,9 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
         domain=partial.domain,
         known=partial.known,
         candidates=partial.candidates,
-        rules=partial.rules,
-        guarantees=guarantees,
+        rules=tuple(validated_rules),
+        guarantees=active_guarantees + inactive_guarantees,
+        active_guarantees=active_guarantees,
     )
 
 
@@ -423,7 +452,7 @@ def _validate_against_plan(
             )
 
     for guarantee in plan.guarantees:
-        if not _guarantee_is_satisfied(guarantee, values, plan):
+        if not _canonical_guarantee_is_satisfied(guarantee, values):
             raise InvalidSolutionError(
                 f"Solution violates guarantee {guarantee.val} in "
                 f"{sorted(guarantee.cells)}"
@@ -435,7 +464,8 @@ def _validate_against_plan(
                 rule,
                 values,
                 plan,
-                plan.guarantees,
+                plan.active_guarantees,
+                metadata_validated=True,
             )
         except InvalidSolutionError:
             raise
