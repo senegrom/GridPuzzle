@@ -21,9 +21,13 @@ def _cell_houses(
     all_houses: list[frozenset[int]],
 ) -> dict[int, list[frozenset[int]]]:
     """cell -> houses containing it; cached (houses derive from the rule set)."""
-    return grid.cached_struct(
+    return grid.cached_rule_struct(
         "als_cell_houses",
-        lambda: {cell: [h for h in all_houses if cell in h] for cell in range(grid.len)})
+        lambda: {
+            cell: [house for house in all_houses if cell in house]
+            for cell in range(grid.len)
+        },
+    )
 
 
 # noinspection PyProtectedMember

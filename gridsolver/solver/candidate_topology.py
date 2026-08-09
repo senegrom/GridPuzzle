@@ -48,7 +48,7 @@ class CandidateTopology:
                     peers[cell] |= house_mask & ~(1 << cell)
             return tuple(peers)
 
-        peer_masks = grid.cached_struct(
+        peer_masks = grid.cached_rule_struct(
             "cell_peer_masks",
             build_peer_masks,
         )

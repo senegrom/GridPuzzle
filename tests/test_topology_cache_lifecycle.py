@@ -1,44 +1,4 @@
-"""Move topology structures to the rule-only cache and add lifecycle tests."""
-
-from pathlib import Path
-
-
-candidate_path = Path("gridsolver/solver/candidate_topology.py")
-candidate = candidate_path.read_text(encoding="utf-8")
-old = '''        peer_masks = grid.cached_struct(
-            "cell_peer_masks",
-            build_peer_masks,
-        )
-'''
-new = '''        peer_masks = grid.cached_rule_struct(
-            "cell_peer_masks",
-            build_peer_masks,
-        )
-'''
-if candidate.count(old) != 1:
-    raise SystemExit("CandidateTopology peer-mask cache marker changed")
-candidate_path.write_text(candidate.replace(old, new, 1), encoding="utf-8")
-
-als_path = Path("gridsolver/solver/solve_als.py")
-als = als_path.read_text(encoding="utf-8")
-old = '''    return grid.cached_struct(
-        "als_cell_houses",
-        lambda: {cell: [h for h in all_houses if cell in h] for cell in range(grid.len)})
-'''
-new = '''    return grid.cached_rule_struct(
-        "als_cell_houses",
-        lambda: {
-            cell: [house for house in all_houses if cell in house]
-            for cell in range(grid.len)
-        },
-    )
-'''
-if als.count(old) != 1:
-    raise SystemExit("ALS cell-house cache marker changed")
-als_path.write_text(als.replace(old, new, 1), encoding="utf-8")
-
-Path("tests/test_topology_cache_lifecycle.py").write_text(
-    '''from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver.candidate_topology import CandidateTopology
@@ -105,6 +65,3 @@ def test_rule_only_topology_cache_restores_across_trail_rollback():
     restored = CandidateTopology.build(grid)
     assert restored.peer_masks is parent_topology.peer_masks
     assert _cell_houses(grid, _full_houses(grid)) is parent_houses
-''',
-    encoding="utf-8",
-)
