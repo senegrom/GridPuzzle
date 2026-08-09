@@ -100,6 +100,7 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
+@pytest.mark.slow  # ~2 min: the full 288 enumeration twice; weekly extended CI
 def test_parallel_trials_match_sequential():
     # cross-process solution sets must merge correctly (also guards the
     # process-stable ImmutableGrid hash: hash(bytes) is salted per process)
@@ -177,12 +178,16 @@ def test_sumrule_tmin_prune():
     assert cands[0] == {8, 9} and cands[1] == {8, 9}
 
 
-def test_immutable_grid_shape_in_equality():
+def test_immutable_grid_shape_and_domain_in_equality():
     from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
     flat = [1, 2, 3, 4] * 4
     a = ImmutableGrid(flat, 2, 8, 4)
     b = ImmutableGrid(flat, 4, 4, 4)
     assert a != b and len({a, b}) == 2
+    # the value domain is part of identity too
+    c = ImmutableGrid([1, 2], 1, 2, 2)
+    d = ImmutableGrid([1, 2], 1, 2, 3)
+    assert c != d and len({c, d}) == 2
 
 
 def test_rule45_innies_single_house():

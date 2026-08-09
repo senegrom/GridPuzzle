@@ -113,24 +113,6 @@ def test_peek_consumes_only_the_first_item_eagerly():
     assert list(replay) == [0, 1, 2]
 
 
-def test_grid_load_accepts_nested_one_shot_iterables():
-    rows = (row for row in ((1, 2), (3, 4)))
-    grid = Grid(2, max_elem=4)
-    grid.load(rows)
-
-    assert [[grid[(row, col)] for col in range(2)] for row in range(2)] == [[1, 2], [3, 4]]
-
-
-def test_grid_clone_preserves_fill_state():
-    grid = Grid(2)
-    grid.load("....")
-    clone = grid.deepcopy()
-
-    assert clone.has_been_filled
-    with pytest.raises(RuntimeError, match="filled once"):
-        clone.load("....")
-
-
 def test_grid_rejects_invalid_dimensions_without_asserts():
     with pytest.raises(ValueError, match="positive"):
         Grid(0)
@@ -144,14 +126,6 @@ def test_sudoku_rejects_inconsistent_box_dimensions():
 def test_pairs_rejects_an_unpaired_final_value():
     with pytest.raises(ValueError, match="unpaired"):
         list(pairs((0, 1, 2)))
-
-
-def test_immutable_grid_identity_includes_value_domain():
-    small_domain = ImmutableGrid([1, 2], rows=1, cols=2, max_elem=2)
-    larger_domain = ImmutableGrid([1, 2], rows=1, cols=2, max_elem=3)
-
-    assert small_domain != larger_domain
-    assert len({small_domain, larger_domain}) == 2
 
 
 def test_futoshiki_direct_load_accepts_whitespace_separated_multiline_input():

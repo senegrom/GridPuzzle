@@ -68,7 +68,6 @@ jobs:
           tests/test_basic.py
           tests/test_scale.py
           -m "not slow"
-          -k "not test_parallel_trials_match_sequential"
           --durations=10
 
       - name: Run guarantee-consumer metadata guard
