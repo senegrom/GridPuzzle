@@ -33,18 +33,18 @@ def make_case(name: str):
     raise ValueError(name)
 
 
-def row_for(key, values):
+def compact_row(key, values):
     filename, line, function = key
-    primitive_calls, total_calls, total_time, cumulative_time, _ = values
-    return {
-        "file": Path(filename).name,
-        "line": line,
-        "function": function,
-        "primitive_calls": primitive_calls,
-        "total_calls": total_calls,
-        "own_seconds": total_time,
-        "cumulative_seconds": cumulative_time,
-    }
+    primitive_calls, total_calls, own, cumulative, _ = values
+    return [
+        Path(filename).name,
+        line,
+        function,
+        primitive_calls,
+        total_calls,
+        round(own, 6),
+        round(cumulative, 6),
+    ]
 
 
 def main() -> None:
@@ -73,30 +73,32 @@ def main() -> None:
 
     stats = pstats.Stats(profile)
     rows = [
-        row_for(key, values)
+        compact_row(key, values)
         for key, values in stats.stats.items()
         if "gridsolver" in key[0]
     ]
-    by_cumulative = sorted(
-        rows,
-        key=lambda row: row["cumulative_seconds"],
-        reverse=True,
-    )[:35]
-    by_own = sorted(
-        rows,
-        key=lambda row: row["own_seconds"],
-        reverse=True,
-    )[:35]
+    top_cumulative = sorted(rows, key=lambda row: row[6], reverse=True)[:12]
+    top_own = sorted(rows, key=lambda row: row[5], reverse=True)[:12]
     print(
-        json.dumps(
+        "PROFILE "
+        + json.dumps(
             {
                 "case": args.case,
                 "solutions": len(solutions),
-                "profile_total_seconds": stats.total_tt,
-                "top_cumulative": by_cumulative,
-                "top_own": by_own,
+                "total": round(stats.total_tt, 6),
+                "columns": [
+                    "file",
+                    "line",
+                    "function",
+                    "primitive_calls",
+                    "total_calls",
+                    "own_seconds",
+                    "cumulative_seconds",
+                ],
+                "cumulative": top_cumulative,
+                "own": top_own,
             },
-            indent=2,
+            separators=(",", ":"),
             sort_keys=True,
         )
     )
