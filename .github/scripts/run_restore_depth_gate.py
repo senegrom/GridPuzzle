@@ -1,4 +1,4 @@
-"""Correct current one-line function markers, then run the depth-gate patch."""
+"""Correct current markers, apply the gate, then preserve the default hot path."""
 
 from pathlib import Path
 
@@ -22,3 +22,57 @@ for old, new in replacements.items():
     source = source.replace(old, new, 1)
 
 exec(compile(source, str(path), "exec"), {})
+
+
+def replace_once(file_path: Path, old: str, new: str) -> None:
+    text = file_path.read_text(encoding="utf-8")
+    if text.count(old) != 1:
+        raise SystemExit(
+            f"{file_path}: expected one post-patch marker, found {text.count(old)}"
+        )
+    file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+replace_once(
+    Path("gridsolver/solver/solver.py"),
+    '''    return solve_parallel_trials(
+        worker_seed,
+        branches,
+        max_sols,
+        processes,
+        depth_gate=depth_gate,
+    )
+''',
+    '''    if depth_gate is None:
+        # Preserve the pre-gate call shape and hot path exactly when the
+        # experiment switch is unused.
+        return solve_parallel_trials(
+            worker_seed,
+            branches,
+            max_sols,
+            processes,
+        )
+    return solve_parallel_trials(
+        worker_seed,
+        branches,
+        max_sols,
+        processes,
+        depth_gate=depth_gate,
+    )
+''',
+)
+
+replace_once(
+    Path("gridsolver/solver/solve_parallel.py"),
+    '''    worker_payload = pickle.dumps(
+        (grid, depth_gate),
+        protocol=pickle.HIGHEST_PROTOCOL,
+    )
+''',
+    '''    worker_root = grid if depth_gate is None else (grid, depth_gate)
+    worker_payload = pickle.dumps(
+        worker_root,
+        protocol=pickle.HIGHEST_PROTOCOL,
+    )
+''',
+)
