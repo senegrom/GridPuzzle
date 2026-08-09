@@ -55,6 +55,7 @@ jobs:
           tests/test_cli_and_loading.py
           tests/test_hardening.py
           tests/test_iterable_loading.py
+          tests/test_parser_fuzzing.py
           tests/test_hotpath_regressions.py
           tests/test_runtime_overhead.py
           tests/test_handler_aware_logging.py
@@ -132,6 +133,7 @@ jobs:
           tests/test_cli_and_loading.py
           tests/test_hardening.py
           tests/test_iterable_loading.py
+          tests/test_parser_fuzzing.py
           tests/test_hotpath_regressions.py
           tests/test_runtime_overhead.py
           tests/test_handler_aware_logging.py
