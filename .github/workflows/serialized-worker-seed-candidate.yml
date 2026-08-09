@@ -1,6 +1,6 @@
 name: Temporary serialized worker seed candidate
 
-# Candidate patch revision 2: preserve function-body indentation.
+# Candidate patch revision 3: adapt ProcessPoolExecutor test doubles.
 on:
   push:
     branches: [master]
