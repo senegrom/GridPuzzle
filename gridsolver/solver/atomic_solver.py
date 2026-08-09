@@ -306,7 +306,8 @@ class AtomicSolver:
         yield self._act("hidden_tuples4", lambda: self._hidden_tuples(4))
         if not in_forcing_chain:
             yield self._act("fish3", lambda: fish(grid, 3))
-        yield self._act("finned-fish2", lambda: finned_fish(grid, 2))
+        if not in_forcing_chain:
+            yield self._act("finned-fish2", lambda: finned_fish(grid, 2))
         yield self._act("naked_tuples", lambda: remove_naked_tuples(grid))
         if not in_forcing_chain:
             yield self._act("hidden_tuples", self._hidden_tuples_max)
