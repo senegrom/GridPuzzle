@@ -101,6 +101,8 @@ Candidate and known-value changes mark their cells dirty. Cached watcher maps th
 **AIC and ALS share one candidate topology snapshot.**
 At a stalled `FULL` state, full houses, peer bitmasks, per-value candidate locations, ALS sets, and restricted-common links are built once for the adjacent ALS-XZ and ALS-XY-Wing actions. AIC reuses the same immutable topology if no intervening action changes the grid. Any action hit ends that power-action pass, so a changed state always rebuilds the snapshot.
 
+Per-value candidate locations come from a lazy dirty-cell index. The index is absent until a real topology consumer first requests it. Once active, candidate mutations mark only their cell; the next topology request updates masks for the changed cells and coalesces repeated mutations. A speculative branch copies the derived index only on its first synchronization, while trail rollback restores the exact parent references and dirty state. Explicit grid clones start with the index inactive because it is derived data.
+
 **Rules are immutable and shared across explicit clones.**
 `Grid.deepcopy()` shallow-copies rule and guarantee sets but shares `Rule` objects. Rule cells are immutable tuples, and hashing or registration freezes all existing instance fields; attempts to alter cells, targets, or dimensions then fail. Registration also rejects rules for another shape or value domain. Deterministic `@cached_property` values may still be populated after freezing. Rule and guarantee batches are fully validated before the first live-set mutation.
 
@@ -150,7 +152,7 @@ Verbosity, rendered-grid buffers, output thresholds, forcing-chain recursion sta
 - Every optimization must preserve exact deterministic solution sets and be measured with `depth_gate=None`.
 - A microbenchmark win is insufficient if the ordinary solver regresses. Rejected experiments and their measurements belong under `benchmarks/`.
 
-The separate per-value candidate-mask PR follows this policy: eager maintenance made topology construction much faster but added approximately 2% geometric-mean cost to measured full solves. It remains experimental until a lazy or selective design clears the macro regression gate after rebasing on the new-family implementation.
+The first eager-global per-value candidate-mask design was rejected: it made topology construction faster but added approximately 2% geometric-mean cost to measured full solves and roughly doubled mutation/rollback cost. The accepted lazy dirty-cell design is recorded in `benchmarks/lazy_candidate_index_2026-08-10.md`. It reduced unchanged topology builds by 51.28% and dirty-cell topology/rollback rounds by 64.61%. Cold pre-activation mutations changed by +0.38%; the full-solver geometric mean changed by +0.36%, with a worst measured case of +1.62%. Every comparison used `depth_gate=None` and exact deterministic solution fingerprints.
 
 ## Validation policy
 
