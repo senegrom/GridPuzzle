@@ -63,6 +63,7 @@ jobs:
           tests/test_rule_hash_cache.py
           tests/test_rule_only_cache.py
           tests/test_topology_cache_lifecycle.py
+          tests/test_candidate_mask_index.py
           tests/test_atmostonce_memo.py
           tests/test_aic_extra_visibility.py
           tests/test_extension_validation.py
@@ -151,6 +152,7 @@ jobs:
           tests/test_rule_hash_cache.py
           tests/test_rule_only_cache.py
           tests/test_topology_cache_lifecycle.py
+          tests/test_candidate_mask_index.py
           tests/test_atmostonce_memo.py
           tests/test_aic_extra_visibility.py
           tests/test_extension_validation.py
