@@ -1,4 +1,5 @@
 name: Harden new puzzle families
+# Corrected path-connectivity diagnostic pass.
 
 on:
   push:
