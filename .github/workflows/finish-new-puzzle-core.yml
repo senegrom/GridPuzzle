@@ -1,4 +1,5 @@
 name: Finish new puzzle core
+# Exact-marker rerun.
 
 on:
   push:
