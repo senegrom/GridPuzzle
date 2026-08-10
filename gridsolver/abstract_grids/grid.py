@@ -22,6 +22,14 @@ class SolveStatus(Enum):
     INVALID = -1
 
 
+class TechniqueProfile(Enum):
+    """Deduction families that are sound and useful for one grid model."""
+
+    FULL = "full"
+    GENERIC = "generic"
+    RULES_ONLY = "rules_only"
+
+
 def _load_preprocess_str(values: str) -> str:
     if not isinstance(values, str):
         raise TypeError(f"Expected str, got {type(values).__name__}")
@@ -119,6 +127,7 @@ RuleT = TypeVar("RuleT", bound=Rule)
 
 class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     __hash__ = None
+    technique_profile = TechniqueProfile.FULL
 
     def __delitem__(self, index: int) -> None:
         raise TypeError("Grid.__delitem__ is not supported")

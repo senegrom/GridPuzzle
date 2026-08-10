@@ -183,3 +183,50 @@ def test_specialized_loaders_validate_flags_before_mutation():
     for grid in (futoshiki, killer, kenken):
         assert not grid.has_been_filled
         assert not grid.rules_ia
+
+
+
+def test_csp_detection_uses_first_meaningful_line_not_suffix_or_transcript(
+    tmp_path,
+):
+    legacy = tmp_path / "legacy.clp"
+    legacy.write_text(
+        "# retained comment\n"
+        "LatinSquare::\n"
+        ". .\n"
+        ". .\n"
+        "# later solver transcript\n"
+        "# (solve 1 1 4)\n",
+        encoding="utf-8",
+    )
+
+    grid = create_from_file(legacy, space_sep=True)
+
+    assert isinstance(grid, LatinSquare)
+    assert grid.rows == grid.cols == 2
+
+
+def test_csp_detection_accepts_leading_comments_without_clp_suffix(tmp_path):
+    puzzle = tmp_path / "slitherlink.txt"
+    puzzle.write_text(
+        "; retained source comment\n"
+        "# another comment\n"
+        "\n"
+        "(solve 1 1 4)\n",
+        encoding="utf-8",
+    )
+
+    grid = create_from_file(puzzle)
+
+    from gridsolver.grid_classes.slitherlink import Slitherlink
+
+    assert isinstance(grid, Slitherlink)
+    assert grid.clues == ((4,),)
+
+
+def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
+    from gridsolver.abstract_grids.csp_rules_loading import is_csp_rules_text
+
+    assert not is_csp_rules_text(
+        "LatinSquare::\n. .\n. .\n# (solve 1 1 4)"
+    )
