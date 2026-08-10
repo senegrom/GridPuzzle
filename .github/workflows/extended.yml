@@ -48,6 +48,45 @@ jobs:
           -m "not slow"
           --durations=20
 
+  new-family-corpus:
+    name: ${{ matrix.family }} corpus shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [hidato, numbrix, kakuro, slitherlink]
+        shard: [0, 1, 2, 3]
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+      - name: Solve isolated corpus shard
+        run: >-
+          python scripts/run_new_family_corpus.py
+          --family "${{ matrix.family }}"
+          --shard-index "${{ matrix.shard }}"
+          --shard-count 4
+          --case-timeout 60
+          --output "artifacts/${{ matrix.family }}-${{ matrix.shard }}.json"
+      - name: Upload corpus timing and status report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-family-${{ matrix.family }}-${{ matrix.shard }}
+          path: artifacts/${{ matrix.family }}-${{ matrix.shard }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
   large-scale:
     name: Large generated Sudoku scales
     runs-on: ubuntu-latest
