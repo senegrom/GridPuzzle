@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: evaluate-lazy-candidate-index
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -23,7 +23,7 @@ env:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6
@@ -37,7 +37,9 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply lazy candidate index
-        run: python .github/scripts/apply_lazy_candidate_index.py
+        run: |
+          python .github/scripts/apply_lazy_candidate_index.py
+          python .github/scripts/shorten_candidate_benchmark.py
 
       - name: Install and validate candidate
         shell: bash
@@ -96,10 +98,12 @@ jobs:
           rm -f \
             .github/scripts/apply_lazy_candidate_index.py \
             .github/scripts/benchmark_lazy_candidate_index.py \
+            .github/scripts/shorten_candidate_benchmark.py \
             .github/workflows/evaluate-lazy-candidate-index.yml
           git add -A -- \
             .github/scripts/apply_lazy_candidate_index.py \
             .github/scripts/benchmark_lazy_candidate_index.py \
+            .github/scripts/shorten_candidate_benchmark.py \
             .github/workflows/evaluate-lazy-candidate-index.yml \
             gridsolver/abstract_grids/trail.py \
             gridsolver/abstract_grids/grid.py \
