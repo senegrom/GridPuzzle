@@ -72,15 +72,16 @@ class CandidateTopology:
             for peers, house_peers in zip(peer_masks, house_peer_masks)
         )
 
-        per_value = [0] * (grid.max_elem + 1)
-        unsolved_mask = 0
-        for cell, possible in enumerate(grid._candidates):
-            if grid._known[cell] > 0:
-                continue
-            bit = 1 << cell
-            unsolved_mask |= bit
-            for value in possible:
-                per_value[value] |= bit
+        all_cells_mask = (1 << grid.len) - 1
+        known_mask = 0
+        for cell, value in enumerate(grid._known):
+            if value > 0:
+                known_mask |= 1 << cell
+        unsolved_mask = all_cells_mask & ~known_mask
+        per_value = tuple(
+            mask & unsolved_mask
+            for mask in grid.candidate_masks
+        )
 
         return cls(
             grid=grid,
@@ -88,9 +89,9 @@ class CandidateTopology:
             house_masks=house_masks,
             peer_masks=peer_masks,
             extra_peer_masks=extra_peer_masks,
-            candidate_masks=tuple(per_value),
+            candidate_masks=per_value,
             unsolved_mask=unsolved_mask,
-            all_cells_mask=(1 << grid.len) - 1,
+            all_cells_mask=all_cells_mask,
         )
 
     def visible_from_mask(self, source_mask: int) -> int:

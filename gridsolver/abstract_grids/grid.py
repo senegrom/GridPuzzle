@@ -165,6 +165,91 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         # not; rebuilding the guarantee index on every rule update was wasted.
         self._guarantee_cache: dict[str, Any] = {}
 
+    @staticmethod
+    def _candidate_values_mask(possible: set[int]) -> int:
+        mask = 0
+        for value in possible:
+            mask |= 1 << value
+        return mask
+
+    def _activate_candidate_index(self) -> None:
+        state = self._trail_state
+        per_value = [0] * (self.max_elem + 1)
+        per_cell: list[int] = []
+        for cell, possible in enumerate(self._candidates):
+            value_mask = self._candidate_values_mask(possible)
+            per_cell.append(value_mask)
+            cell_bit = 1 << cell
+            remaining = value_mask
+            while remaining:
+                bit = remaining & -remaining
+                per_value[bit.bit_length() - 1] |= cell_bit
+                remaining ^= bit
+        state.candidate_masks = per_value
+        state.candidate_value_masks = per_cell
+        state.candidate_mask_dirty = 0
+        state.candidate_index_token = (
+            state.marks[-1].token if state.marks else 0
+        )
+
+    def _sync_candidate_index(self) -> tuple[int, ...]:
+        """Return exact per-value candidate-cell masks.
+
+        The index is built only for a real consumer. Candidate mutations after
+        activation merely set one dirty-cell bit; repeated changes to the same
+        cell are coalesced. A speculative branch copies the index only when it
+        first needs to synchronize, so branches that never build a topology pay
+        no index-copy or per-value maintenance cost.
+        """
+        state = self._trail_state
+        if state.candidate_masks is None:
+            self._activate_candidate_index()
+        elif state.candidate_mask_dirty:
+            if state.candidate_value_masks is None:
+                raise RuntimeError("Candidate index metadata is incomplete")
+            if (
+                state.marks
+                and state.candidate_index_token != state.marks[-1].token
+            ):
+                state.candidate_masks = state.candidate_masks.copy()
+                state.candidate_value_masks = state.candidate_value_masks.copy()
+                state.candidate_index_token = state.marks[-1].token
+
+            masks = state.candidate_masks
+            cell_masks = state.candidate_value_masks
+            dirty = state.candidate_mask_dirty
+            while dirty:
+                cell_bit = dirty & -dirty
+                cell = cell_bit.bit_length() - 1
+                old_values = cell_masks[cell]
+                new_values = self._candidate_values_mask(
+                    self._candidates[cell]
+                )
+                removed = old_values & ~new_values
+                while removed:
+                    value_bit = removed & -removed
+                    value = value_bit.bit_length() - 1
+                    masks[value] &= ~cell_bit
+                    removed ^= value_bit
+                added = new_values & ~old_values
+                while added:
+                    value_bit = added & -added
+                    value = value_bit.bit_length() - 1
+                    masks[value] |= cell_bit
+                    added ^= value_bit
+                cell_masks[cell] = new_values
+                dirty ^= cell_bit
+            state.candidate_mask_dirty = 0
+
+        if state.candidate_masks is None:
+            raise RuntimeError("Candidate index activation failed")
+        return tuple(state.candidate_masks)
+
+    @property
+    def candidate_masks(self) -> tuple[int, ...]:
+        """Exact per-value candidate locations; index zero is unused."""
+        return self._sync_candidate_index()
+
     @overload
     def __setitem__(self, key: int, value: int) -> None:
         ...
@@ -274,6 +359,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 rule_cache=self._rule_cache,
                 guarantee_cache=self._guarantee_cache,
                 dirty_state=state.dirty.copy(),
+                candidate_masks=state.candidate_masks,
+                candidate_value_masks=state.candidate_value_masks,
+                candidate_mask_dirty=state.candidate_mask_dirty,
+                candidate_index_token=state.candidate_index_token,
             )
         )
         return token
@@ -328,6 +417,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._rule_cache = frame.rule_cache
         self._guarantee_cache = frame.guarantee_cache
         state.dirty = frame.dirty_state
+        state.candidate_masks = frame.candidate_masks
+        state.candidate_value_masks = frame.candidate_value_masks
+        state.candidate_mask_dirty = frame.candidate_mask_dirty
+        state.candidate_index_token = frame.candidate_index_token
 
 
 

@@ -47,6 +47,10 @@ class TrailFrame:
     rule_cache: dict[str, Any]
     guarantee_cache: dict[str, Any]
     dirty_state: PropagationDirtyState
+    candidate_masks: list[int] | None
+    candidate_value_masks: list[int] | None
+    candidate_mask_dirty: int
+    candidate_index_token: int
 
 
 @dataclass(slots=True)
@@ -57,6 +61,14 @@ class TrailState:
     marks: list[TrailFrame] = field(default_factory=list)
     next_token: int = 0
     dirty: PropagationDirtyState = field(default_factory=PropagationDirtyState)
+    # The derived index is absent until CandidateTopology first requests it.
+    # Once active, mutators only mark changed cells; one later sync updates the
+    # per-value masks from those cells. Branch syncs use copy-on-write and trail
+    # rollback restores the parent references exactly.
+    candidate_masks: list[int] | None = None
+    candidate_value_masks: list[int] | None = None
+    candidate_mask_dirty: int = 0
+    candidate_index_token: int = 0
 
     @property
     def active(self) -> bool:
@@ -108,8 +120,12 @@ class TrailedSet(set[int]):
         self._snapshot_token = frame.token
 
     def _mark_changed(self) -> None:
-        if self._cell >= 0:
-            self._trail_state.dirty.mark_cell(self._cell)
+        if self._cell < 0:
+            return
+        state = self._trail_state
+        state.dirty.mark_cell(self._cell)
+        if state.candidate_masks is not None:
+            state.candidate_mask_dirty |= 1 << self._cell
 
     def add(self, element: int) -> None:
         state = self._trail_state
