@@ -135,6 +135,14 @@ and Windows. It was nevertheless rejected because it regressed full blank-4x4
 enumeration by 1.98%, non-square 6x6 cap-20 by 0.76%, and a 1,000-branch case by
 3.11%; see `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
 
+A note on `guarantees_ia`: its composition is schedule-dependent bookkeeping.
+The same dominated fact can land there directly on one propagation schedule
+and via a narrow-then-dominate chain on another, so two byte-identical live
+states may carry different inactive sets. No deduction may ever read
+`guarantees_ia` as canonical; it exists only for re-add deduplication, which
+is information-safe because an inactive fact was already processed to its
+fixpoint conclusion.
+
 ## Correctness invariants
 
 1. Trail marks are integer tokens and are undone in LIFO order only.
