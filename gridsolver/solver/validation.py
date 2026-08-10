@@ -238,20 +238,28 @@ def _relevant_guarantees_for_rule(
     )
 
 
-def _rule_is_satisfied(
-    rule: Rule,
-    values: Sequence[int],
-    plan: _ValidationPlan,
-    guarantees: tuple[Guarantee, ...],
-    *,
-    path: frozenset[int] = frozenset(),
-    budget: _FallbackBudget | None = None,
-    metadata_validated: bool = False,
-) -> bool:
-    if not metadata_validated:
-        rule = _validate_rule_metadata(rule, plan)
-    cell_values = tuple(values[cell] for cell in rule.cells)
+_BUILTIN_RULE_TYPES = frozenset({
+    SumAndElementsAtMostOnce,
+    ElementsAtMostOnce,
+    ElementsAtLeastOnce,
+    SumRule,
+    ProdRule,
+    DiffRule,
+    DivRule,
+    IneqRule,
+    UneqRule,
+    DiffGe2Rule,
+})
 
+
+def _builtin_closed_form(
+    rule: Rule,
+    cell_values: tuple[int, ...],
+    values: Sequence[int],
+    plan: "_ValidationPlan",
+) -> bool | None:
+    """Closed-form check of the nearest built-in ancestor, None for pure
+    extension rules. isinstance order puts the most derived built-ins first."""
     if isinstance(rule, SumAndElementsAtMostOnce):
         return (
             len(set(cell_values)) == len(cell_values)
@@ -281,6 +289,32 @@ def _rule_is_satisfied(
             abs(origin - values[cell]) >= 2
             for cell in rule.rel_cells
         )
+    return None
+
+
+def _rule_is_satisfied(
+    rule: Rule,
+    values: Sequence[int],
+    plan: _ValidationPlan,
+    guarantees: tuple[Guarantee, ...],
+    *,
+    path: frozenset[int] = frozenset(),
+    budget: _FallbackBudget | None = None,
+    metadata_validated: bool = False,
+) -> bool:
+    if not metadata_validated:
+        rule = _validate_rule_metadata(rule, plan)
+    cell_values = tuple(values[cell] for cell in rule.cells)
+
+    closed_form = _builtin_closed_form(rule, cell_values, values, plan)
+    if closed_form is False:
+        return False
+    if closed_form is True and type(rule) in _BUILTIN_RULE_TYPES:
+        return True
+    # closed_form is None (pure extension rule) or True for a SUBCLASS of a
+    # built-in: the parent's closed form is necessary but not sufficient —
+    # subclass-specific apply() semantics must also pass the fallback below,
+    # otherwise a subclass would be validated by the parent's semantics only.
 
     # Extension fallback: exercise the custom rule against singleton
     # candidates, then validate every structural constraint it emits.

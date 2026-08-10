@@ -69,6 +69,17 @@ class _InvalidCandidateValue(Rule):
         return False, None, None
 
 
+class _NoTwoInFirstCell(ElementsAtMostOnce):
+    """Built-in subclass with EXTRA semantics: first cell must not hold 2."""
+
+    def apply(self, known, candidates, guarantees=None):
+        candidates[self.cells[0]].discard(2)
+        if not candidates[self.cells[0]]:
+            from gridsolver.rules.rules import InvalidGrid
+            raise InvalidGrid()
+        return ElementsAtMostOnce.apply(self, known, candidates, guarantees)
+
+
 def _source_with(rule_cls, *args):
     grid = Grid(1, 2, max_elem=2)
     rule = rule_cls(grid, *args) if args else rule_cls(grid, cells=[0])
@@ -78,6 +89,18 @@ def _source_with(rule_cls, *args):
 
 def _solution(values=(1, 1)):
     return ImmutableGrid(values, rows=1, cols=2, max_elem=2)
+
+
+def test_builtin_subclass_extra_semantics_are_validated():
+    # a subclass of a built-in must not be accepted on the parent's closed
+    # form alone: (2, 1) is distinct (AMO-satisfying) but violates the
+    # subclass's no-2-in-first-cell semantics, which only the apply-based
+    # fallback can detect
+    grid = Grid(1, 2, max_elem=2)
+    grid.add_rule_checked(_NoTwoInFirstCell(grid, cells=[0, 1]))
+    validate_solution(grid, _solution((1, 2)))  # parent + subclass both happy
+    with pytest.raises(InvalidSolutionError, match="violates"):
+        validate_solution(grid, _solution((2, 1)))
 
 
 def test_custom_rule_must_preserve_the_selected_candidate():
