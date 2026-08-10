@@ -3,7 +3,7 @@
 from collections.abc import Iterable, Sequence
 from numbers import Integral
 
-from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.grid_classes.compact_grid import CompactGrid
 from gridsolver.rules.topology import ConsecutiveAdjacencyRule
 from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
@@ -221,3 +221,4 @@ class Numbrix(_ConsecutivePathGrid):
 
     diagonal_adjacency = False
     allow_blocks = False
+    technique_profile = TechniqueProfile.RULES_ONLY
