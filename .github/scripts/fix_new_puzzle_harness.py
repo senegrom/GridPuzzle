@@ -1,4 +1,4 @@
-"""Correct raw-string quoting in the one-shot hardening generator."""
+"""Correct the one-shot hardening generator before execution."""
 
 from pathlib import Path
 
@@ -9,4 +9,14 @@ if text.count(marker) != 5:
     raise SystemExit(
         f"Expected five generated source literals, found {text.count(marker)}"
     )
-path.write_text(text.replace(marker, "write_text(r'''"), encoding="utf-8")
+text = text.replace(marker, "write_text(r'''")
+old_message = "Every cell in a multi-cell consecutive path needs a neighbour"
+new_message = (
+    "Consecutive-path adjacency graph must be connected; "
+    "every path cell needs a neighbour"
+)
+if text.count(old_message) != 1:
+    raise SystemExit(
+        f"Expected one path-connectivity message, found {text.count(old_message)}"
+    )
+path.write_text(text.replace(old_message, new_message), encoding="utf-8")
