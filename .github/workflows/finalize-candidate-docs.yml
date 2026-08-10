@@ -1,0 +1,60 @@
+name: Finalize candidate-index documentation
+
+on:
+  push:
+    branches:
+      - agent/per-value-candidate-bitmasks
+    paths:
+      - .github/workflows/finalize-candidate-docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-candidate-docs
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply documentation update
+        run: python .github/scripts/finalize_candidate_docs.py
+
+      - name: Verify source and candidate-index invariants
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m compileall -q gridsolver tests scripts
+          python -X dev -m pytest -q \
+            tests/test_candidate_mask_index.py \
+            tests/test_trail.py \
+            tests/test_topology_cache_lifecycle.py
+
+      - name: Commit documentation and remove temporary harness
+        run: |
+          rm -f \
+            .github/scripts/finalize_candidate_docs.py \
+            .github/workflows/finalize-candidate-docs.yml
+          git add -A -- \
+            .github/scripts/finalize_candidate_docs.py \
+            .github/workflows/finalize-candidate-docs.yml \
+            DEVELOPMENT.md
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Document lazy candidate-mask lifecycle and benchmarks"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
