@@ -1,5 +1,5 @@
 name: Finish new puzzle core
-# Exact-marker rerun.
+# Quoted-fixture rerun.
 
 on:
   push:
@@ -38,7 +38,9 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply profile and graph changes
-        run: python .github/scripts/finish_new_puzzle_core.py
+        run: |
+          python .github/scripts/fix_finish_new_puzzle_quote.py
+          python .github/scripts/finish_new_puzzle_core.py
 
       - name: Install and validate
         shell: bash
@@ -117,9 +119,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/scripts/finish_new_puzzle_core.py
+          rm -f \
+            .github/scripts/finish_new_puzzle_core.py \
+            .github/scripts/fix_finish_new_puzzle_quote.py
           git add -A -- \
             .github/scripts/finish_new_puzzle_core.py \
+            .github/scripts/fix_finish_new_puzzle_quote.py \
             gridsolver \
             tests
           git diff --cached --check
