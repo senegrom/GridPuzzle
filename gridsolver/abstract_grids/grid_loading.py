@@ -67,7 +67,7 @@ def create_from_file(
         is_csp_rules_text,
     )
 
-    if path.suffix.lower() == ".clp" or is_csp_rules_text(text):
+    if is_csp_rules_text(text):
         return create_from_csp_rules(text)
 
     lines = (line.strip() for line in text.splitlines())

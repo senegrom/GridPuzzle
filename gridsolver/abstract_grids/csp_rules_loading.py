@@ -14,8 +14,21 @@ _SOLVE_START = re.compile(r"\((solve(?:-tatham)?)\b", re.IGNORECASE)
 
 
 def is_csp_rules_text(text: object) -> bool:
-    """Return whether text contains a supported CSP-Rules solve form."""
-    return isinstance(text, str) and _SOLVE_START.search(text) is not None
+    """Return whether the input starts with a supported CSP-Rules form.
+
+    Historical class-prefixed puzzle files often retain solver transcripts that
+    contain later ``(solve ...)`` text. Detection must therefore inspect the
+    first meaningful input line rather than searching the entire file or relying
+    on a ``.clp`` suffix.
+    """
+    if not isinstance(text, str):
+        return False
+    for line in text.splitlines():
+        stripped = line.strip().lstrip("\ufeff")
+        if not stripped or stripped.startswith((";", "#")):
+            continue
+        return _SOLVE_START.match(stripped) is not None
+    return False
 
 
 def _first_solve_form(text: str) -> str:

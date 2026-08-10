@@ -484,18 +484,20 @@ def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
 
     monkeypatch.setattr(atomic_solver, "rulehelper_atmostonce", generic)
     monkeypatch.setattr(atomic_solver, "locked_candidate", sudoku_only)
-    grid = Numbrix.from_board(((0, 0), (0, 0)))
-    actions = atomic_solver.AtomicSolver(grid, [0], set())._solve_power_actions()
+    hidato = Hidato.from_board(((0, 0), (0, 0)))
+    actions = atomic_solver.AtomicSolver(hidato, [0], set())._solve_power_actions()
 
     assert next(actions) == "rulehelper_atmostonce"
     assert calls == ["generic"]
-    assert grid.technique_profile is TechniqueProfile.GENERIC
+    assert hidato.technique_profile is TechniqueProfile.GENERIC
 
+    numbrix = Numbrix.from_board(((0, 0), (0, 0)))
     slitherlink = Slitherlink(((None,),))
-    assert slitherlink.technique_profile is TechniqueProfile.RULES_ONLY
-    assert list(
-        atomic_solver.AtomicSolver(slitherlink, [0], set())._solve_power_actions()
-    ) == []
+    for grid in (numbrix, slitherlink):
+        assert grid.technique_profile is TechniqueProfile.RULES_ONLY
+        assert list(
+            atomic_solver.AtomicSolver(grid, [0], set())._solve_power_actions()
+        ) == []
 
 
 def test_cli_file_route_renders_compact_solution(tmp_path, capsys):
