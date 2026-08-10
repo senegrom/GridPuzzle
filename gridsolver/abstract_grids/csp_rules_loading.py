@@ -13,6 +13,11 @@ _TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//|/|\(|\)|[^\s()/]+')
 _SOLVE_START = re.compile(r"\((solve(?:-tatham)?)\b", re.IGNORECASE)
 
 
+def is_csp_rules_text(text: object) -> bool:
+    """Return whether text contains a supported CSP-Rules solve form."""
+    return isinstance(text, str) and _SOLVE_START.search(text) is not None
+
+
 def _first_solve_form(text: str) -> str:
     if not isinstance(text, str):
         raise TypeError("CSP-Rules input must be text")

@@ -280,6 +280,12 @@ class AtomicSolver:
 
     def _solve_power_actions(self) -> Iterator[str]:
         grid = self.grid
+        # Compact and graph-variable puzzle families deliberately rely on their
+        # own rules plus complete backtracking. Sudoku-specific pattern methods
+        # assume house geometry that those grids do not have.
+        if not getattr(grid, "supports_advanced_techniques", True):
+            return
+
         # Expensive zero-hit tiers are skipped inside forcing-chain branches but
         # retained at the outer level for full deductive power.
         in_forcing_chain = bool(_solve_fc._in_forcing_chain)

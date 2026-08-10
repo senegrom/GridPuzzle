@@ -57,15 +57,30 @@ def create_from_file(
     row_wise: bool = True,
     space_sep: bool = False,
 ) -> Grid:
-    """Load ``<Class>::<PuzzleString>`` from a UTF-8 text file."""
+    """Load a normal class-prefixed puzzle or a CSP-Rules solve file."""
     row_wise, space_sep = _validate_load_options(row_wise, space_sep)
     path = path if isinstance(path, Path) else Path(path)
-    lines = (
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
+    text = path.read_text(encoding="utf-8")
+
+    from gridsolver.abstract_grids.csp_rules_loading import (
+        create_from_csp_rules,
+        is_csp_rules_text,
     )
-    payload = "\n".join(line for line in lines if line and not line.startswith("#"))
-    return create_from_str(payload, row_wise=row_wise, space_sep=space_sep)
+
+    if path.suffix.lower() == ".clp" or is_csp_rules_text(text):
+        return create_from_csp_rules(text)
+
+    lines = (line.strip() for line in text.splitlines())
+    payload = "\n".join(
+        line
+        for line in lines
+        if line and not line.startswith("#")
+    )
+    return create_from_str(
+        payload,
+        row_wise=row_wise,
+        space_sep=space_sep,
+    )
 
 
 def create_from_str(
@@ -74,10 +89,21 @@ def create_from_str(
     row_wise: bool = True,
     space_sep: bool = False,
 ) -> Grid:
-    """Load a puzzle encoded as ``<Class>::<PuzzleString>``."""
+    """Load a class-prefixed puzzle or a CSP-Rules solve form."""
     row_wise, space_sep = _validate_load_options(row_wise, space_sep)
     if not isinstance(values, str):
-        raise TypeError(f"Puzzle input must be str, got {type(values).__name__}")
+        raise TypeError(
+            f"Puzzle input must be str, got {type(values).__name__}"
+        )
+
+    from gridsolver.abstract_grids.csp_rules_loading import (
+        create_from_csp_rules,
+        is_csp_rules_text,
+    )
+
+    if is_csp_rules_text(values):
+        return create_from_csp_rules(values)
+
     class_name, separator, payload = values.partition("::")
     if not separator:
         raise ValueError("Puzzle string contains no :: class separator")

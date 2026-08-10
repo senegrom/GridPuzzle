@@ -11,6 +11,35 @@ from gridsolver.rules.topology import AllowedValueCountRule, SingleLoopRule
 type EdgeKey = tuple[str, int, int]
 
 
+def _parse_slitherlink_clue(
+    raw_clue: object,
+    location: tuple[int, int],
+) -> int | None:
+    if raw_clue is None:
+        return None
+    if isinstance(raw_clue, str):
+        token = raw_clue.strip()
+        if token == ".":
+            return None
+        if not token or not token.isascii() or not token.isdigit():
+            raise ValueError(
+                f"Cannot parse Slitherlink clue {raw_clue!r} at {location}"
+            )
+        clue = int(token)
+    elif isinstance(raw_clue, bool) or not isinstance(raw_clue, Integral):
+        raise TypeError(
+            f"Slitherlink clue at {location} must be an integer, '.', or None"
+        )
+    else:
+        clue = int(raw_clue)
+
+    if not 0 <= clue <= 4:
+        raise ValueError(
+            f"Slitherlink clue {clue} at {location} is outside 0..4"
+        )
+    return clue
+
+
 class Slitherlink(CompactGrid):
     """Binary edge puzzle whose selected edges form one loop.
 
@@ -22,7 +51,14 @@ class Slitherlink(CompactGrid):
     ON = 2
 
     def __init__(self, clues: Sequence[Sequence[object]]) -> None:
-        rows = tuple(tuple(row) for row in clues)
+        if isinstance(clues, (str, bytes, bytearray)):
+            raise TypeError("Slitherlink clues must be a sequence of rows")
+        try:
+            rows = tuple(tuple(row) for row in clues)
+        except TypeError as exc:
+            raise TypeError(
+                "Slitherlink clues must be a sequence of rows"
+            ) from exc
         if not rows or not rows[0]:
             raise ValueError("Slitherlink clue grid must not be empty")
         board_cols = len(rows[0])
@@ -30,27 +66,13 @@ class Slitherlink(CompactGrid):
             raise ValueError("Slitherlink clue rows must have equal length")
         board_rows = len(rows)
 
-        normalized_clues: list[tuple[int | None, ...]] = []
-        for row_index, row in enumerate(rows):
-            normalized_row: list[int | None] = []
-            for col_index, raw_clue in enumerate(row):
-                if raw_clue is None or raw_clue == ".":
-                    normalized_row.append(None)
-                    continue
-                if isinstance(raw_clue, bool) or not isinstance(raw_clue, Integral):
-                    try:
-                        clue = int(raw_clue)
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError(
-                            f"Cannot parse Slitherlink clue {raw_clue!r} at "
-                            f"{(row_index, col_index)}"
-                        ) from exc
-                else:
-                    clue = int(raw_clue)
-                if not 0 <= clue <= 4:
-                    raise ValueError("Slitherlink clues must lie between 0 and 4")
-                normalized_row.append(clue)
-            normalized_clues.append(tuple(normalized_row))
+        normalized_clues = tuple(
+            tuple(
+                _parse_slitherlink_clue(raw_clue, (row_index, col_index))
+                for col_index, raw_clue in enumerate(row)
+            )
+            for row_index, row in enumerate(rows)
+        )
 
         edge_keys: list[EdgeKey] = []
         endpoints: list[tuple[int, int]] = []
@@ -59,7 +81,10 @@ class Slitherlink(CompactGrid):
             for col in range(board_cols):
                 edge_keys.append(("H", row, col))
                 endpoints.append(
-                    (row * vertex_cols + col, row * vertex_cols + col + 1)
+                    (
+                        row * vertex_cols + col,
+                        row * vertex_cols + col + 1,
+                    )
                 )
         for row in range(board_rows):
             for col in range(board_cols + 1):
@@ -74,7 +99,7 @@ class Slitherlink(CompactGrid):
         super().__init__(edge_keys, max_elem=2)
         self.board_rows = board_rows
         self.board_cols = board_cols
-        self.clues = tuple(normalized_clues)
+        self.clues = normalized_clues
         self.edge_endpoints = tuple(endpoints)
 
         rules: list[AllowedValueCountRule | SingleLoopRule] = []
@@ -148,6 +173,9 @@ class Slitherlink(CompactGrid):
             raise ValueError("Tatham dimensions must be positive")
         if not isinstance(encoding, str):
             raise TypeError("Tatham encoding must be text")
+        encoding = encoding.strip()
+        if not encoding:
+            raise ValueError("Tatham encoding must not be empty")
 
         decoded: list[int | None] = []
         for character in encoding:
@@ -164,7 +192,8 @@ class Slitherlink(CompactGrid):
         expected = rows * cols
         if len(decoded) != expected:
             raise ValueError(
-                f"Tatham encoding expands to {len(decoded)} clues, expected {expected}"
+                f"Tatham encoding expands to {len(decoded)} clues, "
+                f"expected {expected}"
             )
         return cls(
             tuple(
@@ -176,7 +205,9 @@ class Slitherlink(CompactGrid):
     def selected_edges(self, values: Sequence[int]) -> frozenset[EdgeKey]:
         keyed = self.values_by_key(values)
         return frozenset(
-            edge for edge, value in keyed.items() if value == self.ON
+            edge
+            for edge, value in keyed.items()
+            if value == self.ON
         )
 
     def format_solution(self, values: Sequence[int]) -> str:

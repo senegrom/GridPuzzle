@@ -25,6 +25,20 @@ def _cap_solutions(
     return solutions
 
 
+def _log_solution(grid: Grid, solution: ImmutableGrid) -> None:
+    """Render a solution using puzzle geometry when the grid provides it."""
+    formatter = getattr(grid, "format_solution", None)
+    if callable(formatter):
+        _lg.logs(0, formatter(solution))
+        return
+    _lg.logg(
+        0,
+        solution,
+        format_args=grid.format_args,
+        rules=grid.rules,
+    )
+
+
 def _validate_solve_options(
     max_sols: int,
     processes: int,
@@ -138,12 +152,7 @@ def _solve_validated(
             sorted(solutions, key=_solution_key)
         ):
             _lg.logs(0, f"Solution {index}", header=True)
-            _lg.logg(
-                0,
-                solution,
-                format_args=grid.format_args,
-                rules=grid.rules,
-            )
+            _log_solution(grid, solution)
 
         if not solutions:
             _lg.logs(0, "No solution found.", header=True)

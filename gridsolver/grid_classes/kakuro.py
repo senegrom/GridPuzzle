@@ -18,6 +18,62 @@ class KakuroRun:
     cells: tuple[BoardCell, ...]
 
 
+def _board_cell(raw_cell: object, description: str) -> BoardCell:
+    if (
+        isinstance(raw_cell, (str, bytes, bytearray))
+        or not isinstance(raw_cell, Sequence)
+        or len(raw_cell) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, Integral)
+            for value in raw_cell
+        )
+    ):
+        raise TypeError(f"Invalid {description} {raw_cell!r}")
+    row, col = map(int, raw_cell)
+    return row, col
+
+
+def _normalise_run_cells(
+    raw_cells: Iterable[BoardCell],
+) -> tuple[str, tuple[BoardCell, ...]]:
+    if isinstance(raw_cells, (str, bytes, bytearray)):
+        raise TypeError("Kakuro run cells must be coordinate pairs")
+    try:
+        cells = tuple(
+            _board_cell(cell, "Kakuro run cell")
+            for cell in raw_cells
+        )
+    except TypeError as exc:
+        raise TypeError("Kakuro run cells must be coordinate pairs") from exc
+
+    if len(cells) < 2:
+        raise ValueError("Kakuro runs must contain at least two cells")
+    if len(cells) > 9:
+        raise ValueError("Kakuro runs cannot contain more than nine cells")
+    if len(cells) != len(set(cells)):
+        raise ValueError("Kakuro run cells must be unique")
+
+    rows = {row for row, _ in cells}
+    cols = {col for _, col in cells}
+    if len(rows) == 1:
+        orientation = "H"
+        ordered = tuple(sorted(cells, key=lambda cell: cell[1]))
+        positions = tuple(col for _, col in ordered)
+    elif len(cols) == 1:
+        orientation = "V"
+        ordered = tuple(sorted(cells, key=lambda cell: cell[0]))
+        positions = tuple(row for row, _ in ordered)
+    else:
+        raise ValueError(
+            "Kakuro runs must be straight horizontal or vertical lines"
+        )
+
+    expected = tuple(range(positions[0], positions[0] + len(positions)))
+    if positions != expected:
+        raise ValueError("Kakuro run cells must be contiguous")
+    return orientation, ordered
+
+
 class Kakuro(CompactGrid):
     """Cross-sum puzzle using existing sum-plus-all-different constraints."""
 
@@ -37,18 +93,11 @@ class Kakuro(CompactGrid):
         if board_rows <= 0 or board_cols <= 0:
             raise ValueError("Kakuro dimensions must be positive")
 
+        if isinstance(white_cells, (str, bytes, bytearray)):
+            raise TypeError("Kakuro white cells must be coordinate pairs")
         normalized_white: set[BoardCell] = set()
         for raw_cell in white_cells:
-            if (
-                not isinstance(raw_cell, tuple)
-                or len(raw_cell) != 2
-                or any(
-                    isinstance(value, bool) or not isinstance(value, Integral)
-                    for value in raw_cell
-                )
-            ):
-                raise TypeError(f"Invalid Kakuro white cell {raw_cell!r}")
-            cell = tuple(map(int, raw_cell))
+            cell = _board_cell(raw_cell, "Kakuro white cell")
             if not (0 <= cell[0] < board_rows and 0 <= cell[1] < board_cols):
                 raise ValueError(
                     f"Kakuro white cell {cell} is outside "
@@ -65,13 +114,19 @@ class Kakuro(CompactGrid):
         self.white_cells = frozenset(normalized_white)
 
         normalized_runs: list[KakuroRun] = []
-        coverage = {cell: 0 for cell in self.white_cells}
+        coverage = {
+            cell: {"H": 0, "V": 0}
+            for cell in self.white_cells
+        }
         rules: list[SumAndElementsAtMostOnce] = []
-        seen_runs: set[frozenset[BoardCell]] = set()
+        seen_runs: set[tuple[str, tuple[BoardCell, ...]]] = set()
+
+        if isinstance(runs, (str, bytes, bytearray)):
+            raise TypeError("Kakuro runs must be run definitions")
         for raw_run in runs:
             if isinstance(raw_run, KakuroRun):
                 target = raw_run.target
-                cells = raw_run.cells
+                raw_cells = raw_run.cells
             else:
                 try:
                     target, raw_cells = raw_run
@@ -79,29 +134,33 @@ class Kakuro(CompactGrid):
                     raise TypeError(
                         "Kakuro runs must be KakuroRun or (target, cells) pairs"
                     ) from exc
-                cells = tuple(raw_cells)
+
             if isinstance(target, bool) or not isinstance(target, Integral):
                 raise TypeError("Kakuro run targets must be integers")
             target = int(target)
-            if target <= 0:
-                raise ValueError("Kakuro run targets must be positive")
-            cells = tuple(cells)
-            if not cells:
-                raise ValueError("Kakuro runs must contain at least one cell")
-            if len(cells) > 9:
-                raise ValueError("Kakuro runs cannot contain more than nine cells")
-            if len(cells) != len(set(cells)):
-                raise ValueError("Kakuro run cells must be unique")
+
+            orientation, cells = _normalise_run_cells(raw_cells)
             if any(cell not in self.white_cells for cell in cells):
                 raise ValueError("Kakuro runs may contain only white cells")
-            run_key = frozenset(cells)
+
+            length = len(cells)
+            minimum = length * (length + 1) // 2
+            maximum = length * (19 - length) // 2
+            if not minimum <= target <= maximum:
+                raise ValueError(
+                    f"Kakuro target {target} is impossible for a "
+                    f"{length}-cell distinct-digit run; expected "
+                    f"{minimum}..{maximum}"
+                )
+
+            run_key = orientation, cells
             if run_key in seen_runs:
                 raise ValueError("Duplicate Kakuro run")
             seen_runs.add(run_key)
             for cell in cells:
-                coverage[cell] += 1
+                coverage[cell][orientation] += 1
 
-            run = KakuroRun(target=target, cells=tuple(cells))
+            run = KakuroRun(target=target, cells=cells)
             normalized_runs.append(run)
             rules.append(
                 SumAndElementsAtMostOnce(
@@ -111,12 +170,21 @@ class Kakuro(CompactGrid):
                 )
             )
 
-        missing = [cell for cell, count in coverage.items() if count != 2]
-        if missing:
-            raise ValueError(
-                "Every Kakuro white cell must belong to exactly one horizontal "
-                f"and one vertical run; invalid cells: {missing}"
+        invalid = {
+            cell: counts
+            for cell, counts in coverage.items()
+            if counts != {"H": 1, "V": 1}
+        }
+        if invalid:
+            rendered = ", ".join(
+                f"{cell}:H{counts['H']}/V{counts['V']}"
+                for cell, counts in sorted(invalid.items())
             )
+            raise ValueError(
+                "Every Kakuro white cell must belong to exactly one "
+                f"horizontal and one vertical run; invalid coverage: {rendered}"
+            )
+
         self.runs = tuple(normalized_runs)
         self.add_rules_checked(rules)
 

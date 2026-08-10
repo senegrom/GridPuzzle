@@ -12,6 +12,27 @@ from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
 type BoardCell = tuple[int, int]
 
 
+def _parse_path_clue(raw_value: object, key: BoardCell) -> int:
+    if isinstance(raw_value, bool):
+        raise TypeError(f"Path clue at {key} must be an integer")
+    if isinstance(raw_value, Integral):
+        value = int(raw_value)
+    elif isinstance(raw_value, str):
+        token = raw_value.strip()
+        if not token or not token.isascii() or not token.isdigit():
+            raise ValueError(
+                f"Cannot parse path value {raw_value!r} at {key}"
+            )
+        value = int(token)
+    else:
+        raise TypeError(
+            f"Path clue at {key} must be an integer or ASCII digit string"
+        )
+    if value <= 0:
+        raise ValueError(f"Path clues must be positive, got {value} at {key}")
+    return value
+
+
 class _ConsecutivePathGrid(CompactGrid):
     diagonal_adjacency = False
     allow_blocks = False
@@ -33,38 +54,44 @@ class _ConsecutivePathGrid(CompactGrid):
         if board_rows <= 0 or board_cols <= 0:
             raise ValueError("Board dimensions must be positive")
 
-        blocked_cells = frozenset(blocked)
-        for cell in blocked_cells:
+        blocked_cells: set[BoardCell] = set()
+        for raw_cell in blocked:
             if (
-                not isinstance(cell, tuple)
-                or len(cell) != 2
+                not isinstance(raw_cell, tuple)
+                or len(raw_cell) != 2
                 or any(
-                    isinstance(value, bool) or not isinstance(value, Integral)
-                    for value in cell
+                    isinstance(value, bool)
+                    or not isinstance(value, Integral)
+                    for value in raw_cell
                 )
             ):
-                raise TypeError(f"Invalid blocked board cell {cell!r}")
-            row, col = map(int, cell)
-            if not (0 <= row < board_rows and 0 <= col < board_cols):
+                raise TypeError(f"Invalid blocked board cell {raw_cell!r}")
+            cell = tuple(map(int, raw_cell))
+            if not (0 <= cell[0] < board_rows and 0 <= cell[1] < board_cols):
                 raise ValueError(
-                    f"Blocked cell {(row, col)} is outside "
+                    f"Blocked cell {cell} is outside "
                     f"a {board_rows}x{board_cols} board"
                 )
+            blocked_cells.add(cell)
         if blocked_cells and not self.allow_blocks:
-            raise ValueError(f"{type(self).__name__} does not support blocked cells")
+            raise ValueError(
+                f"{type(self).__name__} does not support blocked cells"
+            )
 
+        blocked_frozen = frozenset(blocked_cells)
         keys = tuple(
             (row, col)
             for row in range(board_rows)
             for col in range(board_cols)
-            if (row, col) not in blocked_cells
+            if (row, col) not in blocked_frozen
         )
         if not keys:
             raise ValueError("At least one playable path cell is required")
+
         super().__init__(keys, max_elem=len(keys))
         self.board_rows = board_rows
         self.board_cols = board_cols
-        self.blocked = blocked_cells
+        self.blocked = blocked_frozen
 
         offsets = (
             tuple(
@@ -112,7 +139,12 @@ class _ConsecutivePathGrid(CompactGrid):
         cls,
         board: Sequence[Sequence[object]],
     ) -> "_ConsecutivePathGrid":
-        rows = tuple(tuple(row) for row in board)
+        if isinstance(board, (str, bytes, bytearray)):
+            raise TypeError("Path board must be a sequence of rows")
+        try:
+            rows = tuple(tuple(row) for row in board)
+        except TypeError as exc:
+            raise TypeError("Path board must be a sequence of rows") from exc
         if not rows or not rows[0]:
             raise ValueError("Path board must not be empty")
         width = len(rows[0])
@@ -121,29 +153,41 @@ class _ConsecutivePathGrid(CompactGrid):
 
         blocked: set[BoardCell] = set()
         givens: dict[BoardCell, int] = {}
+        clue_cells: dict[int, BoardCell] = {}
         for row_index, row in enumerate(rows):
             for col_index, raw_value in enumerate(row):
                 key = (row_index, col_index)
-                if isinstance(raw_value, str) and raw_value.strip().upper() in {
-                    "B",
-                    "#",
-                }:
-                    blocked.add(key)
+                if raw_value is None:
                     continue
-                if raw_value is None or raw_value == "." or raw_value == 0 or raw_value == "0":
+                if isinstance(raw_value, str):
+                    token = raw_value.strip()
+                    if token.upper() in {"B", "#"}:
+                        blocked.add(key)
+                        continue
+                    if token in {".", "0"}:
+                        continue
+                if (
+                    not isinstance(raw_value, bool)
+                    and isinstance(raw_value, Integral)
+                    and int(raw_value) == 0
+                ):
                     continue
-                if isinstance(raw_value, bool) or not isinstance(raw_value, Integral):
-                    try:
-                        value = int(raw_value)
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError(
-                            f"Cannot parse path value {raw_value!r} at {key}"
-                        ) from exc
-                else:
-                    value = int(raw_value)
-                if value <= 0:
-                    raise ValueError(f"Path clues must be positive, got {value}")
+                value = _parse_path_clue(raw_value, key)
+                previous = clue_cells.get(value)
+                if previous is not None:
+                    raise ValueError(
+                        f"Duplicate path clue {value} at {previous} and {key}"
+                    )
+                clue_cells[value] = key
                 givens[key] = value
+
+        playable = len(rows) * width - len(blocked)
+        for key, value in givens.items():
+            if value > playable:
+                raise ValueError(
+                    f"Path clue {value} at {key} exceeds "
+                    f"the {playable}-cell path domain"
+                )
 
         grid = cls(len(rows), width, blocked=blocked)
         grid.load_key_values(givens)

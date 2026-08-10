@@ -56,6 +56,7 @@ jobs:
           tests/test_hardening.py
           tests/test_iterable_loading.py
           tests/test_parser_fuzzing.py
+          tests/test_new_puzzle_families.py
           tests/test_depth_gate.py
           tests/test_action_dispatch.py
           tests/test_rule_hash_cache.py
@@ -142,6 +143,7 @@ jobs:
           tests/test_hardening.py
           tests/test_iterable_loading.py
           tests/test_parser_fuzzing.py
+          tests/test_new_puzzle_families.py
           tests/test_depth_gate.py
           tests/test_action_dispatch.py
           tests/test_rule_hash_cache.py

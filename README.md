@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/senegrom/GridPuzzle/actions/workflows/ci.yml/badge.svg)](https://github.com/senegrom/GridPuzzle/actions/workflows/ci.yml)
 
-Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, and Latin Squares.
+Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, Latin Squares, Hidato, Numbrix, Kakuro, and Slitherlink.
 
 **Runtime requirement: Python 3.14 or newer.** Older Python versions are intentionally unsupported; newer releases are not artificially capped.
 
@@ -23,7 +23,7 @@ _KenKen_ (arithmetic cage constraints),
 and _Latin Square_ / _Diagonal Latin Square_ / _Pandiagonal Latin Square_.
 They can be extended using the built-in rules.
 
-The Hidato, Kakuro, Numbrix, and Slitherlink corpora under `Examples/` are intentionally retained as source material for future puzzle-family implementations. The current runtime does not load those formats yet.
+Hidato, Numbrix, Kakuro, and Slitherlink are supported through their retained CSP-Rules `.clp` corpora. `gridpuzzle --file puzzle.clp` auto-detects those formats. Their models use compact keyed variables so blocked cells and graph edges are not represented as fake board values.
 
 An example is the _Miracle Sudoku_ in `Examples/miracleSudoku.py`.
 In addition to normal Sudoku rules, adjacent and knight-move-distant fields must not be equal, and horizontally or vertically adjacent fields must not differ by exactly 1.
