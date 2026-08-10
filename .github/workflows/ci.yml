@@ -47,7 +47,7 @@ jobs:
           gridpuzzle --help
 
       - name: Compile Python sources
-        run: python -m compileall -q gridsolver tests Examples run.py examples2.py
+        run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
 
       - name: Run bounded core, differential, and regression tests
         run: >-
@@ -57,6 +57,7 @@ jobs:
           tests/test_iterable_loading.py
           tests/test_parser_fuzzing.py
           tests/test_new_puzzle_families.py
+          tests/test_new_family_corpus_runner.py
           tests/test_depth_gate.py
           tests/test_action_dispatch.py
           tests/test_rule_hash_cache.py
@@ -134,7 +135,7 @@ jobs:
         run: gridpuzzle --help
 
       - name: Compile Python sources
-        run: python -m compileall -q gridsolver tests run.py examples2.py
+        run: python -m compileall -q gridsolver tests scripts run.py examples2.py
 
       - name: Run portable regression tests
         run: >-
@@ -144,6 +145,7 @@ jobs:
           tests/test_iterable_loading.py
           tests/test_parser_fuzzing.py
           tests/test_new_puzzle_families.py
+          tests/test_new_family_corpus_runner.py
           tests/test_depth_gate.py
           tests/test_action_dispatch.py
           tests/test_rule_hash_cache.py
