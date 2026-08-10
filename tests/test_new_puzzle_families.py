@@ -8,7 +8,7 @@ from gridsolver.abstract_grids.csp_rules_loading import (
     create_from_csp_rules_file,
     is_csp_rules_text,
 )
-from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
@@ -19,6 +19,7 @@ from gridsolver.rules.topology import (
     SingleLoopRule,
 )
 from gridsolver.solver import atomic_solver, solver
+import run as run_cli
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -246,12 +247,10 @@ def test_kakuro_rejects_invalid_run_geometry_and_targets(runs, message):
 def test_kakuro_requires_one_run_of_each_orientation_per_cell():
     white = tuple(product(range(2), range(3)))
     runs = (
-        (3, ((0, 0), (0, 1))),
-        (5, ((0, 1), (0, 2))),
+        (6, ((0, 0), (0, 1), (0, 2))),
         (6, ((1, 0), (1, 1), (1, 2))),
         (3, ((0, 0), (1, 0))),
         (4, ((0, 1), (1, 1))),
-        (5, ((0, 2), (1, 2))),
     )
 
     with pytest.raises(ValueError, match="exactly one horizontal"):
@@ -407,3 +406,113 @@ def test_csp_rules_parser_rejects_malformed_forms():
         create_from_csp_rules("not a puzzle")
     with pytest.raises(ValueError, match="not closed"):
         create_from_csp_rules("(solve 1 1 .")
+
+
+
+def test_kakuro_rejects_adjacent_nonmaximal_runs():
+    white = tuple(product(range(2), range(4)))
+    runs = (
+        (3, ((0, 0), (0, 1))),
+        (7, ((0, 2), (0, 3))),
+        (10, ((1, 0), (1, 1), (1, 2), (1, 3))),
+        (3, ((0, 0), (1, 0))),
+        (4, ((0, 1), (1, 1))),
+        (5, ((0, 2), (1, 2))),
+        (6, ((0, 3), (1, 3))),
+    )
+
+    with pytest.raises(ValueError, match="maximal"):
+        Kakuro(2, 4, white, runs)
+
+
+def test_layered_path_pruning_preserves_every_oracle_completion():
+    grid = Numbrix.from_board(((0, 0, 0), (0, 0, 0)))
+    completions = sorted(
+        _path_oracle(2, 3, diagonal=False, givens={})
+    )[:4]
+    assert completions
+    for cell, possible in enumerate(grid._candidates):
+        possible.intersection_update(
+            {completion[cell] for completion in completions}
+        )
+
+    rule = next(
+        rule
+        for rule in grid.rules
+        if isinstance(rule, ConsecutiveAdjacencyRule)
+    )
+    rule.apply(grid._known, grid._candidates)
+
+    for completion in completions:
+        assert all(
+            value in grid._candidates[cell]
+            for cell, value in enumerate(completion)
+        )
+
+
+def test_single_loop_rejects_selected_edges_in_distinct_cycle_blocks():
+    grid = Grid(1, 6, max_elem=2)
+    grid._candidates[0].intersection_update((2,))
+    grid._candidates[3].intersection_update((2,))
+    rule = SingleLoopRule(
+        grid,
+        cells=range(6),
+        endpoints=(
+            (0, 1),
+            (1, 2),
+            (2, 0),
+            (0, 3),
+            (3, 4),
+            (4, 0),
+        ),
+    )
+
+    with pytest.raises(InvalidGrid):
+        rule.apply(grid._known, grid._candidates)
+
+
+def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
+    monkeypatch,
+):
+    calls: list[str] = []
+
+    def generic(grid):
+        calls.append("generic")
+
+    def sudoku_only(*args, **kwargs):
+        raise AssertionError("Sudoku-only action ran under a generic profile")
+
+    monkeypatch.setattr(atomic_solver, "rulehelper_atmostonce", generic)
+    monkeypatch.setattr(atomic_solver, "locked_candidate", sudoku_only)
+    grid = Numbrix.from_board(((0, 0), (0, 0)))
+    actions = atomic_solver.AtomicSolver(grid, [0], set())._solve_power_actions()
+
+    assert next(actions) == "rulehelper_atmostonce"
+    assert calls == ["generic"]
+    assert grid.technique_profile is TechniqueProfile.GENERIC
+
+    slitherlink = Slitherlink(((None,),))
+    assert slitherlink.technique_profile is TechniqueProfile.RULES_ONLY
+    assert list(
+        atomic_solver.AtomicSolver(slitherlink, [0], set())._solve_power_actions()
+    ) == []
+
+
+def test_cli_file_route_renders_compact_solution(tmp_path, capsys):
+    path = tmp_path / "one.clp"
+    path.write_text("(solve 1 1 4)\n", encoding="utf-8")
+
+    assert run_cli.main(
+        (
+            "--file",
+            str(path),
+            "--colour",
+            "No",
+            "--max-solutions",
+            "1",
+        )
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert "+---+" in output
+    assert "Took" in output

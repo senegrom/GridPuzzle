@@ -157,6 +157,18 @@ class Kakuro(CompactGrid):
             if run_key in seen_runs:
                 raise ValueError("Duplicate Kakuro run")
             seen_runs.add(run_key)
+
+            if orientation == "H":
+                before = (cells[0][0], cells[0][1] - 1)
+                after = (cells[-1][0], cells[-1][1] + 1)
+            else:
+                before = (cells[0][0] - 1, cells[0][1])
+                after = (cells[-1][0] + 1, cells[-1][1])
+            if before in self.white_cells or after in self.white_cells:
+                raise ValueError(
+                    "Kakuro runs must be maximal between black cells or board edges"
+                )
+
             for cell in cells:
                 coverage[cell][orientation] += 1
 

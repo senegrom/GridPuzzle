@@ -4,7 +4,7 @@ from collections.abc import Hashable, Iterable, Mapping, Sequence
 from numbers import Integral
 from typing import Any
 
-from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 
 
 class CompactGrid(Grid):
@@ -13,11 +13,12 @@ class CompactGrid(Grid):
     Board puzzles with blocked cells and edge puzzles do not naturally map to a
     dense rectangular value grid.  CompactGrid keeps the solver-facing cells in
     one row and supplies a stable key <-> cell mapping for rendering and APIs.
-    The specialised puzzle rules provide all useful propagation, so Sudoku-only
-    advanced techniques are deliberately disabled for these grids.
+    The specialised puzzle rules provide the primary propagation. Generic
+    all-different, tuple, forcing, and trial deductions remain available,
+    while geometry-specific Sudoku patterns are excluded.
     """
 
-    supports_advanced_techniques = False
+    technique_profile = TechniqueProfile.GENERIC
 
     def __init__(self, keys: Iterable[Hashable], max_elem: int) -> None:
         cell_to_key = tuple(keys)

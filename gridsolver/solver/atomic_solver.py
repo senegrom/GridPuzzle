@@ -5,7 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import perf_counter
 
-from gridsolver.abstract_grids.grid import Grid, SolveStatus
+from gridsolver.abstract_grids.grid import Grid, SolveStatus, TechniqueProfile
 from gridsolver.rules.rules import Guarantee, InvalidGrid
 from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.candidate_topology import CandidateTopology
@@ -278,13 +278,66 @@ class AtomicSolver:
         self._hidden_tuples(_MAX_HIDDEN_TUPLE)
         self.hidden_pair_checked_gts = set(self.grid.guarantees)
 
+    def _generic_power_actions(self) -> Iterator[str]:
+        """Run deductions that depend only on declared rules and guarantees."""
+        grid = self.grid
+        in_forcing_chain = bool(_solve_fc._in_forcing_chain)
+
+        yield self._act(
+            "rulehelper_atmostonce",
+            rulehelper_atmostonce,
+            grid,
+        )
+        yield self._act(
+            "rulehelper_sum_atmostonce",
+            rulehelper_sum_atmostonce,
+            grid,
+        )
+        yield self._act(
+            "rulehelper_house_sums",
+            rulehelper_house_sums,
+            grid,
+        )
+        yield self._act(
+            "naked_tuples5",
+            remove_naked_tuples,
+            grid,
+            5,
+        )
+
+        search_depth = max(0, len(self.upsteps) - 1)
+        if (
+            self.depth_gate is not None
+            and not in_forcing_chain
+            and search_depth > self.depth_gate
+        ):
+            return
+
+        yield self._act("forcing_chain", forcing_chain, grid)
+        yield self._act("hidden_tuples3", self._hidden_tuples, 3)
+        yield self._act(
+            "naked_tuples10",
+            remove_naked_tuples,
+            grid,
+            10,
+        )
+        yield self._act("hidden_tuples4", self._hidden_tuples, 4)
+        yield self._act("naked_tuples", remove_naked_tuples, grid)
+        if not in_forcing_chain:
+            yield self._act("hidden_tuples", self._hidden_tuples_max)
+        yield self._act("nishio", nishio, grid)
+        yield self._act("forcing_net", forcing_net, grid)
+
     def _solve_power_actions(self) -> Iterator[str]:
         grid = self.grid
-        # Compact and graph-variable puzzle families deliberately rely on their
-        # own rules plus complete backtracking. Sudoku-specific pattern methods
-        # assume house geometry that those grids do not have.
-        if not getattr(grid, "supports_advanced_techniques", True):
+        profile = getattr(grid, "technique_profile", TechniqueProfile.FULL)
+        if profile is TechniqueProfile.RULES_ONLY:
             return
+        if profile is TechniqueProfile.GENERIC:
+            yield from self._generic_power_actions()
+            return
+        if profile is not TechniqueProfile.FULL:
+            raise ValueError(f"Unknown technique profile {profile!r}")
 
         # Expensive zero-hit tiers are skipped inside forcing-chain branches but
         # retained at the outer level for full deductive power.

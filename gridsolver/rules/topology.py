@@ -124,6 +124,84 @@ class ConsecutiveAdjacencyRule(Rule):
             return False
         return not self._bipartite or (distance - steps) % 2 == 0
 
+    def _prune_layered_intervals(
+        self,
+        candidates: tuple[set[int], ...],
+        fixed: dict[int, int],
+    ) -> None:
+        """Keep only candidates lying on a supported value-layer path.
+
+        This layered graph relaxes the all-different constraint, so anything
+        removed here is impossible in every real Hamiltonian path solution.
+        """
+        maximum = self._max_elem
+        positions = {
+            value: {
+                cell
+                for cell in self.cells
+                if value in candidates[cell]
+            }
+            for value in range(1, maximum + 1)
+        }
+        if any(not cells for cells in positions.values()):
+            raise InvalidGrid()
+
+        anchors: dict[int, set[int]] = {
+            1: set(positions[1]),
+            maximum: set(positions[maximum]),
+        }
+        anchors.update({value: {cell} for value, cell in fixed.items()})
+        ordered = sorted(anchors.items())
+
+        for (lower, lower_cells), (upper, upper_cells) in zip(
+            ordered,
+            ordered[1:],
+        ):
+            if upper <= lower:
+                continue
+
+            forward: dict[int, set[int]] = {lower: set(lower_cells)}
+            for value in range(lower + 1, upper + 1):
+                previous = forward[value - 1]
+                reachable = {
+                    cell
+                    for cell in positions[value]
+                    if any(
+                        neighbour in previous
+                        for neighbour in self._adjacency_by_cell[cell]
+                    )
+                }
+                if value == upper:
+                    reachable &= upper_cells
+                if not reachable:
+                    raise InvalidGrid()
+                forward[value] = reachable
+
+            supported = forward[upper]
+            for cell in positions[upper] - supported:
+                candidates[cell].discard(upper)
+                if not candidates[cell]:
+                    raise InvalidGrid()
+            positions[upper] = supported
+
+            for value in range(upper - 1, lower - 1, -1):
+                next_supported = supported
+                supported = {
+                    cell
+                    for cell in forward[value]
+                    if any(
+                        neighbour in next_supported
+                        for neighbour in self._adjacency_by_cell[cell]
+                    )
+                }
+                if not supported:
+                    raise InvalidGrid()
+                for cell in positions[value] - supported:
+                    candidates[cell].discard(value)
+                    if not candidates[cell]:
+                        raise InvalidGrid()
+                positions[value] = supported
+
     def apply(
         self,
         known: MutableSequence[int],
@@ -184,6 +262,8 @@ class ConsecutiveAdjacencyRule(Rule):
                 possible.difference_update(remove)
                 if not possible:
                     raise InvalidGrid()
+
+        self._prune_layered_intervals(candidates, fixed)
 
         if len(fixed) == maximum:
             for value in range(1, maximum):
@@ -478,6 +558,62 @@ class SingleLoopRule(Rule):
                 visit(vertex, None)
         return bridges
 
+    def _cyclic_blocks(self, possible: set[int]) -> tuple[frozenset[int], ...]:
+        """Return vertex-biconnected edge blocks that contain a cycle."""
+        adjacency: dict[int, list[tuple[int, int]]] = {}
+        for cell in possible:
+            first, second = self._endpoints_by_cell[cell]
+            adjacency.setdefault(first, []).append((second, cell))
+            adjacency.setdefault(second, []).append((first, cell))
+
+        discovery: dict[int, int] = {}
+        low: dict[int, int] = {}
+        edge_stack: list[int] = []
+        blocks: list[frozenset[int]] = []
+        time = 0
+
+        def finish_block(stop_edge: int) -> None:
+            block: set[int] = set()
+            while edge_stack:
+                edge = edge_stack.pop()
+                block.add(edge)
+                if edge == stop_edge:
+                    break
+            if not block:
+                return
+            vertices = {
+                vertex
+                for edge in block
+                for vertex in self._endpoints_by_cell[edge]
+            }
+            if len(block) >= len(vertices):
+                blocks.append(frozenset(block))
+
+        def visit(vertex: int, parent_edge: int | None) -> None:
+            nonlocal time
+            time += 1
+            discovery[vertex] = time
+            low[vertex] = time
+            for neighbour, edge in adjacency.get(vertex, ()):
+                if edge == parent_edge:
+                    continue
+                if neighbour not in discovery:
+                    edge_stack.append(edge)
+                    visit(neighbour, edge)
+                    low[vertex] = min(low[vertex], low[neighbour])
+                    if low[neighbour] >= discovery[vertex]:
+                        finish_block(edge)
+                elif discovery[neighbour] < discovery[vertex]:
+                    edge_stack.append(edge)
+                    low[vertex] = min(low[vertex], discovery[neighbour])
+
+        for vertex in adjacency:
+            if vertex not in discovery:
+                visit(vertex, None)
+                if edge_stack:
+                    finish_block(edge_stack[0])
+        return tuple(blocks)
+
     def _remove_selected_value(
         self,
         candidates: tuple[set[int], ...],
@@ -590,6 +726,22 @@ class SingleLoopRule(Rule):
         if selected & bridges:
             raise InvalidGrid()
         self._remove_selected_value(candidates, bridges - selected)
+
+        possible = {
+            cell
+            for cell in self.cells
+            if self.selected_value in candidates[cell]
+        }
+        blocks = self._cyclic_blocks(possible)
+        viable_blocks = (
+            tuple(block for block in blocks if selected <= block)
+            if selected
+            else blocks
+        )
+        if not viable_blocks:
+            raise InvalidGrid()
+        viable_edges = set().union(*viable_blocks)
+        self._remove_selected_value(candidates, possible - viable_edges)
 
         membership_decided = all(
             self.selected_value not in candidates[cell]

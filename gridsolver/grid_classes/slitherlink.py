@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from numbers import Integral
 
-from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.grid_classes.compact_grid import CompactGrid
 from gridsolver.rules.topology import AllowedValueCountRule, SingleLoopRule
 
@@ -49,6 +49,7 @@ class Slitherlink(CompactGrid):
 
     OFF = 1
     ON = 2
+    technique_profile = TechniqueProfile.RULES_ONLY
 
     def __init__(self, clues: Sequence[Sequence[object]]) -> None:
         if isinstance(clues, (str, bytes, bytearray)):
