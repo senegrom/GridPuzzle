@@ -36,16 +36,50 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Apply measured profile choice
-        run: python .github/scripts/apply_profile_choice.py
-
-      - name: Install and run complete bounded suite
+      - name: Apply measured profile and safe format detection
         run: |
+          python .github/scripts/apply_profile_choice.py
+          python .github/scripts/fix_csp_autodetection.py
+
+      - name: Install and run the bounded CI-equivalent suite
+        shell: bash
+        run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           python -m pip check
           python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
-          python -X dev -m pytest -q tests -m "not slow" --durations=20
+          python -X dev -m pytest -q \
+            tests/test_cli_and_loading.py \
+            tests/test_hardening.py \
+            tests/test_iterable_loading.py \
+            tests/test_parser_fuzzing.py \
+            tests/test_new_puzzle_families.py \
+            tests/test_new_family_corpus_runner.py \
+            tests/test_depth_gate.py \
+            tests/test_action_dispatch.py \
+            tests/test_rule_hash_cache.py \
+            tests/test_rule_only_cache.py \
+            tests/test_topology_cache_lifecycle.py \
+            tests/test_atmostonce_memo.py \
+            tests/test_aic_extra_visibility.py \
+            tests/test_extension_validation.py \
+            tests/test_hotpath_regressions.py \
+            tests/test_runtime_overhead.py \
+            tests/test_handler_aware_logging.py \
+            tests/test_guarantee_filter_cache.py \
+            tests/test_rule_inputs.py \
+            tests/test_regressions.py \
+            tests/test_solution_validation.py \
+            tests/test_solver_api.py \
+            tests/test_trail.py \
+            tests/test_differential.py \
+            tests/test_basic.py \
+            tests/test_scale.py \
+            tests/test_examples_2.py \
+            -m "not slow" \
+            --durations=20
+          python -X dev -m pytest -q tests/test_rule_metadata.py
 
       - name: Smoke each retained corpus family in isolated children
         shell: bash
@@ -57,21 +91,27 @@ jobs:
             python scripts/run_new_family_corpus.py \
               --family "$family" \
               --case-timeout 30 \
-              --max-cases 1 \
+              --max-cases 2 \
               --output "/tmp/corpus-smoke/${family}.json"
           done
 
-      - name: Commit tested profile test
+      - name: Commit tested compatibility fixes
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/scripts/apply_profile_choice.py
+          rm -f \
+            .github/scripts/apply_profile_choice.py \
+            .github/scripts/fix_csp_autodetection.py
           git add -A -- \
             .github/scripts/apply_profile_choice.py \
+            .github/scripts/fix_csp_autodetection.py \
+            gridsolver/abstract_grids/csp_rules_loading.py \
+            gridsolver/abstract_grids/grid_loading.py \
+            tests/test_cli_and_loading.py \
             tests/test_new_puzzle_families.py
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Use measured solver profiles for graph puzzles"
+          git commit -m "Preserve legacy files while auto-detecting CSP-Rules inputs"
           git pull --rebase origin "$GITHUB_REF_NAME"
           git push origin "HEAD:$GITHUB_REF_NAME"
