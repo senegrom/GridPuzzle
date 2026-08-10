@@ -37,7 +37,9 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply hardening changes
-        run: python .github/scripts/harden_new_puzzle_families.py
+        run: |
+          python .github/scripts/fix_new_puzzle_harness.py
+          python .github/scripts/harden_new_puzzle_families.py
 
       - name: Install and validate
         shell: bash
@@ -67,6 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f \
+            .github/scripts/fix_new_puzzle_harness.py \
             .github/scripts/harden_new_puzzle_families.py \
             .github/workflows/new-puzzle-hardening.yml
           git add -A
