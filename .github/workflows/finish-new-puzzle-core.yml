@@ -1,5 +1,5 @@
 name: Finish new puzzle core
-# Quoted-fixture rerun.
+# Focused-fixture rerun.
 
 on:
   push:
@@ -41,6 +41,7 @@ jobs:
         run: |
           python .github/scripts/fix_finish_new_puzzle_quote.py
           python .github/scripts/finish_new_puzzle_core.py
+          python .github/scripts/fix_finish_new_puzzle_fixture.py
 
       - name: Install and validate
         shell: bash
@@ -121,10 +122,12 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/scripts/finish_new_puzzle_core.py \
-            .github/scripts/fix_finish_new_puzzle_quote.py
+            .github/scripts/fix_finish_new_puzzle_quote.py \
+            .github/scripts/fix_finish_new_puzzle_fixture.py
           git add -A -- \
             .github/scripts/finish_new_puzzle_core.py \
             .github/scripts/fix_finish_new_puzzle_quote.py \
+            .github/scripts/fix_finish_new_puzzle_fixture.py \
             gridsolver \
             tests
           git diff --cached --check
