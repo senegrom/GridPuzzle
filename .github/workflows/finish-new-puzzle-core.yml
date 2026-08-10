@@ -40,6 +40,7 @@ jobs:
         run: |
           python .github/scripts/apply_profile_choice.py
           python .github/scripts/fix_csp_autodetection.py
+          python .github/scripts/fix_csp_test_fixture.py
 
       - name: Install and run the bounded CI-equivalent suite
         shell: bash
@@ -101,10 +102,12 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/scripts/apply_profile_choice.py \
-            .github/scripts/fix_csp_autodetection.py
+            .github/scripts/fix_csp_autodetection.py \
+            .github/scripts/fix_csp_test_fixture.py
           git add -A -- \
             .github/scripts/apply_profile_choice.py \
             .github/scripts/fix_csp_autodetection.py \
+            .github/scripts/fix_csp_test_fixture.py \
             gridsolver/abstract_grids/csp_rules_loading.py \
             gridsolver/abstract_grids/grid_loading.py \
             tests/test_cli_and_loading.py \
