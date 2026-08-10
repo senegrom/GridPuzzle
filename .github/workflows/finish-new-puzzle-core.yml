@@ -1,5 +1,4 @@
-name: Finish new puzzle core
-# Focused-fixture rerun.
+name: Finish new puzzle integration
 
 on:
   push:
@@ -13,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: finish-new-puzzle-core
+  group: finish-new-puzzle-integration
   cancel-in-progress: false
 
 env:
@@ -22,7 +21,7 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  finish:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -37,102 +36,42 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Apply profile and graph changes
-        run: |
-          python .github/scripts/fix_finish_new_puzzle_quote.py
-          python .github/scripts/finish_new_puzzle_core.py
-          python .github/scripts/fix_finish_new_puzzle_fixture.py
+      - name: Apply measured profile choice
+        run: python .github/scripts/apply_profile_choice.py
 
-      - name: Install and validate
-        shell: bash
+      - name: Install and run complete bounded suite
         run: |
-          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
           python -m pip check
-          python -m compileall -q gridsolver tests Examples run.py examples2.py
-          python -X dev -m pytest -q \
-            tests/test_new_puzzle_families.py \
-            tests/test_cli_and_loading.py \
-            tests/test_parser_fuzzing.py \
-            tests/test_solution_validation.py \
-            tests/test_extension_validation.py \
-            tests/test_rule_inputs.py \
-            tests/test_trail.py \
-            tests/test_solver_api.py \
-            tests/test_regressions.py \
-            tests/test_examples_2.py \
-            -m "not slow" \
-            -k "not test_parallel_trials_match_sequential" \
-            --durations=20
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+          python -X dev -m pytest -q tests -m "not slow" --durations=20
 
-      - name: Compare compact-grid profiles without depth gating
+      - name: Smoke each retained corpus family in isolated children
         shell: bash
-        continue-on-error: true
         run: |
           set -euo pipefail
-          cat > /tmp/profile_bench.py <<'PY'
-          import hashlib
-          import json
-          import os
-          import time
-
-          from gridsolver.abstract_grids.grid import TechniqueProfile
-          from gridsolver.abstract_grids.grid_loading import create_from_file
-          from gridsolver.solver import solver
-
-          path = os.environ["CASE"]
-          profile = TechniqueProfile[os.environ["PROFILE"]]
-          grid = create_from_file(path)
-          type(grid).technique_profile = profile
-          started = time.perf_counter()
-          solutions = solver.solve(
-              grid,
-              log_level=-1,
-              max_sols=1,
-              depth_gate=None,
-          )
-          elapsed = time.perf_counter() - started
-          payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
-          print(json.dumps({
-              "case": path,
-              "profile": profile.name,
-              "seconds": elapsed,
-              "solutions": len(solutions),
-              "digest": hashlib.sha256(payload).hexdigest(),
-          }, sort_keys=True))
-          PY
-
-          for case in \
-            Examples/Hidato/Mebane/Mebane-III.1-S.clp \
-            Examples/Numbrix/Parade/2012-10-21-Expert-S2.clp \
-            Examples/Kakuro/ATK/10x10-E81712.clp
+          mkdir -p /tmp/corpus-smoke
+          for family in hidato numbrix kakuro slitherlink
           do
-            for profile in RULES_ONLY GENERIC
-            do
-              echo "PROFILE_BENCH $case $profile"
-              CASE="$case" PROFILE="$profile" timeout 120s python /tmp/profile_bench.py || \
-                echo "PROFILE_TIMEOUT case=$case profile=$profile"
-            done
+            python scripts/run_new_family_corpus.py \
+              --family "$family" \
+              --case-timeout 30 \
+              --max-cases 1 \
+              --output "/tmp/corpus-smoke/${family}.json"
           done
 
-      - name: Commit tested source changes
+      - name: Commit tested profile test
         shell: bash
         run: |
           set -euo pipefail
-          rm -f \
-            .github/scripts/finish_new_puzzle_core.py \
-            .github/scripts/fix_finish_new_puzzle_quote.py \
-            .github/scripts/fix_finish_new_puzzle_fixture.py
+          rm -f .github/scripts/apply_profile_choice.py
           git add -A -- \
-            .github/scripts/finish_new_puzzle_core.py \
-            .github/scripts/fix_finish_new_puzzle_quote.py \
-            .github/scripts/fix_finish_new_puzzle_fixture.py \
-            gridsolver \
-            tests
+            .github/scripts/apply_profile_choice.py \
+            tests/test_new_puzzle_families.py
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Add puzzle-aware technique profiles and graph pruning"
+          git commit -m "Use measured solver profiles for graph puzzles"
           git pull --rebase origin "$GITHUB_REF_NAME"
           git push origin "HEAD:$GITHUB_REF_NAME"
