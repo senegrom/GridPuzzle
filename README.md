@@ -6,7 +6,7 @@ Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, Lati
 
 **Runtime requirement: Python 3.14 or newer.** Older Python versions are intentionally unsupported; newer releases are not artificially capped.
 
-Input puzzles are read as modules that define the variable `g`, from `.pzl` files, or from strings.
+Input puzzles are read as modules that define the variable `g`, from `.pzl` or retained CSP-Rules `.clp` files, or from strings.
 
 Execute `python run.py -m Examples.exampleSudoku` to solve the Sudoku stored as `g` in `Examples/exampleSudoku.py`.
 Additional options print intermediate steps or run one of the built-in examples.
@@ -23,14 +23,34 @@ _KenKen_ (arithmetic cage constraints),
 and _Latin Square_ / _Diagonal Latin Square_ / _Pandiagonal Latin Square_.
 They can be extended using the built-in rules.
 
-Hidato, Numbrix, Kakuro, and Slitherlink are supported through their retained CSP-Rules `.clp` corpora. `gridpuzzle --file puzzle.clp` auto-detects those formats. Their models use compact keyed variables so blocked cells and graph edges are not represented as fake board values.
+The retained CSP-Rules corpora for _Hidato_, _Numbrix_, _Kakuro_, and _Slitherlink_ are first-class inputs. The normal file route auto-detects a CSP-Rules `solve` or `solve-tatham` form from the first meaningful input line while preserving the historical class-prefixed `.clp` format:
+
+```bash
+gridpuzzle --file Examples/Hidato/Mebane/Mebane-III.1-S.clp --max-solutions 1
+gridpuzzle --file Examples/Slitherlink/Tatham/H7x7-L10-W5.clp --max-solutions 1
+```
+
+These families use compact keyed variables so blocked cells and graph edges are not represented as fake rectangular-grid values. Returned compact solutions can be decoded with `grid.values_by_key(solution)`; each family also supplies a geometry-aware `format_solution()` renderer.
+
+- **Hidato** places every value exactly once on the active cells. Consecutive values may touch orthogonally or diagonally, and blocked cells are supported.
+- **Numbrix** uses the same consecutive-value path model but permits orthogonal movement only and has no blocked cells.
+- **Kakuro** models every maximal horizontal and vertical run with the existing sum-plus-all-different rule. Every white cell must belong to exactly one run of each orientation.
+- **Slitherlink** models horizontal and vertical edges as binary variables. Face clues constrain selected-edge counts, every vertex has degree zero or two, and selected edges must form one non-empty connected cycle.
 
 An example is the _Miracle Sudoku_ in `Examples/miracleSudoku.py`.
 In addition to normal Sudoku rules, adjacent and knight-move-distant fields must not be equal, and horizontally or vertically adjacent fields must not differ by exactly 1.
 
 ## Solving techniques
 
-The solver uses constraint propagation with a hierarchy of increasingly powerful techniques, resorting to backtracking only when all deductive methods are exhausted.
+The solver uses constraint propagation with a hierarchy of increasingly powerful techniques, resorting to backtracking only when all applicable deductive methods are exhausted.
+
+Each grid declares a technique profile:
+
+- **FULL** runs the complete Sudoku/Latin-house hierarchy.
+- **GENERIC** retains rule helpers, tuple reasoning, forcing chains, Nishio, forcing nets, and backtracking, but excludes geometry-specific Sudoku patterns.
+- **RULES_ONLY** relies on the puzzle rules and ordinary branching, avoiding generic techniques whose measured cost exceeds their benefit for that model.
+
+The measured defaults are FULL for the original dense-grid families, GENERIC for Hidato and Kakuro, and RULES_ONLY for Numbrix and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
 
 #### Basic
 - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house
@@ -52,9 +72,13 @@ The solver uses constraint propagation with a hierarchy of increasingly powerful
 - **Forcing Chain** — test each value of a small cell using the full constraint engine; contradictory values are eliminated and deductions common to every surviving branch are applied
 - **Forcing Net** — test all value combinations of two cells simultaneously for common deductions
 
+#### Graph-specific propagation
+- **Layered consecutive-path support** — removes Hidato/Numbrix candidates that cannot lie on any adjacency-supported path between fixed or endpoint value layers
+- **Graph-distance and parity bounds** — fixed path clues restrict reachable values; orthogonal Numbrix additionally uses bipartite parity
+- **Possible-cycle analysis** — Slitherlink removes graph bridges and edges outside every viable cyclic block, rejects disconnected selected components, and prevents premature subloops
+
 #### Last resort
-- **Backtracking** with MRV (Minimum Remaining Values), breaking ties by the
-  candidate pressure from neighbouring constraints
+- **Backtracking** with MRV (Minimum Remaining Values), breaking ties by the candidate pressure from neighbouring constraints
 
 ### Technique effectiveness
 
@@ -64,9 +88,7 @@ The hardest built-in test puzzle (`example_t`) is solved entirely without backtr
 
 ## Arguments
 
-The installed `gridpuzzle` command and `python run.py` expose the same
-options. Use `--processes N` for top-level process-pool search and
-`--max-solutions N` to cap the deterministic returned subset.
+The installed `gridpuzzle` command and `python run.py` expose the same options. Use `--processes N` for top-level process-pool search and `--max-solutions N` to cap the deterministic returned subset.
 
 The equivalent library call is:
 
@@ -91,7 +113,7 @@ All numbers in the associated cells may occur at most once.
 All numbers in the puzzle range must occur at least once in the associated cells.
 
 #### `SumAndElementsAtMostOnce`
-Numbers may occur at most once and must sum to a given constant, as used in Killer Sudoku.
+Numbers may occur at most once and must sum to a given constant, as used in Killer Sudoku and Kakuro.
 
 #### `SumRule` / `ProdRule` / `DiffRule` / `DivRule`
 Arithmetic constraints whose sum, product, absolute difference, or exact integer ratio must equal a target, as used in KenKen.
@@ -104,6 +126,15 @@ One special cell must differ from all other rule cells.
 
 #### `DiffGe2Rule`
 One special cell must differ by at least 2 from all other rule cells.
+
+#### `ConsecutiveAdjacencyRule`
+Every consecutive value pair must occupy adjacent cells in a supplied symmetric topology. Hidato and Numbrix share this rule and differ only in the topology supplied by their grid class.
+
+#### `AllowedValueCountRule`
+Restricts how many cells in a collection may contain a distinguished value. Slitherlink uses exact clue counts and allowed vertex degrees `{0, 2}`.
+
+#### `SingleLoopRule`
+Requires selected graph edges to form exactly one non-empty simple cycle and performs safe bridge, component, and cyclic-block pruning before the graph is fully decided.
 
 ## Development
 
@@ -125,7 +156,20 @@ The `slow` marker contains long corpus and large-scale checks and is intentional
 python -X dev -m pytest -m slow
 ```
 
-GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux runs the bounded suite plus representative end-to-end examples, and Windows runs a portable regression smoke suite.
+Run an isolated retained-corpus shard locally with:
+
+```bash
+python scripts/run_new_family_corpus.py \
+  --family slitherlink \
+  --shard-index 0 \
+  --shard-count 4 \
+  --case-timeout 60 \
+  --output slitherlink-0.json
+```
+
+Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly or manually and uploads each JSON report as an artifact.
+
+GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux runs the bounded suite plus representative end-to-end examples, Windows runs a portable regression smoke suite, and forward-compatibility CI covers later interpreter builds.
 
 ## Acknowledgements
 
