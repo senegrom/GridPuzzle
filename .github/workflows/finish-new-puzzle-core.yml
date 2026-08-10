@@ -1,0 +1,129 @@
+name: Finish new puzzle core
+
+on:
+  push:
+    branches:
+      - agent/add-hidato-kakuro-numbrix-slitherlink
+    paths:
+      - .github/workflows/finish-new-puzzle-core.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finish-new-puzzle-core
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply profile and graph changes
+        run: python .github/scripts/finish_new_puzzle_core.py
+
+      - name: Install and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests Examples run.py examples2.py
+          python -X dev -m pytest -q \
+            tests/test_new_puzzle_families.py \
+            tests/test_cli_and_loading.py \
+            tests/test_parser_fuzzing.py \
+            tests/test_solution_validation.py \
+            tests/test_extension_validation.py \
+            tests/test_rule_inputs.py \
+            tests/test_trail.py \
+            tests/test_solver_api.py \
+            tests/test_regressions.py \
+            tests/test_examples_2.py \
+            -m "not slow" \
+            -k "not test_parallel_trials_match_sequential" \
+            --durations=20
+
+      - name: Compare compact-grid profiles without depth gating
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cat > /tmp/profile_bench.py <<'PY'
+          import hashlib
+          import json
+          import os
+          import time
+
+          from gridsolver.abstract_grids.grid import TechniqueProfile
+          from gridsolver.abstract_grids.grid_loading import create_from_file
+          from gridsolver.solver import solver
+
+          path = os.environ["CASE"]
+          profile = TechniqueProfile[os.environ["PROFILE"]]
+          grid = create_from_file(path)
+          type(grid).technique_profile = profile
+          started = time.perf_counter()
+          solutions = solver.solve(
+              grid,
+              log_level=-1,
+              max_sols=1,
+              depth_gate=None,
+          )
+          elapsed = time.perf_counter() - started
+          payload = repr(sorted(tuple(solution) for solution in solutions)).encode()
+          print(json.dumps({
+              "case": path,
+              "profile": profile.name,
+              "seconds": elapsed,
+              "solutions": len(solutions),
+              "digest": hashlib.sha256(payload).hexdigest(),
+          }, sort_keys=True))
+          PY
+
+          for case in \
+            Examples/Hidato/Mebane/Mebane-III.1-S.clp \
+            Examples/Numbrix/Parade/2012-10-21-Expert-S2.clp \
+            Examples/Kakuro/ATK/10x10-E81712.clp
+          do
+            for profile in RULES_ONLY GENERIC
+            do
+              echo "PROFILE_BENCH $case $profile"
+              CASE="$case" PROFILE="$profile" timeout 120s python /tmp/profile_bench.py || \
+                echo "PROFILE_TIMEOUT case=$case profile=$profile"
+            done
+          done
+
+      - name: Commit tested source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/scripts/finish_new_puzzle_core.py
+          git add -A -- \
+            .github/scripts/finish_new_puzzle_core.py \
+            gridsolver \
+            tests
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add puzzle-aware technique profiles and graph pruning"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
