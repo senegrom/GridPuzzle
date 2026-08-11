@@ -6,6 +6,7 @@ on:
       - agent/further-solver-improvements
     paths:
       - .github/scripts/apply_candidate_domain_hardening.py
+      - .github/scripts/fix_candidate_domain_promotion.py
       - .github/workflows/candidate-domain-hardening.yml
   workflow_dispatch:
 
@@ -38,7 +39,9 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Apply candidate-domain hardening
-        run: python .github/scripts/apply_candidate_domain_hardening.py
+        run: |
+          python .github/scripts/fix_candidate_domain_promotion.py
+          python .github/scripts/apply_candidate_domain_hardening.py
 
       - name: Install and run complete bounded suite
         shell: bash
@@ -56,9 +59,11 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/scripts/apply_candidate_domain_hardening.py \
+            .github/scripts/fix_candidate_domain_promotion.py \
             .github/workflows/candidate-domain-hardening.yml
           git add -A -- \
             .github/scripts/apply_candidate_domain_hardening.py \
+            .github/scripts/fix_candidate_domain_promotion.py \
             .github/workflows/candidate-domain-hardening.yml \
             gridsolver/abstract_grids/trail.py \
             gridsolver/abstract_grids/grid.py \
