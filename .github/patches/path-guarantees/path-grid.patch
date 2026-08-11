@@ -1,0 +1,54 @@
+diff --git a/gridsolver/grid_classes/path_puzzles.py b/gridsolver/grid_classes/path_puzzles.py
+index 7f37c38..250eb49 100644
+--- a/gridsolver/grid_classes/path_puzzles.py
++++ b/gridsolver/grid_classes/path_puzzles.py
+@@ -6,7 +6,7 @@ from numbers import Integral
+ from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
+ from gridsolver.grid_classes.compact_grid import CompactGrid, _rectangular_rows
+ from gridsolver.rules.topology import ConsecutiveAdjacencyRule
+-from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
++from gridsolver.rules.unique import value_presence_guarantees
+ 
+ 
+ type BoardCell = tuple[int, int]
+@@ -112,20 +112,30 @@ class _ConsecutivePathGrid(CompactGrid):
+                 if cell is not None:
+                     neighbours.append(cell)
+             adjacency.append(tuple(sorted(neighbours)))
+-        self.adjacency = tuple(adjacency)
+ 
+         cells = tuple(range(self.len))
+-        self.add_rules_checked(
+-            (
+-                ElementsAtMostOnce(self, cells=cells),
+-                ElementsAtLeastOnce(self, cells=cells),
+-                ConsecutiveAdjacencyRule(
+-                    self,
+-                    cells=cells,
+-                    adjacency=self.adjacency,
+-                ),
++        path_rule = ConsecutiveAdjacencyRule(
++            self,
++            cells=cells,
++            adjacency=tuple(adjacency),
++        )
++        # Keep one canonical immutable topology rather than equivalent copies
++        # on the grid and its rule.  This identity is preserved by explicit
++        # clones and pickle round trips.
++        self.adjacency = path_rule.adjacency
++
++        # Every path value must occur somewhere from the moment the model is
++        # created.  Previously a one-shot ElementsAtLeastOnce rule emitted
++        # these guarantees only during the first propagation pass.
++        self.add_gtees_checked(
++            value_presence_guarantees(
++                self.rows,
++                self.cols,
++                self.max_elem,
++                cells,
+             )
+         )
++        self.add_rule_checked(path_rule)
+ 
+     def _copy_extra_state_to(self, result: Grid) -> None:
+         super()._copy_extra_state_to(result)
