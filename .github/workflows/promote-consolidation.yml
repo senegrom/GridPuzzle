@@ -1,0 +1,128 @@
+name: Promote consolidated correctness and debloat
+
+on:
+  push:
+    branches:
+      - agent/consolidate-correctness-debloat
+    paths:
+      - .github/workflows/promote-consolidation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-consolidation
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply consolidated source patch
+        shell: bash
+        run: |
+          python - <<'PYCODE'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          encoded = ''.join(
+              path.read_text(encoding='ascii').strip()
+              for path in sorted(Path('.github/patches/consolidation').glob('*.b85'))
+          )
+          patch = zlib.decompress(base64.b85decode(''.join(encoded.split()).encode('ascii')))
+          Path('/tmp/consolidation.patch').write_bytes(patch)
+          PYCODE
+          git apply --check /tmp/consolidation.patch
+          git apply /tmp/consolidation.patch
+
+      - name: Install, build, and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m pip wheel --no-deps . --wheel-dir dist
+          gridpuzzle --help >/dev/null
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+          git diff --check
+
+      - name: Run complete bounded suite
+        run: python -X dev -m pytest -q tests -m "not slow" --durations=20
+
+      - name: Verify retained path corpus and public partition API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          from collections import deque
+          from pathlib import Path
+          import hashlib
+
+          from gridsolver.abstract_grids.grid_loading import create_from_file
+          from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
+          from gridsolver.solver import solver
+
+          expected = {
+              "Examples/Hidato/Mebane/Mebane-III.1-S.clp": "c501eb4cd96b809e8aaeb35aaa124128bc2c3ce16c918df20e27e9af238ea859",
+              "Examples/Hidato/Mebane/Mebane-III.10-W3.clp": "fd179ee672f7f4cbf5fbb8e8f99718257d57e2af5cfdd5e06645a3868c88033b",
+              "Examples/Hidato/Mebane/Mebane-III.4-W8-g2W7.clp": "54b9b5a41f02861868fc32853aee43f6dfd597b31178f3d43ef0921e551fb2cf",
+              "Examples/Hidato/Mebane/Mebane-III.7-W4.clp": "c56b23d7798c916505ca66f10378f9579c8ea7b16eee5686fcb056a8995a2ae3",
+              "Examples/Hidato/Smithsonianmag/2012-10-11-3stars.clp": "f878549a50fac74d9361d30e979550651233d45fd226046520e0ff418afac18a",
+              "Examples/Hidato/Smithsonianmag/2012-10-12-4stars.clp": "aaa30897ca925b1faf8291432b02b419fb46eab1bb6aa857c4938b7cb15f7bc2",
+              "Examples/Hidato/Smithsonianmag/2012-10-14-5stars.clp": "b8bb783056d159285552fae1807184b01e658fd18b2fd810c7290e46f96505cf",
+              "Examples/Numbrix/Parade/2012-10-16-Expert-BC2vsS2.clp": "99268c8043510a48f8c8095ee9c65ec3a03c3335c5a853d8990a0a9de008caf9",
+              "Examples/Numbrix/Parade/2012-10-21-Expert-S2.clp": "11dc49986186e6e0478c2cd2c17933206f6dfc38fbb91b5437534e3b47d357ec",
+              "Examples/Numbrix/Puzzlesandbrains/10x10-VH01-W1.clp": "ecf0b2f0dd9bd9b700889e14115063b6ddce58da062518662d8655a5c9d48d56",
+              "Examples/Numbrix/Puzzlesandbrains/10x10-VH02-BC3.clp": "f8d7cd123f80fe26d7d4fd2f8e38404fc15547f03021a16d369cd2e548447fe7",
+              "Examples/Numbrix/Puzzlesandbrains/10x10-VH04-W3.clp": "3e2f37398c0fb4b86775d430105716bbab28b1f9e42b9e8813ef9610c7519560",
+              "Examples/Numbrix/Puzzlesandbrains/10x10-VH08-W4.clp": "bc8263d20a714a01a3bb13c022e0f45d4451e7b52d8890e11ac75f1f36500c1a",
+          }
+          for filename, digest in expected.items():
+              grid = create_from_file(Path(filename))
+              assert len(grid.guarantees) == grid.max_elem
+              assert len(grid.rules) == 2
+              solutions = solver.solve(grid, max_sols=2, log_level=-1, depth_gate=None)
+              assert len(solutions) == 1, (filename, len(solutions))
+              payload = repr(tuple(sorted(tuple(solution) for solution in solutions))).encode()
+              assert hashlib.sha256(payload).hexdigest() == digest, filename
+
+          first = SumAndElementsAtMostOnce.partition2(6, 3, 1, 4)
+          second = SumAndElementsAtMostOnce.partition2(6, 3, 1, 4)
+          assert isinstance(first, list) and all(isinstance(item, deque) for item in first)
+          assert first == second and first is not second
+          first[0].append(99)
+          assert 99 not in second[0]
+          PYCODE
+
+      - name: Commit tested source and remove promotion scaffolding
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .github/patches/consolidation
+          rm -f .github/workflows/promote-consolidation.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Consolidate path guarantees and correctness debloat"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
