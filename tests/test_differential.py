@@ -284,7 +284,9 @@ def test_each_power_action_preserves_two_oracle_completions():
     _exercise_each_power_action(4)
 
 
-@pytest.mark.slow
+# Unmarked August 2026: the trio runs in under a second on the current tree —
+# the dedicated extended-CI job it justified had become a runner spin-up for
+# sub-second tests.
 @pytest.mark.parametrize("distance", [8, 12, 16])
 def test_each_power_action_preserves_broader_oracle_states(distance):
     """Exercise every tier on progressively less constrained oracle states."""

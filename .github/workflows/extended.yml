@@ -87,25 +87,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  large-scale:
-    name: Large generated Sudoku scales
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install project
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-          python -m pip check
-      - name: Run 49x49 through 100x100 propagation tests
-        run: python -X dev -m pytest -q tests/test_scale.py -m slow --durations=10
+  # The former large-scale and technique-soundness jobs were removed in
+  # August 2026: their test selections lost the slow marker once the engine
+  # made them run in seconds, so they now execute in the per-push core suite.
 
   pandiagonal-corpus:
     name: Slow pandiagonal Latin-square corpus
@@ -149,23 +133,3 @@ jobs:
           python -X dev -m pytest -q
           "tests/test_basic.py::test_parallel_trials_match_sequential"
           --durations=5
-
-  technique-soundness:
-    name: Advanced technique oracle states
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install project
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-          python -m pip check
-      - name: Exercise every power action on broader oracle states
-        run: python -X dev -m pytest -q tests/test_differential.py -m slow --durations=10

@@ -17,6 +17,44 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONHASHSEED: random
   PYTHONUNBUFFERED: "1"
+  # Single source of truth for the bounded per-push selection. Both the Linux
+  # core job and the Windows smoke job run exactly this list; a test file
+  # missing here runs in NO per-push job (slow-marked tests run in extended).
+  CORE_TESTS: >-
+    tests/test_cli_and_loading.py
+    tests/test_hardening.py
+    tests/test_iterable_loading.py
+    tests/test_parser_fuzzing.py
+    tests/test_new_puzzle_families.py
+    tests/test_new_family_corpus_runner.py
+    tests/test_depth_gate.py
+    tests/test_action_dispatch.py
+    tests/test_rule_hash_cache.py
+    tests/test_rule_only_cache.py
+    tests/test_topology_cache_lifecycle.py
+    tests/test_candidate_mask_index.py
+    tests/test_candidate_domain.py
+    tests/test_candidate_view.py
+    tests/test_compact_api_hardening.py
+    tests/test_compact_cage_dictionary.py
+    tests/test_partition_cache.py
+    tests/test_arithmetic_rule_soundness.py
+    tests/test_atmostonce_memo.py
+    tests/test_aic_extra_visibility.py
+    tests/test_extension_validation.py
+    tests/test_hotpath_regressions.py
+    tests/test_runtime_overhead.py
+    tests/test_handler_aware_logging.py
+    tests/test_guarantee_filter_cache.py
+    tests/test_rule_inputs.py
+    tests/test_regressions.py
+    tests/test_solution_validation.py
+    tests/test_solver_api.py
+    tests/test_trail.py
+    tests/test_differential.py
+    tests/test_basic.py
+    tests/test_scale.py
+    tests/test_examples_2.py
 
 jobs:
   core:
@@ -49,77 +87,20 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
 
-      - name: Run bounded core, differential, and regression tests
+      - name: Run the bounded per-push suite
         run: >-
           python -X dev -m pytest -q
-          tests/test_cli_and_loading.py
-          tests/test_hardening.py
-          tests/test_iterable_loading.py
-          tests/test_parser_fuzzing.py
-          tests/test_new_puzzle_families.py
-          tests/test_new_family_corpus_runner.py
-          tests/test_depth_gate.py
-          tests/test_action_dispatch.py
-          tests/test_rule_hash_cache.py
-          tests/test_rule_only_cache.py
-          tests/test_topology_cache_lifecycle.py
-          tests/test_candidate_mask_index.py
-          tests/test_candidate_domain.py
-          tests/test_candidate_view.py
-          tests/test_compact_api_hardening.py
-          tests/test_compact_cage_dictionary.py
-          tests/test_partition_cache.py
-          tests/test_arithmetic_rule_soundness.py
-          tests/test_atmostonce_memo.py
-          tests/test_aic_extra_visibility.py
-          tests/test_extension_validation.py
-          tests/test_hotpath_regressions.py
-          tests/test_runtime_overhead.py
-          tests/test_handler_aware_logging.py
-          tests/test_guarantee_filter_cache.py
-          tests/test_rule_inputs.py
-          tests/test_regressions.py
-          tests/test_solution_validation.py
-          tests/test_solver_api.py
-          tests/test_trail.py
-          tests/test_differential.py
-          tests/test_basic.py
-          tests/test_scale.py
+          ${{ env.CORE_TESTS }}
           -m "not slow"
           --durations=10
 
       - name: Run guarantee-consumer metadata guard
         run: python -X dev -m pytest -q tests/test_rule_metadata.py
 
-  examples:
-    name: Python 3.14 / Representative examples
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install project and development dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-          python -m pip check
-
-      - name: Run representative end-to-end examples
-        run: python -X dev -m pytest -q tests/test_examples_2.py --durations=10
-
   windows-smoke:
     name: Python 3.14 / Windows smoke
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -142,39 +123,14 @@ jobs:
         run: gridpuzzle --help
 
       - name: Compile Python sources
-        run: python -m compileall -q gridsolver tests scripts run.py examples2.py
+        run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
 
-      - name: Run portable regression tests
+      - name: Run the bounded per-push suite
         run: >-
           python -X dev -m pytest -q
-          tests/test_cli_and_loading.py
-          tests/test_hardening.py
-          tests/test_iterable_loading.py
-          tests/test_parser_fuzzing.py
-          tests/test_new_puzzle_families.py
-          tests/test_new_family_corpus_runner.py
-          tests/test_depth_gate.py
-          tests/test_action_dispatch.py
-          tests/test_rule_hash_cache.py
-          tests/test_rule_only_cache.py
-          tests/test_topology_cache_lifecycle.py
-          tests/test_candidate_mask_index.py
-          tests/test_candidate_domain.py
-          tests/test_candidate_view.py
-          tests/test_compact_api_hardening.py
-          tests/test_compact_cage_dictionary.py
-          tests/test_partition_cache.py
-          tests/test_arithmetic_rule_soundness.py
-          tests/test_atmostonce_memo.py
-          tests/test_aic_extra_visibility.py
-          tests/test_extension_validation.py
-          tests/test_hotpath_regressions.py
-          tests/test_runtime_overhead.py
-          tests/test_handler_aware_logging.py
-          tests/test_guarantee_filter_cache.py
-          tests/test_rule_inputs.py
-          tests/test_regressions.py
-          tests/test_solution_validation.py
-          tests/test_solver_api.py
-          tests/test_trail.py
-          tests/test_differential.py
+          ${{ env.CORE_TESTS }}
+          -m "not slow"
+          --durations=10
+
+      - name: Run guarantee-consumer metadata guard
+        run: python -X dev -m pytest -q tests/test_rule_metadata.py

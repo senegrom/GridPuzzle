@@ -193,6 +193,18 @@ value-count windows, single-loop topology), exhaustive small-board oracles in
 tests/test_new_puzzle_families.py, and a 16-job scheduled corpus matrix in
 extended CI. See DEVELOPMENT.md for the per-family technique profiles.
 
+## OPEN: merge the two ALS enumerators (small, benchmark-gated)
+
+`solve_als._build_als_list` and `solve_sue_de_coq._find_als` both hand-roll
+"N cells with N+1 candidates, N in {1,2,3}" via itertools.combinations,
+differing only in input scope and an overlap filter (~30 duplicated lines,
+3 call sites). A shared generator would serve both — but this is measured
+hot-path territory, so per project policy it needs a before/after benchmark
+with solution-set equivalence before landing. Do NOT similarly merge
+solve_chain's `_find_link_ends`/`_find_link_ends_with_num`: superficially
+twins, but they walk different state spaces (cell vs value-cell) and
+unification would tax the single-digit hot path.
+
 ## Fish — parked; see `FISH_REWRITE.md`
 
 A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
