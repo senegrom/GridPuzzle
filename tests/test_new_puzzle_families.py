@@ -1,4 +1,6 @@
+import copy
 from itertools import permutations, product
+import pickle
 from pathlib import Path
 
 import pytest
@@ -13,12 +15,14 @@ from gridsolver.abstract_grids.grid_loading import create_from_file, create_from
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.slitherlink import Slitherlink
-from gridsolver.rules.rules import InvalidGrid
+from gridsolver.rules.rules import Guarantee, InvalidGrid
 from gridsolver.rules.topology import (
     ConsecutiveAdjacencyRule,
     SingleLoopRule,
 )
+from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
 from gridsolver.solver import atomic_solver, solver
+from gridsolver.solver.solve_guarantees import filter_guarantees
 import run as run_cli
 
 
@@ -145,6 +149,76 @@ def _slitherlink_oracle(grid: Slitherlink) -> set[tuple[int, ...]]:
         if not remaining:
             result.add(values)
     return result
+
+
+def test_path_grids_start_with_cached_presence_guarantees():
+    grids = (Hidato(2, 2), Numbrix(2, 2))
+    cells = frozenset(range(4))
+    expected = {
+        Guarantee(value, cells, 1, 4)
+        for value in range(1, 5)
+    }
+
+    for grid in grids:
+        assert grid.guarantees == expected
+        assert not grid.guarantees_ia
+        assert len({id(guarantee.cells) for guarantee in grid.guarantees}) == 1
+
+        assert len(grid.rules) == 1
+        rule = next(iter(grid.rules))
+        assert type(rule) is ConsecutiveAdjacencyRule
+        assert isinstance(rule, ElementsAtMostOnce)
+        assert not isinstance(rule, ElementsAtLeastOnce)
+
+    first = {guarantee.val: guarantee for guarantee in grids[0].guarantees}
+    second = {guarantee.val: guarantee for guarantee in grids[1].guarantees}
+    assert all(first[value] is second[value] for value in first)
+
+
+def test_path_clones_preserve_guarantees_and_share_canonical_topology():
+    source = Numbrix(2, 2)
+    expected_guarantees = source.guarantees.copy()
+
+    for clone in (
+        source.deepcopy(),
+        copy.deepcopy(source),
+        pickle.loads(pickle.dumps(source)),
+    ):
+        assert clone.guarantees == expected_guarantees
+        assert not clone.guarantees_ia
+        assert len(clone.rules) == 1
+
+        rule = next(iter(clone.rules))
+        assert type(rule) is ConsecutiveAdjacencyRule
+        assert clone.adjacency is rule.adjacency
+        assert len({id(guarantee.cells) for guarantee in clone.guarantees}) == 1
+
+
+def test_path_presence_guarantees_can_propagate_before_any_rule_pass():
+    grid = Numbrix(2, 2)
+    for cell in (1, 2, 3):
+        grid._candidates[cell].discard(1)
+
+    filter_guarantees(grid)
+
+    assert grid[0] == 1
+    assert not any(
+        guarantee.val == 1
+        for guarantee in grid.guarantees
+    )
+
+
+def test_consecutive_path_rule_enforces_the_permutation_invariant():
+    grid = Numbrix(2, 2)
+    rule = next(iter(grid.rules))
+    known = [1, 1, 0, 0]
+    candidates = tuple({1, 2, 3, 4} for _ in range(4))
+
+    with pytest.raises(InvalidGrid):
+        rule.apply(known, candidates)
+
+    with pytest.raises(InvalidGrid):
+        rule.apply([5, 0, 0, 0], candidates)
 
 
 def test_numbrix_matches_independent_2x2_oracle():
