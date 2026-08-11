@@ -68,7 +68,7 @@ The retained solution fingerprints were:
 ## Python 3.14 hosted validation
 
 GitHub Actions run `31475013604` applied the visible source patch under CPython
-3.14.6 and ran the complete bounded suite: **442 passed, 9 deselected**.  The
+3.14.6 and ran the complete bounded suite: **442 passed, 9 deselected**. The
 same run checked exact deterministic solution fingerprints and measured:
 
 | Case | Baseline | Candidate | Change |
@@ -80,3 +80,10 @@ same run checked exact deterministic solution fingerprints and measured:
 
 All seven retained Hidato files also proved unique with `max_sols=2` and
 `depth_gate=None`, matching their recorded SHA-256 solution fingerprints.
+
+The production promotion run `31492361217` then applied the same visible patch
+to the PR branch, installed the project under Python 3.14, passed the complete
+bounded suite, and rechecked all 13 retained Hidato and Numbrix solution
+fingerprints before committing the source. A final independent 2x3 blank
+Numbrix oracle enumerates all 16 valid paths and requires the solver to return
+that exact complete solution set.
