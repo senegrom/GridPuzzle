@@ -87,13 +87,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The app token may delete this temporary workflow, but GitHub does
+          # not permit it to modify the permanent CI workflow. The connector
+          # registers the new tests there after this source commit lands.
+          git checkout -- .github/workflows/ci.yml
           rm -f \
             .github/scripts/apply_compact_api_hardening.py \
             .github/workflows/compact-api-hardening.yml
           git add -A -- \
             .github/scripts/apply_compact_api_hardening.py \
             .github/workflows/compact-api-hardening.yml \
-            .github/workflows/ci.yml \
             gridsolver/abstract_grids/grid_loading.py \
             gridsolver/grid_classes/compact_grid.py \
             gridsolver/grid_classes/path_puzzles.py \
