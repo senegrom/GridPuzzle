@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, MutableSet, Set
 from dataclasses import dataclass, field
 from numbers import Integral
 from typing import Any
@@ -271,6 +271,129 @@ class TrailedSet(set[int]):
         self.symmetric_difference_update(other)
         return self
 
+
+
+class CandidateView(MutableSet[int]):
+    """Validated public view over one live candidate set.
+
+    Solver internals mutate :class:`TrailedSet` directly. This facade keeps
+    ``Grid.get_candidates`` live while rejecting Python's bool aliases,
+    non-integers, and values outside the grid domain before state, journal, or
+    candidate-index mutation occurs.
+    """
+
+    __slots__ = ("_target",)
+
+    def __init__(self, target: TrailedSet) -> None:
+        self._target = target
+
+    def __contains__(self, value: object) -> bool:
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            return False
+        normalized = int(value)
+        max_elem = self._target._trail_state.candidate_max_elem
+        if max_elem is not None and not 1 <= normalized <= max_elem:
+            return False
+        return normalized in self._target
+
+    def __iter__(self):
+        return iter(self._target)
+
+    def __len__(self) -> int:
+        return len(self._target)
+
+    def __repr__(self) -> str:
+        return repr(self._target)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, CandidateView):
+            return self._target == other._target
+        if not isinstance(other, Set):
+            return False
+        try:
+            normalized = self._target._normalize_values(other)
+        except (TypeError, ValueError):
+            return False
+        return self._target == normalized
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
+    def copy(self) -> set[int]:
+        return self._target.copy()
+
+    def add(self, value: int) -> None:
+        self._target.add(value)
+
+    def discard(self, value: int) -> None:
+        self._target.discard(self._target._normalize_value(value))
+
+    def remove(self, value: int) -> None:
+        self._target.remove(self._target._normalize_value(value))
+
+    def clear(self) -> None:
+        self._target.clear()
+
+    def pop(self) -> int:
+        return self._target.pop()
+
+    def update(self, *others: Iterable[int]) -> None:
+        self._target.update(*others)
+
+    def difference_update(self, *others: Iterable[int]) -> None:
+        normalized = tuple(
+            self._target._normalize_values(other) for other in others
+        )
+        self._target.difference_update(*normalized)
+
+    def intersection_update(self, *others: Iterable[int]) -> None:
+        normalized = tuple(
+            self._target._normalize_values(other) for other in others
+        )
+        self._target.intersection_update(*normalized)
+
+    def symmetric_difference_update(self, other: Iterable[int]) -> None:
+        self._target.symmetric_difference_update(other)
+
+    def __and__(self, other: Set[object]) -> set[int]:
+        return self._target & set(other)
+
+    def __or__(self, other: Set[int]) -> set[int]:
+        return self._target | set(other)
+
+    def __sub__(self, other: Set[object]) -> set[int]:
+        return self._target - set(other)
+
+    def __xor__(self, other: Set[int]) -> set[int]:
+        return self._target ^ set(other)
+
+    def __rand__(self, other: Set[object]) -> set[int]:
+        return set(other) & self._target
+
+    def __ror__(self, other: Set[int]) -> set[int]:
+        return set(other) | self._target
+
+    def __rsub__(self, other: Set[object]) -> set[int]:
+        return set(other) - self._target
+
+    def __rxor__(self, other: Set[int]) -> set[int]:
+        return set(other) ^ self._target
+
+    def __iand__(self, other: Iterable[int]):
+        self.intersection_update(other)
+        return self
+
+    def __ior__(self, other: Iterable[int]):
+        self.update(other)
+        return self
+
+    def __isub__(self, other: Iterable[int]):
+        self.difference_update(other)
+        return self
+
+    def __ixor__(self, other: Iterable[int]):
+        self.symmetric_difference_update(other)
+        return self
 
 
 _MISSING = object()

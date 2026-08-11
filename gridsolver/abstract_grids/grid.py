@@ -1,6 +1,6 @@
 import itertools
 from array import array
-from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence
+from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence, MutableSet
 from enum import Enum
 from functools import partial
 from numbers import Integral
@@ -9,7 +9,7 @@ from typing import Any, TypeVar, overload
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
-from gridsolver.abstract_grids.trail import TrailFrame, TrailState, TrailedSet
+from gridsolver.abstract_grids.trail import CandidateView, TrailFrame, TrailState, TrailedSet
 from gridsolver.rules.rules import Guarantee, IdxType, Rule
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
@@ -435,11 +435,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def is_valid(self) -> bool:
         return all(self._candidates)
 
-    def get_candidates(self, key: IdxType) -> set[int]:
+    def get_candidates(self, key: IdxType) -> MutableSet[int]:
+        """Return a live, domain-validated view of one candidate set."""
         index = self._get_index_from_key(key)
         if isinstance(index, slice):
             raise TypeError("Candidate slices are not supported")
-        return self._candidates[index]
+        return CandidateView(self._candidates[index])
 
     def get_smallest_candidate_set_gt1(self) -> tuple[int, set[int]]:
         def build_branch_peers() -> tuple[frozenset[int], ...]:
