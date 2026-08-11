@@ -9,6 +9,10 @@ from gridsolver.abstract_grids.grid import (
     _validate_load_options,
     pairs,
 )
+from gridsolver.grid_classes.cage_loading import (
+    parse_killer_dictionary,
+    split_cage_input,
+)
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
@@ -50,32 +54,10 @@ class KillerSudoku(Sudoku):
 
         self.add_rules_checked(rules)
 
-    @staticmethod
-    def _load_preprocess_colon_split(
-        sum_cells_and_dic: str | Iterable[str],
-    ) -> tuple[str, str]:
-        if isinstance(sum_cells_and_dic, str):
-            text = sum_cells_and_dic
-        elif isinstance(sum_cells_and_dic, (bytes, bytearray)):
-            raise TypeError("Cage input bytes must be decoded to str first")
-        elif isinstance(sum_cells_and_dic, Iterable):
-            # Materialise once so one-shot iterables remain supported, but do
-            # not silently stringify malformed tokens.
-            parts = list(sum_cells_and_dic)
-            if any(not isinstance(part, str) for part in parts):
-                raise TypeError("Cage input iterables must contain only strings")
-            text = "\n".join(parts)
-        else:
-            raise TypeError(
-                f"Input type {type(sum_cells_and_dic).__name__} is not supported"
-            )
-
-        if ":" not in text:
-            raise ValueError("Puzzle string contains no : separator")
-        # Split only the layout separator. KenKen also permits ':' as a
-        # division operator in the dictionary section.
-        layout, dictionary_text = text.split(":", 1)
-        return layout, dictionary_text
+    # Compatibility alias for extension code that used the historical private
+    # helper. KenKen imports the shared implementation directly and no longer
+    # loads the Killer Sudoku module merely to split text.
+    _load_preprocess_colon_split = staticmethod(split_cage_input)
 
     def load(
         self,
@@ -86,35 +68,18 @@ class KillerSudoku(Sudoku):
     ) -> None:
         """Load a cage layout followed by a single-character sum dictionary."""
         row_wise, space_sep = _validate_load_options(row_wise, space_sep)
-        sum_cells, dictionary_text = self._load_preprocess_colon_split(
-            sum_cells_and_dic
-        )
+        sum_cells, dictionary_text = split_cage_input(sum_cells_and_dic)
         sum_cells = (
             _load_preprocess_str_space_sep(sum_cells)
             if space_sep
             else _load_preprocess_str(sum_cells)
         )
         dictionary_text = _load_preprocess_str(dictionary_text)
-
-        index = 0
-        definitions: dict[str, int] = {}
-        while index < len(dictionary_text):
-            label = dictionary_text[index]
-            index += 1
-            start = index
-            while (
-                index < len(dictionary_text)
-                and "0" <= dictionary_text[index] <= "9"
-            ):
-                index += 1
-            if index == start:
-                raise ValueError("KillerSudoku string format invalid")
-            if label in definitions:
-                raise ValueError(
-                    f"Duplicate Killer Sudoku cage definition for {label!r}"
-                )
-            definitions[label] = int(dictionary_text[start:index])
-
+        definitions = parse_killer_dictionary(
+            dictionary_text,
+            sum_cells,
+            self.max_elem,
+        )
         self.load_with_dic(sum_cells, definitions, row_wise)
 
     def load_with_dic(

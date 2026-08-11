@@ -67,6 +67,7 @@ jobs:
           tests/test_candidate_domain.py
           tests/test_candidate_view.py
           tests/test_compact_api_hardening.py
+          tests/test_compact_cage_dictionary.py
           tests/test_partition_cache.py
           tests/test_arithmetic_rule_soundness.py
           tests/test_atmostonce_memo.py
@@ -161,6 +162,7 @@ jobs:
           tests/test_candidate_domain.py
           tests/test_candidate_view.py
           tests/test_compact_api_hardening.py
+          tests/test_compact_cage_dictionary.py
           tests/test_partition_cache.py
           tests/test_arithmetic_rule_soundness.py
           tests/test_atmostonce_memo.py
