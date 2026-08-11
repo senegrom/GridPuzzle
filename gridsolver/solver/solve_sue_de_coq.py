@@ -24,9 +24,7 @@ def sue_de_coq(grid: Grid) -> None:
     - V_B values locked to ALS_B ∪ I within box → eliminate V_B from box-remainder - ALS_B
     - V_L values locked to ALS_L ∪ I within line → eliminate V_L from line-remainder - ALS_L
     """
-    all_houses: List[FrozenSet[int]] = [
-        grp for grp in grid.unique_rule_cells if len(grp) == grid.max_elem
-    ]
+    all_houses: List[FrozenSet[int]] = grid.full_houses
     if len(all_houses) < 3:
         return
 

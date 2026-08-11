@@ -12,11 +12,7 @@ from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
 
-def _full_houses(grid: Grid) -> list[frozenset[int]]:
-    return [grp for grp in grid.unique_rule_cells if len(grp) == grid.max_elem]
-
-
-def _cell_houses(
+def cell_houses(
     grid: Grid,
     all_houses: list[frozenset[int]],
 ) -> dict[int, list[frozenset[int]]]:

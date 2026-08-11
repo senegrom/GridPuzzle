@@ -99,6 +99,26 @@ def test_public_candidate_view_remains_live_across_trail_rollback():
     assert view == {1, 2, 3, 4}
 
 
+def test_candidate_view_named_set_queries_return_detached_plain_sets():
+    grid = Grid(1, 1, max_elem=4)
+    view = grid.get_candidates(0)  # {1, 2, 3, 4}
+
+    assert view.issubset({1, 2, 3, 4, 9}) and not view.issubset({1, 2})
+    assert view.issuperset((1, 2)) and not view.issuperset({5})
+    assert view.isdisjoint({7}) and not view.isdisjoint({1})
+
+    union = view.union({7})
+    assert type(union) is set and union == {1, 2, 3, 4, 7}
+    assert type(view.intersection({2, 3, 9})) is set
+    assert view.intersection({2, 3, 9}) == {2, 3}
+    assert view.difference({1}) == {2, 3, 4}
+    assert view.symmetric_difference({4, 5}) == {1, 2, 3, 5}
+
+    # derived sets are detached: mutating them journals and validates nothing
+    union.add(99)
+    assert view == {1, 2, 3, 4}
+
+
 def test_solver_sources_do_not_use_public_candidate_view_in_hot_paths():
     solver_root = Path(__file__).resolve().parents[1] / "gridsolver" / "solver"
     offenders = []

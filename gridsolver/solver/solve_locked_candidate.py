@@ -16,9 +16,7 @@ def locked_candidate(grid: Grid) -> None:
     remaining cells (those outside the intersection).
     """
     # Only use full-size uniqueness groups (rows, cols, boxes)
-    unique_rule_cells: List[FrozenSet[int]] = [
-        grp for grp in grid.unique_rule_cells if len(grp) == grid.max_elem
-    ]
+    unique_rule_cells: List[FrozenSet[int]] = grid.full_houses
     if len(unique_rule_cells) < 2:
         return
 

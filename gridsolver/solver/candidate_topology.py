@@ -36,11 +36,7 @@ class CandidateTopology:
     @classmethod
     def build(cls, grid: Grid) -> "CandidateTopology":
         unique_groups = tuple(grid.unique_rule_cells)
-        houses = tuple(
-            group
-            for group in unique_groups
-            if len(group) == grid.max_elem
-        )
+        houses = tuple(grid.full_houses)
         house_masks = tuple(cells_mask(house) for house in houses)
 
         def build_peer_masks() -> tuple[tuple[int, ...], tuple[int, ...]]:

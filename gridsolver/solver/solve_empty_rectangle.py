@@ -1,7 +1,7 @@
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
-from gridsolver.solver.solve_als import _cell_houses, _full_houses
+from gridsolver.solver.solve_als import cell_houses
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -19,7 +19,7 @@ def empty_rectangle(grid: Grid) -> None:
     The related 2-string kite / turbot patterns are already covered by the
     untyped skyscraper implementation.
     """
-    houses = _full_houses(grid)
+    houses = grid.full_houses
     if len(houses) < 3:
         return
 
@@ -28,7 +28,7 @@ def empty_rectangle(grid: Grid) -> None:
     c = CoordToString(grid.rows)
     sl = grid.semi_strong_links  # cached; do not mutate
     gt_cells_by_val = grid.guarantee_cells_by_value  # cached; do not mutate
-    cell_houses = _cell_houses(grid, houses)
+    houses_by_cell = cell_houses(grid, houses)
 
     for box in houses:
         for v in range(1, grid.max_elem + 1):
@@ -41,7 +41,7 @@ def empty_rectangle(grid: Grid) -> None:
             touching = []
             seen_ids = set()
             for cell in vb:
-                for h in cell_houses[cell]:
+                for h in houses_by_cell[cell]:
                     if h is not box and id(h) not in seen_ids:
                         seen_ids.add(id(h))
                         touching.append(h)
@@ -61,7 +61,7 @@ def empty_rectangle(grid: Grid) -> None:
                         for q in sl_v[p]:
                             if q in box:
                                 continue
-                            q_houses = cell_houses[q]
+                            q_houses = houses_by_cell[q]
                             for e in c_house:
                                 if e in box or e == q or known[e] > 0 or v not in cands[e]:
                                     continue

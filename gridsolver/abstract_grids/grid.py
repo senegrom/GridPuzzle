@@ -962,6 +962,21 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         )
 
     @property
+    def full_houses(self) -> list[frozenset[int]]:
+        """Complete at-most-once houses (size == max_elem), the correctness
+        boundary for house-based techniques (see DEVELOPMENT.md). Cached with
+        the rule lifecycle; previously re-derived inline at five call sites.
+        Callers must not mutate the returned structure."""
+        return self.cached_rule_struct(
+            "full_houses",
+            lambda: [
+                cells
+                for cells in self.unique_rule_cells
+                if len(cells) == self.max_elem
+            ],
+        )
+
+    @property
     def weak_links(self) -> list[set[int]]:
         """Cached weak links originating from each cell; do not mutate."""
 

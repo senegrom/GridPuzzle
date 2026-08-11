@@ -322,6 +322,34 @@ class CandidateView(MutableSet[int]):
     def copy(self) -> set[int]:
         return self._target.copy()
 
+    # Named set queries mirror the operator forms the MutableSet ABC already
+    # provides, returning detached plain sets/bools — callers accustomed to
+    # set's full API (issubset/union/...) would otherwise hit AttributeError.
+    def issubset(self, other: Iterable[int]) -> bool:
+        return self._target <= (
+            other if isinstance(other, (set, frozenset)) else set(other)
+        )
+
+    def issuperset(self, other: Iterable[int]) -> bool:
+        return self._target >= (
+            other if isinstance(other, (set, frozenset)) else set(other)
+        )
+
+    def isdisjoint(self, other: Iterable[int]) -> bool:
+        return self._target.isdisjoint(other)
+
+    def union(self, *others: Iterable[int]) -> set[int]:
+        return set(self._target).union(*others)
+
+    def intersection(self, *others: Iterable[int]) -> set[int]:
+        return set(self._target).intersection(*others)
+
+    def difference(self, *others: Iterable[int]) -> set[int]:
+        return set(self._target).difference(*others)
+
+    def symmetric_difference(self, other: Iterable[int]) -> set[int]:
+        return set(self._target).symmetric_difference(other)
+
     def add(self, value: int) -> None:
         self._target.add(value)
 

@@ -3,7 +3,7 @@ from typing import List, FrozenSet
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
-from gridsolver.solver.solve_als import _cell_houses
+from gridsolver.solver.solve_als import cell_houses
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -15,9 +15,7 @@ def skyscraper(grid: Grid) -> None:
     via a common house (the "base"). Cells seeing both non-shared endpoints
     ("tops") can have the digit eliminated.
     """
-    all_houses: List[FrozenSet[int]] = [
-        grp for grp in grid.unique_rule_cells if len(grp) == grid.max_elem
-    ]
+    all_houses: List[FrozenSet[int]] = grid.full_houses
     if len(all_houses) < 2:
         return
 
@@ -26,7 +24,7 @@ def skyscraper(grid: Grid) -> None:
     known = grid._known
 
     # cell -> houses containing it (cached on the grid)
-    cell_houses = _cell_houses(grid, all_houses)
+    houses_by_cell = cell_houses(grid, all_houses)
 
     for val in range(1, grid.max_elem + 1):
         # Find conjugate pairs: houses where val appears in exactly 2 unsolved cells
@@ -54,16 +52,16 @@ def skyscraper(grid: Grid) -> None:
                 for base_a, top_a in ((a1, a2), (a2, a1)):
                     for base_b, top_b in ((b1, b2), (b2, b1)):
                         # base_a and base_b must share a house
-                        if not any(base_b in h for h in cell_houses[base_a]):
+                        if not any(base_b in h for h in houses_by_cell[base_a]):
                             continue
 
                         # Eliminate val from cells seeing both top_a and top_b
                         # (but not top_a or top_b themselves, and not base cells)
                         sees_top_a = set()
-                        for h in cell_houses[top_a]:
+                        for h in houses_by_cell[top_a]:
                             sees_top_a |= h
                         sees_top_b = set()
-                        for h in cell_houses[top_b]:
+                        for h in houses_by_cell[top_b]:
                             sees_top_b |= h
 
                         for cell in sees_top_a & sees_top_b - cells4:
