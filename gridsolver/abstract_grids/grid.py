@@ -731,8 +731,13 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.update(additions)
         dirty = self._trail_state.dirty
         dirty.guarantees.update(additions)
+        # A guarantee family often shares one cell set across every domain
+        # value (for example a Hidato/Numbrix permutation). Compute the rule
+        # wake-up representative once per distinct set rather than rescanning
+        # the same N cells for all N values.
+        unique_cell_sets = {guarantee.cells for guarantee in additions}
         dirty.guarantee_rule_cells.update(
-            min(guarantee.cells) for guarantee in additions
+            min(cells) for cells in unique_cell_sets
         )
         dirty.guarantee_relations = True
         if self._trail_state.active:
@@ -833,13 +838,26 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             selected = dirty.guarantees & self.guarantees
             if dirty.guarantee_cells:
                 def build_guarantee_watchers(
-                ) -> tuple[tuple[Guarantee, ...], ...]:
-                    watchers: list[list[Guarantee]] = [
+                ) -> tuple[tuple[tuple[Guarantee, ...], ...], ...]:
+                    # Store one packed guarantee family per distinct cell set.
+                    # Global value-presence guarantees then require O(N)
+                    # watcher references rather than O(N²) references.
+                    groups: dict[
+                        frozenset[int],
+                        list[Guarantee],
+                    ] = {}
+                    for guarantee in self.guarantees:
+                        groups.setdefault(guarantee.cells, []).append(
+                            guarantee
+                        )
+
+                    watchers: list[list[tuple[Guarantee, ...]]] = [
                         [] for _ in range(self.len)
                     ]
-                    for guarantee in self.guarantees:
-                        for cell in guarantee.cells:
-                            watchers[cell].append(guarantee)
+                    for cells, guarantees in groups.items():
+                        packed = tuple(guarantees)
+                        for cell in cells:
+                            watchers[cell].append(packed)
                     return tuple(tuple(items) for items in watchers)
 
                 by_cell = self.cached_guarantee_struct(
@@ -847,7 +865,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                     build_guarantee_watchers,
                 )
                 for cell in dirty.guarantee_cells:
-                    selected.update(by_cell[cell])
+                    for guarantee_group in by_cell[cell]:
+                        selected.update(guarantee_group)
 
         dirty.all_guarantees = False
         dirty.guarantees.clear()

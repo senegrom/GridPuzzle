@@ -217,3 +217,24 @@ def test_rule_emitted_guarantees_are_normalized_once():
 
     assert grid.guarantee_normalizations == grid.max_elem
     assert len(grid.guarantees) == grid.max_elem
+
+
+def test_shared_cell_guarantees_use_one_packed_watcher_family():
+    grid = Grid(2)
+    guarantees = value_presence_guarantees(
+        range(grid.len),
+        max_elem=grid.max_elem,
+        rows=grid.rows,
+        cols=grid.cols,
+    )
+    grid.add_gtees_checked(guarantees)
+
+    assert set(grid.take_dirty_guarantees()) == set(guarantees)
+    grid._candidates[0].discard(grid.max_elem)
+    assert set(grid.take_dirty_guarantees()) == set(guarantees)
+
+    watchers = grid._guarantee_cache["propagation_guarantees_by_cell"]
+    assert all(len(cell_watchers) == 1 for cell_watchers in watchers)
+    packed = watchers[0][0]
+    assert set(packed) == set(guarantees)
+    assert all(cell_watchers[0] is packed for cell_watchers in watchers)
