@@ -1,0 +1,73 @@
+name: Candidate-domain hardening
+
+on:
+  push:
+    branches:
+      - agent/further-solver-improvements
+    paths:
+      - .github/scripts/apply_candidate_domain_hardening.py
+      - .github/workflows/candidate-domain-hardening.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: candidate-domain-hardening
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply candidate-domain hardening
+        run: python .github/scripts/apply_candidate_domain_hardening.py
+
+      - name: Install and run complete bounded suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+          python -X dev -m pytest -q tests -m "not slow" --durations=20
+
+      - name: Commit tested source and remove promotion scaffolding
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/scripts/apply_candidate_domain_hardening.py \
+            .github/workflows/candidate-domain-hardening.yml
+          git add -A -- \
+            .github/scripts/apply_candidate_domain_hardening.py \
+            .github/workflows/candidate-domain-hardening.yml \
+            gridsolver/abstract_grids/trail.py \
+            gridsolver/abstract_grids/grid.py \
+            gridsolver/abstract_grids/rule_container.py \
+            gridsolver/rules/sumrules.py \
+            tests/test_candidate_domain.py
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Enforce candidate value domains"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
