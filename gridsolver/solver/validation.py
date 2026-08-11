@@ -118,17 +118,6 @@ def _canonical_guarantee_is_satisfied(
     )
 
 
-def _guarantee_is_satisfied(
-    guarantee: object,
-    values: Sequence[int],
-    plan: _ValidationPlan,
-) -> bool:
-    return _canonical_guarantee_is_satisfied(
-        _canonical_guarantee(guarantee, plan),
-        values,
-    )
-
-
 def _validate_rule_metadata(rule: object, plan: _ValidationPlan) -> Rule:
     if not isinstance(rule, Rule):
         raise TypeError(

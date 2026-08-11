@@ -112,8 +112,9 @@ lower_bound_cover(cells): greedy/duplicate-aware bound, monotone in cells,
 - vendors today's `fish`/`finned_fish` verbatim as `legacy_fish`/`legacy_finned_fish`
   (frozen reference, immune to later edits of `solve_fish.py`),
 - captures realistic mid-solve grid states by patching `atomic_solver.fish`
-  (patch the *imported binding*, not `solve_fish.fish` — see the monkey-patching
-  pitfall in DEVELOPMENT.md) while solving a mix of examples,
+  (patch the *imported binding* in atomic_solver, not `solve_fish.fish` —
+  a from-import binds at import time, so patching the source module is a
+  silent no-op) while solving a mix of examples,
 - asserts exact `_candidates` equality between legacy and current implementation
   on every captured state, for fish and finned fish at f = 2, 3, 4,
 - times both implementations per state and reports totals.

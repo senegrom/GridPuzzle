@@ -35,6 +35,12 @@ mutation bookkeeping and rollback complexity.
 
 ## Rejected: removing power-action lambdas
 
+> **Superseded (2026-08-09, later the same day):**
+> `direct_action_dispatch_2026-08-09.md` re-ran this design with a cleaner
+> action table, accepted it, and it shipped (pinned by
+> tests/test_action_dispatch.py). The "should not be retried" note below is
+> obsolete for this item; it stands for the handler-cache variant above.
+
 Passing callables and positional arguments directly to `_act` removed
 closure allocation but weakened typing and made the action table less
 readable for a result within runner noise.

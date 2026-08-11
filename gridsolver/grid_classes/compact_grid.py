@@ -2,7 +2,6 @@
 
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from numbers import Integral
-from typing import Any
 
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 

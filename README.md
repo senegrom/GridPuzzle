@@ -56,6 +56,7 @@ The measured defaults are FULL for the original dense-grid families, GENERIC for
 - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house
 - **Locked Candidate** (Pointing/Claiming) — candidates confined to a box-line intersection
 - **Skyscraper** — two conjugate pairs sharing a base house
+- **Empty Rectangle** — a house whose candidates for a digit are confined to one row-column cross, eliminating against intersecting conjugate pairs
 - **Rule of 45 / Innies** (cage puzzles) — disjoint cages inside a house, row band, or column stack force the sum of leftover cells
 
 #### Intermediate
@@ -144,11 +145,14 @@ Install the package and development dependencies from the repository metadata:
 python -m pip install -e ".[dev]"
 ```
 
-Run the bounded CI suite with:
+Run a quick bounded selection with:
 
 ```bash
 python -X dev -m pytest -q tests/test_regressions.py tests/test_basic.py tests/test_scale.py -m "not slow"
 ```
+
+(The actual CI core job runs the full non-slow suite across all test files;
+see `.github/workflows/ci.yml` for the authoritative list.)
 
 The `slow` marker contains long corpus and large-scale checks and is intentionally excluded from the default push workflow:
 

@@ -185,12 +185,13 @@ the supported example corpus, 49x49–100x100 generated Sudoku scale tests, and
 the slow pandiagonal Latin-square corpus into independent jobs with explicit
 timeouts and duration reporting.
 
-## Future puzzle families
+## New puzzle families — DONE August 2026
 
-The Hidato, Kakuro, Numbrix, and Slitherlink corpora remain under `Examples/` as
-source material for future runtime implementations. They are intentionally not
-part of the supported-corpus test job until loaders and independent validators
-exist for those formats.
+Hidato, Kakuro, Numbrix, and Slitherlink are fully supported runtime families:
+CSP-Rules loaders, dedicated rule types (consecutive-adjacency paths,
+value-count windows, single-loop topology), exhaustive small-board oracles in
+tests/test_new_puzzle_families.py, and a 16-job scheduled corpus matrix in
+extended CI. See DEVELOPMENT.md for the per-family technique profiles.
 
 ## Fish — parked; see `FISH_REWRITE.md`
 
