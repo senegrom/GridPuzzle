@@ -1,0 +1,108 @@
+diff --git a/gridsolver/solver/validation.py b/gridsolver/solver/validation.py
+index 5259342..2b3c42f 100644
+--- a/gridsolver/solver/validation.py
++++ b/gridsolver/solver/validation.py
+@@ -51,6 +51,8 @@ class _FallbackBudget:
+ def _canonical_guarantee(
+     guarantee: object,
+     plan: _ValidationPlan,
++    *,
++    cell_cache: dict[int, tuple[object, frozenset[int]]] | None = None,
+ ) -> Guarantee:
+     if type(guarantee) is not Guarantee:
+         raise TypeError(
+@@ -84,10 +86,24 @@ def _canonical_guarantee(
+         raise ValueError(
+             f"Guarantee value {value} is outside 1..{plan.max_elem}"
+         )
+-    if isinstance(guarantee.cells, (str, bytes, bytearray)):
++    raw_cell_container = guarantee.cells
++    # Cache only the exact immutable container used by normal Guarantee
++    # objects.  A hashable extension container may still be mutable or expose
++    # side effects, so revalidate it rather than reusing stale normalized cells.
++    cache_key = (
++        id(raw_cell_container)
++        if type(raw_cell_container) is frozenset
++        else None
++    )
++    if cell_cache is not None and cache_key is not None:
++        cached = cell_cache.get(cache_key)
++        if cached is not None and cached[0] is raw_cell_container:
++            return Guarantee(value, cached[1], rows, cols)
++
++    if isinstance(raw_cell_container, (str, bytes, bytearray)):
+         raise TypeError("Guarantee cells must be an iterable of integers")
+     try:
+-        raw_cells = tuple(guarantee.cells)
++        raw_cells = tuple(raw_cell_container)
+     except TypeError as exc:
+         raise TypeError(
+             "Guarantee cells must be an iterable of integers"
+@@ -105,7 +121,10 @@ def _canonical_guarantee(
+                 f"Guarantee cell {cell} is outside 0..{plan.length - 1}"
+             )
+         cells.add(cell)
+-    return Guarantee(value, frozenset(cells), rows, cols)
++    canonical_cells = frozenset(cells)
++    if cell_cache is not None and cache_key is not None:
++        cell_cache[cache_key] = (raw_cell_container, canonical_cells)
++    return Guarantee(value, canonical_cells, rows, cols)
+ 
+ 
+ def _canonical_guarantee_is_satisfied(
+@@ -425,13 +444,21 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
+                 f"Malformed rule in source grid: {rule!r}: {exc}"
+             ) from exc
+ 
++    cell_cache: dict[int, tuple[object, frozenset[int]]] = {}
++
+     def canonicalize_guarantees(
+         raw_guarantees: tuple[Guarantee, ...],
+     ) -> tuple[Guarantee, ...]:
+         canonical: list[Guarantee] = []
+         for guarantee in raw_guarantees:
+             try:
+-                canonical.append(_canonical_guarantee(guarantee, partial))
++                canonical.append(
++                    _canonical_guarantee(
++                        guarantee,
++                        partial,
++                        cell_cache=cell_cache,
++                    )
++                )
+             except (TypeError, ValueError) as exc:
+                 raise InvalidSolutionError(
+                     f"Malformed guarantee in source grid: {guarantee!r}: {exc}"
+@@ -440,6 +467,23 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
+ 
+     active_guarantees = canonicalize_guarantees(raw_active_guarantees)
+     inactive_guarantees = canonicalize_guarantees(raw_inactive_guarantees)
++
++    # On a complete N-cell assignment over 1..N, an at-most-once rule over
++    # exactly N cells already proves that every domain value occurs there.
++    # Keep the active guarantees available to extension-rule validation, but
++    # avoid rechecking those mathematically implied presence constraints one
++    # by one in the final solution loop.
++    permutation_cells = {
++        frozenset(rule.cells)
++        for rule in validated_rules
++        if isinstance(rule, ElementsAtMostOnce)
++        and rule.len_cells == partial.max_elem
++    }
++    direct_guarantees = tuple(
++        guarantee
++        for guarantee in active_guarantees + inactive_guarantees
++        if guarantee.cells not in permutation_cells
++    )
+     return _ValidationPlan(
+         rows=partial.rows,
+         cols=partial.cols,
+@@ -449,7 +493,7 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
+         known=partial.known,
+         candidates=partial.candidates,
+         rules=tuple(validated_rules),
+-        guarantees=active_guarantees + inactive_guarantees,
++        guarantees=direct_guarantees,
+         active_guarantees=active_guarantees,
+     )
+ 
