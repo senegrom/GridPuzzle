@@ -1,0 +1,249 @@
+name: Path presence guarantees
+
+on:
+  push:
+    branches:
+      - agent/further-solver-improvements
+    paths:
+      - .github/patches/path-presence-guarantees.patch
+      - .github/workflows/path-presence-guarantees.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: path-presence-guarantees
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply visible source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/patches/path-presence-guarantees.patch
+          git apply .github/patches/path-presence-guarantees.patch
+          git diff --check
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+
+      - name: Run path, guarantee, validation, trail, and differential suites
+        shell: bash
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_new_puzzle_families.py
+          tests/test_solution_validation.py
+          tests/test_rule_metadata.py
+          tests/test_differential.py
+          tests/test_basic.py
+          tests/test_trail.py
+          tests/test_guarantee_filter_cache.py
+          tests/test_rule_only_cache.py
+          tests/test_extension_validation.py
+          tests/test_regressions.py
+          tests/test_solver_api.py
+          -m "not slow"
+          --durations=15
+
+      - name: Check ordinary solver equivalence and regression bound
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/path-guarantee-baseline c45a1ceadfe597d17d48148ed0d9b9a2c0beee69
+          cat > /tmp/path_guarantee_benchmark.py <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import statistics
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          roots = {
+              "baseline": Path("/tmp/path-guarantee-baseline"),
+              "candidate": Path(os.environ["GITHUB_WORKSPACE"]),
+          }
+
+          code = r'''
+          import hashlib
+          import json
+          import sys
+          import time
+
+          from gridsolver.abstract_grids.grid_loading import create_from_file
+          from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
+          from gridsolver.grid_classes.sudoku import Sudoku
+          from gridsolver.solver import solver
+          from gridsolver.solver.propagation import propagate_basic
+
+          case = sys.argv[1]
+          started = time.perf_counter()
+          if case == "numbrix_expert":
+              grid = create_from_file(
+                  "Examples/Numbrix/Parade/2012-10-21-Expert-S2.clp"
+              )
+              solutions = solver.solve(
+                  grid,
+                  max_sols=2,
+                  log_level=-1,
+                  depth_gate=None,
+              )
+              result = tuple(sorted(tuple(solution) for solution in solutions))
+          elif case == "hidato_small":
+              grid = create_from_file(
+                  "Examples/Hidato/Mebane/Mebane-III.1-S.clp"
+              )
+              solutions = solver.solve(
+                  grid,
+                  max_sols=2,
+                  log_level=-1,
+                  depth_gate=None,
+              )
+              result = tuple(sorted(tuple(solution) for solution in solutions))
+          elif case == "loaded4":
+              grid = Sudoku(2, 2, 2, 2)
+              grid.load("12344321........")
+              solutions = solver.solve(
+                  grid,
+                  max_sols=-1,
+                  log_level=-1,
+                  depth_gate=None,
+              )
+              result = tuple(sorted(tuple(solution) for solution in solutions))
+          elif case == "propagate_numbrix6":
+              grid = Numbrix(6, 6)
+              status = propagate_basic(grid)
+              result = (
+                  status.value,
+                  len(grid.rules),
+                  len(grid.rules_ia),
+                  len(grid.guarantees),
+                  len(grid.guarantees_ia),
+              )
+          elif case == "model":
+              grids = (Hidato(2, 2), Numbrix(2, 2))
+              result = tuple(
+                  (len(grid.rules), len(grid.guarantees))
+                  for grid in grids
+              )
+          else:
+              raise SystemExit(case)
+          elapsed = time.perf_counter() - started
+          digest = hashlib.sha256(repr(result).encode()).hexdigest()
+          print(json.dumps({"elapsed": elapsed, "digest": digest, "result": result}))
+          '''
+
+          repetitions = {
+              "numbrix_expert": 3,
+              "hidato_small": 7,
+              "loaded4": 3,
+              "propagate_numbrix6": 7,
+          }
+          solver_cases = {"numbrix_expert", "hidato_small", "loaded4"}
+          ratios = []
+          report = {}
+          for case, count in repetitions.items():
+              timings = {label: [] for label in roots}
+              outcomes = {label: set() for label in roots}
+              for index in range(count):
+                  order = tuple(roots) if index % 2 == 0 else tuple(reversed(roots))
+                  for label in order:
+                      root = roots[label]
+                      env = os.environ.copy()
+                      env["PYTHONPATH"] = str(root)
+                      output = subprocess.check_output(
+                          [sys.executable, "-c", code, case],
+                          cwd=root,
+                          env=env,
+                          text=True,
+                          timeout=120,
+                      )
+                      item = json.loads(output.strip().splitlines()[-1])
+                      timings[label].append(float(item["elapsed"]))
+                      outcomes[label].add(item["digest"])
+              if any(len(values) != 1 for values in outcomes.values()):
+                  raise SystemExit(f"{case}: nondeterministic result")
+              if outcomes["baseline"] != outcomes["candidate"]:
+                  raise SystemExit(f"{case}: solution/result mismatch")
+              baseline = statistics.median(timings["baseline"])
+              candidate = statistics.median(timings["candidate"])
+              ratio = candidate / baseline
+              if case in solver_cases:
+                  ratios.append(ratio)
+              report[case] = {
+                  "baseline": baseline,
+                  "candidate": candidate,
+                  "change_percent": 100 * (ratio - 1),
+              }
+
+          model_output = subprocess.check_output(
+              [sys.executable, "-c", code, "model"],
+              cwd=roots["candidate"],
+              env={**os.environ, "PYTHONPATH": str(roots["candidate"])},
+              text=True,
+          )
+          model = json.loads(model_output.strip().splitlines()[-1])["result"]
+          if model != [[1, 4], [1, 4]]:
+              raise SystemExit(f"unexpected path model structure: {model}")
+
+          geomean = statistics.geometric_mean(ratios)
+          print(json.dumps({"cases": report, "solver_geomean": geomean}, indent=2))
+          if geomean > 1.10:
+              raise SystemExit(
+                  f"ordinary solver regression exceeded 10%: {geomean:.3f}x"
+              )
+          PY
+          python /tmp/path_guarantee_benchmark.py
+
+      - name: Promote tested source and remove temporary scaffolding
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/patches/path-presence-guarantees.patch \
+            .github/workflows/path-presence-guarantees.yml \
+            .github/workflows/export-pr5-source.yml
+          git add -A -- \
+            .github/patches/path-presence-guarantees.patch \
+            .github/workflows/path-presence-guarantees.yml \
+            .github/workflows/export-pr5-source.yml \
+            benchmarks/path_presence_guarantees_2026-08-11.md \
+            gridsolver/grid_classes/path_puzzles.py \
+            gridsolver/rules/topology.py \
+            gridsolver/rules/unique.py \
+            gridsolver/solver/validation.py \
+            tests/test_new_puzzle_families.py \
+            tests/test_solution_validation.py
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Seed path guarantees and debloat permutation rules"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
