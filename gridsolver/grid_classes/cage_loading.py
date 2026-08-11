@@ -32,7 +32,8 @@ def split_cage_input(
         raise ValueError("Puzzle string contains no : separator")
     # Split only the layout separator. KenKen also permits ':' as a
     # division operator in the dictionary section.
-    return tuple(text.split(":", 1))
+    layout, dictionary_text = text.split(":", 1)
+    return layout, dictionary_text
 
 
 def _parse_compact_dictionary(
@@ -122,6 +123,20 @@ def _parse_compact_dictionary(
     return dict(solutions[0])
 
 
+def _raise_for_missing_unambiguous_label(
+    text: str,
+    layout: Iterable[str],
+    description: str,
+) -> None:
+    # A non-digit layout label cannot occur inside a numeric target, so its
+    # absence is unambiguous and deserves the established, specific error.
+    for label in dict.fromkeys(layout):
+        if not label.isdigit() and label not in text:
+            raise ValueError(
+                f"Missing {description} cage definition for {label!r}"
+            )
+
+
 def parse_killer_dictionary(
     text: str,
     layout: Iterable[str],
@@ -130,6 +145,7 @@ def parse_killer_dictionary(
     """Parse exact Killer Sudoku cage sums, including numeric labels."""
     layout = tuple(layout)
     cage_sizes = Counter(layout)
+    _raise_for_missing_unambiguous_label(text, layout, "Killer Sudoku")
 
     def parse_header(source: str, position: int) -> tuple[int, None]:
         return position + 1, None
@@ -151,7 +167,7 @@ def parse_killer_dictionary(
     )
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=65535)
 def _product_target_is_possible(
     cage_size: int,
     max_elem: int,
@@ -181,6 +197,17 @@ def parse_kenken_dictionary(
     layout = tuple(layout)
     cage_sizes = Counter(layout)
     supported_operators = frozenset(("+", "-", "*", "/", ":"))
+    _raise_for_missing_unambiguous_label(text, layout, "KenKen")
+
+    # Non-digit labels cannot be confused with target digits, so preserve the
+    # historical operator diagnostic wherever the entry boundary is certain.
+    for position, label in enumerate(text):
+        if label not in cage_sizes or label.isdigit():
+            continue
+        operator_index = position + 1
+        operator = text[operator_index] if operator_index < len(text) else ""
+        if operator not in supported_operators:
+            raise ValueError(f"Not supported operator {operator!r}")
 
     def parse_header(source: str, position: int) -> tuple[int, str] | None:
         operator_index = position + 1

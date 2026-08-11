@@ -12,9 +12,9 @@ from gridsolver.rules.sumrules import SumAndElementsAtMostOnce, SumRule
 
 
 def test_killer_compact_dictionary_supports_numeric_labels():
-    grid = KillerSudoku(None, 1, 1, 2, 2)
+    grid = KillerSudoku(None, 2, 2, 2, 2)
 
-    grid.load("aa00:a303")
+    grid.load("aaaabbbbcccc0000:a10b10c10010")
 
     cages = tuple(
         rule
@@ -22,8 +22,8 @@ def test_killer_compact_dictionary_supports_numeric_labels():
         if isinstance(rule, SumAndElementsAtMostOnce)
     )
     assert grid.has_been_filled
-    assert len(cages) == 2
-    assert {cage.sum for cage in cages} == {3}
+    assert len(cages) == 4
+    assert {cage.sum for cage in cages} == {10}
 
 
 def test_kenken_compact_dictionary_supports_numeric_labels():
@@ -72,11 +72,11 @@ def test_compact_dictionary_rejects_genuine_ambiguity():
 
 
 def test_failed_numeric_label_parse_is_transactional():
-    grid = KillerSudoku(None, 1, 1, 2, 2)
+    grid = KillerSudoku(None, 2, 2, 2, 2)
     before_rules = grid.rules.copy()
 
     with pytest.raises(ValueError, match="string format invalid"):
-        grid.load("aa00:a3")
+        grid.load("aaaabbbbcccc0000:a10b10c10")
 
     assert not grid.has_been_filled
     assert grid.rules == before_rules
