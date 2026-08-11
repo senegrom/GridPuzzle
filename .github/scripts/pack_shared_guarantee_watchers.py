@@ -107,4 +107,7 @@ def test_shared_cell_guarantees_use_one_packed_watcher_family():
 '''
 if "test_shared_cell_guarantees_use_one_packed_watcher_family" in text:
     raise SystemExit("watcher regression test already exists")
-tests.write_text(text.rstrip() + addition + "\n", encoding="utf-8")
+tests.write_text(
+    text.rstrip() + addition.rstrip() + "\n",
+    encoding="utf-8",
+)
