@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from numbers import Integral
 from typing import Any
 
 
@@ -69,6 +70,7 @@ class TrailState:
     candidate_value_masks: list[int] | None = None
     candidate_mask_dirty: int = 0
     candidate_index_token: int = 0
+    candidate_max_elem: int | None = None
 
     @property
     def active(self) -> bool:
@@ -87,6 +89,9 @@ class TrailedSet(set[int]):
         snapshot_token: int = 0,
         cell: int = -1,
     ) -> None:
+        # Construction is internal and already domain-checked by Grid. Keep
+        # initialization as cheap as a normal set; mutation boundaries below
+        # enforce the public candidate-domain invariant.
         super().__init__(values)
         self._trail_state = (
             TrailState() if trail_state is None else trail_state
@@ -101,6 +106,20 @@ class TrailedSet(set[int]):
             self._snapshot_token,
             self._cell,
         )
+
+    def _normalize_value(self, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise TypeError(f"Candidate values must be integers, got {value!r}")
+        normalized = int(value)
+        max_elem = self._trail_state.candidate_max_elem
+        if max_elem is not None and not 1 <= normalized <= max_elem:
+            raise ValueError(
+                f"Candidate value {normalized} is outside 1..{max_elem}"
+            )
+        return normalized
+
+    def _normalize_values(self, values: Iterable[int]) -> set[int]:
+        return {self._normalize_value(value) for value in values}
 
     def __repr__(self) -> str:
         return repr(set(self))
@@ -128,6 +147,7 @@ class TrailedSet(set[int]):
             state.candidate_mask_dirty |= 1 << self._cell
 
     def add(self, element: int) -> None:
+        element = self._normalize_value(element)
         state = self._trail_state
         if element in self:
             return
@@ -209,9 +229,9 @@ class TrailedSet(set[int]):
         self._mark_changed()
 
     def symmetric_difference_update(self, other: Iterable[int]) -> None:
-        # Toggling any element always changes the set, so the only no-op is an
-        # empty (deduplicated) argument.
-        other = other if isinstance(other, (set, frozenset)) else set(other)
+        # Validate the complete input before mutation so a bad later value
+        # cannot leave a partially updated candidate set.
+        other = self._normalize_values(other)
         if not other:
             return
         state = self._trail_state
@@ -223,10 +243,10 @@ class TrailedSet(set[int]):
     def update(self, *others: Iterable[int]) -> None:
         if not others:
             return
-        others = tuple(
-            other if isinstance(other, (set, frozenset)) else set(other)
-            for other in others
-        )
+        # Materialise and validate every iterable before the first mutation.
+        # Candidate additions are rare; correctness at this public boundary is
+        # more important than preserving permissive set coercion.
+        others = tuple(self._normalize_values(other) for other in others)
         if all(self.issuperset(other) for other in others):
             return
         state = self._trail_state

@@ -9,7 +9,7 @@ class RuleContainer:
         self.guarantees_ia: set[Guarantee] = set()
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, type(self)):
+        if type(other) is not type(self):
             return False
         return (
             self.rules == other.rules

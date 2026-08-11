@@ -43,8 +43,7 @@ class SumRule(Rule):
             k = self.sum - current_sum
             last_cell = next(cell for cell in self.cells if known[cell] == 0)
             if k in candidates[last_cell]:
-                candidates[last_cell].clear()
-                candidates[last_cell].add(k)
+                candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
             else:
                 candidates[last_cell].clear()
@@ -202,8 +201,7 @@ class ProdRule(Rule):
                 candidates[last_cell].clear()
                 raise InvalidGrid()
             if k in candidates[last_cell]:
-                candidates[last_cell].clear()
-                candidates[last_cell].add(k)
+                candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
             else:
                 candidates[last_cell].clear()
@@ -533,8 +531,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             k = self.sum - sum(my_known)
             np0 = new_candidates[0]
             if k in np0 and k not in my_known:
-                np0.clear()
-                np0.add(k)
+                np0.intersection_update((k,))
                 raise RuleAlwaysSatisfied()
             else:
                 np0.clear()

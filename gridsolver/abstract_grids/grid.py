@@ -145,7 +145,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             size.max_elem,
         )
         RuleContainer.__init__(self)
-        self._trail_state = TrailState()
+        self._trail_state = TrailState(candidate_max_elem=self.max_elem)
         self._candidates: tuple[TrailedSet, ...] = tuple(
             TrailedSet(
                 range(1, self.max_elem + 1),
@@ -328,7 +328,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.max_elem = self.max_elem
         result.len = self.len
         result._known = array("I", self._known)
-        result._trail_state = TrailState()
+        result._trail_state = TrailState(candidate_max_elem=self.max_elem)
         result._candidates = tuple(
             TrailedSet(possible, result._trail_state, cell=cell)
             for cell, possible in enumerate(self._candidates)
