@@ -50,7 +50,7 @@ Each grid declares a technique profile:
 - **GENERIC** retains rule helpers, tuple reasoning, forcing chains, Nishio, forcing nets, and backtracking, but excludes geometry-specific Sudoku patterns.
 - **RULES_ONLY** relies on the puzzle rules and ordinary branching, avoiding generic techniques whose measured cost exceeds their benefit for that model.
 
-The measured defaults are FULL for the original dense-grid families, GENERIC for Hidato and Kakuro, and RULES_ONLY for Numbrix and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
+The measured defaults are FULL for the original dense-grid families, GENERIC for Kakuro, and RULES_ONLY for Hidato, Numbrix, and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
 
 #### Basic
 - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house

@@ -471,9 +471,7 @@ def test_single_loop_rejects_selected_edges_in_distinct_cycle_blocks():
         rule.apply(grid._known, grid._candidates)
 
 
-def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
-    monkeypatch,
-):
+def test_compact_profiles_keep_only_applicable_power_actions(monkeypatch):
     calls: list[str] = []
 
     def generic(grid):
@@ -484,16 +482,17 @@ def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
 
     monkeypatch.setattr(atomic_solver, "rulehelper_atmostonce", generic)
     monkeypatch.setattr(atomic_solver, "locked_candidate", sudoku_only)
-    hidato = Hidato.from_board(((0, 0), (0, 0)))
-    actions = atomic_solver.AtomicSolver(hidato, [0], set())._solve_power_actions()
+    kakuro = _kakuro_2x2()
+    actions = atomic_solver.AtomicSolver(kakuro, [0], set())._solve_power_actions()
 
     assert next(actions) == "rulehelper_atmostonce"
     assert calls == ["generic"]
-    assert hidato.technique_profile is TechniqueProfile.GENERIC
+    assert kakuro.technique_profile is TechniqueProfile.GENERIC
 
+    hidato = Hidato.from_board(((0, 0), (0, 0)))
     numbrix = Numbrix.from_board(((0, 0), (0, 0)))
     slitherlink = Slitherlink(((None,),))
-    for grid in (numbrix, slitherlink):
+    for grid in (hidato, numbrix, slitherlink):
         assert grid.technique_profile is TechniqueProfile.RULES_ONLY
         assert list(
             atomic_solver.AtomicSolver(grid, [0], set())._solve_power_actions()

@@ -36,10 +36,10 @@ The measured defaults are:
 | Family | Profile |
 |---|---|
 | Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin-square variants | `FULL` |
-| Hidato, Kakuro | `GENERIC` |
-| Numbrix, Slitherlink | `RULES_ONLY` |
+| Kakuro | `GENERIC` |
+| Hidato, Numbrix, Slitherlink | `RULES_ONLY` |
 
-The Numbrix choice is evidence-based: on the retained Parade expert case, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. Hidato and Kakuro were approximately neutral, so they retain generic deductions that may help harder cases.
+The path-family choices are evidence-based. On the retained Numbrix Parade expert case, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. On retained Hidato cases the generic tier was between about 3x and 59x slower, and two cases did not finish within 30 seconds; `RULES_ONLY` proved all seven retained puzzles unique in under 0.14 seconds each. Kakuro remains `GENERIC` because its sum/all-different runs can benefit from generic tuple and contradiction deductions.
 
 Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks with `depth_gate=None`.
 
@@ -55,7 +55,7 @@ Do not infer technique applicability from the compact one-row storage layout. Ad
 
 ### New family rule models
 
-**Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. A whole-grid all-different/permutation model ensures every value appears exactly once. The rule performs:
+**Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. Each path grid installs one whole-path presence guarantee per value during construction, while the rule itself enforces the matching whole-grid all-different invariant. Together these state the permutation model immediately without a one-shot guarantee-emitting rule. The rule performs:
 
 - immediate predecessor/successor support checks;
 - fixed-clue graph-distance filtering;

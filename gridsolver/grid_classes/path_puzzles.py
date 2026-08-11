@@ -205,6 +205,7 @@ class Hidato(_ConsecutivePathGrid):
 
     diagonal_adjacency = True
     allow_blocks = True
+    technique_profile = TechniqueProfile.RULES_ONLY
 
 
 class Numbrix(_ConsecutivePathGrid):

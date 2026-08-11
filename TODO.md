@@ -185,12 +185,12 @@ the supported example corpus, 49x49–100x100 generated Sudoku scale tests, and
 the slow pandiagonal Latin-square corpus into independent jobs with explicit
 timeouts and duration reporting.
 
-## Future puzzle families
+## Path and graph puzzle families — DONE August 2026
 
-The Hidato, Kakuro, Numbrix, and Slitherlink corpora remain under `Examples/` as
-source material for future runtime implementations. They are intentionally not
-part of the supported-corpus test job until loaders and independent validators
-exist for those formats.
+Hidato, Kakuro, Numbrix, and standard Slitherlink have first-class loaders,
+independent validators/oracles, geometry-aware rendering, and isolated scheduled
+corpus coverage. Non-standard historical variants remain explicitly classified
+rather than silently interpreted as standard puzzles.
 
 ## Fish — parked; see `FISH_REWRITE.md`
 
