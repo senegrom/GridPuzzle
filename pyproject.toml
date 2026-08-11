@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gridpuzzle-solver"
 version = "0.1.0"
-description = "Constraint-propagation solver for Sudoku, Killer Sudoku, Futoshiki, KenKen, and Latin squares"
+description = "Constraint-propagation solver for Sudoku, Latin-square, path, sum, and loop puzzles"
 readme = "README.md"
 requires-python = ">=3.14"
 license = { file = "LICENSE" }
