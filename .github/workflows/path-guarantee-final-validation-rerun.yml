@@ -1,0 +1,149 @@
+name: Final path guarantee validation rerun
+
+on:
+  push:
+    branches:
+      - agent/path-guarantees-correctness
+    paths:
+      - .github/workflows/path-guarantee-final-validation-rerun.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: path-guarantee-final-validation-rerun
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install and compile
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+      - name: Run development-mode correctness surface
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_path_guarantees.py
+          tests/test_new_puzzle_families.py
+          tests/test_solution_validation.py
+          tests/test_rule_metadata.py
+          tests/test_guarantee_filter_cache.py
+          tests/test_hotpath_regressions.py
+          tests/test_extension_validation.py
+          tests/test_trail.py
+          tests/test_solver_api.py
+          tests/test_differential.py
+          tests/test_candidate_domain.py
+          tests/test_candidate_view.py
+          tests/test_examples_2.py
+          -m "not slow"
+          -k "not test_parallel_trials_match_sequential"
+          --durations=20
+      - name: Run process-pool equivalence separately
+        run: >-
+          python -m pytest -q
+          tests/test_solver_api.py
+          -k "test_parallel_trials_match_sequential"
+          --durations=5
+      - name: Reconstruct benchmark driver
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+          source = Path(
+              ".github/workflows/path-guarantee-final-validation.yml"
+          ).read_text(encoding="utf-8")
+          marker = "encoded = '''"
+          encoded = source.split(marker, 1)[1].split("'''", 1)[0]
+          Path("/tmp/benchmark_path_guarantees.py").write_bytes(
+              zlib.decompress(base64.b85decode(encoded.encode("ascii")))
+          )
+          PY
+      - name: Compare exact master and retained path corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/baseline origin/master
+          python /tmp/benchmark_path_guarantees.py \
+            --baseline /tmp/baseline \
+            --candidate "$GITHUB_WORKSPACE" \
+            --report benchmarks/path_guarantees_2026-08-11.md \
+            --json-report benchmarks/path_guarantees_2026-08-11.json
+      - name: Upload benchmark and corpus evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-guarantee-evidence-rerun
+          path: |
+            benchmarks/path_guarantees_2026-08-11.md
+            benchmarks/path_guarantees_2026-08-11.json
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install and test portable guarantee behavior
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests scripts run.py examples2.py
+          python -X dev -m pytest -q tests/test_path_guarantees.py tests/test_new_puzzle_families.py tests/test_solution_validation.py tests/test_guarantee_filter_cache.py tests/test_extension_validation.py -m "not slow" --durations=15
+
+  finalize:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v5
+        with:
+          name: path-guarantee-evidence-rerun
+          path: benchmarks
+      - name: Commit evidence and remove temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/path-guarantee-final-validation.yml \
+            .github/workflows/path-guarantee-final-validation-rerun.yml
+          git add -A -- \
+            .github/workflows/path-guarantee-final-validation.yml \
+            .github/workflows/path-guarantee-final-validation-rerun.yml \
+            benchmarks/path_guarantees_2026-08-11.md \
+            benchmarks/path_guarantees_2026-08-11.json
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Record path guarantee validation"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
