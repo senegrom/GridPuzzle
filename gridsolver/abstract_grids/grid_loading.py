@@ -31,7 +31,7 @@ _PUZZLE_CLASSES: dict[str, PuzzleClass] = {
 def _resolve_puzzle_class(class_: PuzzleClass | str) -> PuzzleClass:
     """Validate and resolve a supported class before consuming puzzle input."""
     if isinstance(class_, str):
-        key = class_.strip().lower()
+        key = class_.strip().lstrip("\ufeff").strip().lower()
         try:
             return _PUZZLE_CLASSES[key]
         except KeyError as exc:
@@ -74,7 +74,7 @@ def create_from_file(
     payload = "\n".join(
         line
         for line in lines
-        if line and not line.startswith("#")
+        if line and not line.startswith(("#", ";"))
     )
     return create_from_str(
         payload,

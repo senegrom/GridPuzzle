@@ -27,7 +27,7 @@ def xy_wing(grid: Grid) -> None:
                 for l2 in links2[c][i]:
                     seeing_both = wl[l1] & wl[l2] - {c}
                     for x in seeing_both:
-                        cdt = grid.get_candidates(x)
+                        cdt = grid._candidates[x]
                         if i in cdt:
                             _lg.on and _lg.logr("WingXY",
                                      f"{i} removed from {cdt} w/ " +
@@ -55,7 +55,7 @@ def xyz_wing(grid: Grid) -> None:
                 for l2 in b_cells:
                     seeing_three = wl[l1] & wl[l2] & wl[c] - {c}
                     for x in seeing_three:
-                        cdt = grid.get_candidates(x)
+                        cdt = grid._candidates[x]
                         if i in cdt:
                             _lg.on and _lg.logr("WingXYZ",
                                      f"{i} removed from {cdt} w/ " +

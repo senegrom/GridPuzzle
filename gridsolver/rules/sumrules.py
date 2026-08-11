@@ -1,6 +1,6 @@
 import collections
 import reprlib
-from functools import cached_property
+from functools import cached_property, lru_cache
 from numbers import Integral
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
 
@@ -43,8 +43,7 @@ class SumRule(Rule):
             k = self.sum - current_sum
             last_cell = next(cell for cell in self.cells if known[cell] == 0)
             if k in candidates[last_cell]:
-                candidates[last_cell].clear()
-                candidates[last_cell].add(k)
+                candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
             else:
                 candidates[last_cell].clear()
@@ -202,8 +201,7 @@ class ProdRule(Rule):
                 candidates[last_cell].clear()
                 raise InvalidGrid()
             if k in candidates[last_cell]:
-                candidates[last_cell].clear()
-                candidates[last_cell].add(k)
+                candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
             else:
                 candidates[last_cell].clear()
@@ -450,8 +448,14 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
     def sum_candidates(self) -> Tuple[FrozenSet[int]]:
         len_cell = self.len_cells
         return tuple(
-            frozenset(p) for p in SumAndElementsAtMostOnce.partition2(self.sum, len_cell, 1, self._max_elem)
-            if len(set(p)) == len_cell
+            frozenset(partition)
+            for partition in self.partition2(
+                self.sum,
+                len_cell,
+                1,
+                self._max_elem,
+            )
+            if len(set(partition)) == len_cell
         )
 
     @cached_property
@@ -471,54 +475,58 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.cells)
         return f"{type(self).__name__}[{self.sum}: {cell_str}; {reprlib.repr([set(p) for p in self.sum_candidates])}]"
 
-    _partition_dic = {}
-
     @staticmethod
-    def partition(n: int, count: int, mini: int, maxi: int) -> Iterator[Deque[int]]:
-        if maxi < mini or count <= 0:
-            return
+    @lru_cache(maxsize=65535)
+    def partition2(
+        n: int,
+        count: int,
+        mini: int = 1,
+        maxi: Optional[int] = None,
+    ) -> tuple[tuple[int, ...], ...]:
+        """Return immutable nondecreasing bounded partitions.
 
-        if maxi >= n and count == 1:
-            yield collections.deque(iterable=(n,))
-            return
-        elif count == 1:
-            return
-
-        mymax = min(n // count, maxi) + 1
-        if count == 2:
-            for i in range(mini, mymax):
-                for p in SumAndElementsAtMostOnce.partition(n - i, count - 1, i, maxi):
-                    p.appendleft(i)
-                    yield p
-        else:
-            for i in range(mini, mymax):
-                for p in SumAndElementsAtMostOnce.partition2(n - i, count - 1, i, maxi):
-                    p = p.copy()
-                    p.appendleft(i)
-                    yield p
-
-    @staticmethod
-    def partition2(n: int, count: int, mini: int = 1, maxi: Optional[int] = None) -> List[Deque[int]]:
+        The former process-global dictionary exposed cached mutable lists of
+        deques. Any caller could corrupt every later cage using the same key,
+        and clearing that dictionary at an arbitrary size boundary could race
+        with free-threaded callers. ``lru_cache`` owns the bound and every
+        cached value is immutable.
+        """
         if maxi is None:
             maxi = n
-
         if maxi < mini or count <= 0:
-            return []
+            return ()
+        if count == 1:
+            return ((n,),) if mini <= n <= maxi else ()
 
-        if maxi >= n and count == 1:
-            return [collections.deque((n,))]
-        elif count == 1:
-            return []
+        partitions: list[tuple[int, ...]] = []
+        upper = min(n // count, maxi) + 1
+        for value in range(mini, upper):
+            partitions.extend(
+                (value, *suffix)
+                for suffix in SumAndElementsAtMostOnce.partition2(
+                    n - value,
+                    count - 1,
+                    value,
+                    maxi,
+                )
+            )
+        return tuple(partitions)
 
-        key = (n, count, mini, maxi)
-        result = SumAndElementsAtMostOnce._partition_dic.get(key)
-        if result is not None:
-            return result
-        result = list(SumAndElementsAtMostOnce.partition(n, count, mini, maxi))
-        if len(SumAndElementsAtMostOnce._partition_dic) >= 65535:
-            SumAndElementsAtMostOnce._partition_dic.clear()  # crude bound for long processes
-        SumAndElementsAtMostOnce._partition_dic[key] = result
-        return result
+    @staticmethod
+    def partition(
+        n: int,
+        count: int,
+        mini: int,
+        maxi: int,
+    ) -> Iterator[Deque[int]]:
+        """Compatibility iterator yielding detached mutable deques."""
+        for partition in SumAndElementsAtMostOnce.partition2(
+            n,
+            count,
+            mini,
+            maxi,
+        ):
+            yield collections.deque(partition)
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         guarantees = () if guarantees is None else guarantees
@@ -533,8 +541,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             k = self.sum - sum(my_known)
             np0 = new_candidates[0]
             if k in np0 and k not in my_known:
-                np0.clear()
-                np0.add(k)
+                np0.intersection_update((k,))
                 raise RuleAlwaysSatisfied()
             else:
                 np0.clear()

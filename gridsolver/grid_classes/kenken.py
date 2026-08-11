@@ -9,7 +9,10 @@ from gridsolver.abstract_grids.grid import (
     _validate_load_options,
     pairs,
 )
-from gridsolver.grid_classes.killer_sudoku import KillerSudoku
+from gridsolver.grid_classes.cage_loading import (
+    parse_kenken_dictionary,
+    split_cage_input,
+)
 from gridsolver.grid_classes.sudoku import UniqueSquareGrid
 from gridsolver.rules.rules import Rule
 from gridsolver.rules.sumrules import DiffRule, DivRule, ProdRule, SumRule
@@ -64,36 +67,18 @@ class Kenken(UniqueSquareGrid):
     ) -> None:
         """Load a cage layout followed by a compact operator/target dictionary."""
         row_wise, space_sep = _validate_load_options(row_wise, space_sep)
-        target_cells, dictionary_text = KillerSudoku._load_preprocess_colon_split(
-            sum_cells_and_dic
-        )
+        target_cells, dictionary_text = split_cage_input(sum_cells_and_dic)
         sum_cells = (
             _load_preprocess_str_space_sep(target_cells)
             if space_sep
             else _load_preprocess_str(target_cells)
         )
         dictionary_text = _load_preprocess_str(dictionary_text)
-
-        index = 0
-        definitions: dict[str, tuple[str, int]] = {}
-        while index < len(dictionary_text):
-            if index + 1 >= len(dictionary_text):
-                raise ValueError("KenKen string format invalid")
-            label = dictionary_text[index]
-            operator = dictionary_text[index + 1]
-            index += 2
-            start = index
-            while (
-                index < len(dictionary_text)
-                and "0" <= dictionary_text[index] <= "9"
-            ):
-                index += 1
-            if index == start:
-                raise ValueError("KenKen string format invalid")
-            if label in definitions:
-                raise ValueError(f"Duplicate KenKen cage definition for {label!r}")
-            definitions[label] = (operator, int(dictionary_text[start:index]))
-
+        definitions = parse_kenken_dictionary(
+            dictionary_text,
+            sum_cells,
+            self.max_elem,
+        )
         self.load_with_dic(sum_cells, definitions, row_wise)
 
     def load_with_dic(

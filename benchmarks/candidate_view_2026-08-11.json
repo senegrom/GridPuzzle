@@ -1,0 +1,21 @@
+{
+  "decision": "promote",
+  "depth_gate": null,
+  "geomean_change_percent": 0.08620255576170521,
+  "summary": {
+    "loaded4": {
+      "baseline_median": 1.8390452099999948,
+      "candidate_median": 1.8379599740000003,
+      "change_percent": -0.05901083856413303,
+      "count": 4,
+      "digest": "484be136bb2b590f81c4b23096dc1af609324b9280fa83b61969618fc785a89c"
+    },
+    "nonsquare6": {
+      "baseline_median": 10.303476184000004,
+      "candidate_median": 10.327341811000025,
+      "change_percent": 0.23162694389569083,
+      "count": 10,
+      "digest": "48322d5be3b64fdf473bcb751f1eef10a58f3594b9caaba6cf322bb6a906524a"
+    }
+  }
+}

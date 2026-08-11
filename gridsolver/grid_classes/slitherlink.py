@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from numbers import Integral
 
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
-from gridsolver.grid_classes.compact_grid import CompactGrid
+from gridsolver.grid_classes.compact_grid import CompactGrid, _rectangular_rows
 from gridsolver.rules.topology import AllowedValueCountRule, SingleLoopRule
 
 
@@ -52,19 +52,8 @@ class Slitherlink(CompactGrid):
     technique_profile = TechniqueProfile.RULES_ONLY
 
     def __init__(self, clues: Sequence[Sequence[object]]) -> None:
-        if isinstance(clues, (str, bytes, bytearray)):
-            raise TypeError("Slitherlink clues must be a sequence of rows")
-        try:
-            rows = tuple(tuple(row) for row in clues)
-        except TypeError as exc:
-            raise TypeError(
-                "Slitherlink clues must be a sequence of rows"
-            ) from exc
-        if not rows or not rows[0]:
-            raise ValueError("Slitherlink clue grid must not be empty")
+        rows = _rectangular_rows(clues, "Slitherlink clue grid")
         board_cols = len(rows[0])
-        if any(len(row) != board_cols for row in rows):
-            raise ValueError("Slitherlink clue rows must have equal length")
         board_rows = len(rows)
 
         normalized_clues = tuple(
