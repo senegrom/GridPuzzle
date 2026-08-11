@@ -3,7 +3,7 @@ import inspect
 import textwrap
 
 from gridsolver.rules import rules as rules_module
-from gridsolver.rules import sumrules, uneq, unique
+from gridsolver.rules import sumrules, topology, uneq, unique
 from gridsolver.rules.rules import Rule
 
 
@@ -31,7 +31,7 @@ def _apply_reads_guarantees(method) -> bool:
 
 
 def test_uses_guarantees_flag_matches_apply_bodies():
-    modules = (rules_module, sumrules, uneq, unique)
+    modules = (rules_module, sumrules, topology, uneq, unique)
     classes: set[type[Rule]] = set()
 
     for module in modules:

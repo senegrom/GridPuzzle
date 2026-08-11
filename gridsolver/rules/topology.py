@@ -1,7 +1,7 @@
 """Reusable graph and cardinality constraints for non-Sudoku puzzle families."""
 
 from collections import deque
-from collections.abc import Iterable, MutableSequence
+from collections.abc import Iterable, Iterator, MutableSequence
 from numbers import Integral
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
@@ -537,25 +537,41 @@ class SingleLoopRule(Rule):
         bridges: set[int] = set()
         time = 0
 
-        def visit(vertex: int, parent_edge: int | None) -> None:
-            nonlocal time
+        # Iterative DFS: the recursive form overflowed the interpreter stack on
+        # boards from ~31x31 upward (one frame per loop-graph vertex).
+        for root in adjacency:
+            if root in discovery:
+                continue
             time += 1
-            discovery[vertex] = time
-            low[vertex] = time
-            for neighbour, edge in adjacency.get(vertex, ()):
-                if edge == parent_edge:
-                    continue
-                if neighbour not in discovery:
-                    visit(neighbour, edge)
-                    low[vertex] = min(low[vertex], low[neighbour])
-                    if low[neighbour] > discovery[vertex]:
-                        bridges.add(edge)
-                else:
+            discovery[root] = time
+            low[root] = time
+            work: list[tuple[int, int | None, Iterator[tuple[int, int]]]] = [
+                (root, None, iter(adjacency.get(root, ())))
+            ]
+            while work:
+                vertex, parent_edge, neighbours = work[-1]
+                advanced = False
+                for neighbour, edge in neighbours:
+                    if edge == parent_edge:
+                        continue
+                    if neighbour not in discovery:
+                        time += 1
+                        discovery[neighbour] = time
+                        low[neighbour] = time
+                        work.append(
+                            (neighbour, edge, iter(adjacency.get(neighbour, ())))
+                        )
+                        advanced = True
+                        break
                     low[vertex] = min(low[vertex], discovery[neighbour])
-
-        for vertex in adjacency:
-            if vertex not in discovery:
-                visit(vertex, None)
+                if advanced:
+                    continue
+                work.pop()
+                if work:
+                    parent_vertex = work[-1][0]
+                    low[parent_vertex] = min(low[parent_vertex], low[vertex])
+                    if low[vertex] > discovery[parent_vertex]:
+                        bridges.add(parent_edge)
         return bridges
 
     def _cyclic_blocks(self, possible: set[int]) -> tuple[frozenset[int], ...]:
@@ -589,29 +605,48 @@ class SingleLoopRule(Rule):
             if len(block) >= len(vertices):
                 blocks.append(frozenset(block))
 
-        def visit(vertex: int, parent_edge: int | None) -> None:
-            nonlocal time
+        # Iterative DFS (same overflow rationale as _bridge_edges). The
+        # back-edge condition and per-root residual flush mirror the recursive
+        # form exactly: forward edges to already-finished descendants are
+        # skipped without stack pushes or low updates.
+        for root in adjacency:
+            if root in discovery:
+                continue
             time += 1
-            discovery[vertex] = time
-            low[vertex] = time
-            for neighbour, edge in adjacency.get(vertex, ()):
-                if edge == parent_edge:
+            discovery[root] = time
+            low[root] = time
+            work: list[tuple[int, int | None, Iterator[tuple[int, int]]]] = [
+                (root, None, iter(adjacency.get(root, ())))
+            ]
+            while work:
+                vertex, parent_edge, neighbours = work[-1]
+                advanced = False
+                for neighbour, edge in neighbours:
+                    if edge == parent_edge:
+                        continue
+                    if neighbour not in discovery:
+                        edge_stack.append(edge)
+                        time += 1
+                        discovery[neighbour] = time
+                        low[neighbour] = time
+                        work.append(
+                            (neighbour, edge, iter(adjacency.get(neighbour, ())))
+                        )
+                        advanced = True
+                        break
+                    if discovery[neighbour] < discovery[vertex]:
+                        edge_stack.append(edge)
+                        low[vertex] = min(low[vertex], discovery[neighbour])
+                if advanced:
                     continue
-                if neighbour not in discovery:
-                    edge_stack.append(edge)
-                    visit(neighbour, edge)
-                    low[vertex] = min(low[vertex], low[neighbour])
-                    if low[neighbour] >= discovery[vertex]:
-                        finish_block(edge)
-                elif discovery[neighbour] < discovery[vertex]:
-                    edge_stack.append(edge)
-                    low[vertex] = min(low[vertex], discovery[neighbour])
-
-        for vertex in adjacency:
-            if vertex not in discovery:
-                visit(vertex, None)
-                if edge_stack:
-                    finish_block(edge_stack[0])
+                work.pop()
+                if work:
+                    parent_vertex = work[-1][0]
+                    low[parent_vertex] = min(low[parent_vertex], low[vertex])
+                    if low[vertex] >= discovery[parent_vertex]:
+                        finish_block(parent_edge)
+            if edge_stack:
+                finish_block(edge_stack[0])
         return tuple(blocks)
 
     def _remove_selected_value(
