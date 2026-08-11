@@ -1,5 +1,6 @@
 name: Pack shared guarantee watchers
 
+# Rerun after fixing generated-test whitespace.
 on:
   push:
     branches:
