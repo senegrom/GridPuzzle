@@ -1,0 +1,157 @@
+diff --git a/DEVELOPMENT.md b/DEVELOPMENT.md
+index 5dc7a7a..7254e0a 100644
+--- a/DEVELOPMENT.md
++++ b/DEVELOPMENT.md
+@@ -36,10 +36,10 @@ The measured defaults are:
+ | Family | Profile |
+ |---|---|
+ | Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin-square variants | `FULL` |
+-| Hidato, Kakuro | `GENERIC` |
+-| Numbrix, Slitherlink | `RULES_ONLY` |
++| Kakuro | `GENERIC` |
++| Hidato, Numbrix, Slitherlink | `RULES_ONLY` |
+ 
+-The Numbrix choice is evidence-based: on the retained Parade expert case, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. Hidato and Kakuro were approximately neutral, so they retain generic deductions that may help harder cases.
++The path-family choices are evidence-based. On the retained Numbrix Parade expert case, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. On retained Hidato cases the generic tier was between about 3x and 59x slower, and two cases did not finish within 30 seconds; `RULES_ONLY` proved all seven retained puzzles unique in under 0.14 seconds each. Kakuro remains `GENERIC` because its sum/all-different runs can benefit from generic tuple and contradiction deductions.
+ 
+ Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks with `depth_gate=None`.
+ 
+@@ -55,7 +55,7 @@ Do not infer technique applicability from the compact one-row storage layout. Ad
+ 
+ ### New family rule models
+ 
+-**Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. A whole-grid all-different/permutation model ensures every value appears exactly once. The rule performs:
++**Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. Each path grid installs one whole-path presence guarantee per value during construction, while the rule itself enforces the matching whole-grid all-different invariant. Together these state the permutation model immediately without a one-shot guarantee-emitting rule. The rule performs:
+ 
+ - immediate predecessor/successor support checks;
+ - fixed-clue graph-distance filtering;
+diff --git a/Examples/README.txt b/Examples/README.txt
+index bb25b36..e58cf13 100644
+--- a/Examples/README.txt
++++ b/Examples/README.txt
+@@ -1,7 +1,7 @@
+ Example corpora for GridPuzzle.
+ 
+-Currently supported puzzle families: Futoshiki, KenKen, Killer Sudoku, Latin Squares, and Sudoku.
++Supported puzzle families include Futoshiki, Hidato, Kakuro, KenKen, Killer Sudoku, Latin Squares, Numbrix, Slitherlink, and Sudoku.
+ 
+-Retained for future puzzle-family implementations: Hidato, Kakuro, Numbrix, and Slitherlink. These legacy corpora are source material and are not currently loaded by the GridPuzzle runtime.
++The retained Hidato, Kakuro, Numbrix, and Slitherlink CSP-Rules files are active runtime inputs and are exercised by scheduled isolated corpus jobs.
+ 
+ Where applicable, source websites or authors are identified by the nested folder names and local README files.
+diff --git a/README.md b/README.md
+index 24cb41e..958a7d2 100644
+--- a/README.md
++++ b/README.md
+@@ -50,7 +50,7 @@ Each grid declares a technique profile:
+ - **GENERIC** retains rule helpers, tuple reasoning, forcing chains, Nishio, forcing nets, and backtracking, but excludes geometry-specific Sudoku patterns.
+ - **RULES_ONLY** relies on the puzzle rules and ordinary branching, avoiding generic techniques whose measured cost exceeds their benefit for that model.
+ 
+-The measured defaults are FULL for the original dense-grid families, GENERIC for Hidato and Kakuro, and RULES_ONLY for Numbrix and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
++The measured defaults are FULL for the original dense-grid families, GENERIC for Kakuro, and RULES_ONLY for Hidato, Numbrix, and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
+ 
+ #### Basic
+ - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house
+diff --git a/TODO.md b/TODO.md
+index db8b201..d841237 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -185,12 +185,12 @@ the supported example corpus, 49x49–100x100 generated Sudoku scale tests, and
+ the slow pandiagonal Latin-square corpus into independent jobs with explicit
+ timeouts and duration reporting.
+ 
+-## Future puzzle families
++## Path and graph puzzle families — DONE August 2026
+ 
+-The Hidato, Kakuro, Numbrix, and Slitherlink corpora remain under `Examples/` as
+-source material for future runtime implementations. They are intentionally not
+-part of the supported-corpus test job until loaders and independent validators
+-exist for those formats.
++Hidato, Kakuro, Numbrix, and standard Slitherlink have first-class loaders,
++independent validators/oracles, geometry-aware rendering, and isolated scheduled
++corpus coverage. Non-standard historical variants remain explicitly classified
++rather than silently interpreted as standard puzzles.
+ 
+ ## Fish — parked; see `FISH_REWRITE.md`
+ 
+diff --git a/benchmarks/path_presence_guarantees_2026-08-11.md b/benchmarks/path_presence_guarantees_2026-08-11.md
+index 209aacc..00e6329 100644
+--- a/benchmarks/path_presence_guarantees_2026-08-11.md
++++ b/benchmarks/path_presence_guarantees_2026-08-11.md
+@@ -40,3 +40,27 @@ propagation before a rule pass, the integrated permutation invariant,
+ independent path solution oracles, malformed-source validation, clone/pickle
+ behavior inherited from the existing guarantee suite, and the permanent
+ rule-metadata guard.
++
++## Hidato technique-profile debloat
++
++Hidato now uses `RULES_ONLY`, matching Numbrix. The complete path/permutation
++constraint is already represented by `ConsecutiveAdjacencyRule` plus the seeded
++presence guarantees, so the generic tier's whole-grid relation materialization,
++tuple scans, and contradiction techniques duplicate expensive work.
++
++All seven retained Hidato files proved unique with `depth_gate=None`; the slowest
++finished in about 0.131 seconds on the local comparison machine. For the five
++cases where `GENERIC` completed within the comparison limit, exact solution
++fingerprints matched and `RULES_ONLY` was approximately 3x to 59x faster. The
++other two generic-profile cases exceeded 30 seconds, while `RULES_ONLY` solved
++them in about 0.102 and 0.131 seconds.
++
++The retained solution fingerprints were:
++
++- Mebane III.1: `c501eb4cd96b809e8aaeb35aaa124128bc2c3ce16c918df20e27e9af238ea859`
++- Mebane III.10: `fd179ee672f7f4cbf5fbb8e8f99718257d57e2af5cfdd5e06645a3868c88033b`
++- Mebane III.4: `54b9b5a41f02861868fc32853aee43f6dfd597b31178f3d43ef0921e551fb2cf`
++- Mebane III.7: `c56b23d7798c916505ca66f10378f9579c8ea7b16eee5686fcb056a8995a2ae3`
++- Smithsonian 3 stars: `f878549a50fac74d9361d30e979550651233d45fd226046520e0ff418afac18a`
++- Smithsonian 4 stars: `aaa30897ca925b1faf8291432b02b419fb46eab1bb6aa857c4938b7cb15f7bc2`
++- Smithsonian 5 stars: `b8bb783056d159285552fae1807184b01e658fd18b2fd810c7290e46f96505cf`
+diff --git a/gridsolver/grid_classes/path_puzzles.py b/gridsolver/grid_classes/path_puzzles.py
+index 354a547..d7c1e96 100644
+--- a/gridsolver/grid_classes/path_puzzles.py
++++ b/gridsolver/grid_classes/path_puzzles.py
+@@ -212,6 +212,7 @@ class Hidato(_ConsecutivePathGrid):
+ 
+     diagonal_adjacency = True
+     allow_blocks = True
++    technique_profile = TechniqueProfile.RULES_ONLY
+ 
+ 
+ class Numbrix(_ConsecutivePathGrid):
+diff --git a/tests/test_new_puzzle_families.py b/tests/test_new_puzzle_families.py
+index 35c7a98..aed4ba8 100644
+--- a/tests/test_new_puzzle_families.py
++++ b/tests/test_new_puzzle_families.py
+@@ -524,9 +524,7 @@ def test_single_loop_rejects_selected_edges_in_distinct_cycle_blocks():
+         rule.apply(grid._known, grid._candidates)
+ 
+ 
+-def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
+-    monkeypatch,
+-):
++def test_compact_profiles_keep_only_applicable_power_actions(monkeypatch):
+     calls: list[str] = []
+ 
+     def generic(grid):
+@@ -537,16 +535,17 @@ def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
+ 
+     monkeypatch.setattr(atomic_solver, "rulehelper_atmostonce", generic)
+     monkeypatch.setattr(atomic_solver, "locked_candidate", sudoku_only)
+-    hidato = Hidato.from_board(((0, 0), (0, 0)))
+-    actions = atomic_solver.AtomicSolver(hidato, [0], set())._solve_power_actions()
++    kakuro = _kakuro_2x2()
++    actions = atomic_solver.AtomicSolver(kakuro, [0], set())._solve_power_actions()
+ 
+     assert next(actions) == "rulehelper_atmostonce"
+     assert calls == ["generic"]
+-    assert hidato.technique_profile is TechniqueProfile.GENERIC
++    assert kakuro.technique_profile is TechniqueProfile.GENERIC
+ 
++    hidato = Hidato.from_board(((0, 0), (0, 0)))
+     numbrix = Numbrix.from_board(((0, 0), (0, 0)))
+     slitherlink = Slitherlink(((None,),))
+-    for grid in (numbrix, slitherlink):
++    for grid in (hidato, numbrix, slitherlink):
+         assert grid.technique_profile is TechniqueProfile.RULES_ONLY
+         assert list(
+             atomic_solver.AtomicSolver(grid, [0], set())._solve_power_actions()
