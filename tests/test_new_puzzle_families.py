@@ -236,6 +236,29 @@ def test_numbrix_matches_independent_2x2_oracle():
     assert actual == expected
 
 
+def test_blank_2x3_numbrix_matches_complete_independent_oracle():
+    grid = Numbrix(2, 3)
+
+    expected = _path_oracle(
+        2,
+        3,
+        diagonal=False,
+        givens={},
+    )
+    actual = {
+        tuple(solution)
+        for solution in solver.solve(
+            grid,
+            max_sols=-1,
+            log_level=-1,
+            depth_gate=None,
+        )
+    }
+
+    assert len(expected) == 16
+    assert actual == expected
+
+
 def test_hidato_uses_diagonal_adjacency_but_numbrix_does_not():
     board = ((1, 0), (0, 2))
 

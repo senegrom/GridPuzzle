@@ -128,7 +128,7 @@ One special cell must differ from all other rule cells.
 One special cell must differ by at least 2 from all other rule cells.
 
 #### `ConsecutiveAdjacencyRule`
-Every consecutive value pair must occupy adjacent cells in a supplied symmetric topology. Hidato and Numbrix share this rule and differ only in the topology supplied by their grid class.
+The rule models a complete permutation of `1..N` across `N` path cells and requires every consecutive value pair to occupy adjacent cells in a supplied symmetric topology. Hidato and Numbrix install the corresponding value-presence guarantees immediately, then share this one all-different/path rule; they differ only in the topology supplied by their grid class.
 
 #### `AllowedValueCountRule`
 Restricts how many cells in a collection may contain a distinguished value. Slitherlink uses exact clue counts and allowed vertex degrees `{0, 2}`.
