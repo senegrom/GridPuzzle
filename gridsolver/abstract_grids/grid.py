@@ -595,7 +595,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self._invalidate_rule_cache()
         self._invalidate_struct_cache()
 
-    def _normalize_guarantee(self, guarantee: Guarantee) -> Guarantee:
+    def _normalize_guarantee(
+        self,
+        guarantee: Guarantee,
+        validated_cell_sets: dict[int, frozenset[int]] | None = None,
+    ) -> Guarantee:
         """Validate and canonicalise one guarantee before set membership.
 
         Guarantee is a lightweight NamedTuple and can therefore be
@@ -613,16 +617,31 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         if type(guarantee) is Guarantee:
             value = guarantee.val
             cells = guarantee.cells
+            cells_valid = (
+                type(cells) is frozenset
+                and validated_cell_sets is not None
+                and validated_cell_sets.get(id(cells)) is cells
+            )
+            if (
+                not cells_valid
+                and type(cells) is frozenset
+                and cells
+                and all(
+                    type(cell) is int and 0 <= cell < self.len
+                    for cell in cells
+                )
+            ):
+                cells_valid = True
+                if validated_cell_sets is not None:
+                    validated_cell_sets[id(cells)] = cells
             if (
                 type(value) is int
-                and type(cells) is frozenset
+                and cells_valid
                 and type(guarantee.rows) is int
                 and type(guarantee.cols) is int
                 and 1 <= value <= self.max_elem
                 and guarantee.rows == self.rows
                 and guarantee.cols == self.cols
-                and cells
-                and all(type(cell) is int and 0 <= cell < self.len for cell in cells)
             ):
                 return guarantee
         if not isinstance(guarantee, Guarantee):
@@ -679,12 +698,25 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
         return Guarantee(value, frozenset(cells), rows, cols)
 
-    def add_gtees_checked(self, guarantees: Iterable[Guarantee]) -> None:
-        """Validate a complete guarantee batch, then commit it atomically."""
+    def _normalize_guarantees(
+        self,
+        guarantees: Iterable[Guarantee],
+    ) -> tuple[Guarantee, ...]:
+        """Materialise and validate a complete guarantee batch once."""
+        validated_cell_sets: dict[int, frozenset[int]] = {}
+        return tuple(
+            self._normalize_guarantee(guarantee, validated_cell_sets)
+            for guarantee in guarantees
+        )
+
+    def _add_normalized_gtees(
+        self,
+        guarantees: Iterable[Guarantee],
+    ) -> None:
+        """Commit an already-normalised guarantee batch atomically."""
         additions: list[Guarantee] = []
         seen: set[Guarantee] = set()
         for guarantee in guarantees:
-            guarantee = self._normalize_guarantee(guarantee)
             if (
                 guarantee in seen
                 or guarantee in self.guarantees_ia
@@ -709,6 +741,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             )
         self._invalidate_struct_cache()
         self._invalidate_guarantee_cache()
+
+    def add_gtees_checked(self, guarantees: Iterable[Guarantee]) -> None:
+        """Validate a complete guarantee batch, then commit it atomically."""
+        self._add_normalized_gtees(
+            self._normalize_guarantees(guarantees)
+        )
 
     def add_gtee_checked(self, guarantee: Guarantee) -> None:
         self.add_gtees_checked((guarantee,))

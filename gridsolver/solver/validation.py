@@ -41,6 +41,10 @@ class _ValidationPlan:
     rules: tuple[Rule, ...]
     guarantees: tuple[Guarantee, ...]
     active_guarantees: tuple[Guarantee, ...]
+    guarantee_groups: tuple[
+        tuple[frozenset[int], frozenset[int]],
+        ...
+    ]
 
 
 @dataclass(slots=True)
@@ -51,11 +55,40 @@ class _FallbackBudget:
 def _canonical_guarantee(
     guarantee: object,
     plan: _ValidationPlan,
+    validated_cell_sets: dict[int, frozenset[int]] | None = None,
 ) -> Guarantee:
     if type(guarantee) is not Guarantee:
         raise TypeError(
             f"Expected Guarantee output, got {type(guarantee).__name__}"
         )
+    cells = guarantee.cells
+    cells_valid = (
+        type(cells) is frozenset
+        and validated_cell_sets is not None
+        and validated_cell_sets.get(id(cells)) is cells
+    )
+    if (
+        not cells_valid
+        and type(cells) is frozenset
+        and cells
+        and all(
+            type(cell) is int and 0 <= cell < plan.length
+            for cell in cells
+        )
+    ):
+        cells_valid = True
+        if validated_cell_sets is not None:
+            validated_cell_sets[id(cells)] = cells
+    if (
+        type(guarantee.val) is int
+        and type(guarantee.rows) is int
+        and type(guarantee.cols) is int
+        and 1 <= guarantee.val <= plan.max_elem
+        and guarantee.rows == plan.rows
+        and guarantee.cols == plan.cols
+        and cells_valid
+    ):
+        return guarantee
     if isinstance(guarantee.val, bool) or not isinstance(
         guarantee.val,
         Integral,
@@ -127,6 +160,34 @@ def _guarantee_is_satisfied(
         _canonical_guarantee(guarantee, plan),
         values,
     )
+
+
+def _group_guarantees(
+    guarantees: Iterable[Guarantee],
+) -> tuple[tuple[frozenset[int], frozenset[int]], ...]:
+    """Group guarantees sharing a cell set for linear validation."""
+    values_by_cells: dict[frozenset[int], set[int]] = {}
+    for guarantee in guarantees:
+        values_by_cells.setdefault(guarantee.cells, set()).add(guarantee.val)
+    return tuple(
+        (cells, frozenset(required_values))
+        for cells, required_values in sorted(
+            values_by_cells.items(),
+            key=lambda item: (len(item[0]), tuple(sorted(item[0]))),
+        )
+    )
+
+
+def _first_missing_guarantee(
+    groups: tuple[tuple[frozenset[int], frozenset[int]], ...],
+    values: Sequence[int],
+) -> tuple[int, frozenset[int]] | None:
+    for cells, required_values in groups:
+        present_values = {values[cell] for cell in cells}
+        missing = required_values - present_values
+        if missing:
+            return min(missing), cells
+    return None
 
 
 def _validate_rule_metadata(rule: object, plan: _ValidationPlan) -> Rule:
@@ -414,6 +475,7 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
         rules=(),
         guarantees=(),
         active_guarantees=(),
+        guarantee_groups=(),
     )
 
     validated_rules: list[Rule] = []
@@ -425,13 +487,21 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
                 f"Malformed rule in source grid: {rule!r}: {exc}"
             ) from exc
 
+    validated_guarantee_cells: dict[int, frozenset[int]] = {}
+
     def canonicalize_guarantees(
         raw_guarantees: tuple[Guarantee, ...],
     ) -> tuple[Guarantee, ...]:
         canonical: list[Guarantee] = []
         for guarantee in raw_guarantees:
             try:
-                canonical.append(_canonical_guarantee(guarantee, partial))
+                canonical.append(
+                    _canonical_guarantee(
+                        guarantee,
+                        partial,
+                        validated_guarantee_cells,
+                    )
+                )
             except (TypeError, ValueError) as exc:
                 raise InvalidSolutionError(
                     f"Malformed guarantee in source grid: {guarantee!r}: {exc}"
@@ -451,6 +521,9 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
         rules=tuple(validated_rules),
         guarantees=active_guarantees + inactive_guarantees,
         active_guarantees=active_guarantees,
+        guarantee_groups=_group_guarantees(
+            active_guarantees + inactive_guarantees
+        ),
     )
 
 
@@ -485,12 +558,15 @@ def _validate_against_plan(
                 f"Solution uses eliminated candidate {value} at cell {cell}"
             )
 
-    for guarantee in plan.guarantees:
-        if not _canonical_guarantee_is_satisfied(guarantee, values):
-            raise InvalidSolutionError(
-                f"Solution violates guarantee {guarantee.val} in "
-                f"{sorted(guarantee.cells)}"
-            )
+    missing_guarantee = _first_missing_guarantee(
+        plan.guarantee_groups,
+        values,
+    )
+    if missing_guarantee is not None:
+        value, cells = missing_guarantee
+        raise InvalidSolutionError(
+            f"Solution violates guarantee {value} in {sorted(cells)}"
+        )
 
     for rule in plan.rules:
         try:

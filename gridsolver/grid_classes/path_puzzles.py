@@ -6,7 +6,7 @@ from numbers import Integral
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.grid_classes.compact_grid import CompactGrid
 from gridsolver.rules.topology import ConsecutiveAdjacencyRule
-from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
+from gridsolver.rules.unique import ElementsAtMostOnce, value_presence_guarantees
 
 
 type BoardCell = tuple[int, int]
@@ -118,12 +118,22 @@ class _ConsecutivePathGrid(CompactGrid):
         self.add_rules_checked(
             (
                 ElementsAtMostOnce(self, cells=cells),
-                ElementsAtLeastOnce(self, cells=cells),
                 ConsecutiveAdjacencyRule(
                     self,
                     cells=cells,
                     adjacency=self.adjacency,
                 ),
+            )
+        )
+        # A path over N cells is a permutation of 1..N. Seed those facts as
+        # live guarantees rather than carrying a one-shot rule whose only job
+        # is to emit the same guarantees during the first propagation pass.
+        self.add_gtees_checked(
+            value_presence_guarantees(
+                cells,
+                max_elem=self.max_elem,
+                rows=self.rows,
+                cols=self.cols,
             )
         )
 

@@ -1,7 +1,47 @@
 from collections.abc import Iterable, MutableSequence
+from functools import lru_cache
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Guarantee, IdxType, InvalidGrid, Rule, RuleAlwaysSatisfied
+
+
+@lru_cache(maxsize=256)
+def _cached_value_presence_guarantees(
+    cells: frozenset[int],
+    max_elem: int,
+    rows: int,
+    cols: int,
+) -> tuple[Guarantee, ...]:
+    return tuple(
+        Guarantee(value, cells, rows, cols)
+        for value in range(1, max_elem + 1)
+    )
+
+
+def value_presence_guarantees(
+    cells: Iterable[int],
+    *,
+    max_elem: int,
+    rows: int,
+    cols: int,
+) -> tuple[Guarantee, ...]:
+    """Require every domain value to occur in ``cells``.
+
+    Guarantees are immutable, so identical families can safely share one
+    bounded cache entry across puzzle instances. Every guarantee in a family
+    also shares the same immutable cell set.
+    """
+    cell_set = frozenset(cells)
+    if not cell_set:
+        raise ValueError(
+            "Value-presence guarantees require at least one cell"
+        )
+    return _cached_value_presence_guarantees(
+        cell_set,
+        max_elem,
+        rows,
+        cols,
+    )
 
 
 class ElementsAtMostOnce(Rule):
@@ -105,8 +145,10 @@ class ElementsAtLeastOnce(Rule):
         known: MutableSequence[int],
         candidates: tuple[set[int], ...],
         guarantees: Iterable[Guarantee] | None = None,
-    ) -> tuple[bool, list[Rule], list[Guarantee]]:
-        return False, [], [
-            Guarantee(value, frozenset(self.cells), self._rows, self._cols)
-            for value in range(1, self._max_elem + 1)
-        ]
+    ) -> tuple[bool, tuple[Rule, ...], tuple[Guarantee, ...]]:
+        return False, (), value_presence_guarantees(
+            self.cells,
+            max_elem=self._max_elem,
+            rows=self._rows,
+            cols=self._cols,
+        )
