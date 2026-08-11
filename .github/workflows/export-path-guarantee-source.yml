@@ -1,0 +1,26 @@
+name: Export path guarantee audit source
+
+on:
+  push:
+    branches:
+      - agent/path-guarantees-correctness
+    paths:
+      - .github/workflows/export-path-guarantee-source.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gridpuzzle-path-guarantee-source
+          path: .
+          include-hidden-files: true
+          retention-days: 1
