@@ -65,8 +65,10 @@ jobs:
           tests/test_topology_cache_lifecycle.py
           tests/test_candidate_mask_index.py
           tests/test_candidate_domain.py
+          tests/test_candidate_view.py
           tests/test_compact_api_hardening.py
           tests/test_partition_cache.py
+          tests/test_arithmetic_rule_soundness.py
           tests/test_atmostonce_memo.py
           tests/test_aic_extra_visibility.py
           tests/test_extension_validation.py
@@ -157,8 +159,10 @@ jobs:
           tests/test_topology_cache_lifecycle.py
           tests/test_candidate_mask_index.py
           tests/test_candidate_domain.py
+          tests/test_candidate_view.py
           tests/test_compact_api_hardening.py
           tests/test_partition_cache.py
+          tests/test_arithmetic_rule_soundness.py
           tests/test_atmostonce_memo.py
           tests/test_aic_extra_visibility.py
           tests/test_extension_validation.py
