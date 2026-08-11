@@ -2,9 +2,40 @@
 
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from numbers import Integral
-from typing import Any
 
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
+
+
+def _rectangular_rows(
+    raw_rows: Iterable[Iterable[object]],
+    description: str,
+) -> tuple[tuple[object, ...], ...]:
+    """Materialise a non-empty rectangular matrix without treating text as rows."""
+    if isinstance(raw_rows, (str, bytes, bytearray)):
+        raise TypeError(f"{description} must be a sequence of rows")
+    try:
+        iterator = iter(raw_rows)
+    except TypeError as exc:
+        raise TypeError(f"{description} must be a sequence of rows") from exc
+
+    rows: list[tuple[object, ...]] = []
+    for row_index, raw_row in enumerate(iterator):
+        if isinstance(raw_row, (str, bytes, bytearray)):
+            raise TypeError(f"{description} row {row_index} must not be text")
+        try:
+            row = tuple(raw_row)
+        except TypeError as exc:
+            raise TypeError(
+                f"{description} row {row_index} must be a sequence"
+            ) from exc
+        rows.append(row)
+
+    if not rows or not rows[0]:
+        raise ValueError(f"{description} must not be empty")
+    width = len(rows[0])
+    if any(len(row) != width for row in rows):
+        raise ValueError(f"{description} rows must all have the same length")
+    return tuple(rows)
 
 
 class CompactGrid(Grid):
@@ -24,7 +55,11 @@ class CompactGrid(Grid):
         cell_to_key = tuple(keys)
         if not cell_to_key:
             raise ValueError("A compact grid requires at least one variable")
-        if len(cell_to_key) != len(set(cell_to_key)):
+        try:
+            unique_keys = set(cell_to_key)
+        except TypeError as exc:
+            raise TypeError("Compact-grid keys must be hashable") from exc
+        if len(cell_to_key) != len(unique_keys):
             raise ValueError("Compact-grid keys must be unique")
 
         super().__init__(1, len(cell_to_key), max_elem=max_elem)
@@ -41,6 +76,8 @@ class CompactGrid(Grid):
     def compact_cell(self, key: Hashable) -> int:
         try:
             return self.key_to_cell[key]
+        except TypeError as exc:
+            raise TypeError("Puzzle keys must be hashable") from exc
         except KeyError as exc:
             raise KeyError(f"Unknown puzzle key {key!r}") from exc
 
@@ -53,9 +90,29 @@ class CompactGrid(Grid):
         return self.cell_to_key[cell]
 
     def values_by_key(self, values: Sequence[int]) -> dict[Hashable, int]:
-        if len(values) != self.len:
-            raise ValueError(f"Expected {self.len} values, got {len(values)}")
-        return dict(zip(self.cell_to_key, values))
+        if isinstance(values, (str, bytes, bytearray)):
+            raise TypeError("Compact-grid values must be an integer sequence")
+        try:
+            value_count = len(values)
+        except TypeError as exc:
+            raise TypeError(
+                "Compact-grid values must be an integer sequence"
+            ) from exc
+        if value_count != self.len:
+            raise ValueError(f"Expected {self.len} values, got {value_count}")
+
+        normalized: list[int] = []
+        for cell, raw_value in enumerate(values):
+            if isinstance(raw_value, bool) or not isinstance(raw_value, Integral):
+                raise TypeError(f"Value for compact cell {cell} must be an integer")
+            value = int(raw_value)
+            if not 0 <= value <= self.max_elem:
+                raise ValueError(
+                    f"Value {value} for compact cell {cell} is outside "
+                    f"0..{self.max_elem}"
+                )
+            normalized.append(value)
+        return dict(zip(self.cell_to_key, normalized, strict=True))
 
     def load_key_values(self, values: Mapping[Hashable, int]) -> None:
         """Load keyed givens atomically through the normal Grid loader."""

@@ -4,7 +4,7 @@ from collections.abc import Iterable, Sequence
 from numbers import Integral
 
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
-from gridsolver.grid_classes.compact_grid import CompactGrid
+from gridsolver.grid_classes.compact_grid import CompactGrid, _rectangular_rows
 from gridsolver.rules.topology import ConsecutiveAdjacencyRule
 from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
 
@@ -139,17 +139,8 @@ class _ConsecutivePathGrid(CompactGrid):
         cls,
         board: Sequence[Sequence[object]],
     ) -> "_ConsecutivePathGrid":
-        if isinstance(board, (str, bytes, bytearray)):
-            raise TypeError("Path board must be a sequence of rows")
-        try:
-            rows = tuple(tuple(row) for row in board)
-        except TypeError as exc:
-            raise TypeError("Path board must be a sequence of rows") from exc
-        if not rows or not rows[0]:
-            raise ValueError("Path board must not be empty")
+        rows = _rectangular_rows(board, "Path board")
         width = len(rows[0])
-        if any(len(row) != width for row in rows):
-            raise ValueError("Path board rows must all have the same length")
 
         blocked: set[BoardCell] = set()
         givens: dict[BoardCell, int] = {}
