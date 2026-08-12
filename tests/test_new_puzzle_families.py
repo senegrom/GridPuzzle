@@ -501,6 +501,45 @@ def test_compact_profiles_keep_generic_actions_but_exclude_sudoku_patterns(
         ) == []
 
 
+def test_generic_ladder_is_a_subsequence_of_the_full_ladder(monkeypatch):
+    # _solve_power_actions and _generic_power_actions are hand-maintained
+    # twins (the ladder is deliberately not table-driven for dispatch speed);
+    # this guard fails loudly if a change to one silently diverges the other:
+    # every generic action must appear in the FULL ladder in the same
+    # relative order.
+    from gridsolver.grid_classes.sudoku import Sudoku
+
+    recorded: list[str] = []
+
+    def record_act(self, name, *args, **kwargs):
+        recorded.append(name)
+        return name
+
+    monkeypatch.setattr(atomic_solver.AtomicSolver, "_act", record_act)
+
+    list(
+        atomic_solver.AtomicSolver(
+            Sudoku(2, 2, 2, 2), [0], set()
+        )._solve_power_actions()
+    )
+    full_names = list(recorded)
+
+    recorded.clear()
+    list(
+        atomic_solver.AtomicSolver(
+            _kakuro_2x2(), [0], set()
+        )._solve_power_actions()
+    )
+    generic_names = list(recorded)
+
+    assert generic_names
+    generic_set = set(generic_names)
+    assert not generic_set - set(full_names)
+    assert generic_names == [
+        name for name in full_names if name in generic_set
+    ]
+
+
 def test_cli_file_route_renders_compact_solution(tmp_path, capsys):
     path = tmp_path / "one.clp"
     path.write_text("(solve 1 1 4)\n", encoding="utf-8")

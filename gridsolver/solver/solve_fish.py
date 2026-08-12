@@ -61,6 +61,36 @@ def _value_memo(grid: Grid) -> TrailedDict:
         grid._fish_value_memo = memo
     return memo
 
+def _eliminate_outside(cands, cell_groups, all_gts, value, label, c) -> None:
+    """Remove ``value`` from cells covered by ``cell_groups`` outside the fish set."""
+    for group in cell_groups:
+        for cell in group:
+            if cell not in all_gts:
+                cd = cands[cell]
+                if value in cd:
+                    _lg.on and _lg.logr(label,
+                             f"{value} removed from {cd} w/ fish-set {c(all_gts)}",
+                             c(cell))
+                    cd.remove(value)
+
+
+def _eliminate_cannibals(cands, urs, all_gts, threshold, value, label, c) -> None:
+    """Remove ``value`` from fish-set cells covered by ``threshold`` base sets."""
+    for cell in all_gts:
+        counter = 0
+        for ur in urs:
+            if cell in ur:
+                counter += 1
+            if counter == threshold:
+                cd = cands[cell]
+                if value in cd:
+                    _lg.on and _lg.logr(label,
+                             f"{value} removed from {cd} w/ fish-set {c(all_gts)}",
+                             c(cell))
+                    cd.remove(value)
+                break
+
+
 # noinspection PyProtectedMember
 def fish(grid: Grid, max_fish=2) -> None:
     max_fish = _fish_size(max_fish)
@@ -76,6 +106,8 @@ def fish(grid: Grid, max_fish=2) -> None:
     memo = _value_memo(grid)
 
     for f in range(max_fish, 1, -1):
+        fish_label = f"Fish@{f}"
+        cannibal_label = f"FishCannibal@{f}"
         # Value-first: for each value, find relevant unique rule combinations
         for i in range(1, grid.max_elem + 1):
             gts_for_val = gt_dic[i]
@@ -110,28 +142,8 @@ def fish(grid: Grid, max_fish=2) -> None:
                                 if not gt_a.isdisjoint(gt_b):
                                     continue
                                 all_gts = gt_a | gt_b
-                                for ur in urs:
-                                    for cell in ur:
-                                        if cell not in all_gts:
-                                            cd = cands[cell]
-                                            if i in cd:
-                                                _lg.on and _lg.logr(f"Fish@{f}",
-                                                         f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                         c(cell))
-                                                cd.remove(i)
-                                for cell in all_gts:
-                                    counter = 0
-                                    for ur in urs:
-                                        if cell in ur:
-                                            counter += 1
-                                        if counter == 2:
-                                            cd = cands[cell]
-                                            if i in cd:
-                                                _lg.on and _lg.logr(f"FishCannibal@{f}",
-                                                         f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                         c(cell))
-                                                cd.remove(i)
-                                            break
+                                _eliminate_outside(cands, urs, all_gts, i, fish_label, c)
+                                _eliminate_cannibals(cands, urs, all_gts, 2, i, cannibal_label, c)
             else:
                 for urs in itertools.combinations(relevant_ur_list, f):
                     all_urs = frozenset().union(*urs)
@@ -149,28 +161,8 @@ def fish(grid: Grid, max_fish=2) -> None:
                         if not disjoint:
                             continue
                         all_gts = frozenset(seen)
-                        for ur in urs:
-                            for cell in ur:
-                                if cell not in all_gts:
-                                    cd = cands[cell]
-                                    if i in cd:
-                                        _lg.on and _lg.logr(f"Fish@{f}",
-                                                 f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                 c(cell))
-                                        cd.remove(i)
-                        for cell in all_gts:
-                            counter = 0
-                            for ur in urs:
-                                if cell in ur:
-                                    counter += 1
-                                if counter == 2:
-                                    cd = cands[cell]
-                                    if i in cd:
-                                        _lg.on and _lg.logr(f"FishCannibal@{f}",
-                                                 f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                 c(cell))
-                                        cd.remove(i)
-                                    break
+                        _eliminate_outside(cands, urs, all_gts, i, fish_label, c)
+                        _eliminate_cannibals(cands, urs, all_gts, 2, i, cannibal_label, c)
             memo[memo_key] = fingerprint
 
 
@@ -188,6 +180,8 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
     memo = _value_memo(grid)
 
     for f in range(max_fish, 1, -1):
+        finned_label = f"FishFinned@{f}"
+        cannibal_label = f"FishFinnedCannibal@{f}"
         for i in range(1, grid.max_elem + 1):
             gts_for_val = gt_dic[i]
             if len(gts_for_val) < f:
@@ -232,28 +226,8 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                                     if not gt_a.isdisjoint(gt_b):
                                         continue
                                     all_gts = gt_a | gt_b
-                                    for isect in ur_intersections:
-                                        for cell in isect:
-                                            if cell not in all_gts:
-                                                cd = cands[cell]
-                                                if i in cd:
-                                                    _lg.on and _lg.logr(f"FishFinned@{f}",
-                                                             f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                             c(cell))
-                                                    cd.remove(i)
-                                    for cell in all_gts:
-                                        counter = 0
-                                        for ur in urs:
-                                            if cell in ur:
-                                                counter += 1
-                                            if counter == 3:
-                                                cd = cands[cell]
-                                                if i in cd:
-                                                    _lg.on and _lg.logr(f"FishFinnedCannibal@{f}",
-                                                             f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                             c(cell))
-                                                    cd.remove(i)
-                                                break
+                                    _eliminate_outside(cands, ur_intersections, all_gts, i, finned_label, c)
+                                    _eliminate_cannibals(cands, urs, all_gts, 3, i, cannibal_label, c)
             else:
                 for urs in itertools.combinations(relevant_ur_list, f + 1):
                     all_urs = frozenset().union(*urs)
@@ -278,26 +252,6 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                         if not disjoint:
                             continue
                         all_gts = frozenset(seen)
-                        for isect in ur_intersections:
-                            for cell in isect:
-                                if cell not in all_gts:
-                                    cd = cands[cell]
-                                    if i in cd:
-                                        _lg.on and _lg.logr(f"FishFinned@{f}",
-                                                 f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                 c(cell))
-                                        cd.remove(i)
-                        for cell in all_gts:
-                            counter = 0
-                            for ur in urs:
-                                if cell in ur:
-                                    counter += 1
-                                if counter == 3:
-                                    cd = cands[cell]
-                                    if i in cd:
-                                        _lg.on and _lg.logr(f"FishFinnedCannibal@{f}",
-                                                 f"{i} removed from {cd} w/ fish-set {c(all_gts)}",
-                                                 c(cell))
-                                        cd.remove(i)
-                                    break
+                        _eliminate_outside(cands, ur_intersections, all_gts, i, finned_label, c)
+                        _eliminate_cannibals(cands, urs, all_gts, 3, i, cannibal_label, c)
             memo[memo_key] = fingerprint

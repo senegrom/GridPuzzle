@@ -24,13 +24,20 @@ def locked_candidate(grid: Grid) -> None:
     cands = grid._candidates
     known = grid._known
 
-    # Precompute intersecting pairs and their partitions
-    pairs = []
-    for g1, g2 in itertools.combinations(unique_rule_cells, 2):
-        intersection = g1 & g2
-        if not intersection or len(intersection) == len(g1) or len(intersection) == len(g2):
-            continue
-        pairs.append((tuple(g1 - intersection), tuple(g2 - intersection), tuple(intersection)))
+    # Intersecting pairs and their partitions depend only on full_houses,
+    # so they share the rule-cache lifecycle instead of being rebuilt on
+    # every call (locked_candidate is the first power action and also runs
+    # inside every forcing-chain branch).
+    def build_pairs() -> tuple:
+        result = []
+        for g1, g2 in itertools.combinations(unique_rule_cells, 2):
+            intersection = g1 & g2
+            if not intersection or len(intersection) == len(g1) or len(intersection) == len(g2):
+                continue
+            result.append((tuple(g1 - intersection), tuple(g2 - intersection), tuple(intersection)))
+        return tuple(result)
+
+    pairs = grid.cached_rule_struct("locked_candidate_pairs", build_pairs)
 
     for g1_only, g2_only, intersection in pairs:
         for val in range(1, grid.max_elem + 1):

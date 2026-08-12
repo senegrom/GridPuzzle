@@ -34,3 +34,4 @@ used for each accepted or rejected optimization.
 | 08-10 | new_family_corpus_audit | measured | 93/102 unique, 9 timeouts, 0 errors |
 | 08-11 | immutable_partition_cache | accepted | lru tuple cache, lookups −33.30%; public partition2 keeps list[deque] |
 | 08-11 | candidate_view | accepted | validated public view off the hot path, GM +0.09% |
+| 08-12 | locked_candidate_pairs | accepted | pair cache + fish elimination dedup, −0.4/−1.1% |
