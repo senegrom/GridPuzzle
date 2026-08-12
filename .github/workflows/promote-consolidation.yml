@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: promote-consolidation
@@ -21,7 +21,7 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  validate-and-promote:
+  validate-and-export:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -113,16 +113,23 @@ jobs:
           assert 99 not in second[0]
           PYCODE
 
-      - name: Commit tested source and remove promotion scaffolding
+      - name: Package the tested production tree
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf .github/patches/consolidation
-          rm -f .github/workflows/promote-consolidation.yml
-          git add -A
-          git diff --cached --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Consolidate path guarantees and correctness debloat"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
+          rm -rf .github/patches/consolidation .github/patches/source-only
+          rm -f \
+            .github/workflows/export-consolidation-source.yml \
+            .github/workflows/promote-consolidation.yml \
+            .github/workflows/placeholder-never-use.tmp
+          git diff --check
+          tar --exclude=.git --exclude=dist --exclude='*.egg-info' \
+            -czf /tmp/gridpuzzle-tested-production-tree.tar.gz .
+
+      - name: Upload the tested production tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: gridpuzzle-tested-production-tree
+          path: /tmp/gridpuzzle-tested-production-tree.tar.gz
+          if-no-files-found: error
+          retention-days: 2
