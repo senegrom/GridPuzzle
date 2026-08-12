@@ -1,0 +1,86 @@
+name: Forward compatibility
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/forward-compatibility.yml"
+      - "gridsolver/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "run.py"
+      - "examples2.py"
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forward-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: random
+  PYTHONUNBUFFERED: "1"
+  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning"
+
+jobs:
+  compatibility:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Python 3.14 free-threaded
+            python-version: "3.14"
+            freethreaded: true
+            allow-prereleases: false
+          - label: Python 3.15 prerelease
+            python-version: "3.15"
+            freethreaded: false
+            allow-prereleases: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          freethreaded: ${{ matrix.freethreaded }}
+          allow-prereleases: ${{ matrix.allow-prereleases }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install and validate the package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m pip wheel --no-deps . --wheel-dir dist
+          gridpuzzle --help
+
+      - name: Compile Python sources with warnings as errors
+        run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+
+      - name: Run the portable compatibility surface
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_cli_and_loading.py
+          tests/test_parser_fuzzing.py
+          tests/test_candidate_domain.py
+          tests/test_candidate_view.py
+          tests/test_compact_api_hardening.py
+          tests/test_partition_cache.py
+          tests/test_rule_inputs.py
+          tests/test_solution_validation.py
+          tests/test_path_guarantees.py
+          tests/test_new_puzzle_families.py
+          tests/test_trail.py
+          tests/test_differential.py
+          tests/test_handler_aware_logging.py
+          -m "not slow"
+          --durations=10

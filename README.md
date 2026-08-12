@@ -32,8 +32,8 @@ gridpuzzle --file Examples/Slitherlink/Tatham/H7x7-L10-W5.clp --max-solutions 1
 
 These families use compact keyed variables so blocked cells and graph edges are not represented as fake rectangular-grid values. Returned compact solutions can be decoded with `grid.values_by_key(solution)`; each family also supplies a geometry-aware `format_solution()` renderer.
 
-- **Hidato** places every value exactly once on the active cells. Consecutive values may touch orthogonally or diagonally, and blocked cells are supported.
-- **Numbrix** uses the same consecutive-value path model but permits orthogonal movement only and has no blocked cells.
+- **Hidato** places every value exactly once on the active cells. Consecutive values may touch orthogonally or diagonally, and blocked cells are supported. One value-presence guarantee per path value is available immediately when the grid is constructed.
+- **Numbrix** uses the same consecutive-value path model but permits orthogonal movement only and has no blocked cells. It uses the same pre-seeded presence guarantees.
 - **Kakuro** models every maximal horizontal and vertical run with the existing sum-plus-all-different rule. Every white cell must belong to exactly one run of each orientation.
 - **Slitherlink** models horizontal and vertical edges as binary variables. Face clues constrain selected-edge counts, every vertex has degree zero or two, and selected edges must form one non-empty connected cycle.
 
@@ -50,7 +50,7 @@ Each grid declares a technique profile:
 - **GENERIC** retains rule helpers, tuple reasoning, forcing chains, Nishio, forcing nets, and backtracking, but excludes geometry-specific Sudoku patterns.
 - **RULES_ONLY** relies on the puzzle rules and ordinary branching, avoiding generic techniques whose measured cost exceeds their benefit for that model.
 
-The measured defaults are FULL for the original dense-grid families, GENERIC for Hidato and Kakuro, and RULES_ONLY for Numbrix and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
+The measured defaults are FULL for the original dense-grid families, GENERIC for Kakuro, and RULES_ONLY for Hidato, Numbrix, and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
 
 #### Basic
 - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house
@@ -173,7 +173,7 @@ python scripts/run_new_family_corpus.py \
 
 Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly or manually and uploads each JSON report as an artifact.
 
-GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux runs the bounded suite plus representative end-to-end examples, Windows runs a portable regression smoke suite, and forward-compatibility CI covers later interpreter builds.
+GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux and Windows discover the complete non-slow suite, while forward-compatibility CI covers free-threaded Python 3.14 and the Python 3.15 prerelease.
 
 ## Acknowledgements
 

@@ -1,7 +1,81 @@
 from collections.abc import Iterable, MutableSequence
+from functools import lru_cache
+from numbers import Integral
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Guarantee, IdxType, InvalidGrid, Rule, RuleAlwaysSatisfied
+
+
+@lru_cache(maxsize=256)
+def _cached_value_presence_guarantees(
+    cells: frozenset[int],
+    max_elem: int,
+    rows: int,
+    cols: int,
+) -> tuple[Guarantee, ...]:
+    """Build one immutable guarantee family for a canonical cell set."""
+    return tuple(
+        Guarantee(value, cells, rows, cols)
+        for value in range(1, max_elem + 1)
+    )
+
+
+def value_presence_guarantees(
+    cells: Iterable[int],
+    *,
+    max_elem: int,
+    rows: int,
+    cols: int,
+) -> tuple[Guarantee, ...]:
+    """Return cached guarantees requiring every domain value in ``cells``.
+
+    The returned objects are immutable and every member shares the same
+    ``frozenset``.  Identical families may therefore be reused safely across
+    puzzle instances without allocating one cell set per value.
+    """
+    dimensions: list[int] = []
+    for name, raw_value in (
+        ("max_elem", max_elem),
+        ("rows", rows),
+        ("cols", cols),
+    ):
+        if isinstance(raw_value, bool) or not isinstance(raw_value, Integral):
+            raise TypeError(f"{name} must be an integer")
+        value = int(raw_value)
+        if value <= 0:
+            raise ValueError(f"{name} must be positive")
+        dimensions.append(value)
+    max_elem, rows, cols = dimensions
+
+    if isinstance(cells, (str, bytes, bytearray)):
+        raise TypeError("Value-presence cells must be an iterable of integers")
+    try:
+        raw_cells = tuple(cells)
+    except TypeError as exc:
+        raise TypeError(
+            "Value-presence cells must be an iterable of integers"
+        ) from exc
+    if not raw_cells:
+        raise ValueError("Value-presence guarantees require at least one cell")
+
+    normalized: set[int] = set()
+    cell_count = rows * cols
+    for raw_cell in raw_cells:
+        if isinstance(raw_cell, bool) or not isinstance(raw_cell, Integral):
+            raise TypeError("Value-presence cells must be integers")
+        cell = int(raw_cell)
+        if not 0 <= cell < cell_count:
+            raise ValueError(
+                f"Value-presence cell {cell} is outside 0..{cell_count - 1}"
+            )
+        normalized.add(cell)
+
+    return _cached_value_presence_guarantees(
+        frozenset(normalized),
+        max_elem,
+        rows,
+        cols,
+    )
 
 
 class ElementsAtMostOnce(Rule):
@@ -49,7 +123,10 @@ class ElementsAtMostOnce(Rule):
     ) -> None:
         unknown_cells = frozenset(new_candidate_cells)
         for guarantee in guarantees:
-            if guarantee.cells <= unknown_cells:
+            # Equal cell sets cannot eliminate anything.  A strict subset
+            # avoids waking a whole-house presence guarantee merely to compute
+            # an empty difference.
+            if guarantee.cells < unknown_cells:
                 for cell in unknown_cells - guarantee.cells:
                     candidates[cell].discard(guarantee.val)
                     if not candidates[cell]:
@@ -105,8 +182,10 @@ class ElementsAtLeastOnce(Rule):
         known: MutableSequence[int],
         candidates: tuple[set[int], ...],
         guarantees: Iterable[Guarantee] | None = None,
-    ) -> tuple[bool, list[Rule], list[Guarantee]]:
-        return False, [], [
-            Guarantee(value, frozenset(self.cells), self._rows, self._cols)
-            for value in range(1, self._max_elem + 1)
-        ]
+    ) -> tuple[bool, tuple[Rule, ...], tuple[Guarantee, ...]]:
+        return False, (), value_presence_guarantees(
+            self.cells,
+            max_elem=self._max_elem,
+            rows=self._rows,
+            cols=self._cols,
+        )
