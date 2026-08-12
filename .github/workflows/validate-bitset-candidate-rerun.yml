@@ -1,0 +1,126 @@
+name: Validate broader candidate bitsets rerun
+
+on:
+  push:
+    branches:
+      - agent/broaden-candidate-bitsets
+    paths:
+      - .github/workflows/validate-bitset-candidate-rerun.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-broader-candidate-bitsets-rerun
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  benchmark-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply the already full-suite-tested candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          encoded = Path(
+              ".github/patches/broaden-candidate-bitsets.b85"
+          ).read_text(encoding="ascii").strip()
+          Path("/tmp/broaden-candidate-bitsets.patch").write_bytes(
+              zlib.decompress(base64.b85decode(encoded.encode("ascii")))
+          )
+          PY
+          git apply --check /tmp/broaden-candidate-bitsets.patch
+          git apply /tmp/broaden-candidate-bitsets.patch
+          git diff --check
+
+      - name: Install and rerun focused equivalence guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m compileall -q gridsolver tests
+          python -X dev -m pytest -q \
+            tests/test_bitset_power_actions.py \
+            tests/test_candidate_mask_index.py \
+            tests/test_action_dispatch.py \
+            tests/test_differential.py \
+            -m "not slow" \
+            --durations=10
+
+      - name: Run the corrected unchanged performance gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/bitset-baseline origin/master
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          source = Path(
+              ".github/workflows/validate-bitset-candidate.yml"
+          ).read_text(encoding="utf-8")
+          start_marker = (
+              "          cat > /tmp/benchmark_broader_candidate_bitsets.py "
+              "<<'PY'\n"
+          )
+          end_marker = (
+              "\n          PY\n"
+              "          python /tmp/benchmark_broader_candidate_bitsets.py"
+          )
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          script = dedent(source[start:end]).replace(
+              "CandidateTopology(grid)",
+              "CandidateTopology.build(grid)",
+          )
+          Path("/tmp/benchmark_broader_candidate_bitsets.py").write_text(
+              script,
+              encoding="utf-8",
+          )
+          PY
+          python /tmp/benchmark_broader_candidate_bitsets.py \
+            --baseline /tmp/bitset-baseline \
+            --candidate "$GITHUB_WORKSPACE" \
+            --report benchmarks/broader_candidate_bitsets_2026-08-12.md \
+            --json-report benchmarks/broader_candidate_bitsets_2026-08-12.json
+
+      - name: Publish the tested source and benchmark evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/patches/broaden-candidate-bitsets.b85
+          git add -A -- \
+            gridsolver \
+            tests/test_bitset_power_actions.py \
+            benchmarks/broader_candidate_bitsets_2026-08-12.md \
+            benchmarks/broader_candidate_bitsets_2026-08-12.json \
+            .github/patches/broaden-candidate-bitsets.b85
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Broaden incremental candidate bitsets"
+          git push origin "HEAD:$GITHUB_REF_NAME"
