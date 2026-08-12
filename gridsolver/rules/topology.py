@@ -609,6 +609,10 @@ class SingleLoopRule(Rule):
         # back-edge condition and per-root residual flush mirror the recursive
         # form exactly: forward edges to already-finished descendants are
         # skipped without stack pushes or low updates.
+        # Deliberate twin of _bridge_edges' skeleton: the two passes run on
+        # different `possible` sets with different per-edge actions, and
+        # callback-parametrizing the walk would tax SingleLoopRule's hot
+        # apply path. Keep them in lockstep when editing either.
         for root in adjacency:
             if root in discovery:
                 continue
