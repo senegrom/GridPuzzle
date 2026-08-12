@@ -1,0 +1,27 @@
+name: Export correctness review source
+
+on:
+  push:
+    branches:
+      - agent/correctness-debloat-review-2026-08-12
+    paths:
+      - .github/workflows/export-correctness-review.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gridpuzzle-correctness-review-source
+          path: .
+          include-hidden-files: true
+          retention-days: 2
