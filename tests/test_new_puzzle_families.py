@@ -393,6 +393,35 @@ def test_csp_rules_parser_rejects_malformed_forms():
         create_from_csp_rules("(solve 1 1 .")
 
 
+def test_csp_rules_parser_ignores_fake_forms_and_parentheses_in_comments():
+    text = (
+        '\ufeff# BOM-prefixed fake: (solve 1 1 4)\n'
+        '; archived command: (solve 1 1 4)\n'
+        '# another fake: (solve-tatham 9 9 "z")\n'
+        '(solve\n'
+        '1 2\n'
+        '; a comment close-paren must not close the form: )\n'
+        '# nor may a fake open-paren extend it: (\n'
+        '. .\n'
+        ')\n'
+    )
+
+    assert is_csp_rules_text(text)
+    grid = create_from_csp_rules(text)
+
+    assert isinstance(grid, Slitherlink)
+    assert grid.clues == ((None, None),)
+
+
+def test_csp_rules_parser_does_not_find_solve_text_inside_a_string():
+    grid = create_from_csp_rules(
+        '"archived (solve 1 1 4)"\n(solve 1 2 . .)'
+    )
+
+    assert isinstance(grid, Slitherlink)
+    assert grid.clues == ((None, None),)
+
+
 
 def test_kakuro_rejects_adjacent_nonmaximal_runs():
     white = tuple(product(range(2), range(4)))
@@ -543,6 +572,28 @@ def test_cli_file_route_renders_compact_solution(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "+---+" in output
     assert "Took" in output
+
+
+def test_consecutive_adjacency_rule_canonicalises_cell_order():
+    grid = Grid(1, 3, max_elem=3)
+    ordered = ConsecutiveAdjacencyRule(
+        grid,
+        cells=(0, 1, 2),
+        adjacency=((1,), (0, 2), (1,)),
+    )
+    reordered = ConsecutiveAdjacencyRule(
+        grid,
+        cells=(2, 0, 1),
+        adjacency=((1,), (1,), (0, 2)),
+    )
+
+    assert ordered.cells == reordered.cells == (0, 1, 2)
+    assert ordered.adjacency == reordered.adjacency
+    assert ordered == reordered
+    assert hash(ordered) == hash(reordered)
+
+    grid.add_rules_checked((ordered, reordered))
+    assert len(grid.get_rules_of_type(ConsecutiveAdjacencyRule)) == 1
 
 
 def test_topology_rules_canonicalise_coordinate_and_integer_forms():

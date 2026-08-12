@@ -108,3 +108,27 @@ def test_flatten_rejects_self_referential_iterables():
 
     sibling = [1, 2]
     assert flatten([sibling, sibling]) == [1, 2, 1, 2]  # reuse is not a cycle
+
+def test_class_explicit_factory_infers_shape_from_nested_generators():
+    rows = (
+        (value for value in row)
+        for row in (
+            (1, 2),
+            (2, 1),
+        )
+    )
+
+    grid = create_from_str_and_class(rows, "latinsquare")
+
+    assert isinstance(grid, LatinSquare)
+    assert grid.known == (1, 2, 2, 1)
+
+
+def test_class_explicit_factory_rejects_nested_cycles_before_construction():
+    import pytest
+
+    values: list = [1, 2, 3]
+    values.append(values)
+
+    with pytest.raises(ValueError, match="self-referential"):
+        create_from_str_and_class(values, "latinsquare")

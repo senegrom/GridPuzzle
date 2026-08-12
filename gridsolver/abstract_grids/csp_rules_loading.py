@@ -13,6 +13,78 @@ _TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//|/|\(|\)|[^\s()/]+')
 _SOLVE_START = re.compile(r"\((solve(?:-tatham)?)\b", re.IGNORECASE)
 
 
+def _without_line_comments(text: str) -> str:
+    """Blank CSP-Rules line comments while preserving offsets and strings.
+
+    Retained CLP sources use ``;`` as the native line-comment marker and also
+    contain whole-line ``#`` comments.  Keeping newlines and replacing comment
+    text with spaces lets the form scanner use original offsets while ensuring
+    fake ``(solve ...)`` text and parentheses in comments are inert.  Comment
+    markers inside quoted Tatham encodings remain literal.
+    """
+    characters = list(text)
+    in_string = False
+    escaped = False
+    in_comment = False
+    line_has_code = False
+
+    for index, character in enumerate(characters):
+        if in_comment:
+            if character in "\r\n":
+                in_comment = False
+                line_has_code = False
+            else:
+                characters[index] = " "
+            continue
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+
+        if character == '"':
+            in_string = True
+            line_has_code = True
+        elif character == ";" or (character == "#" and not line_has_code):
+            characters[index] = " "
+            in_comment = True
+        elif character in "\r\n":
+            line_has_code = False
+        elif character == "\ufeff" and not line_has_code:
+            # A UTF-8 BOM is metadata, not code before a leading # comment.
+            continue
+        elif not character.isspace():
+            line_has_code = True
+
+    return "".join(characters)
+
+
+def _solve_start(text: str) -> re.Match[str] | None:
+    """Find the first solve form outside quoted strings and comments."""
+    in_string = False
+    escaped = False
+    for index, character in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "(":
+            match = _SOLVE_START.match(text, index)
+            if match is not None:
+                return match
+    return None
+
+
 def is_csp_rules_text(text: object) -> bool:
     """Return whether the input starts with a supported CSP-Rules form.
 
@@ -23,9 +95,10 @@ def is_csp_rules_text(text: object) -> bool:
     """
     if not isinstance(text, str):
         return False
-    for line in text.splitlines():
+    uncommented = _without_line_comments(text)
+    for line in uncommented.splitlines():
         stripped = line.strip().lstrip("\ufeff")
-        if not stripped or stripped.startswith((";", "#")):
+        if not stripped:
             continue
         return _SOLVE_START.match(stripped) is not None
     return False
@@ -34,7 +107,8 @@ def is_csp_rules_text(text: object) -> bool:
 def _first_solve_form(text: str) -> str:
     if not isinstance(text, str):
         raise TypeError("CSP-Rules input must be text")
-    match = _SOLVE_START.search(text)
+    uncommented = _without_line_comments(text)
+    match = _solve_start(uncommented)
     if match is None:
         raise ValueError("CSP-Rules input contains no solve form")
 
@@ -42,8 +116,8 @@ def _first_solve_form(text: str) -> str:
     depth = 0
     in_string = False
     escaped = False
-    for index in range(start, len(text)):
-        character = text[index]
+    for index in range(start, len(uncommented)):
+        character = uncommented[index]
         if in_string:
             if escaped:
                 escaped = False
@@ -59,7 +133,7 @@ def _first_solve_form(text: str) -> str:
         elif character == ")":
             depth -= 1
             if depth == 0:
-                return text[start : index + 1]
+                return uncommented[start : index + 1]
     raise ValueError("CSP-Rules solve form is not closed")
 
 
@@ -278,4 +352,4 @@ def create_from_csp_rules(text: str) -> Grid:
 
 def create_from_csp_rules_file(path: Path | str) -> Grid:
     path = path if isinstance(path, Path) else Path(path)
-    return create_from_csp_rules(path.read_text(encoding="utf-8"))
+    return create_from_csp_rules(path.read_text(encoding="utf-8-sig"))

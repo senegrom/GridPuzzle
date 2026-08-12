@@ -82,7 +82,7 @@ def test_failed_numeric_label_parse_is_transactional():
     assert grid.rules == before_rules
 
 
-def test_importing_kenken_does_not_import_killer_sudoku():
+def test_importing_kenken_does_not_import_sudoku_or_killer_sudoku():
     output = subprocess.check_output(
         [
             sys.executable,
@@ -90,9 +90,12 @@ def test_importing_kenken_does_not_import_killer_sudoku():
             (
                 "import sys; "
                 "import gridsolver.grid_classes.kenken; "
-                "print('gridsolver.grid_classes.killer_sudoku' in sys.modules)"
+                "print([name for name in "
+                "('gridsolver.grid_classes.sudoku', "
+                "'gridsolver.grid_classes.killer_sudoku') "
+                "if name in sys.modules])"
             ),
         ],
         text=True,
     )
-    assert output.strip() == "False"
+    assert output.strip() == "[]"

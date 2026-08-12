@@ -8,12 +8,12 @@ from gridsolver.abstract_grids.grid import (
     _validate_load_options,
     pairs,
 )
+from gridsolver.abstract_grids.unique_square_grid import UniqueSquareGrid
 from gridsolver.grid_classes.cage_loading import (
     load_cage_layout,
     parse_kenken_dictionary,
     split_cage_input,
 )
-from gridsolver.grid_classes.sudoku import UniqueSquareGrid
 from gridsolver.rules.rules import Rule
 from gridsolver.rules.sumrules import DiffRule, DivRule, ProdRule, SumRule
 

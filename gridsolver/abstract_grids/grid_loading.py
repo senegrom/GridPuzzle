@@ -1,5 +1,7 @@
 import math
 from collections.abc import Iterable
+from functools import cache
+from importlib import import_module
 from pathlib import Path
 
 from gridsolver.abstract_grids.grid import (
@@ -8,24 +10,48 @@ from gridsolver.abstract_grids.grid import (
     _load_preprocess_str_space_sep,
     _validate_load_options,
 )
-from gridsolver.grid_classes.futoshiki import Futoshiki
-from gridsolver.grid_classes.kenken import Kenken
-from gridsolver.grid_classes.killer_sudoku import KillerSudoku
-from gridsolver.grid_classes.latins_square import DiagonalLatinSquare, LatinSquare, PandiagonalLatinSquare
-from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.util import flatten
 
 
 type PuzzleClass = type[Grid]
+type PuzzleClassSpec = tuple[str, str]
 
-_PUZZLE_CLASSES: dict[str, PuzzleClass] = {
-    "sudoku": Sudoku,
-    "futoshiki": Futoshiki,
-    "killersudoku": KillerSudoku,
-    "latinsquare": LatinSquare,
-    "diagonallatinsquare": DiagonalLatinSquare,
-    "pandiagonallatinsquare": PandiagonalLatinSquare,
-    "kenken": Kenken,
+_PUZZLE_CLASS_SPECS: dict[str, PuzzleClassSpec] = {
+    "sudoku": ("gridsolver.grid_classes.sudoku", "Sudoku"),
+    "futoshiki": ("gridsolver.grid_classes.futoshiki", "Futoshiki"),
+    "killersudoku": (
+        "gridsolver.grid_classes.killer_sudoku",
+        "KillerSudoku",
+    ),
+    "latinsquare": ("gridsolver.grid_classes.latins_square", "LatinSquare"),
+    "diagonallatinsquare": (
+        "gridsolver.grid_classes.latins_square",
+        "DiagonalLatinSquare",
+    ),
+    "pandiagonallatinsquare": (
+        "gridsolver.grid_classes.latins_square",
+        "PandiagonalLatinSquare",
+    ),
+    "kenken": ("gridsolver.grid_classes.kenken", "Kenken"),
 }
+
+
+@cache
+def _puzzle_class(key: str) -> PuzzleClass:
+    module_name, class_name = _PUZZLE_CLASS_SPECS[key]
+    return getattr(import_module(module_name), class_name)
+
+
+def _puzzle_class_key(class_: PuzzleClass) -> str | None:
+    identity = class_.__module__, class_.__name__
+    return next(
+        (
+            key
+            for key, spec in _PUZZLE_CLASS_SPECS.items()
+            if spec == identity
+        ),
+        None,
+    )
 
 
 def _resolve_puzzle_class(class_: PuzzleClass | str) -> PuzzleClass:
@@ -33,17 +59,18 @@ def _resolve_puzzle_class(class_: PuzzleClass | str) -> PuzzleClass:
     if isinstance(class_, str):
         key = class_.strip().lstrip("\ufeff").strip().lower()
         try:
-            return _PUZZLE_CLASSES[key]
+            return _puzzle_class(key)
         except KeyError as exc:
-            supported = ", ".join(sorted(_PUZZLE_CLASSES))
+            supported = ", ".join(sorted(_PUZZLE_CLASS_SPECS))
             raise ValueError(
                 f"Puzzle class {key!r} is not supported; choose one of {supported}"
             ) from exc
 
     if not isinstance(class_, type) or not issubclass(class_, Grid):
         raise TypeError("class_ must be a supported Grid subclass or class name")
-    if class_ not in _PUZZLE_CLASSES.values():
-        supported = ", ".join(sorted(_PUZZLE_CLASSES))
+    key = _puzzle_class_key(class_)
+    if key is None or class_ is not _puzzle_class(key):
+        supported = ", ".join(sorted(_PUZZLE_CLASS_SPECS))
         raise ValueError(
             f"Puzzle class {class_.__name__!r} is not supported; "
             f"choose one of {supported}"
@@ -137,7 +164,10 @@ def create_from_str_and_class(
     elif isinstance(values, (bytes, bytearray)):
         raise TypeError("Puzzle input bytes must be decoded to str first")
     elif isinstance(values, Iterable):
-        normalized = list(values)
+        # Dimension inference must see the same recursively flattened token
+        # stream that Grid.load() consumes.  Otherwise a generator of rows is
+        # mistaken for a two-item puzzle before the loader ever sees its cells.
+        normalized = flatten(values)
     else:
         raise TypeError(f"Puzzle input must be str or iterable, got {type(values).__name__}")
 
@@ -195,22 +225,31 @@ def _create_from_str_and_class(
     row_wise: bool,
     space_sep: bool,
 ) -> Grid:
-    if class_ is Sudoku:
+    class_key = _puzzle_class_key(class_)
+    if class_key == "sudoku":
         box_side = _standard_sudoku_box_size(len(values))
-        grid: Grid = Sudoku(box_side, box_side, box_side, box_side)
-    elif class_ is KillerSudoku:
-        box_side = _standard_sudoku_box_size(_layout_length_before_dictionary(values))
-        grid = KillerSudoku(None, box_side, box_side, box_side, box_side)
-    elif class_ is Kenken:
+        grid: Grid = class_(box_side, box_side, box_side, box_side)
+    elif class_key == "killersudoku":
+        box_side = _standard_sudoku_box_size(
+            _layout_length_before_dictionary(values)
+        )
+        grid = class_(None, box_side, box_side, box_side, box_side)
+    elif class_key == "kenken":
         size = _perfect_square_root(
             _layout_length_before_dictionary(values),
             "KenKen side length",
         )
-        grid = Kenken(None, size)
-    elif class_ is Futoshiki:
-        grid = Futoshiki(_futoshiki_size(len(values)))
-    elif class_ in {LatinSquare, DiagonalLatinSquare, PandiagonalLatinSquare}:
-        grid = class_(_perfect_square_root(len(values), "Latin-square side length"))
+        grid = class_(None, size)
+    elif class_key == "futoshiki":
+        grid = class_(_futoshiki_size(len(values)))
+    elif class_key in {
+        "latinsquare",
+        "diagonallatinsquare",
+        "pandiagonallatinsquare",
+    }:
+        grid = class_(
+            _perfect_square_root(len(values), "Latin-square side length")
+        )
     else:
         raise ValueError(f"Puzzle class {class_.__name__} is not supported")
 

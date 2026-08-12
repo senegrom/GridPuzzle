@@ -1,4 +1,6 @@
 import logging
+import subprocess
+import sys
 
 import pytest
 
@@ -232,3 +234,17 @@ def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
     assert not is_csp_rules_text(
         "LatinSquare::\n. .\n. .\n# (solve 1 1 4)"
     )
+
+def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
+    command = (
+        "import sys; "
+        "import run; "
+        "print(sorted(name for name in sys.modules "
+        "if name.startswith('gridsolver.grid_classes.')))"
+    )
+    output = subprocess.check_output(
+        [sys.executable, "-c", command],
+        text=True,
+    )
+
+    assert output.strip() == "[]"
