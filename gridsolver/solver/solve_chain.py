@@ -3,6 +3,7 @@ from collections import deque
 from typing import List, FrozenSet, Dict, Set, Union, Tuple, Optional, Iterable
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -45,6 +46,8 @@ def w_wing(grid: Grid) -> None:
                             _lg.logr("LoopW",
                                      f"{val} removed from {set(key)} w/ loop {cs(chain)} ", cs(cell))
                         cands[cell].discard(val)
+                        if not cands[cell]:
+                            raise InvalidGrid()
                     joint_nb = wl[cell] & wl[le]
                     for nb in joint_nb:
                         if other_val in cands[nb]:
@@ -53,6 +56,8 @@ def w_wing(grid: Grid) -> None:
                                 _lg.logr("WingW",
                                          f"{other_val} removed from {set(key)} w/ wing {cs(chain)}", cs(nb))
                             cands[nb].remove(other_val)
+                            if not cands[nb]:
+                                raise InvalidGrid()
 
 
 def _find_link_ends(cell: int, end_cells: Union[None, Set[int], FrozenSet[int]], sl: List[Set[int]],
@@ -132,6 +137,8 @@ def x_chain(grid: Grid) -> None:
                         _lg.logr("LoopX",
                                  f"all but {val} removed from {set(cd)} w/ loop {cs(chain)}", cs(cell))
                     cd.intersection_update((val,))
+                    if not cd:
+                        raise InvalidGrid()
                 joint_nb = wl[cell] & wl[le]
                 for nb in joint_nb:
                     if val in cands[nb]:
@@ -140,6 +147,8 @@ def x_chain(grid: Grid) -> None:
                             _lg.logr("ChainX",
                                      f"{val} removed from {set(cands[nb])} w/ chain {cs(chain)}", cs(nb))
                         cands[nb].remove(val)
+                        if not cands[nb]:
+                            raise InvalidGrid()
 
 
 # noinspection PyProtectedMember
@@ -187,12 +196,16 @@ def xy_chain(grid: Grid) -> None:
                     _lg.on and _lg.logr("LoopXY",
                              f"all but {val} removed from {set(cd)} w/ loop {cs(start_cell)}", cs(start_cell))
                     cd.intersection_update((val,))
+                    if not cd:
+                        raise InvalidGrid()
                 joint_nb = wl[start_cell] & wl[le]
                 for nb in joint_nb:
                     if val in cands[nb]:
                         _lg.on and _lg.logr("ChainXY",
                                  f"{val} removed from {cands[nb]} w/ chain {cs(start_cell)}..{cs(le)}", cs(nb))
                         cands[nb].remove(val)
+                        if not cands[nb]:
+                            raise InvalidGrid()
 
 
 def _find_link_ends_with_num(start_cell: int, end_cells: Union[None, Set[int], FrozenSet[int]],

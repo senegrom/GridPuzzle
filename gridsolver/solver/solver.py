@@ -76,6 +76,13 @@ def solve(
 ) -> set[ImmutableGrid]:
     """Solve a grid without mutating it.
 
+    With ``0 < max_sols < |solutions|`` the returned subset is deterministic
+    within each mode but mode-dependent: sequential search keeps the first
+    solutions in branch-priority (DFS) order, while parallel runs merge the
+    workers' results and keep the smallest by content key. Repeated runs in
+    one mode always agree; runs with different ``processes`` settings may
+    select different subsets of the same solution space.
+
     ``depth_gate`` is retained as an explicit experiment switch. Search
     depth starts at zero for the root: full techniques run through depth
     ``K`` and only the cheap tier runs below it. ``None`` (the default)

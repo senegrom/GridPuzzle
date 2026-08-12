@@ -109,6 +109,8 @@ def _remove_hidden_tuples_inner(cands: Tuple[Set[int]], c: CoordToString, length
                              f"{cands[cell]} vs {values} w/ tuple cells {c(union_cells)}",
                              c(cell))
                     cands[cell].intersection_update(values)
+                    if not cands[cell]:
+                        raise InvalidGrid
         else:
             prev_union[depth] = union_cells
             max_new_cells = length - len_union

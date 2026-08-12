@@ -53,16 +53,6 @@ def test_partition2_preserves_detached_mutable_historical_api():
     assert SumAndElementsAtMostOnce._partition_tuples(15, 3, 1, 9) is expected
 
 
-def test_partition_generator_returns_detached_mutable_deques():
-    expected = SumAndElementsAtMostOnce._partition_tuples(15, 3, 1, 9)
-    exposed = list(SumAndElementsAtMostOnce.partition(15, 3, 1, 9))
-    assert tuple(map(tuple, exposed)) == expected
-
-    exposed[0].append(99)
-    exposed.clear()
-    assert SumAndElementsAtMostOnce._partition_tuples(15, 3, 1, 9) is expected
-
-
 def test_kakuro_sum_candidates_use_immutable_partition_cache():
     grid = Kakuro(
         3,

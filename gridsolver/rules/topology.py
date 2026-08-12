@@ -292,8 +292,11 @@ class AllowedValueCountRule(Rule):
         value: int,
         allowed_counts: Iterable[int],
     ) -> None:
-        cells = tuple(sorted(cells))
         super().__init__(gsz, cells, None)
+        # canonicalise AFTER coordinate normalization: sorting raw input
+        # would give coordinate-form and integer-form constructions of the
+        # same rule different identities (duplicate rule registrations)
+        self.cells = tuple(sorted(self.cells))
         if isinstance(value, bool) or not isinstance(value, Integral):
             raise TypeError("Counted value must be an integer")
         value = int(value)
@@ -412,8 +415,11 @@ class SingleLoopRule(Rule):
         raw_endpoints = tuple(endpoints)
         if len(raw_cells) != len(raw_endpoints):
             raise ValueError("Every loop edge needs one endpoint pair")
-        paired = sorted(zip(raw_cells, raw_endpoints), key=lambda item: item[0])
-        super().__init__(gsz, (cell for cell, _ in paired), None)
+        super().__init__(gsz, raw_cells, None)
+        # canonicalise AFTER coordinate normalization (see
+        # AllowedValueCountRule); endpoints stay aligned with their cells
+        paired = sorted(zip(self.cells, raw_endpoints), key=lambda item: item[0])
+        self.cells = tuple(cell for cell, _ in paired)
 
         normalized: list[tuple[int, int]] = []
         for edge in (edge for _, edge in paired):

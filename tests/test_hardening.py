@@ -506,3 +506,23 @@ def test_pretty_print_blank_cells_with_space_separators_keep_borders():
     lines = [line for line in rendered.splitlines() if line]
     assert "#" not in rendered
     assert len({len(line) for line in lines}) == 1
+
+
+def test_immutable_grid_hash_is_lazy_stable_and_clone_safe():
+    import pickle
+
+    grid = ImmutableGrid((1, 2, 2, 1), 2, 2, 2)
+    assert "_ImmutableGrid__hash" not in grid.__dict__
+    first = hash(grid)
+    assert grid.__dict__["_ImmutableGrid__hash"] == first
+    assert hash(ImmutableGrid((1, 2, 2, 1), 2, 2, 2)) == first
+    assert hash(pickle.loads(pickle.dumps(grid))) == first
+
+    # mutable grids never pay for the hash, and field-copied clones keep
+    # the same attribute shape (the eager hash used to exist only on the
+    # original)
+    mutable = Grid(2)
+    clone = mutable.deepcopy()
+    assert "_ImmutableGrid__hash" not in mutable.__dict__
+    assert "_ImmutableGrid__hash" not in clone.__dict__
+    assert ImmutableGrid.__hash__(clone) == ImmutableGrid.__hash__(mutable)

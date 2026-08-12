@@ -261,8 +261,7 @@ def test_frozen_rules_pickle_and_cached_properties_still_work():
     cage = SumAndElementsAtMostOnce(grid, cells=[0, 1], mysum=3)
     grid.add_rule_checked(cage)
 
-    assert cage.sum_candidates
-    assert cage.candidates == frozenset({1, 2})
+    assert cage.sum_candidates == (frozenset({1, 2}),)
 
     restored = pickle.loads(pickle.dumps(cage))
     assert restored == cage

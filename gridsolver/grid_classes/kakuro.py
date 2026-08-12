@@ -143,15 +143,9 @@ class Kakuro(CompactGrid):
             if any(cell not in self.white_cells for cell in cells):
                 raise ValueError("Kakuro runs may contain only white cells")
 
-            length = len(cells)
-            minimum = length * (length + 1) // 2
-            maximum = length * (19 - length) // 2
-            if not minimum <= target <= maximum:
-                raise ValueError(
-                    f"Kakuro target {target} is impossible for a "
-                    f"{length}-cell distinct-digit run; expected "
-                    f"{minimum}..{maximum}"
-                )
+            # Infeasible targets are deliberately NOT rejected here: an
+            # impossible run is an unsatisfiable puzzle, not malformed input,
+            # and solves to zero solutions like any other contradiction.
 
             run_key = orientation, cells
             if run_key in seen_runs:

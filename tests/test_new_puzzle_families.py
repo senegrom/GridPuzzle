@@ -212,35 +212,20 @@ def test_kakuro_matches_independent_small_oracle():
     assert actual == expected
 
 
-@pytest.mark.parametrize(
-    ("runs", "message"),
-    (
-        (
+def test_kakuro_rejects_non_straight_runs():
+    # infeasible TARGETS deliberately load (and solve to zero solutions,
+    # see test_kakuro_impossible_target_loads_and_solves_to_unsatisfiable);
+    # malformed GEOMETRY is still rejected
+    with pytest.raises(ValueError, match="straight"):
+        Kakuro(
+            2,
+            2,
+            tuple(product(range(2), repeat=2)),
             (
                 (3, ((0, 0), (1, 1))),
                 (3, ((0, 0), (1, 0))),
                 (3, ((0, 1), (1, 1))),
             ),
-            "straight",
-        ),
-        (
-            (
-                (2, ((0, 0), (0, 1))),
-                (3, ((1, 0), (1, 1))),
-                (3, ((0, 0), (1, 0))),
-                (3, ((0, 1), (1, 1))),
-            ),
-            "impossible",
-        ),
-    ),
-)
-def test_kakuro_rejects_invalid_run_geometry_and_targets(runs, message):
-    with pytest.raises(ValueError, match=message):
-        Kakuro(
-            2,
-            2,
-            tuple(product(range(2), repeat=2)),
-            runs,
         )
 
 
@@ -558,3 +543,70 @@ def test_cli_file_route_renders_compact_solution(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "+---+" in output
     assert "Took" in output
+
+
+def test_topology_rules_canonicalise_coordinate_and_integer_forms():
+    # regression: sorting raw input before coordinate normalization gave
+    # the same rule two identities (duplicate registrations)
+    from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
+    from gridsolver.rules.topology import AllowedValueCountRule, SingleLoopRule
+
+    gsz = GridSizeContainer(3, 3, 3)
+
+    count_by_coords = AllowedValueCountRule(
+        gsz, cells=[(0, 1), (1, 0)], value=1, allowed_counts=(0, 2)
+    )
+    count_by_ints = AllowedValueCountRule(
+        gsz, cells=[1, 3], value=1, allowed_counts=(0, 2)
+    )
+    assert count_by_coords.cells == count_by_ints.cells == (1, 3)
+    assert count_by_coords == count_by_ints
+    assert hash(count_by_coords) == hash(count_by_ints)
+
+    loop_by_coords = SingleLoopRule(
+        gsz, cells=[(0, 1), (1, 0)], endpoints=((5, 6), (6, 7))
+    )
+    loop_by_ints = SingleLoopRule(
+        gsz, cells=[3, 1], endpoints=((5, 6), (6, 7))
+    )
+    assert loop_by_coords.cells == loop_by_ints.cells == (1, 3)
+    assert loop_by_coords.endpoints == loop_by_ints.endpoints
+    assert loop_by_coords == loop_by_ints
+    assert hash(loop_by_coords) == hash(loop_by_ints)
+
+
+def test_kakuro_impossible_target_loads_and_solves_to_unsatisfiable():
+    # impossible targets are unsatisfiable puzzles, not malformed input
+    from gridsolver.grid_classes.kakuro import KakuroRun
+
+    grid = Kakuro(
+        2,
+        2,
+        white_cells=((0, 0), (0, 1), (1, 0), (1, 1)),
+        runs=(
+            KakuroRun(100, ((0, 0), (0, 1))),  # 2-cell max is 17
+            KakuroRun(4, ((1, 0), (1, 1))),
+            KakuroRun(4, ((0, 0), (1, 0))),
+            KakuroRun(5, ((0, 1), (1, 1))),
+        ),
+    )
+
+    assert solver.solve(grid, log_level=-1) == set()
+
+
+def test_cli_str_route_handles_self_describing_strings():
+    # CSP-Rules and class-prefixed strings work without --class
+    assert run_cli.main(
+        ("--str", "(solve 1 1 4)", "--colour", "No", "--max-solutions", "1")
+    ) == 0
+    assert run_cli.main(
+        ("--str", "LatinSquare:: 1 2 2 1", "--space-separated", "--colour", "No")
+    ) == 0
+
+
+def test_cli_rejects_class_with_non_string_sources(tmp_path):
+    # --class used to be silently ignored for -f/-m/-e inputs
+    path = tmp_path / "one.clp"
+    path.write_text("(solve 1 1 4)\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run_cli.main(("--file", str(path), "--class", "sudoku"))

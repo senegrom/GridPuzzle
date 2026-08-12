@@ -91,8 +91,14 @@ candidate-cell identities intact.
 `solve(grid, processes=N)` distributes deterministic first-level branches over
 a process pool. Historical measurements: blank 4x4 38.5s -> 14.1s; non-square
 6x6 enumeration 400.7s -> 129.6s on eight processes. Python 3.14 forkserver/
-spawn-compatible execution is smoke-tested on Linux and Windows, and positive
-`max_sols` returns a deterministic branch-priority subset.
+spawn-compatible execution is smoke-tested on Linux and Windows. Positive
+`max_sols` returns a deterministic subset per mode, but the two modes select
+differently: sequential search keeps the first solutions in branch-priority
+(DFS) order, parallel merging keeps the content-key-smallest — so runs with
+different `processes` settings may return different subsets of the same
+solution space. Documented as intended behaviour (August 2026); aligning the
+parallel merge with branch order would need per-branch provenance tracking
+through the pool for no correctness gain.
 
 Capped solves cancel pending futures and call Python 3.14's
 `terminate_workers()` after enough branch-ordered solutions exist, rather than

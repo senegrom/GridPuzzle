@@ -1,6 +1,7 @@
 import itertools
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.candidate_topology import (
     CandidateTopology,
     cells_mask,
@@ -84,3 +85,5 @@ def locked_candidate(
             c(cell),
         )
         possible.discard(value)
+        if not possible:
+            raise InvalidGrid()

@@ -40,10 +40,6 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
             normalized.append(value)
 
         self._known: ArrayType = array("I", normalized)
-        # Process-independent content hash: tuple hashes containing only ints are
-        # stable, while hash(bytes) is salted per process. crc32 keeps this eager
-        # cache compact for solution sets exchanged between worker processes.
-        self.__hash = hash((zlib.crc32(bytes(self._known)), self.rows, self.cols, self.max_elem))
         self.name = name
 
     def __eq__(self, other: object) -> bool:
@@ -57,7 +53,24 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
         )
 
     def __hash__(self) -> int:
-        return self.__hash
+        # Process-independent content hash: tuple hashes containing only ints
+        # are stable, while hash(bytes) is salted per process. crc32 keeps the
+        # cached value compact for solution sets exchanged between workers.
+        # Computed lazily: mutable Grid subclasses are unhashable and never
+        # pay for it, and field-copying clones stay shape-identical.
+        try:
+            return self.__hash
+        except AttributeError:
+            value = hash(
+                (
+                    zlib.crc32(bytes(self._known)),
+                    self.rows,
+                    self.cols,
+                    self.max_elem,
+                )
+            )
+            self.__hash = value
+            return value
 
     @property
     def known(self) -> tuple[int, ...]:

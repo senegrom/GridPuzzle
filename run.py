@@ -5,7 +5,11 @@ from collections.abc import Sequence
 
 import examples2
 from gridsolver.abstract_grids.grid import Grid
-from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str_and_class
+from gridsolver.abstract_grids.grid_loading import (
+    create_from_file,
+    create_from_str,
+    create_from_str_and_class,
+)
 from gridsolver.solver import solver
 from gridsolver.solver.logger import Colouring, MAX_LVL, get_log, set_colouring
 
@@ -70,7 +74,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--class_",
         dest="puzzle_class",
         choices=_PUZZLE_CLASSES,
-        help="Puzzle class; required with --str",
+        help=(
+            "Puzzle class for bare --str value strings; class-prefixed and "
+            "CSP-Rules strings are self-describing"
+        ),
     )
     parser.add_argument(
         "-o",
@@ -130,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
 def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Grid:
     row_wise = not args.column_wise
 
+    if args.puzzle_class and args.puzzle_string is None:
+        # silently ignoring a forced class would be a trap
+        parser.error("--class only applies to --str input")
+
     if args.module:
         try:
             module = importlib.import_module(args.module)
@@ -156,7 +167,16 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
         return examples2.get_example(args)
 
     if not args.puzzle_class:
-        parser.error("--class is required with --str")
+        # class-prefixed ("Sudoku::...") and CSP-Rules strings are
+        # self-describing; only bare value strings need --class
+        try:
+            return create_from_str(
+                args.puzzle_string,
+                row_wise=row_wise,
+                space_sep=args.space_separated,
+            )
+        except (TypeError, ValueError) as exc:
+            parser.error(f"{exc} (pass --class to parse bare value strings)")
     try:
         return create_from_str_and_class(
             args.puzzle_string,

@@ -457,10 +457,6 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             if len(set(partition)) == len_cell
         )
 
-    @cached_property
-    def candidates(self) -> FrozenSet[int]:
-        return frozenset(x for y in self.sum_candidates for x in y)
-
     def __hash__(self):
         return hash((super().__hash__(), self.sum))
 
@@ -533,22 +529,6 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
                 maxi,
             )
         ]
-
-    @staticmethod
-    def partition(
-        n: int,
-        count: int,
-        mini: int,
-        maxi: int,
-    ) -> Iterator[Deque[int]]:
-        """Compatibility iterator yielding detached mutable deques."""
-        for partition in SumAndElementsAtMostOnce._partition_tuples(
-            n,
-            count,
-            mini,
-            maxi,
-        ):
-            yield collections.deque(partition)
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         guarantees = () if guarantees is None else guarantees

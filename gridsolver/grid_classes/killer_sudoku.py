@@ -54,11 +54,6 @@ class KillerSudoku(Sudoku):
 
         self.add_rules_checked(rules)
 
-    # Compatibility alias for extension code that used the historical private
-    # helper. KenKen imports the shared implementation directly and no longer
-    # loads the Killer Sudoku module merely to split text.
-    _load_preprocess_colon_split = staticmethod(split_cage_input)
-
     def load(
         self,
         sum_cells_and_dic: str | Iterable[str],

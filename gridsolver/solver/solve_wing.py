@@ -1,6 +1,7 @@
 import itertools
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -33,6 +34,8 @@ def xy_wing(grid: Grid) -> None:
                                      f"{i} removed from {cdt} w/ " +
                                      f"{cs(c)}, pincers {cs(l1)}, {cs(l2)}", cs(x))
                             cdt.remove(i)
+                            if not cdt:
+                                raise InvalidGrid()
 
 
 def xyz_wing(grid: Grid) -> None:
@@ -61,3 +64,5 @@ def xyz_wing(grid: Grid) -> None:
                                      f"{i} removed from {cdt} w/ " +
                                      f"{cs(c)}, pincers {cs(l1)}, {cs(l2)}", cs(x))
                             cdt.remove(i)
+                            if not cdt:
+                                raise InvalidGrid()

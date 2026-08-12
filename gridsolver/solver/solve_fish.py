@@ -4,6 +4,7 @@ from typing import FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.trail import TrailedDict
+from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
@@ -100,6 +101,8 @@ def _eliminate_outside(cands, cell_groups, all_gts, value, label, c) -> None:
                              f"{value} removed from {cd} w/ fish-set {c(all_gts)}",
                              c(cell))
                     cd.remove(value)
+                    if not cd:
+                        raise InvalidGrid()
 
 
 def _eliminate_cannibals(cands, urs, all_gts, threshold, value, label, c) -> None:
@@ -116,6 +119,8 @@ def _eliminate_cannibals(cands, urs, all_gts, threshold, value, label, c) -> Non
                              f"{value} removed from {cd} w/ fish-set {c(all_gts)}",
                              c(cell))
                     cd.remove(value)
+                    if not cd:
+                        raise InvalidGrid()
                 break
 
 

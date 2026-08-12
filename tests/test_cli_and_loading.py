@@ -149,10 +149,12 @@ def test_loader_rejects_ambiguous_top_level_bytes():
 
 
 def test_cage_split_rejects_bytes_and_non_string_iterable_parts():
+    from gridsolver.grid_classes.cage_loading import split_cage_input
+
     with pytest.raises(TypeError, match="decoded to str"):
-        KillerSudoku._load_preprocess_colon_split(b"a:a1")
+        split_cage_input(b"a:a1")
     with pytest.raises(TypeError, match="only strings"):
-        KillerSudoku._load_preprocess_colon_split(iter(("a", 1, ":a1")))
+        split_cage_input(iter(("a", 1, ":a1")))
 
 
 @pytest.mark.parametrize(
