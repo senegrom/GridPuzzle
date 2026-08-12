@@ -68,3 +68,22 @@ def test_compact_indexing_resolves_board_keys_not_internal_tuples():
     assert grid[(1, 0)] == 2
     with pytest.raises(KeyError, match="Unknown puzzle key"):
         grid[(0, 0)]  # blocked cells are not variables
+
+
+def test_compact_positional_load_is_transactional_and_key_free():
+    # regression: the keyed-indexing override must not leak into the
+    # inherited positional load() — row_wise assignment goes by integer
+    # cell, and a compact grid loads exactly like values_by_key's order
+    from gridsolver.grid_classes.path_puzzles import Numbrix
+
+    grid = Numbrix(2, 2)
+    grid.load([1, 2, 4, 3])
+    assert grid.values_by_key(list(grid)) == {
+        (0, 0): 1, (0, 1): 2, (1, 0): 4, (1, 1): 3,
+    }
+
+    blocked = Hidato(2, 2, blocked=[(0, 0)])
+    blocked.load([1, 3, 2])  # positional over the three real variables
+    assert blocked.values_by_key(list(blocked)) == {
+        (0, 1): 1, (1, 0): 3, (1, 1): 2,
+    }

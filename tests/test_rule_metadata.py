@@ -82,29 +82,42 @@ def _mentions_slow_marker(expression: ast.expr) -> bool:
     )
 
 
+def _assigns_slow_pytestmark(node: ast.AST) -> bool:
+    """Match every legal pytestmark spelling: =, :=-style AnnAssign, +=."""
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+        value = node.value
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        targets = [node.target]
+        value = node.value
+    else:
+        return False
+    if value is None:
+        return False
+    return any(
+        isinstance(target, ast.Name) and target.id == "pytestmark"
+        for target in targets
+    ) and _mentions_slow_marker(value)
+
+
 def test_every_slow_marker_is_covered_by_an_extended_ci_job():
     module_marked: set[str] = set()
     function_marked: set[tuple[str, str]] = set()
 
-    for path in sorted(_TESTS_DIR.glob("test_*.py")):
+    # rglob: pytest collects tests/ recursively, so the guard must too
+    for path in sorted(_TESTS_DIR.rglob("test_*.py")):
+        name = path.relative_to(_TESTS_DIR).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in tree.body:
-            if (
-                isinstance(node, ast.Assign)
-                and any(
-                    isinstance(target, ast.Name) and target.id == "pytestmark"
-                    for target in node.targets
-                )
-                and _mentions_slow_marker(node.value)
-            ):
-                module_marked.add(path.name)
+        # ast.walk also catches class-level pytestmark assignments
         for node in ast.walk(tree):
+            if _assigns_slow_pytestmark(node):
+                module_marked.add(name)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if any(
                     _mentions_slow_marker(decorator)
                     for decorator in node.decorator_list
                 ):
-                    function_marked.add((path.name, node.name))
+                    function_marked.add((name, node.name))
 
     assert module_marked == _EXPECTED_MODULE_SLOW_FILES, (
         "Module-level slow markers changed; wire the file into an extended-CI "

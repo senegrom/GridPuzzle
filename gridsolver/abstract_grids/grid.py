@@ -927,9 +927,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         ]
 
         if row_wise:
+            # integer form of the (row, col) cell so compact grids keep their
+            # positional load semantics (their tuple indexes mean board keys)
+            rows = self.rows
             for index, value in enumerate(parsed_values):
                 row, col = divmod(index, self.cols)
-                self[(row, col)] = value
+                self[row + col * rows] = value
         else:
             for index, value in enumerate(parsed_values):
                 self[index] = value
