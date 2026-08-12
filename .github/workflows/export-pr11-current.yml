@@ -1,0 +1,27 @@
+name: Export PR 11 current source
+
+on:
+  push:
+    branches:
+      - agent/correctness-debloat-review-2026-08-12
+    paths:
+      - .github/workflows/export-pr11-current.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gridpuzzle-pr11-current-source
+          path: .
+          include-hidden-files: true
+          retention-days: 2
