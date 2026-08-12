@@ -32,3 +32,5 @@ used for each accepted or rejected optimization.
 | 08-09 | free_threaded_threads_rejected | rejected | 3.14t threads −4-5% on real workloads |
 | 08-10 | lazy_candidate_index (.md/.json) | accepted tradeoff | topology builds −51/−65% micro, +0.36% GM macro |
 | 08-10 | new_family_corpus_audit | measured | 93/102 unique, 9 timeouts, 0 errors |
+| 08-11 | immutable_partition_cache | accepted | lru tuple cache, lookups −33.30%; public partition2 keeps list[deque] |
+| 08-11 | candidate_view | accepted | validated public view off the hot path, GM +0.09% |

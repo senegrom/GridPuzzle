@@ -191,7 +191,7 @@ Corpus reports distinguish:
 - `unsupported_variant`;
 - `error`.
 
-Timeouts and explicitly classified historical variants do not fail the matrix. Unexpected parser or solver errors do. Non-standard Mebane Slitherlink files with additional constraints are reported explicitly rather than silently solved as ordinary Slitherlink.
+Timeouts and explicitly classified historical variants do not fail the matrix. Unexpected parser or solver errors do — and so do `unsatisfiable` and `multiple`, because the retained corpus consists of unique-solution puzzles, making either count a solver soundness regression. A missing or empty corpus directory (wrong `--root`, empty shard) fails instead of reporting a green no-op. Non-standard Mebane Slitherlink files with additional constraints are reported explicitly rather than silently solved as ordinary Slitherlink.
 
 Run a local shard with:
 

@@ -174,9 +174,11 @@ fixpoint conclusion.
 - Nishio without branch deep copies;
 - forcing-chain and forcing-net consensus;
 - recursive backtracking without per-node deep copies;
-- deterministic sequential/parallel equivalence;
 - transactional fish memo rollback;
 - dirty-worklist selectivity, pickle coherence, and exact rollback.
+
+Deterministic sequential/parallel equivalence lives in `tests/test_basic.py`
+(full 288-solution merge) and `tests/test_regressions.py` (start methods).
 
 `tests/test_solver_api.py` covers process-pool root initialisation, isolated
 per-task clones, compact task payloads, bounded submission, capped worker

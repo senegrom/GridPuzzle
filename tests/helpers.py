@@ -31,3 +31,5 @@ def solve_all_in_path(path: Path, space_sep: bool, max_count=0):
             break
         solve_path(file, space_sep=space_sep)
         counter += 1
+    # an existing-but-empty corpus directory must fail, not pass vacuously
+    assert counter > 0, f"No example files solved in {path}"

@@ -3,7 +3,7 @@ from contextvars import ContextVar, Token
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
-from gridsolver.solver.propagation import BranchConsensus
+from gridsolver.solver.propagation import BranchConsensus, apply_consensus
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -69,8 +69,11 @@ def forcing_chain(grid: Grid) -> None:
                 mark = grid.trail_mark()
                 status = SolveStatus.INVALID
                 try:
-                    grid[cell] = value
+                    # the assignment sits inside the InvalidGrid scope so a
+                    # setitem that raises means "this branch contradicts",
+                    # matching nishio and forcing_net
                     try:
+                        grid[cell] = value
                         status = _propagate_with_techniques(grid)
                     except InvalidGrid:
                         status = SolveStatus.INVALID
@@ -121,47 +124,14 @@ def forcing_chain(grid: Grid) -> None:
                     raise InvalidGrid()
                 return
 
-            made_progress = False
-
-            for other_cell in range(grid.len):
-                if other_cell == cell or known[other_cell] > 0:
-                    continue
-                forced_value = consensus.forced_value(other_cell)
-                if forced_value <= 0:
-                    continue
-                _lg.on and _lg.logr(
-                    "ForcingChain",
-                    f"all {consensus.branch_count} branches force "
-                    f"{coord(other_cell)}={forced_value} from {coord(cell)}",
-                    coord(other_cell),
-                )
-                candidates[other_cell].intersection_update((forced_value,))
-                if not candidates[other_cell]:
-                    raise InvalidGrid()
-                made_progress = True
-
-            for other_cell in range(grid.len):
-                if (
-                    other_cell == cell
-                    or known[other_cell] > 0
-                    or len(candidates[other_cell]) <= 1
-                ):
-                    continue
-                common_eliminations = consensus.common_eliminations(
-                    other_cell,
-                    candidates[other_cell],
-                )
-                for value in sorted(common_eliminations):
-                    _lg.on and _lg.logr(
-                        "ForcingChain",
-                        f"{value} removed from {coord(other_cell)} "
-                        f"(all {consensus.branch_count} branches eliminate)",
-                        coord(other_cell),
-                    )
-                    candidates[other_cell].discard(value)
-                    if not candidates[other_cell]:
-                        raise InvalidGrid()
-                    made_progress = True
+            made_progress = apply_consensus(
+                grid,
+                consensus,
+                frozenset((cell,)),
+                "ForcingChain",
+                coord(cell),
+                coord,
+            )
 
             if made_progress:
                 return

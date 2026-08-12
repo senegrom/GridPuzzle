@@ -29,7 +29,7 @@ def nishio(grid: Grid) -> None:
                 grid[cell] = value
                 status = propagate_basic(grid)
                 branch_valid = status is not SolveStatus.INVALID and grid.is_valid
-                if not branch_valid:
+                if not branch_valid and _lg.on:
                     empty_cells = [
                         index
                         for index, possible in enumerate(grid._candidates)

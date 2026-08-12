@@ -21,7 +21,8 @@ jobs:
   supported-corpus:
     name: Supported puzzle corpus
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    # the whole selection runs in single-digit minutes since August 2026
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v6
@@ -50,7 +51,8 @@ jobs:
   new-family-corpus:
     name: ${{ matrix.family }} corpus shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # worst shard is ~21 cases x 60s case timeout, well under an hour
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -93,7 +95,8 @@ jobs:
   pandiagonal-corpus:
     name: Slow pandiagonal Latin-square corpus
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # ~3-5 minutes since the August 2026 engine work
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6

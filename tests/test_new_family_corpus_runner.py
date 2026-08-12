@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts import run_new_family_corpus as corpus
 
 
@@ -62,14 +64,14 @@ def test_isolated_timeout_is_recorded(monkeypatch, tmp_path):
     assert result["timeout_seconds"] == 0.1
 
 
-def test_main_writes_report_and_fails_only_for_errors(
+def test_main_writes_report_and_fails_for_regressions(
     monkeypatch,
     tmp_path,
     capsys,
 ):
     report = {
         "family": "hidato",
-        "status_counts": {"unique": 1, "timeout": 1},
+        "status_counts": {"unique": 1, "timeout": 1, "unsupported_variant": 1},
         "cases": [],
     }
     monkeypatch.setattr(corpus, "run_corpus", lambda **kwargs: report)
@@ -79,5 +81,17 @@ def test_main_writes_report_and_fails_only_for_errors(
     assert json.loads(output.read_text(encoding="utf-8")) == report
     assert json.loads(capsys.readouterr().out) == report
 
-    report["status_counts"]["error"] = 1
-    assert corpus.main(("--family", "hidato")) == 1
+    # errors and solution-count regressions each fail the run on their own
+    for failing_status in ("error", "unsatisfiable", "multiple"):
+        report["status_counts"] = {"unique": 1, failing_status: 1}
+        assert corpus.main(("--family", "hidato")) == 1
+
+
+def test_corpus_paths_reject_missing_and_empty_corpora(tmp_path):
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        corpus.corpus_paths(tmp_path, "hidato")
+
+    directory = tmp_path / "Examples" / "Hidato"
+    directory.mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match="No .clp cases"):
+        corpus.corpus_paths(tmp_path, "hidato")

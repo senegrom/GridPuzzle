@@ -36,9 +36,21 @@ class Sudoku(UniqueSquareGrid):
             raise ValueError("Boxes must contain exactly n cells to tile the grid")
         super().__init__(n)
 
+        # The class default draws sqrt-spaced box separators, which is only
+        # correct for square boxes; non-square boxes need their real shape.
+        self.format_args = PrettyPrintArgs(
+            args=type(self).format_args,
+            inner_grid_row=rows_in_box,
+            inner_grid_col=cols_in_box,
+        )
+
         box_pattern_1 = [row + col * n for col in range(cols_in_box) for row in range(rows_in_box)]
         box_pattern_2 = [row * rows_in_box + col * cols_in_box * n for col in range(box_cols) for row in range(box_rows)]
         self.ext_rules(ElementsAtMostOnce, [{"cells": [x + box_pattern_2[r] for x in box_pattern_1]} for r in range(n)],
                        None)
         self.ext_rules(ElementsAtLeastOnce,
                        [{"cells": [x + box_pattern_2[r] for x in box_pattern_1]} for r in range(n)], None)
+
+    def _copy_extra_state_to(self, result: "Sudoku") -> None:
+        super()._copy_extra_state_to(result)
+        result.format_args = PrettyPrintArgs(args=self.format_args)

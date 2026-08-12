@@ -81,6 +81,23 @@ class CompactGrid(Grid):
         except KeyError as exc:
             raise KeyError(f"Unknown puzzle key {key!r}") from exc
 
+    def _get_index_from_key(self, key):
+        """Resolve integral indexes as compact cells and everything else as keys.
+
+        The inherited (row, col) tuple math would silently alias the board
+        coordinates most compact families use as keys: on this 1xN layout
+        an internal (0, col) tuple and a board key (0, col) are different
+        cells. Integral indexes keep their compact-cell meaning; any other
+        index must be a known puzzle key.
+        """
+        if isinstance(key, bool):
+            raise TypeError("Boolean grid indexes are not supported")
+        if isinstance(key, Integral):
+            return int(key)
+        if isinstance(key, slice):
+            return key
+        return self.compact_cell(key)
+
     def key_for_cell(self, cell: int) -> Hashable:
         if isinstance(cell, bool) or not isinstance(cell, Integral):
             raise TypeError("Compact cell must be an integer")

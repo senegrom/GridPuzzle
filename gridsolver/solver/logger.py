@@ -127,6 +127,7 @@ def _lvl(level: int) -> int:
 
 
 _RULE_LOG_FILTER = {
+    "NakedTuple",
     "TooManyNakedTuple",
     "HiddenTuple",
     "Fish",

@@ -175,15 +175,17 @@ parser family across compact strings, arbitrary whitespace-separated strings,
 prefixed and class-explicit factories, nested one-shot iterables, mapping-based
 cage loaders, row-wise/column-wise modes, and UTF-8 file round trips. Malformed
 Futoshiki mutations are checked for transactional rollback and retryability.
-Broader per-technique completion-derived states remain in the slow differential
-shard.
+The broader per-technique completion-derived states lost their slow markers in
+August 2026 and run in the per-push suite.
 
 ## Scheduled extended CI — DONE August 2026
 
-The normal workflow remains bounded. A weekly/manual extended workflow shards
-the supported example corpus, 49x49–100x100 generated Sudoku scale tests, and
-the slow pandiagonal Latin-square corpus into independent jobs with explicit
-timeouts and duration reporting.
+The normal workflow remains bounded. A weekly/manual extended workflow runs
+the supported example corpora, the sharded new-family corpus matrix, the slow
+pandiagonal Latin-square corpus, and full parallel/sequential equivalence in
+independent jobs with explicit timeouts and duration reporting. The generated
+49x49–100x100 scale tests became fast enough for the per-push suite in
+August 2026.
 
 ## New puzzle families — DONE August 2026
 

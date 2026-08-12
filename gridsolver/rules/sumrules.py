@@ -62,13 +62,12 @@ class SumRule(Rule):
                     raise InvalidGrid()
 
         if lk:
-            new_target = self.sum - current_sum
-            if new_target < 0:
-                self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+            # remaining_sum < 0 is impossible here: the tmin/tmax pruning
+            # above already emptied every unknown cell and raised
             return False, [
                 SumRule(
                     gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),
-                    cells=[cell for cell in self.cells if known[cell] == 0], mysum=new_target
+                    cells=[cell for cell in self.cells if known[cell] == 0], mysum=remaining_sum
                 )
             ], []
 
@@ -586,9 +585,9 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         SumAndElementsAtMostOnce._update_from_guarantees(candidates, new_candidate_cells, guarantees)
 
         if lk:
+            # a surviving partition strictly contains my_known, so the new
+            # target sum(partition) - sum(my_known) is always positive
             new_target = self.sum - sum(my_known)
-            if new_target < 0:
-                self.invalidate_current_cells_and_raise_invalid_grid(candidates)
             return False, [
                 SumAndElementsAtMostOnce(
                     gsz=GridSizeContainer(self._rows, self._cols, self._max_elem),

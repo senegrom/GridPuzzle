@@ -38,6 +38,8 @@ class Guarantee(NamedTuple):
     def __eq__(self, other: object) -> bool:
         return type(other) is Guarantee and tuple.__eq__(self, other)
 
+    # NOT redundant: without this override a NamedTuple inherits tuple.__ne__,
+    # which would contradict the type-strict __eq__ above.
     def __ne__(self, other: object) -> bool:
         return not self.__eq__(other)
 
@@ -209,9 +211,6 @@ class Rule(ABC):
         )
         object.__setattr__(self, "_base_hash_cache", cached)
         return cached
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other
 
     def invalidate_current_cells_and_raise_invalid_grid(
         self,

@@ -17,6 +17,3 @@ class RuleContainer:
             and self.guarantees == other.guarantees
             and self.guarantees_ia == other.guarantees_ia
         )
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other

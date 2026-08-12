@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import Guarantee, InvalidGrid, Rule, RuleAlwaysSatisfied
 from gridsolver.solver.solve_guarantees import filter_guarantees
+from gridsolver.solver.solver_log import lg as _lg
 
 
 type PropagationSnapshot = tuple[bytes, int, int, int]
@@ -49,6 +50,63 @@ class BranchConsensus:
         if self.branch_count == 0:
             return set()
         return possible - self.candidate_union[cell]
+
+
+# noinspection PyProtectedMember
+def apply_consensus(
+    grid: Grid,
+    consensus: BranchConsensus,
+    skip_cells: frozenset[int],
+    label: str,
+    source: str,
+    coord,
+) -> bool:
+    """Apply forced values and eliminations shared by every valid branch."""
+    candidates = grid._candidates
+    known = grid._known
+    made_progress = False
+
+    for cell in range(grid.len):
+        if cell in skip_cells or known[cell] > 0:
+            continue
+        forced_value = consensus.forced_value(cell)
+        if forced_value <= 0:
+            continue
+        _lg.on and _lg.logr(
+            label,
+            f"all {consensus.branch_count} branches force "
+            f"{coord(cell)}={forced_value} from {source}",
+            coord(cell),
+        )
+        candidates[cell].intersection_update((forced_value,))
+        if not candidates[cell]:
+            raise InvalidGrid()
+        made_progress = True
+
+    for cell in range(grid.len):
+        if (
+            cell in skip_cells
+            or known[cell] > 0
+            or len(candidates[cell]) <= 1
+        ):
+            continue
+        common_eliminations = consensus.common_eliminations(
+            cell,
+            candidates[cell],
+        )
+        for value in sorted(common_eliminations):
+            _lg.on and _lg.logr(
+                label,
+                f"{value} removed from {coord(cell)} "
+                f"(all {consensus.branch_count} branches from {source} eliminate)",
+                coord(cell),
+            )
+            candidates[cell].discard(value)
+            if not candidates[cell]:
+                raise InvalidGrid()
+            made_progress = True
+
+    return made_progress
 
 
 _NO_GUARANTEES: tuple[Guarantee, ...] = ()

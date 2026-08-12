@@ -25,11 +25,28 @@ class Futoshiki(UniqueSquareGrid):
         super().__init__(n)
 
     def ext_ineqs(self, ineqs: Iterable) -> None:
-        self.ext_rules(
-            IneqRule,
-            [{"gt_cell": gt, "lt_cell": lt} for lt, gt in ineqs],
-            None,
-        )
+        """Add (smaller, greater) inequality pairs between adjacent cells.
+
+        The renderer draws inequality glyphs between orthogonal neighbours
+        only, so non-adjacent pairs are rejected here instead of crashing
+        after a solve when the solution is printed.
+        """
+        kwargs_list = []
+        for lt, gt in ineqs:
+            lt_cell = self._get_index_from_key(lt)
+            gt_cell = self._get_index_from_key(gt)
+            rows = self.rows
+            adjacent = (
+                (abs(lt_cell - gt_cell) == 1 and lt_cell // rows == gt_cell // rows)
+                or (abs(lt_cell - gt_cell) == rows and lt_cell % rows == gt_cell % rows)
+            )
+            if not adjacent:
+                raise ValueError(
+                    f"Futoshiki inequality cells {lt!r} and {gt!r} "
+                    "must be orthogonally adjacent"
+                )
+            kwargs_list.append({"gt_cell": gt, "lt_cell": lt})
+        self.ext_rules(IneqRule, kwargs_list, None)
 
     def load(
         self,
@@ -59,6 +76,18 @@ class Futoshiki(UniqueSquareGrid):
         grid_values = values[:grid_end]
         horizontal = values[grid_end:horizontal_end]
         vertical = values[horizontal_end:]
+
+        # row_wise only reorders the value section; the two inequality
+        # sections have a fixed row-major layout, so a transposed payload
+        # with inequalities would silently bind them to wrong cell pairs.
+        if not row_wise and any(
+            symbol != "-" for symbol in (*horizontal, *vertical)
+        ):
+            raise ValueError(
+                "row_wise=False is only supported for payloads without "
+                "inequality symbols; transposing the inequality sections "
+                "is not implemented"
+            )
 
         # Build every inequality before loading the first value. A malformed
         # symbol therefore leaves both values and rule sets unchanged.

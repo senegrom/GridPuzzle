@@ -1,9 +1,11 @@
 """Solve retained Hidato, Numbrix, Kakuro, and Slitherlink corpora.
 
 Each puzzle runs in a fresh interpreter with a hard timeout. The parent process
-always writes a machine-readable report, including unsupported historical
-variants and timeouts, before returning a non-zero status only for unexpected
-loader/solver errors.
+always writes a machine-readable report before returning a non-zero status for
+unexpected loader/solver errors and for solution-count regressions
+(``unsatisfiable`` or ``multiple`` on the retained unique-solution corpus).
+Timeouts and deliberately unsupported historical variants are recorded but do
+not fail the run.
 """
 
 from __future__ import annotations
@@ -162,12 +164,21 @@ def corpus_paths(
     if not 0 <= shard_index < shard_count:
         raise ValueError("shard_index must lie in 0..shard_count-1")
 
-    paths = tuple(sorted((root / "Examples" / directory).rglob("*.clp")))
-    return tuple(
+    corpus_dir = root / "Examples" / directory
+    if not corpus_dir.is_dir():
+        raise FileNotFoundError(f"Corpus directory {corpus_dir} does not exist")
+    paths = tuple(sorted(corpus_dir.rglob("*.clp")))
+    shard = tuple(
         path
         for index, path in enumerate(paths)
         if index % shard_count == shard_index
     )
+    # a wrong --root or emptied corpus must fail, not report a green no-op
+    if not shard:
+        raise FileNotFoundError(
+            f"No .clp cases in shard {shard_index}/{shard_count} under {corpus_dir}"
+        )
+    return shard
 
 
 def run_corpus(
@@ -262,7 +273,11 @@ def main(argv: list[str] | tuple[str, ...] | None = None) -> int:
         args.output.write_text(rendered, encoding="utf-8")
     print(rendered, end="")
 
-    return 1 if report["status_counts"].get("error", 0) else 0
+    failing = sum(
+        report["status_counts"].get(status, 0)
+        for status in ("error", "unsatisfiable", "multiple")
+    )
+    return 1 if failing else 0
 
 
 if __name__ == "__main__":

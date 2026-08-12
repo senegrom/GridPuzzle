@@ -54,3 +54,17 @@ def test_standard_file_loader_accepts_bom_and_semicolon_comments(tmp_path):
     grid = create_from_file(puzzle, space_sep=True)
 
     assert grid.rows == grid.cols == 2
+
+
+def test_compact_indexing_resolves_board_keys_not_internal_tuples():
+    # regression: the inherited 1xN (row, col) math silently aliased board
+    # keys — grid[(0, 1)] read internal cell 1, which is board key (1, 0)
+    grid = Hidato(2, 2, blocked=[(0, 0)])
+    grid.load_key_values({(0, 1): 1})
+
+    assert grid[(0, 1)] == 1
+    assert grid[grid.compact_cell((0, 1))] == 1
+    grid[(1, 0)] = 2
+    assert grid[(1, 0)] == 2
+    with pytest.raises(KeyError, match="Unknown puzzle key"):
+        grid[(0, 0)]  # blocked cells are not variables

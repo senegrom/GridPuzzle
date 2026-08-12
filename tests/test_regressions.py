@@ -242,3 +242,33 @@ def test_flat_cage_coordinates_reject_an_unpaired_coordinate_atomically():
         )
 
     assert grid.rules == original_rules
+
+
+def test_xy_chain_semi_strong_prune_survives_ruleless_guarantee_links():
+    # regression: the prune passed a generator over `link` into
+    # link.difference_update, raising RuntimeError the moment any entry
+    # matched (reachable only when a linked cell has no weak links at all)
+    from gridsolver.rules.rules import Guarantee
+    from gridsolver.solver.solve_chain import xy_chain
+
+    grid = Grid(2, 2, max_elem=2)
+    grid.add_gtee_checked(Guarantee(1, frozenset({0, 1}), 2, 2))
+
+    xy_chain(grid)  # must not raise
+
+    assert all(candidates == {1, 2} for candidates in grid._candidates)
+
+
+def test_nonsquare_box_sudoku_draws_true_box_separators():
+    grid = Sudoku(2, 3, 3, 2)  # 6x6 with 2-row x 3-col boxes
+    grid.load([column + 1 for _ in range(6) for column in range(6)])
+    _header, rendered = grid.to_str()
+    lines = [line for line in rendered.splitlines() if line]
+    content = [line for line in lines if any(ch.isdigit() for ch in line)]
+
+    assert len(content) == 6
+    # two 3-wide box columns give exactly one inner vertical separator;
+    # the former sqrt-based layout drew two
+    assert all(line.count("│") == 1 for line in content)
+    # three 2-row box bands give exactly two inner horizontal rules
+    assert sum(1 for line in lines if "─" in line) == 2

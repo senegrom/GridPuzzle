@@ -1,13 +1,67 @@
 """Shared parsing helpers for compact Killer Sudoku and KenKen cages."""
 
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from functools import lru_cache
 from typing import TypeVar
+
+from gridsolver.abstract_grids.grid import _boolean_option
 
 
 HeaderT = TypeVar("HeaderT")
 DefinitionT = TypeVar("DefinitionT")
+EntryT = TypeVar("EntryT")
+
+
+def load_cage_layout(
+    grid,
+    sum_cells,
+    dic,
+    row_wise,
+    *,
+    family: str,
+    make_entry: Callable[[object], EntryT],
+    commit: Callable[[Iterable[EntryT]], None],
+) -> None:
+    """Shared single-character cage-layout loader for the dictionary APIs.
+
+    Walks the layout in the requested orientation, groups cells by label into
+    entries created from the label's dictionary definition (each entry exposes
+    a mutable ``cells`` list), rejects unused definitions, and only then
+    commits the complete cage set.
+    """
+    row_wise = _boolean_option("row_wise", row_wise)
+    if grid.has_been_filled:
+        raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
+
+    labels = grid._load_preprocess_sequence(sum_cells)
+    if not isinstance(dic, Mapping):
+        dic = dict(dic)
+
+    final_dic: dict[str, EntryT] = {}
+    label_iter = iter(labels)
+    for first in range(grid.rows if row_wise else grid.cols):
+        for second in range(grid.cols if row_wise else grid.rows):
+            label = next(label_iter)
+            try:
+                definition = dic[label]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Missing {family} cage definition for {label!r}"
+                ) from exc
+            entry = final_dic.setdefault(label, make_entry(definition))
+            entry.cells.append(
+                (first, second) if row_wise else (second, first)
+            )
+
+    unused_labels = set(dic).difference(final_dic)
+    if unused_labels:
+        rendered = ", ".join(sorted(repr(label) for label in unused_labels))
+        raise ValueError(f"Unused {family} cage definitions: {rendered}")
+
+    # Build every rule before changing the grid, then commit the complete set.
+    commit(final_dic.values())
+    grid.has_been_filled = True
 
 
 def split_cage_input(

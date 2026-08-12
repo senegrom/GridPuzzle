@@ -3,13 +3,13 @@ from numbers import Integral
 from typing import NamedTuple
 
 from gridsolver.abstract_grids.grid import (
-    _boolean_option,
     _load_preprocess_str,
     _load_preprocess_str_space_sep,
     _validate_load_options,
     pairs,
 )
 from gridsolver.grid_classes.cage_loading import (
+    load_cage_layout,
     parse_killer_dictionary,
     split_cage_input,
 )
@@ -82,6 +82,10 @@ class KillerSudoku(Sudoku):
         )
         self.load_with_dic(sum_cells, definitions, row_wise)
 
+    @staticmethod
+    def _make_cage_entry(cage_sum: int) -> SumCellPair:
+        return SumCellPair(mysum=cage_sum, cells=[])
+
     def load_with_dic(
         self,
         sum_cells: str | Iterable[str],
@@ -89,38 +93,12 @@ class KillerSudoku(Sudoku):
         row_wise: bool = True,
     ) -> None:
         """Load a single-character cage layout plus a mapping of cage sums."""
-        row_wise = _boolean_option("row_wise", row_wise)
-        if self.has_been_filled:
-            raise RuntimeError("Grid can only be filled once; or be used in individual access mode")
-
-        labels = self._load_preprocess_sequence(sum_cells)
-        if not isinstance(dic, Mapping):
-            dic = dict(dic)
-
-        final_dic: dict[str, SumCellPair] = {}
-        label_iter = iter(labels)
-        for first in range(self.rows if row_wise else self.cols):
-            for second in range(self.cols if row_wise else self.rows):
-                label = next(label_iter)
-                try:
-                    cage_sum = dic[label]
-                except KeyError as exc:
-                    raise ValueError(
-                        f"Missing Killer Sudoku cage definition for {label!r}"
-                    ) from exc
-                entry = final_dic.setdefault(
-                    label,
-                    SumCellPair(mysum=cage_sum, cells=[]),
-                )
-                entry.cells.append(
-                    (first, second) if row_wise else (second, first)
-                )
-
-        unused_labels = set(dic).difference(final_dic)
-        if unused_labels:
-            rendered = ", ".join(sorted(repr(label) for label in unused_labels))
-            raise ValueError(f"Unused Killer Sudoku cage definitions: {rendered}")
-
-        # Build every rule before changing the grid, then commit the complete set.
-        self.ext_sum_cells(final_dic.values())
-        self.has_been_filled = True
+        load_cage_layout(
+            self,
+            sum_cells,
+            dic,
+            row_wise,
+            family="Killer Sudoku",
+            make_entry=self._make_cage_entry,
+            commit=self.ext_sum_cells,
+        )

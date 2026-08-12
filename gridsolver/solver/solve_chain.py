@@ -40,16 +40,18 @@ def w_wing(grid: Grid) -> None:
                 les, strg_dic, weak_dic = _find_link_ends(cell, cells, sl[val], wl, True)
                 for le in les:
                     if le == cell and val in cands[cell]:
-                        chain = _compute_chain(le, weak_dic, strg_dic, True)
-                        _lg.on and _lg.logr("LoopW",
-                                 f"{val} removed from {set(key)} w/ loop {cs(chain)} ", cs(cell))
+                        if _lg.on:
+                            chain = _compute_chain(le, weak_dic, strg_dic, True)
+                            _lg.logr("LoopW",
+                                     f"{val} removed from {set(key)} w/ loop {cs(chain)} ", cs(cell))
                         cands[cell].discard(val)
                     joint_nb = wl[cell] & wl[le]
                     for nb in joint_nb:
                         if other_val in cands[nb]:
-                            chain = _compute_chain(le, weak_dic, strg_dic, True)
-                            _lg.on and _lg.logr("WingW",
-                                     f"{other_val} removed from {set(key)} w/ wing {cs(chain)}", cs(nb))
+                            if _lg.on:
+                                chain = _compute_chain(le, weak_dic, strg_dic, True)
+                                _lg.logr("WingW",
+                                         f"{other_val} removed from {set(key)} w/ wing {cs(chain)}", cs(nb))
                             cands[nb].remove(other_val)
 
 
@@ -125,16 +127,18 @@ def x_chain(grid: Grid) -> None:
             les, strg_dic, weak_dic = _find_link_ends(cell, None, sl[val], wl, False)
             for le in les:
                 if le == cell:
-                    chain = _compute_chain(le, weak_dic, strg_dic, False)
-                    _lg.on and _lg.logr("LoopX",
-                             f"all but {val} removed from {set(cd)} w/ loop {cs(chain)}", cs(cell))
+                    if _lg.on:
+                        chain = _compute_chain(le, weak_dic, strg_dic, False)
+                        _lg.logr("LoopX",
+                                 f"all but {val} removed from {set(cd)} w/ loop {cs(chain)}", cs(cell))
                     cd.intersection_update((val,))
                 joint_nb = wl[cell] & wl[le]
                 for nb in joint_nb:
                     if val in cands[nb]:
-                        chain = _compute_chain(le, weak_dic, strg_dic, False)
-                        _lg.on and _lg.logr("ChainX",
-                                 f"{val} removed from {set(cands[nb])} w/ chain {cs(chain)}", cs(nb))
+                        if _lg.on:
+                            chain = _compute_chain(le, weak_dic, strg_dic, False)
+                            _lg.logr("ChainX",
+                                     f"{val} removed from {set(cands[nb])} w/ chain {cs(chain)}", cs(nb))
                         cands[nb].remove(val)
 
 
@@ -148,7 +152,9 @@ def xy_chain(grid: Grid) -> None:
 
     for val, links in sl.items():
         for link in links:
-            link.difference_update((val_x, cell) for val_x, cell in link if not wl[cell])
+            # materialise before mutating: a generator over `link` would raise
+            # RuntimeError as soon as difference_update removes a member
+            link.difference_update([(val_x, cell) for val_x, cell in link if not wl[cell]])
     del val, links
 
     # dead cells (no semi-strong link for any value) are the same for every

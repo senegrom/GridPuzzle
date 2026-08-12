@@ -441,3 +441,20 @@ def test_pretty_print_revalidates_mutated_args_snapshot():
     args.sep_in_ve = 1
     with pytest.raises(ValueError, match="inner_grid_col must be positive"):
         pretty_print(1, 1, 1, [0], args=args)
+
+
+@pytest.mark.parametrize("pair", (((0, 0), (3, 3)), ((0, 0), (1, 1))))
+def test_futoshiki_rejects_non_adjacent_inequalities(pair):
+    grid = Futoshiki(4)
+    with pytest.raises(ValueError, match="adjacent"):
+        grid.ext_ineqs([pair])
+    assert not grid.rules_ia
+
+
+def test_futoshiki_column_wise_load_rejects_inequality_symbols():
+    grid = Futoshiki(4)
+    grid.load("0" * 16 + "-" * 24, row_wise=False)  # no inequalities: fine
+
+    transposed = Futoshiki(4)
+    with pytest.raises(ValueError, match="row_wise"):
+        transposed.load("0" * 16 + "<" + "-" * 23, row_wise=False)

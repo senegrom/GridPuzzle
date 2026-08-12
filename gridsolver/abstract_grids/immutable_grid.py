@@ -56,9 +56,6 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
             and self._known == other._known
         )
 
-    def __ne__(self, other: object) -> bool:
-        return not self == other
-
     def __hash__(self) -> int:
         return self.__hash
 
@@ -107,7 +104,7 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
     def __iter__(self) -> Iterator[int]:
         return iter(self._known)
 
-    def _str_header(self, detailed: bool = False) -> str:
+    def _str_header(self) -> str:
         return f"{self.name or self.__class__.__name__}({self.rows},{self.cols})"
 
     def to_str(
@@ -135,7 +132,7 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
             }
 
         return (
-            self._str_header(False),
+            self._str_header(),
             pretty_print(
                 self.rows,
                 self.cols,

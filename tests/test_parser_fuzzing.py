@@ -123,6 +123,32 @@ def test_deterministic_futoshiki_parser_fuzz(row_wise):
         compact = _compact(values, rng) + "".join(horizontal + vertical)
         spaced = _spaced(tokens, rng)
 
+        # row_wise=False cannot transpose the fixed-layout inequality
+        # sections, so payloads with inequality symbols are rejected — by
+        # every loader path consistently.
+        if not row_wise and any(
+            symbol != "-" for symbol in (*horizontal, *vertical)
+        ):
+            loaders = (
+                lambda: Futoshiki(side).load(compact, row_wise=False),
+                lambda: create_from_str_and_class(
+                    compact, "futoshiki", row_wise=False
+                ),
+                lambda: create_from_str(
+                    f"Futoshiki::{compact}", row_wise=False
+                ),
+                lambda: create_from_str_and_class(
+                    spaced, "futoshiki", row_wise=False, space_sep=True
+                ),
+                lambda: Futoshiki(side).load(
+                    (token for token in tokens), row_wise=False
+                ),
+            )
+            for loader in loaders:
+                with pytest.raises(ValueError, match="row_wise"):
+                    loader()
+            continue
+
         direct = Futoshiki(side)
         direct.load(compact, row_wise=row_wise)
         from_factory = create_from_str_and_class(

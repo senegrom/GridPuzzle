@@ -316,9 +316,6 @@ class CandidateView(MutableSet[int]):
             return False
         return self._target == normalized
 
-    def __ne__(self, other: object) -> bool:
-        return not self == other
-
     def copy(self) -> set[int]:
         return self._target.copy()
 

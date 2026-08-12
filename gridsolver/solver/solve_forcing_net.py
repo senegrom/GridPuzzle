@@ -4,7 +4,11 @@ from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver import solve_forcing_chain as _solve_fc
 from gridsolver.solver.logger import CoordToString
-from gridsolver.solver.propagation import BranchConsensus, propagate_basic
+from gridsolver.solver.propagation import (
+    BranchConsensus,
+    apply_consensus,
+    propagate_basic,
+)
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -64,49 +68,14 @@ def forcing_net(grid: Grid) -> None:
                 candidates[cell_a].clear()
                 raise InvalidGrid()
 
-            made_progress = False
-
-            for cell in range(grid.len):
-                if cell in (cell_a, cell_b) or known[cell] > 0:
-                    continue
-                forced_value = consensus.forced_value(cell)
-                if forced_value <= 0:
-                    continue
-                _lg.on and _lg.logr(
-                    "ForcingNet",
-                    f"all {consensus.branch_count} branches force "
-                    f"{coord(cell)}={forced_value} from net "
-                    f"{coord(cell_a)}+{coord(cell_b)}",
-                    coord(cell),
-                )
-                candidates[cell].intersection_update((forced_value,))
-                if not candidates[cell]:
-                    raise InvalidGrid()
-                made_progress = True
-
-            for cell in range(grid.len):
-                if (
-                    cell in (cell_a, cell_b)
-                    or known[cell] > 0
-                    or len(candidates[cell]) <= 1
-                ):
-                    continue
-                common_eliminations = consensus.common_eliminations(
-                    cell,
-                    candidates[cell],
-                )
-                for value in sorted(common_eliminations):
-                    _lg.on and _lg.logr(
-                        "ForcingNet",
-                        f"{value} removed from {coord(cell)} "
-                        f"(all {consensus.branch_count} branches of net "
-                        f"{coord(cell_a)}+{coord(cell_b)})",
-                        coord(cell),
-                    )
-                    candidates[cell].discard(value)
-                    if not candidates[cell]:
-                        raise InvalidGrid()
-                    made_progress = True
+            made_progress = apply_consensus(
+                grid,
+                consensus,
+                frozenset((cell_a, cell_b)),
+                "ForcingNet",
+                f"net {coord(cell_a)}+{coord(cell_b)}",
+                coord,
+            )
 
             valid_a = {value_a for value_a, _ in valid_pairs}
             valid_b = {value_b for _, value_b in valid_pairs}

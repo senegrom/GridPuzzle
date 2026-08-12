@@ -1,4 +1,3 @@
-import itertools
 from array import array
 from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence, MutableSet
 from enum import Enum
@@ -304,9 +303,6 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             and self._candidates == other._candidates
             and RuleContainer.__eq__(self, other)
         )
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other
 
     def _copy_extra_state_to(self, result: "Grid") -> None:
         """Copy subclass-owned instance state into ``result``.
@@ -895,9 +891,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         values: str | Iterable[int] | Iterable[Iterable[int]],
         /,
         space_sep: bool = False,
-        assert_length: int | None = None,
     ) -> str | list:
-        expected_length = self.len if assert_length is None else assert_length
+        expected_length = self.len
         if not isinstance(values, str):
             values = flatten(values)
 
@@ -939,37 +934,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             for index, value in enumerate(parsed_values):
                 self[index] = value
 
-    def _str_header(self, detailed: bool = False) -> str:
-        header = (
+    def _str_header(self) -> str:
+        return (
             f"{self.__class__.__name__}({self.rows},{self.cols})"
             f" - [{len(self.rules)} rls, {len(self.rules_ia)} ria, "
             f"{len(self.guarantees)} gts, {len(self.guarantees_ia)} gia]"
         )
-
-        if detailed:
-            active_groups = {
-                name: [set(rule.cells) for rule in group]
-                for name, group in itertools.groupby(
-                    sorted(self.rules, key=lambda rule: type(rule).__name__),
-                    lambda rule: type(rule).__name__,
-                )
-            }
-            inactive_groups = {
-                name: [set(rule.cells) for rule in group]
-                for name, group in itertools.groupby(
-                    sorted(self.rules_ia, key=lambda rule: type(rule).__name__),
-                    lambda rule: type(rule).__name__,
-                )
-            }
-            active = "\n".join(
-                f"  {len(group):6} \t {name}" for name, group in active_groups.items()
-            )
-            inactive = "\n".join(
-                f"  {len(group):6} \t {name}" for name, group in inactive_groups.items()
-            )
-            header += f"\n{active}\n  ───────\n{inactive}"
-
-        return header
 
     def ext_rules(
         self,

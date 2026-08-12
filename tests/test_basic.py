@@ -380,7 +380,23 @@ def test_eq_killer_sudoku2():
 
 
 def test_eq_futoshiki():
-    pass  # todo
+    from gridsolver.grid_classes.futoshiki import Futoshiki
+
+    first = Futoshiki(4)
+    first.ext_ineqs([((0, 0), (0, 1))])
+    second = Futoshiki(4)
+    second.ext_ineqs([((0, 0), (0, 1))])
+    flipped = Futoshiki(4)
+    flipped.ext_ineqs([((0, 1), (0, 0))])
+    bare = Futoshiki(4)
+
+    assert first == second
+    assert first != flipped  # same cells, opposite inequality direction
+    assert first != bare
+    assert flipped != bare
+
+    second[(0, 0)] = 1
+    assert first != second  # same rules, diverged values/candidates
 
 
 def test_fish_value_memo_invalidation():
