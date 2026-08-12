@@ -8,19 +8,32 @@ def flatten(values: Iterable) -> list:
 
     Text and byte strings remain scalar once encountered inside the outer
     iterable. The loader API accepts general iterables, so nested generators
-    must be flattened just like nested lists and tuples.
+    must be flattened just like nested lists and tuples. Iterative with an
+    open-container path check, so self-referential input raises ValueError
+    instead of exhausting the recursion limit.
     """
+    result: list = []
+    stack: list = [iter(values)]
+    open_ids: list[int] = [id(values)]
 
-    def iter_flat(items):
-        for item in items:
-            if isinstance(item, (str, bytes, bytearray)):
-                yield item
-            elif isinstance(item, Iterable):
-                yield from iter_flat(item)
-            else:
-                yield item
+    while stack:
+        try:
+            item = next(stack[-1])
+        except StopIteration:
+            stack.pop()
+            open_ids.pop()
+            continue
+        if isinstance(item, (str, bytes, bytearray)) or not isinstance(
+            item, Iterable
+        ):
+            result.append(item)
+        elif id(item) in open_ids:
+            raise ValueError("Cannot flatten a self-referential iterable")
+        else:
+            stack.append(iter(item))
+            open_ids.append(id(item))
 
-    return list(iter_flat(values))
+    return result
 
 
 __T = TypeVar("__T")

@@ -160,19 +160,24 @@ def _solve_validated(
     return solutions
 
 
-def _solve_top_parallel(
+def _atomic_pass_or_branches(
     grid: Grid,
-    max_sols: int,
-    processes: int,
-    depth_gate: int | None = None,
-) -> set[ImmutableGrid]:
-    """Run one atomic pass, then distribute deterministic first-level branches."""
-    from gridsolver.solver.solve_parallel import solve_parallel_trials
+    steps: list[int],
+    hidden_pair_checked_gts: set[Guarantee],
+    depth_gate: int | None,
+) -> tuple[set[ImmutableGrid] | None, list[tuple[int, int]], bool]:
+    """Run one atomic pass; return (final_solutions, branches, from_guarantee).
 
+    ``final_solutions`` is non-None when the pass settled the grid (solved or
+    invalid). Otherwise ``branches`` is the deterministic first-level
+    (cell, value) trial list — the single branch-choice heuristic that both
+    the sequential and the parallel searches must share, since capped
+    ``max_sols`` subset determinism depends on identical branch ordering.
+    """
     status = AtomicSolver(
         grid,
-        [0],
-        set(),
+        steps,
+        hidden_pair_checked_gts,
         depth_gate=depth_gate,
     ).solve_atomic()
     if status is SolveStatus.SOLVED:
@@ -184,18 +189,38 @@ def _solve_top_parallel(
                 grid.max_elem,
                 type(grid).__name__,
             )
-        }
+        }, [], False
     if status is SolveStatus.INVALID:
-        return set()
+        return set(), [], False
 
     test_cell, possible = grid.get_smallest_candidate_set_gt1()
     guarantee = grid.get_smallest_guarantee()
     values = sorted(possible)
 
     if guarantee is not None and len(guarantee.cells) < len(values):
-        branches = [(cell, guarantee.val) for cell in sorted(guarantee.cells)]
-    else:
-        branches = [(test_cell, value) for value in values]
+        return None, [
+            (cell, guarantee.val) for cell in sorted(guarantee.cells)
+        ], True
+    return None, [(test_cell, value) for value in values], False
+
+
+def _solve_top_parallel(
+    grid: Grid,
+    max_sols: int,
+    processes: int,
+    depth_gate: int | None = None,
+) -> set[ImmutableGrid]:
+    """Run one atomic pass, then distribute deterministic first-level branches."""
+    from gridsolver.solver.solve_parallel import solve_parallel_trials
+
+    settled, branches, _ = _atomic_pass_or_branches(
+        grid,
+        [0],
+        set(),
+        depth_gate,
+    )
+    if settled is not None:
+        return settled
 
     _lg.logs(
         0,
@@ -232,70 +257,38 @@ def _solve_full(
 ) -> set[ImmutableGrid]:
     steps.append(0)
     try:
-        status = AtomicSolver(
+        settled, branches, from_guarantee = _atomic_pass_or_branches(
             grid,
             steps,
             hidden_pair_checked_gts,
-            depth_gate=depth_gate,
-        ).solve_atomic()
-        if status is SolveStatus.SOLVED:
-            return {
-                ImmutableGrid(
-                    grid.known,
-                    grid.rows,
-                    grid.cols,
-                    grid.max_elem,
-                    type(grid).__name__,
-                )
-            }
-        if status is SolveStatus.INVALID:
-            return set()
-
-        test_cell, possible = grid.get_smallest_candidate_set_gt1()
-        guarantee = grid.get_smallest_guarantee()
-        values = sorted(possible)
-        use_guarantee = (
-            guarantee is not None
-            and len(guarantee.cells) < len(values)
+            depth_gate,
         )
-        trials = sorted(guarantee.cells) if use_guarantee else values
+        if settled is not None:
+            return settled
+
         solutions: set[ImmutableGrid] = set()
         # AtomicSolver only reads the incoming snapshot and replaces its
         # own reference after a full hidden-tuple pass. All sibling branches
         # therefore share this one immutable-by-convention parent snapshot.
         checked_guarantees = set(grid.guarantees)
 
-        for trial in trials:
+        for cell, value in branches:
             depth = len(steps)
             if _lg.is_enabled(depth):
-                if use_guarantee:
-                    _lg.logstep(
-                        depth,
-                        steps,
-                        f"Trial (guarantee) "
-                        f"[{trial % grid.rows},{trial // grid.rows}] "
-                        f"== {guarantee.val} with "
-                        f"{len(solutions)} previous solutions",
-                    )
-                else:
-                    _lg.logstep(
-                        depth,
-                        steps,
-                        f"Trial "
-                        f"[{test_cell % grid.rows},"
-                        f"{test_cell // grid.rows}] "
-                        f"== {trial} with "
-                        f"{len(solutions)} previous solutions",
-                    )
+                _lg.logstep(
+                    depth,
+                    steps,
+                    f"Trial{' (guarantee)' if from_guarantee else ''} "
+                    f"[{cell % grid.rows},{cell // grid.rows}] "
+                    f"== {value} with "
+                    f"{len(solutions)} previous solutions",
+                )
 
             # Reuse the current grid for every branch. The journal restores
             # candidates, known values, rules, guarantees and branch-local memos.
             mark = grid.trail_mark()
             try:
-                if use_guarantee:
-                    grid[trial] = guarantee.val
-                else:
-                    grid[test_cell] = trial
+                grid[cell] = value
 
                 remaining = (
                     -1

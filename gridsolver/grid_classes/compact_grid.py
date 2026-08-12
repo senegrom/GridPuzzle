@@ -98,14 +98,6 @@ class CompactGrid(Grid):
             return key
         return self.compact_cell(key)
 
-    def key_for_cell(self, cell: int) -> Hashable:
-        if isinstance(cell, bool) or not isinstance(cell, Integral):
-            raise TypeError("Compact cell must be an integer")
-        cell = int(cell)
-        if not 0 <= cell < self.len:
-            raise IndexError(f"Compact cell {cell} is outside 0..{self.len - 1}")
-        return self.cell_to_key[cell]
-
     def values_by_key(self, values: Sequence[int]) -> dict[Hashable, int]:
         if isinstance(values, (str, bytes, bytearray)):
             raise TypeError("Compact-grid values must be an integer sequence")

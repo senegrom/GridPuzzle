@@ -13,6 +13,7 @@ from gridsolver.rules.rules import (
     InvalidGrid,
     Rule,
     RuleAlwaysSatisfied,
+    validated_guarantee_cells,
 )
 from gridsolver.rules.sumrules import (
     DiffRule,
@@ -104,28 +105,7 @@ def _canonical_guarantee(
         if cached is not None and cached[0] is raw_cell_container:
             return Guarantee(value, cached[1], rows, cols)
 
-    if isinstance(raw_cell_container, (str, bytes, bytearray)):
-        raise TypeError("Guarantee cells must be an iterable of integers")
-    try:
-        raw_cells = tuple(raw_cell_container)
-    except TypeError as exc:
-        raise TypeError(
-            "Guarantee cells must be an iterable of integers"
-        ) from exc
-    if not raw_cells:
-        raise ValueError("Guarantee cells must not be empty")
-
-    cells: set[int] = set()
-    for raw_cell in raw_cells:
-        if isinstance(raw_cell, bool) or not isinstance(raw_cell, Integral):
-            raise TypeError("Guarantee cells must be integers")
-        cell = int(raw_cell)
-        if not 0 <= cell < plan.length:
-            raise ValueError(
-                f"Guarantee cell {cell} is outside 0..{plan.length - 1}"
-            )
-        cells.add(cell)
-    canonical_cells = frozenset(cells)
+    canonical_cells = validated_guarantee_cells(raw_cell_container, plan.length)
     if cell_cache is not None and cache_key is not None:
         cell_cache[cache_key] = (raw_cell_container, canonical_cells)
     return Guarantee(value, canonical_cells, rows, cols)

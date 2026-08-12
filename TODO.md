@@ -71,11 +71,11 @@ case with identical solution hashes. See
    from 3h09m to about 22m28s with identical solutions.
 3. **REJECTED:** pruned recursion in fish enumeration was equivalent but 12%
    slower with the existing memo.
-4. **PARTIAL:** AIC, ALS-XZ, and ALS-XY-Wing now share one immutable per-value
-   candidate-bitmask and peer-topology snapshot at each stalled state. Keeping
-   those masks incrementally updated remains open; the event-driven candidate
-   mutation hooks now make that possible, but benchmark evidence is still
-   required before adding more per-mutation bookkeeping.
+4. **DONE August 2026:** AIC, ALS-XZ, and ALS-XY-Wing share one immutable
+   per-value candidate-bitmask and peer-topology snapshot at each stalled
+   state, and the per-value index is maintained lazily with per-mutation
+   dirty bits and branch copy-on-sync — measured and promoted in
+   `benchmarks/lazy_candidate_index_2026-08-10.md`.
 
 ## Event-driven basic propagation — DONE August 2026
 
@@ -210,5 +210,6 @@ unification would tax the single-digit hot path.
 ## Fish — parked; see `FISH_REWRITE.md`
 
 A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
-and reverted. Remaining options alter solver behaviour and need an explicit
-choice: textbook-base restriction or deeper incremental dirty tracking.
+and reverted. Remaining options need an explicit choice: textbook-base
+restriction (changes solver behaviour) or incremental dirty tracking (exact,
+but needs per-pattern bookkeeping).

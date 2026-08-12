@@ -458,3 +458,51 @@ def test_futoshiki_column_wise_load_rejects_inequality_symbols():
     transposed = Futoshiki(4)
     with pytest.raises(ValueError, match="row_wise"):
         transposed.load("0" * 16 + "<" + "-" * 23, row_wise=False)
+
+
+def test_pretty_print_edge_configs_render_aligned():
+    # regression: borders without left/right edges, and zero-width
+    # separators with an inner grid, produced ragged rows and crashed
+    # the crossing fixer with IndexError
+    for args in (
+        PrettyPrintArgs(sep_up=2, sep_lo=2, sep_le=0, sep_ri=0),
+        PrettyPrintArgs(
+            sep_in_ve=0, inner_grid_col=2, inner_grid_row=1, sep_in_ho=1
+        ),
+    ):
+        rendered = pretty_print(2, 4, 4, [1, 2, 3, 4, 4, 3, 2, 1], args=args)
+        lines = [line for line in rendered.splitlines() if line]
+        assert "#" not in rendered
+        assert len({len(line) for line in lines}) == 1
+
+
+def test_pretty_print_places_inequality_glyphs_with_drawn_separators():
+    # regression: drawn vertical separators desynced the inequality-row
+    # state machine, swallowing glyphs and leaking literal '#'
+    rendered = pretty_print(
+        3, 3, 3, [0] * 9,
+        args=PrettyPrintArgs(
+            sep_in_ve=1, sep_in_ho=4, inner_grid_row=1, inner_grid_col=1
+        ),
+        ineqs={(0, 1), (4, 5), (8, 7)},
+    )
+    lines = [line for line in rendered.splitlines() if line]
+    gap_rows = [line for line in lines if "^" in line or "v" in line]
+    assert "#" not in rendered
+    assert len(gap_rows) == 2
+    assert gap_rows[0].index("^") == 1 and "v" not in gap_rows[0]
+    assert gap_rows[1].index("^") == 3 and gap_rows[1].index("v") == 5
+
+
+def test_pretty_print_blank_cells_with_space_separators_keep_borders():
+    # regression: a blank cell rendered as " " was misclassified as a
+    # separator column when sep_in_ve=3, corrupting the border rows
+    rendered = pretty_print(
+        2, 3, 3, [0, 1, 2, 3, 0, 1],
+        args=PrettyPrintArgs(
+            sep_in_ve=3, sep_in_ho=1, inner_grid_row=1, inner_grid_col=1
+        ),
+    )
+    lines = [line for line in rendered.splitlines() if line]
+    assert "#" not in rendered
+    assert len({len(line) for line in lines}) == 1

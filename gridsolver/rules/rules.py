@@ -44,6 +44,36 @@ class Guarantee(NamedTuple):
         return not self.__eq__(other)
 
 
+def validated_guarantee_cells(raw_cell_container, cell_count: int) -> frozenset[int]:
+    """Validate and canonicalise a Guarantee cell container.
+
+    Shared by Grid._normalize_guarantee and the solution validator so the
+    two input boundaries cannot drift apart.
+    """
+    if isinstance(raw_cell_container, (str, bytes, bytearray)):
+        raise TypeError("Guarantee cells must be an iterable of integers")
+    try:
+        raw_cells = tuple(raw_cell_container)
+    except TypeError as exc:
+        raise TypeError(
+            "Guarantee cells must be an iterable of integers"
+        ) from exc
+    if not raw_cells:
+        raise ValueError("Guarantee cells must not be empty")
+
+    cells: set[int] = set()
+    for raw_cell in raw_cells:
+        if isinstance(raw_cell, bool) or not isinstance(raw_cell, numbers.Integral):
+            raise TypeError("Guarantee cells must be integers")
+        cell = int(raw_cell)
+        if not 0 <= cell < cell_count:
+            raise ValueError(
+                f"Guarantee cell {cell} is outside 0..{cell_count - 1}"
+            )
+        cells.add(cell)
+    return frozenset(cells)
+
+
 @cache
 def _stable_rule_type_tag(rule_type: type["Rule"]) -> int:
     """Return a deterministic integer tag for a concrete rule class."""

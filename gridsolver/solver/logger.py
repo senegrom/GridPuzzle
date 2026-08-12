@@ -126,25 +126,6 @@ def _lvl(level: int) -> int:
     return MAX_LVL - level + 1
 
 
-_RULE_LOG_FILTER = {
-    "NakedTuple",
-    "TooManyNakedTuple",
-    "HiddenTuple",
-    "Fish",
-    "Wing",
-    "Chain",
-    "Loop",
-    "ForcingChain",
-    "Skyscraper",
-    "LockedCandidate",
-    "ALS",
-    "SueDeCoq",
-    "AIC",
-    "Nishio",
-    "ForcingNet",
-    "EmptyRectangle",
-    "IneqBounds",
-}
 TIME_DELTA_LOG_MIN = 0.5
 
 
@@ -266,8 +247,6 @@ class GridLogger:
         return self.is_enabled(1)
 
     def logr(self, rule_name: str, message: str, item: Any) -> None:
-        if not any(rule_name.startswith(prefix) for prefix in _RULE_LOG_FILTER):
-            return
         suffix = f": {message}" if message else ""
         self.logs(1, f"{C['G']}{rule_name} - {item}{suffix}{C['X']}")
 
@@ -291,7 +270,9 @@ class GridLogger:
         original = rendered
 
         previous = self._grid_buf.get()
-        if previous and len(previous) == len(rendered):
+        # The change overlay re-emits removed candidates wrapped in colour
+        # codes; without colours that would print a factually stale grid.
+        if previous and len(previous) == len(rendered) and C is not _C_NO:
             changed: list[str] = []
             for current, old in zip(rendered, previous):
                 if current == old:

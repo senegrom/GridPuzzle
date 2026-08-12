@@ -422,6 +422,24 @@ class _BoxStringMaker:
         self.cols = cols
         self.ineqs = ineqs
 
+    def _separator_positions(self) -> Set[int]:
+        """Segment indexes that hold separators in a spliced row, by structure.
+
+        Mirrors ``splice``'s boundary logic exactly. Structural positions are
+        authoritative: identifying separators by comparing rendered strings
+        misclassifies blank cells whenever a data segment happens to equal
+        the separator character.
+        """
+        positions: set[int] = set()
+        if self.inner_grid_col:
+            position = 0
+            for data_col in range(self.cols):
+                position += 1
+                if (data_col + 1) % self.inner_grid_col == 0 and data_col < self.cols - 1:
+                    positions.add(position)
+                    position += 1
+        return positions
+
     def splice(self, str_iter: Tuple[str], row_idx) -> Deque[str]:
         sp_result: Deque[str] = deque()
         n = len(str_iter)
@@ -450,16 +468,20 @@ class _BoxStringMaker:
         return (tuple(self.splice(rowling, r)) for rowling in zipped_row)
 
     def sep_row(self, sep: str, mylen: Iterable[int], row_idx=None):
-        string_builder = [CORNER_MARKER]
+        # edge corners only where a border character actually exists, so
+        # every produced row has exactly the data rows' width
+        string_builder = [CORNER_MARKER if self.le else ""]
         if sep == "I" and row_idx is None:
             raise ValueError("row_idx is required for inequality separators")
         element = row_idx
-        is_sep_col = False
         for ll in mylen:
             if ll == -1:
-                string_builder.append(CORNER_MARKER)
+                # structural separator column: a corner if it has any width,
+                # nothing for zero-width separators
+                if self.iv:
+                    string_builder.append(CORNER_MARKER)
                 continue
-            if sep == "I" and not is_sep_col:
+            if sep == "I":
                 if (element, element + 1) in self.ineqs:
                     this_sep = "^"
                 elif (element + 1, element) in self.ineqs:
@@ -467,15 +489,10 @@ class _BoxStringMaker:
                 else:
                     this_sep = " "
                 element += self.rows
-                is_sep_col = self.iv != ""
-            elif is_sep_col:
-                string_builder.append(CORNER_MARKER)
-                is_sep_col = False
-                continue
             else:
                 this_sep = sep
             string_builder.append(this_sep * ll)
-        string_builder.append(CORNER_MARKER)
+        string_builder.append(CORNER_MARKER if self.ri else "")
         return "".join(string_builder)
 
     def make(self, data: List[Iterable[str]]) -> Deque[str]:
@@ -487,7 +504,11 @@ class _BoxStringMaker:
         first, *new_rows = map(build_row, range(self.rows))
         ffirst, *first = first
         ffirst = list(ffirst)
-        mylen = [len(s) if s != self.iv else -1 for s in ffirst]
+        separator_positions = self._separator_positions()
+        mylen = [
+            -1 if index in separator_positions else len(s)
+            for index, s in enumerate(ffirst)
+        ]
         first = chain([ffirst], first)
         new_rows = chain([first], new_rows)
 
@@ -547,9 +568,11 @@ def _fix_crossings(data: MutableSequence[str]) -> None:
                 bot = " "
                 lef = " "
                 rig = " "
-                if i < last_row:
+                # neighbour rows are length-guarded individually: sep and
+                # data rows can legitimately differ in width
+                if i < last_row and j < len(data_s[i + 1]):
                     bot = data_s[i + 1][j]
-                if i > 0:
+                if i > 0 and j < len(data_s[i - 1]):
                     top = data_s[i - 1][j]
                 if j < last_col:
                     rig = data_s[i][j + 1]

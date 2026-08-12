@@ -154,7 +154,7 @@ python -X dev -m pytest -q tests/test_regressions.py tests/test_basic.py tests/t
 (The actual CI core job runs the full non-slow suite across all test files;
 see `.github/workflows/ci.yml` for the authoritative list.)
 
-The `slow` marker contains long corpus and large-scale checks and is intentionally excluded from the default push workflow:
+The `slow` marker contains the long example-corpus checks and is intentionally excluded from the default push workflow (the generated large-scale tests run fast enough to stay per-push):
 
 ```bash
 python -X dev -m pytest -m slow

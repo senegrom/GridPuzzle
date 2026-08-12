@@ -18,7 +18,8 @@ bases: the pattern space really is ~C(houses, f), and any exactly-equivalent
 algorithm must visit it. The enumeration order was never the bottleneck — the
 guarantee-generalised fish *semantics* is.
 
-**Real options (both change behaviour, owner decision required):**
+**Real options (owner decision required; only option 1 changes behaviour —
+option 2 is exact, it just needs per-pattern bookkeeping):**
 1. Restrict bases to textbook fish (per base house, the candidate positions of
    the value, requiring ≤ f positions per base house) — collapses the pattern
    space to the classical one; loses some exotic-but-sound eliminations that

@@ -60,7 +60,9 @@ def create_from_file(
     """Load a normal class-prefixed puzzle or a CSP-Rules solve file."""
     row_wise, space_sep = _validate_load_options(row_wise, space_sep)
     path = path if isinstance(path, Path) else Path(path)
-    text = path.read_text(encoding="utf-8")
+    # utf-8-sig: a BOM in front of a leading comment line must not defeat
+    # the comment filter below (the class/CSP parsers already lstrip BOMs)
+    text = path.read_text(encoding="utf-8-sig")
 
     from gridsolver.abstract_grids.csp_rules_loading import (
         create_from_csp_rules,

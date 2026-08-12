@@ -82,3 +82,50 @@ def test_negative_log_level_shorthand_is_preserved():
 def test_coordinate_sets_render_in_stable_numeric_order():
     render = CoordToString(3)
     assert render({8, 0, 4}) == "{(0, 0), (1, 1), (2, 2)}"
+
+
+def test_colourless_grid_log_shows_current_state_not_diff_overlay():
+    # regression: with Colouring.No the change overlay re-emitted removed
+    # candidates with empty colour codes, printing a factually stale grid
+    from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
+    from gridsolver.grid_classes.latins_square import LatinSquare
+    from gridsolver.solver import logger as logger_module
+
+    logger_module.set_colouring(logger_module.Colouring.No)
+    try:
+        grid_logger = logger_module.get_log("OVERLAY_TEST", MAX_LVL)
+        buffer = io.StringIO()
+        handler = logging.StreamHandler(buffer)
+        grid_logger.lg.addHandler(handler)
+        try:
+            grid = LatinSquare(2)
+            grid_logger.logg(0, grid, print_candidates=True)
+            first = buffer.getvalue()
+            buffer.truncate(0)
+            buffer.seek(0)
+            grid[(0, 0)] = 1
+            grid_logger.logg(0, grid, print_candidates=True)
+            second = buffer.getvalue()
+        finally:
+            grid_logger.lg.removeHandler(handler)
+
+        true_render = grid.to_str(
+            PrettyPrintArgs(args=grid.format_args, print_candidates=True)
+        )[1]
+        assert second != first
+        assert true_render in second
+    finally:
+        logger_module.set_colouring(logger_module.Colouring.Colorama)
+
+
+def test_logr_passes_every_rule_name_through():
+    # the old allowlist silently dropped any rule name missing a prefix
+    raw = logging.getLogger("gridpuzzle-logr-passthrough-test")
+    stream = io.StringIO()
+    raw.handlers[:] = [logging.StreamHandler(stream)]
+    raw.propagate = False
+    grid_logger = GridLogger(raw, MAX_LVL)
+
+    grid_logger.logr("BrandNewTechnique@7", "eliminated", "(0, 0)")
+
+    assert "BrandNewTechnique@7" in stream.getvalue()

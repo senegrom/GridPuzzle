@@ -89,3 +89,22 @@ def test_dot_blank_tokens_accept_bytes_and_bytearray():
     assert bytearray_grid.known == (0,)
     assert byte_grid.has_been_filled
     assert bytearray_grid.has_been_filled
+
+
+def test_flatten_rejects_self_referential_iterables():
+    import pytest
+
+    values: list = [1, 2, 3]
+    values.append(values)
+    with pytest.raises(ValueError, match="self-referential"):
+        flatten(values)
+
+    grid = LatinSquare(2)
+    cyclic: list = [1, 2, 3]
+    cyclic.append(cyclic)
+    with pytest.raises(ValueError, match="self-referential"):
+        grid.load(cyclic)
+    assert not grid.has_been_filled  # rejection happens before any mutation
+
+    sibling = [1, 2]
+    assert flatten([sibling, sibling]) == [1, 2, 1, 2]  # reuse is not a cycle

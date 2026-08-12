@@ -9,7 +9,12 @@ from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
 from gridsolver.abstract_grids.trail import CandidateView, TrailFrame, TrailState, TrailedSet
-from gridsolver.rules.rules import Guarantee, IdxType, Rule
+from gridsolver.rules.rules import (
+    Guarantee,
+    IdxType,
+    Rule,
+    validated_guarantee_cells,
+)
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.util import flatten
@@ -652,29 +657,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 f"grid dimensions {(self.rows, self.cols)}"
             )
 
-        if isinstance(guarantee.cells, (str, bytes, bytearray)):
-            raise TypeError("Guarantee cells must be an iterable of integers")
-        try:
-            raw_cells = list(guarantee.cells)
-        except TypeError as exc:
-            raise TypeError(
-                "Guarantee cells must be an iterable of integers"
-            ) from exc
-        if not raw_cells:
-            raise ValueError("Guarantee cells must not be empty")
-
-        cells: set[int] = set()
-        for raw_cell in raw_cells:
-            if isinstance(raw_cell, bool) or not isinstance(raw_cell, Integral):
-                raise TypeError("Guarantee cells must be integers")
-            cell = int(raw_cell)
-            if not 0 <= cell < self.len:
-                raise ValueError(
-                    f"Guarantee cell {cell} is outside 0..{self.len - 1}"
-                )
-            cells.add(cell)
-
-        return Guarantee(value, frozenset(cells), rows, cols)
+        return Guarantee(
+            value,
+            validated_guarantee_cells(guarantee.cells, self.len),
+            rows,
+            cols,
+        )
 
     def _normalize_guarantees(
         self,

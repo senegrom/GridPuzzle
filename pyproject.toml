@@ -34,7 +34,9 @@ dev = ["pytest>=8.0"]
 py-modules = ["run", "examples2"]
 
 [tool.setuptools.packages.find]
-include = ["gridsolver*"]
+# Examples ships only its .py example modules (gridpuzzle -e s/f/m imports
+# them); the .clp/.pzl corpus files in its subdirectories stay repo-only.
+include = ["gridsolver*", "Examples"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

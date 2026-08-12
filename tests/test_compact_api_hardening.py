@@ -87,3 +87,18 @@ def test_compact_positional_load_is_transactional_and_key_free():
     assert blocked.values_by_key(list(blocked)) == {
         (0, 1): 1, (1, 0): 3, (1, 1): 2,
     }
+
+
+def test_standard_file_loader_accepts_bom_before_leading_comment(tmp_path):
+    # regression: utf-8 (not utf-8-sig) reading let a BOM defeat the
+    # comment filter, so this exact file failed while its BOM-less twin
+    # loaded fine
+    puzzle = tmp_path / "bom_comment.pzl"
+    puzzle.write_text(
+        "\ufeff; leading comment\nLatinSquare::\n. .\n. .\n",
+        encoding="utf-8",
+    )
+
+    grid = create_from_file(puzzle, space_sep=True)
+
+    assert grid.rows == grid.cols == 2
