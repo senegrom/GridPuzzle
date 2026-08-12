@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: promote-consolidation
@@ -21,7 +21,7 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  validate-and-export:
+  validate-and-publish-source:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -50,9 +50,6 @@ jobs:
           patch = zlib.decompress(base64.b85decode(''.join(encoded.split()).encode('ascii')))
           Path('/tmp/consolidation.patch').write_bytes(patch)
           PYCODE
-          # An earlier staging commit exposed this eventual production file so
-          # other agents could inspect it. The patch is authored against master
-          # and adds the same path, so remove the staging copy before applying.
           rm -f .github/workflows/forward-compatibility.yml
           git apply --check /tmp/consolidation.patch
           git apply /tmp/consolidation.patch
@@ -117,23 +114,21 @@ jobs:
           assert 99 not in second[0]
           PYCODE
 
-      - name: Package the tested production tree
+      - name: Commit and publish tested source, tests, and documentation
         shell: bash
         run: |
           set -euo pipefail
+          # Workflow files are published separately through GitHub's commit API;
+          # the Actions token intentionally lacks workflow-writing permission.
+          git checkout -- \
+            .github/workflows/ci.yml \
+            .github/workflows/extended.yml \
+            .github/workflows/forward-compatibility.yml
           rm -rf .github/patches/consolidation .github/patches/source-only
-          rm -f \
-            .github/workflows/export-consolidation-source.yml \
-            .github/workflows/promote-consolidation.yml \
-            .github/workflows/placeholder-never-use.tmp
-          git diff --check
-          tar --exclude=.git --exclude=dist --exclude='*.egg-info' \
-            -czf /tmp/gridpuzzle-tested-production-tree.tar.gz .
-
-      - name: Upload the tested production tree
-        uses: actions/upload-artifact@v4
-        with:
-          name: gridpuzzle-tested-production-tree
-          path: /tmp/gridpuzzle-tested-production-tree.tar.gz
-          if-no-files-found: error
-          retention-days: 2
+          git add -A -- . ':(exclude).github/workflows/**'
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Consolidate path guarantees and correctness debloat"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
