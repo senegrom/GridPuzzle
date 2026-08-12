@@ -1,74 +1,75 @@
-from typing import List, FrozenSet
-
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
+from gridsolver.solver.candidate_topology import CandidateTopology, iter_cells
 from gridsolver.solver.logger import CoordToString
-from gridsolver.solver.solve_als import cell_houses
 from gridsolver.solver.solver_log import lg as _lg
 
 
 # noinspection PyProtectedMember
-def skyscraper(grid: Grid) -> None:
-    """Skyscraper technique.
-
-    Two conjugate pairs for a digit in two different houses share one endpoint
-    via a common house (the "base"). Cells seeing both non-shared endpoints
-    ("tops") can have the digit eliminated.
-    """
-    all_houses: List[FrozenSet[int]] = grid.full_houses
-    if len(all_houses) < 2:
+def skyscraper(
+    grid: Grid,
+    topology: CandidateTopology | None = None,
+) -> None:
+    """Skyscraper over full houses using candidate and visibility bitsets."""
+    topology = CandidateTopology.build(grid) if topology is None else topology
+    if topology.grid is not grid:
+        raise ValueError("Candidate topology belongs to another grid")
+    if len(topology.houses) < 2:
         return
 
     c = CoordToString(grid.rows)
     cands = grid._candidates
-    known = grid._known
+    eliminations: dict[tuple[int, int], tuple[int, int]] = {}
 
-    # cell -> houses containing it (cached on the grid)
-    houses_by_cell = cell_houses(grid, all_houses)
+    for value in range(1, grid.max_elem + 1):
+        value_locations = topology.candidate_masks[value]
+        conjugate_pairs: list[int] = []
+        seen_pairs: set[int] = set()
+        for house_mask in topology.house_masks:
+            pair = house_mask & value_locations
+            if pair.bit_count() == 2 and pair not in seen_pairs:
+                seen_pairs.add(pair)
+                conjugate_pairs.append(pair)
 
-    for val in range(1, grid.max_elem + 1):
-        # Find conjugate pairs: houses where val appears in exactly 2 unsolved cells
-        conj_pairs: list[tuple[int, int]] = []
-        for house in all_houses:
-            cells_with_val = [cell for cell in house if known[cell] == 0 and val in cands[cell]]
-            if len(cells_with_val) == 2:
-                conj_pairs.append((cells_with_val[0], cells_with_val[1]))
-
-        if len(conj_pairs) < 2:
-            continue
-
-        # For each pair of conjugate pairs from DIFFERENT houses
-        for i in range(len(conj_pairs)):
-            a1, a2 = conj_pairs[i]
-            for j in range(i + 1, len(conj_pairs)):
-                b1, b2 = conj_pairs[j]
-
-                # The 4 cells must be 4 distinct cells
-                cells4 = {a1, a2, b1, b2}
-                if len(cells4) < 4:
+        for pair_index, first_pair in enumerate(conjugate_pairs):
+            first_a, first_b = tuple(iter_cells(first_pair))
+            for second_pair in conjugate_pairs[pair_index + 1 :]:
+                cells4 = first_pair | second_pair
+                if cells4.bit_count() != 4:
                     continue
+                second_a, second_b = tuple(iter_cells(second_pair))
 
-                # Try matching base/top: one endpoint from each pair shares a house
-                for base_a, top_a in ((a1, a2), (a2, a1)):
-                    for base_b, top_b in ((b1, b2), (b2, b1)):
-                        # base_a and base_b must share a house
-                        if not any(base_b in h for h in houses_by_cell[base_a]):
+                for base_a, top_a in (
+                    (first_a, first_b),
+                    (first_b, first_a),
+                ):
+                    for base_b, top_b in (
+                        (second_a, second_b),
+                        (second_b, second_a),
+                    ):
+                        if not topology.house_peer_masks[base_a] & (1 << base_b):
                             continue
+                        targets = (
+                            topology.house_peer_masks[top_a]
+                            & topology.house_peer_masks[top_b]
+                            & value_locations
+                            & ~cells4
+                        )
+                        for cell in iter_cells(targets):
+                            eliminations.setdefault(
+                                (cell, value),
+                                (top_a, top_b),
+                            )
 
-                        # Eliminate val from cells seeing both top_a and top_b
-                        # (but not top_a or top_b themselves, and not base cells)
-                        sees_top_a = set()
-                        for h in houses_by_cell[top_a]:
-                            sees_top_a |= h
-                        sees_top_b = set()
-                        for h in houses_by_cell[top_b]:
-                            sees_top_b |= h
-
-                        for cell in sees_top_a & sees_top_b - cells4:
-                            if known[cell] == 0 and val in cands[cell]:
-                                _lg.on and _lg.logr("Skyscraper",
-                                         f"{val} removed w/ tops {c(top_a)},{c(top_b)}",
-                                         c(cell))
-                                cands[cell].discard(val)
-                                if not cands[cell]:
-                                    raise InvalidGrid()
+    for (cell, value), (top_a, top_b) in eliminations.items():
+        possible = cands[cell]
+        if value not in possible:
+            continue
+        _lg.on and _lg.logr(
+            "Skyscraper",
+            f"{value} removed w/ tops {c(top_a)},{c(top_b)}",
+            c(cell),
+        )
+        possible.discard(value)
+        if not possible:
+            raise InvalidGrid()
