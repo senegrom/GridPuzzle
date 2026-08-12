@@ -42,10 +42,9 @@ jobs:
           tests/test_examples_futoshiki.py
           tests/test_examples_kenken.py
           tests/test_examples_killer.py
-          tests/test_examples_lsq.py
           tests/test_examples_sudoku1.py
           tests/test_examples_sudoku2.py
-          -m "not slow"
+          tests/test_examples_lsq.py::test_ex_latin_squares
           --durations=20
 
   new-family-corpus:
@@ -109,7 +108,10 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip check
       - name: Run the slow pandiagonal corpus
-        run: python -X dev -m pytest -q tests/test_examples_lsq.py -m slow --durations=10
+        run: >-
+          python -X dev -m pytest -q
+          tests/test_examples_lsq.py::test_ex_diag_latin_squares
+          --durations=10
 
   parallel-equivalence:
     name: Full 288-solution parallel-vs-sequential equivalence
