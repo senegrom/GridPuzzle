@@ -50,6 +50,10 @@ jobs:
           patch = zlib.decompress(base64.b85decode(''.join(encoded.split()).encode('ascii')))
           Path('/tmp/consolidation.patch').write_bytes(patch)
           PYCODE
+          # An earlier staging commit exposed this eventual production file so
+          # other agents could inspect it. The patch is authored against master
+          # and adds the same path, so remove the staging copy before applying.
+          rm -f .github/workflows/forward-compatibility.yml
           git apply --check /tmp/consolidation.patch
           git apply /tmp/consolidation.patch
 
