@@ -254,6 +254,15 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         """Exact per-value candidate locations; index zero is unused."""
         return self._sync_candidate_index()
 
+    @property
+    def candidate_value_masks(self) -> tuple[int, ...]:
+        """Exact per-cell candidate-value masks; bit zero is unused."""
+        self._sync_candidate_index()
+        values = self._trail_state.candidate_value_masks
+        if values is None:
+            raise RuntimeError("Candidate value index activation failed")
+        return tuple(values)
+
     @overload
     def __setitem__(self, key: int, value: int) -> None:
         ...

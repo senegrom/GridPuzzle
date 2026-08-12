@@ -343,9 +343,20 @@ class AtomicSolver:
         # retained at the outer level for full deductive power.
         in_forcing_chain = bool(_solve_fc._in_forcing_chain)
 
-        yield self._act("locked_candidate", locked_candidate, grid)
-        yield self._act("skyscraper", skyscraper, grid)
-        yield self._act("empty_rectangle", empty_rectangle, grid)
+        topology = CandidateTopology.build(grid)
+        yield self._act(
+            "locked_candidate",
+            locked_candidate,
+            grid,
+            topology,
+        )
+        yield self._act("skyscraper", skyscraper, grid, topology)
+        yield self._act(
+            "empty_rectangle",
+            empty_rectangle,
+            grid,
+            topology,
+        )
         yield self._act("ineq_bounds", ineq_bounds, grid)
         yield self._act(
             "rulehelper_atmostonce",
@@ -385,7 +396,6 @@ class AtomicSolver:
         yield self._act("w_wing", w_wing, grid)
         yield self._act("x_chain", x_chain, grid)
         yield self._act("xy_chain", xy_chain, grid)
-        topology = CandidateTopology.build(grid)
         als_analysis = ALSAnalysis.build(grid, topology)
         yield self._act("als_xz", als_xz, grid, als_analysis)
         yield self._act(

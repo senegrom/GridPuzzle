@@ -1,0 +1,139 @@
+{
+  "cases": {
+    "blank4_all": {
+      "baseline_median": 23.634986114,
+      "baseline_seconds": [
+        23.709911538,
+        23.56006069
+      ],
+      "candidate_median": 23.525980090999994,
+      "candidate_over_baseline": 0.9953879379292109,
+      "candidate_seconds": [
+        23.613330314999985,
+        23.438629867000003
+      ],
+      "count": 288,
+      "digest": "5d03baf4414c5c37c9bb2b1b8cfe54b6c010b888a07e7e740bffcc4eb8071b0b",
+      "improvement_percent": 0.46120620707891247,
+      "kind": "macro"
+    },
+    "blank4_cap20": {
+      "baseline_median": 3.4448892950000243,
+      "baseline_seconds": [
+        3.4676166109999826,
+        3.4402305549999994,
+        3.4448892950000243
+      ],
+      "candidate_median": 3.474339780000008,
+      "candidate_over_baseline": 1.0085490366969785,
+      "candidate_seconds": [
+        3.474339780000008,
+        3.4818983979999985,
+        3.3880298760000187
+      ],
+      "count": 20,
+      "digest": "a541dfcd60eb7337c2ea4c843788d96e9e81f2a2d84fda8bf78612b630a15c47",
+      "improvement_percent": -0.8549036696978485,
+      "kind": "macro"
+    },
+    "example9_first": {
+      "baseline_median": 0.0420288099999766,
+      "baseline_seconds": [
+        0.04237324300004275,
+        0.04193758600001729,
+        0.04210651700003609,
+        0.0420288099999766,
+        0.04192521800001714
+      ],
+      "candidate_median": 0.04176552499995978,
+      "candidate_over_baseline": 0.9937356065989742,
+      "candidate_seconds": [
+        0.04176552499995978,
+        0.04185790100001441,
+        0.041868058000034125,
+        0.041719215999989956,
+        0.04143626500001574
+      ],
+      "count": 1,
+      "digest": "35f97b923de81836469683ff8effd4da9e613651a0774f0f395c61379440fb03",
+      "improvement_percent": 0.6264393401025803,
+      "kind": "macro"
+    },
+    "loaded4_all": {
+      "baseline_median": 0.09143707100000142,
+      "baseline_seconds": [
+        0.13217267099997798,
+        0.09143707100000142,
+        0.09199074800000062,
+        0.09137140900000418,
+        0.09090057200000956
+      ],
+      "candidate_median": 0.08923827300000653,
+      "candidate_over_baseline": 0.9759528823928004,
+      "candidate_seconds": [
+        0.08923827300000653,
+        0.08927990300000488,
+        0.08932571500000108,
+        0.08893891099998541,
+        0.08908948800001326
+      ],
+      "count": 4,
+      "digest": "484be136bb2b590f81c4b23096dc1af609324b9280fa83b61969618fc785a89c",
+      "improvement_percent": 2.4047117607199575,
+      "kind": "macro"
+    },
+    "nonsquare6_cap20": {
+      "baseline_median": 9.409892210999999,
+      "baseline_seconds": [
+        9.43144750800002,
+        9.409892210999999,
+        9.38843899599999
+      ],
+      "candidate_median": 9.407988115999956,
+      "candidate_over_baseline": 0.9997976496481206,
+      "candidate_seconds": [
+        9.407988115999956,
+        9.427158483000028,
+        9.34737090599998
+      ],
+      "count": 20,
+      "digest": "9d2144281f7e118083da5fe96ecd6e073e754cfe4ea675d649980bc7965e5878",
+      "improvement_percent": 0.02023503518794323,
+      "kind": "macro"
+    },
+    "power_action_micro": {
+      "baseline_median": 0.42767841400001316,
+      "baseline_seconds": [
+        0.4568874409999921,
+        0.4284434749999946,
+        0.42767841400001316,
+        0.42469999799999414,
+        0.42254871000000094
+      ],
+      "candidate_median": 0.39328323899999873,
+      "candidate_over_baseline": 0.919577014237587,
+      "candidate_seconds": [
+        0.39328323899999873,
+        0.3928906980000022,
+        0.39109752600001,
+        0.3934092539999767,
+        0.3982329440000001
+      ],
+      "count": 200,
+      "digest": "5884557780192b94b9a8ccd3855c72bc841c61cbdb07f251bba366bad05a9c63",
+      "improvement_percent": 8.042298576241302,
+      "kind": "micro"
+    }
+  },
+  "depth_gate": null,
+  "gates": {
+    "macro_geomean_max_ratio": 1.0075,
+    "macro_geomean_ratio": 0.9946269929845689,
+    "macro_worst_max_ratio": 1.03,
+    "macro_worst_ratio": 1.0085490366969785,
+    "micro_max_ratio": 0.95,
+    "micro_ratio": 0.919577014237587
+  },
+  "passed": true,
+  "python": "3.14.6 (main, Jun 10 2026, 14:29:35) [GCC 13.3.0]"
+}

@@ -1,83 +1,86 @@
 import itertools
-from typing import List, FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.solver.candidate_topology import (
+    CandidateTopology,
+    cells_mask,
+    iter_cells,
+)
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
 
 # noinspection PyProtectedMember
-def locked_candidate(grid: Grid) -> None:
-    """Pointing and Claiming (Locked Candidate) technique.
+def locked_candidate(
+    grid: Grid,
+    topology: CandidateTopology | None = None,
+) -> None:
+    """Pointing and claiming over full all-different houses.
 
-    For each pair of intersecting uniqueness groups (e.g. a box and a row),
-    if a candidate value within one group only appears in cells that belong to
-    both groups, then that value can be eliminated from the other group's
-    remaining cells (those outside the intersection).
+    Candidate locations are read from the grid's incremental per-value index.
+    All eliminations are collected from one immutable state before mutation, so
+    later deductions in this call never depend on stale bitsets.
     """
-    # Only use full-size uniqueness groups (rows, cols, boxes)
-    unique_rule_cells: List[FrozenSet[int]] = grid.full_houses
-    if len(unique_rule_cells) < 2:
+    topology = CandidateTopology.build(grid) if topology is None else topology
+    if topology.grid is not grid:
+        raise ValueError("Candidate topology belongs to another grid")
+    if len(topology.houses) < 2:
         return
 
     c = CoordToString(grid.rows)
     cands = grid._candidates
-    known = grid._known
 
-    # Intersecting pairs and their partitions depend only on full_houses,
-    # so they share the rule-cache lifecycle instead of being rebuilt on
-    # every call (locked_candidate is the first power action and also runs
-    # inside every forcing-chain branch).
-    def build_pairs() -> tuple:
+    def build_pairs() -> tuple[tuple[int, int, int, tuple[int, ...]], ...]:
         result = []
-        for g1, g2 in itertools.combinations(unique_rule_cells, 2):
-            intersection = g1 & g2
-            if not intersection or len(intersection) == len(g1) or len(intersection) == len(g2):
+        for first, second in itertools.combinations(topology.houses, 2):
+            intersection = first & second
+            if (
+                not intersection
+                or len(intersection) == len(first)
+                or len(intersection) == len(second)
+            ):
                 continue
-            result.append((tuple(g1 - intersection), tuple(g2 - intersection), tuple(intersection)))
+            result.append(
+                (
+                    cells_mask(first - intersection),
+                    cells_mask(second - intersection),
+                    cells_mask(intersection),
+                    tuple(sorted(intersection)),
+                )
+            )
         return tuple(result)
 
-    pairs = grid.cached_rule_struct("locked_candidate_pairs", build_pairs)
+    pairs = grid.cached_rule_struct(
+        "locked_candidate_mask_pairs",
+        build_pairs,
+    )
+    eliminations: dict[tuple[int, int], tuple[str, tuple[int, ...]]] = {}
 
-    for g1_only, g2_only, intersection in pairs:
-        for val in range(1, grid.max_elem + 1):
-            # Check if val in g1 is locked to the intersection
-            g1_has_val = False
-            for cell in g1_only:
-                if known[cell] == 0 and val in cands[cell]:
-                    g1_has_val = True
-                    break
-            if not g1_has_val:
-                # val in g1 is confined to intersection → eliminate from g2_only
-                isect_has_val = False
-                for cell in intersection:
-                    if known[cell] == 0 and val in cands[cell]:
-                        isect_has_val = True
-                        break
-                if isect_has_val:
-                    for cell in g2_only:
-                        if val in cands[cell]:
-                            _lg.on and _lg.logr("LockedCandidate",
-                                     f"{val} removed (pointing) w/ locked set {c(intersection)}",
-                                     c(cell))
-                            cands[cell].discard(val)
+    for first_only, second_only, intersection, intersection_cells in pairs:
+        for value in range(1, grid.max_elem + 1):
+            locations = topology.candidate_masks[value]
+            if not locations & intersection:
+                continue
+            if not locations & first_only:
+                for cell in iter_cells(locations & second_only):
+                    eliminations.setdefault(
+                        (cell, value),
+                        ("pointing", intersection_cells),
+                    )
+            if not locations & second_only:
+                for cell in iter_cells(locations & first_only):
+                    eliminations.setdefault(
+                        (cell, value),
+                        ("claiming", intersection_cells),
+                    )
 
-            # Check the reverse: val in g2 is locked to the intersection
-            g2_has_val = False
-            for cell in g2_only:
-                if known[cell] == 0 and val in cands[cell]:
-                    g2_has_val = True
-                    break
-            if not g2_has_val:
-                isect_has_val = False
-                for cell in intersection:
-                    if known[cell] == 0 and val in cands[cell]:
-                        isect_has_val = True
-                        break
-                if isect_has_val:
-                    for cell in g1_only:
-                        if val in cands[cell]:
-                            _lg.on and _lg.logr("LockedCandidate",
-                                     f"{val} removed (claiming) w/ locked set {c(intersection)}",
-                                     c(cell))
-                            cands[cell].discard(val)
+    for (cell, value), (mode, intersection) in eliminations.items():
+        possible = cands[cell]
+        if value not in possible:
+            continue
+        _lg.on and _lg.logr(
+            "LockedCandidate",
+            f"{value} removed ({mode}) w/ locked set {c(intersection)}",
+            c(cell),
+        )
+        possible.discard(value)
