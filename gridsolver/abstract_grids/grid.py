@@ -680,12 +680,30 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
         return Guarantee(value, frozenset(cells), rows, cols)
 
-    def add_gtees_checked(self, guarantees: Iterable[Guarantee]) -> None:
-        """Validate a complete guarantee batch, then commit it atomically."""
+    def _normalize_guarantees(
+        self,
+        guarantees: Iterable[Guarantee],
+    ) -> tuple[Guarantee, ...]:
+        """Materialise and validate one complete guarantee batch.
+
+        Keep the historical one-argument ``_normalize_guarantee`` extension
+        hook intact: every item passes through that virtual method exactly
+        once, while callers can still stage a generator before mutating the
+        live guarantee sets.
+        """
+        return tuple(
+            self._normalize_guarantee(guarantee)
+            for guarantee in guarantees
+        )
+
+    def _add_normalized_gtees(
+        self,
+        guarantees: Iterable[Guarantee],
+    ) -> None:
+        """Commit an already-normalised guarantee batch atomically."""
         additions: list[Guarantee] = []
         seen: set[Guarantee] = set()
         for guarantee in guarantees:
-            guarantee = self._normalize_guarantee(guarantee)
             if (
                 guarantee in seen
                 or guarantee in self.guarantees_ia
@@ -700,8 +718,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.guarantees.update(additions)
         dirty = self._trail_state.dirty
         dirty.guarantees.update(additions)
+        # Presence families often share one cell set across the whole value
+        # domain.  Wake guarantee-consuming rules once per distinct set rather
+        # than rescanning the same cells once per value.
+        unique_cell_sets = {guarantee.cells for guarantee in additions}
         dirty.guarantee_rule_cells.update(
-            min(guarantee.cells) for guarantee in additions
+            min(cells) for cells in unique_cell_sets
         )
         dirty.guarantee_relations = True
         if self._trail_state.active:
@@ -710,6 +732,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             )
         self._invalidate_struct_cache()
         self._invalidate_guarantee_cache()
+
+    def add_gtees_checked(self, guarantees: Iterable[Guarantee]) -> None:
+        """Validate a complete guarantee batch, then commit it atomically."""
+        self._add_normalized_gtees(
+            self._normalize_guarantees(guarantees)
+        )
 
     def add_gtee_checked(self, guarantee: Guarantee) -> None:
         self.add_gtees_checked((guarantee,))
@@ -795,22 +823,56 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         else:
             selected = dirty.guarantees & self.guarantees
             if dirty.guarantee_cells:
-                def build_guarantee_watchers(
-                ) -> tuple[tuple[Guarantee, ...], ...]:
-                    watchers: list[list[Guarantee]] = [
+                def build_guarantee_watchers() -> tuple[
+                    tuple[tuple[Guarantee, ...], ...],
+                    tuple[tuple[int, ...], ...],
+                ]:
+                    # Pack guarantees that share a cell set into one family.
+                    # A global N-value path family then stores O(N) watcher
+                    # references rather than O(N²), and multiple dirty cells
+                    # select that family only once.
+                    grouped: dict[frozenset[int], list[Guarantee]] = {}
+                    for guarantee in self.guarantees:
+                        grouped.setdefault(guarantee.cells, []).append(
+                            guarantee
+                        )
+
+                    ordered = sorted(
+                        grouped.items(),
+                        key=lambda item: (
+                            len(item[0]),
+                            tuple(sorted(item[0])),
+                        ),
+                    )
+                    groups = tuple(
+                        tuple(
+                            sorted(
+                                guarantees,
+                                key=lambda guarantee: guarantee.val,
+                            )
+                        )
+                        for _cells, guarantees in ordered
+                    )
+                    watchers: list[list[int]] = [
                         [] for _ in range(self.len)
                     ]
-                    for guarantee in self.guarantees:
-                        for cell in guarantee.cells:
-                            watchers[cell].append(guarantee)
-                    return tuple(tuple(items) for items in watchers)
+                    for group_index, (cells, _guarantees) in enumerate(ordered):
+                        for cell in cells:
+                            watchers[cell].append(group_index)
+                    return groups, tuple(
+                        tuple(group_indexes)
+                        for group_indexes in watchers
+                    )
 
-                by_cell = self.cached_guarantee_struct(
-                    "propagation_guarantees_by_cell",
+                groups, by_cell = self.cached_guarantee_struct(
+                    "propagation_guarantee_watchers",
                     build_guarantee_watchers,
                 )
+                selected_groups: set[int] = set()
                 for cell in dirty.guarantee_cells:
-                    selected.update(by_cell[cell])
+                    selected_groups.update(by_cell[cell])
+                for group_index in selected_groups:
+                    selected.update(groups[group_index])
 
         dirty.all_guarantees = False
         dirty.guarantees.clear()

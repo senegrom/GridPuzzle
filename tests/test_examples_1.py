@@ -1,3 +1,4 @@
+import pytest
 from argparse import Namespace
 
 from pytest import raises
@@ -5,6 +6,9 @@ from pytest import raises
 import examples2
 import helpers
 from gridsolver.solver import solver
+
+
+pytestmark = pytest.mark.slow
 
 
 def _example_test(x: str):

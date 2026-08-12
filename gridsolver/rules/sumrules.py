@@ -449,7 +449,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         len_cell = self.len_cells
         return tuple(
             frozenset(partition)
-            for partition in self.partition2(
+            for partition in self._partition_tuples(
                 self.sum,
                 len_cell,
                 1,
@@ -477,7 +477,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
     @staticmethod
     @lru_cache(maxsize=65535)
-    def partition2(
+    def _partition_tuples(
         n: int,
         count: int,
         mini: int = 1,
@@ -503,7 +503,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         for value in range(mini, upper):
             partitions.extend(
                 (value, *suffix)
-                for suffix in SumAndElementsAtMostOnce.partition2(
+                for suffix in SumAndElementsAtMostOnce._partition_tuples(
                     n - value,
                     count - 1,
                     value,
@@ -513,6 +513,29 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         return tuple(partitions)
 
     @staticmethod
+    def partition2(
+        n: int,
+        count: int,
+        mini: int = 1,
+        maxi: Optional[int] = None,
+    ) -> List[Deque[int]]:
+        """Return detached mutable partitions using the historical API.
+
+        Solver code consumes the immutable cached ``_partition_tuples``
+        representation directly.  External callers retain the established
+        ``list[deque]`` result and cannot mutate the shared cache.
+        """
+        return [
+            collections.deque(partition)
+            for partition in SumAndElementsAtMostOnce._partition_tuples(
+                n,
+                count,
+                mini,
+                maxi,
+            )
+        ]
+
+    @staticmethod
     def partition(
         n: int,
         count: int,
@@ -520,7 +543,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         maxi: int,
     ) -> Iterator[Deque[int]]:
         """Compatibility iterator yielding detached mutable deques."""
-        for partition in SumAndElementsAtMostOnce.partition2(
+        for partition in SumAndElementsAtMostOnce._partition_tuples(
             n,
             count,
             mini,

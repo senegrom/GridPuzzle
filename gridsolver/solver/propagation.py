@@ -141,17 +141,14 @@ def apply_rules(grid: Grid) -> None:
         prepared_guarantees = (
             None
             if new_guarantees is None
-            else tuple(
-                grid._normalize_guarantee(guarantee)
-                for guarantee in new_guarantees
-            )
+            else grid._normalize_guarantees(new_guarantees)
         )
 
         if prepared_rules is not None:
             grid.deactivate_rule(rule)
             grid.add_rules_checked(prepared_rules)
         if prepared_guarantees is not None:
-            grid.add_gtees_checked(prepared_guarantees)
+            grid._add_normalized_gtees(prepared_guarantees)
 
 
 def propagate_once(grid: Grid) -> None:

@@ -36,10 +36,10 @@ The measured defaults are:
 | Family | Profile |
 |---|---|
 | Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin-square variants | `FULL` |
-| Hidato, Kakuro | `GENERIC` |
-| Numbrix, Slitherlink | `RULES_ONLY` |
+| Kakuro | `GENERIC` |
+| Hidato, Numbrix, Slitherlink | `RULES_ONLY` |
 
-The Numbrix choice is evidence-based: on the retained Parade expert case, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. Hidato and Kakuro were approximately neutral, so they retain generic deductions that may help harder cases.
+The path choices are evidence-based. On the retained Parade expert Numbrix, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. On the retained Hidato corpus, the complete path rule plus pre-seeded value-presence guarantees made the generic tuple and contradiction tier redundant; `RULES_ONLY` preserved exact solutions and removed the two former path timeouts. Kakuro remains `GENERIC` because its overlapping sum/all-different runs still benefit from generic deductions.
 
 Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks with `depth_gate=None`.
 
@@ -55,7 +55,7 @@ Do not infer technique applicability from the compact one-row storage layout. Ad
 
 ### New family rule models
 
-**Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. A whole-grid all-different/permutation model ensures every value appears exactly once. The rule performs:
+**Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. A separate whole-grid `ElementsAtMostOnce` rule and one pre-seeded presence `Guarantee` per value form the permutation model, preserving independent propagation and final validation. The path rule performs:
 
 - immediate predecessor/successor support checks;
 - fixed-clue graph-distance filtering;
@@ -162,18 +162,25 @@ The default workflow:
 - builds a wheel and checks the installed console command;
 - compiles production, test, corpus-tool, and example sources;
 - runs under Python development mode (`-X dev`);
-- executes bounded parser, rule, trail, differential-oracle, solver, scale, and new-family tests on Linux;
-- runs representative end-to-end examples;
-- runs a portable Windows smoke suite.
+- discovers every non-`slow` test on Linux and Windows, so new regression files cannot be silently omitted from a hand-maintained manifest;
+- runs representative end-to-end examples as part of that bounded discovery;
+- runs the same guarantee metadata guard on both platforms through normal test collection.
+
+Corpus modules that are intentionally excluded from every push carry the
+`slow` marker at module scope and are selected explicitly by extended CI. A
+weekly/manual forward-compatibility workflow additionally exercises
+free-threaded Python 3.14 and the Python 3.15 prerelease with warnings treated
+as errors.
 
 The scheduled/manual extended workflow includes:
 
 - existing supported example corpora;
 - a 16-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: four deterministic shards per family, one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
-- generated 49x49 through 100x100 Sudoku propagation tests;
 - the slow pandiagonal Latin-square corpus;
 - full parallel/sequential enumeration equivalence;
-- broader individual-technique soundness states.
+
+The generated 49x49 through 100x100 propagation tests and broader bounded
+technique-soundness states now complete quickly enough to run on every push.
 
 Corpus reports distinguish:
 
