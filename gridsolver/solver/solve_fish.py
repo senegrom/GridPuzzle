@@ -61,6 +61,34 @@ def _value_memo(grid: Grid) -> TrailedDict:
         grid._fish_value_memo = memo
     return memo
 
+def _fish_context(grid: Grid, max_fish):
+    """Shared fish/finned prologue; ``None`` when no unique rules exist."""
+    max_fish = _fish_size(max_fish)
+    unique_rules = grid.unique_rule_cells
+    if not unique_rules:
+        return None
+    max_fish = min(max_fish, max(len(ur) for ur in unique_rules) - 1)
+    gt_dic = grid.guarantee_cells_by_value
+    return (
+        max_fish,
+        CoordToString(grid.rows),
+        gt_dic,
+        grid._candidates,
+        _relevant_urs_by_val(grid, unique_rules, gt_dic),
+        _value_memo(grid),
+    )
+
+
+def _disjoint_union(gts):
+    """Union of pairwise-disjoint guarantee sets, or ``None`` on overlap."""
+    seen: set = set()
+    for gt in gts:
+        if seen & gt:
+            return None
+        seen |= gt
+    return frozenset(seen)
+
+
 def _eliminate_outside(cands, cell_groups, all_gts, value, label, c) -> None:
     """Remove ``value`` from cells covered by ``cell_groups`` outside the fish set."""
     for group in cell_groups:
@@ -93,17 +121,10 @@ def _eliminate_cannibals(cands, urs, all_gts, threshold, value, label, c) -> Non
 
 # noinspection PyProtectedMember
 def fish(grid: Grid, max_fish=2) -> None:
-    max_fish = _fish_size(max_fish)
-    c = CoordToString(grid.rows)
-    unique_rules = grid.unique_rule_cells
-    if not unique_rules:
+    context = _fish_context(grid, max_fish)
+    if context is None:
         return
-    max_fish = min(max_fish, max(len(ur) for ur in unique_rules) - 1)
-    gt_dic = grid.guarantee_cells_by_value
-    cands = grid._candidates
-
-    relevant_urs_by_val = _relevant_urs_by_val(grid, unique_rules, gt_dic)
-    memo = _value_memo(grid)
+    max_fish, c, gt_dic, cands, relevant_urs_by_val, memo = context
 
     for f in range(max_fish, 1, -1):
         fish_label = f"Fish@{f}"
@@ -151,33 +172,19 @@ def fish(grid: Grid, max_fish=2) -> None:
                     if len(my_gt_temp) < f:
                         continue
                     for gts in itertools.combinations(my_gt_temp, f):
-                        seen = set()
-                        disjoint = True
-                        for gt in gts:
-                            if seen & gt:
-                                disjoint = False
-                                break
-                            seen |= gt
-                        if not disjoint:
+                        all_gts = _disjoint_union(gts)
+                        if all_gts is None:
                             continue
-                        all_gts = frozenset(seen)
                         _eliminate_outside(cands, urs, all_gts, i, fish_label, c)
                         _eliminate_cannibals(cands, urs, all_gts, 2, i, cannibal_label, c)
             memo[memo_key] = fingerprint
 
 
 def finned_fish(grid: Grid, max_fish=2) -> None:
-    max_fish = _fish_size(max_fish)
-    c = CoordToString(grid.rows)
-    unique_rules = grid.unique_rule_cells
-    if not unique_rules:
+    context = _fish_context(grid, max_fish)
+    if context is None:
         return
-    max_fish = min(max_fish, max(len(ur) for ur in unique_rules) - 1)
-    gt_dic = grid.guarantee_cells_by_value
-    cands = grid._candidates
-
-    relevant_urs_by_val = _relevant_urs_by_val(grid, unique_rules, gt_dic)
-    memo = _value_memo(grid)
+    max_fish, c, gt_dic, cands, relevant_urs_by_val, memo = context
 
     for f in range(max_fish, 1, -1):
         finned_label = f"FishFinned@{f}"
@@ -242,16 +249,9 @@ def finned_fish(grid: Grid, max_fish=2) -> None:
                     if len(my_gt_temp) < f:
                         continue
                     for gts in itertools.combinations(my_gt_temp, f):
-                        seen = set()
-                        disjoint = True
-                        for gt in gts:
-                            if seen & gt:
-                                disjoint = False
-                                break
-                            seen |= gt
-                        if not disjoint:
+                        all_gts = _disjoint_union(gts)
+                        if all_gts is None:
                             continue
-                        all_gts = frozenset(seen)
                         _eliminate_outside(cands, ur_intersections, all_gts, i, finned_label, c)
                         _eliminate_cannibals(cands, urs, all_gts, 3, i, cannibal_label, c)
             memo[memo_key] = fingerprint
