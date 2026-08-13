@@ -48,3 +48,8 @@ xfail_strict = true
 markers = [
     "slow: very long-running tests (deselect with -m 'not slow')",
 ]
+
+[tool.ruff.lint]
+# The repository is not undertaking a wholesale style migration in PR 11.
+# Keep this one-time gate to syntax- and runtime-critical diagnostics.
+select = ["E9", "F63", "F7", "F82"]
