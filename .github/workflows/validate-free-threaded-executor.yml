@@ -1,0 +1,245 @@
+name: Validate free-threaded search executor
+
+on:
+  push:
+    branches:
+      - agent/free-threaded-search-executor
+    paths:
+      - .github/patches/free-threaded-search-executor.b85
+      - .github/scripts/benchmark_thread_executor.py
+      - .github/workflows/validate-free-threaded-executor.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-free-threaded-search-executor
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  normal-runtime:
+    name: Python 3.14 correctness and default-overhead gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply the visible executor candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          encoded = Path(
+              ".github/patches/free-threaded-search-executor.b85"
+          ).read_text(encoding="ascii").strip()
+          Path("/tmp/free-threaded-executor.patch").write_bytes(
+              zlib.decompress(base64.b85decode(encoded.encode("ascii")))
+          )
+          PY
+          git apply --check /tmp/free-threaded-executor.patch
+          git apply /tmp/free-threaded-executor.patch
+          git diff --check
+
+      - name: Install, build, and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m pip wheel --no-deps . --wheel-dir dist
+          gridpuzzle --help >/dev/null
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+
+      - name: Run the complete bounded suite
+        run: >-
+          python -X dev -m pytest -q tests
+          -m "not slow"
+          --durations=20
+
+      - name: Compare default process/sequential behavior with exact master
+        id: default-benchmark
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/thread-default-baseline origin/master
+          python .github/scripts/benchmark_thread_executor.py \
+            --mode default \
+            --baseline /tmp/thread-default-baseline \
+            --candidate "$GITHUB_WORKSPACE" \
+            --report benchmarks/default_executor_overhead_2026-08-12.md \
+            --json-report benchmarks/default_executor_overhead_2026-08-12.json
+
+      - name: Upload default-overhead evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: default-executor-overhead-evidence
+          path: |
+            benchmarks/default_executor_overhead_2026-08-12.md
+            benchmarks/default_executor_overhead_2026-08-12.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce the default-overhead gate
+        if: always()
+        shell: bash
+        run: test "${{ steps.default-benchmark.outcome }}" = success
+
+  free-threaded-runtime:
+    name: Python 3.14t correctness and thread-performance gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          freethreaded: true
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply the visible executor candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          encoded = Path(
+              ".github/patches/free-threaded-search-executor.b85"
+          ).read_text(encoding="ascii").strip()
+          Path("/tmp/free-threaded-executor.patch").write_bytes(
+              zlib.decompress(base64.b85decode(encoded.encode("ascii")))
+          )
+          PY
+          git apply --check /tmp/free-threaded-executor.patch
+          git apply /tmp/free-threaded-executor.patch
+          git diff --check
+
+      - name: Install, build, and verify a GIL-free runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m pip wheel --no-deps . --wheel-dir dist
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+          python - <<'PY'
+          from gridsolver.solver.solver import free_threaded_runtime_available
+          assert free_threaded_runtime_available(), "GIL is not disabled"
+          PY
+
+      - name: Run the complete bounded suite under Python 3.14t
+        run: >-
+          python -X dev -m pytest -q tests
+          -m "not slow"
+          --durations=20
+
+      - name: Compare the process and thread executors
+        id: thread-benchmark
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/benchmark_thread_executor.py \
+            --mode thread \
+            --candidate "$GITHUB_WORKSPACE" \
+            --report benchmarks/free_threaded_executor_2026-08-12.md \
+            --json-report benchmarks/free_threaded_executor_2026-08-12.json
+
+      - name: Upload free-threaded evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-threaded-executor-evidence
+          path: |
+            benchmarks/free_threaded_executor_2026-08-12.md
+            benchmarks/free_threaded_executor_2026-08-12.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce the free-threaded performance gate
+        if: always()
+        shell: bash
+        run: test "${{ steps.thread-benchmark.outcome }}" = success
+
+  promote:
+    name: Publish the tested executor candidate
+    needs: [normal-runtime, free-threaded-runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: "*-executor*-evidence"
+          path: /tmp/executor-evidence
+          merge-multiple: true
+
+      - name: Apply and publish the exact tested source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          encoded = Path(
+              ".github/patches/free-threaded-search-executor.b85"
+          ).read_text(encoding="ascii").strip()
+          Path("/tmp/free-threaded-executor.patch").write_bytes(
+              zlib.decompress(base64.b85decode(encoded.encode("ascii")))
+          )
+          PY
+          git apply --check /tmp/free-threaded-executor.patch
+          git apply /tmp/free-threaded-executor.patch
+          cp /tmp/executor-evidence/* benchmarks/
+          rm -f \
+            .github/patches/free-threaded-search-executor.b85 \
+            .github/scripts/benchmark_thread_executor.py
+          git add -A -- \
+            gridsolver \
+            run.py \
+            tests/test_cli_and_loading.py \
+            tests/test_thread_executor.py \
+            benchmarks/default_executor_overhead_2026-08-12.md \
+            benchmarks/default_executor_overhead_2026-08-12.json \
+            benchmarks/free_threaded_executor_2026-08-12.md \
+            benchmarks/free_threaded_executor_2026-08-12.json \
+            .github/patches/free-threaded-search-executor.b85 \
+            .github/scripts/benchmark_thread_executor.py
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add an opt-in free-threaded search executor"
+          git push origin "HEAD:$GITHUB_REF_NAME"
