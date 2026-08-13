@@ -106,11 +106,36 @@ class Rule(ABC):
     uses_guarantees = False
 
     def __setattr__(self, name: str, value: object) -> None:
-        if getattr(self, "_frozen", False) and hasattr(self, name):
+        if getattr(self, "_frozen", False):
             raise AttributeError(
                 f"{type(self).__name__} is immutable after hashing or registration"
             )
         object.__setattr__(self, name, value)
+
+    def __setstate__(self, state: object) -> None:
+        """Restore default pickle state without reopening public mutation.
+
+        CPython's default state for a slotted class is ``(dict, slots)``.
+        Bypass ``__setattr__`` here so a frozen rule can be reconstructed in
+        any slot order, while ordinary assignments remain forbidden.
+        """
+        if isinstance(state, tuple) and len(state) == 2:
+            dict_state, slot_state = state
+        else:
+            dict_state, slot_state = state, None
+
+        if dict_state:
+            object.__getattribute__(self, "__dict__").update(dict_state)
+        if slot_state:
+            for name, value in slot_state.items():
+                object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError(
+                f"{type(self).__name__} is immutable after hashing or registration"
+            )
+        object.__delattr__(self, name)
 
     def freeze(self) -> "Rule":
         object.__setattr__(self, "_frozen", True)

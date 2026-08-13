@@ -7,6 +7,7 @@ import pytest
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules import rules as rules_module
+from gridsolver.rules.rules import Rule
 from gridsolver.rules.sumrules import (
     DiffRule,
     DivRule,
@@ -108,3 +109,49 @@ def test_pre_hash_mutation_is_reflected_then_frozen():
     assert rule == equivalent
     with pytest.raises(AttributeError, match="immutable"):
         rule.sum = 5
+
+
+def test_frozen_rule_rejects_new_attributes_without_breaking_cached_properties():
+    cage = SumAndElementsAtMostOnce(Grid(2), cells=[0, 1], mysum=3)
+    hash(cage)
+
+    with pytest.raises(AttributeError, match="immutable"):
+        cage.new_semantic_field = 42
+    with pytest.raises(AttributeError, match="immutable"):
+        del cage.cells
+    with pytest.raises(AttributeError, match="immutable"):
+        del cage._frozen
+
+    # cached_property stores derived non-semantic state directly in the
+    # instance dictionary, so it remains usable after the rule freezes.
+    assert cage.sum_candidates == (frozenset({1, 2}),)
+
+
+class _DictBackedExtensionRule(Rule):
+    def __init__(self, grid, tag):
+        super().__init__(grid, cells=[0])
+        self.tag = tag
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.tag))
+
+    def __eq__(self, other):
+        return super().__eq__(other) and self.tag == other.tag
+
+
+def test_frozen_dict_backed_extension_rule_restores_through_pickle():
+    rule = _DictBackedExtensionRule(Grid(1), "extension-state")
+    expected_hash = hash(rule)
+
+    restored = pickle.loads(
+        pickle.dumps(rule, protocol=pickle.HIGHEST_PROTOCOL)
+    )
+
+    assert restored == rule
+    assert restored.tag == "extension-state"
+    assert hash(restored) == expected_hash
+    with pytest.raises(AttributeError, match="immutable"):
+        restored.tag = "changed"

@@ -81,14 +81,24 @@ class ImmutableGrid(GridSizeContainer, Sequence[int]):
         if isinstance(key, bool):
             raise TypeError("Boolean grid indexes are not supported")
         if isinstance(key, Integral):
-            return int(key)
+            index = int(key)
+            if not 0 <= index < self.len:
+                raise IndexError(
+                    f"Grid index {index} is outside 0..{self.len - 1}"
+                )
+            return index
         if isinstance(key, slice):
             return key
         if isinstance(key, (str, bytes, bytearray)) or not isinstance(key, Sequence):
             raise TypeError(f"Index {key!r} must be integral or an integral tuple")
 
         if len(key) == 1 and isinstance(key[0], Integral) and not isinstance(key[0], bool):
-            return int(key[0])
+            index = int(key[0])
+            if not 0 <= index < self.len:
+                raise IndexError(
+                    f"Grid index {index} is outside 0..{self.len - 1}"
+                )
+            return index
         if len(key) == 2 and all(isinstance(value, Integral) and not isinstance(value, bool) for value in key):
             row, col = map(int, key)
             if not 0 <= row < self.rows or not 0 <= col < self.cols:

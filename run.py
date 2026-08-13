@@ -3,7 +3,6 @@ import importlib
 import time
 from collections.abc import Sequence
 
-import examples2
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import (
     create_from_file,
@@ -164,6 +163,8 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
             parser.error(str(exc))
 
     if args.example:
+        import examples2
+
         return examples2.get_example(args)
 
     if not args.puzzle_class:

@@ -174,39 +174,54 @@ def apply_rules(grid: Grid) -> None:
 
     for rule in grid.take_dirty_rules():
         try:
-            refresh, new_rules, new_guarantees = rule.apply(
-                known,
-                candidates,
-                relevant_guarantees(grid, rule),
-            )
-            if refresh:
+            try:
+                refresh, new_rules, new_guarantees = rule.apply(
+                    known,
+                    candidates,
+                    relevant_guarantees(grid, rule),
+                )
+                if refresh:
+                    update_candidates_from_known(candidates, known)
+            except RuleAlwaysSatisfied:
+                new_rules = []
+                new_guarantees = None
                 update_candidates_from_known(candidates, known)
-        except RuleAlwaysSatisfied:
-            new_rules = []
-            new_guarantees = None
-            update_candidates_from_known(candidates, known)
 
-        # Rule implementations may return generators. Materialise and validate both
-        # outputs before deactivating the source rule or changing either live set.
-        prepared_rules = (
-            None
-            if new_rules is None
-            else tuple(
-                grid._validate_rule(new_rule)[0]
-                for new_rule in new_rules
+            # Rule implementations may return generators. Materialise and
+            # validate both outputs before deactivating the source rule or
+            # changing either live set.
+            prepared_rules = (
+                None
+                if new_rules is None
+                else tuple(
+                    grid._validate_rule(new_rule)[0]
+                    for new_rule in new_rules
+                )
             )
-        )
-        prepared_guarantees = (
-            None
-            if new_guarantees is None
-            else grid._normalize_guarantees(new_guarantees)
-        )
+            prepared_guarantees = (
+                None
+                if new_guarantees is None
+                else grid._normalize_guarantees(new_guarantees)
+            )
 
-        if prepared_rules is not None:
-            grid.deactivate_rule(rule)
-            grid.add_rules_checked(prepared_rules)
-        if prepared_guarantees is not None:
-            grid._add_normalized_gtees(prepared_guarantees)
+            # Commit replacement constraints before removing their source.
+            # Metadata validation catches normal malformed output, but a custom
+            # Rule may still fail while hashing or comparing during set
+            # insertion. Adding first keeps the source active if that happens;
+            # no propagation occurs between these adjacent mutations.
+            if prepared_rules is not None:
+                grid.add_rules_checked(prepared_rules)
+            if prepared_guarantees is not None:
+                grid._add_normalized_gtees(prepared_guarantees)
+            if prepared_rules is not None:
+                grid.deactivate_rule(rule)
+        except Exception:
+            # take_dirty_rules() consumed the pending pass before invoking the
+            # extension.  Preserve retryability for metadata/hash/application
+            # failures by scheduling every still-active rule again.  Normal
+            # InvalidGrid branch exits are rolled back by their trail scope.
+            grid._trail_state.dirty.all_rules = True
+            raise
 
 
 def propagate_once(grid: Grid) -> None:

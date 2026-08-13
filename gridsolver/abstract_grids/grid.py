@@ -559,29 +559,36 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     def add_rules_checked(self, rules: Iterable[Rule]) -> None:
         """Validate a complete rule batch, then commit it in one mutation.
 
-        Validation deliberately finishes before canonicalising or hashing any
-        rule. Hashing freezes Rule objects, so a malformed later item must not
-        make a valid caller-owned prefix immutable when the batch is rejected.
+        Validation deliberately finishes before canonicalising, freezing, or
+        hashing any rule, so a malformed later item cannot make a valid
+        caller-owned prefix immutable when the batch is rejected.
         """
         staged = [self._validate_rule(rule) for rule in rules]
 
-        # Canonicalisation is safe only after every item has validated. The
-        # following membership checks hash (and therefore freeze) the rules.
+        # Canonicalisation and freezing are safe only after every item has
+        # validated.  Freeze explicitly rather than relying on subclasses to
+        # call Rule.__hash__: an extension hash that skips super() must not put
+        # a still-mutable object into a live set.
         for rule, canonical_cells in staged:
             if rule.cells != canonical_cells:
                 rule.cells = canonical_cells
+        for rule, _ in staged:
+            rule.freeze()
 
-        additions: list[Rule] = []
-        seen: set[Rule] = set()
+        # Build an exact set before touching either live set.  Updating a set
+        # from a list re-hashes each rule during the commit and can therefore
+        # leave a partially installed batch if an extension hash fails on a
+        # later call.  Exact-set updates reuse the hashes already validated
+        # while constructing ``additions``.
+        additions: set[Rule] = set()
         for rule, _ in staged:
             if (
-                rule in seen
+                rule in additions
                 or rule in self.rules_ia
                 or rule in self.rules
             ):
                 continue
-            seen.add(rule)
-            additions.append(rule)
+            additions.add(rule)
 
         if not additions:
             return

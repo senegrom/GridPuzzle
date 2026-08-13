@@ -37,6 +37,12 @@ class ConsecutiveAdjacencyRule(Rule):
             raise ValueError("Adjacency must contain one entry per rule cell")
 
         super().__init__(gsz, raw_cells, None)
+        paired = sorted(
+            zip(self.cells, raw_adjacency, strict=True),
+            key=lambda item: item[0],
+        )
+        self.cells = tuple(cell for cell, _ in paired)
+        raw_adjacency = tuple(neighbours for _, neighbours in paired)
         if self.len_cells != self._max_elem:
             raise ValueError(
                 "Consecutive adjacency requires one cell for every domain value"

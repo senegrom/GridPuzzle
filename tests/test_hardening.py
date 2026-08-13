@@ -526,3 +526,26 @@ def test_immutable_grid_hash_is_lazy_stable_and_clone_safe():
     assert "_ImmutableGrid__hash" not in mutable.__dict__
     assert "_ImmutableGrid__hash" not in clone.__dict__
     assert ImmutableGrid.__hash__(clone) == ImmutableGrid.__hash__(mutable)
+
+def test_negative_scalar_indexes_never_wrap_to_the_last_cell():
+    from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
+    from gridsolver.grid_classes.path_puzzles import Numbrix
+
+    immutable = ImmutableGrid((1, 2, 2, 1), 2)
+    mutable = Grid(2)
+    compact = Numbrix.from_board(((0, 0), (0, 0)))
+
+    for grid in (immutable, mutable, compact):
+        with pytest.raises(IndexError):
+            _ = grid[-1]
+
+    for grid in (immutable, mutable):
+        with pytest.raises(IndexError):
+            _ = grid[(-1,)]
+
+    for grid in (mutable, compact):
+        with pytest.raises(IndexError):
+            grid[-1] = 1
+        with pytest.raises(IndexError):
+            grid.get_candidates(-1)
+        assert grid.known == (0,) * grid.len

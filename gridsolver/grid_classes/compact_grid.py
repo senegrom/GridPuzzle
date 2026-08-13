@@ -68,6 +68,9 @@ class CompactGrid(Grid):
             key: cell for cell, key in enumerate(cell_to_key)
         }
 
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and self.cell_to_key == other.cell_to_key
+
     def _copy_extra_state_to(self, result: Grid) -> None:
         super()._copy_extra_state_to(result)
         result.cell_to_key = self.cell_to_key
@@ -93,7 +96,12 @@ class CompactGrid(Grid):
         if isinstance(key, bool):
             raise TypeError("Boolean grid indexes are not supported")
         if isinstance(key, Integral):
-            return int(key)
+            index = int(key)
+            if not 0 <= index < self.len:
+                raise IndexError(
+                    f"Compact-grid index {index} is outside 0..{self.len - 1}"
+                )
+            return index
         if isinstance(key, slice):
             return key
         return self.compact_cell(key)
