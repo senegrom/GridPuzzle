@@ -1,0 +1,305 @@
+name: Finalize PR 11 correctness and debloat
+
+on:
+  push:
+    branches:
+      - agent/correctness-debloat-review-2026-08-12
+    paths:
+      - .github/workflows/finalize-pr11.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-pr11
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply staged second-wave source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import zlib
+          from pathlib import Path
+
+          source = Path('.github/patches/pr11-incremental.b85')
+          encoded = ''.join(source.read_text(encoding='ascii').split())
+          patch = zlib.decompress(base64.b85decode(encoded.encode('ascii')))
+          Path('/tmp/pr11-incremental.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/pr11-incremental.patch
+          git apply /tmp/pr11-incremental.patch
+          git diff --check
+
+      - name: Document extension and puzzle validation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('DEVELOPMENT.md')
+          text = path.read_text(encoding='utf-8')
+          marker = '## Extension transaction boundary'
+          if marker not in text:
+              text = text.rstrip() + '''\n\n## Extension transaction boundary\n\nThird-party rule and guarantee hooks execute inside a reversible sandbox. They receive validated candidate views rather than the raw journal-aware candidate sets. Their iterators, metadata, hashes, equality methods, replacement outputs, and guarantee-normalization hooks must therefore be treated as untrusted: unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache changes are rolled back before canonical outputs are committed. Replacement rules and guarantees are prepared completely before the source rule is deactivated, so failed extension code cannot partially install a batch or strand the source outside propagation.\n\nKakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions.\n'''
+              path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+
+      - name: Install, build, compile, and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m pip wheel --no-deps . --wheel-dir dist
+          gridpuzzle --help >/dev/null
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+          python -m ruff check gridsolver tests run.py examples2.py
+          git diff --check
+
+      - name: Run complete bounded suite
+        run: python -X dev -m pytest -q tests -m "not slow" --durations=20
+
+      - name: Compare ordinary solver performance with exact master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/pr11-master origin/master
+          cat > /tmp/pr11_benchmark.py <<'PY'
+          from __future__ import annotations
+
+          import argparse
+          import gc
+          import hashlib
+          import json
+          import logging
+          import math
+          import os
+          from pathlib import Path
+          import statistics
+          import subprocess
+          import sys
+          import time
+
+          EXAMPLE_9 = (
+              '..29.6......1.83...96.7....9...5....2....9.31.1..8.5'
+              '....8...........57.....7...2.'
+          )
+
+          def fingerprint(solutions) -> str:
+              payload = repr(
+                  tuple(sorted(tuple(solution) for solution in solutions))
+              ).encode()
+              return hashlib.sha256(payload).hexdigest()
+
+          def factory(case: str):
+              from gridsolver.abstract_grids.grid_loading import create_from_str_and_class
+              from gridsolver.grid_classes.sudoku import Sudoku
+
+              if case == 'loaded4_all':
+                  grid = Sudoku(2, 2, 2, 2)
+                  grid.load('12344321........')
+                  return grid, -1, 4
+              if case == 'blank4_all':
+                  return Sudoku(2, 2, 2, 2), -1, 288
+              if case == 'nonsquare6_cap20':
+                  grid = Sudoku(3, 2, 2, 3)
+                  grid.load('123456654321........................', row_wise=False)
+                  return grid, 20, 20
+              if case == 'example9_first':
+                  grid = create_from_str_and_class(EXAMPLE_9, Sudoku)
+                  return grid, 1, 1
+              raise ValueError(case)
+
+          def worker(case: str) -> dict[str, object]:
+              from gridsolver.solver import solver
+
+              logging.disable(10_000)
+              gc.collect()
+              grid, cap, expected = factory(case)
+              started = time.perf_counter()
+              solutions = solver.solve(
+                  grid,
+                  log_level=-1,
+                  max_sols=cap,
+                  depth_gate=None,
+              )
+              seconds = time.perf_counter() - started
+              if len(solutions) != expected:
+                  raise RuntimeError(
+                      f'{case}: expected {expected} solutions, got {len(solutions)}'
+                  )
+              return {
+                  'seconds': seconds,
+                  'count': len(solutions),
+                  'digest': fingerprint(solutions),
+              }
+
+          def run_one(directory: Path, case: str) -> dict[str, object]:
+              env = os.environ.copy()
+              env['PYTHONPATH'] = str(directory)
+              env['PYTHONHASHSEED'] = '0'
+              proc = subprocess.run(
+                  [sys.executable, __file__, '--worker', '--case', case],
+                  cwd=directory,
+                  env=env,
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              return json.loads(proc.stdout)
+
+          def orchestrate(args: argparse.Namespace) -> None:
+              baseline = Path(args.baseline).resolve()
+              candidate = Path(args.candidate).resolve()
+              specs = (
+                  ('loaded4_all', 4),
+                  ('blank4_all', 2),
+                  ('nonsquare6_cap20', 3),
+                  ('example9_first', 5),
+              )
+              results: dict[str, object] = {
+                  'python': sys.version,
+                  'depth_gate': None,
+                  'cases': {},
+              }
+              ratios: list[float] = []
+              for case, repeats in specs:
+                  timings = {'master': [], 'candidate': []}
+                  expected = None
+                  for round_index in range(repeats):
+                      order = (
+                          ('master', baseline),
+                          ('candidate', candidate),
+                      )
+                      if round_index % 2:
+                          order = tuple(reversed(order))
+                      for label, directory in order:
+                          sample = run_one(directory, case)
+                          identity = (sample['count'], sample['digest'])
+                          if expected is None:
+                              expected = identity
+                          elif identity != expected:
+                              raise RuntimeError(
+                                  f'{case}: result mismatch for {label}: '
+                                  f'{identity!r} != {expected!r}'
+                              )
+                          timings[label].append(float(sample['seconds']))
+                  master_median = statistics.median(timings['master'])
+                  candidate_median = statistics.median(timings['candidate'])
+                  ratio = candidate_median / master_median
+                  ratios.append(ratio)
+                  results['cases'][case] = {
+                      'master_seconds': timings['master'],
+                      'candidate_seconds': timings['candidate'],
+                      'master_median': master_median,
+                      'candidate_median': candidate_median,
+                      'candidate_over_master': ratio,
+                      'improvement_percent': (1.0 - ratio) * 100.0,
+                      'count': expected[0],
+                      'digest': expected[1],
+                  }
+              geomean = math.exp(sum(math.log(value) for value in ratios) / len(ratios))
+              worst = max(ratios)
+              passed = geomean <= 1.015 and worst <= 1.05
+              results['gates'] = {
+                  'geomean_max_ratio': 1.015,
+                  'worst_max_ratio': 1.05,
+                  'geomean_ratio': geomean,
+                  'worst_ratio': worst,
+                  'passed': passed,
+              }
+              json_path = Path(args.json_report)
+              md_path = Path(args.report)
+              json_path.write_text(
+                  json.dumps(results, indent=2, sort_keys=True) + '\n',
+                  encoding='utf-8',
+              )
+              rows = []
+              for name, data in results['cases'].items():
+                  rows.append(
+                      f"| {name} | {data['master_median']:.6f} | "
+                      f"{data['candidate_median']:.6f} | "
+                      f"{data['improvement_percent']:+.2f}% |"
+                  )
+              md_path.write_text(
+                  '# PR 11 extension transactions — 2026-08-13\n\n'
+                  'All comparisons used `depth_gate=None`, interleaved run order, '
+                  'and exact deterministic solution fingerprints.\n\n'
+                  '| Case | Master seconds | Candidate seconds | Improvement |\n'
+                  '|---|---:|---:|---:|\n'
+                  + '\n'.join(rows)
+                  + '\n\n'
+                  + f'- Geometric-mean ratio: `{geomean:.6f}` (must be <= 1.015)\n'
+                  + f'- Worst ratio: `{worst:.6f}` (must be <= 1.05)\n'
+                  + f"- Verdict: **{'accepted' if passed else 'rejected'}**\n",
+                  encoding='utf-8',
+              )
+              print(json.dumps(results['gates'], sort_keys=True))
+              if not passed:
+                  raise SystemExit('PR 11 ordinary-solver benchmark gate failed')
+
+          def main() -> None:
+              parser = argparse.ArgumentParser()
+              parser.add_argument('--worker', action='store_true')
+              parser.add_argument('--case')
+              parser.add_argument('--baseline')
+              parser.add_argument('--candidate')
+              parser.add_argument('--report')
+              parser.add_argument('--json-report')
+              args = parser.parse_args()
+              if args.worker:
+                  print(json.dumps(worker(args.case)))
+              else:
+                  orchestrate(args)
+
+          if __name__ == '__main__':
+              main()
+          PY
+          python /tmp/pr11_benchmark.py \
+            --baseline /tmp/pr11-master \
+            --candidate "$GITHUB_WORKSPACE" \
+            --report benchmarks/pr11_extension_transactions_2026-08-13.md \
+            --json-report benchmarks/pr11_extension_transactions_2026-08-13.json
+
+      - name: Publish the fully tested clean PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .github/patches
+          rm -f \
+            .github/workflows/export-correctness-review.yml \
+            .github/workflows/promote-correctness-review.yml \
+            .github/workflows/export-pr11-current.yml \
+            .github/workflows/finalize-pr11.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden extension transactions and finish correctness review"
+          git push origin "HEAD:$GITHUB_REF_NAME"
