@@ -49,7 +49,10 @@ def load_cage_layout(
                 raise ValueError(
                     f"Missing {family} cage definition for {label!r}"
                 ) from exc
-            entry = final_dic.setdefault(label, make_entry(definition))
+            entry = final_dic.get(label)
+            if entry is None:
+                entry = make_entry(definition)
+                final_dic[label] = entry
             entry.cells.append(
                 (first, second) if row_wise else (second, first)
             )

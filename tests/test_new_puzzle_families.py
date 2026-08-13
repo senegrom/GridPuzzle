@@ -10,6 +10,7 @@ from gridsolver.abstract_grids.csp_rules_loading import (
 )
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str
+from gridsolver.grid_classes.compact_grid import CompactGrid
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.slitherlink import Slitherlink
@@ -661,3 +662,13 @@ def test_cli_rejects_class_with_non_string_sources(tmp_path):
     path.write_text("(solve 1 1 4)\n", encoding="utf-8")
     with pytest.raises(SystemExit):
         run_cli.main(("--file", str(path), "--class", "sudoku"))
+
+def test_compact_grid_equality_includes_puzzle_key_mapping():
+    first = CompactGrid(("a", "b"), max_elem=2)
+    equivalent = first.deepcopy()
+    different_keys = CompactGrid(("x", "y"), max_elem=2)
+
+    assert first == equivalent
+    assert equivalent == first
+    assert first != different_keys
+    assert different_keys != first

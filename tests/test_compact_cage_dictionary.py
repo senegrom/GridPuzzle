@@ -99,3 +99,21 @@ def test_importing_kenken_does_not_import_sudoku_or_killer_sudoku():
         text=True,
     )
     assert output.strip() == "[]"
+
+
+def test_cage_entry_factory_runs_once_per_distinct_label(monkeypatch):
+    grid = Kenken(None, 2)
+    original = grid._make_cage_entry
+    calls = []
+
+    def counted(definition):
+        calls.append(definition)
+        return original(definition)
+
+    monkeypatch.setattr(grid, "_make_cage_entry", counted)
+    grid.load_with_dic(
+        "aabb",
+        {"a": ("+", 3), "b": ("+", 3)},
+    )
+
+    assert calls == [("+", 3), ("+", 3)]

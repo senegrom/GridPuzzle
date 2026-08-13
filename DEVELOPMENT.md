@@ -203,3 +203,9 @@ python scripts/run_new_family_corpus.py \
   --case-timeout 60 \
   --output hidato-0.json
 ```
+
+## Extension transaction boundary
+
+Third-party rule and guarantee hooks execute inside a reversible sandbox. They receive validated candidate views rather than the raw journal-aware candidate sets. Their iterators, metadata, hashes, equality methods, replacement outputs, and guarantee-normalization hooks must therefore be treated as untrusted: unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache changes are rolled back before canonical outputs are committed. Replacement rules and guarantees are prepared completely before the source rule is deactivated, so failed extension code cannot partially install a batch or strand the source outside propagation.
+
+Kakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions.

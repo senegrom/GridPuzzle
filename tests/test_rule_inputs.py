@@ -452,6 +452,111 @@ def test_rule_outputs_are_validated_before_source_deactivation():
     grid.trail_undo(mark)
 
 
+class _HashWithoutSuperRule(Rule):
+    __slots__ = ("tag",)
+
+    def __init__(self, grid, tag):
+        super().__init__(grid, cells=[0])
+        self.tag = tag
+
+    def __hash__(self):
+        return hash((self.cells, self.tag))
+
+    def __eq__(self, other):
+        return super().__eq__(other) and self.tag == other.tag
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+
+def test_checked_registration_freezes_custom_hashes_that_skip_super():
+    grid = Grid(1)
+    rule = _HashWithoutSuperRule(grid, "stable")
+
+    grid.add_rule_checked(rule)
+
+    assert rule._frozen
+    assert rule in grid.rules
+    with pytest.raises(AttributeError, match="immutable"):
+        rule.tag = "changed"
+    with pytest.raises(AttributeError, match="immutable"):
+        del rule.cells
+    assert rule in grid.rules
+
+
+class _OneShotHashFailureRule(Rule):
+    __slots__ = ("failures",)
+
+    def __init__(self, grid):
+        super().__init__(grid, cells=[1])
+        self.failures = 1
+
+    def __hash__(self):
+        if self.failures:
+            object.__setattr__(self, "failures", self.failures - 1)
+            raise RuntimeError("replacement hash failed once")
+        return super().__hash__()
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+
+class _UnhashableOutputRule(Rule):
+    __slots__ = ()
+
+    def __init__(self, grid):
+        super().__init__(grid, cells=[1])
+
+    def __hash__(self):
+        raise RuntimeError("replacement hash failed")
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+
+def test_replacement_hash_failure_keeps_source_rule_active():
+    grid = Grid(2)
+    replacement = _UnhashableOutputRule(grid)
+    source = _StructuralOutputRule(
+        grid,
+        replacement_rules=(replacement,),
+    )
+    grid.add_rule_checked(source)
+    cache = grid._struct_cache
+    mark = grid.trail_mark()
+
+    with pytest.raises(RuntimeError, match="replacement hash failed"):
+        apply_rules(grid)
+
+    assert source in grid.rules
+    assert not grid.rules_ia
+    assert not grid._trail_state.entries
+    assert grid._struct_cache is cache
+    assert grid._trail_state.dirty.all_rules
+    grid.trail_undo(mark)
+
+
+def test_replacement_hash_failure_can_be_retried_on_the_same_grid():
+    grid = Grid(2)
+    replacement = _OneShotHashFailureRule(grid)
+    source = _StructuralOutputRule(
+        grid,
+        replacement_rules=(replacement,),
+    )
+    grid.add_rule_checked(source)
+
+    with pytest.raises(RuntimeError, match="failed once"):
+        apply_rules(grid)
+    assert source in grid.rules
+    assert grid._trail_state.dirty.all_rules
+
+    apply_rules(grid)
+
+    assert replacement in grid.rules
+    assert source not in grid.rules
+    assert source in grid.rules_ia
+
+
 def test_invalid_guarantee_output_does_not_deactivate_satisfied_source():
     grid = Grid(2)
     invalid = Guarantee(3, frozenset({0}), 2, 2)
@@ -484,3 +589,46 @@ def test_failed_rule_batch_does_not_freeze_the_valid_prefix():
     assert not valid._frozen
     valid.cells = (0, 2)
     assert valid.cells == (0, 2)
+
+class _NthHashFailureRule(Rule):
+    __slots__ = ("calls", "fail_at", "tag")
+
+    def __init__(self, grid, cell, tag, fail_at=None):
+        super().__init__(grid, cells=[cell])
+        self.calls = 0
+        self.fail_at = fail_at
+        self.tag = tag
+
+    def __hash__(self):
+        object.__setattr__(self, "calls", self.calls + 1)
+        if self.calls == self.fail_at:
+            raise RuntimeError("rule was re-hashed during live commit")
+        return hash((self.cells, self.tag))
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, _NthHashFailureRule)
+            and self.cells == other.cells
+            and self.tag == other.tag
+        )
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+
+def test_rule_batch_finishes_user_hashing_before_live_set_mutation():
+    grid = Grid(2)
+    first = _NthHashFailureRule(grid, 0, "first")
+    # The previous list-based commit hashed each new rule a fifth time while
+    # mutating grid.rules.  The second rule then failed after the first had
+    # already been inserted, leaving a half-installed batch.
+    second = _NthHashFailureRule(grid, 1, "second", fail_at=5)
+
+    grid.add_rules_checked((first, second))
+
+    assert first.calls < 5
+    assert second.calls < 5
+    # Disable the adversarial one-shot failure before ordinary set assertions.
+    object.__setattr__(second, "fail_at", None)
+    assert grid.rules == {first, second}
+    assert grid._trail_state.dirty.rules == {first, second}

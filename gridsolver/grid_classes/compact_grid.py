@@ -68,6 +68,9 @@ class CompactGrid(Grid):
             key: cell for cell, key in enumerate(cell_to_key)
         }
 
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and self.cell_to_key == other.cell_to_key
+
     def _copy_extra_state_to(self, result: Grid) -> None:
         super()._copy_extra_state_to(result)
         result.cell_to_key = self.cell_to_key

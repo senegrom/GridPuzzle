@@ -1,0 +1,89 @@
+{
+  "cases": {
+    "blank4_all": {
+      "candidate_median": 27.08078497849999,
+      "candidate_over_master": 0.9990587695979645,
+      "candidate_seconds": [
+        27.088852394999975,
+        27.07271756200001
+      ],
+      "count": 288,
+      "digest": "5d03baf4414c5c37c9bb2b1b8cfe54b6c010b888a07e7e740bffcc4eb8071b0b",
+      "improvement_percent": 0.09412304020355311,
+      "master_median": 27.106298250500004,
+      "master_seconds": [
+        27.197191242999992,
+        27.015405258000015
+      ]
+    },
+    "example9_first": {
+      "candidate_median": 0.029565692000005583,
+      "candidate_over_master": 0.9964759315151394,
+      "candidate_seconds": [
+        0.02920111100002032,
+        0.029666453000004367,
+        0.029377607000014905,
+        0.0297068460000105,
+        0.029565692000005583
+      ],
+      "count": 1,
+      "digest": "35f97b923de81836469683ff8effd4da9e613651a0774f0f395c61379440fb03",
+      "improvement_percent": 0.3524068484860643,
+      "master_median": 0.029670252000016717,
+      "master_seconds": [
+        0.029646166000020457,
+        0.03043368100003363,
+        0.029870269000014105,
+        0.029612909999968906,
+        0.029670252000016717
+      ]
+    },
+    "loaded4_all": {
+      "candidate_median": 0.08715935000000741,
+      "candidate_over_master": 1.004838449657583,
+      "candidate_seconds": [
+        0.08715933900001005,
+        0.08717878400000245,
+        0.08715936100000476,
+        0.08685563800000295
+      ],
+      "count": 4,
+      "digest": "484be136bb2b590f81c4b23096dc1af609324b9280fa83b61969618fc785a89c",
+      "improvement_percent": -0.4838449657583066,
+      "master_median": 0.08673966450000847,
+      "master_seconds": [
+        0.08946305099999563,
+        0.08650740600000972,
+        0.08697192300000722,
+        0.08625752700000078
+      ]
+    },
+    "nonsquare6_cap20": {
+      "candidate_median": 10.975043501999949,
+      "candidate_over_master": 1.005112073799104,
+      "candidate_seconds": [
+        11.005374378999988,
+        10.932940704999993,
+        10.975043501999949
+      ],
+      "count": 20,
+      "digest": "9d2144281f7e118083da5fe96ecd6e073e754cfe4ea675d649980bc7965e5878",
+      "improvement_percent": -0.5112073799103944,
+      "master_median": 10.91922362500003,
+      "master_seconds": [
+        10.88033571599999,
+        10.91922362500003,
+        10.938543736999975
+      ]
+    }
+  },
+  "depth_gate": null,
+  "gates": {
+    "geomean_max_ratio": 1.015,
+    "geomean_ratio": 1.001364396746764,
+    "passed": true,
+    "worst_max_ratio": 1.05,
+    "worst_ratio": 1.005112073799104
+  },
+  "python": "3.14.6 (main, Jun 10 2026, 14:29:35) [GCC 13.3.0]"
+}
