@@ -98,8 +98,8 @@ Candidate sets are `TrailedSet` objects that snapshot once per nested frame. Kno
 **Basic propagation is event-driven.**
 Candidate and known-value changes mark their cells dirty. Cached watcher maps then revisit only rules and guarantees touching those cells; newly registered rules and guarantees are queued explicitly. Guarantee additions also wake only guarantee-consuming rules that can contain them. The first pass after a clone still schedules every live constraint, and structural changes invalidate the watcher maps.
 
-**AIC and ALS share one candidate topology snapshot.**
-At a stalled `FULL` state, full houses, peer bitmasks, per-value candidate locations, ALS sets, and restricted-common links are built once for the adjacent ALS-XZ and ALS-XY-Wing actions. AIC reuses the same immutable topology if no intervening action changes the grid. Any action hit ends that power-action pass, so a changed state always rebuilds the snapshot.
+**The advanced power actions share one candidate topology snapshot.**
+At a stalled `FULL` state, full houses, peer bitmasks, and per-value candidate locations are built once at the top of the power-action pass and consumed by locked candidate, skyscraper, empty rectangle, ALS-XZ, ALS-XY-Wing (via the derived ALS analysis), and AIC. Any action hit ends that pass, so a changed state always rebuilds the snapshot and no consumer ever observes stale bitsets.
 
 Per-value candidate locations come from a lazy dirty-cell index. The index is absent until a real topology consumer first requests it. Once active, candidate mutations mark only their cell; the next topology request updates masks for the changed cells and coalesces repeated mutations. A speculative branch copies the derived index only on its first synchronization, while trail rollback restores the exact parent references and dirty state. Explicit grid clones start with the index inactive because it is derived data.
 

@@ -36,3 +36,6 @@ used for each accepted or rejected optimization.
 | 08-11 | candidate_view | accepted | validated public view off the hot path, GM +0.09% |
 | 08-12 | locked_candidate_pairs | accepted | pair cache + fish elimination dedup, −0.4/−1.1% |
 | 08-12 | fish_prologue_dedup | accepted | shared prologue + disjoint-union, noise-neutral |
+| 08-12 | broader_candidate_bitsets | accepted | locked_candidate/skyscraper/ER on bitsets, micro −8.04%, GM −0.54% |
+| 08-13 | pr11_correctness_review | measured | extension-hook transactions + lazy imports review record |
+| 08-13 | pr11_extension_transactions | accepted | reversible extension sandboxes, GM +0.14% (neutral) |

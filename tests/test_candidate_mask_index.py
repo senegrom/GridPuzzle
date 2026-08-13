@@ -149,7 +149,7 @@ def test_topology_masks_known_cells_without_mutating_index():
     topology = CandidateTopology.build(grid)
 
     assert grid.candidate_masks == before
-    assert topology.unsolved_mask == 1 << 1
+    assert topology.candidate_value_masks[0] == 0  # solved cell masked out
     assert not topology.candidate_masks[2] & 1
 
 

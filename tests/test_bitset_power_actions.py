@@ -173,9 +173,17 @@ def _run(action, grid: Sudoku) -> type[Exception] | None:
     return None
 
 
-def _assert_matches(reference, bitset_action, grid: Sudoku) -> None:
+def _assert_matches(reference, bitset_action, grid: Sudoku) -> bool:
+    """Assert legacy/bitset equivalence; return whether anything happened.
+
+    Callers on deliberately-eliminating states must assert the returned
+    flag — an equivalence test whose reference is a no-op proves nothing
+    (guarantee narrowing subsumes these techniques on propagated states,
+    which silently blinded an earlier version of these tests).
+    """
     expected = grid.deepcopy()
     actual = grid.deepcopy()
+    initial = _candidate_state(grid)
 
     reference_error = _run(reference, expected)
     topology = CandidateTopology.build(actual)
@@ -186,18 +194,58 @@ def _assert_matches(reference, bitset_action, grid: Sudoku) -> None:
 
     assert bitset_error is reference_error
     assert _candidate_state(actual) == _candidate_state(expected)
+    return reference_error is not None or _candidate_state(expected) != initial
 
 
-@pytest.mark.parametrize("distance", (8, 12, 16))
-def test_bitset_locked_candidate_matches_legacy_on_oracle_states(distance):
-    grid = _grid_from_completions(_solution_pair_at_distance(distance))
-    _assert_matches(_legacy_locked_candidate, locked_candidate, grid)
+def _pointing_grid() -> Sudoku:
+    # candidate 1 in box 0 is confined to row 0, so pointing eliminates 1
+    # from the rest of row 0
+    grid = Sudoku()
+    for row, col in ((1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (2, 2)):
+        grid.get_candidates((row, col)).discard(1)
+    return grid
 
 
-@pytest.mark.parametrize("distance", (8, 12, 16))
-def test_bitset_skyscraper_matches_legacy_on_oracle_states(distance):
-    grid = _grid_from_completions(_solution_pair_at_distance(distance))
-    _assert_matches(_legacy_skyscraper, skyscraper, grid)
+def _skyscraper_pattern_grid() -> Sudoku:
+    # conjugate pairs for 1 in row 1 (cols 0, 4) and row 4 (cols 0, 5):
+    # the bases share column 0, the tops (1,4)/(4,5) are jointly seen by
+    # (3,4), (5,4) via column+box and (0,5), (2,5) via box+column
+    grid = Sudoku()
+    for col in range(9):
+        if col not in (0, 4):
+            grid.get_candidates((1, col)).discard(1)
+        if col not in (0, 5):
+            grid.get_candidates((4, col)).discard(1)
+    return grid
+
+
+def test_bitset_locked_candidate_matches_legacy_on_eliminating_state():
+    assert _assert_matches(
+        _legacy_locked_candidate,
+        locked_candidate,
+        _pointing_grid(),
+    )
+
+
+def test_bitset_skyscraper_matches_legacy_on_eliminating_state():
+    assert _assert_matches(
+        _legacy_skyscraper,
+        skyscraper,
+        _skyscraper_pattern_grid(),
+    )
+
+
+def test_bitset_actions_match_legacy_on_quiet_oracle_states():
+    # documented no-op parity: on propagated oracle states these
+    # techniques legitimately find nothing; the eliminating-state tests
+    # above carry the real equivalence load
+    grid = _grid_from_completions(_solution_pair_at_distance(12))
+    for reference, bitset_action in (
+        (_legacy_locked_candidate, locked_candidate),
+        (_legacy_skyscraper, skyscraper),
+        (_legacy_empty_rectangle, empty_rectangle),
+    ):
+        _assert_matches(reference, bitset_action, grid)
 
 
 def _empty_rectangle_grid() -> Sudoku:
@@ -221,7 +269,7 @@ def _empty_rectangle_grid() -> Sudoku:
 
 
 def test_bitset_empty_rectangle_matches_legacy_on_eliminating_state():
-    _assert_matches(
+    assert _assert_matches(
         _legacy_empty_rectangle,
         empty_rectangle,
         _empty_rectangle_grid(),
@@ -248,7 +296,7 @@ def test_candidate_topology_exposes_exact_per_cell_and_visibility_masks():
         )
         assert topology.house_peer_masks[cell] == expected
     for cell, links in enumerate(grid.weak_links):
-        assert topology.weak_peer_masks[cell] == cells_mask(links)
+        assert topology.peer_masks[cell] & cells_mask(links) == cells_mask(links)
 
 
 def test_bitset_actions_reject_a_topology_from_another_grid():

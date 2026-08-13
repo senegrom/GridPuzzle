@@ -35,13 +35,10 @@ class CandidateTopology:
     houses: tuple[frozenset[int], ...]
     house_masks: tuple[int, ...]
     house_peer_masks: tuple[int, ...]
-    weak_peer_masks: tuple[int, ...]
     peer_masks: tuple[int, ...]
     extra_peer_masks: tuple[int, ...]
     candidate_masks: tuple[int, ...]
     candidate_value_masks: tuple[int, ...]
-    known_mask: int
-    unsolved_mask: int
     all_cells_mask: int
 
     @classmethod
@@ -60,9 +57,6 @@ class CandidateTopology:
                 for cell in house:
                     house_peers[cell] |= house_mask & ~(1 << cell)
 
-            # Keep explicit relation masks separate because several historic
-            # techniques intentionally use only those links, while AIC/ALS use
-            # the complete weak-visibility relation.
             weak_peers = tuple(
                 cells_mask(links)
                 for links in grid.weak_links
@@ -82,7 +76,7 @@ class CandidateTopology:
 
             return tuple(house_peers), weak_peers, tuple(peers)
 
-        house_peer_masks, weak_peer_masks, peer_masks = grid.cached_rule_struct(
+        house_peer_masks, _weak_peer_masks, peer_masks = grid.cached_rule_struct(
             "candidate_peer_masks_v2",
             build_peer_masks,
         )
@@ -112,13 +106,10 @@ class CandidateTopology:
             houses=houses,
             house_masks=house_masks,
             house_peer_masks=house_peer_masks,
-            weak_peer_masks=weak_peer_masks,
             peer_masks=peer_masks,
             extra_peer_masks=extra_peer_masks,
             candidate_masks=per_value,
             candidate_value_masks=per_cell,
-            known_mask=known_mask,
-            unsolved_mask=unsolved_mask,
             all_cells_mask=all_cells_mask,
         )
 
