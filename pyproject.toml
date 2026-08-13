@@ -28,7 +28,10 @@ classifiers = [
 gridpuzzle = "run:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.12",
+]
 
 [tool.setuptools]
 py-modules = ["run", "examples2"]
