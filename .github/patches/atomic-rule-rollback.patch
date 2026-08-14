@@ -69,13 +69,15 @@ index 4e25ee6..0259a03 100644
          self._struct_cache = frame.struct_cache
          self._rule_cache = frame.rule_cache
 diff --git a/tests/test_rule_inputs.py b/tests/test_rule_inputs.py
-index 6a46c7e..5fcd322 100644
+index 25bcd0f..5fcd322 100644
 --- a/tests/test_rule_inputs.py
 +++ b/tests/test_rule_inputs.py
-@@ -752,3 +752,41 @@ def test_deactivate_rule_equality_failure_preserves_all_live_state():
+@@ -749,4 +749,42 @@ def test_deactivate_rule_equality_failure_preserves_all_live_state():
+     assert not grid._trail_state.entries
+     assert grid._rule_cache is rule_cache
      assert grid._struct_cache is struct_cache
      grid.trail_undo(mark)
- 
++
 +
 +def test_trail_undo_rule_equality_failure_keeps_frame_retryable():
 +    grid = Grid(1, 2, max_elem=2)
