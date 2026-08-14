@@ -1,0 +1,33 @@
+name: Export audit source
+
+on:
+  push:
+    branches:
+      - agent/main-bug-debloat-audit-2026-08-14
+    paths:
+      - .github/workflows/export-audit-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Pack exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git -czf "$RUNNER_TEMP/gridpuzzle-source.tar.gz" .
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: gridpuzzle-source-${{ github.sha }}
+          path: ${{ runner.temp }}/gridpuzzle-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
