@@ -1,0 +1,227 @@
+diff --git a/pyproject.toml b/pyproject.toml
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,6 @@ license-files = ["LICENSE"]
+ authors = [{ name = "senegrom" }]
+ dependencies = [
+     "colorama>=0.4.6",
+-    "rich>=13.0",
+ ]
+ classifiers = [
+     "Development Status :: 3 - Alpha",
+@@ -29,8 +28,12 @@ classifiers = [
+ gridpuzzle = "run:main"
+ 
+ [project.optional-dependencies]
++rich = [
++    "rich>=13.0",
++]
+ dev = [
+     "pytest>=8.0",
++    "rich>=13.0",
+ ]
+ 
+ [tool.setuptools]
+diff --git a/gridsolver/solver/logger.py b/gridsolver/solver/logger.py
+--- a/gridsolver/solver/logger.py
++++ b/gridsolver/solver/logger.py
+@@ -75,9 +75,15 @@ def set_colouring(colouring: Colouring | str) -> None:
+         return
+ 
+     if colouring is Colouring.Rich:
+-        from rich.console import Console
+-        from rich.highlighter import NullHighlighter
+-        from rich.logging import RichHandler
++        try:
++            from rich.console import Console
++            from rich.highlighter import NullHighlighter
++            from rich.logging import RichHandler
++        except ImportError as exc:
++            raise ImportError(
++                "Rich colouring requires the optional 'rich' dependency; "
++                'install it with: pip install "gridpuzzle-solver[rich]"'
++            ) from exc
+ 
+         _restore_colorama_streams()
+         output = sys.stdout
+diff --git a/gridsolver/solver/solve_parallel.py b/gridsolver/solver/solve_parallel.py
+--- a/gridsolver/solver/solve_parallel.py
++++ b/gridsolver/solver/solve_parallel.py
+@@ -88,7 +88,12 @@ def solve_parallel_trials(
+     processes: int,
+     depth_gate: int | None = None,
+ ) -> set[ImmutableGrid]:
+-    """Solve branches concurrently while consuming results in branch order."""
++    """Solve branches concurrently while consuming results in branch order.
++
++    A positive cap applies only to the deterministic branch prefix consumed
++    before the limit is reached. Later branches are cancelled rather than
++    exhausted to compute a global content-key minimum.
++    """
+     # Derived caches are cheap to rebuild and can dominate pickled payloads.
+     grid._struct_cache.clear()
+     grid._rule_cache.clear()
+diff --git a/gridsolver/solver/solver.py b/gridsolver/solver/solver.py
+--- a/gridsolver/solver/solver.py
++++ b/gridsolver/solver/solver.py
+@@ -65,11 +65,14 @@ def solve(
+     """Solve a grid without mutating it.
+ 
+     With ``0 < max_sols < |solutions|`` the returned subset is deterministic
+-    within each mode but mode-dependent: sequential search keeps the first
+-    solutions in branch-priority (DFS) order, while parallel runs merge the
+-    workers' results and keep the smallest by content key. Repeated runs in
+-    one mode always agree; runs with different ``processes`` settings may
+-    select different subsets of the same solution space.
++    within each mode but mode-dependent. Sequential search keeps the first
++    solutions in branch-priority (DFS) order. Parallel search consumes
++    top-level branches in deterministic priority order, stops after the first
++    consumed branch prefix reaches the cap, and uses content-key order only
++    to trim that collected prefix. It does not exhaust later branches to
++    compute a global content-key minimum. Repeated runs in one mode always
++    agree; runs with different ``processes`` settings may select different
++    subsets of the same solution space.
+ 
+     ``depth_gate`` is retained as an explicit experiment switch. Search
+     depth starts at zero for the root: full techniques run through depth
+diff --git a/TODO.md b/TODO.md
+--- a/TODO.md
++++ b/TODO.md
+@@ -91,13 +91,14 @@ `solve(grid, processes=N)` distributes deterministic first-level branches over
+ a process pool. Historical measurements: blank 4x4 38.5s -> 14.1s; non-square
+ 6x6 enumeration 400.7s -> 129.6s on eight processes. Python 3.14 forkserver/
+-spawn-compatible execution is smoke-tested on Linux and Windows. Positive
+-`max_sols` returns a deterministic subset per mode, but the two modes select
+-differently: sequential search keeps the first solutions in branch-priority
+-(DFS) order, parallel merging keeps the content-key-smallest — so runs with
+-different `processes` settings may return different subsets of the same
+-solution space. Documented as intended behaviour (August 2026); aligning the
+-parallel merge with branch order would need per-branch provenance tracking
+-through the pool for no correctness gain.
++spawn-compatible execution is smoke-tested on Linux and Windows.
++
++Positive `max_sols` returns a deterministic subset per mode. Sequential search
++keeps the first solutions in branch-priority (DFS) order. Parallel search
++consumes top-level branches in deterministic priority order, stops after the
++first consumed branch prefix reaches the cap, and uses content-key order only
++to trim that collected prefix. It deliberately does not exhaust later branches
++to compute a global content-key minimum, so different `processes` settings may
++return different subsets of the same solution space.
+ 
+ Capped solves cancel pending futures and call Python 3.14's
+ `terminate_workers()` after enough branch-ordered solutions exist, rather than
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -87,7 +87,10 @@ The hardest built-in test puzzle (`example_t`) is solved entirely without backtr
+ 
+ ## Arguments
+ 
+-The installed `gridpuzzle` command and `python run.py` expose the same options. Use `--processes N` for top-level process-pool search and `--max-solutions N` to cap the deterministic returned subset.
++The installed `gridpuzzle` command and `python run.py` expose the same options.
++Use `--processes N` for top-level process-pool search and `--max-solutions N`
++to cap the deterministic returned subset. Capped process-pool solves do not
++exhaust later branches merely to compute a global content-key minimum.
+ 
+ The equivalent library call is:
+ 
+@@ -100,6 +103,13 @@ solutions = solver.solve(
+ )
+ ```
+ 
++Colorama output is installed by default. Rich output is an optional extra:
++
++```bash
++python -m pip install "gridpuzzle-solver[rich]"
++gridpuzzle --file puzzle.pzl --colour Rich
++```
++
+ Run `gridpuzzle --help` for the complete parser-generated option list.
+ 
+ ## Rule types
+diff --git a/tests/test_solver_api.py b/tests/test_solver_api.py
+--- a/tests/test_solver_api.py
++++ b/tests/test_solver_api.py
+@@ -3,6 +3,7 @@ import pickle
+ import pytest
+ 
+ from gridsolver.abstract_grids.grid import Grid, SolveStatus
++from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
+ from gridsolver.solver import solve_parallel as parallel_module
+ from gridsolver.solver import solver
+ 
+@@ -186,6 +187,43 @@ def test_capped_parallel_search_bounds_submissions_and_terminates(monkeypatch):
+     _assert_compact_worker_payloads(pool)
+ 
+ 
++def test_capped_parallel_search_does_not_scan_later_branches_for_global_minimum(
++    monkeypatch,
++):
++    earlier_branch_solution = ImmutableGrid(
++        [2],
++        rows=1,
++        cols=1,
++        max_elem=2,
++    )
++    later_smaller_solution = ImmutableGrid(
++        [1],
++        rows=1,
++        cols=1,
++        max_elem=2,
++    )
++    assert (
++        solver._solution_key(later_smaller_solution)
++        < solver._solution_key(earlier_branch_solution)
++    )
++    pool = _FakeProcessPool(
++        ({earlier_branch_solution}, {later_smaller_solution})
++    )
++    _install_fake_pool(monkeypatch, pool)
++
++    result = parallel_module.solve_parallel_trials(
++        Grid(1, 1, max_elem=2),
++        [(0, 2), (0, 1)],
++        max_sols=1,
++        processes=2,
++    )
++
++    assert result == {earlier_branch_solution}
++    assert pool.payloads == [(0, 1, 1), (0, 2, 1)]
++    assert pool.futures[1].cancelled
++    _assert_compact_worker_payloads(pool)
++
++
+ def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
+     pool = _FakeProcessPool(
+         ({"first"}, {"second"}, {"third"}, {"fourth"}, {"fifth"})
+diff --git a/tests/test_cli_and_loading.py b/tests/test_cli_and_loading.py
+--- a/tests/test_cli_and_loading.py
++++ b/tests/test_cli_and_loading.py
+@@ -83,6 +83,27 @@ def test_get_log_does_not_reconfigure_the_root_logger():
+     assert any(isinstance(handler, logging.NullHandler) for handler in wrapped.lg.handlers)
+ 
+ 
++def test_rich_colouring_explains_optional_dependency_when_missing(monkeypatch):
++    import builtins
++
++    from gridsolver.solver.logger import Colouring, set_colouring
++
++    real_import = builtins.__import__
++
++    def block_rich(name, *args, **kwargs):
++        if name == "rich" or name.startswith("rich."):
++            raise ImportError("blocked for test")
++        return real_import(name, *args, **kwargs)
++
++    monkeypatch.setattr(builtins, "__import__", block_rich)
++
++    with pytest.raises(
++        ImportError,
++        match=r"gridpuzzle-solver\[rich\]",
++    ):
++        set_colouring(Colouring.Rich)
++
++
+ @pytest.mark.parametrize("name", ("row_wise", "space_sep"))
+ def test_grid_load_rejects_non_boolean_options_and_remains_retryable(name):
+     grid = Grid(1)
