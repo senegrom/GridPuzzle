@@ -14,7 +14,6 @@ license-files = ["LICENSE"]
 authors = [{ name = "senegrom" }]
 dependencies = [
     "colorama>=0.4.6",
-    "rich>=13.0",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -28,8 +27,12 @@ classifiers = [
 gridpuzzle = "run:main"
 
 [project.optional-dependencies]
+rich = [
+    "rich>=13.0",
+]
 dev = [
     "pytest>=8.0",
+    "rich>=13.0",
 ]
 
 [tool.setuptools]

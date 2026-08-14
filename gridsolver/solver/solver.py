@@ -77,11 +77,14 @@ def solve(
     """Solve a grid without mutating it.
 
     With ``0 < max_sols < |solutions|`` the returned subset is deterministic
-    within each mode but mode-dependent: sequential search keeps the first
-    solutions in branch-priority (DFS) order, while parallel runs merge the
-    workers' results and keep the smallest by content key. Repeated runs in
-    one mode always agree; runs with different ``processes`` settings may
-    select different subsets of the same solution space.
+    within each mode but mode-dependent. Sequential search keeps the first
+    solutions in branch-priority (DFS) order. Parallel search consumes
+    top-level branches in deterministic priority order, stops after the first
+    consumed branch prefix reaches the cap, and uses content-key order only
+    to trim that collected prefix. It does not exhaust later branches to
+    compute a global content-key minimum. Repeated runs in one mode always
+    agree; runs with different ``processes`` settings may select different
+    subsets of the same solution space.
 
     ``depth_gate`` is retained as an explicit experiment switch. Search
     depth starts at zero for the root: full techniques run through depth

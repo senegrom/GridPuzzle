@@ -96,7 +96,12 @@ def solve_parallel_trials(
     processes: int,
     depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
-    """Solve branches concurrently while consuming results in branch order."""
+    """Solve branches concurrently while consuming results in branch order.
+
+    A positive cap applies only to the deterministic branch prefix consumed
+    before the limit is reached. Later branches are cancelled rather than
+    exhausted to compute a global content-key minimum.
+    """
     # Derived caches are cheap to rebuild and can dominate pickled payloads.
     grid._struct_cache.clear()
     grid._rule_cache.clear()

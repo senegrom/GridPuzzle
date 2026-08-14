@@ -89,7 +89,10 @@ The hardest built-in test puzzle (`example_t`) is solved entirely without backtr
 
 ## Arguments
 
-The installed `gridpuzzle` command and `python run.py` expose the same options. Use `--processes N` for top-level process-pool search and `--max-solutions N` to cap the deterministic returned subset.
+The installed `gridpuzzle` command and `python run.py` expose the same options.
+Use `--processes N` for top-level process-pool search and `--max-solutions N`
+to cap the deterministic returned subset. Capped process-pool solves do not
+exhaust later branches merely to compute a global content-key minimum.
 
 The equivalent library call is:
 
@@ -99,6 +102,13 @@ solutions = solver.solve(
     processes=0,
     max_sols=-1,
 )
+```
+
+Colorama output is installed by default. Rich output is an optional extra:
+
+```bash
+python -m pip install "gridpuzzle-solver[rich]"
+gridpuzzle --file puzzle.pzl --colour Rich
 ```
 
 Run `gridpuzzle --help` for the complete parser-generated option list.

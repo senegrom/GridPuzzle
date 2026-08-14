@@ -3,6 +3,7 @@ import pickle
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
+from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.solver import solve_parallel as parallel_module
 from gridsolver.solver import solver
 
@@ -200,6 +201,43 @@ def test_capped_parallel_search_bounds_submissions_and_terminates(monkeypatch):
     assert len(pool.futures) == 2
     assert pool.terminated
     assert pool.exited
+    assert pool.futures[1].cancelled
+    _assert_compact_worker_payloads(pool)
+
+
+def test_capped_parallel_search_does_not_scan_later_branches_for_global_minimum(
+    monkeypatch,
+):
+    earlier_branch_solution = ImmutableGrid(
+        [2],
+        rows=1,
+        cols=1,
+        max_elem=2,
+    )
+    later_smaller_solution = ImmutableGrid(
+        [1],
+        rows=1,
+        cols=1,
+        max_elem=2,
+    )
+    assert (
+        solver._solution_key(later_smaller_solution)
+        < solver._solution_key(earlier_branch_solution)
+    )
+    pool = _FakeProcessPool(
+        ({earlier_branch_solution}, {later_smaller_solution})
+    )
+    _install_fake_pool(monkeypatch, pool)
+
+    result = parallel_module.solve_parallel_trials(
+        Grid(1, 1, max_elem=2),
+        [(0, 2), (0, 1)],
+        max_sols=1,
+        processes=2,
+    )
+
+    assert result == {earlier_branch_solution}
+    assert pool.payloads == [(0, 1, 1), (0, 2, 1)]
     assert pool.futures[1].cancelled
     _assert_compact_worker_payloads(pool)
 
