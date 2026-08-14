@@ -1,5 +1,5 @@
 name: Finalize depth gate retirement
-# retry from the verified first payload revision
+# retry after removing the retained-corpus caller
 
 on:
   push:
@@ -65,6 +65,16 @@ jobs:
           target.write_text(source.replace(old, new, 1), encoding="utf-8")
           PY
           python "${{ runner.temp }}/retire_depth_gate_cleanup.py"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/run_new_family_corpus.py")
+          text = path.read_text(encoding="utf-8")
+          old = "            depth_gate=None,\n"
+          if text.count(old) != 1:
+              raise SystemExit("unexpected retained-corpus depth-gate caller count")
+          path.write_text(text.replace(old, "", 1), encoding="utf-8")
+          PY
           rm -f \
             .github/retire_depth_gate_cleanup.py.gz.b64 \
             .github/workflows/finalize-depth-gate-retirement.yml
