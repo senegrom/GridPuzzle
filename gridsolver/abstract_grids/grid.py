@@ -420,9 +420,32 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         state = self._trail_state
         if not state.marks or state.marks[-1].token != mark:
             raise ValueError("Trail marks must be undone in LIFO order")
-        frame = state.marks.pop()
+        frame = state.marks[-1]
+        frame_entries = state.entries[frame.start:]
 
-        for entry in reversed(state.entries[frame.start:]):
+        # Rule rollback can cross both active and inactive sets.  When custom
+        # rule set semantics are present, stage the complete rollback before
+        # popping the frame or restoring any other state.  An extension
+        # equality/hash failure then leaves the frame intact and retryable.
+        transactional_rule_sets = (
+            getattr(self, "_has_untrusted_rule_set_methods", True)
+            and any(entry[0] in {"rule+", "rule-"} for entry in frame_entries)
+        )
+        if transactional_rule_sets:
+            committed_rules = self.rules.copy()
+            committed_rules_ia = self.rules_ia.copy()
+            for entry in reversed(frame_entries):
+                tag = entry[0]
+                if tag == "rule+":
+                    _, rule = entry
+                    committed_rules.discard(rule)
+                elif tag == "rule-":
+                    _, rule = entry
+                    committed_rules_ia.discard(rule)
+                    committed_rules.add(rule)
+
+        state.marks.pop()
+        for entry in reversed(frame_entries):
             tag = entry[0]
             if tag == "cand":
                 _, possible, original, previous_token = entry
@@ -438,12 +461,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 _, index, old_value = entry
                 self._known[index] = old_value
             elif tag == "rule+":
-                _, rule = entry
-                self.rules.discard(rule)
+                if not transactional_rule_sets:
+                    _, rule = entry
+                    self.rules.discard(rule)
             elif tag == "rule-":
-                _, rule = entry
-                self.rules_ia.discard(rule)
-                self.rules.add(rule)
+                if not transactional_rule_sets:
+                    _, rule = entry
+                    self.rules_ia.discard(rule)
+                    self.rules.add(rule)
             elif tag == "gt+":
                 _, guarantee = entry
                 self.guarantees.discard(guarantee)
@@ -455,6 +480,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 raise RuntimeError(f"Unknown trail entry {tag!r}")
 
         del state.entries[frame.start:]
+        if transactional_rule_sets:
+            self.rules = committed_rules
+            self.rules_ia = committed_rules_ia
         self.has_been_filled = frame.filled
         self._struct_cache = frame.struct_cache
         self._rule_cache = frame.rule_cache

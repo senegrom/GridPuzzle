@@ -751,3 +751,41 @@ def test_deactivate_rule_equality_failure_preserves_all_live_state():
     assert grid._rule_cache is rule_cache
     assert grid._struct_cache is struct_cache
     grid.trail_undo(mark)
+
+
+def test_trail_undo_rule_equality_failure_keeps_frame_retryable():
+    grid = Grid(1, 2, max_elem=2)
+    blocker = _DeactivateCollisionRule(grid, 0, "blocker")
+    source = _DeactivateCollisionRule(grid, 1, "source")
+    grid.add_rule_checked(blocker)
+    grid.add_rule_checked(source)
+    original_rules = grid.rules.copy()
+    original_rules_ia = grid.rules_ia.copy()
+
+    mark = grid.trail_mark()
+    grid.deactivate_rule(source)
+    deactivated_rules = grid.rules.copy()
+    deactivated_rules_ia = grid.rules_ia.copy()
+    deactivated_dirty = grid._trail_state.dirty.copy()
+    deactivated_entries = list(grid._trail_state.entries)
+    rule_cache = grid._rule_cache
+    struct_cache = grid._struct_cache
+
+    object.__setattr__(blocker, "raise_against", "source")
+    with pytest.raises(RuntimeError, match="inactive-set equality failed"):
+        grid.trail_undo(mark)
+
+    assert grid.rules == deactivated_rules
+    assert grid.rules_ia == deactivated_rules_ia
+    assert grid._trail_state.dirty == deactivated_dirty
+    assert grid._trail_state.entries == deactivated_entries
+    assert grid._trail_state.marks[-1].token == mark
+    assert grid._rule_cache is rule_cache
+    assert grid._struct_cache is struct_cache
+
+    object.__setattr__(blocker, "raise_against", None)
+    grid.trail_undo(mark)
+
+    assert grid.rules == original_rules
+    assert grid.rules_ia == original_rules_ia
+    assert not grid._trail_state.entries
