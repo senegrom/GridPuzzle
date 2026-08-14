@@ -112,15 +112,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum returned solutions; -1 means unlimited",
     )
     parser.add_argument(
-        "--depth-gate",
-        type=_non_negative_int,
-        default=None,
-        help=(
-            "Run only cheap deductions below this backtracking depth; "
-            "disabled by default"
-        ),
-    )
-    parser.add_argument(
         "--space-separated",
         action="store_true",
         help="Treat whitespace as value separators for string/file input",
@@ -203,7 +194,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         grid,
         max_sols=args.max_solutions,
         processes=args.processes,
-        depth_gate=args.depth_gate,
     )
     _LOG.logs(0, f"Took {time.perf_counter() - start:.4f}s to execute.")
     return 0

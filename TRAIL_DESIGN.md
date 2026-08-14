@@ -128,14 +128,7 @@ in-process speculation:
 
 This avoids repeatedly transmitting the complete puzzle while preserving
 subclass copy hooks, fresh trails, empty derived caches, and complete task
-isolation. Directly mutating the worker root under an outer trail was tested
-with a conservative base-class guard and passed success, contradiction,
-exception, optional-memo, differential, and extension-fallback checks on Linux
-and Windows. It was nevertheless rejected because it regressed full blank-4x4
-enumeration by 1.98%, non-square 6x6 cap-20 by 0.76%, and a 1,000-branch case by
-3.11%; see `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
-
-A note on `guarantees_ia`: its composition is schedule-dependent bookkeeping.
+isolation. A note on `guarantees_ia`: its composition is schedule-dependent bookkeeping.
 The same dominated fact can land there directly on one propagation schedule
 and via a narrow-then-dominate chain on another, so two byte-identical live
 states may carry different inactive sets. No deduction may ever read
@@ -196,6 +189,4 @@ non-square 6x6 cap-20 moved from 22.2s to 21.2s, with identical solution sets.
 See `benchmarks/trail_baseline_2026-08-08.md`.
 
 The trail representation is therefore considered closed unless a replacement
-is validated against complete solution sets and a broader corpus. The rejected
-worker-root reuse experiment confirms that removing a copy can still lose once
-Python-level journaling and cleanup are included.
+is validated against complete solution sets and a broader corpus.

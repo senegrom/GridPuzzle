@@ -125,7 +125,6 @@
       "kind": "micro"
     }
   },
-  "depth_gate": null,
   "gates": {
     "macro_geomean_max_ratio": 1.0075,
     "macro_geomean_ratio": 0.9946269929845689,

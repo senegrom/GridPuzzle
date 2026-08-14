@@ -41,7 +41,7 @@ The measured defaults are:
 
 The path choices are evidence-based. On the retained Parade expert Numbrix, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. On the retained Hidato corpus, the complete path rule plus pre-seeded value-presence guarantees made the generic tuple and contradiction tier redundant; `RULES_ONLY` preserved exact solutions and removed the two former path timeouts. Kakuro remains `GENERIC` because its overlapping sum/all-different runs still benefit from generic deductions.
 
-Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks with `depth_gate=None`.
+Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks.
 
 ### Compact keyed grids
 
@@ -106,9 +106,6 @@ Per-value candidate locations come from a lazy dirty-cell index. The index is ab
 **Rules are immutable and shared across explicit clones.**
 `Grid.deepcopy()` shallow-copies rule and guarantee sets but shares `Rule` objects. Rule cells are immutable tuples, and hashing or registration freezes all existing instance fields; attempts to alter cells, targets, or dimensions then fail. Registration also rejects rules for another shape or value domain. Deterministic `@cached_property` values may still be populated after freezing. Rule and guarantee batches are fully validated before the first live-set mutation.
 
-**Depth gating is explicit, parked, and disabled by default.**
-`solve(..., depth_gate=K)` retains the experimental cheap-tier cutoff without changing ordinary solves. The root has search depth zero: full techniques run through depth `K`, and deeper backtracking nodes stop after the cheap tier. `None` runs the selected profile normally everywhere. Do not enable a gate in normal call sites, CI examples, correctness checks, or performance comparisons.
-
 **Forcing chain uses the full selected AtomicSolver profile for trial branches.**
 A `ContextVar`-backed recursion flag prevents forcing-chain recursion without leaking state between concurrent solves. The inner solver excludes recursive contradiction techniques while preserving the deductions allowed by the grid profile.
 
@@ -149,10 +146,8 @@ Verbosity, rendered-grid buffers, output thresholds, forcing-chain recursion sta
 - Fish fingerprints and cache changes are transactional.
 - `Grid.deepcopy()` is reserved for API isolation and worker seeds; recursive search uses trails.
 - Structural caches use copy-on-invalidate inside trails.
-- Every optimization must preserve exact deterministic solution sets and be measured with `depth_gate=None`.
-- A microbenchmark win is insufficient if the ordinary solver regresses. Rejected experiments and their measurements belong under `benchmarks/`.
-
-The first eager-global per-value candidate-mask design was rejected: it made topology construction faster but added approximately 2% geometric-mean cost to measured full solves and roughly doubled mutation/rollback cost. The accepted lazy dirty-cell design is recorded in `benchmarks/lazy_candidate_index_2026-08-10.md`. It reduced unchanged topology builds by 51.28% and dirty-cell topology/rollback rounds by 64.61%. Cold pre-activation mutations changed by +0.38%; the full-solver geometric mean changed by +0.36%, with a worst measured case of +1.62%. Every comparison used `depth_gate=None` and exact deterministic solution fingerprints.
+- Every optimization must preserve exact deterministic solution sets and be measured with the complete selected technique profile.
+- A microbenchmark win is insufficient if the ordinary solver regresses.
 
 ## Validation policy
 

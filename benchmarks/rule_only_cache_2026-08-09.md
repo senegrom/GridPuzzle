@@ -42,7 +42,7 @@ SHA-256 fingerprint as the baseline.
 ## Timings
 
 GitHub-hosted Ubuntu 24.04 runner, CPython 3.14.6, one process, full technique
-hierarchy, and `depth_gate=None`. Baseline and candidate runs were interleaved;
+hierarchy, and `the complete technique hierarchy`. Baseline and candidate runs were interleaved;
 values are medians.
 
 | Case | Baseline | Candidate | Change |
