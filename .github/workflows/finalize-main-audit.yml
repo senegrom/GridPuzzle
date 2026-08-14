@@ -1,0 +1,86 @@
+name: Finalize main correctness and debloat audit
+
+on:
+  push:
+    branches:
+      - agent/main-bug-debloat-audit-2026-08-14
+    paths:
+      - .github/workflows/finalize-main-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONHASHSEED: "0"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out exact audit branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Apply reviewed source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "agent/main-bug-debloat-audit-2026-08-14"
+          python .github/audit_patch.py
+          rm -f \
+            .github/audit_patch.py \
+            .github/workflows/export-audit-source.yml \
+            .github/workflows/finalize-main-audit.yml
+          git diff --check
+          if grep -RIniE \
+            --exclude-dir=.git \
+            'audit_patch|export-audit-source|finalize-main-audit' .github; then
+            echo "temporary audit delivery files remain" >&2
+            exit 1
+          fi
+
+      - name: Install, package, and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -m pip wheel --no-deps . --wheel-dir dist
+          gridpuzzle --help >/dev/null
+          python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+
+      - name: Run focused regression surface
+        run: |
+          python -X dev -m pytest -q \
+            tests/test_analysis_ownership.py \
+            tests/test_rule_inputs.py \
+            tests/test_solver_api.py \
+            tests/test_bitset_power_actions.py \
+            tests/test_differential.py \
+            -m "not slow"
+
+      - name: Run complete bounded suite
+        run: python -X dev -m pytest -q tests -m "not slow" --durations=15
+
+      - name: Publish tested source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Fix capped guarantee search and isolate shared analyses"
+          git push origin "HEAD:$GITHUB_REF_NAME"
