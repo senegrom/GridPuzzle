@@ -129,6 +129,29 @@ def _validate_load_options(
 RuleT = TypeVar("RuleT", bound=Rule)
 
 
+def _trusted_rule_set_methods(rule: Rule) -> bool:
+    """Return whether set collision handling is owned by GridPuzzle code."""
+    rule_type = type(rule)
+    methods = (
+        rule_type.__hash__,
+        rule_type.__eq__,
+        rule_type.freeze,
+        rule_type.__getattribute__,
+    )
+    for method in methods:
+        if method in (
+            object.__hash__,
+            object.__eq__,
+            object.__getattribute__,
+        ):
+            continue
+        if not getattr(method, "__module__", "").startswith(
+            "gridsolver.rules."
+        ):
+            return False
+    return True
+
+
 class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     __hash__ = None
     technique_profile = TechniqueProfile.FULL
@@ -159,6 +182,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             for cell in range(self.len)
         )
         self.has_been_filled = False
+        # Built-in rules use trusted, side-effect-free hash/equality methods and
+        # keep the original in-place set fast path.  Once an extension supplies
+        # custom set semantics, structural transitions use private replacement
+        # sets so an exception cannot leak a partial mutation.
+        self._has_untrusted_rule_set_methods = False
         self._struct_cache: dict[str, Any] = {}
         # Rule-only structures survive guarantee churn. This matters during
         # speculative propagation, where guarantees narrow and deactivate far
@@ -348,6 +376,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         result.guarantees = self.guarantees.copy()
         result.guarantees_ia = self.guarantees_ia.copy()
         result.has_been_filled = self.has_been_filled
+        result._has_untrusted_rule_set_methods = getattr(
+            self,
+            "_has_untrusted_rule_set_methods",
+            True,
+        )
         result.name = self.name
         result._struct_cache = {}
         result._rule_cache = {}
@@ -592,8 +625,32 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
         if not additions:
             return
-        self.rules.update(additions)
-        self._trail_state.dirty.rules.update(additions)
+
+        contains_untrusted = any(
+            not _trusted_rule_set_methods(rule) for rule in additions
+        )
+        transactional_sets = (
+            getattr(self, "_has_untrusted_rule_set_methods", True)
+            or contains_untrusted
+        )
+        if transactional_sets:
+            # A hash collision can invoke extension ``__eq__`` again while
+            # merging with an existing live set.  Build every replacement set
+            # privately so a failure leaves all published state untouched.
+            committed_rules = self.rules.copy()
+            committed_rules.update(additions)
+            committed_dirty_rules = self._trail_state.dirty.rules.copy()
+            committed_dirty_rules.update(additions)
+            self.rules = committed_rules
+            self._trail_state.dirty.rules = committed_dirty_rules
+        else:
+            # Preserve the measured in-place path for repository-owned rules.
+            self.rules.update(additions)
+            self._trail_state.dirty.rules.update(additions)
+        if contains_untrusted:
+            # Keep the conservative mode after trail rollback: inactive custom
+            # rules remain collision candidates for later registrations.
+            self._has_untrusted_rule_set_methods = True
         if self._trail_state.active:
             self._trail_state.entries.extend(
                 ("rule+", rule) for rule in additions
@@ -605,9 +662,27 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         self.add_rules_checked((rule,))
 
     def deactivate_rule(self, rule: Rule) -> None:
-        self.rules.remove(rule)
-        self.rules_ia.add(rule)
-        self._trail_state.dirty.rules.discard(rule)
+        if (
+            getattr(self, "_has_untrusted_rule_set_methods", True)
+            or not _trusted_rule_set_methods(rule)
+        ):
+            # Moving a custom rule crosses three sets.  Precompute the complete
+            # new state before publishing any of it, because extension equality
+            # or hash methods may fail while resolving collisions.
+            committed_rules = self.rules.copy()
+            committed_rules_ia = self.rules_ia.copy()
+            committed_dirty_rules = self._trail_state.dirty.rules.copy()
+            committed_rules.remove(rule)
+            committed_rules_ia.add(rule)
+            committed_dirty_rules.discard(rule)
+            self.rules = committed_rules
+            self.rules_ia = committed_rules_ia
+            self._trail_state.dirty.rules = committed_dirty_rules
+            self._has_untrusted_rule_set_methods = True
+        else:
+            self.rules.remove(rule)
+            self.rules_ia.add(rule)
+            self._trail_state.dirty.rules.discard(rule)
         if self._trail_state.active:
             self._trail_state.entries.append(("rule-", rule))
         self._invalidate_rule_cache()

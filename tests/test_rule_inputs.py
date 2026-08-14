@@ -632,3 +632,122 @@ def test_rule_batch_finishes_user_hashing_before_live_set_mutation():
     object.__setattr__(second, "fail_at", None)
     assert grid.rules == {first, second}
     assert grid._trail_state.dirty.rules == {first, second}
+
+
+def test_builtin_rule_transitions_keep_the_in_place_set_fast_path():
+    grid = Grid(2)
+    live_rules = grid.rules
+    inactive_rules = grid.rules_ia
+    dirty_rules = grid._trail_state.dirty.rules
+    rule = ElementsAtMostOnce(grid, cells=[0, 1])
+
+    grid.add_rule_checked(rule)
+
+    assert grid.rules is live_rules
+    assert grid.rules_ia is inactive_rules
+    assert grid._trail_state.dirty.rules is dirty_rules
+
+    grid.deactivate_rule(rule)
+
+    assert grid.rules is live_rules
+    assert grid.rules_ia is inactive_rules
+    assert grid._trail_state.dirty.rules is dirty_rules
+
+
+class _NthEqualityFailureRule(Rule):
+    __slots__ = ("calls", "fail_at", "tag")
+
+    def __init__(self, grid, cell, tag, fail_at=None):
+        super().__init__(grid, cells=[cell])
+        self.calls = 0
+        self.fail_at = fail_at
+        self.tag = tag
+
+    def __hash__(self):
+        return 1
+
+    def __eq__(self, other):
+        object.__setattr__(self, "calls", self.calls + 1)
+        if self.calls == self.fail_at:
+            raise RuntimeError("rule equality failed during commit")
+        return self is other
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+
+def test_rule_batch_equality_failure_cannot_partially_mutate_live_sets():
+    grid = Grid(1, 2, max_elem=2)
+    existing = _NthEqualityFailureRule(grid, 0, "existing")
+    grid.add_rule_checked(existing)
+    before_rules = grid.rules.copy()
+    before_dirty = grid._trail_state.dirty.copy()
+    rule_cache = grid._rule_cache
+    struct_cache = grid._struct_cache
+    mark = grid.trail_mark()
+
+    # Membership staging compares each colliding incoming rule once.  The
+    # fourth comparison occurs only when merging the staged additions with the
+    # existing rule set; historically that merge mutated the live set first.
+    object.__setattr__(existing, "fail_at", 4)
+    first = _NthEqualityFailureRule(grid, 0, "first")
+    second = _NthEqualityFailureRule(grid, 1, "second")
+
+    with pytest.raises(RuntimeError, match="equality failed during commit"):
+        grid.add_rules_checked((first, second))
+
+    object.__setattr__(existing, "fail_at", None)
+    assert grid.rules == before_rules
+    assert grid._trail_state.dirty == before_dirty
+    assert not grid._trail_state.entries
+    assert grid._rule_cache is rule_cache
+    assert grid._struct_cache is struct_cache
+    grid.trail_undo(mark)
+
+
+class _DeactivateCollisionRule(Rule):
+    __slots__ = ("tag", "raise_against")
+
+    def __init__(self, grid, cell, tag):
+        super().__init__(grid, cells=[cell])
+        self.tag = tag
+        self.raise_against = None
+
+    def __hash__(self):
+        return 1
+
+    def __eq__(self, other):
+        if getattr(other, "tag", None) == self.raise_against:
+            raise RuntimeError("inactive-set equality failed")
+        return self is other
+
+    def apply(self, known, candidates, guarantees=None):
+        return False, None, None
+
+
+def test_deactivate_rule_equality_failure_preserves_all_live_state():
+    grid = Grid(1, 2, max_elem=2)
+    blocker = _DeactivateCollisionRule(grid, 0, "blocker")
+    source = _DeactivateCollisionRule(grid, 1, "source")
+    grid.add_rule_checked(blocker)
+    grid.deactivate_rule(blocker)
+    grid.add_rule_checked(source)
+    before_rules = grid.rules.copy()
+    before_rules_ia = grid.rules_ia.copy()
+    before_dirty = grid._trail_state.dirty.copy()
+    rule_cache = grid._rule_cache
+    struct_cache = grid._struct_cache
+    mark = grid.trail_mark()
+
+    object.__setattr__(blocker, "raise_against", "source")
+    with pytest.raises(RuntimeError, match="inactive-set equality failed"):
+        grid.deactivate_rule(source)
+
+    object.__setattr__(blocker, "raise_against", None)
+    assert grid.rules == before_rules
+    assert grid.rules_ia == before_rules_ia
+    assert grid._trail_state.dirty == before_dirty
+    assert not grid._trail_state.entries
+    assert grid._rule_cache is rule_cache
+    assert grid._struct_cache is struct_cache
+    grid.trail_undo(mark)
