@@ -1,5 +1,6 @@
 {
   "decision": "promote",
+  "depth_gate": null,
   "geomean_change_percent": 0.08620255576170521,
   "summary": {
     "loaded4": {

@@ -1,6 +1,6 @@
 # New-family retained corpus audit — 2026-08-10
 
-GitHub Actions run **31420971794** executed every retained CSP-Rules `.clp` file for Hidato, Numbrix, Kakuro, and standard Slitherlink. The run used CPython 3.14, one fresh interpreter per file, `max_sols=2`, `the complete technique hierarchy`, four deterministic shards per family, and a hard **60-second timeout per file**.
+GitHub Actions run **31420971794** executed every retained CSP-Rules `.clp` file for Hidato, Numbrix, Kakuro, and standard Slitherlink. The run used CPython 3.14, one fresh interpreter per file, `max_sols=2`, `depth_gate=None`, four deterministic shards per family, and a hard **60-second timeout per file**.
 
 All 16 matrix jobs completed successfully. A timeout is a reported performance outcome rather than a correctness failure; any unexpected parser, validation, or solver exception would have failed its shard.
 
@@ -38,4 +38,4 @@ Median solve time among cases that completed uniquely:
 - `Examples/Slitherlink/Puzzle-loop/H15x15/4,407,009-L240.clp`
 - `Examples/Slitherlink/Puzzle-loop/H15x15/9,050,649-L242.clp`
 
-The scheduled `Extended CI` workflow repeats this audit and uploads one JSON report per family/shard. This document is the initial merge baseline; later optimizations should compare both the timeout set and completed-case timings without enabling the the complete technique hierarchy experiment.
+The scheduled `Extended CI` workflow repeats this audit and uploads one JSON report per family/shard. This document is the initial merge baseline; later optimizations should compare both the timeout set and completed-case timings without enabling the depth-gate experiment.

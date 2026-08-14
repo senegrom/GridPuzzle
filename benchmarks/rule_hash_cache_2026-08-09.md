@@ -24,13 +24,21 @@ Its cumulative profile cost was 9.259 seconds and 2.270 seconds respectively.
 
 The candidate passed Linux and Windows Python 3.14 suites covering:
 
+- every built-in rule family;
+- hashing in fresh interpreters before any parent-process hash exists;
+- pickle round trips after the cache has been populated;
+- pre-hash legal mutation followed by freezing;
+- rejection of an injected cache on an unfrozen rule;
+- trail, process-pool, differential-oracle, extension-validation, and
+  representative puzzle behavior.
+
 Every benchmark run returned the same deterministic solution cardinality and
 SHA-256 fingerprint as the baseline.
 
 ## Timings
 
 GitHub-hosted Ubuntu 24.04 runner, CPython 3.14.6, one process, full technique
-hierarchy, and `the complete technique hierarchy`. Baseline and candidate runs were interleaved.
+hierarchy, and `depth_gate=None`. Baseline and candidate runs were interleaved.
 Values below are medians.
 
 | Case | Baseline | Candidate | Improvement |

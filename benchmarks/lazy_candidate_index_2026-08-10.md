@@ -5,7 +5,7 @@ requests it. Once active, candidate mutations mark changed cells and
 the next topology request updates only those cells. Speculative branches
 copy the index on their first synchronization; trail rollback restores
 the parent references exactly. All solver comparisons use
-`the complete technique hierarchy` and matched deterministic solution fingerprints.
+`depth_gate=None` and matched deterministic solution fingerprints.
 
 | Case | Baseline | Candidate | Change |
 |---|---:|---:|---:|

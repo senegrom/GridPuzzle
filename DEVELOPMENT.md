@@ -147,7 +147,9 @@ Verbosity, rendered-grid buffers, output thresholds, forcing-chain recursion sta
 - `Grid.deepcopy()` is reserved for API isolation and worker seeds; recursive search uses trails.
 - Structural caches use copy-on-invalidate inside trails.
 - Every optimization must preserve exact deterministic solution sets and be measured with the complete selected technique profile.
-- A microbenchmark win is insufficient if the ordinary solver regresses.
+- A microbenchmark win is insufficient if the ordinary solver regresses. Rejected experiments and their measurements belong under `benchmarks/`.
+
+The first eager-global per-value candidate-mask design was rejected: it made topology construction faster but added approximately 2% geometric-mean cost to measured full solves and roughly doubled mutation/rollback cost. The accepted lazy dirty-cell design is recorded in `benchmarks/lazy_candidate_index_2026-08-10.md`. It reduced unchanged topology builds by 51.28% and dirty-cell topology/rollback rounds by 64.61%. Cold pre-activation mutations changed by +0.38%; the full-solver geometric mean changed by +0.36%, with a worst measured case of +1.62%. Every comparison used the complete technique hierarchy and exact deterministic solution fingerprints.
 
 ## Validation policy
 

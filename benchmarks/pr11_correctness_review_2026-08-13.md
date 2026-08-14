@@ -25,4 +25,4 @@ This review was performed against the current `master` tree and was accepted onl
 - the raw-candidate mutation counter and its pickle compatibility path were removed after candidate views closed the bypass;
 - cage dictionary entries are built once per distinct label rather than once per cell.
 
-All solver benchmark cases used `the complete technique hierarchy` and exact deterministic solution fingerprints. Temporary export, patch, promotion, and finalization files were removed before review.
+All solver benchmark cases used `depth_gate=None` and exact deterministic solution fingerprints. Temporary export, patch, promotion, and finalization files were removed before review.

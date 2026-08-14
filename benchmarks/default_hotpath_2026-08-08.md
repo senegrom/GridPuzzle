@@ -22,6 +22,7 @@ improving both cases, so the combined result is not a single-run
 scheduling artefact. These optimizations do not alter the technique
 hierarchy, branching policy, or solution cap.
 
+
 ## Second-stage runtime cleanup
 
 Two further isolated candidates were measured against the optimized

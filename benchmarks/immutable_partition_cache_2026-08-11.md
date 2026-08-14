@@ -2,7 +2,7 @@
 
 The mutable process-global list/deque cache was replaced by bounded
 `lru_cache` entries containing only tuples. Every solver comparison used
-`the complete technique hierarchy` and matched exact deterministic result fingerprints.
+`depth_gate=None` and matched exact deterministic result fingerprints.
 The cached representation is private; the historical public `partition2()`
 API still returns a fresh `list[deque]`, so external callers can mutate their
 result without corrupting shared solver state.

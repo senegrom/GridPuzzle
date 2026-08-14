@@ -1,7 +1,8 @@
 # TODO
 
 Deferred solver ideas from the June–August 2026 reviews, ordered by expected payoff.
-Completed work and remaining opportunities are summarized here. GridPuzzle requires Python 3.14 or newer.
+Completed and rejected experiments remain recorded with measurements so they
+are not repeated blindly. GridPuzzle requires Python 3.14 or newer.
 
 ## Rules-layer scan issues — DONE
 
@@ -21,6 +22,28 @@ Completed work and remaining opportunities are summarized here. GridPuzzle requi
 5. **DONE: propagation unification** — ordinary atomic propagation, Nishio, and
    forcing-net trial propagation share the same rule/guarantee application and
    fixpoint machinery. Explicit `InvalidGrid` is authoritative.
+
+## REJECTED: adaptive technique gating by inner hit rate
+
+Implemented and fully measured, then reverted. Gate = skip AIC inside forcing
+chains after 30 inner tries below a 50% hit rate. The representative corpus
+looked promising (`t-hard` 218s -> 137s), but full enumeration exposed the
+flaw: the pandiagonal test doubled from 1006s to 2072s. One 13x13 puzzle solved
+in about 450s with inner AIC and 1871s once gated, despite an early root hit
+rate below the supposedly unproductive threshold. Hit rate alone does not
+order technique value across grid families.
+
+A future signal must measure downstream value — for example, whether a hit
+causes a forcing-chain branch to conclude rather than merely changing state.
+
+## RETIRED August 2026: depth-gated technique tiers
+
+`solve(..., depth_gate=K)` limited descendants of search depth `K` to the
+cheap tier (86x on blank-4x4 enumeration at gate 0, measured 2026-08-08).
+It stayed an explicit opt-in with no adoption path and was removed from every
+runtime, CLI, and test surface on 2026-08-14. Re-introducing any depth-based
+tier gating needs broad corpus evidence first; see the adaptive-gating
+rejection above for how partial-corpus wins inverted at scale.
 
 ## Guarantee-index lifecycle — DONE August 2026
 
@@ -56,7 +79,9 @@ case with identical solution hashes. See
 2. **DONE:** hit-rate instrumentation plus forcing-chain inner exclusion of
    zero-hit tiers made the corpus 6.6x faster; the slow pandiagonal suite fell
    from 3h09m to about 22m28s with identical solutions.
-3. **DONE August 2026:** AIC, ALS-XZ, and ALS-XY-Wing share one immutable
+3. **REJECTED:** pruned recursion in fish enumeration was equivalent but 12%
+   slower with the existing memo.
+4. **DONE August 2026:** AIC, ALS-XZ, and ALS-XY-Wing share one immutable
    per-value candidate-bitmask and peer-topology snapshot at each stalled
    state, and the per-value index is maintained lazily with per-mutation
    dirty bits and branch copy-on-sync — measured and promoted in
@@ -105,6 +130,23 @@ branch payloads contain only three scalars rather than the complete puzzle.
 Measurements improved by 20.06% at 1,000 branches, 1.55% on blank-4x4 cap-1,
 1.04% on full blank-4x4 enumeration, and 2.80% on non-square 6x6 cap-20, with
 identical solution sets. See `benchmarks/worker_root_clone_2026-08-09.md`.
+
+**REJECTED:** mutating that worker root directly inside a guarded trail scope.
+The design passed Linux and Windows rollback, contradiction, exception,
+differential, extension-fallback, and statistics checks, but regressed the
+selected clone baseline by 3.11% at 1,000 branches, 1.98% on full blank-4x4
+enumeration, and 0.76% on non-square 6x6 cap-20. Blank-4x4 cap-1 improved only
+0.72%. Keep clone-per-task unless a materially cheaper rollback mechanism is
+demonstrated. See `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
+
+**REJECTED:** free-threaded Python 3.14 thread-pool top-level search. On CPython
+3.14.7t with two workers it passed solver-API, differential, and exact
+solution-set checks. Threads improved a synthetic 1,000-trivial-branch case by
+59.62%, but regressed blank-4x4 cap-1 by 4.22%, full blank-4x4 enumeration by
+4.83%, and non-square 6x6 cap-20 by 4.32%. Keep the process pool for real solver
+workloads. See `benchmarks/free_threaded_threads_rejected_2026-08-09.md`. Any
+new thread-executor design must beat these numbers on the same cases before
+merging.
 
 ## Trail-based propagation instead of deepcopy-per-trial — DONE August 2026
 
@@ -175,3 +217,11 @@ with solution-set equivalence before landing. Do NOT similarly merge
 solve_chain's `_find_link_ends`/`_find_link_ends_with_num`: superficially
 twins, but they walk different state spaces (cell vs value-cell) and
 unification would tax the single-digit hot path.
+
+## Fish — parked; see `FISH_REWRITE.md`
+
+A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
+and reverted. Remaining options need an explicit choice: textbook-base
+restriction (changes solver behaviour) or incremental dirty tracking (exact,
+but needs per-pattern bookkeeping). `tests/fish_rewrite_harness.py` remains the
+frozen equivalence reference for any future attempt.

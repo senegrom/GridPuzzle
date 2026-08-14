@@ -23,3 +23,12 @@ results, and worker statistics.
 | Blank 4x4, `max_sols=1` | 3 | 6.138 s | 6.042 s | -1.55% |
 | Blank 4x4, all 288 solutions | 2 | 24.441 s | 24.188 s | -1.04% |
 | Non-square 6x6, `max_sols=20` | 1 | 23.168 s | 22.519 s | -2.80% |
+
+## Rejected intermediate: unpickle on every task
+
+An earlier variant also sent the serialized root only once, but each task ran
+`pickle.loads()` to obtain its branch. It helped high-fanout or very large
+payload cases (5.81% at 1,000 branches and 44.95% with a synthetic 1 MB root),
+but regressed complete blank-4x4 enumeration by 1.58%. Keeping one worker root
+and using `Grid.deepcopy()` removed that regression and was faster on every
+measured real case.

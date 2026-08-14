@@ -6,11 +6,11 @@
 every attempted advanced technique at every stalled solver state. `_act()` now
 accepts a callable plus positional arguments and invokes it directly. Technique
 ordering, logging, timing statistics, forcing-chain exclusions, and the
-explicit default-off the complete technique hierarchy are unchanged.
+explicit default-off depth gate are unchanged.
 
 ## Correctness gate
 
-The candidate passed the focused solver, regression, differential, the complete technique hierarchy,
+The candidate passed the focused solver, regression, differential, depth-gate,
 and representative-example suites on Python 3.14 under both Linux and Windows.
 Every benchmark run returned the same deterministic solution cardinality and
 SHA-256 fingerprint as the baseline.
@@ -18,7 +18,7 @@ SHA-256 fingerprint as the baseline.
 ## Method
 
 GitHub-hosted Ubuntu 24.04 runner, CPython 3.14.6, `PYTHONHASHSEED=0`, one
-process, full technique hierarchy, and `the complete technique hierarchy`. Baseline and candidate
+process, full technique hierarchy, and `depth_gate=None`. Baseline and candidate
 runs were interleaved in the order baseline, candidate, candidate, baseline,
 baseline, candidate. Reported values are medians of three runs.
 

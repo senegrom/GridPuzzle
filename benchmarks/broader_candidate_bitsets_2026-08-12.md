@@ -1,6 +1,6 @@
 # Broader candidate bitsets — 2026-08-12
 
-All macro comparisons used `the complete technique hierarchy` and exact deterministic solution fingerprints. Runs were interleaved to reduce host drift.
+All macro comparisons used `depth_gate=None` and exact deterministic solution fingerprints. Runs were interleaved to reduce host drift.
 
 | Case | Master seconds | Candidate seconds | Improvement |
 |---|---:|---:|---:|
