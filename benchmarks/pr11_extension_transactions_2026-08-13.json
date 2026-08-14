@@ -77,7 +77,6 @@
       ]
     }
   },
-  "depth_gate": null,
   "gates": {
     "geomean_max_ratio": 1.015,
     "geomean_ratio": 1.001364396746764,

@@ -207,7 +207,6 @@ def test_seeded_numbrix_matches_independent_blank_2x3_oracle():
             grid,
             max_sols=-1,
             log_level=-1,
-            depth_gate=None,
         )
     }
 

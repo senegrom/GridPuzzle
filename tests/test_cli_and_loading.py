@@ -99,27 +99,6 @@ def test_get_log_does_not_reconfigure_the_root_logger():
     assert any(isinstance(handler, logging.NullHandler) for handler in wrapped.lg.handlers)
 
 
-def test_rich_colouring_explains_optional_dependency_when_missing(monkeypatch):
-    import builtins
-
-    from gridsolver.solver.logger import Colouring, set_colouring
-
-    real_import = builtins.__import__
-
-    def block_rich(name, *args, **kwargs):
-        if name == "rich" or name.startswith("rich."):
-            raise ImportError("blocked for test")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", block_rich)
-
-    with pytest.raises(
-        ImportError,
-        match=r"gridpuzzle-solver\[rich\]",
-    ):
-        set_colouring(Colouring.Rich)
-
-
 @pytest.mark.parametrize("name", ("row_wise", "space_sep"))
 def test_grid_load_rejects_non_boolean_options_and_remains_retryable(name):
     grid = Grid(1)

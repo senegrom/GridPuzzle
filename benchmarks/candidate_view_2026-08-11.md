@@ -1,7 +1,7 @@
 # Validated public candidate view — 2026-08-11
 
 Solver modules no longer call the public candidate accessor. All
-comparisons used `depth_gate=None` and exact solution fingerprints.
+comparisons used `the complete technique hierarchy` and exact solution fingerprints.
 
 | Case | Baseline | Candidate | Change |
 |---|---:|---:|---:|

@@ -1,6 +1,5 @@
 {
   "decision": "promote",
-  "depth_gate": null,
   "summary": {
     "partition": {
       "baseline_seconds": [

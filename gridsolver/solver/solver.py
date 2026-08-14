@@ -42,8 +42,7 @@ def _log_solution(grid: Grid, solution: ImmutableGrid) -> None:
 def _validate_solve_options(
     max_sols: int,
     processes: int,
-    depth_gate: int | None,
-) -> tuple[int, int, int | None]:
+) -> tuple[int, int]:
     for name, value in (("max_sols", max_sols), ("processes", processes)):
         if isinstance(value, bool) or not isinstance(value, Integral):
             raise TypeError(f"{name} must be an integer")
@@ -54,17 +53,7 @@ def _validate_solve_options(
         raise ValueError("max_sols must be -1 (unlimited) or non-negative")
     if processes < 0:
         raise ValueError("processes must be non-negative")
-
-    if depth_gate is not None:
-        if isinstance(depth_gate, bool) or not isinstance(depth_gate, Integral):
-            raise TypeError(
-                "depth_gate must be None or a non-negative integer"
-            )
-        depth_gate = int(depth_gate)
-        if depth_gate < 0:
-            raise ValueError("depth_gate must be non-negative")
-
-    return max_sols, processes, depth_gate
+    return max_sols, processes
 
 
 def solve(
@@ -72,7 +61,6 @@ def solve(
     log_level: int | None = None,
     max_sols: int = -1,
     processes: int = 0,
-    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Solve a grid without mutating it.
 
@@ -85,33 +73,18 @@ def solve(
     compute a global content-key minimum. Repeated runs in one mode always
     agree; runs with different ``processes`` settings may select different
     subsets of the same solution space.
-
-    ``depth_gate`` is retained as an explicit experiment switch. Search
-    depth starts at zero for the root: full techniques run through depth
-    ``K`` and only the cheap tier runs below it. ``None`` (the default)
-    runs the complete technique hierarchy at every search node.
     """
     if not isinstance(grid, Grid):
         raise TypeError("grid must be a Grid instance")
-    max_sols, processes, depth_gate = _validate_solve_options(
-        max_sols,
-        processes,
-        depth_gate,
-    )
+    max_sols, processes = _validate_solve_options(max_sols, processes)
     with _lg.solve_context(log_level):
-        return _solve_validated(
-            grid,
-            max_sols,
-            processes,
-            depth_gate,
-        )
+        return _solve_validated(grid, max_sols, processes)
 
 
 def _solve_validated(
     grid: Grid,
     max_sols: int,
     processes: int,
-    depth_gate: int | None,
 ) -> set[ImmutableGrid]:
     if max_sols == 0:
         return set()
@@ -120,27 +93,10 @@ def _solve_validated(
     # extend, or load the original grid after this function returns.
     working_grid = grid.deepcopy()
     if processes > 1:
-        if depth_gate is None:
-            # Preserve the pre-gate call shape when the experiment is unused.
-            solutions = _solve_top_parallel(
-                working_grid,
-                max_sols,
-                processes,
-            )
-        else:
-            solutions = _solve_top_parallel(
-                working_grid,
-                max_sols,
-                processes,
-                depth_gate,
-            )
-    elif depth_gate is None:
-        # Preserve the pre-gate call shape when the experiment is unused.
-        solutions = _solve_full(
+        solutions = _solve_top_parallel(
             working_grid,
-            [],
             max_sols,
-            set(),
+            processes,
         )
     else:
         solutions = _solve_full(
@@ -148,7 +104,6 @@ def _solve_validated(
             [],
             max_sols,
             set(),
-            depth_gate,
         )
 
     # Check every generated solution before capping the returned subset. This
@@ -174,7 +129,6 @@ def _atomic_pass_or_branches(
     grid: Grid,
     steps: list[int],
     hidden_pair_checked_gts: set[Guarantee],
-    depth_gate: int | None,
 ) -> tuple[set[ImmutableGrid] | None, list[tuple[int, int]], bool]:
     """Run one atomic pass; return (final_solutions, branches, from_guarantee).
 
@@ -188,7 +142,6 @@ def _atomic_pass_or_branches(
         grid,
         steps,
         hidden_pair_checked_gts,
-        depth_gate=depth_gate,
     ).solve_atomic()
     if status is SolveStatus.SOLVED:
         return {
@@ -218,7 +171,6 @@ def _solve_top_parallel(
     grid: Grid,
     max_sols: int,
     processes: int,
-    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Run one atomic pass, then distribute deterministic first-level branches."""
     from gridsolver.solver.solve_parallel import solve_parallel_trials
@@ -227,7 +179,6 @@ def _solve_top_parallel(
         grid,
         [0],
         set(),
-        depth_gate,
     )
     if settled is not None:
         return settled
@@ -240,21 +191,11 @@ def _solve_top_parallel(
     # are cheap to rebuild independently and expensive to pickle once per
     # submitted branch, so workers receive one cache-free state clone.
     worker_seed = grid.deepcopy()
-    if depth_gate is None:
-        # Preserve the pre-gate call shape and hot path exactly when the
-        # experiment switch is unused.
-        return solve_parallel_trials(
-            worker_seed,
-            branches,
-            max_sols,
-            processes,
-        )
     return solve_parallel_trials(
         worker_seed,
         branches,
         max_sols,
         processes,
-        depth_gate=depth_gate,
     )
 
 
@@ -263,7 +204,6 @@ def _solve_full(
     steps: list[int],
     max_sols: int,
     hidden_pair_checked_gts: set[Guarantee],
-    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     steps.append(0)
     try:
@@ -271,7 +211,6 @@ def _solve_full(
             grid,
             steps,
             hidden_pair_checked_gts,
-            depth_gate,
         )
         if settled is not None:
             return settled
@@ -310,7 +249,6 @@ def _solve_full(
                     steps,
                     remaining,
                     checked_guarantees,
-                    depth_gate,
                 )
             finally:
                 grid.trail_undo(mark)

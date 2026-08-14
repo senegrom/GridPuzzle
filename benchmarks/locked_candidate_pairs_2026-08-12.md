@@ -5,11 +5,11 @@ the b883e83 baseline (three rounds, medians, fresh interpreter per run,
 silent logging, identical solution-set content keys):
 
 - `locked_candidate` builds its intersecting-pair partition from
-  `full_houses` only, so it moved into the rule-lifecycle cache
-  (`"locked_candidate_pairs"`) instead of being rebuilt on every call.
+ `full_houses` only, so it moved into the rule-lifecycle cache
+ (`"locked_candidate_pairs"`) instead of being rebuilt on every call.
 - `solve_fish`'s four cannibal blocks and four outside-elimination loops
-  collapsed into `_eliminate_outside`/`_eliminate_cannibals` with labels
-  precomputed per fish size.
+ collapsed into `_eliminate_outside`/`_eliminate_cannibals` with labels
+ precomputed per fish size.
 
 | Case | Baseline | Candidate | Change |
 |---|---:|---:|---:|

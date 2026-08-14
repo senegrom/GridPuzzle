@@ -78,15 +78,9 @@ def set_colouring(colouring: Colouring | str) -> None:
         return
 
     if colouring is Colouring.Rich:
-        try:
-            from rich.console import Console
-            from rich.highlighter import NullHighlighter
-            from rich.logging import RichHandler
-        except ImportError as exc:
-            raise ImportError(
-                "Rich colouring requires the optional 'rich' dependency; "
-                'install it with: pip install "gridpuzzle-solver[rich]"'
-            ) from exc
+        from rich.console import Console
+        from rich.highlighter import NullHighlighter
+        from rich.logging import RichHandler
 
         _restore_colorama_streams()
         output = sys.stdout

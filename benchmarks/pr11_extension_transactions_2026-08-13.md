@@ -1,6 +1,6 @@
 # PR 11 extension transactions — 2026-08-13
 
-All comparisons used `depth_gate=None`, interleaved run order, and exact deterministic solution fingerprints.
+All comparisons used `the complete technique hierarchy`, interleaved run order, and exact deterministic solution fingerprints.
 
 | Case | Master seconds | Candidate seconds | Improvement |
 |---|---:|---:|---:|
