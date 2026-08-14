@@ -1,4 +1,5 @@
 name: Finalize depth gate retirement
+# retry after tightening duplicate-block handling
 
 on:
   push:
