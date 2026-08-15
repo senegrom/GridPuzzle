@@ -23,8 +23,7 @@ def locked_candidate(
     later deductions in this call never depend on stale bitsets.
     """
     topology = CandidateTopology.build(grid) if topology is None else topology
-    if topology.grid is not grid:
-        raise ValueError("Candidate topology belongs to another grid")
+    topology.validate_for(grid)
     if len(topology.houses) < 2:
         return
 

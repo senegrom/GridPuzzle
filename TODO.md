@@ -1,7 +1,8 @@
 # TODO
 
 Deferred solver ideas from the June–August 2026 reviews, ordered by expected payoff.
-Completed and rejected experiments remain recorded with measurements so they are not repeated blindly. GridPuzzle requires Python 3.14 or newer.
+Completed and rejected experiments remain recorded with measurements so they
+are not repeated blindly. GridPuzzle requires Python 3.14 or newer.
 
 ## Rules-layer scan issues — DONE
 
@@ -34,6 +35,15 @@ order technique value across grid families.
 
 A future signal must measure downstream value — for example, whether a hit
 causes a forcing-chain branch to conclude rather than merely changing state.
+
+## RETIRED August 2026: depth-gated technique tiers
+
+`solve(..., depth_gate=K)` limited descendants of search depth `K` to the
+cheap tier (86x on blank-4x4 enumeration at gate 0, measured 2026-08-08).
+It stayed an explicit opt-in with no adoption path and was removed from every
+runtime, CLI, and test surface on 2026-08-14. Re-introducing any depth-based
+tier gating needs broad corpus evidence first; see the adaptive-gating
+rejection above for how partial-corpus wins inverted at scale.
 
 ## Guarantee-index lifecycle — DONE August 2026
 
@@ -91,14 +101,15 @@ candidate-cell identities intact.
 `solve(grid, processes=N)` distributes deterministic first-level branches over
 a process pool. Historical measurements: blank 4x4 38.5s -> 14.1s; non-square
 6x6 enumeration 400.7s -> 129.6s on eight processes. Python 3.14 forkserver/
-spawn-compatible execution is smoke-tested on Linux and Windows. Positive
-`max_sols` returns a deterministic subset per mode, but the two modes select
-differently: sequential search keeps the first solutions in branch-priority
-(DFS) order, parallel merging keeps the content-key-smallest — so runs with
-different `processes` settings may return different subsets of the same
-solution space. Documented as intended behaviour (August 2026); aligning the
-parallel merge with branch order would need per-branch provenance tracking
-through the pool for no correctness gain.
+spawn-compatible execution is smoke-tested on Linux and Windows.
+
+Positive `max_sols` returns a deterministic subset per mode. Sequential search
+keeps the first solutions in branch-priority (DFS) order. Parallel search
+consumes top-level branches in deterministic priority order, stops after the
+first consumed branch prefix reaches the cap, and uses content-key order only
+to trim that collected prefix. It deliberately does not exhaust later branches
+to compute a global content-key minimum, so different `processes` settings may
+return different subsets of the same solution space.
 
 Capped solves cancel pending futures and call Python 3.14's
 `terminate_workers()` after enough branch-ordered solutions exist, rather than
@@ -133,15 +144,9 @@ demonstrated. See `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
 solution-set checks. Threads improved a synthetic 1,000-trivial-branch case by
 59.62%, but regressed blank-4x4 cap-1 by 4.22%, full blank-4x4 enumeration by
 4.83%, and non-square 6x6 cap-20 by 4.32%. Keep the process pool for real solver
-workloads. See `benchmarks/free_threaded_threads_rejected_2026-08-09.md`.
-
-## Depth-gated technique tiers — retained, parked, default off
-
-`solve(..., depth_gate=K)` remains available as an explicit experiment switch.
-Search depth is zero-based: `K=0` runs the full hierarchy at the root and only
-the cheap tier in descendants. `None` is the default and preserves the complete
-technique hierarchy everywhere. No default adoption or routine CI use is
-planned; revisit only with broad corpus evidence and an explicit policy change.
+workloads. See `benchmarks/free_threaded_threads_rejected_2026-08-09.md`. Any
+new thread-executor design must beat these numbers on the same cases before
+merging.
 
 ## Trail-based propagation instead of deepcopy-per-trial — DONE August 2026
 
@@ -218,4 +223,5 @@ unification would tax the single-digit hot path.
 A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
 and reverted. Remaining options need an explicit choice: textbook-base
 restriction (changes solver behaviour) or incremental dirty tracking (exact,
-but needs per-pattern bookkeeping).
+but needs per-pattern bookkeeping). `tests/fish_rewrite_harness.py` remains the
+frozen equivalence reference for any future attempt.

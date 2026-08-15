@@ -82,6 +82,13 @@ class ALSAnalysis:
     restricted_commons: dict[tuple[int, int], tuple[int, ...]]
     restricted_adjacency: tuple[tuple[tuple[int, int], ...], ...]
 
+    def validate_for(self, grid: Grid) -> None:
+        """Reject an analysis built for another mutable grid."""
+        if self.topology.grid is not grid:
+            raise ValueError(
+                "ALSAnalysis was built for another grid"
+            )
+
     @classmethod
     def build(
         cls,
@@ -89,6 +96,7 @@ class ALSAnalysis:
         topology: CandidateTopology | None = None,
     ) -> "ALSAnalysis":
         topology = CandidateTopology.build(grid) if topology is None else topology
+        topology.validate_for(grid)
         sets = tuple(_build_als_list(grid, list(topology.houses)))
         set_masks = tuple(cells_mask(cells) for cells, _ in sets)
         value_cell_masks = tuple(
@@ -160,6 +168,7 @@ def als_xz(grid: Grid, analysis: ALSAnalysis | None = None) -> None:
     cands = grid._candidates
     known = grid._known
     analysis = ALSAnalysis.build(grid) if analysis is None else analysis
+    analysis.validate_for(grid)
     unique_als = analysis.sets
     if len(unique_als) < 2:
         return
@@ -214,6 +223,7 @@ def als_xy_wing(grid: Grid, analysis: ALSAnalysis | None = None) -> None:
     cands = grid._candidates
     known = grid._known
     analysis = ALSAnalysis.build(grid) if analysis is None else analysis
+    analysis.validate_for(grid)
     unique_als = analysis.sets
     if len(unique_als) < 3:
         return

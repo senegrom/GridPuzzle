@@ -110,14 +110,12 @@ def test_thread_root_avoids_a_redundant_full_grid_clone(monkeypatch):
         branches,
         max_sols,
         workers,
-        depth_gate=None,
     ):
         captured.update(
             root=root,
             branches=branches,
             max_sols=max_sols,
             workers=workers,
-            depth_gate=depth_gate,
         )
         return set()
 
@@ -133,7 +131,6 @@ def test_thread_root_avoids_a_redundant_full_grid_clone(monkeypatch):
         grid,
         3,
         2,
-        depth_gate=4,
     ) == set()
     assert clone_calls == 0
     assert captured == {
@@ -141,7 +138,6 @@ def test_thread_root_avoids_a_redundant_full_grid_clone(monkeypatch):
         "branches": [(0, 1), (0, 2)],
         "max_sols": 3,
         "workers": 2,
-        "depth_gate": 4,
     }
 
 
@@ -215,7 +211,6 @@ def test_thread_branch_runner_uses_a_fresh_grid_per_task(monkeypatch):
         steps,
         max_sols,
         hidden_pair_checked_gts,
-        depth_gate=None,
         *,
         cancel_event,
     ):
@@ -235,7 +230,6 @@ def test_thread_branch_runner_uses_a_fresh_grid_per_task(monkeypatch):
         solve_threaded, "_solve_full_cancellable", fake_solve_full
     )
     runner = solve_threaded._ThreadBranchRunner(
-        None,
         threading.Event(),
         False,
     )
@@ -277,7 +271,6 @@ def test_thread_branch_exception_does_not_poison_later_tasks(monkeypatch):
         solve_threaded, "_solve_full_cancellable", fail_then_succeed
     )
     runner = solve_threaded._ThreadBranchRunner(
-        None,
         threading.Event(),
         False,
     )
@@ -464,7 +457,6 @@ def test_thread_worker_logging_is_context_locally_muted(monkeypatch, caplog):
         pickle.dumps(root, protocol=pickle.HIGHEST_PROTOCOL)
     )
     runner = solve_threaded._ThreadBranchRunner(
-        None,
         threading.Event(),
         False,
     )

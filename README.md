@@ -50,7 +50,7 @@ Each grid declares a technique profile:
 - **GENERIC** retains rule helpers, tuple reasoning, forcing chains, Nishio, forcing nets, and backtracking, but excludes geometry-specific Sudoku patterns.
 - **RULES_ONLY** relies on the puzzle rules and ordinary branching, avoiding generic techniques whose measured cost exceeds their benefit for that model.
 
-The measured defaults are FULL for the original dense-grid families, GENERIC for Kakuro, and RULES_ONLY for Hidato, Numbrix, and Slitherlink. The depth-gate experiment remains available only when explicitly requested; it is disabled by default and is not used to establish correctness or benchmark results.
+The measured defaults are FULL for the original dense-grid families, GENERIC for Kakuro, and RULES_ONLY for Hidato, Numbrix, and Slitherlink.
 
 #### Basic
 - **Naked Singles / Hidden Singles** — cells with one candidate, or digits with one possible cell in a house
@@ -89,7 +89,10 @@ The hardest built-in test puzzle (`example_t`) is solved entirely without backtr
 
 ## Arguments
 
-The installed `gridpuzzle` command and `python run.py` expose the same options. Use `--processes N` for top-level process-pool search and `--max-solutions N` to cap the deterministic returned subset.
+The installed `gridpuzzle` command and `python run.py` expose the same options.
+Use `--processes N` for top-level process-pool search and `--max-solutions N`
+to cap the deterministic returned subset. Capped process-pool solves do not
+exhaust later branches merely to compute a global content-key minimum.
 
 The equivalent library call is:
 

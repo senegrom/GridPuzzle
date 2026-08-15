@@ -35,13 +35,10 @@ class CandidateTopology:
     houses: tuple[frozenset[int], ...]
     house_masks: tuple[int, ...]
     house_peer_masks: tuple[int, ...]
-    weak_peer_masks: tuple[int, ...]
     peer_masks: tuple[int, ...]
     extra_peer_masks: tuple[int, ...]
     candidate_masks: tuple[int, ...]
     candidate_value_masks: tuple[int, ...]
-    known_mask: int
-    unsolved_mask: int
     all_cells_mask: int
 
     @classmethod
@@ -53,20 +50,11 @@ class CandidateTopology:
         def build_peer_masks() -> tuple[
             tuple[int, ...],
             tuple[int, ...],
-            tuple[int, ...],
         ]:
             house_peers = [0] * grid.len
             for house, house_mask in zip(houses, house_masks):
                 for cell in house:
                     house_peers[cell] |= house_mask & ~(1 << cell)
-
-            # Keep explicit relation masks separate because several historic
-            # techniques intentionally use only those links, while AIC/ALS use
-            # the complete weak-visibility relation.
-            weak_peers = tuple(
-                cells_mask(links)
-                for links in grid.weak_links
-            )
 
             # Start from complete-house visibility, then add partial
             # at-most-once groups and explicit UneqRule relations.
@@ -77,13 +65,13 @@ class CandidateTopology:
                 group_mask = cells_mask(group)
                 for cell in group:
                     peers[cell] |= group_mask & ~(1 << cell)
-            for cell, weak_mask in enumerate(weak_peers):
-                peers[cell] |= weak_mask
+            for cell, links in enumerate(grid.weak_links):
+                peers[cell] |= cells_mask(links)
 
-            return tuple(house_peers), weak_peers, tuple(peers)
+            return tuple(house_peers), tuple(peers)
 
-        house_peer_masks, weak_peer_masks, peer_masks = grid.cached_rule_struct(
-            "candidate_peer_masks_v2",
+        house_peer_masks, peer_masks = grid.cached_rule_struct(
+            "candidate_peer_masks_v3",
             build_peer_masks,
         )
         extra_peer_masks = tuple(
@@ -112,15 +100,19 @@ class CandidateTopology:
             houses=houses,
             house_masks=house_masks,
             house_peer_masks=house_peer_masks,
-            weak_peer_masks=weak_peer_masks,
             peer_masks=peer_masks,
             extra_peer_masks=extra_peer_masks,
             candidate_masks=per_value,
             candidate_value_masks=per_cell,
-            known_mask=known_mask,
-            unsolved_mask=unsolved_mask,
             all_cells_mask=all_cells_mask,
         )
+
+    def validate_for(self, grid: Grid) -> None:
+        """Reject a snapshot built for another mutable grid."""
+        if self.grid is not grid:
+            raise ValueError(
+                "CandidateTopology was built for another grid"
+            )
 
     def visible_from_mask(self, source_mask: int) -> int:
         """Cells seeing every source cell through any weak relation."""

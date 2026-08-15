@@ -66,7 +66,6 @@ def _solve_full_cancellable(
     steps: list[int],
     max_sols: int,
     hidden_pair_checked_gts: set[Guarantee],
-    depth_gate: int | None = None,
     *,
     cancel_event: threading.Event,
 ) -> set[ImmutableGrid]:
@@ -85,7 +84,7 @@ def _solve_full_cancellable(
             grid,
             steps,
             hidden_pair_checked_gts,
-            depth_gate,
+            allow_overlapping_guarantee_branches=max_sols == -1,
         )
         if cancel_event.is_set():
             return set()
@@ -122,7 +121,6 @@ def _solve_full_cancellable(
                     steps,
                     remaining,
                     checked_guarantees,
-                    depth_gate,
                     cancel_event=cancel_event,
                 )
             finally:
@@ -149,7 +147,6 @@ def _solve_full_cancellable(
 class _ThreadBranchRunner:
     """Run each submitted branch on a fresh worker-private grid clone."""
 
-    depth_gate: int | None
     cancel_event: threading.Event
     collect_stats: bool
 
@@ -176,7 +173,6 @@ class _ThreadBranchRunner:
                         [0],
                         max_sols,
                         set(),
-                        self.depth_gate,
                         cancel_event=self.cancel_event,
                     )
                 return solutions, stats
@@ -186,7 +182,6 @@ class _ThreadBranchRunner:
                 [0],
                 max_sols,
                 set(),
-                self.depth_gate,
                 cancel_event=self.cancel_event,
             )
 
@@ -196,7 +191,6 @@ def solve_thread_trials(
     branches: list[tuple[int, int]],
     max_sols: int,
     workers: int,
-    depth_gate: int | None = None,
 ) -> set[ImmutableGrid]:
     """Solve top-level branches concurrently and consume them in order.
 
@@ -220,7 +214,6 @@ def solve_thread_trials(
     # the process executor, while keeping task payloads compact.
     worker_payload = pickle.dumps(grid, protocol=pickle.HIGHEST_PROTOCOL)
     runner = _ThreadBranchRunner(
-        depth_gate,
         cancel_event,
         parent_stats is not None,
     )

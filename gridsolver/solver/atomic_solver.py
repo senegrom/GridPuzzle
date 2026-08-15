@@ -115,12 +115,10 @@ class AtomicSolver:
         grid: Grid,
         upsteps: list[int],
         hidden_pair_checked_gts: set[Guarantee],
-        depth_gate: int | None = None,
     ) -> None:
         self.grid = grid
         self.upsteps = upsteps
         self.hidden_pair_checked_gts = hidden_pair_checked_gts
-        self.depth_gate = depth_gate
         self.stats = current_power_stats()
         self.collect_timing = self.stats is not None or _lg.on
         self.verbose_logging = _lg.is_enabled(_MAX_LVL)
@@ -305,14 +303,6 @@ class AtomicSolver:
             5,
         )
 
-        search_depth = max(0, len(self.upsteps) - 1)
-        if (
-            self.depth_gate is not None
-            and not in_forcing_chain
-            and search_depth > self.depth_gate
-        ):
-            return
-
         yield self._act("forcing_chain", forcing_chain, grid)
         yield self._act("hidden_tuples3", self._hidden_tuples, 3)
         yield self._act(
@@ -379,17 +369,6 @@ class AtomicSolver:
             grid,
             5,
         )
-
-        # Search depth is zero-based although the recursion bookkeeping list
-        # contains one root entry. The gate never changes forcing-chain inner
-        # propagation, which continues to use the full non-recursive hierarchy.
-        search_depth = max(0, len(self.upsteps) - 1)
-        if (
-            self.depth_gate is not None
-            and not in_forcing_chain
-            and search_depth > self.depth_gate
-        ):
-            return
 
         yield self._act("xy_wing", xy_wing, grid)
         yield self._act("xyz_wing", xyz_wing, grid)

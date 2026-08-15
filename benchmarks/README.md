@@ -15,7 +15,7 @@ used for each accepted or rejected optimization.
 |---|---|---|---|
 | 08-08 | trail_baseline | measured | trail engine perf-neutral vs pre-trail, identical solutions |
 | 08-08 | default_hotpath | accepted | blank-4x4 −11.4%, nonsq −14.5% over three stages |
-| 08-08 | (depth gate, see README section below) | accepted, opt-in | 86x at gate 0 on blank enumeration; default off |
+| 08-08 | (depth gate) | opt-in, retired 2026-08-14 | 86x at gate 0 on blank enumeration; never adopted, removed from all surfaces |
 | 08-09 | silent_logging | accepted (one sub-item superseded) | −1.89% silent API use; lambda-removal later accepted via direct_action_dispatch |
 | 08-09 | direct_action_dispatch | accepted | closure-free dispatch, −0.57%; supersedes silent_logging's rejection of the same idea |
 | 08-09 | event_driven_solver | accepted | wake-list propagation; fixpoint-equivalent by fuzz |
@@ -36,3 +36,7 @@ used for each accepted or rejected optimization.
 | 08-11 | candidate_view | accepted | validated public view off the hot path, GM +0.09% |
 | 08-12 | locked_candidate_pairs | accepted | pair cache + fish elimination dedup, −0.4/−1.1% |
 | 08-12 | fish_prologue_dedup | accepted | shared prologue + disjoint-union, noise-neutral |
+| 08-12 | broader_candidate_bitsets | accepted | locked_candidate/skyscraper/ER on bitsets, micro −8.04%, GM −0.54% |
+| 08-13 | pr11_correctness_review | measured | extension-hook transactions + lazy imports review record |
+| 08-13 | pr11_extension_transactions | accepted | reversible extension sandboxes, GM +0.14% (neutral) |
+| 08-14 | capped_branches_extension_sandbox | accepted | capped undercount fix + detached extension state, noise-neutral |

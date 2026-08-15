@@ -42,6 +42,7 @@ def alternating_inference_chain(
     known = grid._known
     coord = CoordToString(grid.rows)
     topology = CandidateTopology.build(grid) if topology is None else topology
+    topology.validate_for(grid)
     if not topology.houses:
         return
 

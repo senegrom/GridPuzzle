@@ -55,7 +55,6 @@ def solve_case(path: Path) -> dict[str, Any]:
             grid,
             log_level=-1,
             max_sols=2,
-            depth_gate=None,
         )
     except Exception as exc:  # recorded by the corpus harness, not swallowed
         return {

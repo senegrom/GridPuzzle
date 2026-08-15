@@ -14,24 +14,26 @@ def flatten(values: Iterable) -> list:
     """
     result: list = []
     stack: list = [iter(values)]
-    open_ids: list[int] = [id(values)]
+    # identity comparison against LIVE objects: holding the containers
+    # themselves (not just their ids) rules out id-reuse false positives
+    open_containers: list = [values]
 
     while stack:
         try:
             item = next(stack[-1])
         except StopIteration:
             stack.pop()
-            open_ids.pop()
+            open_containers.pop()
             continue
         if isinstance(item, (str, bytes, bytearray)) or not isinstance(
             item, Iterable
         ):
             result.append(item)
-        elif id(item) in open_ids:
+        elif any(item is container for container in open_containers):
             raise ValueError("Cannot flatten a self-referential iterable")
         else:
             stack.append(iter(item))
-            open_ids.append(id(item))
+            open_containers.append(item)
 
     return result
 
