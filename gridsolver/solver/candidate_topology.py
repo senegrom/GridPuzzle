@@ -107,6 +107,13 @@ class CandidateTopology:
             all_cells_mask=all_cells_mask,
         )
 
+    def validate_for(self, grid: Grid) -> None:
+        """Reject a snapshot built for another mutable grid."""
+        if self.grid is not grid:
+            raise ValueError(
+                "CandidateTopology was built for another grid"
+            )
+
     def visible_from_mask(self, source_mask: int) -> int:
         """Cells seeing every source cell through any weak relation."""
         if not source_mask:

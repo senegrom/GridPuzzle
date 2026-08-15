@@ -789,3 +789,50 @@ def test_trail_undo_rule_equality_failure_keeps_frame_retryable():
     assert grid.rules == original_rules
     assert grid.rules_ia == original_rules_ia
     assert not grid._trail_state.entries
+
+
+class _MutateThenFailRule(Rule):
+    __slots__ = ()
+
+    def apply(self, known, candidates, guarantees=None):
+        candidates[0].discard(1)
+        known[1] = 2
+        raise RuntimeError("extension failed after mutation")
+
+
+def test_failing_extension_rule_does_not_leak_candidate_mutations():
+    grid = Grid(2)
+    rule = _MutateThenFailRule(grid, cells=(0, 1))
+    grid.add_rule_checked(rule)
+    candidates_before = tuple(frozenset(values) for values in grid._candidates)
+    known_before = tuple(grid._known)
+
+    with pytest.raises(RuntimeError, match="failed after mutation"):
+        apply_rules(grid)
+
+    assert tuple(frozenset(values) for values in grid._candidates) == candidates_before
+    assert tuple(grid._known) == known_before
+    assert rule in grid.rules
+    assert grid._trail_state.dirty.all_rules
+
+
+class _MutateThenEmitInvalidRule(Rule):
+    __slots__ = ()
+
+    def apply(self, known, candidates, guarantees=None):
+        candidates[0].discard(1)
+        return False, (object(),), None
+
+
+def test_invalid_extension_output_does_not_publish_candidate_mutations():
+    grid = Grid(2)
+    rule = _MutateThenEmitInvalidRule(grid, cells=(0,))
+    grid.add_rule_checked(rule)
+    before = tuple(frozenset(values) for values in grid._candidates)
+
+    with pytest.raises(TypeError):
+        apply_rules(grid)
+
+    assert tuple(frozenset(values) for values in grid._candidates) == before
+    assert rule in grid.rules
+    assert grid._trail_state.dirty.all_rules

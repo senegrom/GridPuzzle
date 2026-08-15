@@ -167,6 +167,66 @@ def update_candidates_from_known(candidates: tuple[set[int], ...], known: ArrayT
             possible.intersection_update((value,))
 
 
+# noinspection PyProtectedMember
+def _validated_extension_rule_state(
+    grid: Grid,
+    known_view: list[int],
+    candidate_views: tuple[set[int], ...],
+) -> tuple[tuple[int, ...], tuple[frozenset[int], ...]]:
+    """Validate detached extension mutations without touching the live grid."""
+    if len(known_view) != grid.len or len(candidate_views) != grid.len:
+        raise ValueError("rule extension changed the grid state length")
+
+    normalized_candidates: list[frozenset[int]] = []
+    for cell, values in enumerate(candidate_views):
+        try:
+            normalized = frozenset(values)
+        except TypeError as exc:
+            raise TypeError(
+                f"rule extension candidates for cell {cell} must be iterable"
+            ) from exc
+        if any(type(value) is not int for value in normalized):
+            raise TypeError("rule extension candidates must be integers")
+        if any(value < 1 or value > grid.max_elem for value in normalized):
+            raise ValueError("rule extension candidate outside the grid domain")
+        if not normalized:
+            raise InvalidGrid(f"rule extension emptied cell {cell}")
+        if not normalized.issubset(grid._candidates[cell]):
+            raise ValueError("rule extensions may only remove candidates")
+        normalized_candidates.append(normalized)
+
+    normalized_known: list[int] = []
+    for cell, value in enumerate(known_view):
+        if type(value) is not int:
+            raise TypeError("rule extension known values must be integers")
+        if value < 0 or value > grid.max_elem:
+            raise ValueError("rule extension known value outside the grid domain")
+        current = grid._known[cell]
+        if current and value != current:
+            raise ValueError("rule extension changed an existing known value")
+        if value and value not in normalized_candidates[cell]:
+            raise InvalidGrid(
+                f"rule extension removed its known value from cell {cell}"
+            )
+        normalized_known.append(value)
+
+    return tuple(normalized_known), tuple(normalized_candidates)
+
+
+# noinspection PyProtectedMember
+def _commit_extension_rule_state(
+    grid: Grid,
+    state: tuple[tuple[int, ...], tuple[frozenset[int], ...]],
+) -> None:
+    """Publish a fully validated detached extension result."""
+    known, candidates = state
+    for current, narrowed in zip(grid._candidates, candidates, strict=True):
+        current.intersection_update(narrowed)
+    for cell, value in enumerate(known):
+        if value and not grid._known[cell]:
+            grid[cell] = value
+
+
 def apply_rules(grid: Grid) -> None:
     """Apply every currently active rule exactly once."""
     known = grid._known
@@ -174,18 +234,30 @@ def apply_rules(grid: Grid) -> None:
 
     for rule in grid.take_dirty_rules():
         try:
+            if rule._is_extension:
+                # Extensions mutate a detached copy: their changes are
+                # validated as a whole and either fully published or fully
+                # discarded, so a failing hook cannot leak partial state.
+                rule_known: list[int] = list(known)
+                rule_candidates: tuple[set[int], ...] = tuple(
+                    set(values) for values in candidates
+                )
+                detached = True
+            else:
+                rule_known = known
+                rule_candidates = candidates
+                detached = False
+
             try:
                 refresh, new_rules, new_guarantees = rule.apply(
-                    known,
-                    candidates,
+                    rule_known,
+                    rule_candidates,
                     relevant_guarantees(grid, rule),
                 )
-                if refresh:
-                    update_candidates_from_known(candidates, known)
             except RuleAlwaysSatisfied:
+                refresh = True
                 new_rules = []
                 new_guarantees = None
-                update_candidates_from_known(candidates, known)
 
             # Rule implementations may return generators. Materialise and
             # validate both outputs before deactivating the source rule or
@@ -203,18 +275,34 @@ def apply_rules(grid: Grid) -> None:
                 if new_guarantees is None
                 else grid._normalize_guarantees(new_guarantees)
             )
+            extension_state = (
+                _validated_extension_rule_state(
+                    grid,
+                    rule_known,
+                    rule_candidates,
+                )
+                if detached
+                else None
+            )
 
             # Commit replacement constraints before removing their source.
             # Metadata validation catches normal malformed output, but a custom
             # Rule may still fail while hashing or comparing during set
             # insertion. Adding first keeps the source active if that happens;
-            # no propagation occurs between these adjacent mutations.
+            # no propagation occurs between these adjacent mutations. Detached
+            # candidate changes publish last so a custom hash failure cannot
+            # leak candidate reductions either.
             if prepared_rules is not None:
                 grid.add_rules_checked(prepared_rules)
             if prepared_guarantees is not None:
                 grid._add_normalized_gtees(prepared_guarantees)
             if prepared_rules is not None:
                 grid.deactivate_rule(rule)
+
+            if extension_state is not None:
+                _commit_extension_rule_state(grid, extension_state)
+            if refresh:
+                update_candidates_from_known(candidates, known)
         except Exception:
             # take_dirty_rules() consumed the pending pass before invoking the
             # extension.  Preserve retryability for metadata/hash/application

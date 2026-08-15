@@ -105,6 +105,15 @@ class Rule(ABC):
     # subclass whose apply() body reads guarantees must set this to True.
     uses_guarantees = False
 
+    # Rules defined outside gridsolver get detached sandbox state during
+    # propagation; built-ins run on the live containers. Computed once per
+    # subclass so the propagation hot path pays one attribute read.
+    _is_extension = False
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        cls._is_extension = not cls.__module__.startswith("gridsolver.")
+
     def __setattr__(self, name: str, value: object) -> None:
         if getattr(self, "_frozen", False):
             raise AttributeError(

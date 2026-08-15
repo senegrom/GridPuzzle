@@ -4,6 +4,7 @@ import pytest
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
+from gridsolver.rules.rules import Guarantee
 from gridsolver.solver import solve_parallel as parallel_module
 from gridsolver.solver import solver
 
@@ -267,3 +268,20 @@ def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
 def test_solve_rejects_non_grid_inputs_even_for_an_empty_result_cap(max_sols):
     with pytest.raises(TypeError, match="grid must be a Grid instance"):
         solver.solve(object(), max_sols=max_sols)
+
+
+def test_capped_search_does_not_undercount_overlapping_guarantee_branches():
+    # regression: guarantee-derived branches overlap (one solution can
+    # satisfy several), and per-branch remainders were consumed by
+    # duplicates, so a capped solve returned 9 of 15 existing solutions
+    grid = Grid(1, 3, max_elem=3)
+    grid.add_gtee_checked(
+        Guarantee(1, frozenset({0, 1}), grid.rows, grid.cols)
+    )
+
+    exhaustive = solver.solve(grid, max_sols=-1, log_level=-1)
+    capped = solver.solve(grid, max_sols=10, log_level=-1)
+
+    assert len(exhaustive) == 15
+    assert len(capped) == 10
+    assert capped <= exhaustive

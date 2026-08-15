@@ -129,6 +129,8 @@ def _atomic_pass_or_branches(
     grid: Grid,
     steps: list[int],
     hidden_pair_checked_gts: set[Guarantee],
+    *,
+    allow_overlapping_guarantee_branches: bool = True,
 ) -> tuple[set[ImmutableGrid] | None, list[tuple[int, int]], bool]:
     """Run one atomic pass; return (final_solutions, branches, from_guarantee).
 
@@ -160,7 +162,16 @@ def _atomic_pass_or_branches(
     guarantee = grid.get_smallest_guarantee()
     values = sorted(possible)
 
-    if guarantee is not None and len(guarantee.cells) < len(values):
+    # At-least-once guarantee branches overlap when the value can occur in
+    # several cells at once: one solution then satisfies multiple branches.
+    # A positive cap threads per-branch remainders, which duplicate solutions
+    # silently consume, so capped searches must use disjoint cell-value
+    # branches (same cell, different values) instead.
+    if (
+        allow_overlapping_guarantee_branches
+        and guarantee is not None
+        and len(guarantee.cells) < len(values)
+    ):
         return None, [
             (cell, guarantee.val) for cell in sorted(guarantee.cells)
         ], True
@@ -179,6 +190,7 @@ def _solve_top_parallel(
         grid,
         [0],
         set(),
+        allow_overlapping_guarantee_branches=max_sols == -1,
     )
     if settled is not None:
         return settled
@@ -211,6 +223,7 @@ def _solve_full(
             grid,
             steps,
             hidden_pair_checked_gts,
+            allow_overlapping_guarantee_branches=max_sols == -1,
         )
         if settled is not None:
             return settled

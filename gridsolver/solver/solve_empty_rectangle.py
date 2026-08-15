@@ -21,8 +21,7 @@ def empty_rectangle(
     keeps the bitset view exact for every deduction made in this call.
     """
     topology = CandidateTopology.build(grid) if topology is None else topology
-    if topology.grid is not grid:
-        raise ValueError("Candidate topology belongs to another grid")
+    topology.validate_for(grid)
     if len(topology.houses) < 3:
         return
 

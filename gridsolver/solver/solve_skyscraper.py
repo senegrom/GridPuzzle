@@ -12,8 +12,7 @@ def skyscraper(
 ) -> None:
     """Skyscraper over full houses using candidate and visibility bitsets."""
     topology = CandidateTopology.build(grid) if topology is None else topology
-    if topology.grid is not grid:
-        raise ValueError("Candidate topology belongs to another grid")
+    topology.validate_for(grid)
     if len(topology.houses) < 2:
         return
 
