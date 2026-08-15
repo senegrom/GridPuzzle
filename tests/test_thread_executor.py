@@ -12,6 +12,7 @@ import pytest
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.rules import Guarantee
 from gridsolver.solver import solve_threaded, solver
 
 
@@ -89,6 +90,57 @@ def test_thread_backend_preserves_deterministic_positive_cap(monkeypatch):
 
     assert len(threaded) == 2
     assert threaded == sequential
+
+
+def _overlapping_guarantee_grid() -> Grid:
+    grid = Grid(1, 3, max_elem=3)
+    grid.add_gtee_checked(
+        Guarantee(1, frozenset({0, 1}), grid.rows, grid.cols)
+    )
+    return grid
+
+
+def test_capped_thread_solve_does_not_undercount_overlapping_guarantees(
+    monkeypatch,
+):
+    monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: True)
+
+    full = solver.solve(_overlapping_guarantee_grid(), log_level=0)
+    threaded = solver.solve(
+        _overlapping_guarantee_grid(),
+        log_level=0,
+        max_sols=10,
+        processes=2,
+        parallel_backend="thread",
+    )
+
+    assert len(full) == 15
+    assert len(threaded) == 10
+    assert threaded <= full
+
+
+def test_cancellable_recursion_matches_the_sequential_capped_subset():
+    # The cancellable mirror must keep sequential capped semantics: disjoint
+    # cell-value branches under a positive cap, so per-branch remainders are
+    # never consumed by overlapping-guarantee duplicates. Calling it directly
+    # pins the recursion itself, which top-level full-cap-per-branch
+    # consumption would otherwise mask.
+    sequential = solver.solve(
+        _overlapping_guarantee_grid(),
+        log_level=0,
+        max_sols=10,
+    )
+
+    mirrored = solve_threaded._solve_full_cancellable(
+        _overlapping_guarantee_grid(),
+        [],
+        10,
+        set(),
+        cancel_event=threading.Event(),
+    )
+
+    assert len(mirrored) == 10
+    assert mirrored == sequential
 
 
 def test_thread_root_avoids_a_redundant_full_grid_clone(monkeypatch):
