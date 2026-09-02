@@ -75,8 +75,7 @@ def ineq_bounds(grid: Grid) -> None:
                     continue
                 seen.add(id(grp))
                 k = len(cells & grp)
-                if k > best:
-                    best = k
+                best = max(best, k)
         return best
 
     def chain_len(edges: Dict[int, Set[int]]) -> Dict[int, int]:
@@ -89,8 +88,7 @@ def ineq_bounds(grid: Grid) -> None:
             d = 0
             for nb in edges.get(node, ()):
                 dn = visit(nb) + 1
-                if dn > d:
-                    d = dn
+                d = max(d, dn)
             depth[node] = d
             return d
 

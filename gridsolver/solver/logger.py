@@ -18,7 +18,7 @@ class Colouring(Enum):
     Rich = 2
 
 
-_C_NO = {key: "" for key in ("X", "R", "G", "B", "Y", "RR", "GG", "BB", "YY")}
+_C_NO = dict.fromkeys(("X", "R", "G", "B", "Y", "RR", "GG", "BB", "YY"), "")
 _C_ANSI = {
     "X": "\x1b[0m",
     "R": "\x1b[31m",

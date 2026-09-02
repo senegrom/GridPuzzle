@@ -37,7 +37,7 @@ class SumRule(Rule):
         current_sum = sum(my_known)
         if lk == self.len_cells and current_sum == self.sum:
             raise RuleAlwaysSatisfied()
-        elif lk == self.len_cells:
+        if lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             k = self.sum - current_sum
@@ -45,9 +45,8 @@ class SumRule(Rule):
             if k in candidates[last_cell]:
                 candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
-            else:
-                candidates[last_cell].clear()
-                raise InvalidGrid()
+            candidates[last_cell].clear()
+            raise InvalidGrid()
 
         remaining_unknowns = self.len_cells - lk
         remaining_sum = self.sum - current_sum
@@ -110,21 +109,21 @@ class DiffRule(Rule):
         second = known[self.cells[1]]
         if first > 0 and second > 0 and (first - second == self.diff or second - first == self.diff):
             raise RuleAlwaysSatisfied()
-        elif first > 0 and second > 0:
+        if first > 0 and second > 0:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif first > 0:
             new_cand = {first - self.diff, first + self.diff}
             candidates[self.cells[1]].intersection_update(new_cand)
             if len(candidates[self.cells[1]]) == 1:
                 raise RuleAlwaysSatisfied()
-            elif len(candidates[self.cells[1]]) == 0:
+            if len(candidates[self.cells[1]]) == 0:
                 raise InvalidGrid()
         elif second > 0:
             new_cand = {second - self.diff, second + self.diff}
             candidates[self.cells[0]].intersection_update(new_cand)
             if len(candidates[self.cells[0]]) == 1:
                 raise RuleAlwaysSatisfied()
-            elif len(candidates[self.cells[0]]) == 0:
+            if len(candidates[self.cells[0]]) == 0:
                 raise InvalidGrid()
 
         for cell in self.cells:
@@ -189,7 +188,7 @@ class ProdRule(Rule):
             current_prod *= k
         if lk == self.len_cells and current_prod == self.prod:
             raise RuleAlwaysSatisfied()
-        elif lk == self.len_cells:
+        if lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             # integer arithmetic: float division silently loses exactness once
@@ -202,9 +201,8 @@ class ProdRule(Rule):
             if k in candidates[last_cell]:
                 candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
-            else:
-                candidates[last_cell].clear()
-                raise InvalidGrid()
+            candidates[last_cell].clear()
+            raise InvalidGrid()
 
         remaining_prod, rem = divmod(self.prod, current_prod)
         if rem:
@@ -419,7 +417,7 @@ def _tarjan_scc(succ: Sequence[Sequence[int]]) -> List[int]:
                     work.append((nb, iter(succ[nb])))
                     advanced = True
                     break
-                elif on_stack[nb]:
+                if on_stack[nb]:
                     low[node] = min(low[node], index[nb])
             if advanced:
                 continue
@@ -537,7 +535,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         lk = len(my_known)
         if lk == self.len_cells and sum(my_known) == self.sum:
             raise RuleAlwaysSatisfied()
-        elif lk == self.len_cells:
+        if lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             k = self.sum - sum(my_known)
@@ -545,9 +543,8 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             if k in np0 and k not in my_known:
                 np0.intersection_update((k,))
                 raise RuleAlwaysSatisfied()
-            else:
-                np0.clear()
-                raise InvalidGrid()
+            np0.clear()
+            raise InvalidGrid()
 
         candidates_union = set.union(*new_candidates)
         new_sum_candidates = (sp - my_known for sp in self.sum_candidates if my_known <= sp)

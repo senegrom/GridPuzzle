@@ -215,7 +215,7 @@ class DiffGe2Rule(SingleRelationRule):
         if origin_known > 0:
             forbidden = {origin_known - 1, origin_known, origin_known + 1}
             if all(
-                0 < known[cell] and known[cell] not in forbidden
+                known[cell] > 0 and known[cell] not in forbidden
                 for cell in self.rel_cells
             ):
                 raise RuleAlwaysSatisfied()
