@@ -6,10 +6,12 @@ from itertools import permutations, product
 
 import pytest
 
-from gridsolver.abstract_grids.grid import SolveStatus
+from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.uneq import UneqRule
+from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver import solver
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.propagation import propagate_basic
@@ -319,3 +321,159 @@ def test_power_actions_preserve_completions_with_non_house_weak_link():
                 completions,
                 stage=f"non-house weak link after {label} + basic",
             )
+
+
+# --- capped and parallel modes against the same oracles ----------------------
+#
+# validate_solutions() proves every returned grid is a solution, so the only
+# failure the uncapped tests cannot see is a *missing* solution. The capped and
+# parallel paths select subsets, where an undercount hides completely (the
+# 2026-08-14 bug returned 9 of 15 solutions and validated fine). These tests
+# pin subset size, membership, and determinism against independent oracles.
+
+
+def _solution_tuples(grid: Grid, **options) -> frozenset[Solution]:
+    return frozenset(
+        tuple(solution) for solution in solver.solve(grid, log_level=0, **options)
+    )
+
+
+def _oracle_caps(size: int) -> tuple[int, ...]:
+    return tuple(sorted({1, size // 2, size - 1, size, size + 3} - {0}))
+
+
+def _assert_capped_subset(
+    actual: frozenset[Solution],
+    expected: frozenset[Solution],
+    cap: int,
+    *,
+    label: str,
+) -> None:
+    assert len(actual) == min(cap, len(expected)), (
+        f"{label}: cap={cap} returned {len(actual)} of {len(expected)}"
+    )
+    assert actual <= expected, f"{label}: cap={cap} returned non-solutions"
+
+
+def test_capped_sequential_sudoku4_solves_return_deterministic_oracle_subsets():
+    with _quiet_solver_logs():
+        for puzzle, expected in _differential_cases():
+            if len(expected) < 2:
+                continue
+            for cap in (1, len(expected) - 1):
+                first = _solution_tuples(_load(puzzle), max_sols=cap)
+                _assert_capped_subset(first, expected, cap, label=f"puzzle={puzzle}")
+                second = _solution_tuples(_load(puzzle), max_sols=cap)
+                assert first == second, f"puzzle={puzzle}, cap={cap}: capped subset changed"
+
+
+def _parallel_sudoku4_cases() -> tuple[tuple[Puzzle, frozenset[Solution]], ...]:
+    solvable = sorted(
+        (case for case in _differential_cases() if case[1]),
+        key=lambda case: -len(case[1]),
+    )
+    contradiction = next(case for case in _differential_cases() if not case[1])
+    return (*solvable[:3], contradiction)
+
+
+def test_parallel_sudoku4_solution_sets_match_independent_oracle():
+    with _quiet_solver_logs():
+        for puzzle, expected in _parallel_sudoku4_cases():
+            actual = _solution_tuples(_load(puzzle), processes=2)
+            assert actual == expected, f"puzzle={puzzle}"
+
+
+def test_capped_parallel_sudoku4_solves_return_deterministic_oracle_subsets():
+    with _quiet_solver_logs():
+        for puzzle, expected in _parallel_sudoku4_cases()[:2]:
+            for cap in (1, len(expected) - 1):
+                first = _solution_tuples(_load(puzzle), max_sols=cap, processes=2)
+                _assert_capped_subset(
+                    first, expected, cap, label=f"parallel puzzle={puzzle}"
+                )
+                second = _solution_tuples(_load(puzzle), max_sols=cap, processes=2)
+                assert first == second, f"puzzle={puzzle}, cap={cap}: parallel subset changed"
+
+
+type BareCase = tuple[
+    int, int, tuple[tuple[int, frozenset[int]], ...], frozenset[int], frozenset[Solution]
+]
+
+
+def _bare_grid_oracle(
+    width: int,
+    max_elem: int,
+    guarantees: tuple[tuple[int, frozenset[int]], ...],
+    distinct_cells: frozenset[int],
+) -> frozenset[Solution]:
+    """Brute force: every at-least-once guarantee holds, distinct cells differ."""
+    solutions = set()
+    for values in product(range(1, max_elem + 1), repeat=width):
+        if any(all(values[cell] != value for cell in cells) for value, cells in guarantees):
+            continue
+        if len({values[cell] for cell in distinct_cells}) != len(distinct_cells):
+            continue
+        solutions.add(values)
+    return frozenset(solutions)
+
+
+@lru_cache(maxsize=1)
+def _bare_grid_cases() -> tuple[BareCase, ...]:
+    """Tiny one-row grids whose small guarantees force overlapping guarantee
+    branches at the search root -- the shape the 2026-08-14 undercount needed."""
+    rng = random.Random(0x20260902)
+    cases: list[BareCase] = []
+    while len(cases) < 12:
+        width = rng.choice((3, 4))
+        max_elem = rng.randint(2, 4)
+        guarantees = tuple(
+            (
+                rng.randint(1, max_elem),
+                frozenset(rng.sample(range(width), rng.randint(1, min(3, width)))),
+            )
+            for _ in range(rng.randint(1, 3))
+        )
+        distinct = (
+            frozenset(rng.sample(range(width), rng.randint(2, width)))
+            if rng.random() < 0.5
+            else frozenset()
+        )
+        expected = _bare_grid_oracle(width, max_elem, guarantees, distinct)
+        if len(expected) < 2:
+            continue
+        cases.append((width, max_elem, guarantees, distinct, expected))
+    return tuple(cases)
+
+
+def _load_bare(case: BareCase) -> Grid:
+    width, max_elem, guarantees, distinct, _ = case
+    grid = Grid(1, width, max_elem=max_elem)
+    if distinct:
+        grid.add_rule_checked(ElementsAtMostOnce(grid, cells=sorted(distinct)))
+    for value, cells in guarantees:
+        grid.add_gtee_checked(Guarantee(value, cells, grid.rows, grid.cols))
+    return grid
+
+
+def test_bare_guarantee_grids_match_brute_force_oracle():
+    with _quiet_solver_logs():
+        for case in _bare_grid_cases():
+            assert _solution_tuples(_load_bare(case)) == case[-1], case[:4]
+
+
+def test_capped_bare_guarantee_grids_never_undercount():
+    with _quiet_solver_logs():
+        for case in _bare_grid_cases():
+            expected = case[-1]
+            for cap in _oracle_caps(len(expected)):
+                actual = _solution_tuples(_load_bare(case), max_sols=cap)
+                _assert_capped_subset(actual, expected, cap, label=f"bare case={case[:4]}")
+
+
+def test_capped_parallel_bare_guarantee_grids_never_undercount():
+    with _quiet_solver_logs():
+        for case in _bare_grid_cases()[:2]:
+            expected = case[-1]
+            cap = max(1, len(expected) // 2)
+            actual = _solution_tuples(_load_bare(case), max_sols=cap, processes=2)
+            _assert_capped_subset(actual, expected, cap, label=f"parallel bare case={case[:4]}")
