@@ -1,0 +1,15 @@
+# Keep the GitHub Actions pins current. Runtime dependencies (colorama, rich,
+# pytest) declare open lower bounds in pyproject.toml, so a pip ecosystem entry
+# would only produce noise; security alerts for them stay on regardless.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
