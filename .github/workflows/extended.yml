@@ -28,8 +28,8 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -55,8 +55,8 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -85,8 +85,8 @@ jobs:
         shard: [0, 1, 2, 3]
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -106,7 +106,7 @@ jobs:
           --output "artifacts/${{ matrix.family }}-${{ matrix.shard }}.json"
       - name: Upload corpus timing and status report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: new-family-${{ matrix.family }}-${{ matrix.shard }}
           path: artifacts/${{ matrix.family }}-${{ matrix.shard }}.json
@@ -124,8 +124,8 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -147,8 +147,8 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
