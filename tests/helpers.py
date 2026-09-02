@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 
 from gridsolver.abstract_grids.grid_loading import create_from_file
@@ -21,15 +22,25 @@ def solve_path(file: Path, space_sep: bool):
     assert len(sol) == 1
 
 
-def solve_all_in_path(path: Path, space_sep: bool, max_count=0):
+def solve_all_in_path(
+    path: Path,
+    space_sep: bool,
+    names: Sequence[str] | None = None,
+) -> None:
+    """Solve every file in a corpus directory, or exactly the named files.
+
+    ``names`` makes a bounded selection deterministic: ``Path.iterdir()`` order
+    is filesystem-dependent, so "the first N files" differed between the
+    Windows and Linux runners and could pick cases that never finish.
+    """
     path = _TESTS_DIR / path
-    counter = 0
-    for file in path.iterdir():
-        if not file.is_file():
-            continue
-        if max_count and counter >= max_count:
-            break
+    if names is None:
+        files = sorted(file for file in path.iterdir() if file.is_file())
+    else:
+        files = [path / name for name in names]
+        missing = [file.name for file in files if not file.is_file()]
+        assert not missing, f"Missing corpus files in {path}: {missing}"
+    for file in files:
         solve_path(file, space_sep=space_sep)
-        counter += 1
     # an existing-but-empty corpus directory must fail, not pass vacuously
-    assert counter > 0, f"No example files solved in {path}"
+    assert files, f"No example files solved in {path}"
