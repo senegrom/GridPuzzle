@@ -103,7 +103,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--processes",
         type=_non_negative_int,
         default=0,
-        help="Top-level process-pool workers (0 or 1 means sequential)",
+        help="Top-level workers (0 or 1 means sequential)",
+    )
+    parser.add_argument(
+        "--parallel-backend",
+        choices=("process", "thread"),
+        default="process",
+        help=(
+            "Top-level executor; thread requires a free-threaded Python "
+            "runtime and is opt-in"
+        ),
     )
     parser.add_argument(
         "--max-solutions",
@@ -194,6 +203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         grid,
         max_sols=args.max_solutions,
         processes=args.processes,
+        parallel_backend=args.parallel_backend,
     )
     _LOG.logs(0, f"Took {time.perf_counter() - start:.4f}s to execute.")
     return 0

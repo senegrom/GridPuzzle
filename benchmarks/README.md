@@ -37,6 +37,8 @@ used for each accepted or rejected optimization.
 | 08-12 | locked_candidate_pairs | accepted | pair cache + fish elimination dedup, −0.4/−1.1% |
 | 08-12 | fish_prologue_dedup | accepted | shared prologue + disjoint-union, noise-neutral |
 | 08-12 | broader_candidate_bitsets | accepted | locked_candidate/skyscraper/ER on bitsets, micro −8.04%, GM −0.54% |
+| 08-12 | default_executor_overhead | accepted | opt-in thread-backend plumbing leaves the default path neutral, GM 0.9996 |
+| 08-12 | free_threaded_executor | accepted (opt-in) | 3.14t threads: short workloads −53/−80%, heavy enumeration neutral (worst +1.4%) |
 | 08-13 | pr11_correctness_review | measured | extension-hook transactions + lazy imports review record |
 | 08-13 | pr11_extension_transactions | accepted | reversible extension sandboxes, GM +0.14% (neutral) |
 | 08-14 | capped_branches_extension_sandbox | accepted | capped undercount fix + detached extension state, noise-neutral |

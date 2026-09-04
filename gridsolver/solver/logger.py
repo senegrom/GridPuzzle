@@ -230,6 +230,19 @@ class GridLogger:
         self.lg.log(_lvl(level), message)
 
     @contextmanager
+    def muted_context(self):
+        """Suppress logging in one context without affecting sibling threads."""
+        level_token = self._detail_level.set(-1)
+        buffer_token = self._grid_buf.set(None)
+        output_token = self._output_threshold.set(-1)
+        try:
+            yield
+        finally:
+            self._output_threshold.reset(output_token)
+            self._grid_buf.reset(buffer_token)
+            self._detail_level.reset(level_token)
+
+    @contextmanager
     def time_ctxt(self, label: str):
         start = time.perf_counter()
         try:
