@@ -156,11 +156,24 @@ def create_from_str_and_class(
     class_ = _resolve_puzzle_class(class_)
 
     if isinstance(values, str):
-        normalized: str | list[str] = (
-            _load_preprocess_str_space_sep(values)
-            if space_sep
-            else _load_preprocess_str(values)
-        )
+        normalized: str | list[str]
+        if _puzzle_class_key(class_) in {"kenken", "killersudoku"}:
+            # Infer dimensions from the normalized layout, but preserve the
+            # target dictionary for the cage parser's strict integer grammar.
+            # Normalizing the entire string would silently turn 0.6 into 006.
+            layout, separator, dictionary = values.partition(":")
+            if space_sep:
+                normalized = _load_preprocess_str_space_sep(layout)
+                if separator:
+                    normalized.extend((separator, dictionary))
+            else:
+                normalized = _load_preprocess_str(layout) + separator + dictionary
+        else:
+            normalized = (
+                _load_preprocess_str_space_sep(values)
+                if space_sep
+                else _load_preprocess_str(values)
+            )
     elif isinstance(values, (bytes, bytearray)):
         raise TypeError("Puzzle input bytes must be decoded to str first")
     elif isinstance(values, Iterable):

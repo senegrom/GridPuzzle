@@ -41,10 +41,10 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip check
 
-      - name: Validate package and console script
+      - name: Validate the wheel outside the source checkout
         run: |
           python -m pip wheel --no-deps . --wheel-dir dist
-          gridpuzzle --help
+          python scripts/smoke_wheel.py --wheel-dir dist
 
       - name: Compile Python sources
         run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
@@ -78,8 +78,10 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip check
 
-      - name: Smoke installed console script
-        run: gridpuzzle --help
+      - name: Validate the wheel outside the source checkout
+        run: |
+          python -m pip wheel --no-deps . --wheel-dir dist
+          python scripts/smoke_wheel.py --wheel-dir dist
 
       - name: Compile Python sources
         run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py

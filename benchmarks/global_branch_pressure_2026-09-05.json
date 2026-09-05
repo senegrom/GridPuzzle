@@ -1,0 +1,144 @@
+{
+  "python": "3.14.7 (main, Aug  6 2026, 02:19:46) [GCC 13.3.0]",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "baseline": "c40a51d4 branch-choice implementation",
+  "micro_samples": 3,
+  "solve_samples_per_mode": 1,
+  "timing_note": "Single full-solve samples are indicative, not a statistical performance gate.",
+  "memory_note": "Peer-cache tuple/frozenset containers only; excludes grid, temporary sets and referenced integers.",
+  "microbenchmarks": [
+    {
+      "board": 10,
+      "variables": 220,
+      "before": {
+        "seconds": [
+          0.010487483999995106,
+          0.009649529000000712,
+          0.008672284999988733
+        ],
+        "median_seconds": 0.009649529000000712,
+        "peer_cache_container_bytes": 1851568
+      },
+      "after": {
+        "seconds": [
+          0.0002043590000084805,
+          0.00018964599999549137,
+          0.00018545899999367066
+        ],
+        "median_seconds": 0.00018964599999549137,
+        "peer_cache_container_bytes": 16
+      }
+    },
+    {
+      "board": 20,
+      "variables": 840,
+      "before": {
+        "seconds": [
+          0.17513145799999563,
+          0.1335942449999976,
+          0.1215191359999892
+        ],
+        "median_seconds": 0.1335942449999976,
+        "peer_cache_container_bytes": 27713328
+      },
+      "after": {
+        "seconds": [
+          0.0007665669999994407,
+          0.0007447130000031166,
+          0.000693706000006955
+        ],
+        "median_seconds": 0.0007447130000031166,
+        "peer_cache_container_bytes": 16
+      }
+    },
+    {
+      "board": 30,
+      "variables": 1860,
+      "before": {
+        "seconds": [
+          0.7185648389999955,
+          0.6864054070000094,
+          0.658921835000001
+        ],
+        "median_seconds": 0.6864054070000094,
+        "peer_cache_container_bytes": 122313648
+      },
+      "after": {
+        "seconds": [
+          0.0017050850000117634,
+          0.0016719249999965768,
+          0.0016495109999965507
+        ],
+        "median_seconds": 0.0016719249999965768,
+        "peer_cache_container_bytes": 16
+      }
+    }
+  ],
+  "solves": [
+    {
+      "case": "sudoku4-all-288",
+      "before": {
+        "seconds": 28.670968541000008,
+        "solutions": 288,
+        "sha256": "277eb76b2f5c862dbb5e9def7d2185b4f18a36edfe375caefcf32a21d92cf890"
+      },
+      "after": {
+        "seconds": 28.797950219,
+        "solutions": 288,
+        "sha256": "277eb76b2f5c862dbb5e9def7d2185b4f18a36edfe375caefcf32a21d92cf890"
+      }
+    },
+    {
+      "case": "slitherlink2-all",
+      "before": {
+        "seconds": 0.010800090999993017,
+        "solutions": 13,
+        "sha256": "bd444f588b84547e30871791ce99c17fcdf081b4e4eaf445b851a2e209de3b67"
+      },
+      "after": {
+        "seconds": 0.010054233999994722,
+        "solutions": 13,
+        "sha256": "bd444f588b84547e30871791ce99c17fcdf081b4e4eaf445b851a2e209de3b67"
+      }
+    },
+    {
+      "case": "slitherlink3-centre-0",
+      "before": {
+        "seconds": 0.028016655000016044,
+        "solutions": 20,
+        "sha256": "7773d39fccaae0b07f14623edf2bac5774f1d481d274c6e52a792c9647d886bb"
+      },
+      "after": {
+        "seconds": 0.026503251000008277,
+        "solutions": 20,
+        "sha256": "7773d39fccaae0b07f14623edf2bac5774f1d481d274c6e52a792c9647d886bb"
+      }
+    },
+    {
+      "case": "numbrix3-endpoints",
+      "before": {
+        "seconds": 0.002851122999999234,
+        "solutions": 2,
+        "sha256": "09af64f9566e1aeb223b14a5161b2557b47697647c6be7fbe0187de9c2b6eb63"
+      },
+      "after": {
+        "seconds": 0.0026092479999988427,
+        "solutions": 2,
+        "sha256": "09af64f9566e1aeb223b14a5161b2557b47697647c6be7fbe0187de9c2b6eb63"
+      }
+    },
+    {
+      "case": "hidato3-endpoints",
+      "before": {
+        "seconds": 0.023292965999985427,
+        "solutions": 30,
+        "sha256": "7ba1e231afd0607bdb503e29451da0aebb8c4271885a984c34d93e58ff4751c3"
+      },
+      "after": {
+        "seconds": 0.023433107000016662,
+        "solutions": 30,
+        "sha256": "7ba1e231afd0607bdb503e29451da0aebb8c4271885a984c34d93e58ff4751c3"
+      }
+    }
+  ]
+}
