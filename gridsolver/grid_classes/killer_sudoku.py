@@ -69,7 +69,8 @@ class KillerSudoku(Sudoku):
             if space_sep
             else _load_preprocess_str(sum_cells)
         )
-        dictionary_text = _load_preprocess_str(dictionary_text)
+        # Do not rewrite '.' inside arithmetic targets as a blank zero.
+        dictionary_text = ''.join(dictionary_text.split())
         definitions = parse_killer_dictionary(
             dictionary_text,
             sum_cells,

@@ -156,7 +156,9 @@ The first eager-global per-value candidate-mask design was rejected: it made top
 The default workflow:
 
 - installs from `pyproject.toml` and runs `pip check`;
-- builds a wheel and checks the installed console command;
+- builds a wheel, installs it into a fresh virtual environment outside the
+  checkout, and checks imports, the console command, a small solve, and a
+  bundled example with PYTHONPATH/PYTHONHOME removed;
 - compiles production, test, corpus-tool, and example sources;
 - runs under Python development mode (`-X dev`);
 - discovers every non-`slow` test on Linux and Windows, so new regression files cannot be silently omitted from a hand-maintained manifest;

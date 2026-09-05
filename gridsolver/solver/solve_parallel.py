@@ -98,47 +98,53 @@ def solve_parallel_trials(
         initializer=_init_worker,
         initargs=(worker_payload,),
     ) as pool:
-        # Keep no more than one outstanding branch per worker. Submitting every
-        # branch up front queues work that a small positive solution cap may
-        # never need.
-        initial_count = min(processes, len(ordered_branches))
-        futures = deque(
-            pool.submit(
-                worker,
-                (cell, value, max_sols),
-            )
-            for cell, value in ordered_branches[:initial_count]
-        )
-        next_branch_index = initial_count
+        futures = deque()
+        try:
+            # Keep no more than one outstanding branch per worker. Append
+            # incrementally so a later submission failure retains earlier work
+            # for cancellation, rather than losing a half-built deque.
+            initial_count = min(processes, len(ordered_branches))
+            for cell, value in ordered_branches[:initial_count]:
+                futures.append(pool.submit(worker, (cell, value, max_sols)))
+            next_branch_index = initial_count
 
-        while futures:
-            future = futures.popleft()
-            result = future.result()
-            if stats is None:
-                branch_solutions = result
-            else:
-                branch_solutions, branch_stats = result
-                stats.merge(branch_stats)
-            solutions.update(branch_solutions)
+            while futures:
+                future = futures.popleft()
+                result = future.result()
+                if stats is None:
+                    branch_solutions = result
+                else:
+                    branch_solutions, branch_stats = result
+                    stats.merge(branch_stats)
+                solutions.update(branch_solutions)
 
-            if 0 < max_sols <= len(solutions):
-                for pending in futures:
-                    pending.cancel()
-                # Python 3.14 can stop branches already running. Without this,
-                # context-manager exit waits for every worker after the
-                # deterministic capped subset is complete.
-                if futures:
-                    pool.terminate_workers()
-                break
+                if 0 < max_sols <= len(solutions):
+                    for pending in futures:
+                        pending.cancel()
+                    if futures:
+                        pool.terminate_workers()
+                    break
 
-            if next_branch_index < len(ordered_branches):
-                cell, value = ordered_branches[next_branch_index]
-                next_branch_index += 1
-                futures.append(
-                    pool.submit(
-                        worker,
-                        (cell, value, max_sols),
+                if next_branch_index < len(ordered_branches):
+                    cell, value = ordered_branches[next_branch_index]
+                    next_branch_index += 1
+                    futures.append(
+                        pool.submit(worker, (cell, value, max_sols))
                     )
-                )
+        except BaseException as error:
+            # Includes KeyboardInterrupt/SystemExit, errors while submitting,
+            # worker exceptions, and errors while combining results/stats.
+            # A plain context-manager exit waits for already-running siblings.
+            for pending in futures:
+                try:
+                    pending.cancel()
+                except Exception as cleanup_error:
+                    error.add_note(f"Future cancellation failed: {cleanup_error!r}")
+            try:
+                pool.terminate_workers()
+            except Exception as cleanup_error:
+                # Cleanup must not replace the useful original branch error.
+                error.add_note(f"Worker termination failed: {cleanup_error!r}")
+            raise
 
     return _cap_solutions(solutions, max_sols)
