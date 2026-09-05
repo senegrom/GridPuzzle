@@ -28,16 +28,21 @@ def smoke_wheel(wheel_dir: Path) -> None:
         def run(arguments, *, solution=False):
             result = subprocess.run(
                 list(map(str, arguments)), cwd=root, env=environment,
-                text=True, capture_output=True, timeout=180,
+                text=True, encoding="utf-8", capture_output=True, timeout=180,
             )
-            print(result.stdout, end="")
-            print(result.stderr, end="")
+            # Diagnostics use ASCII escapes so this harness can itself run on
+            # a legacy Windows stdout. The captured CLI output is still UTF-8.
+            print(result.stdout.encode("ascii", "backslashreplace").decode(), end="")
+            print(result.stderr.encode("ascii", "backslashreplace").decode(), end="")
             result.check_returncode()
-            if solution and "Solution 0" not in result.stdout + result.stderr:
-                raise AssertionError("Installed CLI did not report a solution")
+            output = result.stdout + result.stderr
+            if "--- Logging error ---" in output or "Traceback (most recent call last)" in output:
+                raise AssertionError("Installed CLI reported an output/logging error")
+            if solution and not all(marker in output for marker in ("Solution 0", "┏", "┗")):
+                raise AssertionError("Installed CLI did not render a complete solution grid")
 
-        run([python, "-I", "-m", "pip", "install", wheels[0]])
-        run([python, "-I", "-c", "\n".join((
+        run([python, "-I", "-X", "utf8", "-m", "pip", "install", wheels[0]])
+        run([python, "-I", "-X", "utf8", "-c", "\n".join((
             "import importlib, pathlib, sys",
             "prefix = pathlib.Path(sys.prefix).resolve()",
             "for name in ('gridsolver', 'run', 'examples2', 'Examples.exampleSudoku'):",
