@@ -1,22 +1,31 @@
 from numbers import Integral
 
 
-_SIZE_FIELDS = frozenset(("rows", "cols", "max_elem", "len"))
+class _SizeField:
+    """Write-once metadata without intercepting unrelated Grid mutations."""
+
+    __slots__ = ("name",)
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    # Deliberately no __get__: reads use the existing instance dictionary,
+    # without a Python getter. Keeping the storage layout also preserves
+    # ordinary copies, existing pickles and Grid's field-copying clone path.
+    def __set__(self, instance: "GridSizeContainer", value: int) -> None:
+        if self.name in instance.__dict__:
+            raise AttributeError(f"{self.name} is read-only after construction")
+        instance.__dict__[self.name] = value
+
+    def __delete__(self, instance: "GridSizeContainer") -> None:
+        raise AttributeError(f"{self.name} is read-only after construction")
 
 
 class GridSizeContainer:
-    # Keep the existing dictionary layout (including pickle/clone format) and
-    # direct attribute reads on solver hot paths. Only initial assignment of
-    # size metadata is allowed; mutable Grid values do not imply mutable shape.
-    def __setattr__(self, name: str, value: object) -> None:
-        if name in _SIZE_FIELDS and name in self.__dict__:
-            raise AttributeError(f"{name} is read-only after construction")
-        object.__setattr__(self, name, value)
-
-    def __delattr__(self, name: str) -> None:
-        if name in _SIZE_FIELDS:
-            raise AttributeError(f"{name} is read-only after construction")
-        object.__delattr__(self, name)
+    rows = _SizeField()
+    cols = _SizeField()
+    max_elem = _SizeField()
+    len = _SizeField()
 
     def __init__(self, rows: int, cols: int | None = None, max_elem: int | None = None) -> None:
         rows = self._positive_int("rows", rows)

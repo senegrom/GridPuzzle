@@ -3,8 +3,8 @@ on:
   push:
     branches: [fix/exact-cages-20260906]
     paths:
-      - .review2_apply.py
       - .github/workflows/review2-validate.yml
+      - gridsolver/abstract_grids/gridsize_container.py
       - tests/test_exact_cages_and_debloat.py
       - scripts/benchmark_exact_cages.py
 permissions:
@@ -30,8 +30,6 @@ jobs:
           python-version: "3.14"
       - name: Install supported runtime dependencies
         run: python -m pip install -q -e ".[dev]"
-      - name: Apply source-anchored exact fixes
-        run: python .review2_apply.py
       - name: Run new oracle and no-branching regressions
         run: python -X dev -m pytest -q tests/test_exact_cages_and_debloat.py --durations=5
       - name: Compile and validate dependencies
@@ -51,13 +49,13 @@ jobs:
         run: |
           python -m pip wheel -q --no-deps . --wheel-dir dist
           python scripts/smoke_wheel.py --wheel-dir dist
-      - name: Commit validated source changes
+      - name: Commit validated measurements
         run: |
-          git add gridsolver DEVELOPMENT.md benchmarks/exact_cages_2026-09-06.json
+          git add benchmarks/exact_cages_2026-09-06.json
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Preserve exact cage inference while fixing metadata and removing redundant graph passes"
+          git commit -m "Record exact inference equivalence and final size-guard benchmarks"
           git push origin HEAD:fix/exact-cages-20260906
       - uses: actions/upload-artifact@v7
         if: always()
