@@ -94,7 +94,8 @@ def main():
         for name,version in PACKAGES.items():
             source,integrity=package(name,version,Path(temporary));provenance.append({'package':name,'version':version,'integrity':integrity})
             if name=='pyodide':
-                for file in ('pyodide.mjs','pyodide.js','pyodide.asm.js','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json'):
+                # Since 314.0 the Emscripten bootstrap is a native ES module.
+                for file in ('pyodide.mjs','pyodide.js','pyodide.asm.mjs','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json'):
                     copy(source/file,out/'vendor/pyodide'/file)
             elif name=='tesseract.js':
                 for file in ('tesseract.min.js','worker.min.js'):copy(source/'dist'/file,out/'vendor/tesseract'/file)

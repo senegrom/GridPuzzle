@@ -27,6 +27,12 @@ jobs:
         run: node --test web/tests/*.test.js
       - name: Build self-hosted application
         run: python scripts/build_web.py
+      - name: Retain build for independent testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanner-static-build
+          path: _site
+          retention-days: 7
       - name: Install browser test runtime
         run: |
           npm install --no-save --package-lock=false --ignore-scripts playwright@1.55.1
@@ -50,9 +56,13 @@ jobs:
       contents: read
       pages: write
     steps:
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      - name: Check Pages configuration
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Explain the one-time repository setting
+        if: failure()
+        run: |
+          echo '::error::Pages is not enabled for Actions. A repository owner must set Settings > Pages > Source to GitHub Actions, then re-run this job. The workflow token cannot grant itself repository administration permission.'
   deploy:
     needs: [build, configure]
     runs-on: ubuntu-latest
