@@ -1,0 +1,69 @@
+name: Exact-cage review validation
+on:
+  push:
+    branches: [fix/exact-cages-20260906]
+    paths:
+      - .review2_apply.py
+      - .github/workflows/review2-validate.yml
+      - tests/test_exact_cages_and_debloat.py
+      - scripts/benchmark_exact_cages.py
+permissions:
+  contents: write
+concurrency:
+  group: exact-cage-review
+  cancel-in-progress: true
+env:
+  PYTHONHASHSEED: "0"
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/exact-cages-20260906
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install supported runtime dependencies
+        run: python -m pip install -q -e ".[dev]"
+      - name: Apply source-anchored exact fixes
+        run: python .review2_apply.py
+      - name: Run new oracle and no-branching regressions
+        run: python -X dev -m pytest -q tests/test_exact_cages_and_debloat.py --durations=5
+      - name: Compile and validate dependencies
+        run: |
+          python -m compileall -q gridsolver tests scripts
+          python -m pip check
+          git diff --check
+      - name: Run every bounded test
+        run: python -X dev -m pytest -q tests -m "not slow" --durations=10 --junitxml=review2-results.xml
+      - name: Compare full deductions, branch counts and solutions with baseline
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/gridpuzzle-review2-base" 69b662087b896b864d6bb93b180d9c8f13c975a8
+          python scripts/benchmark_exact_cages.py --baseline-root "$RUNNER_TEMP/gridpuzzle-review2-base"
+      - name: Exercise retained Slitherlink corpus shard
+        run: python scripts/run_new_family_corpus.py --family slitherlink --shard-index 0 --shard-count 4 --case-timeout 20 --output review2-slitherlink.json
+      - name: Exercise installed wheel
+        run: |
+          python -m pip wheel -q --no-deps . --wheel-dir dist
+          python scripts/smoke_wheel.py --wheel-dir dist
+      - name: Commit validated source changes
+        run: |
+          git add gridsolver DEVELOPMENT.md benchmarks/exact_cages_2026-09-06.json
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Preserve exact cage inference while fixing metadata and removing redundant graph passes"
+          git push origin HEAD:fix/exact-cages-20260906
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: exact-cage-review-results
+          path: |
+            review2-results.xml
+            review2-slitherlink.json
+            benchmarks/exact_cages_2026-09-06.json
