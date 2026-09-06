@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mapAtlas} from '../ocr-map.js';
+import {mapAtlas,atlasLayout} from '../ocr-map.js';
 const data=words=>({blocks:[{paragraphs:[{lines:[{words}]}]}]});
 const symbol=(text,x0,x1,confidence=98)=>({text,confidence,bbox:{x0,x1,y0:20,y1:90}});
 
@@ -19,4 +19,13 @@ test('Unsegmented cross-tile words and crossing symbols require review',()=>{
 });
 test('Missing output remains unread, not guessed',()=>{
   assert.deepEqual(mapAtlas({},1,1,112),[{text:'',confidence:0,review:false}]);
+});
+test('A low-confidence one-digit word remains uncertain despite a confident symbol',()=>{
+  const word={...symbol('4',20,80,40),symbols:[symbol('4',20,80,99)]};
+  assert.equal(mapAtlas(data([word]),1,1,112)[0].confidence,40);
+});
+test('Ordinary scans use a narrow atlas and large scans stay within the raster budget',()=>{
+  assert.deepEqual(atlasLayout(30),{columns:1,rows:30,tile:112});
+  for(const n of [81,256,625,1200,1800]){const a=atlasLayout(n);assert.ok(a.columns*a.rows*a.tile*a.tile<=8_000_000);assert.ok(a.tile>=64);}
+  for(const n of [0,-1,NaN,2.5,3001])assert.throws(()=>atlasLayout(n));
 });

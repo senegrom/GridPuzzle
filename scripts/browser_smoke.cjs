@@ -1,25 +1,30 @@
-/* Real-browser tests against a /GridPuzzle/ subpath, including actual WASM/OCR. */
+/* Real-browser tests on /GridPuzzle/, with actual Python and OCR WASM. */
 const {chromium,webkit}=require('playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {spawn}=require('node:child_process');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const BASE='http://127.0.0.1:8765/GridPuzzle/';
+const BASE='http://127.0.0.1:8765/GridPuzzle/',SOLUTION='534678912672195348198342567859761423426853791713924856961537284287419635345286179';
 const reports=[];
 fs.mkdirSync('browser-artifacts',{recursive:true});fs.mkdirSync('_preview',{recursive:true});
 if(!fs.existsSync('_preview/GridPuzzle'))fs.symlinkSync(path.resolve('_site'),'_preview/GridPuzzle','dir');
-const server=spawn('python',['-m','http.server','8765','--bind','127.0.0.1','--directory','_preview'],{stdio:'ignore'});
+let server;
+async function startServer(){
+  server=spawn('python',['-m','http.server','8765','--bind','127.0.0.1','--directory','_preview'],{stdio:'ignore'});
+  for(let i=0;i<60;i++){try{if((await fetch(BASE,{signal:AbortSignal.timeout(2000)})).ok)return;}catch{}await sleep(200);}
+  throw Error('The preview server did not start.');
+}
+async function stopServer(){
+  if(server){const child=server;server=null;await new Promise(resolve=>{if(child.exitCode!==null)return resolve();child.once('exit',resolve);child.kill();});}
+  await assert.rejects(fetch(BASE,{signal:AbortSignal.timeout(2000)}),'The origin must actually be unreachable during offline testing.');
+}
 async function ready(page){
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async()=>{window.__gridpuzzleTestState=(await import('./app.js')).getState;});
 }
 async function reloadPage(page){
-  // Exercise the app/user navigation path, including its pagehide handler.
-  await Promise.all([
-    page.waitForNavigation({waitUntil:'load',timeout:60000}),
-    page.evaluate(()=>{setTimeout(()=>location.reload(),0);}),
-  ]);
+  await Promise.all([page.waitForNavigation({waitUntil:'load',timeout:60000}),page.evaluate(()=>{setTimeout(()=>location.reload(),0);})]);
   await ready(page);
 }
 async function result(page){
@@ -34,8 +39,18 @@ async function uploadFixture(page,image){
   assert.equal(await page.inputValue('#rows'),'9');assert.equal(await page.inputValue('#cols'),'9');await page.click('#read-photo');
   await page.waitForFunction(()=>!window.__gridpuzzleTestState().busy,null,{timeout:150000});
 }
+async function checkTranscription(page){
+  return page.evaluate(async()=>{
+    const model=await import('./model.js'),s=window.__gridpuzzleTestState(),reference=model.demo().cells;
+    return {type:s.puzzle.type,recognized:s.puzzle.cells.filter(Number.isInteger).length,
+      correct:s.puzzle.cells.filter((v,i)=>v!==null&&v===reference[i]).length,
+      unsafe:s.puzzle.cells.flatMap((v,i)=>v!==reference[i]&&!s.uncertain.includes(i)?[i]:[]),
+      corrections:s.puzzle.cells.flatMap((v,i)=>v!==reference[i]?[{cell:i,value:reference[i]}]:[]),
+      uncertain:s.uncertain,cells:s.puzzle.cells};
+  });
+}
 (async()=>{
-  for(let i=0;i<60;i++){try{if((await fetch(BASE)).ok)break;}catch{}await sleep(200);}
+  await startServer();
   for(const [name,engine] of Object.entries({chromium,webkit})){
     const browser=await engine.launch({headless:true});
     const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:1,isMobile:true,hasTouch:true});
@@ -46,8 +61,7 @@ async function uploadFixture(page,image){
       await page.goto(BASE);await ready(page);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Phone layout overflows horizontally');report.checks.push('390px phone layout');
       await page.click('#example');await page.click('#solve');let solved=await result(page);
-      assert.equal(solved.status,'unique',JSON.stringify(solved));
-      assert.equal(solved.solutions[0].cells.join(''),'534678912672195348198342567859761423426853791713924856961537284287419635345286179');report.checks.push('actual Python 3.14 WASM Sudoku solution');
+      assert.equal(solved.status,'unique',JSON.stringify(solved));assert.equal(solved.solutions[0].cells.join(''),SOLUTION);report.checks.push('actual Python 3.14 WASM Sudoku solution');
       await page.screenshot({path:`browser-artifacts/${name}-phone.png`,fullPage:true});
       for(const kind of ['killersudoku','futoshiki','kenken','latinsquare','diagonallatinsquare','pandiagonallatinsquare','hidato','numbrix','kakuro','slitherlink']){
         await load(page,kind);await page.click('#solve');const r=await result(page);assert.ok(['unique','multiple'].includes(r.status),`${kind}: ${JSON.stringify(r)}`);report.checks.push(`browser solver: ${kind}`);
@@ -72,19 +86,29 @@ async function uploadFixture(page,image){
         for(let i=0;i<=9;i++){ctx.lineWidth=i%3===0?5:2;ctx.beginPath();ctx.moveTo(42+i*64,42);ctx.lineTo(42+i*64,618);ctx.stroke();ctx.beginPath();ctx.moveTo(42,42+i*64);ctx.lineTo(618,42+i*64);ctx.stroke();}
         ctx.font='38px Arial';ctx.fillStyle='black';ctx.textAlign='center';ctx.textBaseline='middle';p.cells.forEach((v,i)=>{if(v!==null)ctx.fillText(String(v),42+(i%9+.5)*64,42+(Math.floor(i/9)+.5)*64+1);});return c.toDataURL('image/png').split(',')[1];
       });
-      await uploadFixture(page,image);
-      const scan=await page.evaluate(async()=>{const model=await import('./model.js'),s=window.__gridpuzzleTestState(),reference=model.demo().cells;return {type:s.puzzle.type,recognized:s.puzzle.cells.filter(Number.isInteger).length,correct:s.puzzle.cells.filter((v,i)=>v!==null&&v===reference[i]).length,unsafe:s.puzzle.cells.flatMap((v,i)=>v!==null&&v!==reference[i]&&!s.uncertain.includes(i)?[i]:[]),uncertain:s.uncertain,cells:s.puzzle.cells};});
-      report.scan=scan;console.log(name,'scan',JSON.stringify(scan));assert.equal(scan.type,'sudoku');assert.ok(scan.correct>=24,`Only ${scan.correct}/30 printed clues recognized`);assert.deepEqual(scan.unsafe,[],'Wrong clues were not flagged for review');report.checks.push('real printed-photo OCR, auto grid size, confidence handling');
+      await uploadFixture(page,image);const scan=await checkTranscription(page);report.scan=scan;console.log(name,'raw scan',JSON.stringify(scan));
+      assert.equal(scan.type,'sudoku');assert.ok(scan.correct>=24,`Only ${scan.correct}/30 printed clues recognized`);assert.deepEqual(scan.unsafe,[],'A wrong or missed clue was not flagged for review');report.checks.push('real printed-photo OCR, auto grid size, confidence handling');
+      // Simulate the human review path through the real editor. Never silently
+      // substitute reference clues in production or report corrected OCR as raw.
+      for(const correction of scan.corrections){await page.click(`[data-cell="${correction.cell}"]`);assert.ok(await page.locator('#clue-crop').isVisible());await page.fill('#cell-value',correction.value===null?'':String(correction.value));await page.click('#cell-form button[type=submit]');}
+      report.manualCorrections=scan.corrections.length;
       if((await page.evaluate(()=>window.__gridpuzzleTestState())).result===null){await page.click('#solve');if(await page.locator('#confirm-dialog').isVisible())await page.click('#confirm-solve');await result(page);}
-      assert.ok(await page.locator('#photo-view').isEnabled(),'The recognized Sudoku must produce a solution overlay');
-      await page.click('#photo-view');assert.ok(await page.locator('#solution-photo').isVisible());await page.screenshot({path:`browser-artifacts/${name}-overlay.png`,fullPage:true});report.checks.push('photo overlay');
+      const photoResult=await page.evaluate(()=>window.__gridpuzzleTestState().result);assert.equal(photoResult.status,'unique');assert.equal(photoResult.solutions[0].cells.join(''),SOLUTION);
+      assert.ok(await page.locator('#photo-view').isEnabled(),'The confirmed photo transcription must produce an overlay');await page.click('#photo-view');assert.ok(await page.locator('#solution-photo').isVisible());await page.screenshot({path:`browser-artifacts/${name}-overlay.png`,fullPage:true});report.checks.push('photo review, exact solution and overlay');
       await page.click('#show-crop');await page.focus('#crop-canvas');await page.keyboard.press('ArrowRight');assert.ok(await page.locator('#photo-view').isDisabled());assert.ok(await page.locator('#save-photo').isHidden());assert.ok(await page.locator('#solution-photo').isHidden());report.checks.push('adjusted crop invalidates old photo overlay');
       await page.locator('#prepare-offline').evaluate(el=>{el.closest('details').open=true;});await page.click('#prepare-offline');await page.waitForFunction(()=>document.querySelector('#offline-state').textContent.startsWith('Offline assets are ready'),null,{timeout:120000});
-      await context.setOffline(true);await reloadPage(page);await load(page,'sudoku');await page.click('#solve');assert.equal((await result(page)).status,'unique');report.checks.push('offline reload and Python solve');
-      await uploadFixture(page,image);const offlineScan=await page.evaluate(()=>window.__gridpuzzleTestState());assert.ok(offlineScan.puzzle.cells.filter(Number.isInteger).length>=24);report.checks.push('offline photo recognition');
-      await context.setOffline(false);assert.deepEqual(external,[],'App made an external runtime request');assert.deepEqual(errors,[],'Browser raised uncaught errors');report.ok=true;console.log(name,JSON.stringify(report));
+      assert.ok(await page.evaluate(()=>Boolean(navigator.serviceWorker.controller)),'The service worker must control the document.');
+      report.offlineMethod='Origin server stopped and verified unreachable; cache:no-store fetch proves service-worker cache use.';
+      // Stop the real server instead of relying on WebKit's synthetic offline
+      // switch, which rejected even cached document navigation in prior runs.
+      // No origin can supply a missing file while this test is running.
+      await stopServer();
+      assert.ok(await page.evaluate(async()=>{const r=await fetch('./model.js',{cache:'no-store'});return r.ok&&(await r.text()).includes('export const TYPES');}));
+      await reloadPage(page);await load(page,'sudoku');await page.click('#solve');assert.equal((await result(page)).status,'unique');report.checks.push('origin-offline reload and Python solve');
+      await uploadFixture(page,image);const offlineScan=await checkTranscription(page);assert.ok(offlineScan.correct>=24);assert.deepEqual(offlineScan.unsafe,[]);report.checks.push('origin-offline photo recognition');
+      await startServer();assert.deepEqual(external,[],'App made an external runtime request');assert.deepEqual(errors,[],'Browser raised uncaught errors');report.ok=true;console.log(name,JSON.stringify(report));
     }catch(error){report.ok=false;report.failure=error.stack;console.error(name,error);try{await page.screenshot({path:`browser-artifacts/${name}-failure.png`,fullPage:true});report.status=await page.locator('#status').innerText();report.state=await page.evaluate(()=>window.__gridpuzzleTestState());}catch{}}
-    finally{await browser.close();fs.writeFileSync('browser-artifacts/results.json',JSON.stringify(reports,null,2));}
+    finally{await browser.close();fs.writeFileSync('browser-artifacts/results.json',JSON.stringify(reports,null,2));if(!server)await startServer();}
   }
   if(reports.some(r=>!r.ok))process.exitCode=1;
-})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>server.kill());
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>{if(server)server.kill();});

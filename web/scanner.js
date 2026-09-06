@@ -1,6 +1,6 @@
 import {makePuzzle,classify,conflicts,isCage} from './model.js';
 import {threshold,gray} from './geometry.js';
-import {mapAtlas} from './ocr-map.js';
+import {mapAtlas,atlasLayout} from './ocr-map.js';
 let library;
 function tesseract(){
   if(!library)library=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=new URL('./vendor/tesseract/tesseract.min.js',import.meta.url).href;script.onload=()=>resolve(globalThis.Tesseract);script.onerror=()=>{script.remove();library=null;reject(Error('Recognition engine could not load. Go online and retry.'));};document.head.append(script);});
@@ -74,14 +74,14 @@ export class Scanner {
       }
     }
     if(!entries.length)throw Error('No printed clues found. Adjust the crop, dimensions or lighting.');
-    // One atlas recognition job. Character bounding boxes keep clues separate
-    // even when OCR groups many atlas tiles into one long word.
-    const tile=112,columns=Math.min(12,entries.length),atlas=document.createElement('canvas');atlas.width=columns*tile;atlas.height=Math.ceil(entries.length/columns)*tile;
+    // One bounded atlas recognition job. A narrow layout avoids presenting
+    // independent clues as long numbers; character boxes preserve each slot.
+    const {tile,columns,rows:atlasRows}=atlasLayout(entries.length),atlas=document.createElement('canvas');atlas.width=columns*tile;atlas.height=atlasRows*tile;
     const ctx=atlas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,atlas.width,atlas.height);
     const bw=canvasOf({width:w,height:h,data:new Uint8ClampedArray(image.data.length)}),bd=bw.getContext('2d').createImageData(w,h);
     for(let i=0;i<mask.length;i++){const v=mask[i]?0:255;bd.data[4*i]=bd.data[4*i+1]=bd.data[4*i+2]=v;bd.data[4*i+3]=255;}bw.getContext('2d').putImageData(bd,0,0);
     entries.forEach((e,i)=>{
-      const scale=Math.min(74/e.w,72/e.h),dw=e.w*scale,dh=e.h*scale,x=(i%columns)*tile+(tile-dw)/2,y=Math.floor(i/columns)*tile+(tile-dh)/2;
+      const scale=Math.min(tile*.66/e.w,tile*.64/e.h),dw=e.w*scale,dh=e.h*scale,x=(i%columns)*tile+(tile-dw)/2,y=Math.floor(i/columns)*tile+(tile-dh)/2;
       ctx.save();if(e.invert)ctx.filter='invert(1)';ctx.drawImage(e.invert?rectified:bw,e.x,e.y,e.w,e.h,x,y,dw,dh);ctx.restore();
     });
     onProgress('Loading printed-clue recognition…',null);
@@ -95,7 +95,7 @@ export class Scanner {
     });
     if(epoch!==this.epoch){await worker.terminate();throw aborted();}this.ocr=worker;
     try{
-      await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:'0123456789<>^vV+-xX*/=×÷',user_defined_dpi:'300'});check();
+      await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:'0123456789<>^vV+-xX*/=×÷',user_defined_dpi:'300'});check();
       const {data}=await worker.recognize(atlas,{}, {text:true,blocks:true});check();
       const readings=mapAtlas(data,entries.length,columns,tile);
       entries.forEach((e,i)=>{e.text=readings[i].text;e.confidence=readings[i].confidence;});
