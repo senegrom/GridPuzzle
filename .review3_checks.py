@@ -1,5 +1,9 @@
 from pathlib import Path
 p=Path('web/scan-analysis.js');p.write_text("import {isCage} from './model.js';\n"+p.read_text())
+p=Path('web/photo-flow.js');p.write_text("import {TYPES,checkShape} from './model.js';\n"+p.read_text())
+p=Path('web/tests/model.test.js');s=p.read_text();assert "makePuzzle('bad')" in s;s=s.replace("makePuzzle('bad')", "{...makePuzzle(),type:'bad'}");s += "\ntest('Construction validates type before allocating',()=>assert.throws(()=>makePuzzle('bad')));\n";p.write_text(s)
+p=Path('web/tests/session.test.js');s=p.read_text();assert 'assert.throws(()=>restoreSession(storage))' in s;s=s.replace('assert.throws(()=>restoreSession(storage))', 'assert.equal(restoreSession(storage),null)');p.write_text(s)
+p=Path('web/scanner.js');s=p.read_text();assert '      worker.postMessage(payload);' in s;s=s.replace('      worker.postMessage(payload);', '      try{worker.postMessage(payload);}catch(error){end(error,null,true);}');p.write_text(s)
 p=Path('web/README.md');p.write_text(p.read_text()+'''
 ## Input, build and lifecycle hardening
 
