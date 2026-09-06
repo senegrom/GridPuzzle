@@ -44,10 +44,11 @@ export function mapAtlas(data, count, columns, tile) {
   return readings;
 }
 
-// A grid rule is not a tiny cage label. Only reject nearly solid horizontal
-// strokes spanning the label crop; real text has gaps and/or a taller shape.
-// This does not alter the image used to infer cage boundaries.
-export function isGridStroke({kind, width, height, ink, regionWidth, cellHeight}) {
-  return kind === 'label' && width >= regionWidth * .85 &&
-    height <= cellHeight * .15 && ink >= width * height * .7;
+// Solid rules and faint L-shaped grid corners are not cage labels. The edge
+// score is measured against the glyph's bounding box, never the cage mask.
+export function isGridStroke({kind, width, height, ink, edgeInk=0, regionWidth, cellHeight}) {
+  if(kind!=='label'||ink<=0)return false;
+  const bar=width>=regionWidth*.85&&height<=cellHeight*.15&&ink>=width*height*.7;
+  const corner=width>=regionWidth*.5&&height<=cellHeight*.25&&edgeInk>=ink*.9;
+  return bar||corner;
 }

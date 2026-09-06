@@ -55,7 +55,13 @@ export class Scanner {
       }
       if(ink<Math.max(4,rw*rh*.008)||maxy-miny<Math.max(2,rh*.10))return;
       if(kind==='label'&&(maxy>=rh-2||maxy-miny<3))return;
-      if(isGridStroke({kind,width:maxx-minx+1,height:maxy-miny+1,ink,regionWidth:rw,cellHeight:ch}))return;
+      let edgeInk=0;
+      if(kind==='label'){
+        const band=Math.max(1,Math.round(ch*.03));
+        for(let yy=miny;yy<=maxy;yy++)for(let xx=minx;xx<=maxx;xx++)
+          if(yy<miny+band||xx<minx+band)edgeInk+=mask[(y+yy)*w+x+xx];
+      }
+      if(isGridStroke({kind,width:maxx-minx+1,height:maxy-miny+1,ink,edgeInk,regionWidth:rw,cellHeight:ch}))return;
       if(kind==='hsign'&&(maxx-minx)<(maxy-miny)*.30)return;
       if(kind==='vsign'&&(maxy-miny)<(maxx-minx)*.30)return;
       entries.push({kind,cell,other,x:x+minx,y:y+miny,w:maxx-minx+1,h:maxy-miny+1,invert,text:'',confidence:0});

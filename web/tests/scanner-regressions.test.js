@@ -32,3 +32,9 @@ test('Nested arrays and clue fields are validated before rendering',()=>{
 test('Review visits remaining cells in board order and wraps without confirming skipped cells',()=>{
  const pending=new Set([9,0,4]);assert.equal(nextReviewCell(pending),0);assert.equal(nextReviewCell(pending,0),4);assert.equal(nextReviewCell(pending,9),0);assert.equal(pending.size,3);assert.equal(nextReviewCell([]),null);
 });
+
+test('Faint grid corners are rejected without suppressing sparse real label text',()=>{
+ const corner={kind:'label',width:42,height:20,ink:100,edgeInk:95,regionWidth:70,cellHeight:100};
+ assert.equal(isGridStroke(corner),true);
+ for(const change of [{edgeInk:60},{width:15},{height:35},{kind:'value'}])assert.equal(isGridStroke({...corner,...change}),false);
+});
