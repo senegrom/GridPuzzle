@@ -230,19 +230,55 @@ def _product_target_is_possible(
     max_elem: int,
     target: int,
 ) -> bool:
-    if cage_size == 0:
-        return target == 1
-    if target <= 0:
+    """Exactly decide bounded factorisation, with ones filling unused cells.
+
+    A greedy decomposition is only a positive witness. If it needs too many
+    factors, the complete iterative search still runs; greedy failure must
+    never reject a feasible cage (e.g. 216 = 6*6*6 with domain 1..8).
+    """
+    if cage_size < 0 or target <= 0:
         return False
-    return any(
-        target % value == 0
-        and _product_target_is_possible(
-            cage_size - 1,
-            max_elem,
-            target // value,
-        )
-        for value in range(1, max_elem + 1)
-    )
+    if target == 1:
+        return True
+    if cage_size == 0 or max_elem < 2 or target > max_elem ** cage_size:
+        return False
+    if target <= max_elem:
+        return True
+
+    factors = tuple(value for value in range(max_elem, 1, -1) if target % value == 0)
+    remaining = target
+    used = 0
+    for value in factors:
+        while remaining % value == 0:
+            remaining //= value
+            used += 1
+    # Every allowable prime was included in factors. A non-unit residue has
+    # an out-of-domain prime factor, so no bounded factorisation can exist.
+    if remaining != 1:
+        return False
+    if used <= cage_size:
+        return True
+
+    # No recursion and no branches through factor 1: each edge strictly
+    # reduces the product. More remaining slots dominates fewer for the same
+    # residue, since surplus slots can always be filled with ones.
+    work = [(target, cage_size)]
+    seen: dict[int, int] = {}
+    while work:
+        remaining, slots = work.pop()
+        if remaining == 1:
+            return True
+        if slots == 0 or remaining > max_elem ** slots:
+            continue
+        if remaining <= max_elem:
+            return True
+        if seen.get(remaining, -1) >= slots:
+            continue
+        seen[remaining] = slots
+        for value in reversed(factors):
+            if remaining % value == 0:
+                work.append((remaining // value, slots - 1))
+    return False
 
 
 def parse_kenken_dictionary(
@@ -295,11 +331,7 @@ def parse_kenken_dictionary(
             possible = (
                 cage_size == 2
                 and 1 <= target <= max_elem
-                and any(
-                    left == right * target or right == left * target
-                    for left in range(1, max_elem + 1)
-                    for right in range(1, max_elem + 1)
-                )
+                # (target, 1) witnesses every ratio in this range.
             )
         return (operator, target) if possible else None
 

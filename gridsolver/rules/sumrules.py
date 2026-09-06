@@ -443,16 +443,20 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
     @cached_property
     def sum_candidates(self) -> Tuple[FrozenSet[int]]:
-        len_cell = self.len_cells
+        # Exact staircase bijection: x[0] < ... < x[k-1] in 1..M iff
+        # y[i] = x[i] - i is nondecreasing in 1..M-k+1. The sum falls
+        # by k*(k-1)//2. Generate only admissible distinct partitions;
+        # do not approximate or defer the full matching/guarantee filter.
+        count = self.len_cells
+        staircase = count * (count - 1) // 2
         return tuple(
-            frozenset(partition)
+            frozenset(value + index for index, value in enumerate(partition))
             for partition in self._partition_tuples(
-                self.sum,
-                len_cell,
+                self.sum - staircase,
+                count,
                 1,
-                self._max_elem,
+                self._max_elem - count + 1,
             )
-            if len(set(partition)) == len_cell
         )
 
     def __hash__(self):
@@ -486,10 +490,17 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         """
         if maxi is None:
             maxi = n
-        if maxi < mini or count <= 0:
+        if maxi < mini or count <= 0 or not count * mini <= n <= count * maxi:
             return ()
+        # These exact extrema have one partition, including large full-domain
+        # distinct cages after the staircase transform. Avoid recursive depth
+        # proportional to the cage size when the answer is already determined.
+        if n == count * mini:
+            return ((mini,) * count,)
+        if n == count * maxi:
+            return ((maxi,) * count,)
         if count == 1:
-            return ((n,),) if mini <= n <= maxi else ()
+            return ((n,),)
 
         partitions: list[tuple[int, ...]] = []
         upper = min(n // count, maxi) + 1

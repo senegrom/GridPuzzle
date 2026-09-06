@@ -499,92 +499,7 @@ class SingleLoopRule(Rule):
                     component_by_vertex[vertex] = index
         return components, component_by_vertex, edges_by_vertex
 
-    def _potential_components(
-        self,
-        possible: set[int],
-    ) -> tuple[
-        dict[int, int],
-        dict[int, set[int]],
-        dict[int, set[int]],
-    ]:
-        parent: dict[int, int] = {}
 
-        def find(vertex: int) -> int:
-            parent.setdefault(vertex, vertex)
-            while parent[vertex] != vertex:
-                parent[vertex] = parent[parent[vertex]]
-                vertex = parent[vertex]
-            return vertex
-
-        def union(first: int, second: int) -> None:
-            first_root = find(first)
-            second_root = find(second)
-            if first_root != second_root:
-                parent[second_root] = first_root
-
-        for cell in possible:
-            first, second = self._endpoints_by_cell[cell]
-            union(first, second)
-
-        edges_by_root: dict[int, set[int]] = {}
-        vertices_by_root: dict[int, set[int]] = {}
-        root_by_cell: dict[int, int] = {}
-        for cell in possible:
-            first, second = self._endpoints_by_cell[cell]
-            root = find(first)
-            root_by_cell[cell] = root
-            edges_by_root.setdefault(root, set()).add(cell)
-            vertices_by_root.setdefault(root, set()).update((first, second))
-        return root_by_cell, edges_by_root, vertices_by_root
-
-    def _bridge_edges(self, possible: set[int]) -> set[int]:
-        adjacency: dict[int, list[tuple[int, int]]] = {}
-        for cell in possible:
-            first, second = self._endpoints_by_cell[cell]
-            adjacency.setdefault(first, []).append((second, cell))
-            adjacency.setdefault(second, []).append((first, cell))
-
-        discovery: dict[int, int] = {}
-        low: dict[int, int] = {}
-        bridges: set[int] = set()
-        time = 0
-
-        # Iterative DFS: the recursive form overflowed the interpreter stack on
-        # boards from ~31x31 upward (one frame per loop-graph vertex).
-        for root in adjacency:
-            if root in discovery:
-                continue
-            time += 1
-            discovery[root] = time
-            low[root] = time
-            work: list[tuple[int, int | None, Iterator[tuple[int, int]]]] = [
-                (root, None, iter(adjacency.get(root, ())))
-            ]
-            while work:
-                vertex, parent_edge, neighbours = work[-1]
-                advanced = False
-                for neighbour, edge in neighbours:
-                    if edge == parent_edge:
-                        continue
-                    if neighbour not in discovery:
-                        time += 1
-                        discovery[neighbour] = time
-                        low[neighbour] = time
-                        work.append(
-                            (neighbour, edge, iter(adjacency.get(neighbour, ())))
-                        )
-                        advanced = True
-                        break
-                    low[vertex] = min(low[vertex], discovery[neighbour])
-                if advanced:
-                    continue
-                work.pop()
-                if work:
-                    parent_vertex = work[-1][0]
-                    low[parent_vertex] = min(low[parent_vertex], low[vertex])
-                    if low[vertex] > discovery[parent_vertex]:
-                        bridges.add(parent_edge)
-        return bridges
 
     def _cyclic_blocks(self, possible: set[int]) -> tuple[frozenset[int], ...]:
         """Return vertex-biconnected edge blocks that contain a cycle."""
@@ -617,14 +532,9 @@ class SingleLoopRule(Rule):
             if len(block) >= len(vertices):
                 blocks.append(frozenset(block))
 
-        # Iterative DFS (same overflow rationale as _bridge_edges). The
-        # back-edge condition and per-root residual flush mirror the recursive
-        # form exactly: forward edges to already-finished descendants are
-        # skipped without stack pushes or low updates.
-        # Deliberate twin of _bridge_edges' skeleton: the two passes run on
-        # different `possible` sets with different per-edge actions, and
-        # callback-parametrizing the walk would tax SingleLoopRule's hot
-        # apply path. Keep them in lockstep when editing either.
+        # Iterative DFS avoids one Python frame per graph vertex. Each
+        # simple cycle lies in one cyclic vertex-biconnected block; bridges
+        # and acyclic components never appear in the returned blocks.
         for root in adjacency:
             if root in discovery:
                 continue
@@ -739,50 +649,10 @@ class SingleLoopRule(Rule):
         if not possible:
             raise InvalidGrid()
 
-        root_by_cell, edges_by_root, vertices_by_root = (
-            self._potential_components(possible)
-        )
-        cycle_roots = {
-            root
-            for root, edges in edges_by_root.items()
-            if len(edges) >= len(vertices_by_root[root])
-        }
-        selected_roots = {root_by_cell[cell] for cell in selected}
-        if len(selected_roots) > 1:
-            raise InvalidGrid()
-        if selected_roots:
-            viable_roots = selected_roots & cycle_roots
-            if not viable_roots:
-                raise InvalidGrid()
-        else:
-            viable_roots = cycle_roots
-            if not viable_roots:
-                raise InvalidGrid()
-
-        self._remove_selected_value(
-            candidates,
-            (
-                cell
-                for cell in possible - selected
-                if root_by_cell[cell] not in viable_roots
-            ),
-        )
-
-        possible = {
-            cell
-            for cell in self.cells
-            if self.selected_value in candidates[cell]
-        }
-        bridges = self._bridge_edges(possible)
-        if selected & bridges:
-            raise InvalidGrid()
-        self._remove_selected_value(candidates, bridges - selected)
-
-        possible = {
-            cell
-            for cell in self.cells
-            if self.selected_value in candidates[cell]
-        }
+        # This single analysis subsumes connected-component and bridge
+        # pruning: every solution is a cycle in one block containing ALL
+        # selected edges. Removing a bridge/other component cannot change a
+        # cyclic block, so earlier passes do not add any eliminations.
         blocks = self._cyclic_blocks(possible)
         viable_blocks = (
             tuple(block for block in blocks if selected <= block)
