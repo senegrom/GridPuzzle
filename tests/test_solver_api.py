@@ -1,4 +1,5 @@
 import pickle
+from concurrent.futures import Future
 
 import pytest
 
@@ -117,8 +118,10 @@ def test_worker_root_creates_isolated_branch_grids(monkeypatch):
     assert parallel_module._WORKER_ROOT_GRID.known == (0,)
 
 
-class _FakeFuture:
+class _FakeFuture(Future):
     def __init__(self, result):
+        super().__init__()
+        self.set_result(result)
         self._result = result
         self.cancelled = False
 

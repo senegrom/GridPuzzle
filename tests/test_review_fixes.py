@@ -173,6 +173,7 @@ def test_global_peer_branching_preserves_no_choice_error():
 
 @pytest.mark.parametrize("phase", ("initial_submit", "refill_submit", "result", "stats", "interrupt"))
 def test_parallel_errors_terminate_before_context_exit(monkeypatch, phase):
+    monkeypatch.setattr(parallel, "_wait_for_uncapped_result", lambda *args: None)
     failure = KeyboardInterrupt() if phase == "interrupt" else RuntimeError("original failure")
     events = []
 
@@ -220,6 +221,7 @@ def test_parallel_errors_terminate_before_context_exit(monkeypatch, phase):
 
 
 def test_parallel_cleanup_does_not_mask_original_error(monkeypatch):
+    monkeypatch.setattr(parallel, "_wait_for_uncapped_result", lambda *args: None)
     failure = RuntimeError("branch failed")
 
     class Future:
