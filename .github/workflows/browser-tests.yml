@@ -25,3 +25,21 @@ jobs:
       - run: node --test web/tests/*.test.js
       - name: Check every browser module parses
         run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+      - name: Build the self-hosted browser artifact for pull requests
+        if: github.event_name == 'pull_request'
+        run: python scripts/build_web.py
+      - name: Install real browser test runtimes
+        if: github.event_name == 'pull_request'
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Real Python and OCR browser acceptance
+        if: github.event_name == 'pull_request'
+        run: node scripts/browser_smoke.cjs
+      - name: Retain browser acceptance report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-pr-report
+          path: browser-artifacts
+          if-no-files-found: ignore
