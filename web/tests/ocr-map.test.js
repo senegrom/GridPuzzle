@@ -24,8 +24,8 @@ test('A low-confidence one-digit word remains uncertain despite a confident symb
   const word={...symbol('4',20,80,40),symbols:[symbol('4',20,80,99)]};
   assert.equal(mapAtlas(data([word]),1,1,112)[0].confidence,40);
 });
-test('Ordinary scans use a narrow atlas and large scans stay within the raster budget',()=>{
-  assert.deepEqual(atlasLayout(30),{columns:1,rows:30,tile:112});
+test('Compact atlas layout stays within the mobile raster budget',()=>{
+  assert.deepEqual(atlasLayout(30),{columns:12,rows:3,tile:112});
   for(const n of [81,256,625,1200,1800]){const a=atlasLayout(n);assert.ok(a.columns*a.rows*a.tile*a.tile<=8_000_000);assert.ok(a.tile>=64);}
   for(const n of [0,-1,NaN,2.5,3001])assert.throws(()=>atlasLayout(n));
 });

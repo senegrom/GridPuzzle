@@ -1,15 +1,14 @@
-// Keep ordinary scans in a narrow column: adjacent puzzle clues must not look
-// like one long number. Bound the raster footprint for mobile canvas memory.
+// Bound the atlas raster footprint for mobile canvas memory. A compact
+// multi-column layout works with sparse-text recognition; symbol boxes keep
+// neighboring slots separate even when the recognizer merges a whole row.
 export function atlasLayout(count){
   if(!Number.isInteger(count)||count<1||count>3000)throw Error('Invalid recognition region count.');
-  const columns=Math.min(16,Math.max(1,Math.ceil(count/48))),rows=Math.ceil(count/columns);
+  const columns=Math.min(12,count),rows=Math.ceil(count/columns);
   const tile=Math.min(112,Math.floor(Math.sqrt(8_000_000/(columns*rows))));
   if(tile<64)throw Error('Too many potential clues. Choose the puzzle type explicitly, or crop a smaller grid.');
   return {columns,rows,tile};
 }
 
-// Map OCR character boxes, not word boxes: Tesseract can merge an entire
-// atlas row into one word even when digits belong to different puzzle cells.
 export function mapAtlas(data, count, columns, tile) {
   const readings=Array.from({length:count},()=>({text:'',confidence:0,parts:[],review:false}));
   const words=(data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>l.words||[])));
@@ -31,8 +30,7 @@ export function mapAtlas(data, count, columns, tile) {
       if(cells.length!==1){for(const i of cells)readings[i].review=true;continue;}
       const entry=readings[cells[0]];
       let confidence=Number.isFinite(symbol.confidence)?symbol.confidence:0;
-      // LSTM character confidence can be high even when the whole one-digit
-      // word is doubtful. Preserve that doubt instead of silently accepting it.
+      // Preserve doubt when a one-clue word score is lower than its symbol score.
       if(wordIsOneClue&&Number.isFinite(word.confidence))confidence=Math.min(confidence,word.confidence);
       entry.parts.push({text,confidence,x:b.x0,y:b.y0});
     }
