@@ -1,0 +1,27 @@
+name: Browser branch tests
+on:
+  push:
+    branches: [browser-scanner]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: browser-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests -m 'not slow' --durations=8
+      - run: node --test web/tests/*.test.js
+      - name: Check every browser module parses
+        run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
