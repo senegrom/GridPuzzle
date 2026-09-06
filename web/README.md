@@ -18,11 +18,18 @@ python -m http.server 8000 --directory _site
 
 Open localhost:8000. Camera permissions require localhost or HTTPS.
 The Pages workflow builds `_site`, tests Chromium and mobile WebKit on the
-`/GridPuzzle/` subpath, and uploads the tested artifact. It attempts to enable
-Pages using `actions/configure-pages`. A repository owner may need to enable
-Settings > Pages > Source: GitHub Actions if the workflow token is not allowed
-to create the Pages site. The `github-pages` environment must allow deployment
-from `browser-scanner`. Nothing merges this branch into master.
+`/GridPuzzle/` subpath, and uploads the tested artifact.
+
+**One-time owner action:** Settings > Pages > Source: **GitHub Actions**.
+The initial attempt to enable a new Pages site returned HTTP 403 `Resource not
+accessible by integration`. The managed connector lacks Administration write
+permission, and a workflow's GITHUB_TOKEN cannot grant itself that permission.
+The workflow now reports this setup requirement explicitly instead of repeatedly
+attempting to create the site. After enabling Pages, re-run the **Build and deploy
+phone scanner** workflow. The `github-pages` environment must permit deployment
+from `browser-scanner` if it has branch restrictions. Nothing merges into master.
+The expected address after deployment is `https://senegrom.github.io/GridPuzzle/`;
+that address is not a claim that an unconfigured repository is already live.
 
 The app is a multi-file static site, not a Python server. At runtime there are
 no calls to external APIs/CDNs: Python, OCR, English training data and all
@@ -38,19 +45,24 @@ icons are served from this site's own `vendor/` and `icons/` directories.
 - Four draggable crop corners, keyboard corner controls (1–4, then arrows),
   rotation, projective straightening, automatic continuous-grid size detection,
   explicit dimensions and puzzle type selection.
-- A single OCR atlas per scan with per-cell review flags. Type recognition is
-  explicitly heuristic; ambiguous rules require confirmation.
+- A single OCR atlas per scan with per-cell review flags. Character bounding
+  boxes preserve clue boundaries even when OCR merges a row into one word.
+  Type recognition is explicitly heuristic; ambiguous rules require confirmation.
 - Eleven native solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen,
   Latin square, diagonal Latin square, pandiagonal Latin square, Hidato,
   Numbrix, Kakuro and Slitherlink.
 - Digit/block editor with enlarged source crop, cage partition editor, directed
   inequality editor, Kakuro across/down clues, undo and validated JSON import.
+- Explicit type override preserves the transcription, but refuses to silently
+  discard incompatible structural constraints. Dimensions can be changed by
+  starting a blank board or through the confirmed layout reset.
 - Full original Python solver via Pyodide 314.0.6 in a dedicated module worker,
   sequential search capped at two solutions. Zero/multiple/unique/error/invalid
   states are distinct. Worker termination implements real cancellation and
   search deadlines; stale messages cannot replace a newer puzzle.
 - Clean board and captured-photo solution overlay, both number and loop-edge
-  puzzles; PNG overlay export and puzzle JSON export.
+  puzzles; PNG overlay export and puzzle JSON export. Changing a crop invalidates
+  its old overlay, and editing invalidates the old solution/uniqueness status.
 - Local puzzle/settings persistence, offline download with honest readiness,
   scoped/versioned caches, update controls, manifest and opaque Apple/Android
   icons. The app does not persist photographs.
@@ -59,9 +71,11 @@ icons are served from this site's own `vendor/` and `icons/` directories.
 
 Printed, high-contrast rectangular Sudoku is the primary scanning target.
 Photo quality, shadows, handwriting, nonrectangular geometry and publisher
-styles are not universally handled. Borderless/dotted grids and Futoshiki often
-need manual crop and dimensions. Type identification cannot determine rules
-that are not visible in the image. Titles/rules are not read in this version.
+styles are not universally handled. The scanner reads numeric clues; alphabetic
+symbols on large Sudoku boards need manual transcription. Borderless/dotted
+grids and Futoshiki often need manual crop and dimensions. Type identification
+cannot determine rules that are not visible in the image. Titles/rules are not
+read in this version.
 
 Cage boundaries/targets and Kakuro clue directions use experimental image
 heuristics and ALWAYS require review. A missed cage wall can merge cages:
@@ -105,11 +119,13 @@ search time. A deadline means unfinished, never unsatisfiable or unique.
 
 ## Testing
 
-`tests/test_web_api.py` checks native adapter semantics and all model families.
-`web/tests/model.test.js` checks row-major data, inference ambiguity, homography,
-white-image rejection and generated-grid detection. `scripts/browser_smoke.cjs`
-uses the real Python and OCR WASM runtimes, not mocks, in Chromium and WebKit.
-It checks all eleven families, phone overflow, clue editing/undo, genuine
-cancellation/restart, denied camera fallback, a generated printed Sudoku scan,
-photograph overlay and offline reload/solve. Reports and screenshots are CI
-artifacts. This is a baseline, not a measured real-world recognition benchmark.
+`tests/test_web_api.py` checks native adapter semantics and model families.
+`web/tests/` checks row-major data, inference ambiguity, homography, white-image
+rejection, generated-grid detection and character-level OCR atlas mapping.
+`scripts/browser_smoke.cjs` uses the real Python and OCR WASM runtimes, not
+solver or OCR mocks, in Chromium and WebKit. It checks all eleven families,
+phone overflow, clue editing/undo, type override, genuine cancellation/restart,
+denied camera fallback, a generated printed Sudoku scan, photograph overlay
+and invalidation, offline reload/solve and offline photo recognition.
+Reports and screenshots are CI artifacts. This is a baseline, not a measured
+real-world recognition benchmark.
