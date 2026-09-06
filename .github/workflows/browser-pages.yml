@@ -1,0 +1,68 @@
+name: Build and deploy phone scanner
+on:
+  push:
+    branches: [browser-scanner]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gridpuzzle-browser-pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: python -m pip install -e '.[dev]'
+      - name: Native adapter and full solver regressions
+        run: python -m pytest -q tests -m 'not slow'
+      - name: Geometry and model tests
+        run: node --test web/tests/*.test.js
+      - name: Build self-hosted application
+        run: python scripts/build_web.py
+      - name: Install browser test runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.55.1
+          npx playwright install --with-deps chromium webkit
+      - name: Chromium and mobile WebKit acceptance tests
+        run: node scripts/browser_smoke.cjs
+      - name: Upload screenshots and test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-report
+          path: browser-artifacts
+          if-no-files-found: ignore
+      - name: Upload static Pages site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  configure:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+  deploy:
+    needs: [build, configure]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish the tested branch artifact
+        id: deployment
+        uses: actions/deploy-pages@v4
