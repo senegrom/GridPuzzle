@@ -91,11 +91,17 @@ export class Scanner {
           // still awaiting engine/language initialization. Bound host cleanup
           // too, including a stalled importScripts before any child exists.
           const kill = setTimeout(() => worker.terminate(), 100);
-          worker.onmessage = () => {
+          worker.onmessage = ({ data }) => {
+            if (!data?.cancelled) return; // Ignore progress queued before Stop.
             clearTimeout(kill);
             worker.terminate();
           };
-          worker.postMessage({ cancel: true });
+          try {
+            worker.postMessage({ cancel: true });
+          } catch {
+            clearTimeout(kill);
+            worker.terminate();
+          }
         } else worker.terminate();
         error ? reject(error) : resolve(result);
       };

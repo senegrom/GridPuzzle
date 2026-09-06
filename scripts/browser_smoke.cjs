@@ -153,6 +153,31 @@ async function checkStartupCancellation(browser, image, report) {
       () =>
         document.querySelector("#status-text").textContent === "Grid found.",
     );
+    const beforeInvalid = await page.evaluate(() => ({
+      puzzle: JSON.stringify(window.__gridpuzzleTestState().puzzle),
+      saved: localStorage.getItem("gridpuzzle-session-v1"),
+    }));
+    await page.evaluate(
+      () => (document.querySelector("#box-rows").value = "0"),
+    );
+    await page.click("#read-photo");
+    assert.equal(
+      (await page.evaluate(() => window.__gridpuzzleTestState())).busy,
+      false,
+    );
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        puzzle: JSON.stringify(window.__gridpuzzleTestState().puzzle),
+        saved: localStorage.getItem("gridpuzzle-session-v1"),
+      })),
+      beforeInvalid,
+    );
+    await page.evaluate(
+      () => (document.querySelector("#box-rows").value = "3"),
+    );
+    report.checks.push(
+      "invalid scan box settings rejected before OCR and persistence",
+    );
     await page.click("#read-photo");
     let timeout;
     try {

@@ -1,4 +1,4 @@
-import { TYPES, checkShape } from "./model.js";
+import { TYPES, checkShape, makePuzzle } from "./model.js";
 import { validQuad } from "./geometry.js";
 
 export function setupPhotoFlow({
@@ -356,6 +356,19 @@ export function setupPhotoFlow({
       );
       return;
     }
+    const boxRows = Number($("box-rows").value),
+      boxCols = Number($("box-cols").value);
+    try {
+      if (type !== "auto") {
+        const layout = makePuzzle(type, rows, cols);
+        layout.boxRows = boxRows;
+        layout.boxCols = boxCols;
+        checkShape(layout);
+      }
+    } catch (error) {
+      fail(error);
+      return;
+    }
     clearPhotoMapping();
     state.result = null;
     $("next-solution").hidden = true;
@@ -373,6 +386,13 @@ export function setupPhotoFlow({
         },
       );
       if (id !== getJobId()) return;
+      // Snapshot settings belong to this scan. Validate the complete candidate
+      // before committing history, state or autosave, including automatic type.
+      if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
+        found.puzzle.boxRows = boxRows;
+        found.puzzle.boxCols = boxCols;
+      }
+      checkShape(found.puzzle);
       finish();
       remember();
       state.puzzle = found.puzzle;
@@ -384,10 +404,6 @@ export function setupPhotoFlow({
       state.photoRows = rows;
       state.photoCols = cols;
       state.selected = [];
-      if (["sudoku", "killersudoku"].includes(state.puzzle.type)) {
-        state.puzzle.boxRows = Number($("box-rows").value);
-        state.puzzle.boxCols = Number($("box-cols").value);
-      }
       persist();
       render();
       $("photo-panel").hidden = true;

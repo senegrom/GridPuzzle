@@ -87,3 +87,56 @@ test("shared grayscale threshold is byte-for-byte identical", () => {
     thresholdGray(gray(image), image.width, image.height),
   );
 });
+
+test("late OCR progress is not a cancellation acknowledgement", async () => {
+  const old = globalThis.Worker;
+  let instance;
+  globalThis.Worker = class {
+    constructor() {
+      instance = this;
+    }
+    postMessage() {}
+    terminate() {
+      this.stopped = true;
+    }
+  };
+  try {
+    const scanner = new Scanner(),
+      promise = scanner._request("ocr-host-worker.js", {}, () => {}, "classic");
+    scanner.cancel();
+    await assert.rejects(promise, { name: "AbortError" });
+    instance.onmessage({ data: { type: "progress", progress: 0.5 } });
+    assert.ok(!instance.stopped);
+    instance.onmessage({ data: { cancelled: true } });
+    assert.ok(instance.stopped);
+  } finally {
+    globalThis.Worker = old;
+  }
+});
+test("postMessage failure cannot retain workers or mask the original error", async () => {
+  const old = globalThis.Worker,
+    original = new DOMException("cannot clone", "DataCloneError");
+  let instance;
+  globalThis.Worker = class {
+    constructor() {
+      instance = this;
+    }
+    postMessage() {
+      throw original;
+    }
+    terminate() {
+      this.stopped = true;
+    }
+  };
+  try {
+    const scanner = new Scanner();
+    await assert.rejects(
+      scanner._request("ocr-host-worker.js", {}, () => {}, "classic"),
+      (e) => e === original,
+    );
+    assert.equal(scanner.jobs.size, 0);
+    assert.ok(instance.stopped);
+  } finally {
+    globalThis.Worker = old;
+  }
+});
