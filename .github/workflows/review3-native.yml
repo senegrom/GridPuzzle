@@ -1,0 +1,56 @@
+name: Review three native verification
+on:
+  push:
+    branches: [fix/review3-native]
+    paths: ['.review3_native.py', '.github/workflows/review3-native.yml']
+permissions:
+  contents: write
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/review3-native
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -e '.[dev]'
+      - run: python .review3_native.py
+      - name: Use lightweight size containers for partition scale tests
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('tests/test_review3_native.py')
+          s=p.read_text().replace('from gridsolver.abstract_grids.grid import Grid', 'from gridsolver.abstract_grids.gridsize_container import GridSizeContainer\nfrom gridsolver.abstract_grids.grid import Grid').replace('grid = Grid(1, count, max_elem=count + 1)', 'grid = GridSizeContainer(1, count, max_elem=count + 1)')
+          p.write_text(s)
+      - name: Native regressions and full bounded suite
+        run: python -X dev -m pytest -q tests -m 'not slow' --durations=10
+      - name: Actual installed wheel
+        run: |
+          python -m pip wheel --no-deps . --wheel-dir dist
+          python scripts/smoke_wheel.py --wheel-dir dist
+      - name: Baseline inference and branching equivalence
+        if: runner.os == 'Linux'
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/review3-baseline" 5010564b0d5b08e3ad748cb8fb4f31a3ca43c42a
+          python scripts/benchmark_exact_cages.py --baseline-root "$RUNNER_TEMP/review3-baseline" --samples 1 --output benchmarks/review3_native.json
+          python -c "import json,pathlib; p=pathlib.Path('benchmarks/review3_native.json'); d=json.loads(p.read_text()); d['baseline']='5010564b0d5b08e3ad748cb8fb4f31a3ca43c42a'; d['timing_note']='One sample per mode, for identity/branch-count regression only; not performance evidence.'; p.write_text(json.dumps(d,indent=2)+'\n')"
+      - name: Publish validated native changes to the working branch
+        if: runner.os == 'Linux'
+        run: |
+          git add gridsolver tests benchmarks/review3_native.json
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Keep exact cage partitions stack-safe and observe required parallel failures promptly'
+          git push origin HEAD:fix/review3-native
