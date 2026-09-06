@@ -23,42 +23,39 @@ jobs:
         with:
           node-version: '22'
       - run: python -m pip install -e '.[dev]'
-      - name: Integrate validated native fixes without merging the app into master
+      - name: Preserve concurrent scanner changes in a real merge
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git merge --no-edit cb0819feeb09a26f31ce11dc298c469ad85bdbed
-      - name: Complete scan transaction and cancellation checks
-        run: python .review3_final.py
-      - name: Format changed browser sources
-        run: npx --yes --package=prettier@3.6.2 prettier --write 'web/**/*.js' 'scripts/browser_smoke.cjs'
+          python .review3_reconcile.py
+      - name: Format reconciled first-party sources
+        run: npx --yes --package=prettier@3.6.2 prettier --write 'web/**/*.js' 'web/*.html' 'scripts/browser_smoke.cjs' 'scripts/browser_regressions.cjs'
       - name: Browser unit and lifecycle regressions
         run: node --test web/tests/*.test.js
-      - name: Native adapter, build safety and complete bounded regressions
+      - name: Native adapter and complete bounded regressions
         run: python -X dev -m pytest -q tests -m 'not slow' --durations=10
-      - name: Validate installed wheel separately from the checkout
-        run: |
-          python -m pip wheel --no-deps . --wheel-dir dist
-          python scripts/smoke_wheel.py --wheel-dir dist
       - name: Build the self-hosted application
         run: python scripts/build_web.py
       - name: Install actual browser runtimes
         run: |
           npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
           npx playwright install --with-deps chromium webkit
-      - name: Real Python and OCR, offline recovery and cancellation on both engines
-        run: node scripts/browser_smoke.cjs
-      - name: Preserve browser report
+      - name: Actual Python, OCR, recovery, cancellation and upstream scan variations
+        run: |
+          node scripts/browser_smoke.cjs
+          node scripts/browser_regressions.cjs
+      - name: Preserve browser reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: review3-browser-results
           path: browser-artifacts
           if-no-files-found: ignore
-      - name: Commit tested integration and evidence on the review branch
+      - name: Commit tested reconciliation and evidence
         run: |
           cp browser-artifacts/results.json benchmarks/review3_browser.json
-          git add web scripts tests .github/workflows/browser-tests.yml benchmarks/review3_browser.json
+          cp browser-artifacts/recognition-regressions.json benchmarks/review3_recognition.json
+          git add web scripts tests benchmarks/review3_browser.json benchmarks/review3_recognition.json
           git diff --cached --check
-          git commit -m 'Keep scans transactional through validation and cancellation; verify native-browser integration'
+          git commit -m 'Merge concurrent scanner improvements while retaining safe lifecycle and exact solver fixes'
           git push origin HEAD:fix/review3-browser

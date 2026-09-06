@@ -39,6 +39,8 @@ jobs:
           npx playwright install --with-deps chromium webkit
       - name: Chromium and mobile WebKit acceptance tests
         run: node scripts/browser_smoke.cjs
+      - name: Scanner variation and review regressions
+        run: node scripts/browser_regressions.cjs
       - name: Upload screenshots and test report
         if: always()
         uses: actions/upload-artifact@v7
