@@ -1,4 +1,4 @@
-"""Final browser boundary checks and permanent real-browser PR coverage."""
+"""Final browser boundary checks; CI configuration is committed separately."""
 from pathlib import Path
 
 p=Path('web/photo-flow.js');s=p.read_text();assert 'import { TYPES, checkShape }' in s;s=s.replace('import { TYPES, checkShape }','import { TYPES, checkShape, makePuzzle }')
@@ -68,26 +68,7 @@ part=part.replace(anchor,'''    const beforeInvalid=await page.evaluate(()=>({pu
 ''' + anchor)
 s=s[:a]+part+s[b:];p.write_text(s)
 
-# PRs previously ran only native and Node tests. Exercise the same actual WASM
-# acceptance surface before a merge; push deployments already do this testing.
-p=Path('.github/workflows/browser-tests.yml');p.write_text(p.read_text()+'''
-      - name: Build the self-hosted browser artifact for pull requests
-        if: github.event_name == 'pull_request'
-        run: python scripts/build_web.py
-      - name: Install real browser test runtimes
-        if: github.event_name == 'pull_request'
-        run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-          npx playwright install --with-deps chromium webkit
-      - name: Real Python and OCR browser acceptance
-        if: github.event_name == 'pull_request'
-        run: node scripts/browser_smoke.cjs
-      - name: Retain browser acceptance report
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: browser-pr-report
-          path: browser-artifacts
-          if-no-files-found: ignore
-''')
-print('Validated scan transactions, cancellation acknowledgements and real-browser PR coverage.')
+# Workflow changes require the authenticated GitHub connection. The runner
+# changes only source/tests and results, and does not request extra privileges.
+assert 'Real Python and OCR browser acceptance' in Path('.github/workflows/browser-tests.yml').read_text()
+print('Validated scan transactions and cancellation acknowledgements.')
