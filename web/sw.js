@@ -1,6 +1,6 @@
 /* Scope-specific caches never touch other senegrom.github.io apps. */
 const VERSION='__BUILD_ID__',PREFIX=`gridpuzzle:${self.registration.scope}:`,CACHE=PREFIX+VERSION;
-const SHELL=['./','index.html','style.css','app.js','model.js','scanner.js','ocr-map.js','geometry.js','geometry-worker.js','solver-worker.js','manifest.webmanifest','favicon.svg','icons/apple-touch-icon.png','icons/icon-192.png','icons/icon-512.png','icons/maskable-512.png','assets.json'];
+const SHELL=['./','index.html','style.css','app.js','model.js','session.js','scanner.js','ocr-map.js','geometry.js','geometry-worker.js','solver-worker.js','manifest.webmanifest','favicon.svg','icons/apple-touch-icon.png','icons/icon-192.png','icons/icon-512.png','icons/maskable-512.png','assets.json'];
 const url=path=>new URL(path,self.registration.scope).href;
 self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await cache.addAll(SHELL.map(path=>new Request(url(path),{cache:'reload'})));})()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith(PREFIX)&&key!==CACHE)await caches.delete(key);await self.clients.claim();})()));

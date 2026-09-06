@@ -1,9 +1,10 @@
 import {TYPES,makePuzzle,demo,clone,checkShape,conflicts,isCage} from './model.js';
 import {Scanner} from './scanner.js';
 import {homography,project,validQuad} from './geometry.js';
+import {saveSession,restoreSession} from './session.js';
 
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg',scanner=new Scanner();
-const state={puzzle:makePuzzle(),uncertain:new Set(),needsReview:false,notes:[],result:null,solution:0,photo:null,rectified:null,puzzleSource:null,corners:null,photoRows:0,photoCols:0,view:'board',selected:[],history:[]};
+const state={puzzle:makePuzzle(),uncertain:new Set(),needsReview:false,notes:[],result:null,solution:0,photo:null,rectified:null,puzzleSource:null,photoSource:null,corners:null,photoRows:0,photoCols:0,view:'board',selected:[],history:[]};
 let worker=null,jobId=0,busy=false,timer=null,deadline=null,started=0,stream=null,cameraEpoch=0,editing=0,drag=-1,focused=0;
 const storage={get:key=>{try{return JSON.parse(localStorage.getItem(key));}catch{return null;}},set:(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{/* Private/storage-full mode must not break solving. */}}};
 for(const [value,label] of Object.entries(TYPES)){const option=document.createElement('option');option.value=value;option.textContent=label;$('puzzle-type').append(option);}
@@ -20,7 +21,7 @@ function status(text,detail='',kind='info',progress=null){
 }
 function fail(error){if(error?.name!=='AbortError')status(error?.message||String(error),'Nothing was uploaded or sent to a remote solver.','error');}
 function remember(){state.history.push({puzzle:clone(state.puzzle),uncertain:[...state.uncertain],needsReview:state.needsReview,notes:[...state.notes],source:state.puzzleSource});if(state.history.length>30)state.history.shift();}
-function persist(){storage.set('gridpuzzle-puzzle-v1',state.puzzle);}
+function persist(){saveSession(storage,state);}
 function stopTask(message=null){
   jobId++;scanner.cancel();if(busy&&worker){worker.terminate();worker=null;}busy=false;clearInterval(timer);clearTimeout(deadline);timer=deadline=null;$('stop').hidden=true;$('solve').disabled=false;$('progress').hidden=true;$('status').setAttribute('aria-busy','false');
   if(message)status(message,'Search unfinished. No claim about uniqueness or impossibility has been made.','warning');
@@ -30,8 +31,8 @@ function begin(){stopTask();busy=true;started=performance.now();$('stop').hidden
 function finish(){busy=false;clearInterval(timer);clearTimeout(deadline);timer=deadline=null;$('stop').hidden=true;$('solve').disabled=false;$('progress').hidden=true;$('status').setAttribute('aria-busy','false');}
 function mutate(fn){remember();invalidate();fn();persist();render();}
 function normalized(p){checkShape(p);return {...clone(p),cages:clone(p.cages||[]),inequalities:clone(p.inequalities||[]),clues:clone(p.clues||[])};}
-export function loadPuzzle(payload){const p=normalized(payload);remember();invalidate();stopCamera();state.puzzle=p;state.uncertain.clear();state.needsReview=false;state.notes=[];state.photo=state.rectified=state.puzzleSource=state.corners=null;$('photo-panel').hidden=true;$('puzzle-type').value=p.type;state.selected=[];focused=0;persist();render();status('Puzzle loaded.',`${TYPES[p.type]} · Tap any cell to edit its printed clue.`);}
-export function getState(){return {puzzle:clone(state.puzzle),result:clone(state.result),uncertain:[...state.uncertain],busy};}
+export function loadPuzzle(payload){const p=normalized(payload);remember();invalidate();stopCamera();state.puzzle=p;state.uncertain.clear();state.needsReview=false;state.notes=[];state.photo=state.rectified=state.puzzleSource=state.photoSource=state.corners=null;$('photo-panel').hidden=true;$('puzzle-type').value=p.type;state.selected=[];focused=0;persist();render();status('Puzzle loaded.',`${TYPES[p.type]} · Tap any cell to edit its printed clue.`);}
+export function getState(){return {puzzle:clone(state.puzzle),result:clone(state.result),uncertain:[...state.uncertain],needsReview:state.needsReview,busy};}
 function svg(tag,attrs={},text=null){const node=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))node.setAttribute(k,String(v));if(text!==null)node.textContent=String(text);return node;}
 function drawBoard(){
   const p=state.puzzle,board=$('board'),size=72,margin=5,sol=state.result?.solutions?.[state.solution],bad=conflicts(p);
@@ -65,9 +66,9 @@ function drawBoard(){
     for(let r=0;r<=p.rows;r++)for(let c=0;c<=p.cols;c++)board.append(svg('circle',{cx:c*size,cy:r*size,r:3,fill:'#173536','pointer-events':'none'}));
   }
 }
-function canOverlay(){return !!(state.photo&&state.corners&&state.rectified&&state.puzzleSource===state.rectified&&state.result?.solutions?.length&&state.photoRows===state.puzzle.rows&&state.photoCols===state.puzzle.cols);}
+function canOverlay(){return !!(state.photo&&state.corners&&state.rectified&&state.puzzleSource===state.photoSource&&state.result?.solutions?.length&&state.photoRows===state.puzzle.rows&&state.photoCols===state.puzzle.cols);}
 function clearPhotoMapping(){
-  state.rectified=null;state.photoRows=state.photoCols=0;state.view='board';
+  state.rectified=null;state.photoSource=null;state.photoRows=state.photoCols=0;state.view='board';
   $('photo-view').disabled=true;$('save-photo').hidden=true;$('solution-photo').hidden=true;$('board-scroll').hidden=false;
   $('clean-view').setAttribute('aria-pressed','true');$('photo-view').setAttribute('aria-pressed','false');
 }
@@ -93,7 +94,9 @@ function render(){
   if(!overlay)state.view='board';$('board-scroll').hidden=state.view==='photo';$('solution-photo').hidden=state.view!=='photo';$('clean-view').setAttribute('aria-pressed',String(state.view==='board'));$('photo-view').setAttribute('aria-pressed',String(state.view==='photo'));if(overlay)drawOverlay();
   $('next-solution').hidden=(state.result?.solutions?.length||0)<2;
   const review=state.uncertain.size||state.needsReview;$('review-note').hidden=!review;
-  $('review-note').textContent=[state.uncertain.size?`${state.uncertain.size} cells need checking. Tap a highlighted cell to compare it with the photograph.`:'Confirm the puzzle type and structural clues.',...state.notes].join('\n');
+  const sourceAvailable=state.rectified&&state.puzzleSource===state.photoSource;
+  const checkMessage=state.uncertain.size?`${state.uncertain.size} cells need checking. ${sourceAvailable?'Tap a highlighted cell to compare it with the photograph.':'Check the highlighted clues against the original puzzle. Photos are not retained after closing the app.'}`:'Confirm the puzzle type and structural clues.';
+  $('review-note').textContent=[checkMessage,...state.notes].join('\n');
   $('solve').textContent=review?'Check & solve →':'Solve puzzle →';
 }
 function boxDefault(n){let a=Math.floor(Math.sqrt(n));while(n%a)a--;return [a,n/a];}
@@ -110,7 +113,7 @@ applyType.onclick=()=>{
 function openCell(i){
   stopTask(busy?'Stopped for editing.':null);editing=i;focused=i;const p=state.puzzle,r=Math.floor(i/p.cols),c=i%p.cols;$('cell-title').textContent=`Row ${r+1} · Column ${c+1}`;$('cell-value').value=Number.isInteger(p.cells[i])?p.cells[i]:'';$('blocked-cell').checked=p.cells[i]==='#';$('block-option').hidden=!['hidato','kakuro'].includes(p.type);$('cell-error').textContent='';
   const clue=p.clues.find(q=>q.cell===i);$('across-value').value=clue?.across??'';$('down-value').value=clue?.down??'';blockInputs();
-  $('clue-crop').hidden=!(state.rectified&&state.puzzleSource===state.rectified&&state.photoRows===p.rows&&state.photoCols===p.cols);
+  $('clue-crop').hidden=!(state.rectified&&state.puzzleSource===state.photoSource&&state.photoRows===p.rows&&state.photoCols===p.cols);
   if(!$('clue-crop').hidden){const out=$('clue-crop'),ctx=out.getContext('2d'),cw=state.rectified.width/p.cols,ch=state.rectified.height/p.rows;ctx.fillStyle='#fff';ctx.fillRect(0,0,180,180);ctx.drawImage(state.rectified,c*cw,r*ch,cw,ch,0,0,180,180);}
   $('cell-dialog').showModal();$('cell-value').focus();$('cell-value').select();
 }
@@ -139,7 +142,7 @@ $('stop').onclick=()=>stopTask('Stopped.');
 function requestSolve(){try{checkShape(state.puzzle);if(state.uncertain.size||state.needsReview){$('confirm-text').textContent=`${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${state.uncertain.size} cells were highlighted for review.`;$('confirm-dialog').showModal();}else solveNow();}catch(e){fail(e);}}
 function solveNow(){
   try{checkShape(state.puzzle);}catch(e){fail(e);return;}
-  state.uncertain.clear();state.needsReview=false;state.notes=[];state.result=null;state.solution=0;state.view='board';render();const id=begin();
+  state.uncertain.clear();state.needsReview=false;state.notes=[];state.result=null;state.solution=0;state.view='board';persist();render();const id=begin();
   if(!worker)worker=new Worker(new URL('./solver-worker.js',import.meta.url),{type:'module'});
   deadline=setTimeout(()=>{if(id===jobId)stopTask('Runtime loading timed out. Go online and retry.');},180000);
   worker.onmessage=({data:m})=>{
@@ -228,14 +231,15 @@ async function readPhoto(){
   if(!validQuad(state.corners,state.photo.width,state.photo.height)){fail(Error('The crop corners must surround the grid clockwise without crossing.'));return;}
   clearPhotoMapping();state.result=null;$('next-solution').hidden=true;drawBoard();const id=begin();
   try{
-    const found=await scanner.read(state.photo,state.corners,type,rows,cols,(text,p)=>{if(id===jobId)status(text,'', 'info',p);});if(id!==jobId)return;finish();remember();state.puzzle=found.puzzle;state.uncertain=new Set(found.uncertain);state.needsReview=found.needsReview;state.notes=found.notes;state.rectified=state.puzzleSource=found.rectified;state.photoRows=rows;state.photoCols=cols;state.selected=[];
+    const found=await scanner.read(state.photo,state.corners,type,rows,cols,(text,p)=>{if(id===jobId)status(text,'', 'info',p);});if(id!==jobId)return;finish();remember();state.puzzle=found.puzzle;state.uncertain=new Set(found.uncertain);state.needsReview=found.needsReview;state.notes=found.notes;state.rectified=found.rectified;state.puzzleSource=state.photoSource=id;state.photoRows=rows;state.photoCols=cols;state.selected=[];
     if(['sudoku','killersudoku'].includes(state.puzzle.type)){state.puzzle.boxRows=Number($('box-rows').value);state.puzzle.boxCols=Number($('box-cols').value);}
     persist();render();$('photo-panel').hidden=true;status('Puzzle read.',`${TYPES[state.puzzle.type]} suggested. Check highlighted cells and the puzzle rules.`);$('board-title').scrollIntoView({behavior:'smooth',block:'start'});
     if($('auto-solve').checked&&!state.uncertain.size&&!state.needsReview&&state.puzzle.cells.some(Number.isInteger))solveNow();
   }catch(e){if(id===jobId){finish();fail(e);}}
 }
 $('read-photo').onclick=()=>void readPhoto();
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera();});window.addEventListener('pagehide',()=>{stopCamera();stopTask();if(worker)worker.terminate();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera();});
+window.addEventListener('pagehide',()=>{stopCamera();stopTask();if(worker){worker.terminate();worker=null;}});
 
 function offlineMessage(worker,type){return new Promise((resolve,reject)=>{const channel=new MessageChannel();const timeout=setTimeout(()=>{channel.port1.close();reject(Error('Offline preparation did not finish. Go online and retry.'));},300000);channel.port1.onmessage=({data:m})=>{if(m.progress!==undefined)$('offline-state').textContent=`Downloading offline assets: ${m.progress} / ${m.total}`;if(m.done||m.error){clearTimeout(timeout);channel.port1.close();m.error?reject(Error(m.error)):resolve(m);}};worker.postMessage({type},[channel.port2]);});}
 if('serviceWorker' in navigator){
@@ -246,5 +250,5 @@ if('serviceWorker' in navigator){
     const offerUpdate=()=>{if(registration.waiting){$('update-app').hidden=false;$('update-app').onclick=()=>{registration.waiting.postMessage({type:'ACTIVATE'});navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload(),{once:true});};}};offerUpdate();registration.addEventListener('updatefound',()=>registration.installing?.addEventListener('statechange',offerUpdate));
   }).catch(e=>{$('offline-state').textContent=`Offline caching unavailable: ${e.message}`;});
 }else{$('prepare-offline').disabled=true;$('offline-state').textContent='This browser does not support offline caching.';}
-try{const saved=storage.get('gridpuzzle-puzzle-v1');if(saved)state.puzzle=normalized(saved);}catch{/* Ignore malformed/old autosaves. */}
+try{const saved=restoreSession(storage);if(saved){state.puzzle=normalized(saved.puzzle);state.uncertain=new Set(saved.uncertain);state.needsReview=saved.needsReview;state.notes=saved.notes;}}catch{/* Ignore malformed/old autosaves. */}
 render();$('build-label').textContent='Browser scanner · __BUILD_ID__';document.body.dataset.ready='true';

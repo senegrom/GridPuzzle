@@ -14,6 +14,14 @@ async function ready(page){
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async()=>{window.__gridpuzzleTestState=(await import('./app.js')).getState;});
 }
+async function reloadPage(page){
+  // Exercise the app/user navigation path, including its pagehide handler.
+  await Promise.all([
+    page.waitForNavigation({waitUntil:'load',timeout:60000}),
+    page.evaluate(()=>{setTimeout(()=>location.reload(),0);}),
+  ]);
+  await ready(page);
+}
 async function result(page){
   await page.waitForFunction(()=>{const s=window.__gridpuzzleTestState();return !s.busy&&s.result!==null;},null,{timeout:150000});
   return page.evaluate(()=>window.__gridpuzzleTestState().result);
@@ -31,9 +39,9 @@ async function uploadFixture(page,image){
   for(const [name,engine] of Object.entries({chromium,webkit})){
     const browser=await engine.launch({headless:true});
     const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:1,isMobile:true,hasTouch:true});
-    const page=await context.newPage();page.setDefaultTimeout(150000);
-    const errors=[],external=[];page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:8765/')&&!r.url().startsWith('blob:')&&!r.url().startsWith('data:'))external.push(r.url());});
-    const report={browser:name,checks:[],errors,external};reports.push(report);
+    const page=await context.newPage();page.setDefaultTimeout(20000);
+    const errors=[],external=[];page.on('pageerror',e=>errors.push(e.message));context.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:8765/')&&!r.url().startsWith('blob:')&&!r.url().startsWith('data:'))external.push(r.url());});
+    const report={browser:name,version:browser.version(),checks:[],errors,external};reports.push(report);
     try{
       await page.goto(BASE);await ready(page);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Phone layout overflows horizontally');report.checks.push('390px phone layout');
@@ -53,6 +61,11 @@ async function uploadFixture(page,image){
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Large board must scroll inside its own container');
       await page.click('#solve');await page.click('#stop');await sleep(250);
       assert.equal((await page.evaluate(()=>window.__gridpuzzleTestState())).busy,false);assert.equal((await page.evaluate(()=>window.__gridpuzzleTestState())).result,null);await load(page,'sudoku');await page.click('#solve');assert.equal((await result(page)).status,'unique');report.checks.push('worker cancellation and clean restart');
+      await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
+      await load(page,'sudoku');await page.click('#solve');assert.equal((await result(page)).status,'unique');report.checks.push('pagehide terminates and resets the interpreter reference');
+      await page.evaluate(async()=>{const model=await import('./model.js');localStorage.setItem('gridpuzzle-session-v1',JSON.stringify({puzzle:model.demo(),uncertain:[0],needsReview:true,notes:['Check this reading']}));});
+      await reloadPage(page);assert.deepEqual((await page.evaluate(()=>window.__gridpuzzleTestState())).uncertain,[0]);assert.equal((await page.evaluate(()=>window.__gridpuzzleTestState())).needsReview,true);
+      await page.click('#solve');assert.ok(await page.locator('#confirm-dialog').isVisible());await page.click('#confirm-back');report.checks.push('reload retains unconfirmed recognition flags');
       await page.evaluate(()=>Object.defineProperty(navigator.mediaDevices,'getUserMedia',{configurable:true,value:async()=>{throw new DOMException('Denied in acceptance test','NotAllowedError');}}));await page.click('#camera');await page.waitForSelector('#native-camera:not([hidden])');report.checks.push('camera permission fallback');
       const image=await page.evaluate(async()=>{
         const p=(await import('./model.js')).demo(),c=document.createElement('canvas');c.width=c.height=660;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,660,660);ctx.strokeStyle='black';
@@ -66,8 +79,8 @@ async function uploadFixture(page,image){
       assert.ok(await page.locator('#photo-view').isEnabled(),'The recognized Sudoku must produce a solution overlay');
       await page.click('#photo-view');assert.ok(await page.locator('#solution-photo').isVisible());await page.screenshot({path:`browser-artifacts/${name}-overlay.png`,fullPage:true});report.checks.push('photo overlay');
       await page.click('#show-crop');await page.focus('#crop-canvas');await page.keyboard.press('ArrowRight');assert.ok(await page.locator('#photo-view').isDisabled());assert.ok(await page.locator('#save-photo').isHidden());assert.ok(await page.locator('#solution-photo').isHidden());report.checks.push('adjusted crop invalidates old photo overlay');
-      await page.locator('#prepare-offline').evaluate(el=>{el.closest('details').open=true;});await page.click('#prepare-offline');await page.waitForFunction(()=>document.querySelector('#offline-state').textContent.startsWith('Offline assets are ready'),null,{timeout:300000});
-      await context.setOffline(true);await page.reload();await ready(page);await load(page,'sudoku');await page.click('#solve');assert.equal((await result(page)).status,'unique');report.checks.push('offline reload and Python solve');
+      await page.locator('#prepare-offline').evaluate(el=>{el.closest('details').open=true;});await page.click('#prepare-offline');await page.waitForFunction(()=>document.querySelector('#offline-state').textContent.startsWith('Offline assets are ready'),null,{timeout:120000});
+      await context.setOffline(true);await reloadPage(page);await load(page,'sudoku');await page.click('#solve');assert.equal((await result(page)).status,'unique');report.checks.push('offline reload and Python solve');
       await uploadFixture(page,image);const offlineScan=await page.evaluate(()=>window.__gridpuzzleTestState());assert.ok(offlineScan.puzzle.cells.filter(Number.isInteger).length>=24);report.checks.push('offline photo recognition');
       await context.setOffline(false);assert.deepEqual(external,[],'App made an external runtime request');assert.deepEqual(errors,[],'Browser raised uncaught errors');report.ok=true;console.log(name,JSON.stringify(report));
     }catch(error){report.ok=false;report.failure=error.stack;console.error(name,error);try{await page.screenshot({path:`browser-artifacts/${name}-failure.png`,fullPage:true});report.status=await page.locator('#status').innerText();report.state=await page.evaluate(()=>window.__gridpuzzleTestState());}catch{}}

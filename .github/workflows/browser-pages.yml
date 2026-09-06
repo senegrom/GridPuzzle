@@ -35,7 +35,7 @@ jobs:
           retention-days: 7
       - name: Install browser test runtime
         run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.55.1
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
           npx playwright install --with-deps chromium webkit
       - name: Chromium and mobile WebKit acceptance tests
         run: node scripts/browser_smoke.cjs
