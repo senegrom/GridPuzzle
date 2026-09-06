@@ -1,37 +1,41 @@
 import {TYPES,makePuzzle,demo,clone,checkShape,conflicts,isCage} from './model.js';
-import {Scanner,canvasOf,imageOf} from './scanner.js';
+import {Scanner} from './scanner.js';
 import {homography,project,validQuad} from './geometry.js';
 
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg',scanner=new Scanner();
-const state={puzzle:makePuzzle(),uncertain:new Set(),needsReview:false,notes:[],result:null,solution:0,photo:null,rectified:null,corners:null,photoRows:0,photoCols:0,view:'board',selected:[],history:[]};
+const state={puzzle:makePuzzle(),uncertain:new Set(),needsReview:false,notes:[],result:null,solution:0,photo:null,rectified:null,puzzleSource:null,corners:null,photoRows:0,photoCols:0,view:'board',selected:[],history:[]};
 let worker=null,jobId=0,busy=false,timer=null,deadline=null,started=0,stream=null,cameraEpoch=0,editing=0,drag=-1,focused=0;
 const storage={get:key=>{try{return JSON.parse(localStorage.getItem(key));}catch{return null;}},set:(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{/* Private/storage-full mode must not break solving. */}}};
 for(const [value,label] of Object.entries(TYPES)){const option=document.createElement('option');option.value=value;option.textContent=label;$('puzzle-type').append(option);}
+const applyType=document.createElement('button');applyType.id='use-type';applyType.className='text-button';applyType.hidden=true;$('type-help').after(applyType);
 const prefs=storage.get('gridpuzzle-settings-v1');
 if(prefs){if(prefs.type==='auto'||Object.hasOwn(TYPES,prefs.type))$('puzzle-type').value=prefs.type;for(const id of ['auto-capture','auto-solve'])if(typeof prefs[id]==='boolean')$(id).checked=prefs[id];if(['0','30','90','300'].includes(prefs.limit))$('time-limit').value=prefs.limit;}
 function savePrefs(){storage.set('gridpuzzle-settings-v1',{type:$('puzzle-type').value,'auto-capture':$('auto-capture').checked,'auto-solve':$('auto-solve').checked,limit:$('time-limit').value});}
 for(const id of ['puzzle-type','auto-capture','auto-solve','time-limit'])$(id).addEventListener('change',savePrefs);
+function typeControl(){const type=$('puzzle-type').value;applyType.hidden=type==='auto'||type===state.puzzle.type;applyType.textContent=`Use ${TYPES[type]||'this type'} for the current board`;}
+$('puzzle-type').addEventListener('change',typeControl);
 function status(text,detail='',kind='info',progress=null){
-  $('status').className=`status ${kind}`;$('status-text').textContent=text;$('status-detail').textContent=detail;
+  delete $('status').dataset.result;$('status').className=`status ${kind}`;$('status-text').textContent=text;$('status-detail').textContent=detail;
   $('progress').hidden=!busy;if(progress===null)$('progress').removeAttribute('value');else $('progress').value=progress;
 }
 function fail(error){if(error?.name!=='AbortError')status(error?.message||String(error),'Nothing was uploaded or sent to a remote solver.','error');}
-function remember(){state.history.push({puzzle:clone(state.puzzle),uncertain:[...state.uncertain],needsReview:state.needsReview,notes:[...state.notes]});if(state.history.length>30)state.history.shift();}
+function remember(){state.history.push({puzzle:clone(state.puzzle),uncertain:[...state.uncertain],needsReview:state.needsReview,notes:[...state.notes],source:state.puzzleSource});if(state.history.length>30)state.history.shift();}
 function persist(){storage.set('gridpuzzle-puzzle-v1',state.puzzle);}
 function stopTask(message=null){
   jobId++;scanner.cancel();if(busy&&worker){worker.terminate();worker=null;}busy=false;clearInterval(timer);clearTimeout(deadline);timer=deadline=null;$('stop').hidden=true;$('solve').disabled=false;$('progress').hidden=true;$('status').setAttribute('aria-busy','false');
   if(message)status(message,'Search unfinished. No claim about uniqueness or impossibility has been made.','warning');
 }
-function invalidate(){stopTask();state.result=null;state.solution=0;state.view='board';}
+function invalidate(){stopTask();state.result=null;state.solution=0;state.view='board';status('Puzzle changed.','Solve again to check the updated clues and rules.');}
 function begin(){stopTask();busy=true;started=performance.now();$('stop').hidden=false;$('solve').disabled=true;$('status').setAttribute('aria-busy','true');timer=setInterval(()=>{$('status-detail').textContent=`${((performance.now()-started)/1000).toFixed(1)} seconds elapsed · Stop cancels this task.`;},500);return jobId;}
 function finish(){busy=false;clearInterval(timer);clearTimeout(deadline);timer=deadline=null;$('stop').hidden=true;$('solve').disabled=false;$('progress').hidden=true;$('status').setAttribute('aria-busy','false');}
 function mutate(fn){remember();invalidate();fn();persist();render();}
 function normalized(p){checkShape(p);return {...clone(p),cages:clone(p.cages||[]),inequalities:clone(p.inequalities||[]),clues:clone(p.clues||[])};}
-export function loadPuzzle(payload){const p=normalized(payload);remember();invalidate();state.puzzle=p;state.uncertain.clear();state.needsReview=false;state.notes=[];state.photo=state.rectified=state.corners=null;$('photo-panel').hidden=true;$('puzzle-type').value=p.type;state.selected=[];persist();render();status('Puzzle loaded.',`${TYPES[p.type]} · Tap any cell to edit its printed clue.`);}
+export function loadPuzzle(payload){const p=normalized(payload);remember();invalidate();stopCamera();state.puzzle=p;state.uncertain.clear();state.needsReview=false;state.notes=[];state.photo=state.rectified=state.puzzleSource=state.corners=null;$('photo-panel').hidden=true;$('puzzle-type').value=p.type;state.selected=[];focused=0;persist();render();status('Puzzle loaded.',`${TYPES[p.type]} · Tap any cell to edit its printed clue.`);}
 export function getState(){return {puzzle:clone(state.puzzle),result:clone(state.result),uncertain:[...state.uncertain],busy};}
 function svg(tag,attrs={},text=null){const node=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))node.setAttribute(k,String(v));if(text!==null)node.textContent=String(text);return node;}
 function drawBoard(){
   const p=state.puzzle,board=$('board'),size=72,margin=5,sol=state.result?.solutions?.[state.solution],bad=conflicts(p);
+  focused=Math.min(focused,p.cells.length-1);board.style.minWidth=`${Math.max(240,p.cols*34)}px`;
   board.replaceChildren();board.setAttribute('viewBox',`-${margin} -${margin} ${p.cols*size+2*margin} ${p.rows*size+2*margin}`);
   const cages=new Map();p.cages.forEach((c,k)=>c.cells.forEach(i=>cages.set(i,k)));
   for(let i=0;i<p.cells.length;i++){
@@ -61,7 +65,12 @@ function drawBoard(){
     for(let r=0;r<=p.rows;r++)for(let c=0;c<=p.cols;c++)board.append(svg('circle',{cx:c*size,cy:r*size,r:3,fill:'#173536','pointer-events':'none'}));
   }
 }
-function canOverlay(){return !!(state.photo&&state.corners&&state.result?.solutions?.length&&state.photoRows===state.puzzle.rows&&state.photoCols===state.puzzle.cols);}
+function canOverlay(){return !!(state.photo&&state.corners&&state.rectified&&state.puzzleSource===state.rectified&&state.result?.solutions?.length&&state.photoRows===state.puzzle.rows&&state.photoCols===state.puzzle.cols);}
+function clearPhotoMapping(){
+  state.rectified=null;state.photoRows=state.photoCols=0;state.view='board';
+  $('photo-view').disabled=true;$('save-photo').hidden=true;$('solution-photo').hidden=true;$('board-scroll').hidden=false;
+  $('clean-view').setAttribute('aria-pressed','true');$('photo-view').setAttribute('aria-pressed','false');
+}
 function drawOverlay(){
   if(!canOverlay())return;const out=$('solution-photo'),ctx=out.getContext('2d'),p=state.puzzle,sol=state.result.solutions[state.solution];out.width=state.photo.width;out.height=state.photo.height;ctx.drawImage(state.photo,0,0);
   const m=homography(state.corners),point=(r,c)=>project(m,c/p.cols,r/p.rows);
@@ -75,7 +84,7 @@ function drawOverlay(){
 function render(){
   const p=state.puzzle;$('board-meta').textContent=`${TYPES[p.type]} · ${p.rows} × ${p.cols} · ${p.cells.filter(Number.isInteger).length} printed clues`;
   $('rows').value=p.rows;$('cols').value=p.cols;$('box-rows').value=p.boxRows||boxDefault(p.rows)[0];$('box-cols').value=p.boxCols||boxDefault(p.rows)[1];
-  $('box-fields').hidden=!['sudoku','killersudoku'].includes(p.type);$('undo').disabled=!state.history.length;
+  $('box-fields').hidden=!['sudoku','killersudoku'].includes(p.type);$('undo').disabled=!state.history.length;typeControl();
   for(const option of $('edit-tool').options)option.disabled=(option.value==='cage'&&!isCage(p.type))||(option.value==='inequality'&&p.type!=='futoshiki');
   if($('edit-tool').selectedOptions[0]?.disabled)$('edit-tool').value='value';
   $('cage-editor').hidden=$('edit-tool').value!=='cage';$('inequality-editor').hidden=$('edit-tool').value!=='inequality';$('cage-op').disabled=p.type==='killersudoku';
@@ -88,10 +97,20 @@ function render(){
   $('solve').textContent=review?'Check & solve →':'Solve puzzle →';
 }
 function boxDefault(n){let a=Math.floor(Math.sqrt(n));while(n%a)a--;return [a,n/a];}
+applyType.onclick=()=>{
+  try{
+    const next=clone(state.puzzle),type=$('puzzle-type').value;if(!Object.hasOwn(TYPES,type))throw Error('Select an explicit puzzle type.');
+    if((next.cages.length&&!isCage(type))||(next.inequalities.length&&type!=='futoshiki')||(next.clues.length&&type!=='kakuro'))throw Error('This board has structural clues for a different puzzle type. Remove those constraints explicitly or start a blank board; they will not be silently discarded.');
+    if(type==='killersudoku'&&next.cages.some(c=>c.op&&c.op!=='+'))throw Error('Killer Sudoku cages must be sums. Correct the operators before changing the type.');
+    next.type=type;checkShape(next);
+    mutate(()=>{state.puzzle=next;state.needsReview=Boolean(state.photo);state.notes=[`Rules changed to ${TYPES[type]}. Printed clues have been kept.`];state.selected=[];});
+    status(`Using ${TYPES[type]}.`,'Printed values are unchanged. Check the rules before solving.');
+  }catch(error){fail(error);}
+};
 function openCell(i){
-  stopTask();editing=i;focused=i;const p=state.puzzle,r=Math.floor(i/p.cols),c=i%p.cols;$('cell-title').textContent=`Row ${r+1} · Column ${c+1}`;$('cell-value').value=Number.isInteger(p.cells[i])?p.cells[i]:'';$('blocked-cell').checked=p.cells[i]==='#';$('block-option').hidden=!['hidato','kakuro'].includes(p.type);$('cell-error').textContent='';
+  stopTask(busy?'Stopped for editing.':null);editing=i;focused=i;const p=state.puzzle,r=Math.floor(i/p.cols),c=i%p.cols;$('cell-title').textContent=`Row ${r+1} · Column ${c+1}`;$('cell-value').value=Number.isInteger(p.cells[i])?p.cells[i]:'';$('blocked-cell').checked=p.cells[i]==='#';$('block-option').hidden=!['hidato','kakuro'].includes(p.type);$('cell-error').textContent='';
   const clue=p.clues.find(q=>q.cell===i);$('across-value').value=clue?.across??'';$('down-value').value=clue?.down??'';blockInputs();
-  $('clue-crop').hidden=!(state.rectified&&state.photoRows===p.rows&&state.photoCols===p.cols);
+  $('clue-crop').hidden=!(state.rectified&&state.puzzleSource===state.rectified&&state.photoRows===p.rows&&state.photoCols===p.cols);
   if(!$('clue-crop').hidden){const out=$('clue-crop'),ctx=out.getContext('2d'),cw=state.rectified.width/p.cols,ch=state.rectified.height/p.rows;ctx.fillStyle='#fff';ctx.fillRect(0,0,180,180);ctx.drawImage(state.rectified,c*cw,r*ch,cw,ch,0,0,180,180);}
   $('cell-dialog').showModal();$('cell-value').focus();$('cell-value').select();
 }
@@ -115,7 +134,7 @@ $('save-cage').onclick=()=>{try{const target=numberInput('cage-target');if(!targ
 $('remove-cage').onclick=()=>mutate(()=>{state.puzzle.cages=state.puzzle.cages.filter(q=>!q.cells.some(i=>state.selected.includes(i)));state.selected=[];});
 $('save-inequality').onclick=()=>{try{if(state.selected.length!==2)throw Error('Select the smaller cell and its larger neighbour.');const [less,greater]=state.selected,p=state.puzzle;if(Math.abs(Math.floor(less/p.cols)-Math.floor(greater/p.cols))+Math.abs(less%p.cols-greater%p.cols)!==1)throw Error('Inequality cells must share a side.');mutate(()=>{p.inequalities=p.inequalities.filter(q=>![less,greater].includes(q.less)||![less,greater].includes(q.greater));p.inequalities.push({less,greater});state.selected=[];});}catch(e){fail(e);}};
 $('remove-inequality').onclick=()=>mutate(()=>{state.puzzle.inequalities=state.puzzle.inequalities.filter(q=>!(state.selected.includes(q.less)&&state.selected.includes(q.greater)));state.selected=[];});
-$('undo').onclick=()=>{const previous=state.history.pop();if(!previous)return;invalidate();state.puzzle=previous.puzzle;state.uncertain=new Set(previous.uncertain);state.needsReview=previous.needsReview;state.notes=previous.notes;state.selected=[];persist();render();status('Last edit undone.');};
+$('undo').onclick=()=>{const previous=state.history.pop();if(!previous)return;invalidate();state.puzzle=previous.puzzle;state.puzzleSource=previous.source;state.uncertain=new Set(previous.uncertain);state.needsReview=previous.needsReview;state.notes=previous.notes;state.selected=[];persist();render();status('Last edit undone.');};
 $('stop').onclick=()=>stopTask('Stopped.');
 function requestSolve(){try{checkShape(state.puzzle);if(state.uncertain.size||state.needsReview){$('confirm-text').textContent=`${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${state.uncertain.size} cells were highlighted for review.`;$('confirm-dialog').showModal();}else solveNow();}catch(e){fail(e);}}
 function solveNow(){
@@ -141,14 +160,14 @@ function solveNow(){
   status('Starting the on-device solver…','The first load downloads Python.');worker.postMessage({id,puzzle:clone(state.puzzle)});
 }
 $('solve').onclick=requestSolve;$('confirm-solve').onclick=()=>{$('confirm-dialog').close();solveNow();};$('confirm-back').onclick=()=>$('confirm-dialog').close();
-$('next-solution').onclick=()=>{state.solution=(state.solution+1)%state.result.solutions.length;render();};$('clean-view').onclick=()=>{state.view='board';render();};$('photo-view').onclick=()=>{state.view='photo';render();};
+$('next-solution').onclick=()=>{if(state.result?.solutions?.length){state.solution=(state.solution+1)%state.result.solutions.length;render();}};$('clean-view').onclick=()=>{state.view='board';render();};$('photo-view').onclick=()=>{state.view='photo';render();};
 $('example').onclick=()=>{try{loadPuzzle(demo($('puzzle-type').value==='auto'?'sudoku':$('puzzle-type').value));}catch(e){fail(e);}};
 $('new-board').onclick=()=>{try{const type=$('puzzle-type').value==='auto'?'sudoku':$('puzzle-type').value,n=['sudoku','killersudoku'].includes(type)?9:type==='kenken'?6:5;loadPuzzle(makePuzzle(type,n));}catch(e){fail(e);}};
-$('apply-layout').onclick=()=>{try{const rows=Number($('rows').value),cols=Number($('cols').value),type=$('puzzle-type').value==='auto'?state.puzzle.type:$('puzzle-type').value;const next=makePuzzle(type,rows,cols);next.boxRows=Number($('box-rows').value);next.boxCols=Number($('box-cols').value);checkShape(next);if(type===state.puzzle.type&&rows===state.puzzle.rows&&cols===state.puzzle.cols){mutate(()=>{state.puzzle.boxRows=next.boxRows;state.puzzle.boxCols=next.boxCols;});}else if(confirm('Changing the board type or dimensions clears the existing clues and structural constraints. Continue?'))loadPuzzle(next);}catch(e){fail(e);}};
+$('apply-layout').onclick=()=>{try{const rows=Number($('rows').value),cols=Number($('cols').value),type=$('puzzle-type').value==='auto'?state.puzzle.type:$('puzzle-type').value;const next=makePuzzle(type,rows,cols);next.boxRows=Number($('box-rows').value);next.boxCols=Number($('box-cols').value);checkShape(next);if(type===state.puzzle.type&&rows===state.puzzle.rows&&cols===state.puzzle.cols){mutate(()=>{state.puzzle.boxRows=next.boxRows;state.puzzle.boxCols=next.boxCols;});}else if(confirm('Changing the board type or dimensions here clears existing clues. To keep clues while changing only the rules, use the button below the puzzle-type selector. Clear this board?'))loadPuzzle(next);}catch(e){fail(e);}};
 function download(blob,name){const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
 $('export-json').onclick=()=>download(new Blob([JSON.stringify(state.puzzle,null,2)],{type:'application/json'}),`gridpuzzle-${state.puzzle.type}.json`);
-$('save-photo').onclick=()=>{drawOverlay();$('solution-photo').toBlob(blob=>{if(blob)download(blob,'gridpuzzle-solution.png');});};
-$('import-json').onclick=()=>$('json-file').click();$('json-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>200000)throw Error('Puzzle files must be smaller than 200 KB.');loadPuzzle(JSON.parse(await file.text()));}catch(error){fail(error);}finally{e.target.value='';}};
+$('save-photo').onclick=()=>{if(!canOverlay()){status('Read the adjusted crop before exporting an overlay.');return;}drawOverlay();$('solution-photo').toBlob(blob=>{if(blob)download(blob,'gridpuzzle-solution.png');});};
+$('import-json').onclick=()=>$('json-file').click();$('json-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>200000)throw Error('Puzzle files must be smaller than 200 KB.');stopTask();const id=jobId;const parsed=JSON.parse(await file.text());if(id===jobId)loadPuzzle(parsed);}catch(error){fail(error);}finally{e.target.value='';}};
 $('apply-json').onclick=()=>{try{if($('json-data').value.length>200000)throw Error('Puzzle data is too large.');loadPuzzle(JSON.parse($('json-data').value));}catch(e){fail(e);}};
 
 function stopCamera(){cameraEpoch++;if(stream)for(const track of stream.getTracks())track.stop();stream=null;$('video').srcObject=null;$('camera-panel').hidden=true;}
@@ -190,7 +209,7 @@ function drawCrop(){
   state.corners.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,radius,0,Math.PI*2);ctx.fillStyle='#123b3b';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=radius/10;ctx.stroke();ctx.fillStyle='#fff';ctx.font=`bold ${radius}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(i+1,p.x,p.y);});
 }
 async function acceptPhoto(canvas,auto=false){
-  invalidate();state.photo=canvas;state.rectified=null;state.corners=null;state.photoRows=state.photoCols=0;state.result=null;$('photo-panel').hidden=false;render();const id=begin();status('Finding the grid…','Photo processing stays on this device.');
+  invalidate();state.history=[];state.puzzleSource=null;state.photo=canvas;clearPhotoMapping();state.corners=null;state.result=null;$('photo-panel').hidden=false;render();const id=begin();status('Finding the grid…','Photo processing stays on this device.');
   try{const found=await scanner.detect(canvas);if(id!==jobId)return;state.corners=found.corners;finish();if(found.rows&&found.cols){$('rows').value=found.rows;$('cols').value=found.cols;const b=boxDefault(found.rows);$('box-rows').value=b[0];$('box-cols').value=b[1];}drawCrop();status(found.confidence>.8?'Grid found.':'Set the four crop corners.',found.rows?`Detected ${found.rows} × ${found.cols}. Check the corners, then read the puzzle.`:'Drag the numbered handles. Set rows and columns in Grid size & settings.');$('photo-panel').scrollIntoView({block:'start',behavior:'smooth'});if(auto&&found.confidence>.85)await readPhoto();}catch(e){if(id===jobId){finish();fail(e);}}
 }
 $('detect-photo').onclick=()=>{if(state.photo)void acceptPhoto(state.photo);};
@@ -199,17 +218,17 @@ $('hide-photo').onclick=()=>$('photo-panel').hidden=true;$('show-crop').onclick=
 $('crop-canvas').style.maxHeight='none';$('crop-canvas').tabIndex=0;$('crop-canvas').title='Drag corners, or press 1–4 to select a corner and use arrow keys.';
 function cropPoint(e){const b=$('crop-canvas').getBoundingClientRect();return {x:(e.clientX-b.left)*$('crop-canvas').width/b.width,y:(e.clientY-b.top)*$('crop-canvas').height/b.height};}
 $('crop-canvas').onpointerdown=e=>{if(!state.corners)return;const pt=cropPoint(e),dist=state.corners.map(p=>Math.hypot(p.x-pt.x,p.y-pt.y));drag=dist.indexOf(Math.min(...dist));if(dist[drag]>state.photo.width*.15){drag=-1;return;}stopTask();$('crop-canvas').setPointerCapture(e.pointerId);e.preventDefault();};
-$('crop-canvas').onpointermove=e=>{if(drag<0)return;const pt=cropPoint(e);state.corners[drag]={x:Math.max(0,Math.min(state.photo.width-1,pt.x)),y:Math.max(0,Math.min(state.photo.height-1,pt.y))};state.rectified=null;state.photoRows=state.photoCols=0;drawCrop();};
+$('crop-canvas').onpointermove=e=>{if(drag<0)return;const pt=cropPoint(e);state.corners[drag]={x:Math.max(0,Math.min(state.photo.width-1,pt.x)),y:Math.max(0,Math.min(state.photo.height-1,pt.y))};clearPhotoMapping();drawCrop();};
 $('crop-canvas').onpointerup=$('crop-canvas').onpointercancel=()=>{drag=-1;};
-let keyboardCorner=0;$('crop-canvas').onkeydown=e=>{if(!state.corners)return;if(/^[1-4]$/.test(e.key)){keyboardCorner=Number(e.key)-1;return;}const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();stopTask();const p=state.corners[keyboardCorner],step=e.shiftKey?10:1;p.x=Math.max(0,Math.min(state.photo.width-1,p.x+delta[0]*step));p.y=Math.max(0,Math.min(state.photo.height-1,p.y+delta[1]*step));state.photoRows=state.photoCols=0;drawCrop();}};
+let keyboardCorner=0;$('crop-canvas').onkeydown=e=>{if(!state.corners)return;if(/^[1-4]$/.test(e.key)){keyboardCorner=Number(e.key)-1;return;}const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();stopTask();const p=state.corners[keyboardCorner],step=e.shiftKey?10:1;p.x=Math.max(0,Math.min(state.photo.width-1,p.x+delta[0]*step));p.y=Math.max(0,Math.min(state.photo.height-1,p.y+delta[1]*step));clearPhotoMapping();drawCrop();}};
 async function readPhoto(){
   if(!state.photo||!state.corners)return;
   const rows=Number($('rows').value),cols=Number($('cols').value),type=$('puzzle-type').value;
   if(!Number.isInteger(rows)||!Number.isInteger(cols)||rows<1||cols<1||rows>25||cols>25){fail(Error('Set rows and columns to whole numbers from 1 to 25.'));return;}
   if(!validQuad(state.corners,state.photo.width,state.photo.height)){fail(Error('The crop corners must surround the grid clockwise without crossing.'));return;}
-  const id=begin();state.result=null;
+  clearPhotoMapping();state.result=null;$('next-solution').hidden=true;drawBoard();const id=begin();
   try{
-    const found=await scanner.read(state.photo,state.corners,type,rows,cols,(text,p)=>{if(id===jobId)status(text,'', 'info',p);});if(id!==jobId)return;finish();remember();state.puzzle=found.puzzle;state.uncertain=new Set(found.uncertain);state.needsReview=found.needsReview;state.notes=found.notes;state.rectified=found.rectified;state.photoRows=rows;state.photoCols=cols;state.selected=[];
+    const found=await scanner.read(state.photo,state.corners,type,rows,cols,(text,p)=>{if(id===jobId)status(text,'', 'info',p);});if(id!==jobId)return;finish();remember();state.puzzle=found.puzzle;state.uncertain=new Set(found.uncertain);state.needsReview=found.needsReview;state.notes=found.notes;state.rectified=state.puzzleSource=found.rectified;state.photoRows=rows;state.photoCols=cols;state.selected=[];
     if(['sudoku','killersudoku'].includes(state.puzzle.type)){state.puzzle.boxRows=Number($('box-rows').value);state.puzzle.boxCols=Number($('box-cols').value);}
     persist();render();$('photo-panel').hidden=true;status('Puzzle read.',`${TYPES[state.puzzle.type]} suggested. Check highlighted cells and the puzzle rules.`);$('board-title').scrollIntoView({behavior:'smooth',block:'start'});
     if($('auto-solve').checked&&!state.uncertain.size&&!state.needsReview&&state.puzzle.cells.some(Number.isInteger))solveNow();

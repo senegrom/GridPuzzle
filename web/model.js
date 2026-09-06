@@ -62,8 +62,10 @@ export function classify({rows,cols,values=[],signs=0,labels=0,operators=0,black
   if(black&&triangles)return {type:'kakuro',review:true,reason:'Cross-sum layout detected. Check black cells and both clue directions.'};
   if(signs)return {type:'futoshiki',review:true,reason:'Inequalities detected. Check the direction of every sign.'};
   if(labels>1)return {type:operators?'kenken':'killersudoku',review:true,reason:'Cages detected. Check every boundary, target and operator.'};
+  // One OCR merge (e.g. a spurious extra character beside an 8) must not turn
+  // a clear boxed Sudoku layout into a different set of path-puzzle rules.
+  if(rows===cols&&boxes&&!black)return {type:'sudoku',review:false,reason:'Sudoku box pattern detected. Extra variant rules still need an explicit type.'};
   if(black||values.some(n=>Number.isInteger(n)&&n>Math.max(rows,cols)))return {type:black?'hidato':'numbrix',review:true,reason:'Number-path layout: confirm Hidato (diagonals allowed) or Numbrix (orthogonal only).'};
   if(dots&&values.some(Number.isInteger)&&values.filter(Number.isInteger).every(n=>n<=4))return {type:'slitherlink',review:true,reason:'Loop layout suggested. Check the dimensions and clues, including zeroes.'};
-  if(rows===cols&&boxes)return {type:'sudoku',review:false,reason:'Sudoku box pattern detected. Extra variant rules still need an explicit type.'};
   return {type:rows===cols?'sudoku':'numbrix',review:true,reason:'The rules are ambiguous from the grid alone. Choose the correct type before solving.'};
 }

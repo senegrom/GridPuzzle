@@ -1,5 +1,6 @@
 import {makePuzzle,classify,conflicts,isCage} from './model.js';
 import {threshold,gray} from './geometry.js';
+import {mapAtlas} from './ocr-map.js';
 let library;
 function tesseract(){
   if(!library)library=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=new URL('./vendor/tesseract/tesseract.min.js',import.meta.url).href;script.onload=()=>resolve(globalThis.Tesseract);script.onerror=()=>{script.remove();library=null;reject(Error('Recognition engine could not load. Go online and retry.'));};document.head.append(script);});
@@ -25,7 +26,6 @@ function componentsForCages(mask,w,h,rows,cols,type){
   }
   const groups=new Map();for(let i=0;i<parent.length;i++){const k=root(i);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(i);}return [...groups.values()];
 }
-function flattenWords(data){return (data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>l.words||[])));}
 export class Scanner {
   constructor(){this.epoch=0;this.jobs=new Set();this.ocr=null;}
   cancel(){this.epoch++;for(const job of this.jobs){job.worker.terminate();job.reject(aborted());}this.jobs.clear();if(this.ocr){void this.ocr.terminate();this.ocr=null;}}
@@ -74,7 +74,8 @@ export class Scanner {
       }
     }
     if(!entries.length)throw Error('No printed clues found. Adjust the crop, dimensions or lighting.');
-    // One atlas recognition job, rather than a separate OCR call for each cell.
+    // One atlas recognition job. Character bounding boxes keep clues separate
+    // even when OCR groups many atlas tiles into one long word.
     const tile=112,columns=Math.min(12,entries.length),atlas=document.createElement('canvas');atlas.width=columns*tile;atlas.height=Math.ceil(entries.length/columns)*tile;
     const ctx=atlas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,atlas.width,atlas.height);
     const bw=canvasOf({width:w,height:h,data:new Uint8ClampedArray(image.data.length)}),bd=bw.getContext('2d').createImageData(w,h);
@@ -96,11 +97,8 @@ export class Scanner {
     try{
       await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:'0123456789<>^vV+-xX*/=×÷',user_defined_dpi:'300'});check();
       const {data}=await worker.recognize(atlas,{}, {text:true,blocks:true});check();
-      for(const word of flattenWords(data)){
-        const b=word.bbox,index=Math.floor(((b.y0+b.y1)/2)/tile)*columns+Math.floor(((b.x0+b.x1)/2)/tile),entry=entries[index];
-        if(entry){entry.parts??=[];entry.parts.push(word);}
-      }
-      for(const e of entries){const parts=(e.parts||[]).sort((a,b)=>a.bbox.x0-b.bbox.x0);e.text=parts.map(x=>x.text).join('').replace(/\s/g,'');e.confidence=parts.length?Math.min(...parts.map(x=>x.confidence)):0;}
+      const readings=mapAtlas(data,entries.length,columns,tile);
+      entries.forEach((e,i)=>{e.text=readings[i].text;e.confidence=readings[i].confidence;});
     }finally{if(this.ocr===worker)this.ocr=null;await worker.terminate();}
     check();
     const valueEntries=entries.filter(e=>e.kind==='value'),values=Array(rows*cols).fill(null),uncertain=new Set();
