@@ -1,10 +1,25 @@
-import {findGrid,warp,sharpness,estimateGrid} from './geometry.js';
-self.onmessage=({data:m})=>{
-  try{
-    if(m.op==='detect')self.postMessage({id:m.id,result:{...findGrid(m.image),sharpness:sharpness(m.image)}});
-    else if(m.op==='warp'){
-      const image=warp(m.image,m.corners,m.width,m.height),meta=estimateGrid(image);
-      self.postMessage({id:m.id,result:{image,meta}},[image.data.buffer]);
-    }else throw Error('Unknown geometry task');
-  }catch(error){self.postMessage({id:m.id,error:error.message});}
+import { findGrid, warp, estimateGrid, sharpness } from "./geometry.js";
+import { prepareScan } from "./scan-analysis.js";
+self.onmessage = ({ data }) => {
+  try {
+    let result;
+    if (data.op === "detect")
+      result = { ...findGrid(data.image), sharpness: sharpness(data.image) };
+    else if (data.op === "warp" || data.op === "prepare") {
+      const image = warp(data.image, data.corners, data.width, data.height);
+      result =
+        data.op === "prepare"
+          ? prepareScan(image, data.type, data.rows, data.cols)
+          : { image, meta: estimateGrid(image) };
+    } else throw Error("Unknown image task");
+    const transfer = result.image
+      ? [
+          result.image.data.buffer,
+          ...(result.mask ? [result.mask.buffer, result.g.buffer] : []),
+        ]
+      : [];
+    self.postMessage({ result }, transfer);
+  } catch (error) {
+    self.postMessage({ error: error.message });
+  }
 };

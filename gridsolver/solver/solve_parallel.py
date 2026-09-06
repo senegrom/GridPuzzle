@@ -66,6 +66,27 @@ def _solve_branch_with_stats(
     return solutions, stats
 
 
+def _wait_for_uncapped_result(future, siblings) -> None:
+    """Observe any required branch failure without reordering successful results.
+
+    Only unlimited solves use this observer: every branch is required there.
+    A positive cap intentionally keeps errors outside its consumed prefix
+    irrelevant. The bounded submission window also bounds completed results
+    held while the first branch is running.
+    """
+    outstanding = {future, *siblings}
+    while outstanding:
+        done, outstanding = concurrent.futures.wait(
+            outstanding,
+            return_when=concurrent.futures.FIRST_COMPLETED,
+        )
+        for completed in done:
+            if completed.exception() is not None:
+                completed.result()  # Re-raise the original worker exception.
+        if future in done:
+            return
+
+
 def solve_parallel_trials(
     grid: Grid,
     branches: list[tuple[int, int]],
@@ -110,6 +131,8 @@ def solve_parallel_trials(
 
             while futures:
                 future = futures.popleft()
+                if max_sols == -1:
+                    _wait_for_uncapped_result(future, futures)
                 result = future.result()
                 if stats is None:
                     branch_solutions = result

@@ -492,28 +492,33 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             maxi = n
         if maxi < mini or count <= 0 or not count * mini <= n <= count * maxi:
             return ()
-        # These exact extrema have one partition, including large full-domain
-        # distinct cages after the staircase transform. Avoid recursive depth
-        # proportional to the cage size when the answer is already determined.
-        if n == count * mini:
-            return ((mini,) * count,)
-        if n == count * maxi:
-            return ((maxi,) * count,)
-        if count == 1:
-            return ((n,),)
 
+        # Explicit lexicographic DFS. The old recursive call graph could exceed
+        # Python's recursion limit even when a thousand-cell cage had ONE
+        # admissible partition. Frames store only scalars; a single prefix is
+        # reused instead of copying it at each depth. No partitions or matching
+        # deductions are truncated, deferred or replaced by bounds-only logic.
         partitions: list[tuple[int, ...]] = []
-        upper = min(n // count, maxi) + 1
-        for value in range(mini, upper):
-            partitions.extend(
-                (value, *suffix)
-                for suffix in SumAndElementsAtMostOnce._partition_tuples(
-                    n - value,
-                    count - 1,
-                    value,
-                    maxi,
-                )
-            )
+        prefix: list[int] = []
+        work = [(n, count, mini, 0)]
+        while work:
+            remaining, left, lower, depth = work.pop()
+            if depth:
+                prefix[depth - 1:] = [lower]
+            if remaining == left * lower:
+                partitions.append((*prefix, *((lower,) * left)))
+                continue
+            if remaining == left * maxi:
+                partitions.append((*prefix, *((maxi,) * left)))
+                continue
+            if left == 1:
+                partitions.append((*prefix, remaining))
+                continue
+            first = max(lower, remaining - (left - 1) * maxi)
+            last = min(remaining // left, maxi)
+            # Reverse pushes retain the former ascending recursion order.
+            for value in range(last, first - 1, -1):
+                work.append((remaining - value, left - 1, value, depth + 1))
         return tuple(partitions)
 
     @staticmethod

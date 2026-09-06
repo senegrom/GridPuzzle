@@ -1,60 +1,376 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#123b3b"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="GridPuzzle">
-<meta name="description" content="Scan, check and solve printed grid puzzles privately on your phone.">
-<title>GridPuzzle · Scan & solve</title>
-<link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="./favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./icons/apple-touch-icon.png"><link rel="stylesheet" href="./style.css">
-</head>
-<body>
-<header class="masthead"><a class="brand" href="./"><img src="./favicon.svg" alt="" width="36" height="36"><span>GridPuzzle<small>SCAN & SOLVE</small></span></a><span class="privacy-pill">On-device solving</span></header>
-<main>
-<section class="intro"><p class="eyebrow">LESS COPYING. MORE DISCOVERY.</p><h1>From paper<br> to <em>solved.</em></h1><p>Point your camera at a puzzle. Check the clues.<br class="desktop"> Let the complete GridPuzzle engine do the rest.</p></section>
-<div class="workspace">
-<section class="capture card" aria-labelledby="capture-title">
-<div class="section-heading"><span class="step">01</span><h2 id="capture-title">Bring a puzzle</h2></div>
-<div class="capture-actions"><button id="camera" class="primary"><span aria-hidden="true">▣</span> Scan with camera</button><button id="choose-photo">Choose a photo</button></div>
-<input id="photo-file" type="file" accept="image/*" hidden><input id="native-file" type="file" accept="image/*" capture="environment" hidden>
-<button id="native-camera" class="text-button" hidden>Use the phone’s camera app instead</button>
-<label class="field">Puzzle type<select id="puzzle-type"><option value="auto">Automatic detection</option></select></label>
-<p id="type-help" class="muted">Choose a type for the next scan, or apply it to the current board below. Automatic cannot infer invisible variant rules.</p>
-<div class="inline-buttons"><button id="example">Try an example</button><button id="new-board">Blank board</button></div>
-<details id="layout-settings"><summary>Grid size & settings</summary>
-<div class="fields"><label>Rows<input id="rows" type="number" min="1" max="25" value="9" inputmode="numeric"></label><label>Columns<input id="cols" type="number" min="1" max="25" value="9" inputmode="numeric"></label></div>
-<div class="fields" id="box-fields"><label>Box height<input id="box-rows" type="number" min="1" max="25" value="3" inputmode="numeric"></label><label>Box width<input id="box-cols" type="number" min="1" max="25" value="3" inputmode="numeric"></label></div>
-<button id="apply-layout">Apply layout to board</button>
-<label class="check"><input id="auto-capture" type="checkbox" checked> Capture a sharp, stable grid automatically</label>
-<label class="check"><input id="auto-solve" type="checkbox" checked> Solve clear, unambiguous scans automatically</label>
-<label class="field">Search limit<select id="time-limit"><option value="30">30 seconds</option><option value="90" selected>90 seconds</option><option value="300">5 minutes</option><option value="0">Until I press Stop</option></select></label>
-<p class="muted">The full deduction hierarchy is retained. Search never runs on the interface thread.</p>
-</details>
-<details><summary>Save, import & install</summary><div class="inline-buttons"><button id="import-json">Import puzzle</button><button id="export-json">Export puzzle</button></div><input id="json-file" type="file" accept=".json,application/json" hidden>
-<button id="prepare-offline" disabled>Download for offline use</button><p id="offline-state" class="muted">First use needs an internet connection.</p>
-<p class="muted">On iPhone: Safari → Share → Add to Home Screen → Open as Web App. Photos stay on this device and are not uploaded. Your last puzzle is saved locally; photographs are not saved.</p>
-<button id="update-app" hidden>Update app & reload</button></details>
-</section>
-<section class="solve card" aria-labelledby="board-title">
-<div class="section-heading"><span class="step">02</span><div><h2 id="board-title">Your puzzle</h2><p id="board-meta" class="muted"></p></div><button id="undo" class="compact" disabled>Undo</button></div>
-<div id="status" class="status" role="status" aria-live="polite"><strong id="status-text">Ready when you are.</strong><span id="status-detail">Scan a puzzle, load an example, or tap a cell to enter clues.</span><progress id="progress" max="1" hidden></progress></div>
-<section id="camera-panel" hidden><div class="viewfinder"><video id="video" autoplay muted playsinline></video><div class="camera-guide" aria-hidden="true"></div></div><p id="camera-help" class="muted">Keep the entire grid in view. Hold steady or tap Capture.</p><div class="inline-buttons"><button id="take-photo" class="primary">Capture</button><button id="close-camera">Close camera</button></div></section>
-<section id="photo-panel" hidden><p class="muted">Drag the four corners onto the grid’s outside corners. Exclude titles and margins. Set the row/column count before reading.</p><canvas id="crop-canvas" aria-label="Puzzle crop: drag the numbered corner handles"></canvas><div class="inline-buttons"><button id="read-photo" class="primary">Read puzzle</button><button id="rotate-photo">Rotate ↻</button><button id="detect-photo">Find grid</button><button id="hide-photo">Hide photo</button></div></section>
-<div class="board-toolbar"><label>Editing<select id="edit-tool"><option value="value">Clues</option><option value="cage">Cages</option><option value="inequality">Inequalities</option></select></label><div class="view-tabs"><button id="clean-view" aria-pressed="true">Board</button><button id="photo-view" aria-pressed="false" disabled>Photo</button></div></div>
-<div id="cage-editor" class="subeditor" hidden><p>Select the cells of a cage. Saving replaces any intersecting cages.</p><div class="fields"><label>Target<input id="cage-target" inputmode="numeric" type="number" min="1"></label><label>Operator<select id="cage-op"><option value="+">Sum +</option><option value="*">Product ×</option><option value="-">Difference −</option><option value="/">Ratio ÷</option><option value="=">Single cell =</option></select></label></div><div class="inline-buttons"><button id="save-cage">Save cage</button><button id="remove-cage">Remove cage</button><button id="clear-selection">Clear selection</button></div></div>
-<div id="inequality-editor" class="subeditor" hidden><p>Tap the smaller cell, then its larger neighbour.</p><div class="inline-buttons"><button id="save-inequality">Add smaller &lt; larger</button><button id="remove-inequality">Remove between selected</button></div></div>
-<div id="board-scroll" class="board-scroll"><svg id="board" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Editable puzzle board"></svg></div>
-<canvas id="solution-photo" hidden aria-label="Solution over the captured photograph"></canvas>
-<div class="legend"><span><i class="given-dot"></i>Original clue</span><span><i class="answer-dot"></i>Solution</span><span><i class="review-dot"></i>Check reading</span></div>
-<p id="review-note" class="review-note" hidden></p>
-<button id="review-clues" hidden>Review highlighted clues</button>
-<div class="solve-actions"><button id="solve" class="primary">Solve puzzle <span aria-hidden="true">→</span></button><button id="stop" class="danger" hidden>Stop</button><button id="next-solution" hidden>Other solution</button><button id="show-crop" hidden>Adjust scan</button><button id="save-photo" hidden>Save overlay</button></div>
-<p class="small-note">A unique solution verifies these clues—not the accuracy of the photograph’s transcription.</p>
-<details id="data-editor"><summary>Advanced puzzle data</summary><p class="muted">A data-only format for all eleven families. Cells are zero-based row-major indexes; null is blank, # is blocked, and Slitherlink 0 is a clue.</p><textarea id="json-data" rows="12" spellcheck="false" aria-label="Puzzle JSON"></textarea><button id="apply-json">Apply puzzle data</button></details>
-</section>
-</div>
-<footer><span>Paper in. Possibilities out.</span><a href="https://github.com/senegrom/GridPuzzle/tree/browser-scanner" target="_blank" rel="noopener">Source · AGPL-3.0</a><span id="build-label">Browser scanner</span></footer>
-</main>
-<dialog id="cell-dialog"><form id="cell-form"><div class="section-heading"><h2 id="cell-title">Edit clue</h2><button type="button" id="close-cell" aria-label="Close editor">✕</button></div><p id="review-position" class="muted" hidden></p><canvas id="clue-crop" width="180" height="180" hidden></canvas><label class="field">Printed value<input id="cell-value" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label><label id="block-option" class="check" hidden><input id="blocked-cell" type="checkbox"> Blocked / black cell</label><div id="kakuro-inputs" class="fields" hidden><label>Across →<input id="across-value" inputmode="numeric" pattern="[0-9]*"></label><label>Down ↓<input id="down-value" inputmode="numeric" pattern="[0-9]*"></label></div><p id="cell-error" class="error-text" role="alert"></p><div class="inline-buttons"><button class="primary" type="submit">Save clue</button><button id="save-next" type="button" hidden>Save & next</button><button id="clear-cell" type="button">Clear</button></div></form></dialog>
-<dialog id="confirm-dialog"><h2>Solve this transcription?</h2><p id="confirm-text"></p><p>A solver cannot prove that a photograph was read correctly. Check the highlighted clues and confirm the puzzle type and any extra rules.</p><div class="inline-buttons"><button id="confirm-solve" class="primary">Use these clues & solve</button><button id="confirm-back">Keep checking</button></div></dialog>
-<script type="module" src="./app.js"></script><noscript>This app needs JavaScript to process images and run the local solver.</noscript>
-</body></html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#123b3b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="GridPuzzle" />
+    <meta
+      name="description"
+      content="Scan, check and solve printed grid puzzles privately on your phone."
+    />
+    <title>GridPuzzle · Scan & solve</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="./"
+        ><img src="./favicon.svg" alt="" width="36" height="36" /><span
+          >GridPuzzle<small>SCAN & SOLVE</small></span
+        ></a
+      ><span class="privacy-pill">On-device solving</span>
+    </header>
+    <main>
+      <section class="intro">
+        <p class="eyebrow">LESS COPYING. MORE DISCOVERY.</p>
+        <h1>
+          From paper<br />
+          to <em>solved.</em>
+        </h1>
+        <p>
+          Point your camera at a puzzle. Check the clues.<br class="desktop" />
+          Let the complete GridPuzzle engine do the rest.
+        </p>
+      </section>
+      <div class="workspace">
+        <section class="capture card" aria-labelledby="capture-title">
+          <div class="section-heading">
+            <span class="step">01</span>
+            <h2 id="capture-title">Bring a puzzle</h2>
+          </div>
+          <div class="capture-actions">
+            <button id="camera" class="primary">
+              <span aria-hidden="true">▣</span> Scan with camera</button
+            ><button id="choose-photo">Choose a photo</button>
+          </div>
+          <input id="photo-file" type="file" accept="image/*" hidden /><input
+            id="native-file"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+          />
+          <button id="native-camera" class="text-button" hidden>
+            Use the phone’s camera app instead
+          </button>
+          <label class="field"
+            >Puzzle type<select id="puzzle-type">
+              <option value="auto">Automatic detection</option>
+            </select></label
+          >
+          <p id="type-help" class="muted">
+            Choose a type for the next scan, or apply it to the current board
+            below. Automatic cannot infer invisible variant rules.
+          </p>
+          <div class="inline-buttons">
+            <button id="example">Try an example</button
+            ><button id="new-board">Blank board</button>
+          </div>
+          <details id="layout-settings">
+            <summary>Grid size & settings</summary>
+            <div class="fields">
+              <label
+                >Rows<input
+                  id="rows"
+                  type="number"
+                  min="1"
+                  max="25"
+                  value="9"
+                  inputmode="numeric" /></label
+              ><label
+                >Columns<input
+                  id="cols"
+                  type="number"
+                  min="1"
+                  max="25"
+                  value="9"
+                  inputmode="numeric"
+              /></label>
+            </div>
+            <div class="fields" id="box-fields">
+              <label
+                >Box height<input
+                  id="box-rows"
+                  type="number"
+                  min="1"
+                  max="25"
+                  value="3"
+                  inputmode="numeric" /></label
+              ><label
+                >Box width<input
+                  id="box-cols"
+                  type="number"
+                  min="1"
+                  max="25"
+                  value="3"
+                  inputmode="numeric"
+              /></label>
+            </div>
+            <button id="apply-layout">Apply layout to board</button>
+            <label class="check"
+              ><input id="auto-capture" type="checkbox" checked /> Capture a
+              sharp, stable grid automatically</label
+            >
+            <label class="check"
+              ><input id="auto-solve" type="checkbox" checked /> Solve clear,
+              unambiguous scans automatically</label
+            >
+            <label class="field"
+              >Search limit<select id="time-limit">
+                <option value="30">30 seconds</option>
+                <option value="90" selected>90 seconds</option>
+                <option value="300">5 minutes</option>
+                <option value="0">Until I press Stop</option>
+              </select></label
+            >
+            <p class="muted">
+              The full deduction hierarchy is retained. Search never runs on the
+              interface thread.
+            </p>
+          </details>
+          <details>
+            <summary>Save, import & install</summary>
+            <div class="inline-buttons">
+              <button id="import-json">Import puzzle</button
+              ><button id="export-json">Export puzzle</button>
+            </div>
+            <input
+              id="json-file"
+              type="file"
+              accept=".json,application/json"
+              hidden
+            />
+            <button id="prepare-offline" disabled>
+              Download for offline use
+            </button>
+            <p id="offline-state" class="muted">
+              First use needs an internet connection.
+            </p>
+            <p class="muted">
+              On iPhone: Safari → Share → Add to Home Screen → Open as Web App.
+              Photos stay on this device and are not uploaded. Your last puzzle
+              is saved locally; photographs are not saved.
+            </p>
+            <button id="update-app" hidden>Update app & reload</button>
+          </details>
+        </section>
+        <section class="solve card" aria-labelledby="board-title">
+          <div class="section-heading">
+            <span class="step">02</span>
+            <div>
+              <h2 id="board-title">Your puzzle</h2>
+              <p id="board-meta" class="muted"></p>
+            </div>
+            <button id="undo" class="compact" disabled>Undo</button>
+          </div>
+          <div id="status" class="status" role="status" aria-live="polite">
+            <strong id="status-text">Ready when you are.</strong
+            ><span id="status-detail"
+              >Scan a puzzle, load an example, or tap a cell to enter
+              clues.</span
+            ><progress id="progress" max="1" hidden></progress>
+          </div>
+          <section id="camera-panel" hidden>
+            <div class="viewfinder">
+              <video id="video" autoplay muted playsinline></video>
+              <div class="camera-guide" aria-hidden="true"></div>
+            </div>
+            <p id="camera-help" class="muted">
+              Keep the entire grid in view. Hold steady or tap Capture.
+            </p>
+            <div class="inline-buttons">
+              <button id="take-photo" class="primary">Capture</button
+              ><button id="close-camera">Close camera</button>
+            </div>
+          </section>
+          <section id="photo-panel" hidden>
+            <p class="muted">
+              Drag the four corners onto the grid’s outside corners. Exclude
+              titles and margins. Set the row/column count before reading.
+            </p>
+            <canvas
+              id="crop-canvas"
+              aria-label="Puzzle crop: drag the numbered corner handles"
+            ></canvas>
+            <div class="inline-buttons">
+              <button id="read-photo" class="primary">Read puzzle</button
+              ><button id="rotate-photo">Rotate ↻</button
+              ><button id="detect-photo">Find grid</button
+              ><button id="hide-photo">Hide photo</button>
+            </div>
+          </section>
+          <div class="board-toolbar">
+            <label
+              >Editing<select id="edit-tool">
+                <option value="value">Clues</option>
+                <option value="cage">Cages</option>
+                <option value="inequality">Inequalities</option>
+              </select></label
+            >
+            <div class="view-tabs">
+              <button id="clean-view" aria-pressed="true">Board</button
+              ><button id="photo-view" aria-pressed="false" disabled>
+                Photo
+              </button>
+            </div>
+          </div>
+          <div id="cage-editor" class="subeditor" hidden>
+            <p>
+              Select the cells of a cage. Saving replaces any intersecting
+              cages.
+            </p>
+            <div class="fields">
+              <label
+                >Target<input
+                  id="cage-target"
+                  inputmode="numeric"
+                  type="number"
+                  min="1" /></label
+              ><label
+                >Operator<select id="cage-op">
+                  <option value="+">Sum +</option>
+                  <option value="*">Product ×</option>
+                  <option value="-">Difference −</option>
+                  <option value="/">Ratio ÷</option>
+                  <option value="=">Single cell =</option>
+                </select></label
+              >
+            </div>
+            <div class="inline-buttons">
+              <button id="save-cage">Save cage</button
+              ><button id="remove-cage">Remove cage</button
+              ><button id="clear-selection">Clear selection</button>
+            </div>
+          </div>
+          <div id="inequality-editor" class="subeditor" hidden>
+            <p>Tap the smaller cell, then its larger neighbour.</p>
+            <div class="inline-buttons">
+              <button id="save-inequality">Add smaller &lt; larger</button
+              ><button id="remove-inequality">Remove between selected</button>
+            </div>
+          </div>
+          <div id="board-scroll" class="board-scroll">
+            <svg
+              id="board"
+              xmlns="http://www.w3.org/2000/svg"
+              role="group"
+              aria-label="Editable puzzle board"
+            ></svg>
+          </div>
+          <canvas
+            id="solution-photo"
+            hidden
+            aria-label="Solution over the captured photograph"
+          ></canvas>
+          <div class="legend">
+            <span><i class="given-dot"></i>Original clue</span
+            ><span><i class="answer-dot"></i>Solution</span
+            ><span><i class="review-dot"></i>Check reading</span>
+          </div>
+          <p id="review-note" class="review-note" hidden></p>
+          <button id="review-clues" hidden>Review highlighted clues</button>
+          <div class="solve-actions">
+            <button id="solve" class="primary">
+              Solve puzzle <span aria-hidden="true">→</span></button
+            ><button id="stop" class="danger" hidden>Stop</button
+            ><button id="next-solution" hidden>Other solution</button
+            ><button id="show-crop" hidden>Adjust scan</button
+            ><button id="save-photo" hidden>Save overlay</button>
+          </div>
+          <p class="small-note">
+            A unique solution verifies these clues—not the accuracy of the
+            photograph’s transcription.
+          </p>
+          <details id="data-editor">
+            <summary>Advanced puzzle data</summary>
+            <p class="muted">
+              A data-only format for all eleven families. Cells are zero-based
+              row-major indexes; null is blank, # is blocked, and Slitherlink 0
+              is a clue.
+            </p>
+            <textarea
+              id="json-data"
+              rows="12"
+              spellcheck="false"
+              aria-label="Puzzle JSON"
+            ></textarea
+            ><button id="apply-json">Apply puzzle data</button>
+          </details>
+        </section>
+      </div>
+      <footer>
+        <span>Paper in. Possibilities out.</span
+        ><a
+          href="https://github.com/senegrom/GridPuzzle/tree/browser-scanner"
+          target="_blank"
+          rel="noopener"
+          >Source · AGPL-3.0</a
+        ><span id="build-label">Browser scanner</span>
+      </footer>
+    </main>
+    <dialog id="cell-dialog">
+      <form id="cell-form">
+        <div class="section-heading">
+          <h2 id="cell-title">Edit clue</h2>
+          <button type="button" id="close-cell" aria-label="Close editor">
+            ✕
+          </button>
+        </div>
+        <p id="review-position" class="muted" hidden></p>
+        <canvas id="clue-crop" width="180" height="180" hidden></canvas
+        ><label class="field"
+          >Printed value<input
+            id="cell-value"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            autocomplete="off" /></label
+        ><label id="block-option" class="check" hidden
+          ><input id="blocked-cell" type="checkbox" /> Blocked / black
+          cell</label
+        >
+        <div id="kakuro-inputs" class="fields" hidden>
+          <label
+            >Across →<input
+              id="across-value"
+              inputmode="numeric"
+              pattern="[0-9]*" /></label
+          ><label
+            >Down ↓<input id="down-value" inputmode="numeric" pattern="[0-9]*"
+          /></label>
+        </div>
+        <p id="cell-error" class="error-text" role="alert"></p>
+        <div class="inline-buttons">
+          <button class="primary" type="submit">Save clue</button
+          ><button id="save-next" type="button" hidden>Save & next</button
+          ><button id="clear-cell" type="button">Clear</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="confirm-dialog">
+      <h2>Solve this transcription?</h2>
+      <p id="confirm-text"></p>
+      <p>
+        A solver cannot prove that a photograph was read correctly. Check the
+        highlighted clues and confirm the puzzle type and any extra rules.
+      </p>
+      <div class="inline-buttons">
+        <button id="confirm-solve" class="primary">
+          Use these clues & solve</button
+        ><button id="confirm-back">Keep checking</button>
+      </div>
+    </dialog>
+    <script type="module" src="./app.js"></script>
+    <noscript
+      >This app needs JavaScript to process images and run the local
+      solver.</noscript
+    >
+  </body>
+</html>

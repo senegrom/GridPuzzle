@@ -129,3 +129,15 @@ denied camera fallback, a generated printed Sudoku scan, photograph overlay
 and invalidation, offline reload/solve and offline photo recognition.
 Reports and screenshots are CI artifacts. This is a baseline, not a measured
 real-world recognition benchmark.
+
+## Input, build and lifecycle hardening
+
+The editor validates dimensions and Sudoku boxes before allocation, persistence or rendering. Invalid saved sessions fall back to a clean board. Shared JSON fixtures distinguish incomplete-but-editable states from solve-ready inputs; the Python adapter remains the final structural boundary.
+
+Builds are staged before publication. Inside the repository, only `_site` is accepted as output; a custom external path must be new or contain the builder's ownership marker. Existing unmarked directories (including outputs from older builds) are never deleted: move them aside before rebuilding. Source directories, the Git directory, repository ancestors and symbolic output links are rejected. A failed build preserves the previous good output.
+
+Offline requests, readiness checks and preparation use the same digest verifier. Corrupt entries are evicted and retried from the network. Readiness is checked against actual verified entries, not just cache-key presence, and online use can continue even if cache quota is exhausted.
+
+Task/deadline ownership, edit snapshots, camera/photo flow and offline controls have separate modules. Grayscale is computed once for scan preparation; thresholding and region extraction run in the geometry worker. Each OCR scan has a dedicated host owning its raw Tesseract worker during engine and language initialization. Stop rejects the pending task immediately, requests child termination, and bounds host cleanup to 100 ms; each worker has a three-minute fallback deadline and the complete recognition task has a two-minute deadline. Real-browser tests stall language loading, stop the scan, check worker cleanup and then perform a fresh successful scan.
+
+These lifecycle changes do not substitute or reorder any solver technique.

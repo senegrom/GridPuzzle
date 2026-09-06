@@ -7,6 +7,7 @@ at app runtime except requests to this site's own static files.
 """
 from __future__ import annotations
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -70,13 +71,68 @@ def icon(size, path):
     path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(png)
 
 
+_OUTPUT_MARKER = '.gridpuzzle-output'
+_OUTPUT_KIND = 'GridPuzzle static output v1\n'
+
+
+def validate_output(root, output):
+    """Never clean source paths, links or directories not owned by this builder."""
+    root = Path(root).resolve()
+    raw = root / output
+    if raw.is_symlink():
+        raise ValueError('Build output must not be a symbolic link')
+    out = raw.resolve()
+    if out == root or root.is_relative_to(out):
+        raise ValueError('Build output must not contain the repository')
+    if out.is_relative_to(root) and out != root / '_site':
+        raise ValueError('Inside the repository only _site may be used; choose a new external directory for custom output')
+    if out.exists():
+        marker = out / _OUTPUT_MARKER
+        if (not out.is_dir() or marker.is_symlink() or not marker.is_file()
+                or marker.stat().st_size > 128 or marker.read_text() != _OUTPUT_KIND):
+            raise ValueError('Refusing to replace an unowned output directory; move it aside and retry')
+    return out
+
+
+@contextmanager
+def build_destination(root, output):
+    """Build in isolation; failed builds leave the last good output intact."""
+    out = validate_output(root, output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='.' + out.name + '-stage-', dir=out.parent))
+    backup = None
+    try:
+        (stage / _OUTPUT_MARKER).write_text(_OUTPUT_KIND)
+        yield stage
+        # Recheck after the build, before any rename (including ownership).
+        validate_output(root, output)
+        if out.exists():
+            backup = Path(tempfile.mkdtemp(prefix='.' + out.name + '-backup-', dir=out.parent)) / 'previous'
+            out.replace(backup)
+        try:
+            stage.replace(out)
+        except BaseException:
+            if backup is not None:
+                backup.replace(out)
+                backup.parent.rmdir()
+            raise
+        if backup is not None:
+            shutil.rmtree(backup.parent)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+        # Never delete a backup after a failed restoration.
+
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--output',default='_site');args=parser.parse_args()
-    out=(ROOT/args.output).resolve()
-    if out==ROOT or ROOT.is_relative_to(out):
-        raise ValueError('Build output must not contain the repository itself')
-    if out.exists():shutil.rmtree(out)
-    out.mkdir(parents=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output', default='_site')
+    args = parser.parse_args()
+    with build_destination(ROOT, args.output) as out:
+        build(out)
+
+
+def build(out):
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip();build=commit[:12]
     for source in (ROOT/'web').iterdir():
         if source.is_file() and source.suffix in ('.html','.css','.js','.svg','.webmanifest'):
@@ -114,7 +170,7 @@ def main():
     (out/'THIRD_PARTY_NOTICES.txt').write_text('GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle/tree/browser-scanner\nBrowser dependencies are self-hosted, version-pinned, and retain their supplied licenses.\n'+json.dumps(provenance,indent=2)+'\n')
     assets=[]
     for source in sorted(out.rglob('*')):
-        if source.is_file() and source.name not in ('sw.js','.nojekyll'):
+        if source.is_file() and source.name not in ('sw.js','.nojekyll',_OUTPUT_MARKER):
             data=source.read_bytes();assets.append({'path':source.relative_to(out).as_posix(),'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
     (out/'assets.json').write_text(json.dumps({'build':build,'assets':assets},separators=(',',':'))+'\n')
     print(f'Built {build}: {len(assets)} offline assets, {sum(a["bytes"] for a in assets)/1024**2:.1f} MiB',flush=True)
