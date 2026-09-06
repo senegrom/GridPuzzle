@@ -1,0 +1,60 @@
+name: Review three browser verification
+on:
+  push:
+    branches: [fix/review3-browser]
+    paths: ['.review3_*.py', '.github/workflows/review3-browser.yml']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/review3-browser
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: python -m pip install -e '.[dev]'
+      - name: Apply source-anchored browser fixes
+        run: |
+          python .review3_browser.py
+          python .review3_ui.py
+          python .review3_checks.py
+      - name: Format first-party browser sources for review
+        run: npx --yes --package=prettier@3.6.2 prettier --write 'web/**/*.js' 'web/*.html' 'web/*.css' 'scripts/browser_smoke.cjs'
+      - name: Native adapter, build safety and complete bounded regressions
+        run: python -X dev -m pytest -q tests -m 'not slow' --durations=10
+      - name: Browser unit and lifecycle tests
+        run: node --test web/tests/*.test.js
+      - name: Build the complete self-hosted app twice
+        run: |
+          python scripts/build_web.py
+          python scripts/build_web.py
+      - name: Install actual browser runtimes
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Chromium and WebKit, real Python and OCR, recovery and cancellation
+        run: node scripts/browser_smoke.cjs
+      - name: Preserve browser report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: review3-browser-results
+          path: browser-artifacts
+          if-no-files-found: ignore
+      - name: Commit validated changes on the review branch
+        run: |
+          git add web scripts tests
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Harden browser input, output publication and offline recovery; isolate cancellable scan lifecycle'
+          git push origin HEAD:fix/review3-browser
