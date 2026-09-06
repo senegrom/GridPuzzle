@@ -71,8 +71,11 @@ jobs:
     permissions:
       pages: write
       id-token: write
+    # The default github-pages environment may be restricted to the default
+    # branch. This branch has its own Pages environment so the deployment can
+    # originate from browser-scanner without weakening that default policy.
     environment:
-      name: github-pages
+      name: gridpuzzle-browser-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Publish the tested branch artifact
