@@ -1,0 +1,191 @@
+{
+  "python": "3.14.7 (main, Aug  6 2026, 02:19:46) [GCC 13.3.0]",
+  "baseline": "5010564b0d5b08e3ad748cb8fb4f31a3ca43c42a",
+  "samples": 1,
+  "timing_note": "One sample per mode, for identity/branch-count regression only; not performance evidence.",
+  "cases": {
+    "sudoku4": {
+      "before": {
+        "samples": [
+          {
+            "seconds": 22.862112261000007,
+            "solutions": 288,
+            "solution_sha256": "5aa8608840428b800a8f6d7376bff20f9cf7a37934b15de803fd55cd45edae05",
+            "root_sha256": "7402c29a67113507299daa0b74c4fab6bf10698df0bfbd9bf27c91eb863a4285",
+            "branch_nodes": 269
+          }
+        ],
+        "median_seconds": 22.862112261000007
+      },
+      "after": {
+        "samples": [
+          {
+            "seconds": 22.046851126999996,
+            "solutions": 288,
+            "solution_sha256": "5aa8608840428b800a8f6d7376bff20f9cf7a37934b15de803fd55cd45edae05",
+            "root_sha256": "7402c29a67113507299daa0b74c4fab6bf10698df0bfbd9bf27c91eb863a4285",
+            "branch_nodes": 269
+          }
+        ],
+        "median_seconds": 22.046851126999996
+      }
+    },
+    "killer-hard": {
+      "before": {
+        "samples": [
+          {
+            "seconds": 0.06204365399997869,
+            "solutions": 1,
+            "solution_sha256": "583527756f00105943cdd12b6f2b5447ef3e4e77f632eee4b0c0f60f787de2a6",
+            "root_sha256": "584bf34ea622f6634c4537353b0a448e86e143262ff183cbd110cfc77714482a",
+            "branch_nodes": 0
+          }
+        ],
+        "median_seconds": 0.06204365399997869
+      },
+      "after": {
+        "samples": [
+          {
+            "seconds": 0.06044025500000316,
+            "solutions": 1,
+            "solution_sha256": "583527756f00105943cdd12b6f2b5447ef3e4e77f632eee4b0c0f60f787de2a6",
+            "root_sha256": "584bf34ea622f6634c4537353b0a448e86e143262ff183cbd110cfc77714482a",
+            "branch_nodes": 0
+          }
+        ],
+        "median_seconds": 0.06044025500000316
+      }
+    },
+    "killer-deadly": {
+      "before": {
+        "samples": [
+          {
+            "seconds": 0.10033837599999629,
+            "solutions": 1,
+            "solution_sha256": "cf68382700a739dc6732a9deb41c9910f9ec40d6b5cff609fb548d30ec333373",
+            "root_sha256": "7edcb887829af18664ba6f942e57335dcd8dc0082f454644a603d112bdfeffbd",
+            "branch_nodes": 0
+          }
+        ],
+        "median_seconds": 0.10033837599999629
+      },
+      "after": {
+        "samples": [
+          {
+            "seconds": 0.09971578299999351,
+            "solutions": 1,
+            "solution_sha256": "cf68382700a739dc6732a9deb41c9910f9ec40d6b5cff609fb548d30ec333373",
+            "root_sha256": "7edcb887829af18664ba6f942e57335dcd8dc0082f454644a603d112bdfeffbd",
+            "branch_nodes": 0
+          }
+        ],
+        "median_seconds": 0.09971578299999351
+      }
+    },
+    "slitherlink2": {
+      "before": {
+        "samples": [
+          {
+            "seconds": 0.007122157000026164,
+            "solutions": 13,
+            "solution_sha256": "56d5a4ca50cfb77baf2e1fe667db7b94aab9b074a4d1a8f718632be4845abe06",
+            "root_sha256": "0e12469bfd9b2cebd74faaab76d1870b9129bcb749654cdefa9c62e63cf1b677",
+            "branch_nodes": 13
+          }
+        ],
+        "median_seconds": 0.007122157000026164
+      },
+      "after": {
+        "samples": [
+          {
+            "seconds": 0.007146835000014562,
+            "solutions": 13,
+            "solution_sha256": "56d5a4ca50cfb77baf2e1fe667db7b94aab9b074a4d1a8f718632be4845abe06",
+            "root_sha256": "0e12469bfd9b2cebd74faaab76d1870b9129bcb749654cdefa9c62e63cf1b677",
+            "branch_nodes": 13
+          }
+        ],
+        "median_seconds": 0.007146835000014562
+      }
+    },
+    "slitherlink3": {
+      "before": {
+        "samples": [
+          {
+            "seconds": 0.16643364099999758,
+            "solutions": 213,
+            "solution_sha256": "1f8c57c65c979a0abaf38d5411d1b3222c517661c89ed66781a22db35bf60cd5",
+            "root_sha256": "71492b83e27ae6c3dfcb9710a946a5879fbcb5c5e85511e0e804c38de0162395",
+            "branch_nodes": 213
+          }
+        ],
+        "median_seconds": 0.16643364099999758
+      },
+      "after": {
+        "samples": [
+          {
+            "seconds": 0.16561961700000438,
+            "solutions": 213,
+            "solution_sha256": "1f8c57c65c979a0abaf38d5411d1b3222c517661c89ed66781a22db35bf60cd5",
+            "root_sha256": "71492b83e27ae6c3dfcb9710a946a5879fbcb5c5e85511e0e804c38de0162395",
+            "branch_nodes": 213
+          }
+        ],
+        "median_seconds": 0.16561961700000438
+      }
+    }
+  },
+  "micro": {
+    "full-domain-9": {
+      "seconds": [
+        1.155699999344506e-05,
+        8.546000003661902e-06,
+        5.0329999936593595e-06,
+        3.3729999984188908e-06,
+        3.034000002344328e-06
+      ],
+      "median_seconds": 5.0329999936593595e-06,
+      "partitions": 1
+    },
+    "full-domain-16": {
+      "seconds": [
+        3.5500000024057954e-06,
+        3.0390000063107436e-06,
+        2.8160000056232093e-06,
+        2.960000003326968e-06,
+        2.8469999904245924e-06
+      ],
+      "median_seconds": 2.960000003326968e-06,
+      "partitions": 1
+    },
+    "full-domain-25": {
+      "seconds": [
+        4.709999998908643e-06,
+        3.964000001133172e-06,
+        3.7279999958172994e-06,
+        3.569999989849748e-06,
+        3.5340000010819494e-06
+      ],
+      "median_seconds": 3.7279999958172994e-06,
+      "partitions": 1
+    },
+    "full-domain-100": {
+      "seconds": [
+        8.057000002281711e-06,
+        2.3095000003081623e-05,
+        8.46800000431358e-06,
+        7.2280000011915035e-06,
+        7.264999993594756e-06
+      ],
+      "median_seconds": 8.057000002281711e-06,
+      "partitions": 1
+    },
+    "product-20": {
+      "seconds": 8.780400000318878e-05
+    },
+    "product-25": {
+      "seconds": 0.00019817199999749846
+    }
+  },
+  "loop_states_equivalent": 59049
+}
