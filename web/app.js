@@ -1,3 +1,4 @@
+import { nextReviewCell } from "./model.js";
 import { createTaskController } from "./task-controller.js";
 import { captureEdit, restoreEdit, rememberEdit } from "./edit-history.js";
 import { setupPhotoFlow } from "./photo-flow.js";
@@ -499,6 +500,9 @@ function render() {
   $("next-solution").hidden = (state.result?.solutions?.length || 0) < 2;
   const review = state.uncertain.size || state.needsReview;
   $("review-note").hidden = !review;
+  $("review-clues").hidden = !state.uncertain.size;
+  $("review-clues").textContent =
+    `Review ${state.uncertain.size} highlighted clues`;
   const sourceAvailable =
     state.rectified && state.puzzleSource === state.photoSource;
   const checkMessage = state.uncertain.size
@@ -575,6 +579,10 @@ function openCell(i) {
     ctx.fillRect(0, 0, 180, 180);
     ctx.drawImage(state.rectified, c * cw, r * ch, cw, ch, 0, 0, 180, 180);
   }
+  $("save-next").hidden = !state.uncertain.size;
+  $("review-position").hidden = !state.uncertain.size;
+  $("review-position").textContent =
+    `${state.uncertain.size} readings left to check. Saving confirms only this cell.`;
   $("cell-dialog").showModal();
   $("cell-value").focus();
   $("cell-value").select();
@@ -592,7 +600,7 @@ function numberInput(id) {
     throw Error("Use a whole number, or leave the field blank.");
   return Number(text);
 }
-function saveCell() {
+function saveCell(advance = false) {
   try {
     const next = clone(state.puzzle),
       blocked = !$("block-option").hidden && $("blocked-cell").checked;
@@ -616,10 +624,24 @@ function saveCell() {
     });
     $("cell-dialog").close();
     status("Clue saved.", "The previous solution has been cleared.");
+    if (advance) {
+      const next = nextReviewCell(state.uncertain, editing);
+      if (next !== null) openCell(next);
+      else
+        status(
+          "Highlighted readings checked.",
+          "Confirm the puzzle type and any structural clues, then solve.",
+        );
+    }
   } catch (e) {
     $("cell-error").textContent = e.message;
   }
 }
+$("review-clues").onclick = () => {
+  const cell = nextReviewCell(state.uncertain);
+  if (cell !== null) openCell(cell);
+};
+$("save-next").onclick = () => saveCell(true);
 $("cell-form").onsubmit = (e) => {
   e.preventDefault();
   saveCell();
@@ -1013,6 +1035,7 @@ const { stopCamera } = setupPhotoFlow({
   solveNow,
   boxDefault,
   getJobId: () => tasks.id,
+  setDeadline: (callback, ms) => tasks.setDeadline(callback, ms),
 });
 window.addEventListener("pagehide", () => {
   stopCamera();

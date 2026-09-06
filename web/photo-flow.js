@@ -19,6 +19,7 @@ export function setupPhotoFlow({
   solveNow,
   boxDefault,
   getJobId,
+  setDeadline,
 }) {
   let stream = null,
     cameraEpoch = 0,
@@ -374,6 +375,12 @@ export function setupPhotoFlow({
     $("next-solution").hidden = true;
     drawBoard();
     const id = begin();
+    setDeadline(() => {
+      if (id === getJobId())
+        stopTask(
+          "Recognition timed out. Check the connection and try a clearer photograph.",
+        );
+    }, 120000);
     try {
       const found = await scanner.read(
         state.photo,

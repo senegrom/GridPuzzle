@@ -86,3 +86,26 @@ export function mapAtlas(data, count, columns, tile) {
   }
   return readings;
 }
+
+// Solid rules and faint L-shaped grid corners are not cage labels. The edge
+// score is measured against the glyph's bounding box, never the cage mask.
+export function isGridStroke({
+  kind,
+  width,
+  height,
+  ink,
+  edgeInk = 0,
+  regionWidth,
+  cellHeight,
+}) {
+  if (kind !== "label" || ink <= 0) return false;
+  const bar =
+    width >= regionWidth * 0.85 &&
+    height <= cellHeight * 0.15 &&
+    ink >= width * height * 0.7;
+  const corner =
+    width >= regionWidth * 0.5 &&
+    height <= cellHeight * 0.25 &&
+    edgeInk >= ink * 0.9;
+  return bar || corner;
+}

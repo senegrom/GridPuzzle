@@ -13,21 +13,24 @@ export const TYPES = Object.freeze({
 });
 export const clone = (value) => JSON.parse(JSON.stringify(value));
 export const isCage = (type) => ["killersudoku", "kenken"].includes(type);
-export function checkDimensions(rows, cols = rows) {
-  for (const value of [rows, cols]) {
-    if (!Number.isInteger(value) || value < 1 || value > 25) {
-      throw Error("Board dimensions must be whole numbers from 1 to 25.");
-    }
-  }
+function dimension(n) {
+  if (!Number.isInteger(n) || n < 1 || n > 25)
+    throw Error("Board dimensions must be whole numbers from 1 to 25.");
+  return n;
 }
 export function boxShape(n) {
-  checkDimensions(n);
+  dimension(n);
   let r = Math.floor(Math.sqrt(n));
   while (n % r) r--;
   return [r, n / r];
 }
+export function checkDimensions(rows, cols = rows) {
+  dimension(rows);
+  dimension(cols);
+}
 export function makePuzzle(type = "sudoku", rows = 9, cols = rows) {
-  checkDimensions(rows, cols);
+  dimension(rows);
+  dimension(cols);
   if (!Object.hasOwn(TYPES, type))
     throw Error("Choose a supported puzzle type.");
   const [boxRows, boxCols] = boxShape(rows);
@@ -52,7 +55,9 @@ export function checkShape(p) {
     !Object.hasOwn(TYPES, p.type)
   )
     throw Error("Choose a supported puzzle type.");
-  checkDimensions(p.rows, p.cols);
+  for (const k of ["rows", "cols"])
+    if (!Number.isInteger(p[k]) || p[k] < 1 || p[k] > 25)
+      throw Error("Board dimensions must be whole numbers from 1 to 25.");
   if (!Array.isArray(p.cells) || p.cells.length !== p.rows * p.cols)
     throw Error("The number of cells does not match the board dimensions.");
   if (
@@ -60,25 +65,6 @@ export function checkShape(p) {
     p.rows !== p.cols
   )
     throw Error("This type needs a square grid.");
-  if (["sudoku", "killersudoku"].includes(p.type)) {
-    const br = p.boxRows === undefined ? 3 : p.boxRows;
-    const bc = p.boxCols === undefined ? 3 : p.boxCols;
-    if (
-      !Number.isInteger(br) ||
-      !Number.isInteger(bc) ||
-      br < 1 ||
-      bc < 1 ||
-      br > p.rows ||
-      bc > p.cols ||
-      br * bc !== p.rows ||
-      p.rows % br ||
-      p.cols % bc
-    ) {
-      throw Error(
-        "Box dimensions must be positive integers that tile the board and contain one of each value.",
-      );
-    }
-  }
   const allowed = new Set([
     "version",
     "type",
@@ -113,46 +99,93 @@ export function checkShape(p) {
     )
       throw Error(`Cell ${i + 1} is outside the allowed range.`);
   });
-  for (const key of ["cages", "inequalities", "clues"])
+  // Validate BEFORE rendering: tiny/negative box steps or oversized nested
+  // arrays otherwise make harmless-looking imports freeze the phone UI.
+  for (const key of ["boxRows", "boxCols"])
+    if (p[key] !== undefined) dimension(p[key]);
+  if (["sudoku", "killersudoku"].includes(p.type)) {
+    const br = p.boxRows ?? 3,
+      bc = p.boxCols ?? 3;
+    if (br * bc !== p.rows || p.rows % br || p.cols % bc)
+      throw Error(
+        "Box dimensions must tile the board and contain one of each value.",
+      );
+  }
+  for (const key of ["cages", "inequalities", "clues"]) {
+    const limit = (key === "inequalities" ? 2 : 1) * p.cells.length;
     if (
       p[key] !== undefined &&
-      (!Array.isArray(p[key]) || p[key].length > 2 * p.cells.length)
+      (!Array.isArray(p[key]) || p[key].length > limit)
     )
       throw Error(`Invalid ${key}.`);
-  if (isCage(p.type) && !Array.isArray(p.cages))
-    throw Error("This puzzle needs cage definitions.");
-  for (const cage of p.cages || []) {
+  }
+  if ((p.cages || []).length && !isCage(p.type))
+    throw Error("Cages require Killer Sudoku or KenKen.");
+  if ((p.inequalities || []).length && p.type !== "futoshiki")
+    throw Error("Inequalities require Futoshiki.");
+  if ((p.clues || []).length && p.type !== "kakuro")
+    throw Error("Across/down clues require Kakuro.");
+  const object = (value, allowed, name) => {
     if (
-      !cage ||
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.keys(value).some((k) => !allowed.includes(k))
+    )
+      throw Error(`Invalid ${name} fields.`);
+  };
+  const index = (i) => Number.isInteger(i) && i >= 0 && i < p.cells.length;
+  for (const cage of p.cages || []) {
+    object(cage, ["cells", "target", "op"], "cage");
+    if (
       !Array.isArray(cage.cells) ||
       !cage.cells.length ||
       cage.cells.length > p.cells.length ||
-      cage.cells.some(
-        (i) => !Number.isInteger(i) || i < 0 || i >= p.cells.length,
-      )
+      cage.cells.some((i) => !index(i)) ||
+      new Set(cage.cells).size !== cage.cells.length
     )
       throw Error("Invalid cage cells.");
+    // A missing target is an editable OCR placeholder, never accepted by the
+    // Python solve boundary. Geometry/coverage are also checked there.
+    if (
+      cage.target != null &&
+      (!Number.isSafeInteger(cage.target) ||
+        cage.target < 1 ||
+        cage.target > 1e12)
+    )
+      throw Error("Invalid cage target.");
+    if (cage.op !== undefined && !["+", "-", "*", "/", "="].includes(cage.op))
+      throw Error("Invalid cage operator.");
   }
-  for (const q of p.inequalities || [])
+  for (const q of p.inequalities || []) {
+    object(q, ["less", "greater"], "inequality");
     if (
-      !q ||
-      [q.less, q.greater].some(
-        (i) => !Number.isInteger(i) || i < 0 || i >= p.cells.length,
+      !index(q.less) ||
+      !index(q.greater) ||
+      Math.abs(Math.floor(q.less / p.cols) - Math.floor(q.greater / p.cols)) +
+        Math.abs((q.less % p.cols) - (q.greater % p.cols)) !==
+        1
+    )
+      throw Error("Inequality cells must share a side.");
+  }
+  const clueCells = new Set();
+  for (const q of p.clues || []) {
+    object(q, ["cell", "across", "down"], "Kakuro clue");
+    if (!index(q.cell) || p.cells[q.cell] !== "#" || clueCells.has(q.cell))
+      throw Error("Each Kakuro clue needs a distinct blocked cell.");
+    clueCells.add(q.cell);
+    for (const direction of ["across", "down"])
+      if (
+        q[direction] != null &&
+        (!Number.isInteger(q[direction]) ||
+          q[direction] < 1 ||
+          q[direction] > 45)
       )
-    )
-      throw Error("Invalid inequality cells.");
-  for (const q of p.clues || [])
-    if (
-      !q ||
-      !Number.isInteger(q.cell) ||
-      q.cell < 0 ||
-      q.cell >= p.cells.length
-    )
-      throw Error("Invalid Kakuro clue cell.");
+        throw Error("Kakuro targets must be from 1 to 45.");
+  }
   return p;
 }
 export function conflicts(p) {
-  // Rendering is also an input boundary: never iterate unchecked dimensions.
   checkShape(p);
   const bad = new Set();
   const unique = (indices) => {
@@ -337,4 +370,10 @@ export function classify({
     reason:
       "The rules are ambiguous from the grid alone. Choose the correct type before solving.",
   };
+}
+
+// Sorted review order, wrapping after the last highlighted cell.
+export function nextReviewCell(indices, after = -1) {
+  const ordered = [...indices].sort((a, b) => a - b);
+  return ordered.find((i) => i > after) ?? ordered[0] ?? null;
 }

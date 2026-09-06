@@ -1,3 +1,4 @@
+import { isGridStroke } from "./ocr-map.js";
 import { isCage } from "./model.js";
 import { gray, thresholdGray, estimateGrid } from "./geometry.js";
 function fraction(mask, w, h, x, y, rw, rh) {
@@ -63,6 +64,26 @@ export function prepareScan(image, type, rows, cols) {
     )
       return;
     if (kind === "label" && (maxy >= rh - 2 || maxy - miny < 3)) return;
+    let edgeInk = 0;
+    if (kind === "label") {
+      const band = Math.max(1, Math.round(ch * 0.03));
+      for (let yy = miny; yy <= maxy; yy++)
+        for (let xx = minx; xx <= maxx; xx++)
+          if (yy < miny + band || xx < minx + band)
+            edgeInk += mask[(y + yy) * w + x + xx];
+    }
+    if (
+      isGridStroke({
+        kind,
+        width: maxx - minx + 1,
+        height: maxy - miny + 1,
+        ink,
+        edgeInk,
+        regionWidth: rw,
+        cellHeight: ch,
+      })
+    )
+      return;
     if (kind === "hsign" && maxx - minx < (maxy - miny) * 0.3) return;
     if (kind === "vsign" && maxy - miny < (maxx - minx) * 0.3) return;
     entries.push({

@@ -26,6 +26,7 @@ export function setupOffline($) {
       .register("./sw.js")
       .then(async (registration) => {
         const ready = await navigator.serviceWorker.ready;
+        $("prepare-offline").disabled = false;
         $("prepare-offline").onclick = async () => {
           const button = $("prepare-offline");
           button.disabled = true;

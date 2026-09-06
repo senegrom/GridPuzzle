@@ -148,7 +148,9 @@
               accept=".json,application/json"
               hidden
             />
-            <button id="prepare-offline">Download for offline use</button>
+            <button id="prepare-offline" disabled>
+              Download for offline use
+            </button>
             <p id="offline-state" class="muted">
               First use needs an internet connection.
             </p>
@@ -274,6 +276,7 @@
             ><span><i class="review-dot"></i>Check reading</span>
           </div>
           <p id="review-note" class="review-note" hidden></p>
+          <button id="review-clues" hidden>Review highlighted clues</button>
           <div class="solve-actions">
             <button id="solve" class="primary">
               Solve puzzle <span aria-hidden="true">→</span></button
@@ -321,6 +324,7 @@
             ✕
           </button>
         </div>
+        <p id="review-position" class="muted" hidden></p>
         <canvas id="clue-crop" width="180" height="180" hidden></canvas
         ><label class="field"
           >Printed value<input
@@ -345,6 +349,7 @@
         <p id="cell-error" class="error-text" role="alert"></p>
         <div class="inline-buttons">
           <button class="primary" type="submit">Save clue</button
+          ><button id="save-next" type="button" hidden>Save & next</button
           ><button id="clear-cell" type="button">Clear</button>
         </div>
       </form>

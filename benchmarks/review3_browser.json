@@ -35,48 +35,11 @@
     "external": [],
     "scan": {
       "type": "sudoku",
-      "recognized": 25,
-      "correct": 25,
+      "recognized": 30,
+      "correct": 30,
       "unsafe": [],
-      "corrections": [
-        {
-          "cell": 27,
-          "value": 8
-        },
-        {
-          "cell": 31,
-          "value": 6
-        },
-        {
-          "cell": 41,
-          "value": 3
-        },
-        {
-          "cell": 49,
-          "value": 2
-        },
-        {
-          "cell": 53,
-          "value": 6
-        }
-      ],
-      "uncertain": [
-        1,
-        4,
-        13,
-        14,
-        25,
-        27,
-        31,
-        35,
-        36,
-        39,
-        41,
-        49,
-        53,
-        60,
-        66
-      ],
+      "corrections": [],
+      "uncertain": [],
       "cells": [
         5,
         3,
@@ -105,11 +68,11 @@
         null,
         6,
         null,
+        8,
         null,
         null,
         null,
-        null,
-        null,
+        6,
         null,
         null,
         null,
@@ -119,7 +82,7 @@
         null,
         8,
         null,
-        null,
+        3,
         null,
         null,
         1,
@@ -127,11 +90,11 @@
         null,
         null,
         null,
+        2,
         null,
         null,
         null,
-        null,
-        null,
+        6,
         null,
         6,
         null,
@@ -161,7 +124,7 @@
         9
       ]
     },
-    "manualCorrections": 5,
+    "manualCorrections": 0,
     "offlineMethod": "Origin server stopped and verified unreachable; cache:no-store fetch proves service-worker cache use.",
     "ok": true
   },
@@ -201,50 +164,13 @@
     "external": [],
     "scan": {
       "type": "sudoku",
-      "recognized": 24,
-      "correct": 24,
+      "recognized": 30,
+      "correct": 30,
       "unsafe": [],
-      "corrections": [
-        {
-          "cell": 25,
-          "value": 6
-        },
-        {
-          "cell": 27,
-          "value": 8
-        },
-        {
-          "cell": 31,
-          "value": 6
-        },
-        {
-          "cell": 41,
-          "value": 3
-        },
-        {
-          "cell": 49,
-          "value": 2
-        },
-        {
-          "cell": 53,
-          "value": 6
-        }
-      ],
+      "corrections": [],
       "uncertain": [
-        1,
-        4,
-        14,
         25,
-        27,
-        31,
-        35,
-        36,
-        39,
-        41,
-        49,
-        53,
-        60,
-        66
+        27
       ],
       "cells": [
         5,
@@ -272,13 +198,13 @@
         null,
         null,
         null,
+        6,
+        null,
+        8,
         null,
         null,
         null,
-        null,
-        null,
-        null,
-        null,
+        6,
         null,
         null,
         null,
@@ -288,7 +214,7 @@
         null,
         8,
         null,
-        null,
+        3,
         null,
         null,
         1,
@@ -296,11 +222,11 @@
         null,
         null,
         null,
+        2,
         null,
         null,
         null,
-        null,
-        null,
+        6,
         null,
         6,
         null,
@@ -330,7 +256,7 @@
         9
       ]
     },
-    "manualCorrections": 6,
+    "manualCorrections": 0,
     "offlineMethod": "Origin server stopped and verified unreachable; cache:no-store fetch proves service-worker cache use.",
     "ok": true
   }
