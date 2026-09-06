@@ -1,8 +1,10 @@
 export const TYPES = Object.freeze({sudoku:'Sudoku',killersudoku:'Killer Sudoku',futoshiki:'Futoshiki',kenken:'KenKen',latinsquare:'Latin square',diagonallatinsquare:'Diagonal Latin square',pandiagonallatinsquare:'Pandiagonal Latin square',hidato:'Hidato',numbrix:'Numbrix',kakuro:'Kakuro',slitherlink:'Slitherlink'});
 export const clone = value => JSON.parse(JSON.stringify(value));
 export const isCage = type => ['killersudoku','kenken'].includes(type);
-export function boxShape(n) { let r=Math.floor(Math.sqrt(n)); while(n%r) r--; return [r,n/r]; }
+function dimension(n) { if(!Number.isInteger(n)||n<1||n>25) throw Error('Board dimensions must be whole numbers from 1 to 25.');return n;}
+export function boxShape(n) { dimension(n); let r=Math.floor(Math.sqrt(n)); while(n%r) r--; return [r,n/r]; }
 export function makePuzzle(type='sudoku',rows=9,cols=rows) {
+  dimension(rows);dimension(cols);
   const [boxRows,boxCols]=boxShape(rows);
   return {version:1,type,rows,cols,boxRows,boxCols,cells:Array(rows*cols).fill(null),cages:[],inequalities:[],clues:[]};
 }
@@ -16,13 +18,43 @@ export function checkShape(p) {
   if(p.version!==undefined&&p.version!==1) throw Error('Unsupported puzzle format version.');
   const maximum=p.type==='slitherlink'?4:['hidato','numbrix'].includes(p.type)?p.cells.filter(v=>v!=='#').length:p.type==='kakuro'?9:p.rows;
   p.cells.forEach((v,i)=>{if(v===null)return; if(v==='#'&&['hidato','kakuro'].includes(p.type))return;if(!Number.isInteger(v)||v<(p.type==='slitherlink'?0:1)||v>maximum)throw Error(`Cell ${i+1} is outside the allowed range.`);});
-  for(const key of ['cages','inequalities','clues']) if(p[key]!==undefined&&(!Array.isArray(p[key])||p[key].length>2*p.cells.length)) throw Error(`Invalid ${key}.`);
-  if(isCage(p.type)&&!Array.isArray(p.cages)) throw Error('This puzzle needs cage definitions.');
-  for(const cage of p.cages||[]) {
-    if(!cage||!Array.isArray(cage.cells)||!cage.cells.length||cage.cells.some(i=>!Number.isInteger(i)||i<0||i>=p.cells.length)) throw Error('Invalid cage cells.');
+  // Validate BEFORE rendering: tiny/negative box steps or oversized nested
+  // arrays otherwise make harmless-looking imports freeze the phone UI.
+  for(const key of ['boxRows','boxCols']) if(p[key]!==undefined)dimension(p[key]);
+  if(['sudoku','killersudoku'].includes(p.type)) {
+    const br=p.boxRows??3,bc=p.boxCols??3;
+    if(br*bc!==p.rows||p.rows%br||p.cols%bc)throw Error('Box dimensions must tile the board and contain one of each value.');
   }
-  for(const q of p.inequalities||[]) if(!q||[q.less,q.greater].some(i=>!Number.isInteger(i)||i<0||i>=p.cells.length)) throw Error('Invalid inequality cells.');
-  for(const q of p.clues||[]) if(!q||!Number.isInteger(q.cell)||q.cell<0||q.cell>=p.cells.length) throw Error('Invalid Kakuro clue cell.');
+  for(const key of ['cages','inequalities','clues']) {
+    const limit=(key==='inequalities'?2:1)*p.cells.length;
+    if(p[key]!==undefined&&(!Array.isArray(p[key])||p[key].length>limit))throw Error(`Invalid ${key}.`);
+  }
+  if((p.cages||[]).length&&!isCage(p.type))throw Error('Cages require Killer Sudoku or KenKen.');
+  if((p.inequalities||[]).length&&p.type!=='futoshiki')throw Error('Inequalities require Futoshiki.');
+  if((p.clues||[]).length&&p.type!=='kakuro')throw Error('Across/down clues require Kakuro.');
+  const object=(value,allowed,name)=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!allowed.includes(k)))throw Error(`Invalid ${name} fields.`);
+  };
+  const index=i=>Number.isInteger(i)&&i>=0&&i<p.cells.length;
+  for(const cage of p.cages||[]) {
+    object(cage,['cells','target','op'],'cage');
+    if(!Array.isArray(cage.cells)||!cage.cells.length||cage.cells.length>p.cells.length||cage.cells.some(i=>!index(i))||new Set(cage.cells).size!==cage.cells.length)throw Error('Invalid cage cells.');
+    // A missing target is an editable OCR placeholder, never accepted by the
+    // Python solve boundary. Geometry/coverage are also checked there.
+    if(cage.target!=null&&(!Number.isSafeInteger(cage.target)||cage.target<1||cage.target>1e12))throw Error('Invalid cage target.');
+    if(cage.op!==undefined&&!['+','-','*','/','='].includes(cage.op))throw Error('Invalid cage operator.');
+  }
+  for(const q of p.inequalities||[]) {
+    object(q,['less','greater'],'inequality');
+    if(!index(q.less)||!index(q.greater)||Math.abs(Math.floor(q.less/p.cols)-Math.floor(q.greater/p.cols))+Math.abs(q.less%p.cols-q.greater%p.cols)!==1)throw Error('Inequality cells must share a side.');
+  }
+  const clueCells=new Set();
+  for(const q of p.clues||[]) {
+    object(q,['cell','across','down'],'Kakuro clue');
+    if(!index(q.cell)||p.cells[q.cell]!=='#'||clueCells.has(q.cell))throw Error('Each Kakuro clue needs a distinct blocked cell.');
+    clueCells.add(q.cell);
+    for(const direction of ['across','down'])if(q[direction]!=null&&(!Number.isInteger(q[direction])||q[direction]<1||q[direction]>45))throw Error('Kakuro targets must be from 1 to 45.');
+  }
   return p;
 }
 export function conflicts(p) {
@@ -68,4 +100,10 @@ export function classify({rows,cols,values=[],signs=0,labels=0,operators=0,black
   if(black||values.some(n=>Number.isInteger(n)&&n>Math.max(rows,cols)))return {type:black?'hidato':'numbrix',review:true,reason:'Number-path layout: confirm Hidato (diagonals allowed) or Numbrix (orthogonal only).'};
   if(dots&&values.some(Number.isInteger)&&values.filter(Number.isInteger).every(n=>n<=4))return {type:'slitherlink',review:true,reason:'Loop layout suggested. Check the dimensions and clues, including zeroes.'};
   return {type:rows===cols?'sudoku':'numbrix',review:true,reason:'The rules are ambiguous from the grid alone. Choose the correct type before solving.'};
+}
+
+// Sorted review order, wrapping after the last highlighted cell.
+export function nextReviewCell(indices, after=-1) {
+  const ordered=[...indices].sort((a,b)=>a-b);
+  return ordered.find(i=>i>after)??ordered[0]??null;
 }

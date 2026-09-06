@@ -30,7 +30,7 @@
 <p class="muted">The full deduction hierarchy is retained. Search never runs on the interface thread.</p>
 </details>
 <details><summary>Save, import & install</summary><div class="inline-buttons"><button id="import-json">Import puzzle</button><button id="export-json">Export puzzle</button></div><input id="json-file" type="file" accept=".json,application/json" hidden>
-<button id="prepare-offline">Download for offline use</button><p id="offline-state" class="muted">First use needs an internet connection.</p>
+<button id="prepare-offline" disabled>Download for offline use</button><p id="offline-state" class="muted">First use needs an internet connection.</p>
 <p class="muted">On iPhone: Safari → Share → Add to Home Screen → Open as Web App. Photos stay on this device and are not uploaded. Your last puzzle is saved locally; photographs are not saved.</p>
 <button id="update-app" hidden>Update app & reload</button></details>
 </section>
@@ -46,6 +46,7 @@
 <canvas id="solution-photo" hidden aria-label="Solution over the captured photograph"></canvas>
 <div class="legend"><span><i class="given-dot"></i>Original clue</span><span><i class="answer-dot"></i>Solution</span><span><i class="review-dot"></i>Check reading</span></div>
 <p id="review-note" class="review-note" hidden></p>
+<button id="review-clues" hidden>Review highlighted clues</button>
 <div class="solve-actions"><button id="solve" class="primary">Solve puzzle <span aria-hidden="true">→</span></button><button id="stop" class="danger" hidden>Stop</button><button id="next-solution" hidden>Other solution</button><button id="show-crop" hidden>Adjust scan</button><button id="save-photo" hidden>Save overlay</button></div>
 <p class="small-note">A unique solution verifies these clues—not the accuracy of the photograph’s transcription.</p>
 <details id="data-editor"><summary>Advanced puzzle data</summary><p class="muted">A data-only format for all eleven families. Cells are zero-based row-major indexes; null is blank, # is blocked, and Slitherlink 0 is a clue.</p><textarea id="json-data" rows="12" spellcheck="false" aria-label="Puzzle JSON"></textarea><button id="apply-json">Apply puzzle data</button></details>
@@ -53,7 +54,7 @@
 </div>
 <footer><span>Paper in. Possibilities out.</span><a href="https://github.com/senegrom/GridPuzzle/tree/browser-scanner" target="_blank" rel="noopener">Source · AGPL-3.0</a><span id="build-label">Browser scanner</span></footer>
 </main>
-<dialog id="cell-dialog"><form id="cell-form"><div class="section-heading"><h2 id="cell-title">Edit clue</h2><button type="button" id="close-cell" aria-label="Close editor">✕</button></div><canvas id="clue-crop" width="180" height="180" hidden></canvas><label class="field">Printed value<input id="cell-value" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label><label id="block-option" class="check" hidden><input id="blocked-cell" type="checkbox"> Blocked / black cell</label><div id="kakuro-inputs" class="fields" hidden><label>Across →<input id="across-value" inputmode="numeric" pattern="[0-9]*"></label><label>Down ↓<input id="down-value" inputmode="numeric" pattern="[0-9]*"></label></div><p id="cell-error" class="error-text" role="alert"></p><div class="inline-buttons"><button class="primary" type="submit">Save clue</button><button id="clear-cell" type="button">Clear</button></div></form></dialog>
+<dialog id="cell-dialog"><form id="cell-form"><div class="section-heading"><h2 id="cell-title">Edit clue</h2><button type="button" id="close-cell" aria-label="Close editor">✕</button></div><p id="review-position" class="muted" hidden></p><canvas id="clue-crop" width="180" height="180" hidden></canvas><label class="field">Printed value<input id="cell-value" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label><label id="block-option" class="check" hidden><input id="blocked-cell" type="checkbox"> Blocked / black cell</label><div id="kakuro-inputs" class="fields" hidden><label>Across →<input id="across-value" inputmode="numeric" pattern="[0-9]*"></label><label>Down ↓<input id="down-value" inputmode="numeric" pattern="[0-9]*"></label></div><p id="cell-error" class="error-text" role="alert"></p><div class="inline-buttons"><button class="primary" type="submit">Save clue</button><button id="save-next" type="button" hidden>Save & next</button><button id="clear-cell" type="button">Clear</button></div></form></dialog>
 <dialog id="confirm-dialog"><h2>Solve this transcription?</h2><p id="confirm-text"></p><p>A solver cannot prove that a photograph was read correctly. Check the highlighted clues and confirm the puzzle type and any extra rules.</p><div class="inline-buttons"><button id="confirm-solve" class="primary">Use these clues & solve</button><button id="confirm-back">Keep checking</button></div></dialog>
 <script type="module" src="./app.js"></script><noscript>This app needs JavaScript to process images and run the local solver.</noscript>
 </body></html>

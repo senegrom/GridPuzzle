@@ -1,4 +1,4 @@
-import {TYPES,makePuzzle,demo,clone,checkShape,conflicts,isCage} from './model.js';
+import {TYPES,makePuzzle,demo,clone,checkShape,conflicts,isCage,nextReviewCell} from './model.js';
 import {Scanner} from './scanner.js';
 import {homography,project,validQuad} from './geometry.js';
 import {saveSession,restoreSession} from './session.js';
@@ -94,6 +94,7 @@ function render(){
   if(!overlay)state.view='board';$('board-scroll').hidden=state.view==='photo';$('solution-photo').hidden=state.view!=='photo';$('clean-view').setAttribute('aria-pressed',String(state.view==='board'));$('photo-view').setAttribute('aria-pressed',String(state.view==='photo'));if(overlay)drawOverlay();
   $('next-solution').hidden=(state.result?.solutions?.length||0)<2;
   const review=state.uncertain.size||state.needsReview;$('review-note').hidden=!review;
+  $('review-clues').hidden=!state.uncertain.size;$('review-clues').textContent=`Review ${state.uncertain.size} highlighted clues`;
   const sourceAvailable=state.rectified&&state.puzzleSource===state.photoSource;
   const checkMessage=state.uncertain.size?`${state.uncertain.size} cells need checking. ${sourceAvailable?'Tap a highlighted cell to compare it with the photograph.':'Check the highlighted clues against the original puzzle. Photos are not retained after closing the app.'}`:'Confirm the puzzle type and structural clues.';
   $('review-note').textContent=[checkMessage,...state.notes].join('\n');
@@ -115,19 +116,24 @@ function openCell(i){
   const clue=p.clues.find(q=>q.cell===i);$('across-value').value=clue?.across??'';$('down-value').value=clue?.down??'';blockInputs();
   $('clue-crop').hidden=!(state.rectified&&state.puzzleSource===state.photoSource&&state.photoRows===p.rows&&state.photoCols===p.cols);
   if(!$('clue-crop').hidden){const out=$('clue-crop'),ctx=out.getContext('2d'),cw=state.rectified.width/p.cols,ch=state.rectified.height/p.rows;ctx.fillStyle='#fff';ctx.fillRect(0,0,180,180);ctx.drawImage(state.rectified,c*cw,r*ch,cw,ch,0,0,180,180);}
+  $('save-next').hidden=!state.uncertain.size;$('review-position').hidden=!state.uncertain.size;
+  $('review-position').textContent=`${state.uncertain.size} readings left to check. Saving confirms only this cell.`;
   $('cell-dialog').showModal();$('cell-value').focus();$('cell-value').select();
 }
 function blockInputs(){$('cell-value').disabled=$('blocked-cell').checked;$('kakuro-inputs').hidden=state.puzzle.type!=='kakuro'||!$('blocked-cell').checked;}
 $('blocked-cell').onchange=blockInputs;
 function numberInput(id){const text=$(id).value.trim();if(!text)return null;if(!/^\d{1,12}$/.test(text))throw Error('Use a whole number, or leave the field blank.');return Number(text);}
-function saveCell(){
+function saveCell(advance=false){
   try{
     const next=clone(state.puzzle),blocked=!$('block-option').hidden&&$('blocked-cell').checked;
     next.cells[editing]=blocked?'#':numberInput('cell-value');next.clues=next.clues.filter(q=>q.cell!==editing);
     if(blocked&&next.type==='kakuro'){const across=numberInput('across-value'),down=numberInput('down-value');if((across!==null&&(across<1||across>45))||(down!==null&&(down<1||down>45)))throw Error('Kakuro targets must be from 1 to 45.');if(across!==null||down!==null)next.clues.push({cell:editing,across,down});}
     checkShape(next);mutate(()=>{state.puzzle=next;state.uncertain.delete(editing);});$('cell-dialog').close();status('Clue saved.','The previous solution has been cleared.');
+    if(advance){const next=nextReviewCell(state.uncertain,editing);if(next!==null)openCell(next);else status('Highlighted readings checked.','Confirm the puzzle type and any structural clues, then solve.');}
   }catch(e){$('cell-error').textContent=e.message;}
 }
+$('review-clues').onclick=()=>{const cell=nextReviewCell(state.uncertain);if(cell!==null)openCell(cell);};
+$('save-next').onclick=()=>saveCell(true);
 $('cell-form').onsubmit=e=>{e.preventDefault();saveCell();};$('clear-cell').onclick=()=>{$('cell-value').value='';$('blocked-cell').checked=false;$('across-value').value=$('down-value').value='';saveCell();};$('close-cell').onclick=()=>$('cell-dialog').close();
 function cellAction(i){const tool=$('edit-tool').value;if(tool==='value')return openCell(i);stopTask();if(state.selected.includes(i))state.selected=state.selected.filter(x=>x!==i);else{if(tool==='inequality'&&state.selected.length===2)state.selected=[];state.selected.push(i);}drawBoard();status(`${state.selected.length} cells selected.`,tool==='cage'?'Enter the target and save the cage.':'Select the smaller cell first, then the larger adjacent cell.');}
 $('board').onclick=e=>{const cell=e.target.closest('[data-cell]');if(cell)cellAction(Number(cell.dataset.cell));};
@@ -227,12 +233,16 @@ let keyboardCorner=0;$('crop-canvas').onkeydown=e=>{if(!state.corners)return;if(
 async function readPhoto(){
   if(!state.photo||!state.corners)return;
   const rows=Number($('rows').value),cols=Number($('cols').value),type=$('puzzle-type').value;
+  const boxRows=Number($('box-rows').value),boxCols=Number($('box-cols').value);
   if(!Number.isInteger(rows)||!Number.isInteger(cols)||rows<1||cols<1||rows>25||cols>25){fail(Error('Set rows and columns to whole numbers from 1 to 25.'));return;}
   if(!validQuad(state.corners,state.photo.width,state.photo.height)){fail(Error('The crop corners must surround the grid clockwise without crossing.'));return;}
+  try{if(type!=='auto')checkShape({...makePuzzle(type,rows,cols),boxRows,boxCols});}catch(e){fail(e);return;}
   clearPhotoMapping();state.result=null;$('next-solution').hidden=true;drawBoard();const id=begin();
+  deadline=setTimeout(()=>{if(id===jobId)stopTask('Recognition timed out. Check the connection and try a clearer photograph.');},120000);
   try{
-    const found=await scanner.read(state.photo,state.corners,type,rows,cols,(text,p)=>{if(id===jobId)status(text,'', 'info',p);});if(id!==jobId)return;finish();remember();state.puzzle=found.puzzle;state.uncertain=new Set(found.uncertain);state.needsReview=found.needsReview;state.notes=found.notes;state.rectified=found.rectified;state.puzzleSource=state.photoSource=id;state.photoRows=rows;state.photoCols=cols;state.selected=[];
-    if(['sudoku','killersudoku'].includes(state.puzzle.type)){state.puzzle.boxRows=Number($('box-rows').value);state.puzzle.boxCols=Number($('box-cols').value);}
+    const found=await scanner.read(state.photo,state.corners,type,rows,cols,(text,p)=>{if(id===jobId)status(text,'', 'info',p);});if(id!==jobId)return;
+    const next=found.puzzle;if(['sudoku','killersudoku'].includes(next.type)){next.boxRows=boxRows;next.boxCols=boxCols;}
+    checkShape(next);finish();remember();state.puzzle=next;state.uncertain=new Set(found.uncertain);state.needsReview=found.needsReview;state.notes=found.notes;state.rectified=found.rectified;state.puzzleSource=state.photoSource=id;state.photoRows=rows;state.photoCols=cols;state.selected=[];
     persist();render();$('photo-panel').hidden=true;status('Puzzle read.',`${TYPES[state.puzzle.type]} suggested. Check highlighted cells and the puzzle rules.`);$('board-title').scrollIntoView({behavior:'smooth',block:'start'});
     if($('auto-solve').checked&&!state.uncertain.size&&!state.needsReview&&state.puzzle.cells.some(Number.isInteger))solveNow();
   }catch(e){if(id===jobId){finish();fail(e);}}
@@ -246,8 +256,9 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('./sw.js').then(async registration=>{
     const ready=await navigator.serviceWorker.ready;
     $('prepare-offline').onclick=async()=>{const button=$('prepare-offline');button.disabled=true;try{await offlineMessage(ready.active,'PREPARE_OFFLINE');$('offline-state').textContent='Offline assets are ready on this device. Browser storage can still be cleared or evicted.';}catch(e){$('offline-state').textContent=e.message;}finally{button.disabled=false;}};
+    $('prepare-offline').disabled=false;
     offlineMessage(ready.active,'OFFLINE_STATUS').then(m=>{if(m.ready)$('offline-state').textContent='Offline assets are ready on this device.';}).catch(()=>{});
-    const offerUpdate=()=>{if(registration.waiting){$('update-app').hidden=false;$('update-app').onclick=()=>{registration.waiting.postMessage({type:'ACTIVATE'});navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload(),{once:true});};}};offerUpdate();registration.addEventListener('updatefound',()=>registration.installing?.addEventListener('statechange',offerUpdate));
+    const offerUpdate=()=>{if(registration.waiting){$('update-app').hidden=false;$('update-app').onclick=()=>{navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload(),{once:true});registration.waiting.postMessage({type:'ACTIVATE'});};}};offerUpdate();registration.addEventListener('updatefound',()=>registration.installing?.addEventListener('statechange',offerUpdate));
   }).catch(e=>{$('offline-state').textContent=`Offline caching unavailable: ${e.message}`;});
 }else{$('prepare-offline').disabled=true;$('offline-state').textContent='This browser does not support offline caching.';}
 try{const saved=restoreSession(storage);if(saved){state.puzzle=normalized(saved.puzzle);state.uncertain=new Set(saved.uncertain);state.needsReview=saved.needsReview;state.notes=saved.notes;}}catch{/* Ignore malformed/old autosaves. */}

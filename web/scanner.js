@@ -1,6 +1,6 @@
 import {makePuzzle,classify,conflicts,isCage} from './model.js';
 import {threshold,gray} from './geometry.js';
-import {mapAtlas,atlasLayout} from './ocr-map.js';
+import {mapAtlas,atlasLayout,isGridStroke} from './ocr-map.js';
 let library;
 function tesseract(){
   if(!library)library=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=new URL('./vendor/tesseract/tesseract.min.js',import.meta.url).href;script.onload=()=>resolve(globalThis.Tesseract);script.onerror=()=>{script.remove();library=null;reject(Error('Recognition engine could not load. Go online and retry.'));};document.head.append(script);});
@@ -55,6 +55,7 @@ export class Scanner {
       }
       if(ink<Math.max(4,rw*rh*.008)||maxy-miny<Math.max(2,rh*.10))return;
       if(kind==='label'&&(maxy>=rh-2||maxy-miny<3))return;
+      if(isGridStroke({kind,width:maxx-minx+1,height:maxy-miny+1,ink,regionWidth:rw,cellHeight:ch}))return;
       if(kind==='hsign'&&(maxx-minx)<(maxy-miny)*.30)return;
       if(kind==='vsign'&&(maxy-miny)<(maxx-minx)*.30)return;
       entries.push({kind,cell,other,x:x+minx,y:y+miny,w:maxx-minx+1,h:maxy-miny+1,invert,text:'',confidence:0});
