@@ -14,7 +14,7 @@ from gridsolver.solver import solve_parallel as parallel
 def failing_branch(payload):
     directory = Path(os.environ["GRIDPUZZLE_FAILURE_PROBE"])
     _, value, _ = payload
-    if value == 1:
+    if value == int(os.environ.get("GRIDPUZZLE_FAILING_VALUE", "1")):
         deadline = time.monotonic() + 10
         while not (directory / "started").exists():
             if time.monotonic() >= deadline:
@@ -36,7 +36,7 @@ def main():
     )
     parallel._solve_branch = failing_branch
     try:
-        parallel.solve_parallel_trials(Grid(1, 1, 2), [(0, 1), (0, 2)], 1, 2)
+        parallel.solve_parallel_trials(Grid(1, 1, 2), [(0, 1), (0, 2)], int(os.environ.get("GRIDPUZZLE_PROBE_CAP", "1")), 2)
     except RuntimeError as error:
         assert str(error) == "Deliberate branch failure", repr(error)
     else:
