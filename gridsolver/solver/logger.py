@@ -2,7 +2,7 @@ import logging
 import sys
 import time
 from collections.abc import Iterable, Set
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from enum import Enum
 from numbers import Integral
@@ -64,10 +64,8 @@ def _configure_output_encoding():
     """
     output = sys.stdout
     if sys.platform == "win32" and hasattr(output, "reconfigure"):
-        try:
+        with suppress(AttributeError, OSError, ValueError):
             output.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, OSError, ValueError):
-            pass
     return output
 
 

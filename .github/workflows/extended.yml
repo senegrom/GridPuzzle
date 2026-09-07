@@ -2,6 +2,17 @@ name: Extended CI
 
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "gridsolver/rules/sumrules.py"
+      - "gridsolver/grid_classes/cage_loading.py"
+      - "gridsolver/grid_classes/kenken.py"
+      - "gridsolver/grid_classes/killer_sudoku.py"
+      - "gridsolver/solver/solver.py"
+      - "gridsolver/solver/solve_parallel.py"
+      - "tests/test_review3_native.py"
+      - ".github/workflows/extended.yml"
   schedule:
     - cron: "17 3 * * 0"
 

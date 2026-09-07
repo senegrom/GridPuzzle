@@ -9,7 +9,7 @@ def test_flatten_recurses_into_one_shot_iterables_at_every_depth():
         value
         for value in (
             (item for item in (1, 2)),
-            [item for item in (3, 4)],
+            [3, 4],
             ((item for item in (5, 6)),),
         )
     )

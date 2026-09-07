@@ -241,7 +241,7 @@ def test_killer_cages_row_major():
         ccdd
         eeff
         gghh
-        """, {ch: 5 for ch in "abcdefgh"})
+        """, dict.fromkeys("abcdefgh", 5))
     cages = {frozenset(rule.cells) for rule in g.get_rules_of_type(SumAndElementsAtMostOnce)}
     idx = {(r, c): r + c * 4 for r in range(4) for c in range(4)}
     assert frozenset({idx[0, 0], idx[0, 1]}) in cages  # cage 'a' spans row 0
