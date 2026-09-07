@@ -41,7 +41,7 @@ def test_malformed_cage_targets_are_never_rewritten(
     source = grid.deepcopy()
     separator = "\u2003" if space_sep else ""
     rendered_layout = separator.join(layout)
-    options = dict(space_sep=space_sep, row_wise=row_wise)
+    options = {"space_sep": space_sep, "row_wise": row_wise}
 
     def load(dictionary):
         text = f"{rendered_layout}:{dictionary}"

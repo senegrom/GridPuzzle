@@ -112,12 +112,11 @@ def test_every_slow_marker_is_covered_by_an_extended_ci_job():
         for node in ast.walk(tree):
             if _assigns_slow_pytestmark(node):
                 module_marked.add(name)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if any(
-                    _mentions_slow_marker(decorator)
-                    for decorator in node.decorator_list
-                ):
-                    function_marked.add((name, node.name))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                _mentions_slow_marker(decorator)
+                for decorator in node.decorator_list
+            ):
+                function_marked.add((name, node.name))
 
     assert module_marked == _EXPECTED_MODULE_SLOW_FILES, (
         "Module-level slow markers changed; wire the file into an extended-CI "
