@@ -1,47 +1,23 @@
 name: Browser branch tests
 on:
-  push:
-    branches: [browser-scanner]
   pull_request:
 permissions:
   contents: read
 concurrency:
-  group: browser-tests-${{ github.ref }}
+  group: browser-tests-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest -q tests -m 'not slow' --durations=8
-      - run: node --test web/tests/*.test.js
+      - name: Browser model, lifecycle and safety unit tests
+        run: node --test web/tests/*.test.js
       - name: Check every browser module parses
         run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
-      - name: Build the self-hosted browser artifact for pull requests
-        if: github.event_name == 'pull_request'
-        run: python scripts/build_web.py
-      - name: Install real browser test runtimes
-        if: github.event_name == 'pull_request'
-        run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-          npx playwright install --with-deps chromium webkit
-      - name: Real Python and OCR browser acceptance
-        if: github.event_name == 'pull_request'
-        run: |
-          node scripts/browser_smoke.cjs
-          node scripts/browser_regressions.cjs
-      - name: Retain browser acceptance report
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: browser-pr-report
-          path: browser-artifacts
-          if-no-files-found: ignore
+      - name: Explain full-browser coverage
+        run: echo 'The browser-scanner push workflow is the single full Chromium/WebKit + Python deployment gate; PR CI intentionally avoids duplicating that expensive suite.'
