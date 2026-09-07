@@ -10,89 +10,203 @@ def rep(path, old, new, label):
     p.write_text(s.replace(old, new), encoding="utf-8")
 
 
-p = "gridsolver/web_api.py"
-rep(p, "from gridsolver.grid_classes.slitherlink import Slitherlink\n", "from gridsolver.grid_classes.slitherlink import Slitherlink\nfrom gridsolver.grid_classes.str8ts import Str8ts\n", "web api import")
-rep(p, "    'kakuro', 'slitherlink',\n)", "    'kakuro', 'slitherlink', 'str8ts',\n)", "web api types")
-rep(p, "            'cells', 'cages', 'inequalities', 'clues'}", "            'cells', 'cages', 'inequalities', 'clues', 'black'}", "web api allowed")
-rep(p, "    clues = _array(p.get('clues', []), 'clues', count)\n", "    clues = _array(p.get('clues', []), 'clues', count)\n    black_raw = _array(p.get('black', []), 'black', count)\n    black_cells = {_integer(i, 'Black cell', 0, count - 1) for i in black_raw}\n    if len(black_cells) != len(black_raw):\n        raise ValueError('Black cells must be distinct')\n    if black_cells and kind != 'str8ts':\n        raise ValueError('Black-cell metadata is only supported for Str8ts')\n", "web api black")
-rep(p, "    dense = kind not in ('hidato', 'numbrix', 'kakuro', 'slitherlink')\n", "    dense = kind not in ('hidato', 'numbrix', 'kakuro', 'slitherlink', 'str8ts')\n", "web api compact")
-rep(p, "    if blocked and kind not in ('hidato', 'kakuro'):\n        raise ValueError('Blocked cells are only supported in Hidato and Kakuro')\n", "    if blocked and kind not in ('hidato', 'kakuro', 'str8ts'):\n        raise ValueError('Blocked cells are only supported in Hidato, Kakuro and Str8ts')\n    if kind == 'str8ts':\n        if rows != cols or rows > 9:\n            raise ValueError('Str8ts requires a square board no larger than 9x9')\n        if blocked - black_cells:\n            raise ValueError('Every # Str8ts cell must be listed in black')\n        if any(i in black_cells and raw[i] is None for i in range(count)):\n            raise ValueError('A Str8ts black cell must contain # or a numbered clue')\n", "web api blocks")
-rep(p, "    elif kind == 'slitherlink':\n        grid = Slitherlink([values[r * cols:(r + 1) * cols] for r in range(rows)])\n    else:\n", "    elif kind == 'slitherlink':\n        grid = Slitherlink([values[r * cols:(r + 1) * cols] for r in range(rows)])\n    elif kind == 'str8ts':\n        numbered = {i for i in black_cells if isinstance(values[i], int)}\n        grid = Str8ts(rows, cols, black=[coord(i) for i in black_cells],\n                      numbered_black=[coord(i) for i in numbered])\n        grid.load_key_values({coord(i): value for i, value in enumerate(values)\n                              if isinstance(value, int)})\n    else:\n", "web api build")
-
+# Strong centered white-on-black digit evidence is a better Str8ts signal than
+# an incidental false Kakuro corner read. Two centered digits are required so a
+# blocked Hidato with one speckle cannot become Str8ts automatically.
 p = "web/model.js"
-rep(p, '  slitherlink: "Slitherlink",\n', '  slitherlink: "Slitherlink",\n  str8ts: "Str8ts",\n', "model type")
-rep(p, "    clues: [],\n  };", "    clues: [],\n    black: [],\n  };", "model black field")
-rep(p, '    "cells", "cages", "inequalities", "clues",\n', '    "cells", "cages", "inequalities", "clues", "black",\n', "model allowed")
-old = '''  const maximum =
-    p.type === "slitherlink"
-      ? 4
-      : ["hidato", "numbrix"].includes(p.type)
-        ? p.cells.filter((v) => v !== "#").length
-        : p.type === "kakuro"
-          ? 9
-          : p.rows;
-'''
-new = '''  const black = new Set(p.black || []);
-  if (!Array.isArray(p.black || []) || black.size !== (p.black || []).length || [...black].some((i) => !Number.isInteger(i) || i < 0 || i >= p.cells.length))
-    throw Error("Invalid black-cell metadata.");
-  if (p.type !== "str8ts" && black.size)
-    throw Error("Black-cell metadata is only supported for Str8ts.");
-  if (p.type === "str8ts" && (p.rows !== p.cols || p.rows > 9))
-    throw Error("Str8ts requires a square board no larger than 9 × 9.");
-  const maximum =
-    p.type === "slitherlink"
-      ? 4
-      : ["hidato", "numbrix"].includes(p.type)
-        ? p.cells.filter((v) => v !== "#").length
-        : p.type === "kakuro"
-          ? 9
-          : p.rows;
-'''
-rep(p, old, new, "model black validation")
-rep(p, '    if (v === "#" && ["hidato", "kakuro"].includes(p.type)) return;\n', '    if (v === "#" && (["hidato", "kakuro"].includes(p.type) || (p.type === "str8ts" && black.has(i)))) return;\n', "model # support")
-rep(p, '  for (const key of ["boxRows", "boxCols"])\n', '  if (p.type === "str8ts") {\n    for (const i of black) if (p.cells[i] === null) throw Error("A Str8ts black cell must contain # or a numbered clue.");\n    p.cells.forEach((v, i) => { if (v === "#" && !black.has(i)) throw Error("Every # Str8ts cell must be listed as black."); });\n  }\n  for (const key of ["boxRows", "boxCols"])\n', "model black consistency")
-rep(p, '  if (type === "slitherlink") { const p = makePuzzle(type, 2); p.cells = [2, 2, 2, 2]; return p; }\n', '  if (type === "str8ts") { const p = makePuzzle(type, 3); p.black = [4]; p.cells = [1,2,3,2,3,1,3,1,null]; return p; }\n  if (type === "slitherlink") { const p = makePuzzle(type, 2); p.cells = [2, 2, 2, 2]; return p; }\n', "model demo")
-rep(p, 'export function classify({ rows, cols, values = [], signs = 0, labels = 0, operators = 0, black = 0, triangles = 0, boxes = false, dots = false }) {\n', 'export function classify({ rows, cols, values = [], signs = 0, labels = 0, operators = 0, black = 0, blackNumbers = 0, triangles = 0, boxes = false, dots = false }) {\n', "model classify signature")
-rep(p, '  if (black && triangles) return { type:"kakuro", review:true, reason:"Cross-sum layout detected. Check black cells and both clue directions." };\n', '  if (black && triangles) return { type:"kakuro", review:true, reason:"Cross-sum layout detected. Check black cells and both clue directions." };\n  if (black && blackNumbers && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Numbered black cells suggest Str8ts. Check every black cell and printed digit." };\n', "model classify Str8ts")
+rep(
+    p,
+    '  if (black && triangles) return { type:"kakuro", review:true, reason:"Cross-sum layout detected. Check black cells and both clue directions." };\n  if (black && blackNumbers && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Numbered black cells suggest Str8ts. Check every black cell and printed digit." };\n',
+    '  if (black && blackNumbers >= 2 && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Multiple centered digits on black cells suggest Str8ts. Check every black cell and printed digit." };\n  if (black && triangles) return { type:"kakuro", review:true, reason:"Cross-sum layout detected. Check black cells and both clue directions." };\n',
+    "Str8ts classification precedence",
+)
 
-p = "web/scanner.js"
-rep(p, '    const valueEntries = entries.filter((e) => e.kind === "value"),\n      values = Array(rows * cols).fill(null),\n      uncertain = new Set();\n', '    const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),\n      values = Array(rows * cols).fill(null),\n      blackValueCells = new Set(),\n      uncertain = new Set();\n', "scanner values")
-rep(p, '    for (const e of valueEntries) {\n      if (/^\\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;\n      if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);\n    }\n', '    for (const e of valueEntries) {\n      if (/^\\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;\n      if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);\n      if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);\n    }\n', "scanner black values")
-rep(p, '      black: black.filter(Boolean).length,\n      triangles: triangles.length,\n', '      black: black.filter(Boolean).length,\n      blackNumbers: blackValueCells.size,\n      triangles: triangles.length,\n', "scanner classify")
-rep(p, '    puzzle.cells = values.map((v, i) => {\n      if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";\n', '    if (chosen === "str8ts") puzzle.black = black.flatMap((v, i) => v ? [i] : []);\n    puzzle.cells = values.map((v, i) => {\n      if (black[i] && chosen === "str8ts") { uncertain.add(i); return v === null ? "#" : v; }\n      if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";\n', "scanner black output")
-rep(p, '      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink"].includes(\n', '      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink", "str8ts"].includes(\n', "scanner review")
-rep(p, '    if (isCage(chosen))\n      notes.unshift(\n        "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",\n      );\n', '    if (isCage(chosen))\n      notes.unshift(\n        "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",\n      );\n    if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");\n', "scanner note")
+# Newsprint can make a white digit on a black cell much dimmer than 165. The
+# center crop keeps borders out, so 135 recovers dim clues without admitting
+# ordinary black-cell texture. Real digits occupy a substantial fraction of the
+# cell height; require that to reject isolated paper/halftone specks.
+p = "web/scan-analysis.js"
+rep(p, "        part.maxy - part.miny + 1 >= h * 0.12,\n", "        part.maxy - part.miny + 1 >= h * 0.25,\n", "digit component height")
+rep(p, "          ? g[(y + yy) * w + x + xx] > 165\n", "          ? g[(y + yy) * w + x + xx] > 135\n", "dim black-cell digit threshold")
 
+# Preserve the black-cell role when the user clears only its printed number.
 p = "web/app.js"
-rep(p, '    clues: clone(p.clues || []),\n  };\n', '    clues: clone(p.clues || []),\n    black: clone(p.black || []),\n  };\n', "app normalized")
-rep(p, '      given = p.cells[i],\n      value = sol?.cells[i] ?? given;\n    const classes = ["board-cell"];\n    if (given === "#") classes.push("blocked");\n', '      given = p.cells[i],\n      value = sol?.cells[i] ?? given,\n      isBlack = given === "#" || (p.type === "str8ts" && (p.black || []).includes(i));\n    const classes = ["board-cell"];\n    if (isBlack) classes.push("blocked");\n', "app draw black")
-rep(p, '      "aria-label": `Row ${r + 1}, column ${c + 1}: ${given === null ? "blank" : given === "#" ? "blocked" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,\n', '      "aria-label": `Row ${r + 1}, column ${c + 1}: ${given === null ? "blank" : isBlack && Number.isInteger(given) ? `black clue ${given}` : given === "#" ? "blocked" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,\n', "app aria")
-rep(p, '      (next.clues.length && type !== "kakuro")\n', '      (next.clues.length && type !== "kakuro") ||\n      ((next.black || []).length && type !== "str8ts")\n', "app type preserve")
-rep(p, '  $("blocked-cell").checked = p.cells[i] === "#";\n  $("block-option").hidden = !["hidato", "kakuro"].includes(p.type);\n', '  $("blocked-cell").checked = p.cells[i] === "#" || (p.type === "str8ts" && (p.black || []).includes(i));\n  $("block-option").hidden = !["hidato", "kakuro", "str8ts"].includes(p.type);\n', "app open cell")
-rep(p, '  $("cell-value").disabled = $("blocked-cell").checked;\n', '  $("cell-value").disabled = $("blocked-cell").checked && state.puzzle.type !== "str8ts";\n', "app block input")
-rep(p, '    next.cells[editing] = blocked ? "#" : numberInput("cell-value");\n', '    const entered = numberInput("cell-value");\n    if (next.type === "str8ts") {\n      next.black = (next.black || []).filter((i) => i !== editing);\n      if (blocked) next.black.push(editing);\n      next.black.sort((a, b) => a - b);\n      next.cells[editing] = blocked ? (entered ?? "#") : entered;\n    } else next.cells[editing] = blocked ? "#" : entered;\n', "app save black")
+rep(
+    p,
+    '$("clear-cell").onclick = () => {\n  $("cell-value").value = "";\n  $("blocked-cell").checked = false;\n  $("across-value").value = $("down-value").value = "";\n  saveCell();\n};\n',
+    '$("clear-cell").onclick = () => {\n  const keepBlack =\n    state.puzzle.type === "str8ts" && (state.puzzle.black || []).includes(editing);\n  $("cell-value").value = "";\n  $("blocked-cell").checked = keepBlack;\n  $("across-value").value = $("down-value").value = "";\n  saveCell();\n};\n',
+    "clear Str8ts clue",
+)
 
-p = "web/style.css"
-rep(p, '.board-cell.blocked .cell-hit {\n  fill: #173536;\n}\n', '.board-cell.blocked .cell-hit {\n  fill: #173536;\n}\n.board-cell.blocked > text {\n  fill: white;\n}\n', "css black text")
+# The geometry worker finds the digit component. Build OCR tiles from a padded
+# local grayscale crop and binarize each tile independently with Otsu. This is
+# far more stable on shaded/dirty newspaper paper than reusing the whole-page
+# adaptive threshold while retaining one bounded Tesseract call.
+p = "web/scanner.js"
+insert_after = '''function fraction(mask, w, h, x, y, rw, rh) {
+  let sum = 0,
+    n = 0;
+  for (let yy = Math.max(0, Math.floor(y)); yy < Math.min(h, y + rh); yy++)
+    for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(w, x + rw); xx++) {
+      sum += mask[yy * w + xx];
+      n++;
+    }
+  return sum / Math.max(1, n);
+}
+'''
+helpers = '''function otsuThreshold(g, width, x, y, w, h) {
+  const histogram = new Uint32Array(256);
+  let total = 0,
+    sum = 0;
+  for (let yy = y; yy < y + h; yy++)
+    for (let xx = x; xx < x + w; xx++) {
+      const value = g[yy * width + xx];
+      histogram[value]++;
+      total++;
+      sum += value;
+    }
+  let background = 0,
+    backgroundSum = 0,
+    best = -1,
+    threshold = 127;
+  for (let value = 0; value < 256; value++) {
+    background += histogram[value];
+    if (!background) continue;
+    const foreground = total - background;
+    if (!foreground) break;
+    backgroundSum += value * histogram[value];
+    const meanBackground = backgroundSum / background,
+      meanForeground = (sum - backgroundSum) / foreground,
+      score = background * foreground * (meanBackground - meanForeground) ** 2;
+    if (score > best) {
+      best = score;
+      threshold = value;
+    }
+  }
+  return threshold;
+}
+function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
+  const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
+    row = Math.floor(entry.cell / cols),
+    col = entry.cell % cols,
+    minX = Math.max(0, Math.round((col + 0.08) * cellWidth)),
+    maxX = Math.min(imageWidth, Math.round((col + 0.92) * cellWidth)),
+    minY = Math.max(0, Math.round((row + 0.08) * cellHeight)),
+    maxY = Math.min(imageHeight, Math.round((row + 0.92) * cellHeight)),
+    x = Math.max(minX, entry.x - pad),
+    y = Math.max(minY, entry.y - pad),
+    right = Math.min(maxX, entry.x + entry.w + pad),
+    bottom = Math.min(maxY, entry.y + entry.h + pad),
+    width = Math.max(1, right - x),
+    height = Math.max(1, bottom - y),
+    threshold = otsuThreshold(g, imageWidth, x, y, width, height),
+    canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d"),
+    pixels = context.createImageData(width, height);
+  for (let yy = 0; yy < height; yy++)
+    for (let xx = 0; xx < width; xx++) {
+      const source = g[(y + yy) * imageWidth + x + xx],
+        foreground = entry.invert ? source > threshold : source < threshold,
+        value = foreground ? 0 : 255,
+        at = 4 * (yy * width + xx);
+      pixels.data[at] = pixels.data[at + 1] = pixels.data[at + 2] = value;
+      pixels.data[at + 3] = 255;
+    }
+  context.putImageData(pixels, 0, 0);
+  return canvas;
+}
+'''
+rep(p, insert_after, insert_after + helpers, "local Otsu helpers")
+old = '''    entries.forEach((e, i) => {
+      const scale = Math.min((tile * 74) / 112 / e.w, (tile * 72) / 112 / e.h),
+        dw = e.w * scale,
+        dh = e.h * scale,
+        x = (i % columns) * tile + (tile - dw) / 2,
+        y = Math.floor(i / columns) * tile + (tile - dh) / 2;
+      ctx.save();
+      if (e.invert) ctx.filter = "invert(1)";
+      ctx.drawImage(
+        e.invert ? rectified : bw,
+        e.x,
+        e.y,
+        e.w,
+        e.h,
+        x,
+        y,
+        dw,
+        dh,
+      );
+      ctx.restore();
+    });
+'''
+new = '''    entries.forEach((e, i) => {
+      const isDigit = ["value", "blackvalue"].includes(e.kind),
+        source = isDigit
+          ? digitCrop(e, g, w, h, cw, ch, cols)
+          : e.invert
+            ? rectified
+            : bw,
+        sx = isDigit ? 0 : e.x,
+        sy = isDigit ? 0 : e.y,
+        sw = isDigit ? source.width : e.w,
+        sh = isDigit ? source.height : e.h,
+        scale = Math.min((tile * 74) / 112 / sw, (tile * 72) / 112 / sh),
+        dw = sw * scale,
+        dh = sh * scale,
+        x = (i % columns) * tile + (tile - dw) / 2,
+        y = Math.floor(i / columns) * tile + (tile - dh) / 2;
+      ctx.save();
+      if (!isDigit && e.invert) ctx.filter = "invert(1)";
+      ctx.drawImage(source, sx, sy, sw, sh, x, y, dw, dh);
+      ctx.restore();
+    });
+'''
+rep(p, old, new, "per-digit Otsu atlas")
 
-p = "scripts/browser_smoke.cjs"
-rep(p, '        "slitherlink",\n      ]) {\n', '        "slitherlink",\n        "str8ts",\n      ]) {\n', "browser family")
-rep(p, '      console.log(name, "all eleven solver families passed");\n', '      console.log(name, "all twelve solver families passed");\n', "browser family count")
+# Regression: Str8ts evidence must win over a stray corner read only when it is
+# strong, and dim white-on-black clues must survive preprocessing.
+p = Path("web/tests/classification.test.js")
+s = p.read_text(encoding="utf-8")
+extra = '''\ntest("multiple centered black digits distinguish Str8ts from a stray Kakuro read", () => {
+  assert.equal(
+    classify({ rows: 9, cols: 9, black: 22, blackNumbers: 4, triangles: 1 }).type,
+    "str8ts",
+  );
+  assert.equal(
+    classify({ rows: 9, cols: 9, black: 22, blackNumbers: 1, triangles: 4 }).type,
+    "kakuro",
+  );
+});
+'''
+if extra.strip() not in s:
+    p.write_text(s + extra, encoding="utf-8")
 
-with Path("web/tests/model.test.js").open("a", encoding="utf-8") as f:
-    f.write('''\n\ntest("Str8ts black cells can be blank or numbered", () => {\n  const p = makePuzzle("str8ts", 3);\n  p.black = [4]; p.cells[4] = 3; assert.equal(checkShape(p), p);\n  p.cells[4] = "#"; assert.equal(checkShape(p), p);\n  assert.equal(classify({rows:9,cols:9,values:[9,1,4],black:12,blackNumbers:2,triangles:0,boxes:false}).type, "str8ts");\n});\n''')
-with Path("tests/test_web_api.py").open("a", encoding="utf-8") as f:
-    f.write('''\n\ndef test_browser_str8ts_numbered_black_cell():\n    from gridsolver.web_api import solve_payload\n    p = {\n        "version": 1, "type": "str8ts", "rows": 3, "cols": 3,\n        "black": [4],\n        "cells": [1, 2, 3, 2, 3, 1, 3, 1, None],\n        "cages": [], "inequalities": [], "clues": [],\n    }\n    result = solve_payload(p)\n    assert result["status"] == "unique"\n    assert result["solutions"][0]["cells"] == [1,2,3,2,3,1,3,1,2]\n''')
-with Path("web/README.md").open("a", encoding="utf-8") as f:
-    f.write('''\n\n### Real newspaper regressions and Str8ts\n\nThe scanner includes Str8ts as a twelfth solver family. Black cells are stored separately from their optional printed digits, so numbered black clues count for row/column uniqueness without joining a street. Real user-provided newspaper photos and hand-transcribed expected data live under `web/examples/newspaper/`. Newsprint OCR isolates the dominant connected glyph component before Tesseract to suppress paper speckle and shaded-cell halftone.\n''')
-
-Path("web/scan-analysis.js").write_text(r'''import { isGridStroke } from "./ocr-map.js";
-import { isCage } from "./model.js";
-import { gray, thresholdGray, estimateGrid } from "./geometry.js";
-function fraction(mask,w,h,x,y,rw,rh){let sum=0,n=0;for(let yy=Math.max(0,Math.floor(y));yy<Math.min(h,y+rh);yy++)for(let xx=Math.max(0,Math.floor(x));xx<Math.min(w,x+rw);xx++){sum+=mask[yy*w+xx];n++;}return sum/Math.max(1,n);}
-function dominant(mask,w,h){const seen=new Uint8Array(mask.length),stack=[],parts=[];for(let start=0;start<mask.length;start++){if(!mask[start]||seen[start])continue;let area=0,minx=w,miny=h,maxx=-1,maxy=-1;seen[start]=1;stack.push(start);while(stack.length){const at=stack.pop(),y=Math.floor(at/w),x=at%w;area++;minx=Math.min(minx,x);miny=Math.min(miny,y);maxx=Math.max(maxx,x);maxy=Math.max(maxy,y);for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const xx=x+dx,yy=y+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const next=yy*w+xx;if(mask[next]&&!seen[next]){seen[next]=1;stack.push(next);}}}parts.push({area,minx,miny,maxx,maxy});}parts.sort((a,b)=>b.area-a.area);return parts.find(p=>p.area>=Math.max(4,w*h*0.003)&&p.maxy-p.miny+1>=h*0.12)||null;}
-export function prepareScan(image,type,rows,cols){const w=image.width,h=image.height,cw=w/cols,ch=h/rows,g=gray(image),mask=thresholdGray(g,w,h),dark=new Uint8Array(g.length);for(let i=0;i<g.length;i++)dark[i]=g[i]<125?1:0;const black=Array.from({length:rows*cols},(_,i)=>fraction(dark,w,h,((i%cols)+0.16)*cw,(Math.floor(i/cols)+0.16)*ch,0.68*cw,0.68*ch)>0.48),anyBlack=black.some(Boolean),entries=[];
-function region(kind,cell,x,y,rw,rh,invert=false,other=null){x=Math.max(0,Math.round(x));y=Math.max(0,Math.round(y));rw=Math.max(1,Math.min(w-x,Math.round(rw)));rh=Math.max(1,Math.min(h-y,Math.round(rh)));const local=new Uint8Array(rw*rh);let minx=rw,miny=rh,maxx=-1,maxy=-1,ink=0;for(let yy=0;yy<rh;yy++)for(let xx=0;xx<rw;xx++){const val=invert?g[(y+yy)*w+x+xx]>165:mask[(y+yy)*w+x+xx];local[yy*rw+xx]=val?1:0;if(val){minx=Math.min(minx,xx);miny=Math.min(miny,yy);maxx=Math.max(maxx,xx);maxy=Math.max(maxy,yy);ink++;}}if(["value","blackvalue"].includes(kind)){const part=dominant(local,rw,rh);if(!part)return;({minx,miny,maxx,maxy}=part);ink=part.area;}if(ink<Math.max(4,rw*rh*0.008)||maxy-miny<Math.max(2,rh*0.1))return;if(kind==="label"&&(maxy>=rh-2||maxy-miny<3))return;let edgeInk=0;if(kind==="label"){const band=Math.max(1,Math.round(ch*0.03));for(let yy=miny;yy<=maxy;yy++)for(let xx=minx;xx<=maxx;xx++)if(yy<miny+band||xx<minx+band)edgeInk+=mask[(y+yy)*w+x+xx];}if(isGridStroke({kind,width:maxx-minx+1,height:maxy-miny+1,ink,edgeInk,regionWidth:rw,cellHeight:ch}))return;if(kind==="hsign"&&maxx-minx<(maxy-miny)*0.3)return;if(kind==="vsign"&&maxy-miny<(maxx-minx)*0.3)return;entries.push({kind,cell,other,x:x+minx,y:y+miny,w:maxx-minx+1,h:maxy-miny+1,invert,text:"",confidence:0});}
-for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c;if(black[i]&&["auto","kakuro","hidato","str8ts"].includes(type)){if(type==="auto"||type==="str8ts")region("blackvalue",i,(c+0.16)*cw,(r+0.16)*ch,0.68*cw,0.68*ch,true);if(type==="auto"||type==="kakuro"){region("across",i,(c+0.48)*cw,(r+0.04)*ch,0.46*cw,0.4*ch,true);region("down",i,(c+0.05)*cw,(r+0.55)*ch,0.4*cw,0.4*ch,true);}}else region("value",i,(c+0.14)*cw,(r+0.16)*ch,0.72*cw,0.72*ch);if((type==="auto"&&!anyBlack)||isCage(type))region("label",i,(c+0.04)*cw,(r+0.015)*ch,0.7*cw,0.255*ch);if((type==="auto"&&!anyBlack)||type==="futoshiki"){if(c<cols-1)region("hsign",i,(c+0.82)*cw,(r+0.25)*ch,0.36*cw,0.5*ch,false,i+1);if(r<rows-1)region("vsign",i,(c+0.25)*cw,(r+0.82)*ch,0.5*cw,0.36*ch,false,i+cols);}}
-return {image,meta:estimateGrid(image,mask),mask,g,black,entries};}
-''', encoding="utf-8")
+p = Path("web/tests/newspaper-analysis.test.js")
+s = p.read_text(encoding="utf-8")
+s = s.replace(
+    'import { detectBlackCells } from "../scan-analysis.js";',
+    'import { detectBlackCells, prepareScan } from "../scan-analysis.js";',
+)
+extra = '''\ntest("dim white-on-black newspaper digits still produce a Str8ts OCR region", () => {
+  const width = 90, height = 90,
+    data = new Uint8ClampedArray(width * height * 4).fill(255);
+  for (let y = 30; y < 60; y++)
+    for (let x = 30; x < 60; x++) {
+      const at = 4 * (y * width + x);
+      data[at] = data[at + 1] = data[at + 2] = 25;
+    }
+  for (let y = 37; y < 54; y++)
+    for (let x = 42; x < 48; x++) {
+      const at = 4 * (y * width + x);
+      data[at] = data[at + 1] = data[at + 2] = 150;
+    }
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  const result = prepareScan({ width, height, data }, "str8ts", 3, 3);
+  assert.equal(result.black[4], true);
+  assert.ok(result.entries.some((e) => e.kind === "blackvalue" && e.cell === 4));
+});
+'''
+if extra.strip() not in s:
+    p.write_text(s + extra, encoding="utf-8")
