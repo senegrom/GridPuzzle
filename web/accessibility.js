@@ -13,14 +13,15 @@ if(typeof document!=='undefined'){
   const stopNoop=(button,predicate)=>button.addEventListener('click',event=>{if(predicate())return;event.preventDefault();event.stopImmediatePropagation();},{capture:true});
   stopNoop(document.getElementById('remove-cage'),()=>hasCageRemoval(puzzleData(),selectedCells()));
   stopNoop(document.getElementById('remove-inequality'),()=>hasInequalityRemoval(puzzleData(),selectedCells()));
-  board.onkeydown=event=>{
+  // Let app.js own valid movement so its private roving-focus state stays in
+  // sync. Only intercept arrows that would wrap/clamp into a different row or
+  // column at the board boundary.
+  board.addEventListener('keydown',event=>{
+    if(!event.key.startsWith('Arrow'))return;
     const cell=event.target.closest('[data-cell]');if(!cell)return;
     const index=Number(cell.dataset.cell),cols=Number(colsInput.value),rows=Number(rowsInput.value);
     if(!Number.isInteger(cols)||!Number.isInteger(rows)||cols<1||rows<1)return;
-    if(event.key==='Enter'||event.key===' '){event.preventDefault();cell.click();return;}
-    if(!event.key.startsWith('Arrow'))return;
-    event.preventDefault();const next=moveIndex(index,event.key,rows,cols);if(next===index)return;
-    for(const el of board.querySelectorAll('[data-cell]'))el.tabIndex=Number(el.dataset.cell)===next?0:-1;
-    board.querySelector(`[data-cell="${next}"]`)?.focus();
-  };
+    if(moveIndex(index,event.key,rows,cols)!==index)return;
+    event.preventDefault();event.stopImmediatePropagation();
+  },{capture:true});
 }
