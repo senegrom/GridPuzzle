@@ -35,6 +35,39 @@ def test_large_near_extreme_partition_has_no_recursion(count):
     assert cage.sum_candidates == (frozenset((*range(1, count), count + 1)),)
 
 
+
+def test_full_large_cage_matching_is_stack_safe():
+    # One exact full-domain partition, but candidate edges form an
+    # alternating cycle whose final augmenting path is longer than a
+    # deliberately lowered recursion limit. The former recursive
+    # matcher failed here even though partition generation was iterative.
+    count = 400
+    grid = GridSizeContainer(1, count, max_elem=count)
+    cage = Cage(grid, range(count), count * (count + 1) // 2)
+    values = cage.sum_candidates[0]
+    order = list(values)
+    candidates = tuple(
+        [{order[0], order[-1]}]
+        + [{order[index - 1], order[index]} for index in range(1, count)]
+    )
+    known = [0] * count
+
+    original_limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(250)
+        changed, replacement_rules, guarantees = cage.apply(
+            known,
+            candidates,
+            (),
+        )
+    finally:
+        sys.setrecursionlimit(original_limit)
+
+    assert changed is False
+    assert replacement_rules is None
+    assert len(guarantees) == count
+    assert all(len(possible) == 2 for possible in candidates)
+
 def test_later_failure_is_observed_before_first_branch_finishes():
     first, second = Future(), Future()
     failure = RuntimeError("later branch failed")
