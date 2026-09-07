@@ -95,7 +95,7 @@ function dominant(mask, w, h) {
     parts.find(
       (part) =>
         part.area >= Math.max(4, w * h * 0.003) &&
-        part.maxy - part.miny + 1 >= h * 0.12,
+        part.maxy - part.miny + 1 >= h * 0.25,
     ) || null
   );
 }
@@ -125,7 +125,7 @@ export function prepareScan(image, type, rows, cols) {
     for (let yy = 0; yy < rh; yy++)
       for (let xx = 0; xx < rw; xx++) {
         const val = invert
-          ? g[(y + yy) * w + x + xx] > 165
+          ? g[(y + yy) * w + x + xx] > 135
           : mask[(y + yy) * w + x + xx];
         local[yy * rw + xx] = val ? 1 : 0;
         if (val) {

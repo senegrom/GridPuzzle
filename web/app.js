@@ -679,8 +679,10 @@ $("cell-form").onsubmit = (e) => {
   saveCell();
 };
 $("clear-cell").onclick = () => {
+  const keepBlack =
+    state.puzzle.type === "str8ts" && (state.puzzle.black || []).includes(editing);
   $("cell-value").value = "";
-  $("blocked-cell").checked = false;
+  $("blocked-cell").checked = keepBlack;
   $("across-value").value = $("down-value").value = "";
   saveCell();
 };

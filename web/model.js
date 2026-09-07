@@ -314,8 +314,8 @@ export function demo(type = "sudoku") {
   return p;
 }
 export function classify({ rows, cols, values = [], signs = 0, labels = 0, operators = 0, black = 0, blackNumbers = 0, triangles = 0, boxes = false, dots = false }) {
+  if (black && blackNumbers >= 2 && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Multiple centered digits on black cells suggest Str8ts. Check every black cell and printed digit." };
   if (black && triangles) return { type:"kakuro", review:true, reason:"Cross-sum layout detected. Check black cells and both clue directions." };
-  if (black && blackNumbers && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Numbered black cells suggest Str8ts. Check every black cell and printed digit." };
   if (signs) return { type:"futoshiki", review:true, reason:"Inequalities detected. Check the direction of every sign." };
   if (labels > 1) return { type:operators?"kenken":"killersudoku", review:true, reason:"Cages detected. Check every boundary, target and operator." };
   if (rows === cols && boxes && !black)
