@@ -29,7 +29,7 @@ jobs:
           pytest -q tests/test_str8ts.py tests/test_web_api.py
           find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
           node --test web/tests/*.test.js
-          git add gridsolver/web_api.py web/model.js web/scanner.js web/scan-analysis.js web/app.js web/style.css scripts/browser_smoke.cjs tests/test_web_api.py web/tests/model.test.js web/README.md
+          git add web/model.js web/scanner.js web/scan-analysis.js web/app.js web/tests/classification.test.js web/tests/newspaper-analysis.test.js
           git diff --cached --check
-          git commit -m 'Add Str8ts browser support and harden newspaper OCR'
+          git commit -m 'Improve real newspaper OCR and Str8ts review safety'
           git push origin HEAD:scanner-str8ts-newspaper
