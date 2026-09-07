@@ -21,7 +21,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin master
           git merge --no-commit --no-ff -s ours origin/master
-          cat .followup/chunk-* | base64 -d > /tmp/gridpuzzle-followup.tar.gz
+          cat .followup/chunk-* | tr -d '\r\n\t ' | base64 --decode --ignore-garbage > /tmp/gridpuzzle-followup.tar.gz
           echo '8442a30b1c05fb75915e9167764e3d6847adfb1b6b557c401d5679ec89051684  /tmp/gridpuzzle-followup.tar.gz' | sha256sum -c -
           tar -xzf /tmp/gridpuzzle-followup.tar.gz -C .
           rm -f web/accessibility.js web/polish.css web/tests/followup-ui.test.js
