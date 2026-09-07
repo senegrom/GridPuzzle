@@ -13,6 +13,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
       - name: Apply reviewed follow-up atomically
         shell: bash
         run: |
@@ -22,27 +25,40 @@ jobs:
           git fetch origin master
           git merge --no-commit --no-ff -s ours origin/master
           python - <<'PY'
-          import base64, hashlib
-          from pathlib import Path
+          import base64, hashlib, tarfile
+          from pathlib import Path, PurePosixPath
 
-          expected = '8442a30b1c05fb75915e9167764e3d6847adfb1b6b557c401d5679ec89051684'
+          expected = 'b8a3f94494be7c937fd85b54ff69099ec93c45dfdad22a004df13a3fd1c02e46'
           chunks = [Path(f'.followup/chunk-{i:02d}').read_bytes().strip() for i in range(7)]
           data = b''.join(chunks)
-          # The staged stream lost only terminal Base64 padding in transport.
-          # Restore standard padding, then trust it only if the original pinned
-          # archive digest matches exactly.
           repaired = data + b'=' * ((-len(data)) % 4)
           raw = base64.b64decode(repaired, validate=True)
           digest = hashlib.sha256(raw).hexdigest()
           if digest != expected:
               raise SystemExit(f'reconstructed payload digest mismatch: {digest}')
-          Path('/tmp/gridpuzzle-followup.tar.gz').write_bytes(raw)
-          print(f'payload reconstructed with {len(repaired)-len(data)} padding byte(s); pinned digest verified')
+          archive = Path('/tmp/gridpuzzle-followup.tar.gz')
+          archive.write_bytes(raw)
+          with tarfile.open(archive, 'r:gz') as tf:
+              names = []
+              for member in tf.getmembers():
+                  path = PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts:
+                      raise SystemExit(f'unsafe archive path: {member.name}')
+                  if member.issym() or member.islnk() or member.isdev():
+                      raise SystemExit(f'unsafe archive member type: {member.name}')
+                  names.append(member.name)
+              print('verified staged archive members:')
+              print('\n'.join(names))
+          print(f'payload reconstructed with {len(repaired)-len(data)} padding byte(s); gzip CRC and pinned digest verified')
           PY
+          gzip -t /tmp/gridpuzzle-followup.tar.gz
           tar -xzf /tmp/gridpuzzle-followup.tar.gz -C .
           rm -f web/accessibility.js web/polish.css web/tests/followup-ui.test.js
           rm -rf .followup
           rm -f .github/workflows/apply-scanner-followup.yml
           git add -A
+          git diff --cached --check
+          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+          node --test web/tests/*.test.js
           git commit -m 'Harden scanner trust, offline updates and phone UX; sync master'
           git push origin HEAD:browser-scanner
