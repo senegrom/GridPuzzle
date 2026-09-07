@@ -27,6 +27,69 @@ function fraction(mask, w, h, x, y, rw, rh) {
     }
   return sum / Math.max(1, n);
 }
+function otsuThreshold(g, width, x, y, w, h) {
+  const histogram = new Uint32Array(256);
+  let total = 0,
+    sum = 0;
+  for (let yy = y; yy < y + h; yy++)
+    for (let xx = x; xx < x + w; xx++) {
+      const value = g[yy * width + xx];
+      histogram[value]++;
+      total++;
+      sum += value;
+    }
+  let background = 0,
+    backgroundSum = 0,
+    best = -1,
+    threshold = 127;
+  for (let value = 0; value < 256; value++) {
+    background += histogram[value];
+    if (!background) continue;
+    const foreground = total - background;
+    if (!foreground) break;
+    backgroundSum += value * histogram[value];
+    const meanBackground = backgroundSum / background,
+      meanForeground = (sum - backgroundSum) / foreground,
+      score = background * foreground * (meanBackground - meanForeground) ** 2;
+    if (score > best) {
+      best = score;
+      threshold = value;
+    }
+  }
+  return threshold;
+}
+function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
+  const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
+    row = Math.floor(entry.cell / cols),
+    col = entry.cell % cols,
+    minX = Math.max(0, Math.round((col + 0.08) * cellWidth)),
+    maxX = Math.min(imageWidth, Math.round((col + 0.92) * cellWidth)),
+    minY = Math.max(0, Math.round((row + 0.08) * cellHeight)),
+    maxY = Math.min(imageHeight, Math.round((row + 0.92) * cellHeight)),
+    x = Math.max(minX, entry.x - pad),
+    y = Math.max(minY, entry.y - pad),
+    right = Math.min(maxX, entry.x + entry.w + pad),
+    bottom = Math.min(maxY, entry.y + entry.h + pad),
+    width = Math.max(1, right - x),
+    height = Math.max(1, bottom - y),
+    threshold = otsuThreshold(g, imageWidth, x, y, width, height),
+    canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d"),
+    pixels = context.createImageData(width, height);
+  for (let yy = 0; yy < height; yy++)
+    for (let xx = 0; xx < width; xx++) {
+      const source = g[(y + yy) * imageWidth + x + xx],
+        foreground = entry.invert ? source > threshold : source < threshold,
+        value = foreground ? 0 : 255,
+        at = 4 * (yy * width + xx);
+      pixels.data[at] = pixels.data[at + 1] = pixels.data[at + 2] = value;
+      pixels.data[at + 3] = 255;
+    }
+  context.putImageData(pixels, 0, 0);
+  return canvas;
+}
 function componentsForCages(mask, w, h, rows, cols, type) {
   const cw = w / cols,
     ch = h / rows,
@@ -189,24 +252,24 @@ export class Scanner {
     }
     bw.getContext("2d").putImageData(bd, 0, 0);
     entries.forEach((e, i) => {
-      const scale = Math.min((tile * 74) / 112 / e.w, (tile * 72) / 112 / e.h),
-        dw = e.w * scale,
-        dh = e.h * scale,
+      const isDigit = ["value", "blackvalue"].includes(e.kind),
+        source = isDigit
+          ? digitCrop(e, g, w, h, cw, ch, cols)
+          : e.invert
+            ? rectified
+            : bw,
+        sx = isDigit ? 0 : e.x,
+        sy = isDigit ? 0 : e.y,
+        sw = isDigit ? source.width : e.w,
+        sh = isDigit ? source.height : e.h,
+        scale = Math.min((tile * 74) / 112 / sw, (tile * 72) / 112 / sh),
+        dw = sw * scale,
+        dh = sh * scale,
         x = (i % columns) * tile + (tile - dw) / 2,
         y = Math.floor(i / columns) * tile + (tile - dh) / 2;
       ctx.save();
-      if (e.invert) ctx.filter = "invert(1)";
-      ctx.drawImage(
-        e.invert ? rectified : bw,
-        e.x,
-        e.y,
-        e.w,
-        e.h,
-        x,
-        y,
-        dw,
-        dh,
-      );
+      if (!isDigit && e.invert) ctx.filter = "invert(1)";
+      ctx.drawImage(source, sx, sy, sw, sh, x, y, dw, dh);
       ctx.restore();
     });
     onProgress("Loading printed-clue recognition…", null);
@@ -234,11 +297,13 @@ export class Scanner {
       e.text = readings[i].text;
       e.confidence = readings[i].confidence;
     });
-    const valueEntries = entries.filter((e) => e.kind === "value"),
+    const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
       values = Array(rows * cols).fill(null),
+      blackValueCells = new Set(),
       uncertain = new Set();
     for (const e of valueEntries) {
       if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
+      if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
       if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);
     }
     const labels = entries.filter(
@@ -258,6 +323,7 @@ export class Scanner {
       labels: labels.length,
       operators: labels.filter((e) => /[+\-xX*\/÷×=]/.test(e.text)).length,
       black: black.filter(Boolean).length,
+      blackNumbers: blackValueCells.size,
       triangles: triangles.length,
       boxes: meta.boxes,
       dots: !meta.rows && !meta.cols,
@@ -274,7 +340,9 @@ export class Scanner {
           : chosen === "kakuro"
             ? 9
             : rows;
+    if (chosen === "str8ts") puzzle.black = black.flatMap((v, i) => v ? [i] : []);
     puzzle.cells = values.map((v, i) => {
+      if (black[i] && chosen === "str8ts") { uncertain.add(i); return v === null ? "#" : v; }
       if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
       if (v !== null && (v > max || v < (chosen === "slitherlink" ? 0 : 1))) {
         uncertain.add(i);
@@ -331,7 +399,7 @@ export class Scanner {
     const needsReview =
       (type === "auto" && suggested.review) ||
       isCage(chosen) ||
-      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink"].includes(
+      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink", "str8ts"].includes(
         chosen,
       );
     if (type === "auto") notes.unshift(suggested.reason);
@@ -339,6 +407,7 @@ export class Scanner {
       notes.unshift(
         "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
       );
+    if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
     return {
       puzzle,
       uncertain: [...uncertain],

@@ -22,15 +22,16 @@ from gridsolver.grid_classes.latins_square import (
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.slitherlink import Slitherlink
+from gridsolver.grid_classes.str8ts import Str8ts
 from gridsolver.solver.solver import solve
 
 TYPES = (
     'sudoku', 'killersudoku', 'futoshiki', 'kenken', 'latinsquare',
     'diagonallatinsquare', 'pandiagonallatinsquare', 'hidato', 'numbrix',
-    'kakuro', 'slitherlink',
+    'kakuro', 'slitherlink', 'str8ts',
 )
 _ALLOWED = {'version', 'type', 'rows', 'cols', 'boxRows', 'boxCols',
-            'cells', 'cages', 'inequalities', 'clues'}
+            'cells', 'cages', 'inequalities', 'clues', 'black'}
 _Cage = namedtuple('BrowserCage', 'mytarget cells operator')
 
 
@@ -73,18 +74,31 @@ def build_grid(payload):
     cages = _array(p.get('cages', []), 'cages', count)
     inequalities = _array(p.get('inequalities', []), 'inequalities', 2 * count)
     clues = _array(p.get('clues', []), 'clues', count)
+    black_raw = _array(p.get('black', []), 'black', count)
+    black_cells = {_integer(i, 'Black cell', 0, count - 1) for i in black_raw}
+    if len(black_cells) != len(black_raw):
+        raise ValueError('Black cells must be distinct')
+    if black_cells and kind != 'str8ts':
+        raise ValueError('Black-cell metadata is only supported for Str8ts')
     if cages and kind not in ('killersudoku', 'kenken'):
         raise ValueError('Cages are only supported for Killer Sudoku and KenKen')
     if inequalities and kind != 'futoshiki':
         raise ValueError('Inequalities require Futoshiki')
     if clues and kind != 'kakuro':
         raise ValueError('Across/down clues require Kakuro')
-    dense = kind not in ('hidato', 'numbrix', 'kakuro', 'slitherlink')
+    dense = kind not in ('hidato', 'numbrix', 'kakuro', 'slitherlink', 'str8ts')
     if dense and rows != cols:
         raise ValueError('This puzzle type requires a square board')
     blocked = {i for i, v in enumerate(raw) if v == '#'}
-    if blocked and kind not in ('hidato', 'kakuro'):
-        raise ValueError('Blocked cells are only supported in Hidato and Kakuro')
+    if blocked and kind not in ('hidato', 'kakuro', 'str8ts'):
+        raise ValueError('Blocked cells are only supported in Hidato, Kakuro and Str8ts')
+    if kind == 'str8ts':
+        if rows != cols or rows > 9:
+            raise ValueError('Str8ts requires a square board no larger than 9x9')
+        if blocked - black_cells:
+            raise ValueError('Every # Str8ts cell must be listed in black')
+        if any(i in black_cells and raw[i] is None for i in range(count)):
+            raise ValueError('A Str8ts black cell must contain # or a numbered clue')
     maximum = 4 if kind == 'slitherlink' else (
         count - len(blocked) if kind in ('hidato', 'numbrix') else
         9 if kind == 'kakuro' else rows
@@ -116,6 +130,12 @@ def build_grid(payload):
         grid = cls.from_board([values[r * cols:(r + 1) * cols] for r in range(rows)])
     elif kind == 'slitherlink':
         grid = Slitherlink([values[r * cols:(r + 1) * cols] for r in range(rows)])
+    elif kind == 'str8ts':
+        numbered = {i for i in black_cells if isinstance(values[i], int)}
+        grid = Str8ts(rows, cols, black=[coord(i) for i in black_cells],
+                      numbered_black=[coord(i) for i in numbered])
+        grid.load_key_values({coord(i): value for i, value in enumerate(values)
+                              if isinstance(value, int)})
     else:
         white = set(range(count)) - blocked
         runs, seen = [], set()

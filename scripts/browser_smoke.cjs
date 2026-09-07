@@ -341,6 +341,7 @@ async function checkStartupCancellation(browser, image, report) {
         "numbrix",
         "kakuro",
         "slitherlink",
+        "str8ts",
       ]) {
         await load(page, kind);
         await page.click("#solve");
@@ -351,7 +352,7 @@ async function checkStartupCancellation(browser, image, report) {
         );
         report.checks.push(`browser solver: ${kind}`);
       }
-      console.log(name, "all eleven solver families passed");
+      console.log(name, "all twelve solver families passed");
       await load(page, "sudoku");
       await page.click("#solve");
       await result(page);

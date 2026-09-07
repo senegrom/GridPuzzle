@@ -97,3 +97,16 @@ def test_invalid_json_and_executable_text():
     assert json.loads(solve_json('import os'))['status'] == 'invalid'
     assert json.loads(solve_json('[]'))['status'] == 'invalid'
     assert json.loads(solve_json('x' * 200001))['status'] == 'invalid'
+
+
+def test_browser_str8ts_numbered_black_cell():
+    from gridsolver.web_api import solve_payload
+    p = {
+        "version": 1, "type": "str8ts", "rows": 3, "cols": 3,
+        "black": [4],
+        "cells": [1, 2, 3, 2, 3, 1, 3, 1, None],
+        "cages": [], "inequalities": [], "clues": [],
+    }
+    result = solve_payload(p)
+    assert result["status"] == "unique"
+    assert result["solutions"][0]["cells"] == [1,2,3,2,3,1,3,1,2]

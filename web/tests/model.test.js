@@ -128,3 +128,11 @@ test("Synthetic connected 9x9 grid is detected", () => {
 
 test("Construction validates type before allocating", () =>
   assert.throws(() => makePuzzle("bad")));
+
+
+test("Str8ts black cells can be blank or numbered", () => {
+  const p = makePuzzle("str8ts", 3);
+  p.black = [4]; p.cells[4] = 3; assert.equal(checkShape(p), p);
+  p.cells[4] = "#"; assert.equal(checkShape(p), p);
+  assert.equal(classify({rows:9,cols:9,values:[9,1,4],black:12,blackNumbers:2,triangles:0,boxes:false}).type, "str8ts");
+});

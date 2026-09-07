@@ -179,6 +179,7 @@ function normalized(p) {
     cages: clone(p.cages || []),
     inequalities: clone(p.inequalities || []),
     clues: clone(p.clues || []),
+    black: clone(p.black || []),
   };
 }
 export function loadPuzzle(payload) {
@@ -255,9 +256,10 @@ function drawBoard() {
       x = c * size,
       y = r * size,
       given = p.cells[i],
-      value = sol?.cells[i] ?? given;
+      value = sol?.cells[i] ?? given,
+      isBlack = given === "#" || (p.type === "str8ts" && (p.black || []).includes(i));
     const classes = ["board-cell"];
-    if (given === "#") classes.push("blocked");
+    if (isBlack) classes.push("blocked");
     else if (given === null && Number.isInteger(value)) classes.push("answer");
     if (state.uncertain.has(i)) classes.push("uncertain");
     if (bad.has(i)) classes.push("conflict");
@@ -267,7 +269,7 @@ function drawBoard() {
       "data-cell": i,
       role: "button",
       tabindex: i === focused ? 0 : -1,
-      "aria-label": `Row ${r + 1}, column ${c + 1}: ${given === null ? "blank" : given === "#" ? "blocked" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,
+      "aria-label": `Row ${r + 1}, column ${c + 1}: ${given === null ? "blank" : isBlack && Number.isInteger(given) ? `black clue ${given}` : given === "#" ? "blocked" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,
     });
     g.append(
       svg("rect", { x, y, width: size, height: size, class: "cell-hit" }),
@@ -544,7 +546,8 @@ applyType.onclick = () => {
     if (
       (next.cages.length && !isCage(type)) ||
       (next.inequalities.length && type !== "futoshiki") ||
-      (next.clues.length && type !== "kakuro")
+      (next.clues.length && type !== "kakuro") ||
+      ((next.black || []).length && type !== "str8ts")
     )
       throw Error(
         "This board has structural clues for a different puzzle type. Remove those constraints explicitly or start a blank board; they will not be silently discarded.",
@@ -580,8 +583,8 @@ function openCell(i) {
     c = i % p.cols;
   $("cell-title").textContent = `Row ${r + 1} · Column ${c + 1}`;
   $("cell-value").value = Number.isInteger(p.cells[i]) ? p.cells[i] : "";
-  $("blocked-cell").checked = p.cells[i] === "#";
-  $("block-option").hidden = !["hidato", "kakuro"].includes(p.type);
+  $("blocked-cell").checked = p.cells[i] === "#" || (p.type === "str8ts" && (p.black || []).includes(i));
+  $("block-option").hidden = !["hidato", "kakuro", "str8ts"].includes(p.type);
   $("cell-error").textContent = "";
   const clue = p.clues.find((q) => q.cell === i);
   $("across-value").value = clue?.across ?? "";
@@ -611,7 +614,7 @@ function openCell(i) {
   $("cell-value").select();
 }
 function blockInputs() {
-  $("cell-value").disabled = $("blocked-cell").checked;
+  $("cell-value").disabled = $("blocked-cell").checked && state.puzzle.type !== "str8ts";
   $("kakuro-inputs").hidden =
     state.puzzle.type !== "kakuro" || !$("blocked-cell").checked;
 }
@@ -627,7 +630,13 @@ function saveCell(advance = false) {
   try {
     const next = clone(state.puzzle),
       blocked = !$("block-option").hidden && $("blocked-cell").checked;
-    next.cells[editing] = blocked ? "#" : numberInput("cell-value");
+    const entered = numberInput("cell-value");
+    if (next.type === "str8ts") {
+      next.black = (next.black || []).filter((i) => i !== editing);
+      if (blocked) next.black.push(editing);
+      next.black.sort((a, b) => a - b);
+      next.cells[editing] = blocked ? (entered ?? "#") : entered;
+    } else next.cells[editing] = blocked ? "#" : entered;
     next.clues = next.clues.filter((q) => q.cell !== editing);
     if (blocked && next.type === "kakuro") {
       const across = numberInput("across-value"),
@@ -670,8 +679,10 @@ $("cell-form").onsubmit = (e) => {
   saveCell();
 };
 $("clear-cell").onclick = () => {
+  const keepBlack =
+    state.puzzle.type === "str8ts" && (state.puzzle.black || []).includes(editing);
   $("cell-value").value = "";
-  $("blocked-cell").checked = false;
+  $("blocked-cell").checked = keepBlack;
   $("across-value").value = $("down-value").value = "";
   saveCell();
 };
