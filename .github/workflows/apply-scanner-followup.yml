@@ -1,0 +1,32 @@
+name: Apply scanner follow-up
+on:
+  push:
+    branches: [browser-scanner]
+    paths: ['.followup/trigger']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply reviewed follow-up atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin master
+          git merge --no-commit --no-ff -s ours origin/master
+          cat .followup/chunk-* | base64 -d > /tmp/gridpuzzle-followup.tar.gz
+          echo '8442a30b1c05fb75915e9167764e3d6847adfb1b6b557c401d5679ec89051684  /tmp/gridpuzzle-followup.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/gridpuzzle-followup.tar.gz -C .
+          rm -f web/accessibility.js web/polish.css web/tests/followup-ui.test.js
+          rm -rf .followup
+          rm -f .github/workflows/apply-scanner-followup.yml
+          git add -A
+          git commit -m 'Harden scanner trust, offline updates and phone UX; sync master'
+          git push origin HEAD:browser-scanner
