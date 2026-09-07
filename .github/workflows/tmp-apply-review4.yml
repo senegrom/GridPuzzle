@@ -25,6 +25,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import textwrap
 
           path = Path("gridsolver/rules/sumrules.py")
           text = path.read_text()
@@ -46,10 +47,6 @@ jobs:
                   if not try_augment(v, set()):
                       return  # no perfect matching: this partition admits no assignment
           '''
-          # The source uses four-space indentation, while this here-doc is
-          # indented by YAML. Dedent the exact block before matching.
-          import textwrap
-          old = textwrap.dedent(old)
           new = '''    match_pos: dict = {}  # position -> value
               match_val: dict = {}  # value -> position
 
@@ -89,7 +86,6 @@ jobs:
                   if not try_augment(v):
                       return  # no perfect matching: this partition admits no assignment
           '''
-          new = textwrap.dedent(new)
           if old not in text:
               raise SystemExit("matching block not found exactly")
           path.write_text(text.replace(old, new, 1))
@@ -97,7 +93,9 @@ jobs:
           path = Path("tests/test_review3_native.py")
           text = path.read_text()
           marker = '''\ndef test_later_failure_is_observed_before_first_branch_finishes():\n'''
-          addition = '''\n\ndef test_full_large_cage_matching_is_stack_safe():
+          addition = textwrap.dedent('''
+
+          def test_full_large_cage_matching_is_stack_safe():
               # One exact full-domain partition, but candidate edges form an
               # alternating cycle whose final augmenting path is longer than a
               # deliberately lowered recursion limit. The former recursive
@@ -128,8 +126,7 @@ jobs:
               assert replacement_rules is None
               assert len(guarantees) == count
               assert all(len(possible) == 2 for possible in candidates)
-          '''
-          addition = textwrap.dedent(addition)
+          ''')
           if marker not in text:
               raise SystemExit("test insertion marker not found")
           path.write_text(text.replace(marker, addition + marker, 1))
