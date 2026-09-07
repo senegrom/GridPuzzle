@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Apply stack-safe matcher and coverage fixes
+      - name: Apply stack-safe matcher and verify
         shell: bash
         run: |
           python - <<'PY'
@@ -130,14 +130,6 @@ jobs:
           if marker not in text:
               raise SystemExit("test insertion marker not found")
           path.write_text(text.replace(marker, addition + marker, 1))
-
-          path = Path(".github/workflows/extended.yml")
-          text = path.read_text()
-          old = '''on:\n  workflow_dispatch:\n  schedule:\n'''
-          new = '''on:\n  workflow_dispatch:\n  push:\n    branches: [master]\n    paths:\n      - "gridsolver/rules/sumrules.py"\n      - "gridsolver/grid_classes/cage_loading.py"\n      - "gridsolver/grid_classes/kenken.py"\n      - "gridsolver/grid_classes/killer_sudoku.py"\n      - "gridsolver/solver/solver.py"\n      - "gridsolver/solver/solve_parallel.py"\n      - "tests/test_review3_native.py"\n      - ".github/workflows/extended.yml"\n  schedule:\n'''
-          if old not in text:
-              raise SystemExit("extended-CI trigger block not found")
-          path.write_text(text.replace(old, new, 1))
           PY
 
           git diff --check
@@ -148,6 +140,6 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add gridsolver/rules/sumrules.py tests/test_review3_native.py .github/workflows/extended.yml
+          git add gridsolver/rules/sumrules.py tests/test_review3_native.py
           git commit -m "Make exact cage matching stack-safe"
           git push origin HEAD:fix/iterative-cage-matching-20260907
