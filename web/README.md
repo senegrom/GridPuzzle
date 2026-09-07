@@ -1,12 +1,14 @@
 # GridPuzzle phone scanner
 
-The `browser-scanner` branch adds an installable static app without changing
-any existing solver technique, profile, deduction ordering, or search code.
+The `browser-scanner` branch provides an installable, camera-first static web app at:
+
+https://senegrom.github.io/GridPuzzle/
+
+The phone app runs recognition and the complete Python GridPuzzle solver on-device. No photograph is uploaded to a recognition service or remote solver. The branch also currently contains native exactness/robustness fixes reviewed separately; they do not weaken the solver's deduction hierarchy, solution space or branch semantics.
 
 ## Build and deploy
 
-Requirements: Python 3.14+, Node.js 22+, network access for the pinned build
-packages. From the repository root:
+Requirements: Python 3.14+, Node.js 22+, and network access while building the pinned browser packages.
 
 ```sh
 python -m pip install -e '.[dev]'
@@ -16,80 +18,32 @@ python scripts/build_web.py
 python -m http.server 8000 --directory _site
 ```
 
-Open localhost:8000. Camera permissions require localhost or HTTPS.
-The Pages workflow builds `_site`, tests Chromium and mobile WebKit on the
-`/GridPuzzle/` subpath, and uploads the tested artifact.
+Camera permissions require localhost or HTTPS. The `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs the Python/browser unit suites, executes the real Chromium and mobile-WebKit Python/OCR acceptance tests, uploads the tested artifact, and deploys through the `gridpuzzle-browser-pages` environment. Nothing in that workflow merges the branch into `master`.
 
-**One-time owner action:** Settings > Pages > Source: **GitHub Actions**.
-The initial attempt to enable a new Pages site returned HTTP 403 `Resource not
-accessible by integration`. The managed connector lacks Administration write
-permission, and a workflow's GITHUB_TOKEN cannot grant itself that permission.
-The workflow now reports this setup requirement explicitly instead of repeatedly
-attempting to create the site. After enabling Pages, re-run the **Build and deploy
-phone scanner** workflow. The `github-pages` environment must permit deployment
-from `browser-scanner` if it has branch restrictions. Nothing merges into master.
-The expected address after deployment is `https://senegrom.github.io/GridPuzzle/`;
-that address is not a claim that an unconfigured repository is already live.
-
-The app is a multi-file static site, not a Python server. At runtime there are
-no calls to external APIs/CDNs: Python, OCR, English training data and all
-icons are served from this site's own `vendor/` and `icons/` directories.
-`build-info.json` records the exact source commit and npm integrity values.
-`assets.json` records SHA-256 digests; offline preparation verifies every file.
+The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
 
 ## Features
 
 - Rear-facing live camera with manual shutter and optional stable-grid capture.
-- Photo-library import and a native camera-file fallback for denied/unavailable
-  live camera access. No photograph leaves the browser.
-- Four draggable crop corners, keyboard corner controls (1–4, then arrows),
-  rotation, projective straightening, automatic continuous-grid size detection,
-  explicit dimensions and puzzle type selection.
-- A single OCR atlas per scan with per-cell review flags. Character bounding
-  boxes preserve clue boundaries even when OCR merges a row into one word.
-  Type recognition is explicitly heuristic; ambiguous rules require confirmation.
-- Eleven native solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen,
-  Latin square, diagonal Latin square, pandiagonal Latin square, Hidato,
-  Numbrix, Kakuro and Slitherlink.
-- Digit/block editor with enlarged source crop, cage partition editor, directed
-  inequality editor, Kakuro across/down clues, undo and validated JSON import.
-- Explicit type override preserves the transcription, but refuses to silently
-  discard incompatible structural constraints. Dimensions can be changed by
-  starting a blank board or through the confirmed layout reset.
-- Full original Python solver via Pyodide 314.0.6 in a dedicated module worker,
-  sequential search capped at two solutions. Zero/multiple/unique/error/invalid
-  states are distinct. Worker termination implements real cancellation and
-  search deadlines; stale messages cannot replace a newer puzzle.
-- Clean board and captured-photo solution overlay, both number and loop-edge
-  puzzles; PNG overlay export and puzzle JSON export. Changing a crop invalidates
-  its old overlay, and editing invalidates the old solution/uniqueness status.
-- Local puzzle/settings persistence, offline download with honest readiness,
-  scoped/versioned caches, update controls, manifest and opaque Apple/Android
-  icons. The app does not persist photographs.
+- Photo-library import and a native camera-file fallback for denied/unavailable live camera access.
+- Four draggable crop corners, rotation, projective straightening, automatic continuous-grid size detection, explicit dimensions and puzzle type selection.
+- Local printed-clue OCR with confidence/review flags and guided **Review highlighted clues → Save & next**.
+- All eleven solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin square, diagonal Latin square, pandiagonal Latin square, Hidato, Numbrix, Kakuro and Slitherlink.
+- Editors for values/blocked cells, cages, inequalities and Kakuro directional clues, plus undo and validated JSON import/export.
+- A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without relying on unsupported browser multiprocessing.
+- Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
+- Local puzzle/settings persistence. Recognition uncertainty is persisted atomically; photographs and solver results are not.
+- Installable PWA icons and hash-verified offline preparation.
 
-## Recognition limits (important)
+## Recognition trust model
 
-Printed, high-contrast rectangular Sudoku is the primary scanning target.
-Photo quality, shadows, handwriting, nonrectangular geometry and publisher
-styles are not universally handled. The scanner reads numeric clues; alphabetic
-symbols on large Sudoku boards need manual transcription. Borderless/dotted
-grids and Futoshiki often need manual crop and dimensions. Type identification
-cannot determine rules that are not visible in the image. Titles/rules are not
-read in this version.
+Automatic recognition is a proposal, not proof. In particular, a faint/cropped clue may fail the initial ink detector and look like an intentionally blank cell. Therefore an **automatically identified puzzle type always requires one rules confirmation**, including ordinary boxed Sudoku. If the user explicitly selects Sudoku before scanning, a clear scan may still auto-solve immediately when no clue is uncertain.
 
-Cage boundaries/targets and Kakuro clue directions use experimental image
-heuristics and ALWAYS require review. A missed cage wall can merge cages:
-check the whole partition, not only highlighted digits. Missing/overlapping
-cages are rejected by the data adapter, not treated as a weaker puzzle.
-Automatic cell recognition can miss an ink region: a unique solve is never
-proof of correct transcription. Keep the original photograph available for
-comparison. Use the family editors or JSON to correct unsupported print styles.
+A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly.
 
-Live augmented-reality tracking and step-by-step deduction explanations are
-not implemented. The overlay is anchored to a captured photograph; glyph
-centres/edge endpoints are mapped by the crop homography for readability.
-Native-camera autofocus/exposure and installation should also be checked on
-physical iPhones; a mobile WebKit test is not a physical-device test.
+Printed, high-contrast rectangular Sudoku is the primary automatic scanning target. Generated regressions currently read the baseline 30-given Sudoku 30/30 in Chromium and WebKit; harder generated WebKit variants can still miss one or two clues, and those discrepancies are flagged for review. These generated fixtures are not a representative real-world phone-photo benchmark.
+
+Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised. Physical iPhone autofocus/exposure, installed-mode camera behaviour, storage eviction and airplane-mode use still require hardware testing.
 
 ## Data contract
 
@@ -97,47 +51,42 @@ physical iPhones; a mobile WebKit test is not a physical-device test.
 {
   "version": 1,
   "type": "sudoku",
-  "rows": 4, "cols": 4, "boxRows": 2, "boxCols": 2,
+  "rows": 4,
+  "cols": 4,
+  "boxRows": 2,
+  "boxCols": 2,
   "cells": [1, null, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1],
-  "cages": [], "inequalities": [], "clues": []
+  "cages": [],
+  "inequalities": [],
+  "clues": []
 }
 ```
 
-Cells are row-major. Null is blank; `"#"` is blocked. Slitherlink 0 is a real
-face clue; the engine's private OFF=1/ON=2 edge encoding is not exposed as clues.
-Cages: `{ "cells": [0,1], "target": 3, "op": "+" }`. Every cage must be connected
-and every cell must belong to exactly one cage. KenKen supports +, -, *, /;
-`=` is accepted for a single cell. Inequalities: `{ "less": 0, "greater": 1 }`.
-Kakuro clue on a black cell: `{ "cell": 0, "across": 16, "down": 23 }`.
-Across/down runs extend right/down until the next blocked cell or the boundary.
-All coordinate indexes are zero-based. The Python adapter performs complete
-structural validation before building the original grid classes.
+Cells are zero-based row-major at the browser boundary. `null` is blank; `"#"` is blocked; Slitherlink `0` is a real face clue. Cages use `{ "cells": [0,1], "target": 3, "op": "+" }`; inequality objects use `{ "less": 0, "greater": 1 }`; a Kakuro clue on a blocked cell can use `{ "cell": 0, "across": 16, "down": 23 }`.
 
-The bounded 25×25 UI limit is a phone resource policy, not a reduction of the
-native solver's supported sizes. Large blank/path puzzles may take substantial
-search time. A deadline means unfinished, never unsatisfiable or unique.
+The browser rejects malformed dimensions, boxes, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become a solve request. Incomplete cage coverage and missing OCR targets remain editable states; the Python adapter is the final solve-ready structural boundary and requires complete cage coverage.
+
+The 25×25 browser limit is a phone resource policy, not a native solver limit. A deadline/cancellation means unfinished, never unsatisfiable or unique.
+
+## Offline behaviour
+
+Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Every downloaded asset is digest-verified before entering the build-specific cache; offline readiness performs a fresh sequential digest pass.
+
+Ordinary requests trust bytes already written to the immutable current-build cache instead of re-hashing large WASM files on every fetch. During an update, unchanged verified assets are copied from the previous build cache, and the new solver archive is installed with the app shell. Old caches are removed only after the new worker activates. Cache quota failure does not break a verified online response.
 
 ## Testing
 
-`tests/test_web_api.py` checks native adapter semantics and model families.
-`web/tests/` checks row-major data, inference ambiguity, homography, white-image
-rejection, generated-grid detection and character-level OCR atlas mapping.
-`scripts/browser_smoke.cjs` uses the real Python and OCR WASM runtimes, not
-solver or OCR mocks, in Chromium and WebKit. It checks all eleven families,
-phone overflow, clue editing/undo, type override, genuine cancellation/restart,
-denied camera fallback, a generated printed Sudoku scan, photograph overlay
-and invalidation, offline reload/solve and offline photo recognition.
-Reports and screenshots are CI artifacts. This is a baseline, not a measured
-real-world recognition benchmark.
+- `tests/test_web_api.py` and the shared payload fixtures verify the Python/browser contract.
+- `web/tests/` covers geometry, classification, OCR atlas mapping, cache recovery, worker lifecycle, malformed input, automatic-type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
+- `scripts/browser_smoke.cjs` and `scripts/browser_regressions.cjs` use the real Python and OCR WebAssembly runtimes in Chromium and WebKit, not mocks. They cover all eleven families, cancellation/restart, denied-camera fallback, generated photo recognition, guided review, overlays, cache recovery and origin-offline reload/solving/recognition.
+- Normal Linux/Windows CI and forward compatibility remain separate. The lightweight PR browser workflow now runs only browser unit/parse checks; the deployment workflow is the sole duplicate-free full browser gate.
+
+The full slow corpus is not run on every Pages deployment. Generated recognition tests are a regression baseline, not a substitute for real-device testing.
 
 ## Input, build and lifecycle hardening
 
-The editor validates dimensions and Sudoku boxes before allocation, persistence or rendering. Invalid saved sessions fall back to a clean board. Shared JSON fixtures distinguish incomplete-but-editable states from solve-ready inputs; the Python adapter remains the final structural boundary.
+Builds are staged before publication. Inside the repository, only `_site` is accepted as output; custom external outputs must be new or builder-owned. Source directories, Git metadata, repository ancestors and symbolic output links are refused, and a failed build preserves the previous good output.
 
-Builds are staged before publication. Inside the repository, only `_site` is accepted as output; a custom external path must be new or contain the builder's ownership marker. Existing unmarked directories (including outputs from older builds) are never deleted: move them aside before rebuilding. Source directories, the Git directory, repository ancestors and symbolic output links are rejected. A failed build preserves the previous good output.
+Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
-Offline requests, readiness checks and preparation use the same digest verifier. Corrupt entries are evicted and retried from the network. Readiness is checked against actual verified entries, not just cache-key presence, and online use can continue even if cache quota is exhausted.
-
-Task/deadline ownership, edit snapshots, camera/photo flow and offline controls have separate modules. Grayscale is computed once for scan preparation; thresholding and region extraction run in the geometry worker. Each OCR scan has a dedicated host owning its raw Tesseract worker during engine and language initialization. Stop rejects the pending task immediately, requests child termination, and bounds host cleanup to 100 ms; each worker has a three-minute fallback deadline and the complete recognition task has a two-minute deadline. Real-browser tests stall language loading, stop the scan, check worker cleanup and then perform a fresh successful scan.
-
-These lifecycle changes do not substitute or reorder any solver technique.
+Live moving-camera AR and step-by-step deduction explanations are not included in this branch.
