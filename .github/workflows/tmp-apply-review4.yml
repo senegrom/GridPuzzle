@@ -1,0 +1,156 @@
+name: Temporary apply review-4 fix
+
+on:
+  push:
+    branches:
+      - fix/iterative-cage-matching-20260907
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/iterative-cage-matching-20260907
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Apply stack-safe matcher and coverage fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("gridsolver/rules/sumrules.py")
+          text = path.read_text()
+          old = '''    match_pos: dict = {}  # position -> value
+              match_val: dict = {}  # value -> position
+
+              def try_augment(v, visited) -> bool:
+                  for i in edges[v]:
+                      if i in visited:
+                          continue
+                      visited.add(i)
+                      if i not in match_pos or try_augment(match_pos[i], visited):
+                          match_pos[i] = v
+                          match_val[v] = i
+                          return True
+                  return False
+
+              for v in vals:
+                  if not try_augment(v, set()):
+                      return  # no perfect matching: this partition admits no assignment
+          '''
+          # The source uses four-space indentation, while this here-doc is
+          # indented by YAML. Dedent the exact block before matching.
+          import textwrap
+          old = textwrap.dedent(old)
+          new = '''    match_pos: dict = {}  # position -> value
+              match_val: dict = {}  # value -> position
+
+              def try_augment(start: int) -> bool:
+                  """Find one augmenting path without consuming Python stack."""
+                  visited: set[int] = set()
+                  # Each child frame records the matched position that led to it.
+                  # Iterators preserve the recursive DFS edge order exactly.
+                  parent: dict[int, tuple[int, int] | None] = {start: None}
+                  work = [(start, iter(edges[start]))]
+                  while work:
+                      value, choices = work[-1]
+                      for position in choices:
+                          if position in visited:
+                              continue
+                          visited.add(position)
+                          owner = match_pos.get(position)
+                          if owner is None:
+                              # Match the free edge, then flip every alternating
+                              # edge on the path back to the unmatched root value.
+                              match_pos[position] = value
+                              match_val[value] = position
+                              while parent[value] is not None:
+                                  parent_value, parent_position = parent[value]
+                                  match_pos[parent_position] = parent_value
+                                  match_val[parent_value] = parent_position
+                                  value = parent_value
+                              return True
+                          parent[owner] = (value, position)
+                          work.append((owner, iter(edges[owner])))
+                          break
+                      else:
+                          work.pop()
+                  return False
+
+              for v in vals:
+                  if not try_augment(v):
+                      return  # no perfect matching: this partition admits no assignment
+          '''
+          new = textwrap.dedent(new)
+          if old not in text:
+              raise SystemExit("matching block not found exactly")
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path("tests/test_review3_native.py")
+          text = path.read_text()
+          marker = '''\ndef test_later_failure_is_observed_before_first_branch_finishes():\n'''
+          addition = '''\n\ndef test_full_large_cage_matching_is_stack_safe():
+              # One exact full-domain partition, but candidate edges form an
+              # alternating cycle whose final augmenting path is longer than a
+              # deliberately lowered recursion limit. The former recursive
+              # matcher failed here even though partition generation was iterative.
+              count = 400
+              grid = GridSizeContainer(1, count, max_elem=count)
+              cage = Cage(grid, range(count), count * (count + 1) // 2)
+              values = cage.sum_candidates[0]
+              order = list(values)
+              candidates = tuple(
+                  [{order[0], order[-1]}]
+                  + [{order[index - 1], order[index]} for index in range(1, count)]
+              )
+              known = [0] * count
+
+              original_limit = sys.getrecursionlimit()
+              try:
+                  sys.setrecursionlimit(250)
+                  changed, replacement_rules, guarantees = cage.apply(
+                      known,
+                      candidates,
+                      (),
+                  )
+              finally:
+                  sys.setrecursionlimit(original_limit)
+
+              assert changed is False
+              assert replacement_rules is None
+              assert len(guarantees) == count
+              assert all(len(possible) == 2 for possible in candidates)
+          '''
+          addition = textwrap.dedent(addition)
+          if marker not in text:
+              raise SystemExit("test insertion marker not found")
+          path.write_text(text.replace(marker, addition + marker, 1))
+
+          path = Path(".github/workflows/extended.yml")
+          text = path.read_text()
+          old = '''on:\n  workflow_dispatch:\n  schedule:\n'''
+          new = '''on:\n  workflow_dispatch:\n  push:\n    branches: [master]\n    paths:\n      - "gridsolver/rules/sumrules.py"\n      - "gridsolver/grid_classes/cage_loading.py"\n      - "gridsolver/grid_classes/kenken.py"\n      - "gridsolver/grid_classes/killer_sudoku.py"\n      - "gridsolver/solver/solver.py"\n      - "gridsolver/solver/solve_parallel.py"\n      - "tests/test_review3_native.py"\n      - ".github/workflows/extended.yml"\n  schedule:\n'''
+          if old not in text:
+              raise SystemExit("extended-CI trigger block not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          git diff --check
+          python -m pip install -e ".[dev]"
+          python -X dev -m pytest -q \
+            tests/test_review3_native.py \
+            tests/test_basic.py::test_saeamo_regin_matches_bruteforce
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gridsolver/rules/sumrules.py tests/test_review3_native.py .github/workflows/extended.yml
+          git commit -m "Make exact cage matching stack-safe"
+          git push origin HEAD:fix/iterative-cage-matching-20260907
