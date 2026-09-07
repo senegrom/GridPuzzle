@@ -42,3 +42,7 @@ used for each accepted or rejected optimization.
 | 08-13 | pr11_correctness_review | measured | extension-hook transactions + lazy imports review record |
 | 08-13 | pr11_extension_transactions | accepted | reversible extension sandboxes, GM +0.14% (neutral) |
 | 08-14 | capped_branches_extension_sandbox | accepted | capped undercount fix + detached extension state, noise-neutral |
+| 09-05 | global_branch_pressure (.json) | accepted | implicit whole-grid peer scope: 30x30 Slitherlink peer cache 116.6 MiB to none, cold branch pick 686 ms to 1.7 ms, identical solutions |
+| 09-06 | size_guard_rejected | rejected | whole-object __setattr__ size guard, blank-4x4 +4.45%; replaced by four write-once descriptors |
+| 09-06 | exact_cages (.json) | accepted as correctness repair | staircase cage partitions + write-once sizes; record shows blank-4x4 +2.53%, a local interleaved CPU-time re-measure on 09-07 showed −5.7% (neutral); Slitherlink 2x2/3x3 −21/−17% |
+| 09-06 | review3_native (.md/.json) | measured | iterative partition DFS + uncapped parallel failure observer; five baseline cases match 5010564 |

@@ -65,14 +65,14 @@ def _find_link_ends(cell: int, end_cells: Union[None, Set[int], FrozenSet[int]],
                     start_weak=True) \
         -> Tuple[List[int], Dict, Dict]:
     if start_weak:
-        visited_weak_dic = {c: cell for c in wl[cell]}
+        visited_weak_dic = dict.fromkeys(wl[cell], cell)
         visited_weak = set(wl[cell])
         visited_strong_dic = {cell: None}
         visited_strong = {cell}
         todo_weak = deque(wl[cell])
         todo_strong = deque()
     else:
-        visited_strong_dic = {c: cell for c in sl[cell]}
+        visited_strong_dic = dict.fromkeys(sl[cell], cell)
         visited_strong = set(sl[cell])
         visited_weak_dic = {cell: None}
         visited_weak = {cell}
@@ -159,12 +159,12 @@ def xy_chain(grid: Grid) -> None:
     sl = grid.semi_strong_links_all
     wl = [lk.copy() for lk in grid.weak_links]  # pruned in place below; the property is cached
 
-    for val, links in sl.items():
+    for links in sl.values():
         for link in links:
             # materialise before mutating: a generator over `link` would raise
             # RuntimeError as soon as difference_update removes a member
             link.difference_update([(val_x, cell) for val_x, cell in link if not wl[cell]])
-    del val, links
+    del links
 
     # dead cells (no semi-strong link for any value) are the same for every
     # weak-link set; computing them per link was ~9% of chain-heavy solves
@@ -177,7 +177,7 @@ def xy_chain(grid: Grid) -> None:
     if not any(lk for lk in wl):
         return
 
-    valid_cells = [(cell, cands[cell]) for cell, cts in enumerate(cands) if len(cts) > 1]
+    valid_cells = [(cell, cts) for cell, cts in enumerate(cands) if len(cts) > 1]
     valid_cells_set = {cell for cell, cd in valid_cells}
 
     for val in range(1, grid.max_elem + 1):
@@ -213,8 +213,8 @@ def _find_link_ends_with_num(start_cell: int, end_cells: Union[None, Set[int], F
                              sl: Dict[int, List[Set[Tuple[int, int]]]], wl: List[Set[int]], max_elem: int,
                              start_weak=False, end_weak=False) \
         -> Tuple[List[Tuple[int, int]], Dict, Dict]:
-    visited_weak_dic: Dict[int, Dict[int, Optional[int]]] = {val: dict() for val in range(1, max_elem + 1)}
-    visited_strong_dic: Dict[int, Dict[int, Optional[int]]] = {val: dict() for val in range(1, max_elem + 1)}
+    visited_weak_dic: Dict[int, Dict[int, Optional[int]]] = {val: {} for val in range(1, max_elem + 1)}
+    visited_strong_dic: Dict[int, Dict[int, Optional[int]]] = {val: {} for val in range(1, max_elem + 1)}
     visited_weak: Dict[int, Set[int]] = {val: set() for val in range(1, max_elem + 1)}
     visited_strong: Dict[int, Set[int]] = {val: set() for val in range(1, max_elem + 1)}
 

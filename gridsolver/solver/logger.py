@@ -18,7 +18,7 @@ class Colouring(Enum):
     Rich = 2
 
 
-_C_NO = {key: "" for key in ("X", "R", "G", "B", "Y", "RR", "GG", "BB", "YY")}
+_C_NO = dict.fromkeys(("X", "R", "G", "B", "Y", "RR", "GG", "BB", "YY"), "")
 _C_ANSI = {
     "X": "\x1b[0m",
     "R": "\x1b[31m",
@@ -54,6 +54,23 @@ def _restore_colorama_streams() -> None:
     deinit()
 
 
+def _configure_output_encoding():
+    """Keep Unicode grid borders writable in every Windows output mode.
+
+    Redirected stdout can otherwise use cp1252, which cannot encode the box
+    drawing characters even with colour disabled. Reconfigure the existing
+    stream, never wrap its buffer: discarded wrappers can close stdout when
+    switching modes. This runs only during explicit output configuration.
+    """
+    output = sys.stdout
+    if sys.platform == "win32" and hasattr(output, "reconfigure"):
+        try:
+            output.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+    return output
+
+
 def set_colouring(colouring: Colouring | str) -> None:
     """Configure output explicitly without doing work at import time."""
     global C
@@ -65,13 +82,15 @@ def set_colouring(colouring: Colouring | str) -> None:
 
     if colouring is Colouring.No:
         _restore_colorama_streams()
-        logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
+        output = _configure_output_encoding()
+        logging.basicConfig(format=_FORMAT, stream=output, level=0, force=True)
         C = _C_NO
         return
 
     if colouring is Colouring.Colorama:
         from colorama import just_fix_windows_console
 
+        _configure_output_encoding()
         just_fix_windows_console()
         logging.basicConfig(format=_FORMAT, stream=sys.stdout, level=0, force=True)
         C = _C_ANSI
@@ -83,15 +102,7 @@ def set_colouring(colouring: Colouring | str) -> None:
         from rich.logging import RichHandler
 
         _restore_colorama_streams()
-        output = sys.stdout
-        # Reconfigure the existing stream instead of wrapping its buffer in a
-        # second TextIOWrapper. A discarded wrapper can close stdout's buffer
-        # when output modes are changed more than once.
-        if sys.platform == "win32" and hasattr(output, "reconfigure"):
-            try:
-                output.reconfigure(encoding="utf-8", errors="replace")
-            except (AttributeError, OSError, ValueError):
-                pass
+        output = _configure_output_encoding()
 
         if hasattr(output, "buffer"):
             console = Console(file=output, markup=True, highlight=False)

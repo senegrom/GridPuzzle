@@ -156,7 +156,9 @@ The first eager-global per-value candidate-mask design was rejected: it made top
 The default workflow:
 
 - installs from `pyproject.toml` and runs `pip check`;
-- builds a wheel and checks the installed console command;
+- builds a wheel, installs it into a fresh virtual environment outside the
+  checkout, and checks imports, the console command, a small solve, and a
+  bundled example with PYTHONPATH/PYTHONHOME removed;
 - compiles production, test, corpus-tool, and example sources;
 - runs under Python development mode (`-X dev`);
 - discovers every non-`slow` test on Linux and Windows, so new regression files cannot be silently omitted from a hand-maintained manifest;
@@ -206,3 +208,33 @@ python scripts/run_new_family_corpus.py \
 Third-party rule and guarantee hooks execute inside a reversible sandbox. They receive validated candidate views rather than the raw journal-aware candidate sets. Their iterators, metadata, hashes, equality methods, replacement outputs, and guarantee-normalization hooks must therefore be treated as untrusted: unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache changes are rolled back before canonical outputs are committed. Replacement rules and guarantees are prepared completely before the source rule is deactivated, so failed extension code cannot partially install a batch or strand the source outside propagation.
 
 Kakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions.
+
+
+## Exact cage generation and graph simplification (September 2026)
+
+Sum-plus-all-different cages use a staircase bijection rather than enumerating
+repeated-value partitions and discarding them. For k strictly increasing
+values x[i] in 1..M, y[i] = x[i] - i is nondecreasing in 1..M-k+1, with target
+sum reduced by k*(k-1)/2. The inverse x[i] = y[i] + i is unique. Consequently
+every admissible partition is preserved, in the same order. The existing exact
+matching, guarantee restriction, and derived-cage pipeline is UNCHANGED and
+still runs before branching. There is no approximate shortcut or deferred
+fallback. The historical partition2() API continues to include repetitions.
+
+Grid dimensions and domains are write-once even for mutable Grid instances;
+solution identity and cached hashes cannot change through public assignments
+or deletions. Clone and pickle layouts remain compatible.
+
+KenKen product feasibility uses a greedy positive witness followed, when
+needed, by complete iterative bounded-factor search. A failed greedy witness
+never establishes impossibility. Factor 1 is represented as unused capacity,
+not recursive work. Unsupported prime factors and product bounds are exact
+rejections. This parser search is separate from puzzle-solver branching.
+
+SingleLoopRule now uses only cyclic vertex-biconnected blocks for possible-edge
+pruning. Every simple cycle lies in one such block. A viable block must contain
+all selected edges; edges outside the union of viable blocks cannot be used.
+This also rejects selected bridges and incompatible components without separate
+bridge or connected-component passes. Selected-degree, premature-loop and final
+completed-cycle checks remain in place. Linux and Windows share one CI matrix
+with the existing check names and independent fail-fast-disabled execution.

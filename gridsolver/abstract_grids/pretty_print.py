@@ -556,7 +556,7 @@ def _fix_crossings(data: MutableSequence[str]) -> None:
     # Skip the 2D char conversion if there are no crossings to fix
     if not any(CORNER_MARKER in row for row in data):
         return
-    data_s = [[char for char in row] for row in data]
+    data_s = [list(row) for row in data]
     last_row = len(data_s) - 1
     for i, row in enumerate(data_s):
         if CORNER_MARKER not in row:
@@ -575,9 +575,9 @@ def _fix_crossings(data: MutableSequence[str]) -> None:
                 if i > 0 and j < len(data_s[i - 1]):
                     top = data_s[i - 1][j]
                 if j < last_col:
-                    rig = data_s[i][j + 1]
+                    rig = row[j + 1]
                 if j > 0:
-                    lef = data_s[i][j - 1]
+                    lef = row[j - 1]
                 search = (top, lef, bot, rig)
                 search = tuple(x if x in _BOX_DRAW_CHARS else " " for x in search)
                 data_s[i][j] = _BOX_DRAW_DIC.get(search, CORNER_MARKER)

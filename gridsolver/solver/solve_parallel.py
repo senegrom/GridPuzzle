@@ -66,6 +66,27 @@ def _solve_branch_with_stats(
     return solutions, stats
 
 
+def _wait_for_uncapped_result(future, siblings) -> None:
+    """Observe any required branch failure without reordering successful results.
+
+    Only unlimited solves use this observer: every branch is required there.
+    A positive cap intentionally keeps errors outside its consumed prefix
+    irrelevant. The bounded submission window also bounds completed results
+    held while the first branch is running.
+    """
+    outstanding = {future, *siblings}
+    while outstanding:
+        done, outstanding = concurrent.futures.wait(
+            outstanding,
+            return_when=concurrent.futures.FIRST_COMPLETED,
+        )
+        for completed in done:
+            if completed.exception() is not None:
+                completed.result()  # Re-raise the original worker exception.
+        if future in done:
+            return
+
+
 def solve_parallel_trials(
     grid: Grid,
     branches: list[tuple[int, int]],
@@ -98,47 +119,55 @@ def solve_parallel_trials(
         initializer=_init_worker,
         initargs=(worker_payload,),
     ) as pool:
-        # Keep no more than one outstanding branch per worker. Submitting every
-        # branch up front queues work that a small positive solution cap may
-        # never need.
-        initial_count = min(processes, len(ordered_branches))
-        futures = deque(
-            pool.submit(
-                worker,
-                (cell, value, max_sols),
-            )
-            for cell, value in ordered_branches[:initial_count]
-        )
-        next_branch_index = initial_count
+        futures = deque()
+        try:
+            # Keep no more than one outstanding branch per worker. Append
+            # incrementally so a later submission failure retains earlier work
+            # for cancellation, rather than losing a half-built deque.
+            initial_count = min(processes, len(ordered_branches))
+            for cell, value in ordered_branches[:initial_count]:
+                futures.append(pool.submit(worker, (cell, value, max_sols)))
+            next_branch_index = initial_count
 
-        while futures:
-            future = futures.popleft()
-            result = future.result()
-            if stats is None:
-                branch_solutions = result
-            else:
-                branch_solutions, branch_stats = result
-                stats.merge(branch_stats)
-            solutions.update(branch_solutions)
+            while futures:
+                future = futures.popleft()
+                if max_sols == -1:
+                    _wait_for_uncapped_result(future, futures)
+                result = future.result()
+                if stats is None:
+                    branch_solutions = result
+                else:
+                    branch_solutions, branch_stats = result
+                    stats.merge(branch_stats)
+                solutions.update(branch_solutions)
 
-            if 0 < max_sols <= len(solutions):
-                for pending in futures:
-                    pending.cancel()
-                # Python 3.14 can stop branches already running. Without this,
-                # context-manager exit waits for every worker after the
-                # deterministic capped subset is complete.
-                if futures:
-                    pool.terminate_workers()
-                break
+                if 0 < max_sols <= len(solutions):
+                    for pending in futures:
+                        pending.cancel()
+                    if futures:
+                        pool.terminate_workers()
+                    break
 
-            if next_branch_index < len(ordered_branches):
-                cell, value = ordered_branches[next_branch_index]
-                next_branch_index += 1
-                futures.append(
-                    pool.submit(
-                        worker,
-                        (cell, value, max_sols),
+                if next_branch_index < len(ordered_branches):
+                    cell, value = ordered_branches[next_branch_index]
+                    next_branch_index += 1
+                    futures.append(
+                        pool.submit(worker, (cell, value, max_sols))
                     )
-                )
+        except BaseException as error:
+            # Includes KeyboardInterrupt/SystemExit, errors while submitting,
+            # worker exceptions, and errors while combining results/stats.
+            # A plain context-manager exit waits for already-running siblings.
+            for pending in futures:
+                try:
+                    pending.cancel()
+                except Exception as cleanup_error:
+                    error.add_note(f"Future cancellation failed: {cleanup_error!r}")
+            try:
+                pool.terminate_workers()
+            except Exception as cleanup_error:
+                # Cleanup must not replace the useful original branch error.
+                error.add_note(f"Worker termination failed: {cleanup_error!r}")
+            raise
 
     return _cap_solutions(solutions, max_sols)

@@ -37,7 +37,7 @@ class SumRule(Rule):
         current_sum = sum(my_known)
         if lk == self.len_cells and current_sum == self.sum:
             raise RuleAlwaysSatisfied()
-        elif lk == self.len_cells:
+        if lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             k = self.sum - current_sum
@@ -45,9 +45,8 @@ class SumRule(Rule):
             if k in candidates[last_cell]:
                 candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
-            else:
-                candidates[last_cell].clear()
-                raise InvalidGrid()
+            candidates[last_cell].clear()
+            raise InvalidGrid()
 
         remaining_unknowns = self.len_cells - lk
         remaining_sum = self.sum - current_sum
@@ -110,21 +109,21 @@ class DiffRule(Rule):
         second = known[self.cells[1]]
         if first > 0 and second > 0 and (first - second == self.diff or second - first == self.diff):
             raise RuleAlwaysSatisfied()
-        elif first > 0 and second > 0:
+        if first > 0 and second > 0:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif first > 0:
             new_cand = {first - self.diff, first + self.diff}
             candidates[self.cells[1]].intersection_update(new_cand)
             if len(candidates[self.cells[1]]) == 1:
                 raise RuleAlwaysSatisfied()
-            elif len(candidates[self.cells[1]]) == 0:
+            if len(candidates[self.cells[1]]) == 0:
                 raise InvalidGrid()
         elif second > 0:
             new_cand = {second - self.diff, second + self.diff}
             candidates[self.cells[0]].intersection_update(new_cand)
             if len(candidates[self.cells[0]]) == 1:
                 raise RuleAlwaysSatisfied()
-            elif len(candidates[self.cells[0]]) == 0:
+            if len(candidates[self.cells[0]]) == 0:
                 raise InvalidGrid()
 
         for cell in self.cells:
@@ -189,7 +188,7 @@ class ProdRule(Rule):
             current_prod *= k
         if lk == self.len_cells and current_prod == self.prod:
             raise RuleAlwaysSatisfied()
-        elif lk == self.len_cells:
+        if lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             # integer arithmetic: float division silently loses exactness once
@@ -202,9 +201,8 @@ class ProdRule(Rule):
             if k in candidates[last_cell]:
                 candidates[last_cell].intersection_update((k,))
                 raise RuleAlwaysSatisfied()
-            else:
-                candidates[last_cell].clear()
-                raise InvalidGrid()
+            candidates[last_cell].clear()
+            raise InvalidGrid()
 
         remaining_prod, rem = divmod(self.prod, current_prod)
         if rem:
@@ -419,7 +417,7 @@ def _tarjan_scc(succ: Sequence[Sequence[int]]) -> List[int]:
                     work.append((nb, iter(succ[nb])))
                     advanced = True
                     break
-                elif on_stack[nb]:
+                if on_stack[nb]:
                     low[node] = min(low[node], index[nb])
             if advanced:
                 continue
@@ -445,16 +443,20 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
     @cached_property
     def sum_candidates(self) -> Tuple[FrozenSet[int]]:
-        len_cell = self.len_cells
+        # Exact staircase bijection: x[0] < ... < x[k-1] in 1..M iff
+        # y[i] = x[i] - i is nondecreasing in 1..M-k+1. The sum falls
+        # by k*(k-1)//2. Generate only admissible distinct partitions;
+        # do not approximate or defer the full matching/guarantee filter.
+        count = self.len_cells
+        staircase = count * (count - 1) // 2
         return tuple(
-            frozenset(partition)
+            frozenset(value + index for index, value in enumerate(partition))
             for partition in self._partition_tuples(
-                self.sum,
-                len_cell,
+                self.sum - staircase,
+                count,
                 1,
-                self._max_elem,
+                self._max_elem - count + 1,
             )
-            if len(set(partition)) == len_cell
         )
 
     def __hash__(self):
@@ -488,23 +490,35 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         """
         if maxi is None:
             maxi = n
-        if maxi < mini or count <= 0:
+        if maxi < mini or count <= 0 or not count * mini <= n <= count * maxi:
             return ()
-        if count == 1:
-            return ((n,),) if mini <= n <= maxi else ()
 
+        # Explicit lexicographic DFS. The old recursive call graph could exceed
+        # Python's recursion limit even when a thousand-cell cage had ONE
+        # admissible partition. Frames store only scalars; a single prefix is
+        # reused instead of copying it at each depth. No partitions or matching
+        # deductions are truncated, deferred or replaced by bounds-only logic.
         partitions: list[tuple[int, ...]] = []
-        upper = min(n // count, maxi) + 1
-        for value in range(mini, upper):
-            partitions.extend(
-                (value, *suffix)
-                for suffix in SumAndElementsAtMostOnce._partition_tuples(
-                    n - value,
-                    count - 1,
-                    value,
-                    maxi,
-                )
-            )
+        prefix: list[int] = []
+        work = [(n, count, mini, 0)]
+        while work:
+            remaining, left, lower, depth = work.pop()
+            if depth:
+                prefix[depth - 1:] = [lower]
+            if remaining == left * lower:
+                partitions.append((*prefix, *((lower,) * left)))
+                continue
+            if remaining == left * maxi:
+                partitions.append((*prefix, *((maxi,) * left)))
+                continue
+            if left == 1:
+                partitions.append((*prefix, remaining))
+                continue
+            first = max(lower, remaining - (left - 1) * maxi)
+            last = min(remaining // left, maxi)
+            # Reverse pushes retain the former ascending recursion order.
+            for value in range(last, first - 1, -1):
+                work.append((remaining - value, left - 1, value, depth + 1))
         return tuple(partitions)
 
     @staticmethod
@@ -537,7 +551,7 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         lk = len(my_known)
         if lk == self.len_cells and sum(my_known) == self.sum:
             raise RuleAlwaysSatisfied()
-        elif lk == self.len_cells:
+        if lk == self.len_cells:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
         elif lk == self.len_cells - 1:
             k = self.sum - sum(my_known)
@@ -545,9 +559,8 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             if k in np0 and k not in my_known:
                 np0.intersection_update((k,))
                 raise RuleAlwaysSatisfied()
-            else:
-                np0.clear()
-                raise InvalidGrid()
+            np0.clear()
+            raise InvalidGrid()
 
         candidates_union = set.union(*new_candidates)
         new_sum_candidates = (sp - my_known for sp in self.sum_candidates if my_known <= sp)

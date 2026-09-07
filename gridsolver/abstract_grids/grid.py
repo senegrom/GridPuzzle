@@ -514,7 +514,13 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         return CandidateView(self._candidates[index])
 
     def get_smallest_candidate_set_gt1(self) -> tuple[int, set[int]]:
-        def build_branch_peers() -> tuple[frozenset[int], ...]:
+        def build_branch_peers() -> tuple[frozenset[int], ...] | None:
+            # A whole-grid rule already makes every cell a peer of every
+            # other cell. Represent that clique implicitly rather than storing
+            # O(cells**2) entries (e.g. Slitherlink's global loop constraint).
+            # None is cached with the usual rule-only invalidation lifecycle.
+            if any(rule.len_cells == self.len for rule in self.rules):
+                return None
             peers = [set() for _ in range(self.len)]
             for rule in self.rules:
                 rule_cells = set(rule.cells)
@@ -526,15 +532,30 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             "branch_peers",
             build_branch_peers,
         )
+        if branch_peers is None:
+            # Sum intersections via value frequencies. Only unknown peers
+            # contribute; subtract this cell's own contribution below. These
+            # counts are candidate-dependent, so never cache them as structure.
+            value_counts = [0] * (self.max_elem + 1)
+            for peer, possible in enumerate(self._candidates):
+                if self._known[peer] == 0:
+                    for value in possible:
+                        value_counts[value] += 1
+
         best: tuple[tuple[int, int, int], int, set[int]] | None = None
         for cell, possible in enumerate(self._candidates):
             if len(possible) <= 1:
                 continue
-            pressure = sum(
-                len(possible & self._candidates[peer])
-                for peer in branch_peers[cell]
-                if self._known[peer] == 0
-            )
+            if branch_peers is None:
+                pressure = sum(value_counts[value] for value in possible)
+                if self._known[cell] == 0:
+                    pressure -= len(possible)
+            else:
+                pressure = sum(
+                    len(possible & self._candidates[peer])
+                    for peer in branch_peers[cell]
+                    if self._known[peer] == 0
+                )
             key = (len(possible), -pressure, cell)
             if best is None or key < best[0]:
                 best = key, cell, possible
