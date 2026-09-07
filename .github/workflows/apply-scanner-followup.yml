@@ -56,24 +56,35 @@ jobs:
           git checkout origin/master -- tests/review_parallel_probe.py benchmarks/README.md
           python - <<'PY'
           from pathlib import Path
+          import re
           p=Path('web/app.js');s=p.read_text()
-          old='  $("puzzle-type").value = p.type;\n'
-          if s.count(old)!=1:raise SystemExit(f'unexpected puzzle-type assignment count: {s.count(old)}')
-          s=s.replace(old,'')
-          old='const prefs = storage.get("gridpuzzle-settings-v1");'
-          if s.count(old)!=1:raise SystemExit('settings read pattern changed')
-          s=s.replace(old,'const prefs = storage.get("gridpuzzle-settings-v2") || storage.get("gridpuzzle-settings-v1");')
-          old='storage.set("gridpuzzle-settings-v1", {'
-          if s.count(old)!=1:raise SystemExit('settings write pattern changed')
-          s=s.replace(old,'storage.set("gridpuzzle-settings-v2", {')
+          def once(old,new,label):
+              global s
+              if s.count(old)!=1:raise SystemExit(f'{label}: expected one match, got {s.count(old)}')
+              s=s.replace(old,new)
+          once('  $("puzzle-type").value = p.type;\n','', 'board load must not rewrite next-scan type')
+          once('const prefs = storage.get("gridpuzzle-settings-v1");','const prefs = storage.get("gridpuzzle-settings-v2") || storage.get("gridpuzzle-settings-v1");','settings migration read')
+          once('storage.set("gridpuzzle-settings-v1", {','storage.set("gridpuzzle-settings-v2", {','settings v2 write')
+          once('  isCage,\n  boxShape,\n} from "./model.js";','  isCage,\n  boxShape,\n  moveIndex,\n  hasCageRemoval,\n  hasInequalityRemoval,\n  checkSolveReady,\n} from "./model.js";','model helper imports')
+          old='''  const delta = {\n    ArrowLeft: -1,\n    ArrowRight: 1,\n    ArrowUp: -state.puzzle.cols,\n    ArrowDown: state.puzzle.cols,\n  }[e.key];\n  if (delta) {\n    e.preventDefault();\n    focused = Math.max(0, Math.min(state.puzzle.cells.length - 1, i + delta));\n    drawBoard();\n    $("board").querySelector(`[data-cell="${focused}"]`).focus();\n  }'''
+          new='''  if (e.key.startsWith("Arrow")) {\n    e.preventDefault();\n    const next = moveIndex(i, e.key, state.puzzle.rows, state.puzzle.cols);\n    if (next === i) return;\n    focused = next;\n    drawBoard();\n    $("board").querySelector(`[data-cell="${focused}"]`)?.focus();\n  }'''
+          once(old,new,'authoritative keyboard navigation')
+          old='''$("remove-cage").onclick = () =>\n  mutate(() => {\n    state.puzzle.cages = state.puzzle.cages.filter(\n      (q) => !q.cells.some((i) => state.selected.includes(i)),\n    );\n    state.selected = [];\n  });'''
+          new='''$("remove-cage").onclick = () => {\n  if (!hasCageRemoval(state.puzzle, state.selected)) return;\n  mutate(() => {\n    state.puzzle.cages = state.puzzle.cages.filter(\n      (q) => !q.cells.some((i) => state.selected.includes(i)),\n    );\n    state.selected = [];\n  });\n};'''
+          once(old,new,'no-op cage removal')
+          old='''$("remove-inequality").onclick = () =>\n  mutate(() => {\n    state.puzzle.inequalities = state.puzzle.inequalities.filter(\n      (q) =>\n        !(\n          state.selected.includes(q.less) && state.selected.includes(q.greater)\n        ),\n    );\n    state.selected = [];\n  });'''
+          new='''$("remove-inequality").onclick = () => {\n  if (!hasInequalityRemoval(state.puzzle, state.selected)) return;\n  mutate(() => {\n    state.puzzle.inequalities = state.puzzle.inequalities.filter(\n      (q) =>\n        !(\n          state.selected.includes(q.less) && state.selected.includes(q.greater)\n        ),\n    );\n    state.selected = [];\n  });\n};'''
+          once(old,new,'no-op inequality removal')
+          n,s=re.subn(r'(function requestSolve\(\) \{\n  try \{\n    checkShape\(state\.puzzle\);)',r'\1\n    checkSolveReady(state.puzzle);',s,count=1)
+          if n!=1:raise SystemExit('requestSolve solve-ready insertion failed')
+          n,s=re.subn(r'(function solveNow\(\) \{\n  try \{\n    checkShape\(state\.puzzle\);)',r'\1\n    checkSolveReady(state.puzzle);',s,count=1)
+          if n!=1:raise SystemExit('solveNow solve-ready insertion failed')
           p.write_text(s)
+
+          t=Path('web/tests/final-hardening.test.js');ts=t.read_text()
+          ts+='''\n\ntest("production handlers use authoritative puzzle state",()=>{\n  const source=fs.readFileSync(new URL("../app.js",import.meta.url),"utf8");\n  assert.match(source,/moveIndex\\(i, e\\.key, state\\.puzzle\\.rows, state\\.puzzle\\.cols\\)/);\n  assert.match(source,/hasCageRemoval\\(state\\.puzzle, state\\.selected\\)/);\n  assert.match(source,/hasInequalityRemoval\\(state\\.puzzle, state\\.selected\\)/);\n  assert.ok((source.match(/checkSolveReady\\(state\\.puzzle\\)/g)||[]).length>=2);\n});\n'''
+          t.write_text(ts)
           PY
-          echo '--- authoritative model helpers ---'
-          grep -nE 'export function (moveIndex|hasCageRemoval|hasInequalityRemoval|.*Solve.*Ready|.*solve.*ready)' web/model.js || true
-          echo '--- app handler context ---'
-          sed -n '650,790p' web/app.js
-          echo '--- cache test contract ---'
-          sed -n '1,90p' web/tests/cache-recovery.test.js
           rm -f web/accessibility.js web/polish.css web/tests/followup-ui.test.js
           rm -rf .followup
           rm -f .github/workflows/apply-scanner-followup.yml
