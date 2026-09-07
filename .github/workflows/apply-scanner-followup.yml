@@ -75,12 +75,11 @@ jobs:
           old='''$("remove-inequality").onclick = () =>\n  mutate(() => {\n    state.puzzle.inequalities = state.puzzle.inequalities.filter(\n      (q) =>\n        !(\n          state.selected.includes(q.less) && state.selected.includes(q.greater)\n        ),\n    );\n    state.selected = [];\n  });'''
           new='''$("remove-inequality").onclick = () => {\n  if (!hasInequalityRemoval(state.puzzle, state.selected)) return;\n  mutate(() => {\n    state.puzzle.inequalities = state.puzzle.inequalities.filter(\n      (q) =>\n        !(\n          state.selected.includes(q.less) && state.selected.includes(q.greater)\n        ),\n    );\n    state.selected = [];\n  });\n};'''
           once(old,new,'no-op inequality removal')
-          n,s=re.subn(r'(function requestSolve\(\) \{\n  try \{\n    checkShape\(state\.puzzle\);)',r'\1\n    checkSolveReady(state.puzzle);',s,count=1)
+          n,s=re.subn(r'(function requestSolve\(\)\s*\{\s*try\s*\{)',r'\1\n    checkSolveReady(state.puzzle);',s,count=1)
           if n!=1:raise SystemExit('requestSolve solve-ready insertion failed')
-          n,s=re.subn(r'(function solveNow\(\) \{\n  try \{\n    checkShape\(state\.puzzle\);)',r'\1\n    checkSolveReady(state.puzzle);',s,count=1)
+          n,s=re.subn(r'(function solveNow\(\)\s*\{\s*try\s*\{)',r'\1\n    checkSolveReady(state.puzzle);',s,count=1)
           if n!=1:raise SystemExit('solveNow solve-ready insertion failed')
           p.write_text(s)
-
           t=Path('web/tests/final-hardening.test.js');ts=t.read_text()
           ts+='''\n\ntest("production handlers use authoritative puzzle state",()=>{\n  const source=fs.readFileSync(new URL("../app.js",import.meta.url),"utf8");\n  assert.match(source,/moveIndex\\(i, e\\.key, state\\.puzzle\\.rows, state\\.puzzle\\.cols\\)/);\n  assert.match(source,/hasCageRemoval\\(state\\.puzzle, state\\.selected\\)/);\n  assert.match(source,/hasInequalityRemoval\\(state\\.puzzle, state\\.selected\\)/);\n  assert.ok((source.match(/checkSolveReady\\(state\\.puzzle\\)/g)||[]).length>=2);\n});\n'''
           t.write_text(ts)
