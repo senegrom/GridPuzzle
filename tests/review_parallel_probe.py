@@ -7,7 +7,12 @@ from pathlib import Path
 import sys
 import time
 
-from gridsolver.abstract_grids.grid import Grid
+# This script and its spawn/forkserver workers run in fresh interpreters that
+# see only the installed package. Make the checkout importable too, so the
+# tests do not depend on `pip install -e` like no other test in the suite.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from gridsolver.abstract_grids.grid import Grid  # noqa: E402
 from gridsolver.solver import solve_parallel as parallel
 
 
