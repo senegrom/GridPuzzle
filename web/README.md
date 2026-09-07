@@ -4,7 +4,7 @@ The `browser-scanner` branch provides an installable, camera-first static web ap
 
 https://senegrom.github.io/GridPuzzle/
 
-The phone app runs recognition and the complete Python GridPuzzle solver on-device. No photograph is uploaded to a recognition service or remote solver. The branch also currently contains native exactness/robustness fixes reviewed separately; they do not weaken the solver's deduction hierarchy, solution space or branch semantics.
+Recognition and the complete Python GridPuzzle solver run on-device. Photographs are not uploaded to a recognition service or remote solver. Nothing in the deployment workflow merges this branch into `master`.
 
 ## Build and deploy
 
@@ -18,70 +18,75 @@ python scripts/build_web.py
 python -m http.server 8000 --directory _site
 ```
 
-Camera permissions require localhost or HTTPS. The `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs the Python/browser unit suites, executes the real Chromium and mobile-WebKit Python/OCR acceptance tests, uploads the tested artifact, and deploys through the `gridpuzzle-browser-pages` environment. Nothing in that workflow merges the branch into `master`.
+Camera permissions require localhost or HTTPS. The existing `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs Python and browser unit tests, executes the real Chromium/mobile-WebKit Python and OCR acceptance suites (including the real-newspaper fixtures), uploads that tested artifact, and deploys it through `gridpuzzle-browser-pages`.
 
-The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. The build verifies every npm tarball against a pinned SHA-512 integrity value before unpacking it and ships only the LSTM Tesseract cores the bundled English model uses. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
+The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. The build verifies every npm tarball against a pinned SHA-512 integrity value before unpacking it and ships only the LSTM Tesseract cores the bundled model uses. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
 
 ## Features
 
 - Rear-facing live camera with manual shutter and optional stable-grid capture.
 - Photo-library import and a native camera-file fallback for denied/unavailable live camera access.
-- Four draggable crop corners, rotation, projective straightening, automatic continuous-grid size detection, explicit dimensions and puzzle type selection.
+- Four draggable crop corners, rotation, projective straightening, automatic continuous-grid size detection, explicit dimensions and puzzle-type selection.
 - Local printed-clue OCR with confidence/review flags and guided **Review highlighted clues → Save & next**.
-- All eleven solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin square, diagonal Latin square, pandiagonal Latin square, Hidato, Numbrix, Kakuro and Slitherlink.
-- Editors for values/blocked cells, cages, inequalities and Kakuro directional clues, plus undo and validated JSON import/export.
-- A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without relying on unsupported browser multiprocessing.
+- All twelve solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin square, diagonal Latin square, pandiagonal Latin square, Hidato, Numbrix, Kakuro, Slitherlink and Str8ts.
+- Str8ts support includes solid black street separators and numbered black cells. Numbered black cells constrain row/column uniqueness but do not join a street.
+- Editors for values/blocked or black cells, cages, inequalities and Kakuro directional clues, plus undo and validated JSON import/export.
+- A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without unsupported browser multiprocessing.
 - Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
 - Local puzzle/settings persistence. Recognition uncertainty is persisted atomically; photographs and solver results are not.
 - Installable PWA icons, hash-verified offline preparation and a request for persistent browser storage.
 
 ## Recognition trust model
 
-Automatic recognition is a proposal, not proof. In particular, a faint/cropped clue may fail the initial ink detector and look like an intentionally blank cell. Therefore an **automatically identified puzzle type always requires one rules confirmation**, including ordinary boxed Sudoku. If the user explicitly selects Sudoku before scanning, a clear scan may still auto-solve immediately when no clue is uncertain.
+Automatic recognition is a proposal, not proof. A faint or cropped clue can look like an intentionally blank cell, so an **automatically identified puzzle type always requires one rules confirmation**, including boxed Sudoku. Structural families such as Str8ts remain review-gated. An explicitly selected type represents a separate user decision, but uncertainty flags still block silent trust of suspect readings.
 
 A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly.
 
-Printed, high-contrast rectangular Sudoku is the primary automatic scanning target. Generated regressions currently read the baseline 30-given Sudoku 30/30 in Chromium and WebKit; harder generated WebKit variants can still miss one or two clues, and those discrepancies are flagged for review. These generated fixtures are not a representative real-world phone-photo benchmark.
+Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the single bounded Tesseract atlas call. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
 
-Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised. Physical iPhone autofocus/exposure, installed-mode camera behaviour, storage eviction and airplane-mode use still require hardware testing.
+On the 2026-09-07 real newspaper regressions, Chromium 153 and WebKit 26.6 both read the shaded Sudoku **24/24**. They both read the Str8ts **19/20** printed values, with the one missed clue explicitly flagged for review; both detect the Str8ts black-cell layout exactly and produce **zero unsafe unflagged discrepancies**. Generated regressions remain useful secondary baselines: Chromium reads all tested generated variants exactly, while the current WebKit perspective/shadow case reads 29/30 with the miss flagged.
+
+Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised. Physical-iPhone autofocus/exposure, installed-mode camera behaviour, storage eviction and airplane-mode use still require hardware testing.
 
 ## Data contract
 
 ```json
 {
   "version": 1,
-  "type": "sudoku",
+  "type": "str8ts",
   "rows": 4,
   "cols": 4,
-  "boxRows": 2,
-  "boxCols": 2,
-  "cells": [1, null, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1],
+  "cells": [1, null, "#", 4, 2, 3, 4, 1, 3, 4, 1, 2, 4, 1, 2, 3],
+  "black": [2],
   "cages": [],
   "inequalities": [],
   "clues": []
 }
 ```
 
-Cells are zero-based row-major at the browser boundary. `null` is blank; `"#"` is blocked; Slitherlink `0` is a real face clue. Cages use `{ "cells": [0,1], "target": 3, "op": "+" }`; inequality objects use `{ "less": 0, "greater": 1 }`; a Kakuro clue on a blocked cell can use `{ "cell": 0, "across": 16, "down": 23 }`.
+Cells are zero-based row-major. `null` is blank; `"#"` is a blocked/blank-black cell where the family supports it; Slitherlink `0` is a real face clue. Str8ts uses `black` as a distinct list of black-cell indices; an index in `black` may contain either `"#"` or an integer printed on that black cell. Cages use `{ "cells": [0,1], "target": 3, "op": "+" }`; inequalities use `{ "less": 0, "greater": 1 }`; a Kakuro clue on a blocked cell can use `{ "cell": 0, "across": 16, "down": 23 }`.
 
-The browser rejects malformed dimensions, boxes, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become a solve request. Incomplete cage coverage and missing OCR targets remain editable states, but **Solve** runs a solve-ready check before Pyodide starts: cage puzzles need targets and complete coverage, and every Kakuro white cell must belong to exactly one across run and one down run of 2 to 9 cells. The Python adapter remains the authoritative final boundary.
+The browser rejects malformed dimensions, boxes, Str8ts black metadata, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become solve requests. Incomplete cage coverage and missing OCR targets remain editable states, but **Solve** performs a solve-ready check before Pyodide starts. The Python adapter remains the authoritative final boundary.
 
-The 25×25 browser limit is a phone resource policy, not a native solver limit. A deadline/cancellation means unfinished, never unsatisfiable or unique.
+The 25×25 browser limit is a phone resource policy, not a native solver limit. Str8ts itself is limited to square 2×2 through 9×9 boards. A deadline/cancellation means unfinished, never unsatisfiable or unique.
 
 ## Offline behaviour
 
-Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Runtime assets live in one content-addressed cache keyed by SHA-256, and each build's asset list is stored separately, so an update reuses unchanged verified bytes instead of downloading the whole Pyodide and Tesseract bundle again. Every downloaded asset is digest-verified before it is stored; nothing is written on a mismatch.
+Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Runtime assets live in one content-addressed cache keyed by SHA-256, and each build's asset list is stored separately, so an update reuses unchanged verified bytes instead of downloading the whole Pyodide/Tesseract bundle again. Every downloaded asset is digest-verified before it is stored.
 
-The startup status is a cheap presence check. **Download for offline use** performs the full sequential digest verification, evicts and refetches anything that fails, and asks the browser for persistent storage. Ordinary requests trust bytes that were verified before being written, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and the list is restored online instead of leaving the page unloadable. Cache quota failure does not break a verified online response.
+The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 
 ## Testing
 
-- `tests/test_web_api.py` and the shared payload fixtures verify the Python/browser contract.
-- `web/tests/` covers geometry, classification, OCR atlas mapping, cache recovery, worker lifecycle, malformed input, automatic-type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
-- `scripts/browser_smoke.cjs` and `scripts/browser_regressions.cjs` use the real Python and OCR WebAssembly runtimes in Chromium and WebKit, not mocks. They cover all eleven families, cancellation/restart, denied-camera fallback, generated photo recognition, guided review, overlays, cache recovery and origin-offline reload/solving/recognition.
-- Normal Linux/Windows CI and forward compatibility remain separate. The lightweight PR browser workflow now runs only browser unit/parse checks; the deployment workflow is the sole duplicate-free full browser gate.
+- `tests/test_web_api.py` verifies the Python/browser data contract; `tests/test_str8ts.py` verifies Str8ts street semantics and the uniquely solved newspaper puzzle.
+- `web/tests/` covers geometry, classification, OCR mapping/preprocessing, cache recovery, worker lifecycle, malformed input, type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
+- `scripts/browser_smoke.cjs` exercises all twelve puzzle families through the real Python/Pyodide solver in Chromium and WebKit.
+- `scripts/browser_regressions.cjs` exercises generated OCR/perspective/review regressions.
+- `scripts/newspaper_regressions.cjs` runs the production scanner/Tesseract pipeline against the two real user-provided newspaper crops in Chromium and WebKit. Any wrong, missed or invented clue that is not review-flagged fails the deployment.
+- The newspaper images and hand-checked ground truth live in `Examples/BrowserScanner/Newspaper/`, outside `web/`, so they do not inflate the deployed/offline bundle.
+- Normal Linux/Windows CI and forward compatibility remain independent from the single full Pages/browser gate.
 
-The full slow corpus is not run on every Pages deployment. Generated recognition tests are a regression baseline, not a substitute for real-device testing.
+Generated fixtures are regression baselines, not substitutes for real-device testing.
 
 ## Input, build and lifecycle hardening
 
