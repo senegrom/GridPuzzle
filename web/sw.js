@@ -15,7 +15,8 @@ function validateManifest(data){
   }
   return data.assets;
 }
-function contentKey(asset){return url(`.gridpuzzle-cache/${asset.sha256}`);}
+function assetKey(asset){return url(`.gridpuzzle-cache/${asset.sha256}`);}
+const contentKey=assetKey;
 async function digest(response){
   const bytes=await response.clone().arrayBuffer();
   const hash=await crypto.subtle.digest("SHA-256",bytes);
@@ -28,7 +29,7 @@ async function manifest(){
   return validateManifest(await response.clone().json());
 }
 async function verifiedAsset(asset,{network=true,requireStorage=true,verifyStored=false}={}){
-  const cache=await caches.open(CONTENT),key=contentKey(asset);
+  const cache=await caches.open(CONTENT),key=assetKey(asset);
   let response=await cache.match(key);
   if(response&&verifyStored&&!(await matchesAsset(response,asset))){await cache.delete(key);response=null;}
   if(response)return response;
@@ -41,7 +42,7 @@ async function verifiedAsset(asset,{network=true,requireStorage=true,verifyStore
 }
 async function offlineReadyFast(assets){
   const cache=await caches.open(CONTENT);
-  for(const asset of assets)if(!(await cache.match(contentKey(asset))))return false;
+  for(const asset of assets)if(!(await cache.match(assetKey(asset))))return false;
   return true;
 }
 async function offlineReadyVerified(assets){
@@ -53,7 +54,7 @@ function routeAsset(request,target){
   return rootNavigation?url("index.html"):target.href;
 }
 async function pruneContent(assets){
-  const keep=new Set(assets.map(contentKey)),cache=await caches.open(CONTENT);
+  const keep=new Set(assets.map(assetKey)),cache=await caches.open(CONTENT);
   for(const request of await cache.keys())if(!keep.has(request.url))await cache.delete(request);
 }
 
@@ -62,8 +63,6 @@ self.addEventListener("install",event=>event.waitUntil((async()=>{
   if(!response.ok)throw Error("Could not load the offline manifest.");
   const assets=validateManifest(await response.clone().json()),meta=await caches.open(META);
   await meta.put(url("assets.json"),response);
-  // Install only the shell and solver. Immutable content-addressed runtime
-  // entries are automatically shared with the previous build when hashes match.
   const shell=assets.filter(a=>a.path.startsWith("icons/")||(!a.path.includes("/")&&!a.path.endsWith(".zip"))||(a.path.startsWith("solver.")&&a.path.endsWith(".zip")));
   for(const asset of shell)await verifiedAsset(asset,{verifyStored:true});
 })()));
