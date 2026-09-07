@@ -1,0 +1,32 @@
+name: Tighten Str8ts classifier
+on:
+  push:
+    branches: [scanner-str8ts-newspaper]
+    paths: ['.github/workflows/retrigger-str8ts.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require a numbered black cell for automatic Str8ts detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/apply-str8ts.yml')
+          s=p.read_text(encoding='utf-8')
+          old='if (black && rows === cols && rows <= 9 && (blackNumbers || (black >= 4 && values.filter(Number.isInteger).every((n) => n <= rows)))) return { type:"str8ts", review:true, reason:"Black-cell street layout suggests Str8ts. Check every black cell and printed digit." };'
+          new='if (black && blackNumbers && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Numbered black cells suggest Str8ts. Check every black cell and printed digit." };'
+          if s.count(old)!=1: raise SystemExit(f'expected classifier patch once, found {s.count(old)}')
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          PY
+          rm .github/workflows/retrigger-str8ts.yml
+          git add -A
+          git diff --cached --check
+          git commit -m 'Require numbered black cells for Str8ts auto-detection'
+          git push
