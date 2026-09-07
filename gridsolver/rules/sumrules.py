@@ -352,19 +352,40 @@ def _admissible_assignments(values: FrozenSet[int], cand_sets: Sequence[Set[int]
     match_pos: dict = {}  # position -> value
     match_val: dict = {}  # value -> position
 
-    def try_augment(v, visited) -> bool:
-        for i in edges[v]:
-            if i in visited:
-                continue
-            visited.add(i)
-            if i not in match_pos or try_augment(match_pos[i], visited):
-                match_pos[i] = v
-                match_val[v] = i
-                return True
+    def try_augment(start: int) -> bool:
+        """Find one augmenting path without consuming Python stack."""
+        visited: set[int] = set()
+        # Each child frame records the matched position that led to it.
+        # Iterators preserve the recursive DFS edge order exactly.
+        parent: dict[int, tuple[int, int] | None] = {start: None}
+        work = [(start, iter(edges[start]))]
+        while work:
+            value, choices = work[-1]
+            for position in choices:
+                if position in visited:
+                    continue
+                visited.add(position)
+                owner = match_pos.get(position)
+                if owner is None:
+                    # Match the free edge, then flip every alternating
+                    # edge on the path back to the unmatched root value.
+                    match_pos[position] = value
+                    match_val[value] = position
+                    while parent[value] is not None:
+                        parent_value, parent_position = parent[value]
+                        match_pos[parent_position] = parent_value
+                        match_val[parent_value] = parent_position
+                        value = parent_value
+                    return True
+                parent[owner] = (value, position)
+                work.append((owner, iter(edges[owner])))
+                break
+            else:
+                work.pop()
         return False
 
     for v in vals:
-        if not try_augment(v, set()):
+        if not try_augment(v):
             return  # no perfect matching: this partition admits no assignment
 
     # residual digraph: nodes = values (0..k-1 by index) and positions (k..2k-1)
