@@ -1,47 +1,27 @@
 # Browser acceptance and recognition measurements
 
-The deployment build tests the original Python solver, not a JavaScript
-substitute, in both Chromium and mobile WebKit. The browser version is recorded
-in each JSON report. The native non-slow suite and JavaScript unit tests are
-independent additional checks.
+The deployment build tests the actual Python solver and OCR WebAssembly in both Chromium and mobile WebKit; it does not substitute a JavaScript solver or mocked OCR. Browser versions and raw scan measurements are recorded in the report artifacts.
 
 ## Recognition is measured before correction
 
-The acceptance fixture is a generated, high-contrast printed 9x9 Sudoku with
-30 givens. `results.json` records the raw cells, number of correct readings,
-uncertainty flags and discrepancies. Any wrong or missed fixture clue without
-a review flag fails the test. Recognition accuracy on this fixture is not a
-claim about newspaper photographs, handwriting or arbitrary publisher styles.
+The acceptance fixture is a generated, high-contrast printed 9×9 Sudoku with 30 givens. `results.json` and `recognition-regressions.json` record raw cells, correct readings, uncertainty flags and discrepancies **before** any manual correction. A wrong or missed fixture clue without a review flag fails the test. Generated fixtures are regression baselines, not claims about newspaper photographs, handwriting or arbitrary publisher styles.
 
-When a flagged reading needs correction, the test uses the actual cell editor
-and visible source crop to simulate human review. The correction count is
-reported separately. The final solution must match the original reference
-puzzle exactly; solving a different, weaker transcription is not accepted as a
-recognition success. Production code never substitutes the fixture answers.
+When a reading needs correction, the tests use the real editor and source crop. The final solution must match the original reference puzzle exactly; solving a weaker transcription is not accepted as recognition success. Production code never substitutes fixture answers.
+
+Automatic puzzle classification is also tested as a trust boundary: an automatically identified boxed Sudoku remains `needsReview` until the user confirms its rules. Explicitly selecting Sudoku is a different user decision and may auto-solve an otherwise unambiguous scan.
 
 ## Offline test method
 
-The preview site is served below `/GridPuzzle/`, like the intended Pages site.
-After hash-verified offline preparation, the test stops the HTTP server and
-verifies from Node that the origin is unreachable. A `cache: 'no-store'` fetch
-from the controlled page must still read `model.js`, demonstrating service-worker
-cache use rather than an HTTP-cache hit. It then reloads the page, starts a fresh
-Python worker, solves, imports a photo and runs fresh OCR while the server
-remains stopped. No remote CDN or recognition service is available to fill gaps.
+The preview is served under `/GridPuzzle/`, matching Pages. After hash-verified offline preparation, the test stops the HTTP server and verifies from Node that the origin is unreachable. A controlled fetch still reads cached first-party code, then the page reloads, starts a fresh Python worker, solves, imports a photo and performs fresh OCR while the origin remains unavailable.
 
-Earlier runs also exercised Playwright's `context.setOffline(true)`.
-Chromium passed. WebKit 26.0 and 26.6 reported an internal error during document
-navigation before the app could reload, including through `location.reload()`.
-The server-shutdown test avoids relying on that synthetic network-state path
-without allowing the app to retrieve missing assets from the network.
+Unit tests additionally verify that `/GridPuzzle/?query=...` navigation maps to cached `index.html`, while real subpaths are not silently rewritten. Offline readiness always re-hashes the complete asset set. Ordinary current-build requests may trust bytes that were already digest-verified before being written, avoiding repeated large-WASM hashing. Update installation reuses unchanged verified assets from the previous build and installs the new solver archive before old caches are retired.
 
-This is not a physical-iPhone airplane-mode, autofocus or installation test.
-Those hardware checks still need a real device.
+Earlier runs also exercised Playwright's synthetic `context.setOffline(true)`. Chromium passed; WebKit 26.x reported an internal navigation failure before the app could reload. Stopping the real origin tests the service-worker path without depending on that WebKit automation behaviour.
+
+This is still not a physical-iPhone airplane-mode, autofocus, installed-camera or storage-eviction test. Those require hardware.
 
 ## Other assertions
 
-All eleven solver families, small/large phone layouts, clue editing, stale-result
-invalidation, undo, type changes preserving clues, cancellation and clean worker
-restart, pagehide cleanup, persistent scan uncertainty, denied-camera fallback,
-photo-overlay geometry invalidation, and absence of external runtime requests
-are covered. Reports and screenshots are uploaded as workflow artifacts.
+Coverage includes all eleven solver families, small/large phone layouts, malformed imports, early cage/Kakuro validation, clue editing, stale-result invalidation, undo, no-op removal guards, bounded keyboard navigation, type changes preserving clues, cancellation/restart, pagehide cleanup, persistent scan uncertainty, denied-camera fallback, photo-overlay invalidation, cache recovery and absence of external runtime requests.
+
+The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs browser unit/parse checks only; normal Linux/Windows CI and forward compatibility remain independent.
