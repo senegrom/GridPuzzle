@@ -16,22 +16,28 @@ function validateManifest(data){
   return data.assets;
 }
 function assetKey(asset){return url(`.gridpuzzle-cache/${asset.sha256}`);}
-const contentKey=assetKey;
 async function digest(response){
   const bytes=await response.clone().arrayBuffer();
   const hash=await crypto.subtle.digest("SHA-256",bytes);
   return [...new Uint8Array(hash)].map(v=>v.toString(16).padStart(2,"0")).join("");
 }
 async function matchesAsset(response,asset){return !!response?.ok&&(await digest(response))===asset.sha256;}
+async function contentCache(){return caches.open(CONTENT);}
+function injectedCache(value){return !!value&&typeof value.match==="function"&&typeof value.put==="function";}
 async function manifest(){
   const cache=await caches.open(META),response=await cache.match(url("assets.json"));
   if(!response)throw Error("The offline asset list is missing. Reload online.");
   return validateManifest(await response.clone().json());
 }
-async function verifiedAsset(asset,{network=true,requireStorage=true,verifyStored=false}={}){
-  const cache=await caches.open(CONTENT),key=assetKey(asset);
+async function verifiedAsset(cacheOrAsset,assetOrOptions={},maybeOptions={}){
+  const injected=injectedCache(cacheOrAsset);
+  const cache=injected?cacheOrAsset:await contentCache();
+  const asset=injected?assetOrOptions:cacheOrAsset;
+  const options=injected?maybeOptions:assetOrOptions;
+  const {network=true,requireStorage=true,verifyStored=false,trustStored=false}=options||{};
+  const key=assetKey(asset);
   let response=await cache.match(key);
-  if(response&&verifyStored&&!(await matchesAsset(response,asset))){await cache.delete(key);response=null;}
+  if(response&&verifyStored&&!trustStored&&!(await matchesAsset(response,asset))){await cache.delete(key);response=null;}
   if(response)return response;
   if(!network)return null;
   response=await fetch(new Request(url(asset.path),{cache:"reload"}));
@@ -40,13 +46,14 @@ async function verifiedAsset(asset,{network=true,requireStorage=true,verifyStore
   try{await cache.put(key,response.clone());}catch(error){if(requireStorage)throw error;}
   return response;
 }
-async function offlineReadyFast(assets){
-  const cache=await caches.open(CONTENT);
+async function offlineReadyFast(cacheOrAssets,maybeAssets){
+  const injected=injectedCache(cacheOrAssets),cache=injected?cacheOrAssets:await contentCache(),assets=injected?maybeAssets:cacheOrAssets;
   for(const asset of assets)if(!(await cache.match(assetKey(asset))))return false;
   return true;
 }
-async function offlineReadyVerified(assets){
-  for(const asset of assets)if(!(await verifiedAsset(asset,{network:false,verifyStored:true})))return false;
+async function offlineReadyVerified(cacheOrAssets,maybeAssets){
+  const injected=injectedCache(cacheOrAssets),cache=injected?cacheOrAssets:await contentCache(),assets=injected?maybeAssets:cacheOrAssets;
+  for(const asset of assets)if(!(await verifiedAsset(cache,asset,{network:false,verifyStored:true})))return false;
   return true;
 }
 function routeAsset(request,target){
@@ -54,17 +61,17 @@ function routeAsset(request,target){
   return rootNavigation?url("index.html"):target.href;
 }
 async function pruneContent(assets){
-  const keep=new Set(assets.map(assetKey)),cache=await caches.open(CONTENT);
+  const keep=new Set(assets.map(assetKey)),cache=await contentCache();
   for(const request of await cache.keys())if(!keep.has(request.url))await cache.delete(request);
 }
 
 self.addEventListener("install",event=>event.waitUntil((async()=>{
   const response=await fetch(new Request(url("assets.json"),{cache:"reload"}));
   if(!response.ok)throw Error("Could not load the offline manifest.");
-  const assets=validateManifest(await response.clone().json()),meta=await caches.open(META);
+  const assets=validateManifest(await response.clone().json()),meta=await caches.open(META),cache=await contentCache();
   await meta.put(url("assets.json"),response);
   const shell=assets.filter(a=>a.path.startsWith("icons/")||(!a.path.includes("/")&&!a.path.endsWith(".zip"))||(a.path.startsWith("solver.")&&a.path.endsWith(".zip")));
-  for(const asset of shell)await verifiedAsset(asset,{verifyStored:true});
+  for(const asset of shell)await verifiedAsset(cache,asset,{verifyStored:true});
 })()));
 self.addEventListener("activate",event=>event.waitUntil((async()=>{
   const assets=await manifest();
@@ -79,7 +86,7 @@ self.addEventListener("fetch",event=>{
     if(target.href===url("assets.json")){const cache=await caches.open(META);await manifest();return cache.match(url("assets.json"));}
     const assets=await manifest(),key=routeAsset(request,target),asset=assets.find(a=>url(a.path)===key);
     if(!asset)return fetch(request);
-    return verifiedAsset(asset,{requireStorage:false});
+    return verifiedAsset(asset,{requireStorage:false,trustStored:true});
   })());
 });
 let downloading=false;
@@ -96,11 +103,12 @@ self.addEventListener("message",event=>{
       if(downloading)throw Error("Offline preparation is already running in another tab.");
       downloading=true;
       try{
+        const cache=await contentCache();
         for(let i=0;i<assets.length;i++){
-          await verifiedAsset(assets[i],{verifyStored:true,requireStorage:true});
+          await verifiedAsset(cache,assets[i],{verifyStored:true,requireStorage:true});
           port.postMessage({progress:i+1,total:assets.length});
         }
-        if(!(await offlineReadyVerified(assets)))throw Error("Offline verification failed. Retry while online.");
+        if(!(await offlineReadyVerified(cache,assets)))throw Error("Offline verification failed. Retry while online.");
         port.postMessage({done:true,ready:true});
       }finally{downloading=false;}
     }catch(error){port.postMessage({error:error?.message||String(error)});}
