@@ -136,3 +136,9 @@ test.py
 mypuz/
 _test/
 solve*.ipynb
+
+# browser scanner build and acceptance outputs
+node_modules/
+_site/
+_preview/
+browser-artifacts/

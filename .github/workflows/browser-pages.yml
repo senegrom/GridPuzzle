@@ -28,7 +28,7 @@ jobs:
       - name: Build self-hosted application
         run: python scripts/build_web.py
       - name: Retain build for independent testing
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scanner-static-build
           path: _site

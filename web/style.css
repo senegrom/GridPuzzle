@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   --ink: #173536;
-  --muted: #667675;
+  --muted: #5d6b6a;
   --teal: #087d70;
   --paper: #f5f5ee;
   --line: #dce4de;
@@ -76,7 +76,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 28px 32px 4px;
+  padding: max(28px, calc(env(safe-area-inset-top) + 16px)) 32px 4px;
 }
 .brand {
   display: flex;
@@ -584,7 +584,7 @@ summary:focus-visible {
 }
 @media (max-width: 760px) {
   .masthead {
-    padding: 20px 18px 0;
+    padding: max(20px, calc(env(safe-area-inset-top) + 10px)) 18px 0;
   }
   main {
     padding: 0 14px;

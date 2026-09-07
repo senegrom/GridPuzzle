@@ -50,6 +50,34 @@ export function makePuzzle(type = "sudoku", rows = 9, cols = rows) {
 function adjacent(a,b,cols){
   return Math.abs(Math.floor(a/cols)-Math.floor(b/cols))+Math.abs((a%cols)-(b%cols))===1;
 }
+export function moveIndex(index, key, rows, cols) {
+  let r = Math.floor(index / cols),
+    c = index % cols;
+  if (key === "ArrowLeft") c = Math.max(0, c - 1);
+  else if (key === "ArrowRight") c = Math.min(cols - 1, c + 1);
+  else if (key === "ArrowUp") r = Math.max(0, r - 1);
+  else if (key === "ArrowDown") r = Math.min(rows - 1, r + 1);
+  else return index;
+  return r * cols + c;
+}
+export function hasCageRemoval(p, cells) {
+  const selected = new Set(cells);
+  return (
+    selected.size > 0 &&
+    Boolean(p?.cages?.some((cage) => cage.cells?.some((i) => selected.has(i))))
+  );
+}
+export function hasInequalityRemoval(p, cells) {
+  const selected = new Set(cells);
+  return (
+    selected.size === 2 &&
+    Boolean(
+      p?.inequalities?.some(
+        (q) => selected.has(q.less) && selected.has(q.greater),
+      ),
+    )
+  );
+}
 export function checkShape(p) {
   if (
     !p ||
@@ -150,6 +178,67 @@ export function checkShape(p) {
     for (const direction of ["across", "down"])
       if (q[direction] != null && (!Number.isInteger(q[direction]) || q[direction] < 1 || q[direction] > 45))
         throw Error("Kakuro targets must be from 1 to 45.");
+  }
+  return p;
+}
+// The editor allows useful incomplete states; Solve needs the structure the
+// Python adapter will demand, reported here with a local message before the
+// interpreter loads.
+export function checkSolveReady(p) {
+  checkShape(p);
+  if (isCage(p.type)) {
+    const covered = new Set();
+    for (const cage of p.cages || []) {
+      if (cage.target == null)
+        throw Error("Every cage needs a target before solving.");
+      for (const i of cage.cells) covered.add(i);
+    }
+    if (covered.size !== p.cells.length)
+      throw Error(
+        `Cages must cover every cell before solving; ${p.cells.length - covered.size} cells still need a cage.`,
+      );
+  }
+  if (p.type === "kakuro") {
+    const white = new Set(
+      p.cells.flatMap((value, i) => (value === "#" ? [] : [i])),
+    );
+    if (!white.size) throw Error("Kakuro needs at least one white cell.");
+    const coverage = new Map(
+      [...white].map((i) => [i, { across: 0, down: 0 }]),
+    );
+    for (const clue of p.clues || []) {
+      const r = Math.floor(clue.cell / p.cols),
+        c = clue.cell % p.cols;
+      for (const [direction, dr, dc] of [
+        ["across", 0, 1],
+        ["down", 1, 0],
+      ]) {
+        if (clue[direction] == null) continue;
+        const run = [];
+        for (
+          let rr = r + dr, cc = c + dc;
+          rr >= 0 &&
+          rr < p.rows &&
+          cc >= 0 &&
+          cc < p.cols &&
+          white.has(rr * p.cols + cc);
+          rr += dr, cc += dc
+        )
+          run.push(rr * p.cols + cc);
+        if (run.length < 2 || run.length > 9)
+          throw Error(
+            `Each Kakuro ${direction} clue must start a run of 2 to 9 white cells.`,
+          );
+        for (const i of run) coverage.get(i)[direction]++;
+      }
+    }
+    const incomplete = [...coverage.values()].filter(
+      (count) => count.across !== 1 || count.down !== 1,
+    ).length;
+    if (incomplete)
+      throw Error(
+        `Every Kakuro white cell needs exactly one across and one down run; ${incomplete} cells are incomplete.`,
+      );
   }
   return p;
 }

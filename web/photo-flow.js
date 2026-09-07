@@ -139,9 +139,104 @@ export function setupPhotoFlow({
   $("take-photo").onclick = () => takePhoto();
   $("choose-photo").onclick = () => $("photo-file").click();
   $("native-camera").onclick = () => $("native-file").click();
+  const MAX_SIDE = 1600,
+    JPEG_FRAME_MARKERS = new Set([
+      0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
+      0xcf,
+    ]);
+  // Stored pixel dimensions from a PNG header or the first JPEG frame header;
+  // null for other formats. Orientation metadata is not applied here.
+  function sniffDimensions(bytes) {
+    if (
+      bytes.length >= 24 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47
+    ) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+      return { width: view.getUint32(16), height: view.getUint32(20) };
+    }
+    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+    for (let i = 2; i + 9 < bytes.length; ) {
+      if (bytes[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const marker = bytes[i + 1];
+      if (marker === 0xff) {
+        i++;
+        continue;
+      }
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+        i += 2;
+        continue;
+      }
+      if (marker === 0xd9 || marker === 0xda) return null;
+      const length = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (length < 2) return null;
+      if (JPEG_FRAME_MARKERS.has(marker))
+        return {
+          height: (bytes[i + 5] << 8) | bytes[i + 6],
+          width: (bytes[i + 7] << 8) | bytes[i + 8],
+        };
+      i += 2 + length;
+    }
+    return null;
+  }
+  function fit(width, height) {
+    const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
+    return [
+      Math.max(1, Math.round(width * scale)),
+      Math.max(1, Math.round(height * scale)),
+    ];
+  }
+  function draw(source, width, height) {
+    const c = document.createElement("canvas");
+    c.width = width;
+    c.height = height;
+    c.getContext("2d").drawImage(source, 0, 0, width, height);
+    return c;
+  }
   async function decodeFile(file) {
     if (file.size > 30 * 1024 * 1024)
       throw Error("Please choose a photo smaller than 30 MB.");
+    const head = new Uint8Array(await file.slice(0, 512 * 1024).arrayBuffer()),
+      dimensions = sniffDimensions(head),
+      pixels = dimensions ? dimensions.width * dimensions.height : null;
+    if (dimensions && (dimensions.width < 1 || dimensions.height < 1))
+      throw Error("The image is empty.");
+    if (pixels > 120e6)
+      throw Error(
+        "This photo is too large to decode safely on a phone. Use a smaller camera resolution or crop it first.",
+      );
+    if (dimensions && typeof createImageBitmap === "function") {
+      // Decode straight to the working size instead of materializing a
+      // full-resolution phone photograph. Only one side is requested so the
+      // aspect ratio survives EXIF rotation; the final fit happens on canvas.
+      let bitmap = null;
+      try {
+        bitmap = await createImageBitmap(file, {
+          resizeWidth: fit(dimensions.width, dimensions.height)[0],
+          resizeQuality: "high",
+          imageOrientation: "from-image",
+        });
+      } catch {
+        bitmap = null;
+      }
+      if (bitmap)
+        try {
+          return draw(bitmap, ...fit(bitmap.width, bitmap.height));
+        } finally {
+          bitmap.close?.();
+        }
+    }
+    // A full decode is the only remaining route; refuse sizes that can
+    // exhaust phone memory instead of crashing the page.
+    if (pixels > 24e6 || (!dimensions && file.size > 10 * 1024 * 1024))
+      throw Error(
+        "This browser cannot downscale this large photo safely. Crop it in your photo app first, then try again.",
+      );
     const url = URL.createObjectURL(file);
     try {
       const img = new Image();
@@ -149,15 +244,7 @@ export function setupPhotoFlow({
       await img.decode();
       if (!img.naturalWidth || !img.naturalHeight)
         throw Error("The image is empty.");
-      const scale = Math.min(
-          1,
-          1600 / Math.max(img.naturalWidth, img.naturalHeight),
-        ),
-        c = document.createElement("canvas");
-      c.width = Math.round(img.naturalWidth * scale);
-      c.height = Math.round(img.naturalHeight * scale);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      return c;
+      return draw(img, ...fit(img.naturalWidth, img.naturalHeight));
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -416,7 +503,7 @@ export function setupPhotoFlow({
       $("photo-panel").hidden = true;
       status(
         "Puzzle read.",
-        `${TYPES[state.puzzle.type]} suggested. Check highlighted cells and the puzzle rules.`,
+        `${type === "auto" ? `${TYPES[state.puzzle.type]} suggested` : TYPES[state.puzzle.type]}. Check highlighted cells and the puzzle rules.`,
       );
       $("board-title").scrollIntoView({ behavior: "smooth", block: "start" });
       if (

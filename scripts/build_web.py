@@ -7,6 +7,7 @@ at app runtime except requests to this site's own static files.
 """
 from __future__ import annotations
 import argparse
+import base64
 from contextlib import contextmanager
 import hashlib
 import json
@@ -21,25 +22,38 @@ import zlib
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
+# npm is npm.cmd on Windows and CreateProcess does not search for it by bare name.
+NPM = shutil.which('npm') or 'npm'
+# Exact versions and registry tarball digests. The build refuses a tarball whose
+# SHA-512 differs from the pin, so a registry or proxy substitution cannot
+# reach the deployed site.
 PACKAGES = {
-    'pyodide': '314.0.6',
-    'tesseract.js': '6.0.1',
-    'tesseract.js-core': '6.0.0',
-    '@tesseract.js-data/eng': '1.0.0',
+    'pyodide': ('314.0.6', 'sha512-BKDTJyIqFxC4BExLqeRS3f5xvXZIjOt8C3zGLN/Cc7tFxSwvKVhVkchQQ2AGLOtR4YrVOIFxbV8poyDOOmWwxQ=='),
+    'tesseract.js': ('6.0.1', 'sha512-/sPvMvrCtgxnNRCjbTYbr7BRu0yfWDsMZQ2a/T5aN/L1t8wUQN6tTWv6p6FwzpoEBA0jrN2UD2SX4QQFRdoDbA=='),
+    'tesseract.js-core': ('6.0.0', 'sha512-1Qncm/9oKM7xgrQXZXNB+NRh19qiXGhxlrR8EwFbK5SaUbPZnS5OMtP/ghtqfd23hsr1ZvZbZjeuAGcMxd/ooA=='),
+    '@tesseract.js-data/eng': ('1.0.0', 'sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg=='),
 }
 
 
-def package(name, version, temporary):
+def tarball_integrity(path):
+    return 'sha512-' + base64.b64encode(hashlib.sha512(Path(path).read_bytes()).digest()).decode()
+
+
+def package(name, version, integrity, temporary):
     destination = temporary / name.replace('/', '_').replace('@', '')
     destination.mkdir()
     result = subprocess.run(
-        ['npm', 'pack', '--ignore-scripts', '--json', '--pack-destination', str(destination), f'{name}@{version}'],
+        [NPM, 'pack', '--ignore-scripts', '--json', '--pack-destination', str(destination), f'{name}@{version}'],
         check=True, text=True, capture_output=True, timeout=240,
     )
     metadata = json.loads(result.stdout)[0]
-    with tarfile.open(destination / metadata['filename']) as archive:
+    tarball = destination / metadata['filename']
+    actual = tarball_integrity(tarball)
+    if actual != integrity:
+        raise ValueError(f'{name}@{version} tarball integrity {actual} does not match the pinned {integrity}')
+    with tarfile.open(tarball) as archive:
         archive.extractall(destination, filter='data')
-    return destination / 'package', metadata['integrity']
+    return destination / 'package', integrity
 
 
 def copy(source, destination):
@@ -136,9 +150,9 @@ def build(out):
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip();build=commit[:12]
     for source in (ROOT/'web').iterdir():
         if source.is_file() and source.suffix in ('.html','.css','.js','.svg','.webmanifest'):
-            text=source.read_text().replace('__BUILD_ID__',build)
+            text=source.read_text(encoding='utf-8').replace('__BUILD_ID__',build)
             if source.name=='solver-worker.js':text=text.replace('solver.zip',f'solver.{build}.zip')
-            (out/source.name).write_text(text)
+            (out/source.name).write_text(text,encoding='utf-8',newline='\n')
     (out/'.nojekyll').touch()
     # Include every original core module byte-for-byte, and its license.
     with zipfile.ZipFile(out/f'solver.{build}.zip','w',zipfile.ZIP_DEFLATED) as archive:
@@ -147,8 +161,8 @@ def build(out):
         archive.writestr('LICENSE', (ROOT/'LICENSE').read_bytes())
     provenance=[]
     with tempfile.TemporaryDirectory() as temporary:
-        for name,version in PACKAGES.items():
-            source,integrity=package(name,version,Path(temporary));provenance.append({'package':name,'version':version,'integrity':integrity})
+        for name,(version,pinned) in PACKAGES.items():
+            source,integrity=package(name,version,pinned,Path(temporary));provenance.append({'package':name,'version':version,'integrity':integrity})
             if name=='pyodide':
                 # Since 314.0 the Emscripten bootstrap is a native ES module.
                 for file in ('pyodide.mjs','pyodide.js','pyodide.asm.mjs','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json'):
@@ -156,7 +170,11 @@ def build(out):
             elif name=='tesseract.js':
                 for file in ('tesseract.min.js','worker.min.js'):copy(source/'dist'/file,out/'vendor/tesseract'/file)
             elif name=='tesseract.js-core':
-                for file in source.glob('*.wasm*'):copy(file,out/'vendor/tesseract-core'/file.name)
+                # The OCR host runs Tesseract in LSTM-only mode, so the legacy-engine
+                # core variants would only enlarge the offline download.
+                cores=sorted(source.glob('*lstm*.wasm*'))
+                if len(cores)!=4:raise FileNotFoundError(f'Expected the plain and SIMD LSTM cores with their loaders: {cores}')
+                for file in cores:copy(file,out/'vendor/tesseract-core'/file.name)
             else:
                 candidates=sorted(source.rglob('eng.traineddata.gz'))
                 preferred=[p for p in candidates if 'best_int' in p.as_posix()]
@@ -166,13 +184,13 @@ def build(out):
                 if license_path.is_file():copy(license_path,out/'licenses'/f'{name.replace("/","_").replace("@","")}-{license_path.name}')
     for name,size in [('apple-touch-icon.png',180),('icon-192.png',192),('icon-512.png',512),('maskable-512.png',512)]:icon(size,out/'icons'/name)
     copy(ROOT/'LICENSE',out/'LICENSE.txt')
-    (out/'build-info.json').write_text(json.dumps({'commit':commit,'build':build,'packages':provenance},indent=2)+'\n')
-    (out/'THIRD_PARTY_NOTICES.txt').write_text('GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle/tree/browser-scanner\nBrowser dependencies are self-hosted, version-pinned, and retain their supplied licenses.\n'+json.dumps(provenance,indent=2)+'\n')
+    (out/'build-info.json').write_text(json.dumps({'commit':commit,'build':build,'packages':provenance},indent=2)+'\n',encoding='utf-8',newline='\n')
+    (out/'THIRD_PARTY_NOTICES.txt').write_text('GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle/tree/browser-scanner\nBrowser dependencies are self-hosted, version-pinned, and retain their supplied licenses.\n'+json.dumps(provenance,indent=2)+'\n',encoding='utf-8',newline='\n')
     assets=[]
     for source in sorted(out.rglob('*')):
         if source.is_file() and source.name not in ('sw.js','.nojekyll',_OUTPUT_MARKER):
             data=source.read_bytes();assets.append({'path':source.relative_to(out).as_posix(),'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
-    (out/'assets.json').write_text(json.dumps({'build':build,'assets':assets},separators=(',',':'))+'\n')
+    (out/'assets.json').write_text(json.dumps({'build':build,'assets':assets},separators=(',',':'))+'\n',encoding='utf-8',newline='\n')
     print(f'Built {build}: {len(assets)} offline assets, {sum(a["bytes"] for a in assets)/1024**2:.1f} MiB',flush=True)
     print(json.dumps(provenance,indent=2),flush=True)
 

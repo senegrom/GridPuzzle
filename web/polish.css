@@ -1,1 +1,0 @@
-:root{--muted:#5d6b6a}.masthead{padding-top:max(28px,calc(env(safe-area-inset-top) + 16px))}@media(max-width:760px){.masthead{padding-top:max(20px,calc(env(safe-area-inset-top) + 10px))}}

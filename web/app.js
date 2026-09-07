@@ -12,6 +12,10 @@ import {
   conflicts,
   isCage,
   boxShape,
+  moveIndex,
+  hasCageRemoval,
+  hasInequalityRemoval,
+  checkSolveReady,
 } from "./model.js";
 import { Scanner } from "./scanner.js";
 import { homography, project } from "./geometry.js";
@@ -68,7 +72,15 @@ applyType.id = "use-type";
 applyType.className = "text-button";
 applyType.hidden = true;
 $("type-help").after(applyType);
-const prefs = storage.get("gridpuzzle-settings-v1");
+// Version 1 preferences could hold a puzzle type written by board loading
+// rather than chosen by the user, so only the explicit settings migrate and
+// the scan type starts over at automatic detection.
+const legacyPrefs = storage.get("gridpuzzle-settings-v1"),
+  prefs =
+    storage.get("gridpuzzle-settings-v2") ||
+    (legacyPrefs && typeof legacyPrefs === "object"
+      ? { ...legacyPrefs, type: "auto" }
+      : null);
 if (prefs) {
   if (prefs.type === "auto" || Object.hasOwn(TYPES, prefs.type))
     $("puzzle-type").value = prefs.type;
@@ -78,7 +90,7 @@ if (prefs) {
     $("time-limit").value = prefs.limit;
 }
 function savePrefs() {
-  storage.set("gridpuzzle-settings-v1", {
+  storage.set("gridpuzzle-settings-v2", {
     type: $("puzzle-type").value,
     "auto-capture": $("auto-capture").checked,
     "auto-solve": $("auto-solve").checked,
@@ -185,7 +197,6 @@ export function loadPuzzle(payload) {
     state.corners =
       null;
   $("photo-panel").hidden = true;
-  $("puzzle-type").value = p.type;
   state.selected = [];
   focused = 0;
   persist();
@@ -206,7 +217,19 @@ export function getState() {
 }
 function svg(tag, attrs = {}, text = null) {
   const node = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+  for (const [k, v] of Object.entries(attrs))
+    if (k === "style")
+      // CSSOM writes are allowed under the strict style-src policy; a style
+      // attribute set through setAttribute is not.
+      for (const declaration of String(v).split(";")) {
+        const at = declaration.indexOf(":");
+        if (at > 0)
+          node.style.setProperty(
+            declaration.slice(0, at).trim(),
+            declaration.slice(at + 1).trim(),
+          );
+      }
+    else node.setAttribute(k, String(v));
   if (text !== null) node.textContent = String(text);
   return node;
 }
@@ -685,17 +708,13 @@ $("board").onkeydown = (e) => {
     cellAction(i);
     return;
   }
-  const delta = {
-    ArrowLeft: -1,
-    ArrowRight: 1,
-    ArrowUp: -state.puzzle.cols,
-    ArrowDown: state.puzzle.cols,
-  }[e.key];
-  if (delta) {
+  if (e.key.startsWith("Arrow")) {
     e.preventDefault();
-    focused = Math.max(0, Math.min(state.puzzle.cells.length - 1, i + delta));
+    const next = moveIndex(i, e.key, state.puzzle.rows, state.puzzle.cols);
+    if (next === i) return;
+    focused = next;
     drawBoard();
-    $("board").querySelector(`[data-cell="${focused}"]`).focus();
+    $("board").querySelector(`[data-cell="${focused}"]`)?.focus();
   }
 };
 $("edit-tool").onchange = () => {
@@ -733,13 +752,15 @@ $("save-cage").onclick = () => {
     fail(e);
   }
 };
-$("remove-cage").onclick = () =>
+$("remove-cage").onclick = () => {
+  if (!hasCageRemoval(state.puzzle, state.selected)) return;
   mutate(() => {
     state.puzzle.cages = state.puzzle.cages.filter(
       (q) => !q.cells.some((i) => state.selected.includes(i)),
     );
     state.selected = [];
   });
+};
 $("save-inequality").onclick = () => {
   try {
     if (state.selected.length !== 2)
@@ -765,7 +786,8 @@ $("save-inequality").onclick = () => {
     fail(e);
   }
 };
-$("remove-inequality").onclick = () =>
+$("remove-inequality").onclick = () => {
+  if (!hasInequalityRemoval(state.puzzle, state.selected)) return;
   mutate(() => {
     state.puzzle.inequalities = state.puzzle.inequalities.filter(
       (q) =>
@@ -775,6 +797,7 @@ $("remove-inequality").onclick = () =>
     );
     state.selected = [];
   });
+};
 $("undo").onclick = () => {
   const previous = state.history.pop();
   if (!previous) return;
@@ -792,7 +815,7 @@ $("undo").onclick = () => {
 $("stop").onclick = () => stopTask("Stopped.");
 function requestSolve() {
   try {
-    checkShape(state.puzzle);
+    checkSolveReady(state.puzzle);
     if (state.uncertain.size || state.needsReview) {
       $("confirm-text").textContent =
         `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${state.uncertain.size} cells were highlighted for review.`;
@@ -804,7 +827,7 @@ function requestSolve() {
 }
 function solveNow() {
   try {
-    checkShape(state.puzzle);
+    checkSolveReady(state.puzzle);
   } catch (e) {
     fail(e);
     return;

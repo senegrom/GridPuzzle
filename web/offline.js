@@ -32,8 +32,15 @@ export function setupOffline($) {
           button.disabled = true;
           try {
             await offlineMessage(ready.active, "PREPARE_OFFLINE");
-            $("offline-state").textContent =
-              "Offline assets are ready on this device. Browser storage can still be cleared or evicted.";
+            let persistent = false;
+            try {
+              persistent = Boolean(await navigator.storage?.persist?.());
+            } catch {
+              /* Persistence is a request, never a requirement. */
+            }
+            $("offline-state").textContent = persistent
+              ? "Offline assets are ready on this device, and the browser granted persistent storage."
+              : "Offline assets are ready on this device. Browser storage can still be cleared or evicted.";
           } catch (e) {
             $("offline-state").textContent = e.message;
           } finally {

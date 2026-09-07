@@ -237,6 +237,26 @@ async function checkStartupCancellation(browser, image, report) {
     const errors = [],
       external = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    // A Content Security Policy violation only logs; surface it as a failure.
+    // Playwright itself injects a stylesheet while capturing screenshots
+    // (WebKit reports it), so violations are ignored during our own captures.
+    let capturing = false;
+    page.on("console", (m) => {
+      if (
+        !capturing &&
+        m.type() === "error" &&
+        /Content.Security.Policy/i.test(m.text())
+      )
+        errors.push(m.text());
+    });
+    const screenshot = async (options) => {
+      capturing = true;
+      try {
+        await page.screenshot(options);
+      } finally {
+        capturing = false;
+      }
+    };
     context.on("request", (r) => {
       if (
         !r.url().startsWith("http://127.0.0.1:8765/") &&
@@ -306,7 +326,7 @@ async function checkStartupCancellation(browser, image, report) {
       assert.equal(solved.status, "unique", JSON.stringify(solved));
       assert.equal(solved.solutions[0].cells.join(""), SOLUTION);
       report.checks.push("actual Python 3.14 WASM Sudoku solution");
-      await page.screenshot({
+      await screenshot({
         path: `browser-artifacts/${name}-phone.png`,
         fullPage: true,
       });
@@ -429,7 +449,14 @@ async function checkStartupCancellation(browser, image, report) {
       assert.ok(await page.locator("#confirm-dialog").isVisible());
       await page.click("#confirm-back");
       report.checks.push("reload retains unconfirmed recognition flags");
-      await page.evaluate(() =>
+      await page.evaluate(() => {
+        // Some WebKit ports (Windows) expose no media capture at all; the
+        // app must offer the same fallback for a missing or denied camera.
+        if (!navigator.mediaDevices)
+          Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {},
+          });
         Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
           configurable: true,
           value: async () => {
@@ -438,8 +465,8 @@ async function checkStartupCancellation(browser, image, report) {
               "NotAllowedError",
             );
           },
-        }),
-      );
+        });
+      });
       await page.click("#camera");
       await page.waitForSelector("#native-camera:not([hidden])");
       report.checks.push("camera permission fallback");
@@ -526,7 +553,7 @@ async function checkStartupCancellation(browser, image, report) {
       );
       await page.click("#photo-view");
       assert.ok(await page.locator("#solution-photo").isVisible());
-      await page.screenshot({
+      await screenshot({
         path: `browser-artifacts/${name}-overlay.png`,
         fullPage: true,
       });
@@ -555,12 +582,24 @@ async function checkStartupCancellation(browser, image, report) {
         "The service worker must control the document.",
       );
       const repaired = await page.evaluate(async () => {
+        // Assets are content-addressed: find model.js by its manifest digest
+        // in whichever GridPuzzle cache under this scope holds it.
         const registration = await navigator.serviceWorker.ready;
-        const key = (await caches.keys()).find((k) =>
-            k.startsWith(`gridpuzzle:${registration.scope}:`),
-          ),
-          cache = await caches.open(key),
-          asset = new URL("model.js", registration.scope).href;
+        const manifest = await (
+          await fetch("./assets.json", { cache: "no-store" })
+        ).json();
+        const entry = manifest.assets.find((a) => a.path === "model.js"),
+          asset = new URL(
+            `.gridpuzzle-cache/${entry.sha256}`,
+            registration.scope,
+          ).href;
+        let cache = null;
+        for (const name of await caches.keys()) {
+          if (!name.startsWith(`gridpuzzle:${registration.scope}:`)) continue;
+          const candidate = await caches.open(name);
+          if (await candidate.match(asset)) cache = candidate;
+        }
+        if (!cache) throw Error("model.js is not in any GridPuzzle cache");
         const original = await (await cache.match(asset)).text();
         await cache.put(asset, new Response("wrong-version bytes"));
         const message = (type) =>
@@ -574,11 +613,13 @@ async function checkStartupCancellation(browser, image, report) {
             };
             registration.active.postMessage({ type }, [channel.port2]);
           });
+        // The startup status is a presence check, so poisoned bytes still
+        // report ready; explicit preparation re-hashes, evicts and refetches.
         const before = await message("OFFLINE_STATUS");
         await message("PREPARE_OFFLINE");
         const after = await message("OFFLINE_STATUS");
         return (
-          !before.ready &&
+          before.ready &&
           after.ready &&
           (await (await cache.match(asset)).text()) === original
         );
@@ -588,7 +629,7 @@ async function checkStartupCancellation(browser, image, report) {
         "Bad cached asset did not recover through the real service worker",
       );
       report.checks.push(
-        "verified offline readiness and poisoned-cache recovery",
+        "explicit offline preparation repairs poisoned content-addressed bytes",
       );
 
       report.offlineMethod =
@@ -608,6 +649,10 @@ async function checkStartupCancellation(browser, image, report) {
       await page.click("#solve");
       assert.equal((await result(page)).status, "unique");
       report.checks.push("origin-offline reload and Python solve");
+      await page.goto(`${BASE}?share=1`, { waitUntil: "load" });
+      await ready(page);
+      assert.equal(await page.evaluate(() => location.search), "?share=1");
+      report.checks.push("origin-offline root navigation with a query string");
       await uploadFixture(page, image);
       const offlineScan = await checkTranscription(page);
       assert.ok(offlineScan.correct >= 24);
@@ -623,7 +668,7 @@ async function checkStartupCancellation(browser, image, report) {
       report.failure = error.stack;
       console.error(name, error);
       try {
-        await page.screenshot({
+        await screenshot({
           path: `browser-artifacts/${name}-failure.png`,
           fullPage: true,
         });

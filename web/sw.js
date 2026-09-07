@@ -24,8 +24,18 @@ async function digest(response){
 async function matchesAsset(response,asset){return !!response?.ok&&(await digest(response))===asset.sha256;}
 async function contentCache(){return caches.open(CONTENT);}
 function injectedCache(value){return !!value&&typeof value.match==="function"&&typeof value.put==="function";}
-async function manifest(){
-  const cache=await caches.open(META),response=await cache.match(url("assets.json"));
+async function manifest({network=false}={}){
+  const cache=await caches.open(META),key=url("assets.json");
+  let response=await cache.match(key);
+  if(!response&&network){
+    // Browsers may evict this cache under storage pressure. Restore the list
+    // for this exact build rather than failing every request until a reinstall.
+    response=await fetch(new Request(key,{cache:"reload"}));
+    if(!response.ok)throw Error("Could not load the offline manifest.");
+    const assets=validateManifest(await response.clone().json());
+    try{await cache.put(key,response.clone());}catch{}
+    return assets;
+  }
   if(!response)throw Error("The offline asset list is missing. Reload online.");
   return validateManifest(await response.clone().json());
 }
@@ -83,8 +93,12 @@ self.addEventListener("fetch",event=>{
   const request=event.request,target=new URL(request.url);
   if(request.method!=="GET"||target.origin!==self.location.origin||!request.url.startsWith(self.registration.scope)||request.headers.has("range"))return;
   event.respondWith((async()=>{
-    if(target.href===url("assets.json")){const cache=await caches.open(META);await manifest();return cache.match(url("assets.json"));}
-    const assets=await manifest(),key=routeAsset(request,target),asset=assets.find(a=>url(a.path)===key);
+    let assets;
+    // Without a usable asset list (evicted, or this worker outlived its build)
+    // the page must still load from the network instead of failing every request.
+    try{assets=await manifest({network:true});}catch{return fetch(request);}
+    if(target.href===url("assets.json"))return (await (await caches.open(META)).match(url("assets.json")))||fetch(request);
+    const key=routeAsset(request,target),asset=assets.find(a=>url(a.path)===key);
     if(!asset)return fetch(request);
     return verifiedAsset(asset,{requireStorage:false,trustStored:true});
   })());
@@ -95,7 +109,7 @@ self.addEventListener("message",event=>{
   const port=event.ports[0];if(!port)return;
   event.waitUntil((async()=>{
     try{
-      const assets=await manifest();
+      const assets=await manifest({network:event.data?.type==="PREPARE_OFFLINE"});
       if(event.data?.type==="OFFLINE_STATUS"){
         port.postMessage({done:true,ready:await offlineReadyFast(assets)});return;
       }

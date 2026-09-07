@@ -14,7 +14,7 @@ Automatic puzzle classification is also tested as a trust boundary: an automatic
 
 The preview is served under `/GridPuzzle/`, matching Pages. After hash-verified offline preparation, the test stops the HTTP server and verifies from Node that the origin is unreachable. A controlled fetch still reads cached first-party code, then the page reloads, starts a fresh Python worker, solves, imports a photo and performs fresh OCR while the origin remains unavailable.
 
-Unit tests additionally verify that `/GridPuzzle/?query=...` navigation maps to cached `index.html`, while real subpaths are not silently rewritten. Offline readiness always re-hashes the complete asset set. Ordinary current-build requests may trust bytes that were already digest-verified before being written, avoiding repeated large-WASM hashing. Update installation reuses unchanged verified assets from the previous build and installs the new solver archive before old caches are retired.
+Unit tests verify that `/GridPuzzle/?query=...` navigation maps to cached `index.html`, while real subpaths are not silently rewritten, and the Chromium/WebKit run navigates to such a URL with the origin stopped. Explicit offline preparation re-hashes the complete asset set; the startup status message is only a presence check. Ordinary requests may trust bytes that were already digest-verified before being written, avoiding repeated large-WASM hashing. Assets are content-addressed, so an update reuses unchanged verified bytes and old build metadata is retired after the new worker activates.
 
 Earlier runs also exercised Playwright's synthetic `context.setOffline(true)`. Chromium passed; WebKit 26.x reported an internal navigation failure before the app could reload. Stopping the real origin tests the service-worker path without depending on that WebKit automation behaviour.
 
@@ -22,6 +22,6 @@ This is still not a physical-iPhone airplane-mode, autofocus, installed-camera o
 
 ## Other assertions
 
-Coverage includes all eleven solver families, small/large phone layouts, malformed imports, early cage/Kakuro validation, clue editing, stale-result invalidation, undo, no-op removal guards, bounded keyboard navigation, type changes preserving clues, cancellation/restart, pagehide cleanup, persistent scan uncertainty, denied-camera fallback, photo-overlay invalidation, cache recovery and absence of external runtime requests.
+Coverage includes all eleven solver families, small/large phone layouts, malformed imports, early cage/Kakuro validation, solve-ready checks, clue editing, stale-result invalidation, undo, no-op removal guards, bounded keyboard navigation, type changes preserving clues, cancellation/restart, pagehide cleanup, persistent scan uncertainty, denied-camera fallback, photo-overlay invalidation, cache recovery and absence of external runtime requests.
 
 The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs browser unit/parse checks only; normal Linux/Windows CI and forward compatibility remain independent.

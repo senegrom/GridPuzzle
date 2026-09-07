@@ -20,7 +20,7 @@ python -m http.server 8000 --directory _site
 
 Camera permissions require localhost or HTTPS. The `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs the Python/browser unit suites, executes the real Chromium and mobile-WebKit Python/OCR acceptance tests, uploads the tested artifact, and deploys through the `gridpuzzle-browser-pages` environment. Nothing in that workflow merges the branch into `master`.
 
-The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
+The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. The build verifies every npm tarball against a pinned SHA-512 integrity value before unpacking it and ships only the LSTM Tesseract cores the bundled English model uses. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
 
 ## Features
 
@@ -33,7 +33,7 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without relying on unsupported browser multiprocessing.
 - Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
 - Local puzzle/settings persistence. Recognition uncertainty is persisted atomically; photographs and solver results are not.
-- Installable PWA icons and hash-verified offline preparation.
+- Installable PWA icons, hash-verified offline preparation and a request for persistent browser storage.
 
 ## Recognition trust model
 
@@ -64,15 +64,15 @@ Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identif
 
 Cells are zero-based row-major at the browser boundary. `null` is blank; `"#"` is blocked; Slitherlink `0` is a real face clue. Cages use `{ "cells": [0,1], "target": 3, "op": "+" }`; inequality objects use `{ "less": 0, "greater": 1 }`; a Kakuro clue on a blocked cell can use `{ "cell": 0, "across": 16, "down": 23 }`.
 
-The browser rejects malformed dimensions, boxes, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become a solve request. Incomplete cage coverage and missing OCR targets remain editable states; the Python adapter is the final solve-ready structural boundary and requires complete cage coverage.
+The browser rejects malformed dimensions, boxes, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become a solve request. Incomplete cage coverage and missing OCR targets remain editable states, but **Solve** runs a solve-ready check before Pyodide starts: cage puzzles need targets and complete coverage, and every Kakuro white cell must belong to exactly one across run and one down run of 2 to 9 cells. The Python adapter remains the authoritative final boundary.
 
 The 25×25 browser limit is a phone resource policy, not a native solver limit. A deadline/cancellation means unfinished, never unsatisfiable or unique.
 
 ## Offline behaviour
 
-Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Every downloaded asset is digest-verified before entering the build-specific cache; offline readiness performs a fresh sequential digest pass.
+Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Runtime assets live in one content-addressed cache keyed by SHA-256, and each build's asset list is stored separately, so an update reuses unchanged verified bytes instead of downloading the whole Pyodide and Tesseract bundle again. Every downloaded asset is digest-verified before it is stored; nothing is written on a mismatch.
 
-Ordinary requests trust bytes already written to the immutable current-build cache instead of re-hashing large WASM files on every fetch. During an update, unchanged verified assets are copied from the previous build cache, and the new solver archive is installed with the app shell. Old caches are removed only after the new worker activates. Cache quota failure does not break a verified online response.
+The startup status is a cheap presence check. **Download for offline use** performs the full sequential digest verification, evicts and refetches anything that fails, and asks the browser for persistent storage. Ordinary requests trust bytes that were verified before being written, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and the list is restored online instead of leaving the page unloadable. Cache quota failure does not break a verified online response.
 
 ## Testing
 
@@ -85,7 +85,7 @@ The full slow corpus is not run on every Pages deployment. Generated recognition
 
 ## Input, build and lifecycle hardening
 
-Builds are staged before publication. Inside the repository, only `_site` is accepted as output; custom external outputs must be new or builder-owned. Source directories, Git metadata, repository ancestors and symbolic output links are refused, and a failed build preserves the previous good output.
+The page declares a same-origin Content Security Policy and a no-referrer policy; every runtime asset is self-hosted. Builds are staged before publication. Inside the repository, only `_site` is accepted as output; custom external outputs must be new or builder-owned. Source directories, Git metadata, repository ancestors and symbolic output links are refused, and a failed build preserves the previous good output.
 
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
