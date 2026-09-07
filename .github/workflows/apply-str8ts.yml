@@ -8,28 +8,59 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - name: Apply and verify normal source files
+      - name: Reconstruct and verify real newspaper fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+          specs = {
+              "sudoku": (3, "4f84e11ae4580cc051973066728cbfe9db5af3a6448503fccfefb153d2856c50"),
+              "str8ts": (3, "9bf3152b8a0a3d07eeab24694c7b1a0523c090d0c8fc5664353f7f55621736c8"),
+          }
+          out = Path("Examples/BrowserScanner/Newspaper")
+          out.mkdir(parents=True, exist_ok=True)
+          for name, (count, expected) in specs.items():
+              parts = [Path(f".image-stage/{name}-{i:02d}") for i in range(count)]
+              encoded = "".join(p.read_text(encoding="ascii").strip() for p in parts)
+              data = base64.b64decode(encoded, validate=True)
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"{name}: fixture SHA-256 {actual} != {expected}")
+              (out / f"2026-09-07-{name}.webp").write_bytes(data)
+              for p in parts:
+                  p.unlink()
+          PY
+      - run: python -m pip install -e '.[dev]'
+      - name: Native and browser unit regressions
+        run: |
+          python -m pytest -q tests/test_str8ts.py tests/test_web_api.py
+          node --test web/tests/*.test.js
+      - name: Build production browser bundle
+        run: python scripts/build_web.py
+      - name: Install browser runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Real newspaper OCR in Chromium and WebKit
+        run: node scripts/newspaper_regressions.cjs
+      - name: Commit only normal fixture files
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python scripts/_apply_str8ts_web.py
-          python -m compileall -q gridsolver
-          pip install -e '.[dev]'
-          pytest -q tests/test_str8ts.py tests/test_web_api.py
-          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
-          node --test web/tests/*.test.js
-          git add web/model.js web/scanner.js web/scan-analysis.js web/app.js web/tests/classification.test.js web/tests/newspaper-analysis.test.js
+          git add -A .image-stage Examples/BrowserScanner/Newspaper
           git diff --cached --check
-          git commit -m 'Improve real newspaper OCR and Str8ts review safety'
+          git commit -m 'Store real newspaper OCR regression images'
           git push origin HEAD:scanner-str8ts-newspaper
