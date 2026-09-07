@@ -1,0 +1,371 @@
+type === "auto") notes.unshift(suggested.reason);
+@@ -339,6 +343,10 @@
+       notes.unshift(
+         "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
+       );
++    if (chosen === "str8ts")
++      notes.unshift(
++        "Str8ts black-cell recognition is structural. Check the black pattern and white-on-black clues before solving.",
++      );
+     return {
+       puzzle,
+       uncertain: [...uncertain],
+--- a/web/app.js
++++ b/web/app.js
+@@ -179,6 +179,7 @@
+     cages: clone(p.cages || []),
+     inequalities: clone(p.inequalities || []),
+     clues: clone(p.clues || []),
++    blackCells: clone(p.blackCells || []),
+   };
+ }
+ export function loadPuzzle(payload) {
+@@ -255,9 +256,10 @@
+       x = c * size,
+       y = r * size,
+       given = p.cells[i],
+-      value = sol?.cells[i] ?? given;
++      value = sol?.cells[i] ?? given,
++      blackCell = given === "#" || (p.type === "str8ts" && (p.blackCells || []).includes(i));
+     const classes = ["board-cell"];
+-    if (given === "#") classes.push("blocked");
++    if (blackCell) classes.push("blocked");
+     else if (given === null && Number.isInteger(value)) classes.push("answer");
+     if (state.uncertain.has(i)) classes.push("uncertain");
+     if (bad.has(i)) classes.push("conflict");
+@@ -267,7 +269,7 @@
+       "data-cell": i,
+       role: "button",
+       tabindex: i === focused ? 0 : -1,
+-      "aria-label": `Row ${r + 1}, column ${c + 1}: ${given === null ? "blank" : given === "#" ? "blocked" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,
++      "aria-label": `Row ${r + 1}, column ${c + 1}: ${blackCell ? `black ${Number.isInteger(given) ? given : "blank"}` : given === null ? "blank" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,
+     });
+     g.append(
+       svg("rect", { x, y, width: size, height: size, class: "cell-hit" }),
+@@ -544,7 +546,8 @@
+     if (
+       (next.cages.length && !isCage(type)) ||
+       (next.inequalities.length && type !== "futoshiki") ||
+-      (next.clues.length && type !== "kakuro")
++      (next.clues.length && type !== "kakuro") ||
++      ((next.blackCells || []).length && type !== "str8ts")
+     )
+       throw Error(
+         "This board has structural clues for a different puzzle type. Remove those constraints explicitly or start a blank board; they will not be silently discarded.",
+@@ -580,8 +583,9 @@
+     c = i % p.cols;
+   $("cell-title").textContent = `Row ${r + 1} · Column ${c + 1}`;
+   $("cell-value").value = Number.isInteger(p.cells[i]) ? p.cells[i] : "";
+-  $("blocked-cell").checked = p.cells[i] === "#";
+-  $("block-option").hidden = !["hidato", "kakuro"].includes(p.type);
++  $("blocked-cell").checked = p.cells[i] === "#" ||
++    (p.type === "str8ts" && (p.blackCells || []).includes(i));
++  $("block-option").hidden = !["hidato", "kakuro", "str8ts"].includes(p.type);
+   $("cell-error").textContent = "";
+   const clue = p.clues.find((q) => q.cell === i);
+   $("across-value").value = clue?.across ?? "";
+@@ -611,7 +615,8 @@
+   $("cell-value").select();
+ }
+ function blockInputs() {
+-  $("cell-value").disabled = $("blocked-cell").checked;
++  $("cell-value").disabled =
++    $("blocked-cell").checked && state.puzzle.type !== "str8ts";
+   $("kakuro-inputs").hidden =
+     state.puzzle.type !== "kakuro" || !$("blocked-cell").checked;
+ }
+@@ -626,8 +631,15 @@
+ function saveCell(advance = false) {
+   try {
+     const next = clone(state.puzzle),
+-      blocked = !$("block-option").hidden && $("blocked-cell").checked;
+-    next.cells[editing] = blocked ? "#" : numberInput("cell-value");
++      blocked = !$("block-option").hidden && $("blocked-cell").checked,
++      value = numberInput("cell-value");
++    if (next.type === "str8ts") {
++      next.cells[editing] = value;
++      const black = new Set(next.blackCells || []);
++      if (blocked) black.add(editing);
++      else black.delete(editing);
++      next.blackCells = [...black].sort((a, b) => a - b);
++    } else next.cells[editing] = blocked ? "#" : value;
+     next.clues = next.clues.filter((q) => q.cell !== editing);
+     if (blocked && next.type === "kakuro") {
+       const across = numberInput("across-value"),
+@@ -947,7 +959,7 @@
+   try {
+     const type =
+         $("puzzle-type").value === "auto" ? "sudoku" : $("puzzle-type").value,
+-      n = ["sudoku", "killersudoku"].includes(type)
++      n = ["sudoku", "killersudoku", "str8ts"].includes(type)
+         ? 9
+         : type === "kenken"
+           ? 6
+--- a/web/style.css
++++ b/web/style.css
+@@ -394,6 +394,9 @@
+ .board-cell.blocked .cell-hit {
+   fill: #173536;
+ }
++.board-cell.blocked text {
++  fill: white;
++}
+ .board-cell .kakuro-clue {
+   font-size: 19px;
+   fill: white;
+--- a/web/index.html
++++ b/web/index.html
+@@ -73,7 +73,7 @@
+           <button id="review-clues" hidden>Review highlighted clues</button>
+           <div class="solve-actions"><button id="solve" class="primary">Solve puzzle <span aria-hidden="true">→</span></button><button id="stop" class="danger" hidden>Stop</button><button id="next-solution" hidden>Other solution</button><button id="show-crop" hidden>Adjust scan</button><button id="save-photo" hidden>Save overlay</button></div>
+           <p class="small-note">A unique solution verifies these clues—not the accuracy of the photograph’s transcription.</p>
+-          <details id="data-editor"><summary>Advanced puzzle data</summary><p class="muted">A data-only format for all eleven families. Cells are zero-based row-major indexes; null is blank, # is blocked, and Slitherlink 0 is a clue.</p><textarea id="json-data" rows="12" spellcheck="false" aria-label="Puzzle JSON"></textarea><button id="apply-json">Apply puzzle data</button></details>
++          <details id="data-editor"><summary>Advanced puzzle data</summary><p class="muted">A data-only format for all twelve families. Cells are zero-based row-major indexes; null is blank, # is blocked, and Slitherlink 0 is a clue.</p><textarea id="json-data" rows="12" spellcheck="false" aria-label="Puzzle JSON"></textarea><button id="apply-json">Apply puzzle data</button></details>
+         </section>
+       </div>
+       <footer><span>Paper in. Possibilities out.</span><a href="https://github.com/senegrom/GridPuzzle/tree/browser-scanner" target="_blank" rel="noopener">Source · AGPL-3.0</a><span id="build-label">Browser scanner</span></footer>
+--- /dev/null
++++ b/gridsolver/rules/str8ts.py
+@@ -0,0 +1,84 @@
++"""Constraints for Str8ts streets."""
++
++from collections.abc import Iterable, MutableSequence
++
++from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
++from gridsolver.rules.rules import Guarantee, InvalidGrid, Rule
++
++
++class ConsecutiveSetRule(Rule):
++    """Require a street to contain distinct values spanning ``len(cells)``.
++
++    Row/column all-different rules provide the distinctness part in Str8ts.
++    This rule keeps only domain values belonging to at least one consecutive
++    interval that admits a perfect matching to the street's cells.  The
++    matching test is exact for a fixed interval and remains cheap because a
++    Str8ts street has at most nine cells in the common 9x9 puzzle.
++    """
++
++    __slots__ = ()
++
++    def __init__(self, gsz: GridSizeContainer, cells: Iterable[int]) -> None:
++        super().__init__(gsz, cells=cells)
++        if self.len_cells > self._max_elem:
++            raise ValueError("A street cannot be longer than the value domain")
++
++    @staticmethod
++    def _matching_exists(allowed: tuple[frozenset[int], ...]) -> bool:
++        matched: dict[int, int] = {}
++
++        def augment(cell: int, seen: set[int]) -> bool:
++            for value in sorted(allowed[cell]):
++                if value in seen:
++                    continue
++                seen.add(value)
++                other = matched.get(value)
++                if other is None or augment(other, seen):
++                    matched[value] = cell
++                    return True
++            return False
++
++        for cell in sorted(range(len(allowed)), key=lambda i: len(allowed[i])):
++            if not augment(cell, set()):
++                return False
++        return True
++
++    def apply(
++        self,
++        known: MutableSequence[int],
++        candidates: tuple[set[int], ...],
++        guarantees: Iterable[Guarantee] | None = None,
++    ) -> tuple[bool, None, None]:
++        length = self.len_cells
++        if length <= 1:
++            return False, None, None
++
++        supported: set[int] = set()
++        for lower in range(1, self._max_elem - length + 2):
++            interval = frozenset(range(lower, lower + length))
++            allowed: list[frozenset[int]] = []
++            for cell in self.cells:
++                possible = candidates[cell] & interval
++                value = known[cell]
++                if value > 0:
++                    possible &= {value}
++                if not possible:
++                    break
++                allowed.append(frozenset(possible))
++            else:
++                packed = tuple(allowed)
++                if self._matching_exists(packed):
++                    supported.update(interval)
++
++        if not supported:
++            raise InvalidGrid()
++
++        changed = False
++        for cell in self.cells:
++            remove = candidates[cell] - supported
++            if remove:
++                candidates[cell].difference_update(remove)
++                changed = True
++                if not candidates[cell]:
++                    raise InvalidGrid()
++        return changed, None, None
+--- /dev/null
++++ b/gridsolver/grid_classes/str8ts.py
+@@ -0,0 +1,174 @@
++"""Str8ts puzzle model."""
++
++from collections.abc import Iterable, Mapping, Sequence
++from numbers import Integral
++
++from gridsolver.abstract_grids.grid import Grid
++from gridsolver.grid_classes.compact_grid import CompactGrid
++from gridsolver.rules.str8ts import ConsecutiveSetRule
++from gridsolver.rules.unique import ElementsAtMostOnce
++
++
++type BoardCell = tuple[int, int]
++
++
++def _board_cell(raw: object, description: str) -> BoardCell:
++    if (
++        isinstance(raw, (str, bytes, bytearray))
++        or not isinstance(raw, Sequence)
++        or len(raw) != 2
++        or any(isinstance(v, bool) or not isinstance(v, Integral) for v in raw)
++    ):
++        raise TypeError(f"Invalid {description} {raw!r}")
++    return int(raw[0]), int(raw[1])
++
++
++class Str8ts(CompactGrid):
++    """A Str8ts board with black separators and optional black clues.
++
++    White cells form horizontal and vertical *streets*.  Every street is a
++    consecutive set in arbitrary order.  Every represented cell, including a
++    numbered black clue, participates in the row/column no-repeat rules;
++    unnumbered black cells are separators only and have no solver variable.
++    """
++
++    def __init__(
++        self,
++        board_rows: int,
++        board_cols: int,
++        black_cells: Iterable[BoardCell] = (),
++        black_clues: Mapping[BoardCell, int] | None = None,
++    ) -> None:
++        if any(
++            isinstance(value, bool) or not isinstance(value, Integral)
++            for value in (board_rows, board_cols)
++        ):
++            raise TypeError("Str8ts dimensions must be integers")
++        board_rows, board_cols = int(board_rows), int(board_cols)
++        if board_rows <= 0 or board_cols <= 0 or board_rows != board_cols:
++            raise ValueError("Str8ts requires a non-empty square board")
++        if board_rows > 25:
++            raise ValueError("Str8ts dimensions must not exceed 25")
++
++        black: set[BoardCell] = set()
++        if isinstance(black_cells, (str, bytes, bytearray)):
++            raise TypeError("Str8ts black cells must be coordinate pairs")
++        for raw in black_cells:
++            cell = _board_cell(raw, "Str8ts black cell")
++            if not (0 <= cell[0] < board_rows and 0 <= cell[1] < board_cols):
++                raise ValueError(f"Str8ts black cell {cell} is outside the board")
++            if cell in black:
++                raise ValueError("Str8ts black cells must be unique")
++            black.add(cell)
++
++        clues: dict[BoardCell, int] = {}
++        if black_clues is not None:
++            if not isinstance(black_clues, Mapping):
++                raise TypeError("Str8ts black clues must be a mapping")
++            for raw_cell, raw_value in black_clues.items():
++                cell = _board_cell(raw_cell, "Str8ts black clue cell")
++                if cell not in black:
++                    raise ValueError("A Str8ts black clue must be on a black cell")
++                if isinstance(raw_value, bool) or not isinstance(raw_value, Integral):
++                    raise TypeError("Str8ts black clue values must be integers")
++                value = int(raw_value)
++                if not 1 <= value <= board_rows:
++                    raise ValueError(
++                        f"Str8ts black clue {value} is outside 1..{board_rows}"
++                    )
++                clues[cell] = value
++
++        all_cells = {
++            (row, col)
++            for row in range(board_rows)
++            for col in range(board_cols)
++        }
++        white = all_cells - black
++        if not white:
++            raise ValueError("Str8ts requires at least one white cell")
++        keys = tuple(sorted(white | set(clues)))
++        super().__init__(keys, max_elem=board_rows)
++        self.board_rows = board_rows
++        self.board_cols = board_cols
++        self.black_cells = frozenset(black)
++        self.white_cells = frozenset(white)
++
++        rules = []
++        for row in range(board_rows):
++            cells = [
++                self.compact_cell((row, col))
++                for col in range(board_cols)
++                if (row, col) in self.key_to_cell
++            ]
++            if len(cells) > 1:
++                rules.append(ElementsAtMostOnce(self, cells=cells))
++        for col in range(board_cols):
++            cells = [
++                self.compact_cell((row, col))
++                for row in range(board_rows)
++                if (row, col) in self.key_to_cell
++            ]
++            if len(cells) > 1:
++                rules.append(ElementsAtMostOnce(self, cells=cells))
++
++        streets: list[tuple[BoardCell, ...]] = []
++        for horizontal in (True, False):
++            outer, inner = (
++                (range(board_rows), range(board_cols))
++                if horizontal
++                else (range(board_cols), range(board_rows))
++            )
++            for fixed in outer:
++                current: list[BoardCell] = []
++                for moving in inner:
++                    cell = (fixed, moving) if horizontal else (moving, fixed)
++                    if cell in white:
++                        current.append(cell)
++                    else:
++                        if len(current) > 1:
++                            street = tuple(current)
++                            streets.append(street)
++                            rules.append(
++                                ConsecutiveSetRule(
++                                    self,
++                                    [self.compact_cell(x) for x in street],
++                                )
++                            )
++                        current = []
++                if len(current) > 1:
++                    street = tuple(current)
++                    streets.append(street)
++                    rules.append(
++                        ConsecutiveSetRule(
++                            self,
++                            [self.compact_cell(x) for x in street],
++                        )
++                    )
++        self.streets = tuple(streets)
++        self.black_clues = dict(clues)
++        self.add_rules_checked(rules)
++
++    def _copy_extra_state_to(self, result: Grid) -> None:
++        super()._copy_extra_state_to(result)
++        result.board_rows = self.board_rows
++        result.board_cols = self.board_cols
++        resul
