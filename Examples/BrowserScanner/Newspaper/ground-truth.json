@@ -2,7 +2,7 @@
   "fixtures": [
     {
       "name": "2026-09-07-sudoku",
-      "image": "2026-09-07-sudoku.jpg",
+      "image": "2026-09-07-sudoku.webp",
       "type": "sudoku",
       "cells": [
         null, null, null, null, 8, null, null, 3, null,
@@ -18,7 +18,7 @@
     },
     {
       "name": "2026-09-07-str8ts",
-      "image": "2026-09-07-str8ts.jpg",
+      "image": "2026-09-07-str8ts.webp",
       "type": "str8ts",
       "black": [2, 3, 7, 8, 18, 19, 22, 23, 30, 35, 38, 42, 45, 50, 57, 58, 61, 62, 72, 73, 77, 78],
       "cells": [
