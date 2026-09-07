@@ -234,11 +234,13 @@ export class Scanner {
       e.text = readings[i].text;
       e.confidence = readings[i].confidence;
     });
-    const valueEntries = entries.filter((e) => e.kind === "value"),
+    const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
       values = Array(rows * cols).fill(null),
+      blackValueCells = new Set(),
       uncertain = new Set();
     for (const e of valueEntries) {
       if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
+      if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
       if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);
     }
     const labels = entries.filter(
@@ -258,6 +260,7 @@ export class Scanner {
       labels: labels.length,
       operators: labels.filter((e) => /[+\-xX*\/÷×=]/.test(e.text)).length,
       black: black.filter(Boolean).length,
+      blackNumbers: blackValueCells.size,
       triangles: triangles.length,
       boxes: meta.boxes,
       dots: !meta.rows && !meta.cols,
@@ -274,7 +277,9 @@ export class Scanner {
           : chosen === "kakuro"
             ? 9
             : rows;
+    if (chosen === "str8ts") puzzle.black = black.flatMap((v, i) => v ? [i] : []);
     puzzle.cells = values.map((v, i) => {
+      if (black[i] && chosen === "str8ts") { uncertain.add(i); return v === null ? "#" : v; }
       if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
       if (v !== null && (v > max || v < (chosen === "slitherlink" ? 0 : 1))) {
         uncertain.add(i);
@@ -331,7 +336,7 @@ export class Scanner {
     const needsReview =
       (type === "auto" && suggested.review) ||
       isCage(chosen) ||
-      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink"].includes(
+      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink", "str8ts"].includes(
         chosen,
       );
     if (type === "auto") notes.unshift(suggested.reason);
@@ -339,6 +344,7 @@ export class Scanner {
       notes.unshift(
         "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
       );
+    if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
     return {
       puzzle,
       uncertain: [...uncertain],

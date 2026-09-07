@@ -394,6 +394,9 @@ progress {
 .board-cell.blocked .cell-hit {
   fill: #173536;
 }
+.board-cell.blocked > text {
+  fill: white;
+}
 .board-cell .kakuro-clue {
   font-size: 19px;
   fill: white;

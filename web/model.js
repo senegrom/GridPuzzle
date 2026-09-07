@@ -10,6 +10,7 @@ export const TYPES = Object.freeze({
   numbrix: "Numbrix",
   kakuro: "Kakuro",
   slitherlink: "Slitherlink",
+  str8ts: "Str8ts",
 });
 export const clone = (value) => JSON.parse(JSON.stringify(value));
 export const isCage = (type) => ["killersudoku", "kenken"].includes(type);
@@ -45,6 +46,7 @@ export function makePuzzle(type = "sudoku", rows = 9, cols = rows) {
     cages: [],
     inequalities: [],
     clues: [],
+    black: [],
   };
 }
 function adjacent(a,b,cols){
@@ -98,12 +100,19 @@ export function checkShape(p) {
     throw Error("This type needs a square grid.");
   const allowed = new Set([
     "version", "type", "rows", "cols", "boxRows", "boxCols",
-    "cells", "cages", "inequalities", "clues",
+    "cells", "cages", "inequalities", "clues", "black",
   ]);
   for (const key of Object.keys(p))
     if (!allowed.has(key)) throw Error(`Unsupported puzzle field: ${key}`);
   if (p.version !== undefined && p.version !== 1)
     throw Error("Unsupported puzzle format version.");
+  const black = new Set(p.black || []);
+  if (!Array.isArray(p.black || []) || black.size !== (p.black || []).length || [...black].some((i) => !Number.isInteger(i) || i < 0 || i >= p.cells.length))
+    throw Error("Invalid black-cell metadata.");
+  if (p.type !== "str8ts" && black.size)
+    throw Error("Black-cell metadata is only supported for Str8ts.");
+  if (p.type === "str8ts" && (p.rows !== p.cols || p.rows > 9))
+    throw Error("Str8ts requires a square board no larger than 9 × 9.");
   const maximum =
     p.type === "slitherlink"
       ? 4
@@ -114,7 +123,7 @@ export function checkShape(p) {
           : p.rows;
   p.cells.forEach((v, i) => {
     if (v === null) return;
-    if (v === "#" && ["hidato", "kakuro"].includes(p.type)) return;
+    if (v === "#" && (["hidato", "kakuro"].includes(p.type) || (p.type === "str8ts" && black.has(i)))) return;
     if (
       !Number.isInteger(v) ||
       v < (p.type === "slitherlink" ? 0 : 1) ||
@@ -122,6 +131,10 @@ export function checkShape(p) {
     )
       throw Error(`Cell ${i + 1} is outside the allowed range.`);
   });
+  if (p.type === "str8ts") {
+    for (const i of black) if (p.cells[i] === null) throw Error("A Str8ts black cell must contain # or a numbered clue.");
+    p.cells.forEach((v, i) => { if (v === "#" && !black.has(i)) throw Error("Every # Str8ts cell must be listed as black."); });
+  }
   for (const key of ["boxRows", "boxCols"])
     if (p[key] !== undefined) dimension(p[key]);
   if (["sudoku", "killersudoku"].includes(p.type)) {
@@ -282,6 +295,7 @@ export function demo(type = "sudoku") {
     p.cells = [..."530070000600195000098000060800060003400803001700020006060000280000419005000080079"].map((v) => +v || null);
     return p;
   }
+  if (type === "str8ts") { const p = makePuzzle(type, 3); p.black = [4]; p.cells = [1,2,3,2,3,1,3,1,null]; return p; }
   if (type === "slitherlink") { const p = makePuzzle(type, 2); p.cells = [2, 2, 2, 2]; return p; }
   if (type === "kakuro") {
     const p = makePuzzle(type, 3); p.cells = ["#", "#", "#", "#", 1, null, "#", null, null];
@@ -299,8 +313,9 @@ export function demo(type = "sudoku") {
   if (type === "futoshiki") p.inequalities = [{ less: 0, greater: 1 }];
   return p;
 }
-export function classify({ rows, cols, values = [], signs = 0, labels = 0, operators = 0, black = 0, triangles = 0, boxes = false, dots = false }) {
+export function classify({ rows, cols, values = [], signs = 0, labels = 0, operators = 0, black = 0, blackNumbers = 0, triangles = 0, boxes = false, dots = false }) {
   if (black && triangles) return { type:"kakuro", review:true, reason:"Cross-sum layout detected. Check black cells and both clue directions." };
+  if (black && blackNumbers && rows === cols && rows <= 9) return { type:"str8ts", review:true, reason:"Numbered black cells suggest Str8ts. Check every black cell and printed digit." };
   if (signs) return { type:"futoshiki", review:true, reason:"Inequalities detected. Check the direction of every sign." };
   if (labels > 1) return { type:operators?"kenken":"killersudoku", review:true, reason:"Cages detected. Check every boundary, target and operator." };
   if (rows === cols && boxes && !black)

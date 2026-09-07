@@ -90,3 +90,8 @@ The page declares a same-origin Content Security Policy and a no-referrer policy
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
 Live moving-camera AR and step-by-step deduction explanations are not included in this branch.
+
+
+### Real newspaper regressions and Str8ts
+
+The scanner includes Str8ts as a twelfth solver family. Black cells are stored separately from their optional printed digits, so numbered black clues count for row/column uniqueness without joining a street. Real user-provided newspaper photos and hand-transcribed expected data live under `web/examples/newspaper/`. Newsprint OCR isolates the dominant connected glyph component before Tesseract to suppress paper speckle and shaded-cell halftone.
