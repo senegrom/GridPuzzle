@@ -1,0 +1,268 @@
+t.black_cells = self.black_cells
++        result.white_cells = self.white_cells
++        result.streets = self.streets
++        result.black_clues = self.black_clues.copy()
++
++    def format_solution(self, values: Sequence[int]) -> str:
++        keyed = self.values_by_key(values)
++        lines = []
++        for row in range(self.board_rows):
++            rendered = []
++            for col in range(self.board_cols):
++                cell = (row, col)
++                if cell in self.black_cells:
++                    rendered.append(
++                        f"#{keyed[cell]}" if cell in keyed else "#"
++                    )
++                else:
++                    rendered.append(str(keyed[cell]))
++            lines.append(" ".join(rendered))
++        return "\n".join(lines)
++--- /dev/null
+++++ b/tests/test_str8ts.py
++@@ -0,0 +1,72 @@
+++from gridsolver.grid_classes.str8ts import Str8ts
+++from gridsolver.rules.rules import InvalidGrid
+++from gridsolver.rules.str8ts import ConsecutiveSetRule
+++from gridsolver.solver.solver import solve
+++from gridsolver.web_api import build_grid, solve_payload
+++
+++BLACK = {2, 3, 7, 8, 18, 19, 22, 23, 30, 35, 38, 42, 45, 50, 57, 58, 61, 62, 72, 73, 77, 78}
+++GIVENS = {3: 6, 35: 5, 50: 1, 57: 9, 61: 2, 72: 7, 0: 9, 12: 1, 13: 4, 15: 6, 16: 5, 21: 2, 27: 3, 31: 9, 39: 8, 55: 7, 60: 3, 66: 4, 68: 5, 71: 8}
+++EXPECTED = [
+++    9, 8, '#', 6, 5, 3, 4, '#', '#',
+++    8, 9, 3, 1, 4, 2, 6, 5, 7,
+++    '#', '#', 1, 2, '#', '#', 5, 7, 6,
+++    3, 4, 2, '#', 9, 8, 7, 6, 5,
+++    4, 5, '#', 8, 7, 9, '#', 3, 2,
+++    '#', 6, 5, 7, 8, 1, 2, 4, 3,
+++    5, 7, 6, 9, '#', 4, 3, 2, '#',
+++    6, 3, 7, 4, 2, 5, 1, 9, 8,
+++    7, '#', 4, 5, 3, '#', '#', 8, 9,
+++]
+++
+++
+++def coord(i):
+++    return divmod(i, 9)
+++
+++
+++def payload():
+++    cells = [None] * 81
+++    for i, value in GIVENS.items():
+++        cells[i] = value
+++    return {
+++        'version': 1, 'type': 'str8ts', 'rows': 9, 'cols': 9,
+++        'cells': cells, 'blackCells': sorted(BLACK),
+++        'cages': [], 'inequalities': [], 'clues': [],
+++    }
+++
+++
+++def test_newspaper_str8ts_has_unique_expected_solution():
+++    result = solve_payload(payload())
+++    assert result['status'] == 'unique'
+++    assert result['solutions'][0]['cells'] == EXPECTED
+++
+++
+++def test_black_clues_are_variables_but_empty_black_cells_are_not():
+++    grid = build_grid(payload())
+++    assert isinstance(grid, Str8ts)
+++    assert coord(3) in grid.key_to_cell
+++    assert coord(2) not in grid.key_to_cell
+++    assert coord(4) in grid.key_to_cell
+++
+++
+++def test_consecutive_rule_rejects_nonconsecutive_singletons():
+++    grid = Str8ts(4, 4, [])
+++    rule = ConsecutiveSetRule(grid, [0, 1, 2])
+++    known = [1, 2, 4] + [0] * (grid.len - 3)
+++    candidates = tuple(({v} if v else set(range(1, 5))) for v in known)
+++    try:
+++        rule.apply(known, candidates)
+++    except InvalidGrid:
+++        pass
+++    else:
+++        raise AssertionError('nonconsecutive street was accepted')
+++
+++
+++def test_web_adapter_rejects_black_layout_for_other_types():
+++    p = payload()
+++    p['type'] = 'sudoku'
+++    try:
+++        build_grid(p)
+++    except ValueError as exc:
+++        assert 'Black-cell layout requires Str8ts' in str(exc)
+++    else:
+++        raise AssertionError('blackCells leaked into Sudoku')
++--- /dev/null
+++++ b/web/tests/str8ts.test.js
++@@ -0,0 +1,77 @@
+++import test from "node:test";
+++import assert from "node:assert/strict";
+++import {
+++  TYPES,
+++  makePuzzle,
+++  checkShape,
+++  checkSolveReady,
+++  classify,
+++  demo,
+++  conflicts,
+++} from "../model.js";
+++import { localValueBox } from "../scan-analysis.js";
+++
+++test("Str8ts is a first-class browser puzzle type", () => {
+++  assert.equal(TYPES.str8ts, "Str8ts");
+++  const p = demo("str8ts");
+++  assert.equal(p.rows, 9);
+++  assert.equal(p.blackCells.length, 22);
+++  assert.equal(p.cells.filter(Number.isInteger).length, 20);
+++  checkShape(p);
+++  checkSolveReady(p);
+++  assert.equal(conflicts(p).size, 0);
+++});
+++
+++test("Str8ts black cells can contain clues but cannot leak into other families", () => {
+++  const p = makePuzzle("str8ts", 4);
+++  p.blackCells = [0, 5];
+++  p.cells[0] = 4;
+++  checkShape(p);
+++  const q = makePuzzle("sudoku", 4);
+++  q.blackCells = [0];
+++  assert.throws(() => checkShape(q), /Black-cell layout requires Str8ts/);
+++});
+++
+++test("black separator geometry suggests Str8ts rather than Hidato", () => {
+++  const result = classify({
+++    rows: 9,
+++    cols: 9,
+++    values: demo("str8ts").cells,
+++    black: 22,
+++    blackValues: 6,
+++    triangles: 0,
+++  });
+++  assert.equal(result.type, "str8ts");
+++  assert.equal(result.review, true);
+++});
+++
+++test("newspaper value segmentation ignores isolated halftone speckles", () => {
+++  const w = 80,
+++    h = 80,
+++    g = new Uint8Array(w * h).fill(190);
+++  for (let y = 20; y < 60; y++)
+++    for (let x = 35; x < 45; x++) g[y * w + x] = 50;
+++  for (const [x, y] of [[11, 12], [18, 50], [64, 24], [28, 66]])
+++    g[y * w + x] = 40;
+++  assert.deepEqual(localValueBox(g, w, h, 8, 8, 64, 64), {
+++    x: 35,
+++    y: 20,
+++    w: 10,
+++    h: 40,
+++    ink: 400,
+++  });
+++});
+++
+++test("white-on-black clues use the same local component filter inverted", () => {
+++  const w = 80,
+++    h = 80,
+++    g = new Uint8Array(w * h).fill(30);
+++  for (let y = 22; y < 58; y++)
+++    for (let x = 36; x < 44; x++) g[y * w + x] = 230;
+++  const box = localValueBox(g, w, h, 8, 8, 64, 64, true);
+++  assert.ok(box);
+++  assert.equal(box.x, 36);
+++  assert.equal(box.y, 22);
+++  assert.equal(box.w, 8);
+++  assert.equal(box.h, 36);
+++});
++--- /dev/null
+++++ b/scripts/newspaper_regressions.cjs
++@@ -0,0 +1,90 @@
+++/* Real user-supplied newspaper photographs: geometry + OCR safety regressions. */
+++const { chromium, webkit } = require("playwright");
+++const assert = require("node:assert/strict");
+++const fs = require("node:fs");
+++const path = require("node:path");
+++const { spawn } = require("node:child_process");
+++const BASE = "http://127.0.0.1:8768/GridPuzzle/";
+++const ROOT = path.resolve("Examples/BrowserScanner/Newspaper");
+++const truth = JSON.parse(fs.readFileSync(path.join(ROOT, "ground-truth.json"), "utf8"));
+++const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+++fs.mkdirSync("_preview", { recursive: true });
+++fs.mkdirSync("browser-artifacts", { recursive: true });
+++if (!fs.existsSync("_preview/GridPuzzle"))
+++  fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
+++const server = spawn("python", ["-m", "http.server", "8768", "--bind", "127.0.0.1", "--directory", "_preview"], { stdio: "ignore" });
+++const reports = [];
+++
+++async function ready(page) {
+++  await page.waitForSelector('body[data-ready="true"]');
+++  await page.evaluate(async () => {
+++    window.testState = (await import("./app.js")).getState;
+++  });
+++}
+++function expectedCells(spec) {
+++  const cells = Array(spec.rows * spec.cols).fill(null);
+++  for (const [key, value] of Object.entries(spec.givens)) cells[Number(key)] = value;
+++  return cells;
+++}
+++async function scanPhoto(page, label, spec) {
+++  await page.evaluate(async () => {
+++    const app = await import("./app.js"), model = await import("./model.js");
+++    app.loadPuzzle(model.makePuzzle());
+++  });
+++  await page.selectOption("#puzzle-type", "auto");
+++  await page.locator("#auto-solve").evaluate((el) => { el.checked = false; });
+++  const start = Date.now();
+++  await page.setInputFiles("#photo-file", path.join(ROOT, spec.file));
+++  await page.waitForFunction(() => /^(Grid found\.|Set the four crop corners\.)$/.test(document.querySelector("#status-text").textContent), null, { timeout: 30000 });
+++  assert.equal(await page.locator("#status-text").innerText(), "Grid found.", `${label}: outer grid was not detected automatically`);
+++  assert.equal(Number(await page.inputValue("#rows")), spec.rows, `${label}: detected rows`);
+++  assert.equal(Number(await page.inputValue("#cols")), spec.cols, `${label}: detected columns`);
+++  await page.click("#read-photo");
+++  await page.waitForFunction(() => !window.testState().busy, null, { timeout: 180000 });
+++  const state = await page.evaluate(() => window.testState()), expected = expectedCells(spec);
+++  assert.equal(state.puzzle.type, spec.type, `${label}: automatic puzzle type`);
+++  if (spec.blackCells)
+++    assert.deepEqual(state.puzzle.blackCells, spec.blackCells, `${label}: black-cell geometry`);
+++  const discrepancies = expected.flatMap((value, i) => value !== state.puzzle.cells[i] ? [i] : []),
+++    unsafe = discrepancies.filter((i) => !state.uncertain.includes(i)),
+++    givens = expected.filter(Number.isInteger).length,
+++    correct = expected.filter((value, i) => Number.isInteger(value) && value === state.puzzle.cells[i]).length;
+++  assert.deepEqual(unsafe, [], `${label}: wrong/missing/invented clue was trusted`);
+++  assert.ok(correct >= givens - 2, `${label}: only ${correct}/${givens} printed clues read correctly`);
+++  assert.equal(state.needsReview, true, `${label}: a photograph must remain review-gated`);
+++  return { label, type: state.puzzle.type, givens, correct, discrepancies, unsafe, flagged: state.uncertain.length, blackCells: state.puzzle.blackCells || [], elapsedMs: Date.now() - start };
+++}
+++
+++(async () => {
+++  for (let i = 0; i < 60; i++) {
+++    try { if ((await fetch(BASE)).ok) break; } catch {}
+++    await sleep(100);
+++  }
+++  for (const [name, engine] of Object.entries({ chromium, webkit })) {
+++    const browser = await engine.launch({ headless: true });
+++    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+++    const page = await context.newPage();
+++    page.setDefaultTimeout(30000);
+++    const report = { browser: name, version: browser.version(), scans: [], errors: [] };
+++    reports.push(report);
+++    page.on("pageerror", (e) => report.errors.push(e.message));
+++    try {
+++      await page.goto(BASE);
+++      await ready(page);
+++      for (const label of ["sudoku", "str8ts"])
+++        report.scans.push(await scanPhoto(page, label, truth[label]));
+++      assert.deepEqual(report.errors, []);
+++      report.ok = true;
+++      await page.screenshot({ path: `browser-artifacts/${name}-newspaper.png`, fullPage: true });
+++    } catch (error) {
+++      report.ok = false;
+++      report.failure = error.stack;
+++      console.error(name, error);
+++      try { await page.screenshot({ path: `browser-artifacts/${name}-newspaper-failure.png`, fullPage: true }); } catch {}
+++    } finally {
+++      await browser.close();
+++      fs.writeFileSync("browser-artifacts/newspaper-regressions.json", JSON.stringify(reports, null, 2));
+++    }
+++  }
+++  if (reports.some((r) => !r.ok)) process.exitCode = 1;
+++})().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => server.kill());
