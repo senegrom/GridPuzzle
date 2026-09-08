@@ -63,3 +63,59 @@ jobs:
           tests
           -m "not slow"
           --durations=10
+
+  # Temporary: remove this job after the audited branch retirement completes.
+  retire-audited-branches:
+    if: github.repository == 'senegrom/GridPuzzle' && github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Preserve staging records and retire unchanged branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          repository = 'senegrom/GridPuzzle'
+          candidates = [['scanner-str8ts-newspaper', '5dea349ebd0eed00d258cff415057c364c8a93c8', 'archive/2026-09-08-str8ts-newspaper']]
+          import json, os, subprocess, urllib.parse, urllib.request
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+
+          assert os.environ['GITHUB_REPOSITORY'] == repository
+          leases, refspecs = [], []
+          for branch, expected, archive in candidates:
+              ref = 'refs/heads/' + branch
+              current = git('ls-remote', '--refs', 'origin', ref)
+              if not current:
+                  print('Already retired:', branch)
+                  continue
+              assert current.split() == [expected, ref], 'Branch advanced: ' + branch
+              query = urllib.parse.urlencode({'state': 'open', 'head': repository.split('/')[0] + ':' + branch, 'per_page': 100})
+              request = urllib.request.Request('https://api.github.com/repos/' + repository + '/pulls?' + query,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  prs = json.load(response)
+              assert isinstance(prs, list) and not prs, 'Branch has an open PR: ' + branch
+              git('fetch', '--no-tags', 'origin', expected)
+              if archive:
+                  tag = 'refs/tags/' + archive
+                  existing = git('ls-remote', '--refs', 'origin', tag)
+                  if existing:
+                      assert existing.split() == [expected, tag], 'Archive tag differs: ' + archive
+                  else:
+                      leases.append('--force-with-lease=' + tag + ':')
+                      refspecs.append(expected + ':' + tag)
+              else:
+                  subprocess.run(['git', 'merge-base', '--is-ancestor', expected, 'HEAD'], check=True)
+              leases.append('--force-with-lease=' + ref + ':' + expected)
+              refspecs.append(':' + ref)
+              print('Retire verified branch:', branch, expected, 'archive:', archive or 'already in default history')
+          if refspecs:
+              subprocess.run(['git', 'push', '--atomic', *leases, 'origin', *refspecs], check=True)
