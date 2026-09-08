@@ -48,6 +48,8 @@ On the 2026-09-07 real newspaper regressions, Chromium 153 and WebKit 26.6 both 
 
 Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised. Physical-iPhone autofocus/exposure, installed-mode camera behaviour, storage eviction and airplane-mode use still require hardware testing.
 
+Digit cleanup retains neighbouring glyphs in multi-digit numbers and preserves ink in pure black-and-white scans. Invalid Str8ts values and Kakuro targets become highlighted blanks for correction. An incompatible cage reading leaves its cells uncovered; missing or ambiguous targets remain unset. These incomplete structures are editable, and Solve requires their correction rather than accepting an invented operator or target.
+
 ## Data contract
 
 ```json

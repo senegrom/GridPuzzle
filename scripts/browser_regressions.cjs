@@ -30,11 +30,13 @@ const reports = [];
 async function fixture(options) {
   const { demo } = await import("./model.js");
   const { homography, project } = await import("./geometry.js");
-  const small = options.small,
+  const small = options.small || options.path,
     n = small ? 4 : 9,
     boxRows = small ? 2 : 3,
     boxCols = small ? 2 : 3;
-  const cells = small
+  const cells = options.path
+    ? [1, null, null, 4, 8, null, 6, null, null, 10, null, 12, 16, null, null, null]
+    : small
     ? [1, null, 3, 4, 3, 4, null, 2, 2, 1, 4, null, null, 3, 2, 1]
     : demo().cells;
   const c = document.createElement("canvas");
@@ -109,7 +111,32 @@ async function fixture(options) {
       }
     out.putImageData(image, 0, 0);
   }
-  return { image: output.toDataURL("image/png").split(",")[1], cells, n };
+  if (options.binary) {
+    // Match the production rectification size exactly so interpolation cannot
+    // hide a threshold-zero regression by introducing intermediate greys.
+    output = document.createElement("canvas");
+    output.width = output.height = n * 100;
+    const out = output.getContext("2d");
+    out.fillStyle = "white";
+    out.fillRect(0, 0, output.width, output.height);
+    out.fillStyle = "black";
+    for (let i = 0; i <= n; i++) {
+      const at = Math.min(output.width - 1, i * 100);
+      out.fillRect(at, 0, 2, output.height);
+      out.fillRect(0, at, output.width, 2);
+    }
+    out.font = "52px Arial";
+    out.textAlign = "center";
+    out.textBaseline = "middle";
+    cells.forEach((v, i) => {
+      if (v !== null) out.fillText(String(v), (i % n + 0.5) * 100, (Math.floor(i / n) + 0.5) * 100);
+    });
+    const pixels = out.getImageData(0, 0, output.width, output.height);
+    for (let i = 0; i < pixels.data.length; i += 4)
+      pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = pixels.data[i] < 128 ? 0 : 255;
+    out.putImageData(pixels, 0, 0);
+  }
+  return { image: output.toDataURL("image/png").split(",")[1], cells, n, type: options.path ? "numbrix" : "sudoku" };
 }
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
@@ -124,7 +151,7 @@ async function scan(page, name, options) {
       { makePuzzle } = await import("./model.js");
     app.loadPuzzle(makePuzzle());
   });
-  await page.selectOption("#puzzle-type", "auto");
+  await page.selectOption("#puzzle-type", f.type === "sudoku" ? "auto" : f.type);
   await page.locator("#auto-solve").evaluate((el) => {
     el.checked = false;
   });
@@ -157,7 +184,7 @@ async function scan(page, name, options) {
     timeout: 120000,
   });
   const s = await page.evaluate(() => window.testState());
-  assert.equal(s.puzzle.type, "sudoku", `${name}: unexpected puzzle type`);
+  assert.equal(s.puzzle.type, f.type, `${name}: unexpected puzzle type`);
   const wrong = f.cells.flatMap((v, i) => (v !== s.puzzle.cells[i] ? [i] : []));
   const unsafe = wrong.filter((i) => !s.uncertain.includes(i));
   const given = f.cells.filter(Number.isInteger).length,
@@ -179,11 +206,11 @@ async function scan(page, name, options) {
     correct >= given - 2,
     `${name}: ${correct}/${given} clues read correctly`,
   );
-  if (name === "baseline")
+  if (["baseline", "binary", "multi-digit"].includes(name))
     assert.deepEqual(
       wrong,
       [],
-      "Baseline must read every clue, not solve a weaker transcription",
+      `${name} must read every clue, not solve a weaker transcription`,
     );
   return result;
 }
@@ -307,6 +334,8 @@ async function scan(page, name, options) {
         ["shifted", { shiftX: 4, shiftY: -4 }],
         ["perspective-shadow", { perspective: true }],
         ["four-by-four", { small: true }],
+        ["binary", { small: true, binary: true }],
+        ["multi-digit", { path: true }],
       ])
         report.scans.push(await scan(page, label, options));
       await page.screenshot({

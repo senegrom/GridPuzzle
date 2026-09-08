@@ -53,7 +53,7 @@ export function detectBlackCells(g, w, h, rows, cols) {
   );
 }
 
-function dominant(mask, w, h) {
+function numberBounds(mask, w, h) {
   const seen = new Uint8Array(mask.length),
     stack = [],
     parts = [];
@@ -91,13 +91,40 @@ function dominant(mask, w, h) {
     parts.push({ area, minx, miny, maxx, maxy });
   }
   parts.sort((a, b) => b.area - a.area);
-  return (
-    parts.find(
+  const anchor = parts.find(
       (part) =>
         part.area >= Math.max(4, w * h * 0.003) &&
         part.maxy - part.miny + 1 >= h * 0.25,
-    ) || null
-  );
+    );
+  if (!anchor) return null;
+  const bounds = { ...anchor },
+    height = anchor.maxy - anchor.miny + 1;
+  // Neighbouring digits are separate components too. Keep substantial glyphs
+  // on the same line while excluding the small dots of halftone/newsprint.
+  const pending = parts.filter((part) => {
+    const partHeight = part.maxy - part.miny + 1,
+      overlap = Math.min(anchor.maxy, part.maxy) - Math.max(anchor.miny, part.miny) + 1;
+    return part !== anchor &&
+      part.area >= Math.max(4, w * h * 0.003, anchor.area * 0.1) &&
+      partHeight >= height * 0.55 && partHeight <= height * 1.6 &&
+      overlap >= Math.min(height, partHeight) * 0.6;
+  });
+  for (let changed = true; changed;) {
+    changed = false;
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const part = pending[i],
+        gap = Math.max(part.minx - bounds.maxx - 1, bounds.minx - part.maxx - 1);
+      if (gap > height) continue;
+      bounds.minx = Math.min(bounds.minx, part.minx);
+      bounds.maxx = Math.max(bounds.maxx, part.maxx);
+      bounds.miny = Math.min(bounds.miny, part.miny);
+      bounds.maxy = Math.max(bounds.maxy, part.maxy);
+      bounds.area += part.area;
+      pending.splice(i, 1);
+      changed = true;
+    }
+  }
+  return bounds;
 }
 
 export function prepareScan(image, type, rows, cols) {
@@ -136,10 +163,9 @@ export function prepareScan(image, type, rows, cols) {
           ink++;
         }
       }
-    // The old whole-region bounding box swallowed newsprint speckle and
-    // halftone dots. For a digit, retain only its dominant connected glyph.
+    // Filter speckle without cutting a multi-digit clue into a single glyph.
     if (["value", "blackvalue"].includes(kind)) {
-      const part = dominant(local, rw, rh);
+      const part = numberBounds(local, rw, rh);
       if (!part) return;
       ({ minx, miny, maxx, maxy } = part);
       ink = part.area;

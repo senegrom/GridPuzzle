@@ -58,7 +58,7 @@ function otsuThreshold(g, width, x, y, w, h) {
   }
   return threshold;
 }
-function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
+export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
   const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
     row = Math.floor(entry.cell / cols),
     col = entry.cell % cols,
@@ -81,7 +81,7 @@ function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, col
   for (let yy = 0; yy < height; yy++)
     for (let xx = 0; xx < width; xx++) {
       const source = g[(y + yy) * imageWidth + x + xx],
-        foreground = entry.invert ? source > threshold : source < threshold,
+        foreground = entry.invert ? source > threshold : source <= threshold,
         value = foreground ? 0 : 255,
         at = 4 * (yy * width + xx);
       pixels.data[at] = pixels.data[at + 1] = pixels.data[at + 2] = value;
@@ -128,6 +128,135 @@ function componentsForCages(mask, w, h, rows, cols, type) {
     groups.get(k).push(i);
   }
   return [...groups.values()];
+}
+// OCR proposals must remain editable without relaxing the import/solver contract.
+export function puzzleFromReadings({ entries, black, meta, mask, width, height }, type, rows, cols) {
+  const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
+    values = Array(rows * cols).fill(null),
+    blackValueCells = new Set(),
+    uncertain = new Set();
+  for (const e of valueEntries) {
+    if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
+    if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
+    if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);
+  }
+  const labels = entries.filter(
+    (e) => e.kind === "label" && /^\d{1,12}[+\-xX*\/÷×=]?$/.test(e.text),
+  );
+  const signs = entries.filter(
+    (e) => ["hsign", "vsign"].includes(e.kind) && /^[<>^vV]$/.test(e.text),
+  );
+  const triangles = entries.filter(
+    (e) => ["across", "down"].includes(e.kind) && /^\d{1,2}$/.test(e.text),
+  );
+  const suggested = classify({
+    rows,
+    cols,
+    values,
+    signs: signs.length,
+    labels: labels.length,
+    operators: labels.filter((e) => /[+\-xX*\/÷×=]/.test(e.text)).length,
+    black: black.filter(Boolean).length,
+    blackNumbers: blackValueCells.size,
+    triangles: triangles.length,
+    boxes: meta.boxes,
+    dots: !meta.rows && !meta.cols,
+  });
+  const chosen = type === "auto" ? suggested.type : type,
+    puzzle = makePuzzle(chosen, rows, cols),
+    notes = [];
+  const max =
+    chosen === "slitherlink"
+      ? 4
+      : ["hidato", "numbrix"].includes(chosen)
+        ? rows * cols -
+          (chosen === "hidato" ? black.filter(Boolean).length : 0)
+        : chosen === "kakuro"
+          ? 9
+          : rows;
+  if (chosen === "str8ts") puzzle.black = black.flatMap((v, i) => v ? [i] : []);
+  puzzle.cells = values.map((v, i) => {
+    if (v !== null && (v > max || v < (chosen === "slitherlink" ? 0 : 1))) {
+      uncertain.add(i);
+      v = null;
+    }
+    if (black[i] && chosen === "str8ts") { uncertain.add(i); return v ?? "#"; }
+    if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
+    return v;
+  });
+  if (chosen === "futoshiki")
+    puzzle.inequalities = signs.map((e) => {
+      const smallerFirst = ["<", "^"].includes(e.text);
+      uncertain.add(e.cell);
+      return {
+        less: smallerFirst ? e.cell : e.other,
+        greater: smallerFirst ? e.other : e.cell,
+      };
+    });
+  if (chosen === "kakuro") {
+    for (let i = 0; i < puzzle.cells.length; i++)
+      if (puzzle.cells[i] === "#") {
+        const clue = { cell: i };
+        for (const d of ["across", "down"]) {
+          const e = triangles.find((e) => e.cell === i && e.kind === d);
+          if (e && +e.text >= 1 && +e.text <= 45) clue[d] = +e.text;
+          else if (e) notes.push("A Kakuro target could not be read. Check the highlighted black cells.");
+        }
+        if (clue.across || clue.down) puzzle.clues.push(clue);
+        uncertain.add(i);
+      }
+  }
+  if (isCage(chosen)) {
+    const areas = componentsForCages(mask, width, height, rows, cols, chosen);
+    puzzle.cages = areas.flatMap((cells) => {
+      const matches = labels
+          .filter((e) => cells.includes(e.cell))
+          .sort((a, b) => a.cell - b.cell),
+        text = matches[0]?.text || "",
+        target = Number.parseInt(text, 10),
+        op =
+          chosen === "killersudoku"
+            ? "+"
+            : text.match(/[+\-xX*\/÷×=]/)?.[0] || "+";
+      if (matches.length !== 1)
+        notes.push(
+          `A cage covering ${cells.length} cells needs its boundary/target checked.`,
+        );
+      cells.forEach((i) => uncertain.add(i));
+      const operator = op.replace(/[xX×]/, "*").replace("÷", "/");
+      if ((["-", "/"].includes(operator) && cells.length !== 2) ||
+          (operator === "=" && cells.length !== 1)) {
+        // Do not invent a different operator or partition to make bad OCR
+        // valid. Leave these cells uncovered so Solve requires a cage edit.
+        notes.push(`A cage covering ${cells.length} cells has an incompatible “${text}” reading. Check its boundary, target and operator.`);
+        return [];
+      }
+      return [{
+        cells,
+        target: matches.length === 1 && Number.isSafeInteger(target) && target > 0 ? target : null,
+        op: operator,
+      }];
+    });
+  }
+  conflicts(puzzle).forEach((i) => uncertain.add(i));
+  const needsReview =
+    (type === "auto" && suggested.review) ||
+    isCage(chosen) ||
+    ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink", "str8ts"].includes(
+      chosen,
+    );
+  if (type === "auto") notes.unshift(suggested.reason);
+  if (isCage(chosen))
+    notes.unshift(
+      "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
+    );
+  if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
+  return {
+    puzzle,
+    uncertain: [...uncertain],
+    needsReview,
+    notes: [...new Set(notes)].slice(0, 8),
+  };
 }
 export class Scanner {
   constructor() {
@@ -297,122 +426,8 @@ export class Scanner {
       e.text = readings[i].text;
       e.confidence = readings[i].confidence;
     });
-    const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
-      values = Array(rows * cols).fill(null),
-      blackValueCells = new Set(),
-      uncertain = new Set();
-    for (const e of valueEntries) {
-      if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
-      if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
-      if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);
-    }
-    const labels = entries.filter(
-      (e) => e.kind === "label" && /^\d{1,12}[+\-xX*\/÷×=]?$/.test(e.text),
-    );
-    const signs = entries.filter(
-      (e) => ["hsign", "vsign"].includes(e.kind) && /^[<>^vV]$/.test(e.text),
-    );
-    const triangles = entries.filter(
-      (e) => ["across", "down"].includes(e.kind) && /^\d{1,2}$/.test(e.text),
-    );
-    const suggested = classify({
-      rows,
-      cols,
-      values,
-      signs: signs.length,
-      labels: labels.length,
-      operators: labels.filter((e) => /[+\-xX*\/÷×=]/.test(e.text)).length,
-      black: black.filter(Boolean).length,
-      blackNumbers: blackValueCells.size,
-      triangles: triangles.length,
-      boxes: meta.boxes,
-      dots: !meta.rows && !meta.cols,
-    });
-    const chosen = type === "auto" ? suggested.type : type,
-      puzzle = makePuzzle(chosen, rows, cols),
-      notes = [];
-    const max =
-      chosen === "slitherlink"
-        ? 4
-        : ["hidato", "numbrix"].includes(chosen)
-          ? rows * cols -
-            (chosen === "hidato" ? black.filter(Boolean).length : 0)
-          : chosen === "kakuro"
-            ? 9
-            : rows;
-    if (chosen === "str8ts") puzzle.black = black.flatMap((v, i) => v ? [i] : []);
-    puzzle.cells = values.map((v, i) => {
-      if (black[i] && chosen === "str8ts") { uncertain.add(i); return v === null ? "#" : v; }
-      if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
-      if (v !== null && (v > max || v < (chosen === "slitherlink" ? 0 : 1))) {
-        uncertain.add(i);
-        return null;
-      }
-      return v;
-    });
-    if (chosen === "futoshiki")
-      puzzle.inequalities = signs.map((e) => {
-        const smallerFirst = ["<", "^"].includes(e.text);
-        uncertain.add(e.cell);
-        return {
-          less: smallerFirst ? e.cell : e.other,
-          greater: smallerFirst ? e.other : e.cell,
-        };
-      });
-    if (chosen === "kakuro") {
-      for (let i = 0; i < puzzle.cells.length; i++)
-        if (puzzle.cells[i] === "#") {
-          const clue = { cell: i };
-          for (const d of ["across", "down"]) {
-            const e = triangles.find((e) => e.cell === i && e.kind === d);
-            if (e) clue[d] = +e.text;
-          }
-          if (clue.across || clue.down) puzzle.clues.push(clue);
-          uncertain.add(i);
-        }
-    }
-    if (isCage(chosen)) {
-      const areas = componentsForCages(mask, w, h, rows, cols, chosen);
-      puzzle.cages = areas.map((cells) => {
-        const matches = labels
-            .filter((e) => cells.includes(e.cell))
-            .sort((a, b) => a.cell - b.cell),
-          text = matches[0]?.text || "",
-          target = Number.parseInt(text, 10),
-          op =
-            chosen === "killersudoku"
-              ? "+"
-              : text.match(/[+\-xX*\/÷×=]/)?.[0] || "+";
-        if (matches.length !== 1)
-          notes.push(
-            `A cage covering ${cells.length} cells needs its boundary/target checked.`,
-          );
-        cells.forEach((i) => uncertain.add(i));
-        return {
-          cells,
-          target: Number.isFinite(target) ? target : null,
-          op: op.replace(/[xX×]/, "*").replace("÷", "/"),
-        };
-      });
-    }
-    conflicts(puzzle).forEach((i) => uncertain.add(i));
-    const needsReview =
-      (type === "auto" && suggested.review) ||
-      isCage(chosen) ||
-      ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink", "str8ts"].includes(
-        chosen,
-      );
-    if (type === "auto") notes.unshift(suggested.reason);
-    if (isCage(chosen))
-      notes.unshift(
-        "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
-      );
-    if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
     return {
-      puzzle,
-      uncertain: [...uncertain],
-      needsReview,
-      notes: [...new Set(notes)].slice(0, 8),
+      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h }, type, rows, cols),
       rectified,
       entries,
     };

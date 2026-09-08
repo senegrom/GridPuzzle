@@ -6,6 +6,8 @@ The deployment build tests the actual Python solver and OCR WebAssembly in both 
 
 Generated acceptance fixtures record raw cells, confidence/review flags and discrepancies **before** manual correction. A wrong or missed clue without a review flag fails. Generated fixtures are baselines, not claims about arbitrary photographs, handwriting or publisher styles.
 
+The generated browser suite also requires exact transcription of a binary 4×4 Sudoku and a Numbrix grid with multi-digit clues. Unit regressions verify complete glyph grouping with speckle removal, threshold-boundary pixels in both polarities, and correction of invalid Str8ts/Kakuro readings and incompatible KenKen cages without weakening import or solve validation.
+
 The deployment also runs two real user-provided newspaper crops from `Examples/BrowserScanner/Newspaper/` through the same production scanner and self-hosted Tesseract.js path. `newspaper-regressions.json` compares the raw transcription with hand-checked `ground-truth.json` and fails on any unsafe unflagged discrepancy or incorrect Str8ts black-cell geometry.
 
 For the 2026-09-07 fixtures, Chromium 153.0.8010.12 and WebKit 26.6 both produce:
