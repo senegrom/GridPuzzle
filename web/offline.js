@@ -25,6 +25,39 @@ export function setupOffline($) {
     navigator.serviceWorker
       .register("./sw.js")
       .then(async (registration) => {
+        const updateButton = $("update-app");
+        let controller = navigator.serviceWorker.controller,
+          needsReload = false,
+          reloadRequested = false;
+        const offerUpdate = () => {
+          updateButton.hidden = !registration.waiting && !needsReload;
+          updateButton.textContent = registration.waiting
+            ? "Update app & reload"
+            : "Reload updated app";
+        };
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          const next = navigator.serviceWorker.controller;
+          if (controller && next !== controller) needsReload = true;
+          controller = next;
+          if (reloadRequested) location.reload();
+          else offerUpdate();
+        });
+        updateButton.onclick = () => {
+          // Another tab may already have activated the waiting worker. Keep
+          // this tab's work until its user chooses to reload the updated app.
+          const waiting = registration.waiting;
+          if (!waiting) {
+            location.reload();
+            return;
+          }
+          reloadRequested = true;
+          updateButton.disabled = true;
+          waiting.postMessage({ type: "ACTIVATE" });
+        };
+        offerUpdate();
+        registration.addEventListener("updatefound", () =>
+          registration.installing?.addEventListener("statechange", offerUpdate),
+        );
         const ready = await navigator.serviceWorker.ready;
         $("prepare-offline").disabled = false;
         $("prepare-offline").onclick = async () => {
@@ -54,23 +87,6 @@ export function setupOffline($) {
                 "Offline assets are ready on this device.";
           })
           .catch(() => {});
-        const offerUpdate = () => {
-          if (registration.waiting) {
-            $("update-app").hidden = false;
-            $("update-app").onclick = () => {
-              navigator.serviceWorker.addEventListener(
-                "controllerchange",
-                () => location.reload(),
-                { once: true },
-              );
-              registration.waiting.postMessage({ type: "ACTIVATE" });
-            };
-          }
-        };
-        offerUpdate();
-        registration.addEventListener("updatefound", () =>
-          registration.installing?.addEventListener("statechange", offerUpdate),
-        );
       })
       .catch((e) => {
         $("prepare-offline").disabled = true;

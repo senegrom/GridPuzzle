@@ -64,3 +64,16 @@ test("off-thread scan preparation handles a whole image without DOM access", () 
   assert.equal(result.g.length, width * height);
   assert.equal(result.black.length, 16);
 });
+test("undo retains a detached pending photo layout distinct from the board", () => {
+  const state = {
+    puzzle: makePuzzle("sudoku", 9),
+    layout: { rows: "4", cols: "4", boxRows: "1", boxCols: "4" },
+    uncertain: new Set(), needsReview: false, notes: [],
+  };
+  const snapshot = captureEdit(state);
+  state.layout.rows = "6";
+  state.puzzle = makePuzzle("sudoku", 4);
+  restoreEdit(state, snapshot);
+  assert.equal(state.puzzle.rows, 9);
+  assert.deepEqual(state.layout, { rows: "4", cols: "4", boxRows: "1", boxCols: "4" });
+});

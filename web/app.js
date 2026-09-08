@@ -26,6 +26,7 @@ const $ = (id) => document.getElementById(id),
   scanner = new Scanner();
 const state = {
   puzzle: makePuzzle(),
+  layout: null,
   uncertain: new Set(),
   cageUncertain: new Set(),
   needsReview: false,
@@ -101,6 +102,22 @@ function savePrefs() {
 }
 for (const id of ["puzzle-type", "auto-capture", "auto-solve", "time-limit"])
   $(id).addEventListener("change", savePrefs);
+const layoutFields = {
+  rows: "rows", cols: "cols", boxRows: "box-rows", boxCols: "box-cols",
+};
+function setLayout(layout) {
+  state.layout = Object.fromEntries(
+    Object.entries(layoutFields).map(([key, id]) => {
+      $(id).value = layout[key];
+      return [key, layout[key]];
+    }),
+  );
+}
+for (const [key, id] of Object.entries(layoutFields))
+  $(id).addEventListener("input", () => {
+    // Keep incomplete/invalid input editable until Read or Apply validates it.
+    state.layout[key] = $(id).value;
+  });
 function typeControl() {
   const type = $("puzzle-type").value;
   applyType.hidden = type === "auto" || type === state.puzzle.type;
@@ -193,6 +210,7 @@ export function loadPuzzle(payload) {
   invalidate();
   stopCamera();
   state.puzzle = p;
+  setLayout(p);
   state.uncertain.clear();
   state.cageUncertain.clear();
   state.needsReview = false;
@@ -520,10 +538,8 @@ function render({ replaceDraft = false } = {}) {
   const p = state.puzzle;
   $("board-meta").textContent =
     `${TYPES[p.type]} · ${p.rows} × ${p.cols} · ${p.cells.filter(Number.isInteger).length} printed clues`;
-  $("rows").value = p.rows;
-  $("cols").value = p.cols;
-  $("box-rows").value = p.boxRows || boxDefault(p.rows)[0];
-  $("box-cols").value = p.boxCols || boxDefault(p.rows)[1];
+  // The pending photo/layout can differ from the board currently displayed.
+  setLayout(state.layout || p);
   $("box-fields").hidden = !["sudoku", "killersudoku"].includes(p.type);
   $("undo").disabled = !state.history.length;
   typeControl();
@@ -1100,6 +1116,7 @@ const { stopCamera } = setupPhotoFlow({
   clearPhotoMapping,
   solveNow,
   boxDefault,
+  setLayout,
   getJobId: () => tasks.id,
   setDeadline: (callback, ms) => tasks.setDeadline(callback, ms),
 });

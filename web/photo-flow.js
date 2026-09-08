@@ -18,6 +18,7 @@ export function setupPhotoFlow({
   clearPhotoMapping,
   solveNow,
   boxDefault,
+  setLayout,
   getJobId,
   setDeadline,
 }) {
@@ -195,7 +196,12 @@ export function setupPhotoFlow({
     const c = document.createElement("canvas");
     c.width = width;
     c.height = height;
-    c.getContext("2d").drawImage(source, 0, 0, width, height);
+    const ctx = c.getContext("2d");
+    // Geometry and OCR consume RGB. Transparent PNG backgrounds should behave
+    // like white paper in both the ImageBitmap and Image decode paths.
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(source, 0, 0, width, height);
     return c;
   }
   async function decodeFile(file) {
@@ -314,11 +320,8 @@ export function setupPhotoFlow({
       state.corners = found.corners;
       finish();
       if (found.rows && found.cols) {
-        $("rows").value = found.rows;
-        $("cols").value = found.cols;
         const b = boxDefault(found.rows);
-        $("box-rows").value = b[0];
-        $("box-cols").value = b[1];
+        setLayout({ rows: found.rows, cols: found.cols, boxRows: b[0], boxCols: b[1] });
       }
       drawCrop();
       status(

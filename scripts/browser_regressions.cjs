@@ -44,7 +44,7 @@ async function fixture(options) {
   const ctx = c.getContext("2d"),
     cw = 576 / n;
   ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, 660, 660);
+  if (!options.transparent) ctx.fillRect(0, 0, 660, 660);
   ctx.strokeStyle = "black";
   for (let i = 0; i <= n; i++) {
     ctx.lineWidth = i % boxCols === 0 ? 5 : 2;
@@ -156,19 +156,32 @@ async function scan(page, name, options) {
     el.checked = false;
   });
   const start = Date.now();
-  await page.setInputFiles("#photo-file", {
-    name: `${name}.png`,
-    mimeType: "image/png",
-    buffer: Buffer.from(f.image, "base64"),
-  });
-  await page.waitForFunction(
-    () =>
-      /^(Grid found\.|Set the four crop corners\.)$/.test(
-        document.querySelector("#status-text").textContent,
-      ),
-    null,
-    { timeout: 20000 },
-  );
+  if (options.fallback)
+    await page.evaluate(() => {
+      window.testImageBitmap = window.createImageBitmap;
+      window.createImageBitmap = undefined;
+    });
+  try {
+    await page.setInputFiles("#photo-file", {
+      name: `${name}.png`,
+      mimeType: "image/png",
+      buffer: Buffer.from(f.image, "base64"),
+    });
+    await page.waitForFunction(
+      () =>
+        /^(Grid found\.|Set the four crop corners\.)$/.test(
+          document.querySelector("#status-text").textContent,
+        ),
+      null,
+      { timeout: 20000 },
+    );
+  } finally {
+    if (options.fallback)
+      await page.evaluate(() => {
+        window.createImageBitmap = window.testImageBitmap;
+        delete window.testImageBitmap;
+      });
+  }
   assert.equal(
     Number(await page.inputValue("#rows")),
     f.n,
@@ -179,6 +192,23 @@ async function scan(page, name, options) {
     f.n,
     `${name}: detected columns`,
   );
+  if (options.layout) {
+    await page.click("#clean-view");
+    await page.selectOption("#edit-tool", "value");
+    assert.equal(await page.inputValue("#rows"), "4", "Board preserves detected rows");
+    assert.equal(await page.inputValue("#cols"), "4", "Board preserves detected columns");
+    assert.equal(await page.inputValue("#box-rows"), "2", "Board preserves detected boxes");
+    if (!await page.locator("#rows").isVisible())
+      await page.getByText("Grid size & settings", { exact: true }).click();
+    await page.fill("#rows", "");
+    await page.fill("#box-rows", "1");
+    await page.fill("#box-cols", "4");
+    await page.click("#clean-view");
+    assert.equal(await page.inputValue("#rows"), "", "incomplete layout input remains editable");
+    assert.equal(await page.inputValue("#box-rows"), "1");
+    assert.equal(await page.inputValue("#box-cols"), "4");
+    await page.fill("#rows", "4");
+  }
   await page.click("#read-photo");
   await page.waitForFunction(() => !window.testState().busy, null, {
     timeout: 120000,
@@ -206,12 +236,23 @@ async function scan(page, name, options) {
     correct >= given - 2,
     `${name}: ${correct}/${given} clues read correctly`,
   );
-  if (["baseline", "binary", "multi-digit"].includes(name))
+  if (["baseline", "binary", "multi-digit", "transparent", "transparent-fallback", "layout-draft"].includes(name))
     assert.deepEqual(
       wrong,
       [],
       `${name} must read every clue, not solve a weaker transcription`,
     );
+  if (options.layout) {
+    assert.equal(s.puzzle.rows, 4);
+    assert.equal(s.puzzle.cols, 4);
+    assert.equal(s.puzzle.boxRows, 1);
+    assert.equal(s.puzzle.boxCols, 4);
+    await page.click("#undo");
+    assert.equal((await page.evaluate(() => window.testState())).puzzle.rows, 9);
+    assert.equal(await page.inputValue("#rows"), "4", "Undo preserves the pending photo layout");
+    assert.equal(await page.inputValue("#box-rows"), "1");
+    assert.equal(await page.inputValue("#box-cols"), "4");
+  }
   return result;
 }
 async function editorRegressions(page, report) {
@@ -439,6 +480,9 @@ async function editorRegressions(page, report) {
         ["shifted", { shiftX: 4, shiftY: -4 }],
         ["perspective-shadow", { perspective: true }],
         ["four-by-four", { small: true }],
+        ["layout-draft", { small: true, layout: true }],
+        ["transparent", { small: true, transparent: true }],
+        ["transparent-fallback", { small: true, transparent: true, fallback: true }],
         ["binary", { small: true, binary: true }],
         ["multi-digit", { path: true }],
       ])

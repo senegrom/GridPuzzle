@@ -33,4 +33,6 @@ Coverage includes all twelve solver families, phone layouts, malformed imports, 
 
 Editor regressions check independent numeric/cage warnings through both edit forms, Undo and reload; JSON drafts through view changes and asynchronous solver results; accessible labels for solved cells and Kakuro targets; and superseded JSON import errors. Unit tests also exercise delayed photo decode failures after cancellation or replacement, while preserving errors from the active import.
 
+The browser suite also requires exact transcription of transparent PNGs through both image decode paths, and verifies detected/manual scan dimensions through Board refreshes, editing-tool changes and Undo. Controlled service-worker tests cover activation in another tab, a click racing activation, and initial installation without an unnecessary reload.
+
 The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs unit/parse checks; normal Linux/Windows CI and forward compatibility remain independent.
