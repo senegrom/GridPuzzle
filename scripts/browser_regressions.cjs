@@ -255,6 +255,75 @@ async function scan(page, name, options) {
   }
   return result;
 }
+async function layoutAndKeyboardRegressions(page, report) {
+  await page.selectOption("#puzzle-type", "futoshiki");
+  await page.click("#example");
+  if (!await page.locator("#rows").isVisible())
+    await page.getByText("Grid size & settings", { exact: true }).click();
+  const original = await page.evaluate(() => window.testState().puzzle);
+  assert.equal(await page.locator("#box-fields").isVisible(), false);
+  await page.selectOption("#puzzle-type", "sudoku");
+  assert.equal(await page.locator("#box-fields").isVisible(), true);
+  await page.fill("#rows", "9");
+  await page.fill("#cols", "9");
+  await page.fill("#box-rows", "3");
+  await page.fill("#box-cols", "3");
+  for (const [type, visible] of [["kenken", false], ["killersudoku", true], ["auto", true], ["sudoku", true]]) {
+    await page.selectOption("#puzzle-type", type);
+    await page.click("#clean-view");
+    assert.equal(await page.locator("#box-fields").isVisible(), visible, `${type}: next-scan box controls`);
+    assert.equal(await page.inputValue("#box-rows"), "3");
+    assert.equal(await page.inputValue("#box-cols"), "3");
+    assert.deepEqual(await page.evaluate(() => window.testState().puzzle), original,
+      "selecting the next scan type leaves the current board intact");
+  }
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.click("#apply-layout");
+  const applied = await page.evaluate(() => window.testState().puzzle);
+  assert.deepEqual([applied.type, applied.rows, applied.cols, applied.boxRows, applied.boxCols],
+    ["sudoku", 9, 9, 3, 3]);
+  await page.click("#undo");
+  assert.deepEqual(await page.evaluate(() => window.testState().puzzle), original);
+  assert.equal(await page.locator("#box-fields").isVisible(), true,
+    "Undo refreshes controls for the selected scan type, not the restored board type");
+  report.checks.push("scan-type changes expose box settings and preserve layout drafts through apply and Undo");
+
+  const focusedCell = () => page.evaluate(() => document.activeElement?.getAttribute("data-cell"));
+  const selectedCells = () => page.locator(".board-cell.selected").evaluateAll(
+    (cells) => cells.map((cell) => Number(cell.dataset.cell)));
+  for (const [type, tool] of [["futoshiki", "inequality"], ["kenken", "cage"]]) {
+    await page.selectOption("#puzzle-type", type);
+    await page.click("#example");
+    await page.selectOption("#edit-tool", tool);
+    await page.locator('[data-cell="4"]').focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await focusedCell(), "4", `${tool}: Enter keeps focus on the selected cell`);
+    assert.equal(await page.locator('[data-cell="4"]').getAttribute("tabindex"), "0");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await focusedCell(), "5");
+    await page.keyboard.press("Space");
+    assert.deepEqual(await selectedCells(), [4, 5]);
+    assert.equal(await focusedCell(), "5", `${tool}: Space keeps focus after extending selection`);
+    await page.keyboard.press("Space");
+    assert.deepEqual(await selectedCells(), [4]);
+    assert.equal(await focusedCell(), "5", `${tool}: deselection also keeps focus`);
+    await page.keyboard.press("Enter");
+    if (tool === "inequality") {
+      await page.click("#save-inequality");
+      const puzzle = await page.evaluate(() => window.testState().puzzle);
+      assert.ok(puzzle.inequalities.some((q) => q.less === 4 && q.greater === 5));
+    } else {
+      await page.fill("#cage-target", "7");
+      await page.selectOption("#cage-op", "+");
+      await page.click("#save-cage");
+      const puzzle = await page.evaluate(() => window.testState().puzzle);
+      assert.deepEqual(puzzle.cages.find((cage) => cage.cells.includes(4)),
+        { cells: [4, 5], target: 7, op: "+" });
+    }
+    assert.deepEqual(await selectedCells(), []);
+  }
+  report.checks.push("keyboard Enter/Space selection, arrows, deselection and saving work for cages and inequalities");
+}
 async function editorRegressions(page, report) {
   await page.evaluate(async () => {
     const { makePuzzle } = await import("./model.js");
@@ -447,6 +516,7 @@ async function editorRegressions(page, report) {
         true,
       );
       report.checks.push("save-and-next confirms only the edited cell");
+      await layoutAndKeyboardRegressions(page, report);
       await editorRegressions(page, report);
       // No OCR call should be needed to reject a blank photograph.
       const blank = await page.evaluate(() => {

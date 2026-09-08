@@ -122,6 +122,9 @@ function typeControl() {
   const type = $("puzzle-type").value;
   applyType.hidden = type === "auto" || type === state.puzzle.type;
   applyType.textContent = `Use ${TYPES[type] || "this type"} for the current board`;
+  // These controls configure the next scan/layout. Automatic detection may
+  // propose Sudoku even when the current board belongs to another family.
+  $("box-fields").hidden = !["auto", "sudoku", "killersudoku"].includes(type);
 }
 function reviewCells() {
   return new Set([...state.uncertain, ...state.cageUncertain]);
@@ -540,7 +543,6 @@ function render({ replaceDraft = false } = {}) {
     `${TYPES[p.type]} · ${p.rows} × ${p.cols} · ${p.cells.filter(Number.isInteger).length} printed clues`;
   // The pending photo/layout can differ from the board currently displayed.
   setLayout(state.layout || p);
-  $("box-fields").hidden = !["sudoku", "killersudoku"].includes(p.type);
   $("undo").disabled = !state.history.length;
   typeControl();
   for (const option of $("edit-tool").options)
@@ -742,6 +744,7 @@ function cellAction(i) {
   const tool = $("edit-tool").value;
   if (tool === "value") return openCell(i);
   stopTask();
+  focused = i;
   if (state.selected.includes(i))
     state.selected = state.selected.filter((x) => x !== i);
   else {
@@ -750,6 +753,9 @@ function cellAction(i) {
     state.selected.push(i);
   }
   drawBoard();
+  // Redrawing replaces the selected SVG node. Keep keyboard navigation on
+  // that cell so arrows and Enter/Space can extend or change the selection.
+  $("board").querySelector(`[data-cell="${focused}"]`)?.focus();
   status(
     `${state.selected.length} cells selected.`,
     tool === "cage"

@@ -35,4 +35,6 @@ Editor regressions check independent numeric/cage warnings through both edit for
 
 The browser suite also requires exact transcription of transparent PNGs through both image decode paths, and verifies detected/manual scan dimensions through Board refreshes, editing-tool changes and Undo. Controlled service-worker tests cover activation in another tab, a click racing activation, and initial installation without an unnecessary reload.
 
+Layout/editor coverage includes changing scan families while retaining an existing board, correcting and applying Sudoku box dimensions, and keeping the controls available in automatic mode and after Undo. Keyboard regressions select, extend, deselect and save both cages and inequalities with Enter, Space and arrow keys, checking focus after each board redraw.
+
 The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs unit/parse checks; normal Linux/Windows CI and forward compatibility remain independent.
