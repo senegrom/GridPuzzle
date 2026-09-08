@@ -92,14 +92,18 @@ async function stopServer() {
       await other.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
       await other.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting));
       await other.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting.postMessage({ type: "ACTIVATE" }));
-      await page.waitForFunction(() => navigator.serviceWorker.controller !== window.originalController);
+      await page.waitForFunction(() => navigator.serviceWorker.controller && navigator.serviceWorker.controller !== window.originalController);
+      // Resume as soon as control changes to cover requests racing activation.
+      await page.evaluate(() => window.solver.postMessage("release"));
+      await page.waitForFunction(() => window.results.length === 1);
+      // controllerchange precedes the activate event's waitUntil work. Read
+      // diagnostic metadata only once that migration has actually completed.
+      await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
       report.retained = await page.evaluate(async () => {
         const key = (await caches.keys()).find((key) => key.endsWith("meta:222222222222"));
         const cache = await caches.open(key);
         return (await cache.match(new URL(".retained-solvers.json", location.href))).json();
       });
-      await page.evaluate(() => window.solver.postMessage("release"));
-      await page.waitForFunction(() => window.results.length === 1);
       assert.deepEqual(await page.evaluate(() => window.results[0]), { status: 200, body: `verified solver ${first}` });
       // Prove the same old URL remains available without any network fallback.
       await stopServer();
