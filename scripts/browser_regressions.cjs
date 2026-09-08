@@ -428,6 +428,59 @@ async function editorRegressions(page, report) {
   }
   report.checks.push("superseded JSON import errors are ignored");
 }
+async function cameraOwnershipRegressions(page, report) {
+  await page.selectOption("#puzzle-type", "sudoku");
+  await page.click("#example");
+  const before = await page.evaluate(() => window.testState().puzzle);
+  // Controlled media and queued timers exercise the real application's task
+  // wiring in both engines, without depending on CI camera hardware.
+  await page.evaluate(() => {
+    const video = document.querySelector("#video"), media = navigator.mediaDevices;
+    const original = Object.getOwnPropertyDescriptor(media, "getUserMedia");
+    const timeout = window.setTimeout;
+    const camera = window.cameraTest = { stopped: 0, queued: [] };
+    Object.defineProperty(media, "getUserMedia", { configurable: true, value: async () => ({
+      getTracks: () => [{ stop() { camera.stopped++; } }],
+    }) });
+    Object.defineProperty(video, "srcObject", { configurable: true, writable: true, value: null });
+    Object.defineProperty(video, "play", { configurable: true, value: async () => {} });
+    window.setTimeout = (fn, ms, ...args) => {
+      if (ms === 800 || ms === 900) { camera.queued.push(fn); return -1; }
+      return timeout(fn, ms, ...args);
+    };
+    camera.restore = () => {
+      window.setTimeout = timeout;
+      delete video.srcObject;
+      delete video.play;
+      if (original) Object.defineProperty(media, "getUserMedia", original);
+      else delete media.getUserMedia;
+      delete window.cameraTest;
+    };
+  });
+  try {
+    for (const action of ["edit", "solve"]) {
+      await page.click("#camera");
+      await page.waitForFunction(() => document.querySelector("#status-text").textContent === "Camera ready.");
+      if (action === "edit") await page.click('[data-cell="0"]');
+      else await page.click("#solve");
+      assert.equal(await page.locator("#camera-panel").isHidden(), true, `${action} closes the camera`);
+      assert.equal(await page.evaluate(() => window.cameraTest.stopped), action === "edit" ? 1 : 2);
+      await page.evaluate(async () => {
+        const pending = window.cameraTest.queued.splice(0);
+        for (const fn of pending) await fn();
+      });
+      assert.deepEqual(await page.evaluate(() => window.testState().puzzle), before);
+      assert.equal(await page.evaluate(() => window.cameraTest.queued.length), 0, "cancelled capture never restarts");
+      if (action === "edit") await page.click("#close-cell");
+      else {
+        await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
+      }
+    }
+  } finally {
+    await page.evaluate(() => window.cameraTest.restore());
+  }
+  report.checks.push("editing and solving stop live capture, including already queued detection callbacks");
+}
 (async () => {
   for (let i = 0; i < 60; i++) {
     try {
@@ -518,6 +571,7 @@ async function editorRegressions(page, report) {
       report.checks.push("save-and-next confirms only the edited cell");
       await layoutAndKeyboardRegressions(page, report);
       await editorRegressions(page, report);
+      await cameraOwnershipRegressions(page, report);
       // No OCR call should be needed to reject a blank photograph.
       const blank = await page.evaluate(() => {
         const c = document.createElement("canvas");

@@ -159,6 +159,7 @@ const tasks = createTaskController({
   scanner,
   status,
   onStop: (wasBusy) => {
+    stopCamera();
     if (wasBusy && worker) {
       worker.terminate();
       worker = null;

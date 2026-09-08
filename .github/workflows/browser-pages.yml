@@ -43,6 +43,7 @@ jobs:
         run: |
           node scripts/browser_regressions.cjs
           node scripts/newspaper_regressions.cjs
+          node scripts/solver_update_regressions.cjs
       - name: Upload screenshots and test report
         if: always()
         uses: actions/upload-artifact@v7

@@ -5,9 +5,11 @@ const META=PREFIX+`meta:${VERSION}`;
 const CONTENT=PREFIX+"content-v1";
 const url=path=>new URL(path,self.registration.scope).href;
 const scopeURL=new URL(self.registration.scope);
+const RETAINED=url(".retained-solvers.json");
+const isSolver=asset=>/^solver\.[a-f0-9]{12}\.zip$/.test(asset.path);
 
-function validateManifest(data){
-  if(data?.build!==VERSION||!Array.isArray(data.assets))throw Error("Update the app before downloading offline assets.");
+function validateManifest(data,build=VERSION){
+  if(data?.build!==build||!Array.isArray(data.assets))throw Error("Update the app before downloading offline assets.");
   const seen=new Set();
   for(const asset of data.assets){
     if(!asset||typeof asset.path!=="string"||seen.has(asset.path)||!url(asset.path).startsWith(self.registration.scope)||!/^[a-f0-9]{64}$/.test(asset.sha256))throw Error("Invalid offline asset manifest.");
@@ -74,6 +76,45 @@ async function pruneContent(assets){
   const keep=new Set(assets.map(assetKey)),cache=await contentCache();
   for(const request of await cache.keys())if(!keep.has(request.url))await cache.delete(request);
 }
+async function retainedSolvers(cache){
+  try{
+    const response=await (cache||await caches.open(META)).match(RETAINED);
+    const assets=response?await response.json():[];
+    validateManifest({build:VERSION,assets});
+    return assets.filter(asset=>isSolver(asset)&&Array.isArray(asset.clients)&&asset.clients.every(id=>typeof id==="string"));
+  }catch{return [];}
+}
+async function preserveActiveSolvers(){
+  // A worker that started before another tab activated this update still
+  // fetches its embedded solver.<build>.zip after Python finishes loading.
+  // Keep those verified bytes under their original URL until its client is
+  // gone. New workers must not prolong retention of unrelated old archives.
+  const clients=await self.clients.matchAll({type:"worker",includeUncontrolled:true});
+  const alive=new Set(clients.filter(client=>new URL(client.url).pathname===new URL(url("solver-worker.js")).pathname).map(client=>client.id));
+  const previous=(await caches.keys()).filter(key=>key.startsWith(PREFIX+"meta:")&&key!==META);
+  const keep=new Map();
+  // Preserve owners recorded by earlier updates before adding the outgoing
+  // build, so another update cannot reset an old archive's client lifetime.
+  for(const key of previous){
+    const meta=await caches.open(key);
+    for(const asset of await retainedSolvers(meta)){
+      const owners=asset.clients.filter(id=>alive.has(id));
+      keep.set(asset.path,{...asset,clients:owners});
+    }
+  }
+  for(const key of previous){
+    const meta=await caches.open(key),response=await meta.match(url("assets.json"));
+    if(!response)continue;
+    try{
+      const assets=validateManifest(await response.json(),key.slice((PREFIX+"meta:").length));
+      for(const asset of assets)if(isSolver(asset)&&!keep.has(asset.path))keep.set(asset.path,{...asset,clients:[...alive]});
+    }catch{/* Damaged old metadata must not prevent a verified update. */}
+  }
+  const retained=[...keep.values()].filter(asset=>asset.clients.length);
+  await (await caches.open(META)).put(RETAINED,new Response(JSON.stringify(retained)));
+  for(const key of previous)await caches.delete(key);
+  return retained;
+}
 
 self.addEventListener("install",event=>event.waitUntil((async()=>{
   const response=await fetch(new Request(url("assets.json"),{cache:"reload"}));
@@ -84,9 +125,8 @@ self.addEventListener("install",event=>event.waitUntil((async()=>{
   for(const asset of shell)await verifiedAsset(cache,asset,{verifyStored:true});
 })()));
 self.addEventListener("activate",event=>event.waitUntil((async()=>{
-  const assets=await manifest();
-  for(const key of await caches.keys())if(key.startsWith(PREFIX+"meta:")&&key!==META)await caches.delete(key);
-  await pruneContent(assets);
+  const assets=await manifest(),retained=await preserveActiveSolvers();
+  await pruneContent([...assets,...retained]);
   await self.clients.claim();
 })()));
 self.addEventListener("fetch",event=>{
@@ -99,7 +139,10 @@ self.addEventListener("fetch",event=>{
     try{assets=await manifest({network:true});}catch{return fetch(request);}
     if(target.href===url("assets.json"))return (await (await caches.open(META)).match(url("assets.json")))||fetch(request);
     const key=routeAsset(request,target),asset=assets.find(a=>url(a.path)===key);
-    if(!asset)return fetch(request);
+    if(!asset){
+      const retained=(await retainedSolvers()).find(a=>url(a.path)===key);
+      return (retained&&await verifiedAsset(retained,{network:false}))||fetch(request);
+    }
     return verifiedAsset(asset,{requireStorage:false,trustStored:true});
   })());
 });

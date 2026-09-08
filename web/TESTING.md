@@ -37,4 +37,8 @@ The browser suite also requires exact transcription of transparent PNGs through 
 
 Layout/editor coverage includes changing scan families while retaining an existing board, correcting and applying Sudoku box dimensions, and keeping the controls available in automatic mode and after Undo. Keyboard regressions select, extend, deselect and save both cages and inequalities with Enter, Space and arrow keys, checking focus after each board redraw.
 
+Camera lifecycle tests cover cancellation while permission, video playback or grid detection is pending. Chromium and WebKit tests also exercise the application's cancellation wiring with controlled media, verifying that editing and solving stop capture and ignore queued detection callbacks.
+
+Both browsers exercise a real two-tab service-worker update while an old dedicated solver worker is initializing, then request its original verified archive online and offline. This focused lifecycle fixture controls the initialization delay; the full solver and OCR checks above still use the production runtimes. Unit tests cover changed and reused archive bytes, repeated updates and cleanup after the owning workers close. Old solver archives are retained for the clients present at activation and pruned at a later activation once those clients have gone.
+
 The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs unit/parse checks; normal Linux/Windows CI and forward compatibility remain independent.

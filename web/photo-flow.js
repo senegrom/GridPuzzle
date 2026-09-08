@@ -68,6 +68,7 @@ export function setupPhotoFlow({
       $("camera-panel").hidden = false;
       $("video").srcObject = stream;
       await $("video").play();
+      if (epoch !== cameraEpoch) return;
       $("camera-panel").scrollIntoView({ behavior: "smooth", block: "start" });
       status("Camera ready.", "Capture manually or hold a clear grid steady.");
       let stable = 0,
