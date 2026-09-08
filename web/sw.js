@@ -84,6 +84,16 @@ async function retainedSolvers(cache){
     return assets.filter(asset=>isSolver(asset)&&Array.isArray(asset.clients)&&asset.clients.every(id=>typeof id==="string"));
   }catch{return [];}
 }
+async function historicalSolver(key){
+  const match=key.slice(self.registration.scope.length).match(/^solver\.([a-f0-9]{12})\.zip$/);
+  if(!match)return null;
+  const name=PREFIX+`meta:${match[1]}`;
+  if(!(await caches.keys()).includes(name))return null;
+  try{
+    const response=await (await caches.open(name)).match(url("assets.json"));
+    return response?validateManifest(await response.json(),match[1]).find(asset=>url(asset.path)===key):null;
+  }catch{return null;}
+}
 async function preserveActiveSolvers(){
   // A worker that started before another tab activated this update still
   // fetches its embedded solver.<build>.zip after Python finishes loading.
@@ -144,7 +154,9 @@ self.addEventListener("fetch",event=>{
     if(target.href===url("assets.json"))return (await (await caches.open(META)).match(url("assets.json")))||fetch(request);
     const key=routeAsset(request,target),asset=assets.find(a=>url(a.path)===key);
     if(!asset){
-      const retained=(await retainedSolvers()).find(a=>url(a.path)===key);
+      // controllerchange can precede activation's migration work. The old
+      // manifest is already available before the retention index is written.
+      const retained=await historicalSolver(key);
       return (retained&&await verifiedAsset(retained,{network:false}))||fetch(request);
     }
     return verifiedAsset(asset,{requireStorage:false,trustStored:true});

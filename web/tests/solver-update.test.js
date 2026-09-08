@@ -45,7 +45,7 @@ function updates({ identical = false } = {}) {
     offline(value) { offline = value; },
     workers(ids) { clients = ids.map((id) => ({ id, url: scope + "solver-worker.js" })); },
     tabs(ids) { clients = ids.map((id) => ({ id, type: "window", url: scope })); },
-    async activate(version) {
+    async activate(version, installed) {
       build = version;
       const listeners = {};
       vm.runInNewContext(source.replace("__BUILD_ID__", version), {
@@ -56,20 +56,32 @@ function updates({ identical = false } = {}) {
           skipWaiting() {}, addEventListener: (type, listener) => { listeners[type] = listener; },
         },
       });
-      for (const type of ["install", "activate"]) {
-        let done;
-        listeners[type]({ waitUntil(promise) { done = promise; } });
-        await done;
-      }
-      return async (path) => {
+      const fetch = async (path) => {
         let response;
         listeners.fetch({ request: new Request(scope + path), respondWith(promise) { response = promise; } });
         return response;
       };
+      for (const type of ["install", "activate"]) {
+        if (type === "activate" && installed) await installed(fetch);
+        let done;
+        listeners[type]({ waitUntil(promise) { done = promise; } });
+        await done;
+      }
+      return fetch;
     },
   };
 }
 const first = "111111111111", second = "222222222222", third = "333333333333", fourth = "444444444444";
+test("an old archive resolves before the new controller's activation migration finishes", async () => {
+  const h = updates();
+  await h.activate(first);
+  h.workers(["old-worker"]);
+  await h.activate(second, async (fetch) => {
+    const count = h.requests.length;
+    assert.equal((await fetch(`solver.${first}.zip`)).status, 200);
+    assert.equal(h.requests.length, count);
+  });
+});
 for (const identical of [false, true])
   test(`an initializing old solver keeps its archive after activation (${identical ? "reused" : "changed"} bytes)`, async () => {
     const h = updates({ identical });

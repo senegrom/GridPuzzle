@@ -71,6 +71,10 @@ async function stopServer() {
         await navigator.serviceWorker.ready;
       });
       await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+      // Model an existing installed app: its document navigation, not just
+      // a subsequent claim(), must already have gone through the old worker.
+      await page.reload();
+      await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
       await page.evaluate(() => {
         window.results = [];
         window.workerDebug = [];
@@ -81,8 +85,12 @@ async function stopServer() {
           else if (data.debug) window.workerDebug.push(data.debug);
           else window.results.push(data);
         };
-        window.solver.postMessage("start");
+        window.solver.postMessage("probe");
       });
+      await page.waitForFunction(() => window.results.length === 1);
+      assert.deepEqual(await page.evaluate(() => window.results[0]), { status: 200, body: `verified solver ${first}` });
+      assert.equal(requests.filter((request) => request.path === `solver.${first}.zip`).length, 1, "the pre-update worker uses the verified cache, not the origin");
+      await page.evaluate(() => { window.results = []; window.workerDebug = []; window.solver.postMessage("start"); });
       // Pause in the worker itself: an outstanding fetch through the old
       // service worker would intentionally delay activation until it finishes.
       await page.waitForFunction(() => window.loading === true);
