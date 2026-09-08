@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const source = fs.readFileSync("web/sw.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
-let build = first;
+let build = first, requests = [];
 function files() {
   return {
     "index.html": "<!doctype html><title>Solver update regression</title>",
@@ -19,6 +19,7 @@ function files() {
           release=resolve;
           self.postMessage({loading:true});
         });
+        self.postMessage({debug:{controllerState:self.navigator.serviceWorker?.controller?.state, url:self.location.href}});
         const response=await fetch("./solver.${build}.zip");
         self.postMessage({status:response.status,body:await response.text()});
       } catch(error) { self.postMessage({error:error.message}); }
@@ -29,6 +30,7 @@ function files() {
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, "http://localhost").pathname;
   const path = pathname.replace(/^\/GridPuzzle\//, "") || "index.html";
+  requests.push({ build, path });
   const assets = files();
   let body;
   if (path === "sw.js") body = source.replace("__BUILD_ID__", build);
@@ -43,11 +45,19 @@ const server = createServer((request, response) => {
   });
   response.end(body);
 });
+async function stopServer() {
+  if (!server.listening) return;
+  await new Promise((resolve) => {
+    server.close(resolve);
+    server.closeAllConnections();
+  });
+}
 (async () => {
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const base = `http://127.0.0.1:${server.address().port}/GridPuzzle/`;
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     build = first;
+    requests = [];
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${server.address().port}/GridPuzzle/`;
     const browser = await engine.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -63,10 +73,12 @@ const server = createServer((request, response) => {
       await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
       await page.evaluate(() => {
         window.results = [];
+        window.workerDebug = [];
         window.originalController = navigator.serviceWorker.controller;
         window.solver = new Worker("./solver-worker.js", { type: "module" });
         window.solver.onmessage = ({ data }) => {
           if (data.loading) window.loading = true;
+          else if (data.debug) window.workerDebug.push(data.debug);
           else window.results.push(data);
         };
         window.solver.postMessage("start");
@@ -81,11 +93,17 @@ const server = createServer((request, response) => {
       await other.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting));
       await other.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting.postMessage({ type: "ACTIVATE" }));
       await page.waitForFunction(() => navigator.serviceWorker.controller !== window.originalController);
+      report.retained = await page.evaluate(async () => {
+        const key = (await caches.keys()).find((key) => key.endsWith("meta:222222222222"));
+        const cache = await caches.open(key);
+        return (await cache.match(new URL(".retained-solvers.json", location.href))).json();
+      });
       await page.evaluate(() => window.solver.postMessage("release"));
       await page.waitForFunction(() => window.results.length === 1);
       assert.deepEqual(await page.evaluate(() => window.results[0]), { status: 200, body: `verified solver ${first}` });
       // Prove the same old URL remains available without any network fallback.
-      await context.setOffline(true);
+      await stopServer();
+      await assert.rejects(fetch(base, { signal: AbortSignal.timeout(2000) }), "the origin is actually unreachable");
       await page.evaluate(() => window.solver.postMessage("again"));
       await page.waitForFunction(() => window.results.length === 2);
       assert.deepEqual(await page.evaluate(() => window.results[1]), { status: 200, body: `verified solver ${first}` });
@@ -95,9 +113,12 @@ const server = createServer((request, response) => {
     } catch (error) {
       report.ok = false;
       report.failure = error.stack;
+      report.workerDebug = await page.evaluate(() => window.workerDebug).catch(() => null);
       console.error(name, error);
+      console.error(JSON.stringify({ retained: report.retained, workerDebug: report.workerDebug, requests }));
     } finally {
       await browser.close();
+      await stopServer();
     }
   }
   if (reports.some((report) => !report.ok)) process.exitCode = 1;

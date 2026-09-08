@@ -44,6 +44,7 @@ function updates({ identical = false } = {}) {
     stores, requests,
     offline(value) { offline = value; },
     workers(ids) { clients = ids.map((id) => ({ id, url: scope + "solver-worker.js" })); },
+    tabs(ids) { clients = ids.map((id) => ({ id, type: "window", url: scope })); },
     async activate(version) {
       build = version;
       const listeners = {};
@@ -72,16 +73,17 @@ const first = "111111111111", second = "222222222222", third = "333333333333", f
 for (const identical of [false, true])
   test(`an initializing old solver keeps its archive after activation (${identical ? "reused" : "changed"} bytes)`, async () => {
     const h = updates({ identical });
-    await h.activate(first);
+    const oldFetch = await h.activate(first);
     h.workers(["old-worker"]);
     const fetch = await h.activate(second);
     const count = h.requests.length;
     assert.equal((await fetch(`solver.${first}.zip`)).status, 200);
+    assert.equal((await oldFetch(`solver.${first}.zip`)).status, 200, "an old controller can still route an existing worker");
     h.offline(true);
     assert.equal((await fetch(`solver.${first}.zip`)).status, 200);
     assert.equal((await fetch(`solver.${second}.zip`)).status, 200);
     assert.equal(h.requests.length, count, "all archives come from verified storage");
-    assert.equal(h.stores.has(prefix + `meta:${first}`), false, "the old manifest is no longer needed");
+    assert.equal(h.stores.has(prefix + `meta:${first}`), true, "keep the manifest for an existing worker's previous controller");
   });
 test("later updates retain live owners without extending closed workers' archive lifetimes", async () => {
   const h = updates();
@@ -98,6 +100,7 @@ test("later updates retain live owners without extending closed workers' archive
   const content = h.stores.get(prefix + "content-v1");
   const oldDigest = createHash("sha256").update(`solver ${first}`).digest("hex");
   assert.equal(await content.match(scope + ".gridpuzzle-cache/" + oldDigest), undefined);
+  assert.equal(h.stores.has(prefix + `meta:${first}`), false);
 });
 test("an update with no existing solver clients releases previous archives", async () => {
   const h = updates();
@@ -105,6 +108,18 @@ test("an update with no existing solver clients releases previous archives", asy
   const fetch = await h.activate(second);
   assert.equal((await fetch(`solver.${first}.zip`)).status, 404);
   assert.equal((await h.stores.get(prefix + "content-v1").keys()).length, 1);
+});
+test("an existing tab protects a worker that is not enumerable yet", async () => {
+  const h = updates();
+  await h.activate(first);
+  h.tabs(["old-tab"]);
+  let fetch = await h.activate(second);
+  h.offline(true);
+  assert.equal((await fetch(`solver.${first}.zip`)).status, 200);
+  h.offline(false);
+  h.tabs(["new-tab"]);
+  fetch = await h.activate(third);
+  assert.equal((await fetch(`solver.${first}.zip`)).status, 404);
 });
 test("damaged previous metadata cannot prevent a verified update from activating", async () => {
   const h = updates();

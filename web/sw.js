@@ -87,10 +87,11 @@ async function retainedSolvers(cache){
 async function preserveActiveSolvers(){
   // A worker that started before another tab activated this update still
   // fetches its embedded solver.<build>.zip after Python finishes loading.
-  // Keep those verified bytes under their original URL until its client is
-  // gone. New workers must not prolong retention of unrelated old archives.
-  const clients=await self.clients.matchAll({type:"worker",includeUncontrolled:true});
-  const alive=new Set(clients.filter(client=>new URL(client.url).pathname===new URL(url("solver-worker.js")).pathname).map(client=>client.id));
+  // Include the owning tabs: worker enumeration varies by engine and a worker
+  // still loading its script may not be enumerable yet. Later tabs/workers
+  // must not prolong retention of unrelated old archives.
+  const clients=await self.clients.matchAll({type:"all",includeUncontrolled:true});
+  const alive=new Set(clients.filter(client=>(client.type==="window"&&client.url.startsWith(self.registration.scope))||new URL(client.url).pathname===new URL(url("solver-worker.js")).pathname).map(client=>client.id));
   const previous=(await caches.keys()).filter(key=>key.startsWith(PREFIX+"meta:")&&key!==META);
   const keep=new Map();
   // Preserve owners recorded by earlier updates before adding the outgoing
@@ -112,7 +113,10 @@ async function preserveActiveSolvers(){
   }
   const retained=[...keep.values()].filter(asset=>asset.clients.length);
   await (await caches.open(META)).put(RETAINED,new Response(JSON.stringify(retained)));
-  for(const key of previous)await caches.delete(key);
+  // An existing worker may still route through its previous controller.
+  // Keep that controller's manifest while its archive has live owners too.
+  const retainedPaths=new Set(retained.map(asset=>asset.path));
+  for(const key of previous)if(!retainedPaths.has(`solver.${key.slice((PREFIX+"meta:").length)}.zip`))await caches.delete(key);
   return retained;
 }
 
