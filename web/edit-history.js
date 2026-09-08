@@ -3,6 +3,7 @@ export function captureEdit(state) {
   return {
     puzzle: clone(state.puzzle),
     uncertain: [...state.uncertain],
+    cageUncertain: [...(state.cageUncertain || [])],
     needsReview: state.needsReview,
     notes: [...state.notes],
     source: state.puzzleSource,
@@ -11,6 +12,7 @@ export function captureEdit(state) {
 export function restoreEdit(state, snapshot) {
   state.puzzle = snapshot.puzzle;
   state.uncertain = new Set(snapshot.uncertain);
+  state.cageUncertain = new Set(snapshot.cageUncertain || []);
   state.needsReview = snapshot.needsReview;
   state.notes = snapshot.notes;
   state.puzzleSource = snapshot.source;

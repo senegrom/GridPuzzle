@@ -260,7 +260,7 @@ export function setupPhotoFlow({
         const canvas = await decodeFile(file);
         if (epoch === getJobId()) await acceptPhoto(canvas);
       } catch (error) {
-        fail(error);
+        if (epoch === getJobId()) fail(error);
       } finally {
         e.target.value = "";
       }
@@ -490,7 +490,8 @@ export function setupPhotoFlow({
       finish();
       remember();
       state.puzzle = found.puzzle;
-      state.uncertain = new Set(found.uncertain);
+      state.uncertain = new Set(found.cellUncertain ?? found.uncertain);
+      state.cageUncertain = new Set(found.cageUncertain || []);
       state.needsReview = found.needsReview;
       state.notes = found.notes;
       state.rectified = found.rectified;
@@ -499,7 +500,7 @@ export function setupPhotoFlow({
       state.photoCols = cols;
       state.selected = [];
       persist();
-      render();
+      render({ replaceDraft: true });
       $("photo-panel").hidden = true;
       status(
         "Puzzle read.",
@@ -509,6 +510,7 @@ export function setupPhotoFlow({
       if (
         $("auto-solve").checked &&
         !state.uncertain.size &&
+        !state.cageUncertain.size &&
         !state.needsReview &&
         state.puzzle.cells.some(Number.isInteger)
       )

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makePuzzle } from "../model.js";
 import { saveSession, restoreSession } from "../session.js";
+import { captureEdit, restoreEdit } from "../edit-history.js";
 function store() {
   const data = new Map();
   return { get: (k) => data.get(k), set: (k, v) => data.set(k, v), data };
@@ -54,4 +55,36 @@ test("Existing data-only autosaves migrate without executing any content", () =>
   assert.equal(restoreSession(storage).puzzle.type, "sudoku");
   storage.set("gridpuzzle-puzzle-v1", { type: "__import__" });
   assert.equal(restoreSession(storage), null);
+});
+test("cage and cell warnings remain independent through autosave and undo", () => {
+  const storage = store(), state = {
+    puzzle: makePuzzle("killersudoku", 4),
+    uncertain: new Set([0, 2]),
+    cageUncertain: new Set([0, 1]),
+    needsReview: true,
+    notes: [],
+    puzzleSource: 8,
+  };
+  const before = captureEdit(state);
+  state.cageUncertain.delete(0);
+  saveSession(storage, state);
+  const restored = restoreSession(storage);
+  assert.deepEqual(restored.uncertain, [0, 2]);
+  assert.deepEqual(restored.cageUncertain, [1]);
+  // Older versions still see every warning in their combined list.
+  assert.deepEqual(storage.get("gridpuzzle-session-v1").uncertain, [0, 2, 1]);
+  state.uncertain.clear();
+  restoreEdit(state, before);
+  assert.deepEqual([...state.uncertain], [0, 2]);
+  assert.deepEqual([...state.cageUncertain], [0, 1]);
+});
+test("legacy cage sessions retain ambiguous flags as cell warnings", () => {
+  const storage = store();
+  storage.set("gridpuzzle-session-v1", {
+    puzzle: makePuzzle("killersudoku", 4),
+    uncertain: [0, 1],
+    needsReview: true,
+  });
+  assert.deepEqual(restoreSession(storage).uncertain, [0, 1]);
+  assert.deepEqual(restoreSession(storage).cageUncertain, []);
 });

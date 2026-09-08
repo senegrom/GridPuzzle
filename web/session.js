@@ -7,7 +7,11 @@ const KEY = "gridpuzzle-session-v1";
 export function saveSession(storage, state) {
   storage.set(KEY, {
     puzzle: clone(state.puzzle),
-    uncertain: [...state.uncertain],
+    // Keep the combined list for older installations. New sessions distinguish
+    // cell readings from cage structure so either can be reviewed independently.
+    uncertain: [...new Set([...state.uncertain, ...(state.cageUncertain || [])])],
+    cellUncertain: [...state.uncertain],
+    cageUncertain: [...(state.cageUncertain || [])],
     needsReview: Boolean(state.needsReview),
     notes: [...state.notes],
   });
@@ -21,15 +25,19 @@ export function restoreSession(storage) {
   } catch {
     return null;
   } // Malformed/legacy state must not prevent startup.
-  const uncertain = Array.isArray(saved?.uncertain)
+  const indices = (values) => Array.isArray(values)
     ? [
         ...new Set(
-          saved.uncertain.filter(
+          values.filter(
             (i) => Number.isInteger(i) && i >= 0 && i < puzzle.cells.length,
           ),
         ),
       ]
     : [];
+  // Legacy flags have no reason attached: retain them as cell warnings rather
+  // than guessing that a cage edit is enough to confirm an unread digit.
+  const uncertain = indices(Array.isArray(saved?.cellUncertain) ? saved.cellUncertain : saved?.uncertain),
+    cageUncertain = indices(saved?.cageUncertain);
   const notes = Array.isArray(saved?.notes)
     ? saved.notes
         .filter((x) => typeof x === "string")
@@ -39,7 +47,8 @@ export function restoreSession(storage) {
   return {
     puzzle: clone(puzzle),
     uncertain,
-    needsReview: Boolean(saved?.needsReview) || uncertain.length > 0,
+    cageUncertain,
+    needsReview: Boolean(saved?.needsReview) || uncertain.length > 0 || cageUncertain.length > 0,
     notes,
   };
 }

@@ -123,3 +123,18 @@ test("zero and ambiguous cage targets remain incomplete until corrected", () => 
     assert.throws(() => checkSolveReady(result.puzzle), /target/);
   }
 });
+
+test("cage OCR retains the separate reasons a cell needs review", () => {
+  const result = proposal("kenken", [
+    { kind: "label", cell: 0, text: "12+" },
+    { kind: "value", cell: 0, text: "1", confidence: 60 },
+    { kind: "value", cell: 2, text: "" },
+    { kind: "value", cell: 4, text: "2" },
+  ]);
+  assert.deepEqual(result.cellUncertain, [0, 2]);
+  assert.equal(result.cageUncertain.length, 9);
+  assert.equal(result.uncertain.length, 9);
+  assert.equal(result.puzzle.cells[0], 1);
+  assert.equal(result.puzzle.cells[2], null);
+  assert.equal(result.puzzle.cells[4], 2);
+});

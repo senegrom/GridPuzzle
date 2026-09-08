@@ -31,4 +31,6 @@ This is not a physical-iPhone airplane-mode, autofocus, installed-camera or stor
 
 Coverage includes all twelve solver families, phone layouts, malformed imports, Str8ts black metadata, early cage/Kakuro validation, solve-ready checks, clue editing, stale-result invalidation, undo, no-op removal guards, bounded keyboard navigation, type changes preserving clues, cancellation/restart, pagehide cleanup, persistent scan uncertainty, denied-camera fallback, photo-overlay invalidation, cache recovery and absence of external runtime requests.
 
+Editor regressions check independent numeric/cage warnings through both edit forms, Undo and reload; JSON drafts through view changes and asynchronous solver results; accessible labels for solved cells and Kakuro targets; and superseded JSON import errors. Unit tests also exercise delayed photo decode failures after cancellation or replacement, while preserving errors from the active import.
+
 The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs unit/parse checks; normal Linux/Windows CI and forward compatibility remain independent.

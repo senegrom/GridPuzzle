@@ -214,6 +214,110 @@ async function scan(page, name, options) {
     );
   return result;
 }
+async function editorRegressions(page, report) {
+  await page.evaluate(async () => {
+    const { makePuzzle } = await import("./model.js");
+    const puzzle = makePuzzle("killersudoku", 4);
+    puzzle.cells[0] = 1;
+    puzzle.cells[2] = 3;
+    localStorage.setItem("gridpuzzle-session-v1", JSON.stringify({
+      puzzle, uncertain: [0, 1, 2, 3], cellUncertain: [0, 2],
+      cageUncertain: [0, 1, 2, 3], needsReview: true, notes: [],
+    }));
+  });
+  await page.reload();
+  await ready(page);
+  await page.selectOption("#edit-tool", "cage");
+  await page.click('[data-cell="0"]');
+  await page.click('[data-cell="1"]');
+  await page.fill("#cage-target", "3");
+  await page.click("#save-cage");
+  let review = await page.evaluate(() => window.testState());
+  assert.deepEqual(review.cellUncertain, [0, 2], "saving a cage must not confirm its digits");
+  assert.deepEqual(review.cageUncertain, [2, 3]);
+  assert.match(await page.locator('[data-cell="0"]').getAttribute("aria-label"), /check reading/);
+  await page.click("#undo");
+  review = await page.evaluate(() => window.testState());
+  assert.deepEqual(review.cageUncertain, [0, 1, 2, 3], "undo restores cage warnings");
+  await page.selectOption("#edit-tool", "value");
+  await page.click("#review-clues");
+  await page.click("#save-next");
+  assert.equal(await page.locator("#cell-title").innerText(), "Row 1 · Column 3");
+  await page.click("#close-cell");
+  review = await page.evaluate(() => window.testState());
+  assert.deepEqual(review.cellUncertain, [2]);
+  assert.deepEqual(review.cageUncertain, [0, 1, 2, 3], "saving a digit must not confirm its cage");
+  await page.reload();
+  await ready(page);
+  review = await page.evaluate(() => window.testState());
+  assert.deepEqual(review.cellUncertain, [2]);
+  assert.deepEqual(review.cageUncertain, [0, 1, 2, 3]);
+  report.checks.push("independent cell/cage review survives editing, undo and reload");
+
+  await page.selectOption("#puzzle-type", "sudoku");
+  await page.click("#example");
+  await page.click("#data-editor > summary");
+  const draft = JSON.parse(await page.inputValue("#json-data"));
+  draft.cells[2] = 4;
+  const text = JSON.stringify(draft);
+  await page.fill("#json-data", text);
+  await page.click("#clean-view");
+  assert.equal(await page.inputValue("#json-data"), text, "a view change preserves the JSON draft");
+  await page.click("#solve");
+  await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
+  assert.equal(await page.inputValue("#json-data"), text, "a solver result preserves the JSON draft");
+  assert.equal(await page.locator('[data-cell="2"] text').textContent(), "4");
+  assert.equal(await page.locator('[data-cell="2"]').getAttribute("aria-label"), "Row 1, column 3: solution 4");
+  assert.equal(await page.locator('[data-cell="0"]').getAttribute("aria-label"), "Row 1, column 1: 5");
+  await page.click("#apply-json");
+  assert.equal((await page.evaluate(() => window.testState().puzzle)).cells[2], 4);
+  assert.equal(await page.locator('[data-cell="2"]').getAttribute("aria-label"), "Row 1, column 3: 4");
+  await page.fill("#json-data", "{unfinished");
+  await page.click("#clean-view");
+  await page.click("#apply-json");
+  assert.equal(await page.inputValue("#json-data"), "{unfinished", "invalid drafts remain editable");
+  await page.click("#example");
+  assert.equal(JSON.parse(await page.inputValue("#json-data")).cells[2], null, "explicit loading starts a fresh draft");
+  report.checks.push("JSON drafts survive view/solver refreshes and apply explicitly");
+  report.checks.push("solved cells expose answers and distinguish printed clues");
+
+  await page.selectOption("#puzzle-type", "kakuro");
+  await page.click("#example");
+  for (const clue of await page.evaluate(() => window.testState().puzzle.clues)) {
+    const label = await page.locator(`[data-cell="${clue.cell}"]`).getAttribute("aria-label");
+    for (const direction of ["across", "down"])
+      if (clue[direction] != null) assert.ok(label.includes(`${direction} ${clue[direction]}`));
+  }
+  report.checks.push("Kakuro black-cell labels include their across/down targets");
+  await page.selectOption("#puzzle-type", "sudoku");
+  await page.click("#example");
+
+  // Delay the actual file-reading handler so a later UI action supersedes it.
+  await page.evaluate(() => {
+    const input = document.querySelector("#json-file");
+    const pending = window.pendingImport = { text: File.prototype.text, handler: input.onchange };
+    File.prototype.text = () => new Promise((resolve) => { pending.release = resolve; });
+    input.onchange = (event) => { pending.completed = pending.handler(event); };
+  });
+  try {
+    await page.setInputFiles("#json-file", { name: "old.json", mimeType: "application/json", buffer: Buffer.from("{invalid") });
+    await page.waitForFunction(() => Boolean(window.pendingImport.release));
+    await page.click("#example");
+    const status = await page.locator("#status").innerText();
+    await page.evaluate(async () => {
+      window.pendingImport.release("{invalid");
+      await window.pendingImport.completed;
+    });
+    assert.equal(await page.locator("#status").innerText(), status, "a superseded import cannot replace the current status");
+  } finally {
+    await page.evaluate(() => {
+      File.prototype.text = window.pendingImport.text;
+      document.querySelector("#json-file").onchange = window.pendingImport.handler;
+      delete window.pendingImport;
+    });
+  }
+  report.checks.push("superseded JSON import errors are ignored");
+}
 (async () => {
   for (let i = 0; i < 60; i++) {
     try {
@@ -302,6 +406,7 @@ async function scan(page, name, options) {
         true,
       );
       report.checks.push("save-and-next confirms only the edited cell");
+      await editorRegressions(page, report);
       // No OCR call should be needed to reject a blank photograph.
       const blank = await page.evaluate(() => {
         const c = document.createElement("canvas");

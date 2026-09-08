@@ -134,7 +134,8 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
   const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
     values = Array(rows * cols).fill(null),
     blackValueCells = new Set(),
-    uncertain = new Set();
+    uncertain = new Set(),
+    cageUncertain = new Set();
   for (const e of valueEntries) {
     if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
     if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
@@ -222,7 +223,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
         notes.push(
           `A cage covering ${cells.length} cells needs its boundary/target checked.`,
         );
-      cells.forEach((i) => uncertain.add(i));
+      cells.forEach((i) => cageUncertain.add(i));
       const operator = op.replace(/[xX×]/, "*").replace("÷", "/");
       if ((["-", "/"].includes(operator) && cells.length !== 2) ||
           (operator === "=" && cells.length !== 1)) {
@@ -253,7 +254,9 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
   if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
   return {
     puzzle,
-    uncertain: [...uncertain],
+    uncertain: [...new Set([...uncertain, ...cageUncertain])],
+    cellUncertain: [...uncertain],
+    cageUncertain: [...cageUncertain],
     needsReview,
     notes: [...new Set(notes)].slice(0, 8),
   };

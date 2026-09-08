@@ -27,6 +27,7 @@ const $ = (id) => document.getElementById(id),
 const state = {
   puzzle: makePuzzle(),
   uncertain: new Set(),
+  cageUncertain: new Set(),
   needsReview: false,
   notes: [],
   result: null,
@@ -44,7 +45,8 @@ const state = {
 };
 let worker = null,
   editing = 0,
-  focused = 0;
+  focused = 0,
+  renderedJson = "";
 const storage = {
   get: (key) => {
     try {
@@ -103,6 +105,9 @@ function typeControl() {
   const type = $("puzzle-type").value;
   applyType.hidden = type === "auto" || type === state.puzzle.type;
   applyType.textContent = `Use ${TYPES[type] || "this type"} for the current board`;
+}
+function reviewCells() {
+  return new Set([...state.uncertain, ...state.cageUncertain]);
 }
 $("puzzle-type").addEventListener("change", typeControl);
 function status(text, detail = "", kind = "info", progress = null) {
@@ -189,6 +194,7 @@ export function loadPuzzle(payload) {
   stopCamera();
   state.puzzle = p;
   state.uncertain.clear();
+  state.cageUncertain.clear();
   state.needsReview = false;
   state.notes = [];
   state.photo =
@@ -201,7 +207,7 @@ export function loadPuzzle(payload) {
   state.selected = [];
   focused = 0;
   persist();
-  render();
+  render({ replaceDraft: true });
   status(
     "Puzzle loaded.",
     `${TYPES[p.type]} · Tap any cell to edit its printed clue.`,
@@ -211,7 +217,9 @@ export function getState() {
   return {
     puzzle: clone(state.puzzle),
     result: clone(state.result),
-    uncertain: [...state.uncertain],
+    uncertain: [...reviewCells()],
+    cellUncertain: [...state.uncertain],
+    cageUncertain: [...state.cageUncertain],
     needsReview: state.needsReview,
     busy: tasks.busy,
   };
@@ -240,7 +248,8 @@ function drawBoard() {
     size = 72,
     margin = 5,
     sol = state.result?.solutions?.[state.solution],
-    bad = conflicts(p);
+    bad = conflicts(p),
+    flagged = reviewCells();
   focused = Math.min(focused, p.cells.length - 1);
   board.style.minWidth = `${Math.max(240, p.cols * 34)}px`;
   board.replaceChildren();
@@ -261,21 +270,38 @@ function drawBoard() {
     const classes = ["board-cell"];
     if (isBlack) classes.push("blocked");
     else if (given === null && Number.isInteger(value)) classes.push("answer");
-    if (state.uncertain.has(i)) classes.push("uncertain");
+    if (flagged.has(i)) classes.push("uncertain");
     if (bad.has(i)) classes.push("conflict");
     if (state.selected.includes(i)) classes.push("selected");
+    const clue =
+      p.type === "kakuro" && given === "#"
+        ? p.clues.find((q) => q.cell === i)
+        : null;
+    const description =
+      given === "#"
+        ? [
+            "blocked",
+            clue?.across != null ? `across ${clue.across}` : "",
+            clue?.down != null ? `down ${clue.down}` : "",
+          ].filter(Boolean).join(", ")
+        : value === null
+          ? "blank"
+          : `${isBlack ? "black clue " : given === null ? "solution " : ""}${value}`;
+    const review = [
+      state.uncertain.has(i) ? "check reading" : "",
+      state.cageUncertain.has(i) ? "check cage" : "",
+    ].filter(Boolean);
     const g = svg("g", {
       class: classes.join(" "),
       "data-cell": i,
       role: "button",
       tabindex: i === focused ? 0 : -1,
-      "aria-label": `Row ${r + 1}, column ${c + 1}: ${given === null ? "blank" : isBlack && Number.isInteger(given) ? `black clue ${given}` : given === "#" ? "blocked" : given}${state.uncertain.has(i) ? ", check reading" : ""}`,
+      "aria-label": [`Row ${r + 1}, column ${c + 1}: ${description}`, ...review].join(", "),
     });
     g.append(
       svg("rect", { x, y, width: size, height: size, class: "cell-hit" }),
     );
     if (given === "#" && p.type === "kakuro") {
-      const clue = p.clues.find((q) => q.cell === i);
       if (clue) {
         g.append(svg("path", { d: `M${x},${y}l72,72`, stroke: "#829b91" }));
         if (clue.across != null)
@@ -490,7 +516,7 @@ function drawOverlay() {
         ctx.fillText(String(sol.cells[i]), a.x, a.y);
       }
 }
-function render() {
+function render({ replaceDraft = false } = {}) {
   const p = state.puzzle;
   $("board-meta").textContent =
     `${TYPES[p.type]} · ${p.rows} × ${p.cols} · ${p.cells.filter(Number.isInteger).length} printed clues`;
@@ -510,7 +536,12 @@ function render() {
   $("cage-editor").hidden = $("edit-tool").value !== "cage";
   $("inequality-editor").hidden = $("edit-tool").value !== "inequality";
   $("cage-op").disabled = p.type === "killersudoku";
-  $("json-data").value = JSON.stringify(p, null, 2);
+  // Refresh pristine data, but do not discard a draft on a view change or an
+  // asynchronous solver result. Explicit puzzle loading starts a new draft.
+  if (replaceDraft || $("json-data").value === renderedJson) {
+    renderedJson = JSON.stringify(p, null, 2);
+    $("json-data").value = renderedJson;
+  }
   drawBoard();
   const overlay = canOverlay();
   $("photo-view").disabled = !overlay;
@@ -523,7 +554,7 @@ function render() {
   $("photo-view").setAttribute("aria-pressed", String(state.view === "photo"));
   if (overlay) drawOverlay();
   $("next-solution").hidden = (state.result?.solutions?.length || 0) < 2;
-  const review = state.uncertain.size || state.needsReview;
+  const review = reviewCells().size || state.needsReview;
   $("review-note").hidden = !review;
   $("review-clues").hidden = !state.uncertain.size;
   $("review-clues").textContent =
@@ -533,7 +564,10 @@ function render() {
   const checkMessage = state.uncertain.size
     ? `${state.uncertain.size} cells need checking. ${sourceAvailable ? "Tap a highlighted cell to compare it with the photograph." : "Check the highlighted clues against the original puzzle. Photos are not retained after closing the app."}`
     : "Confirm the puzzle type and structural clues.";
-  $("review-note").textContent = [checkMessage, ...state.notes].join("\n");
+  const cageMessage = state.cageUncertain.size
+    ? `${state.cageUncertain.size} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.`
+    : "";
+  $("review-note").textContent = [checkMessage, cageMessage, ...state.notes].filter(Boolean).join("\n");
   $("solve").textContent = review ? "Check & solve →" : "Solve puzzle →";
 }
 const boxDefault = boxShape;
@@ -560,6 +594,7 @@ applyType.onclick = () => {
     checkShape(next);
     mutate(() => {
       state.puzzle = next;
+      if (!isCage(type)) state.cageUncertain.clear();
       state.needsReview = Boolean(state.photo);
       state.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
@@ -752,7 +787,7 @@ $("save-cage").onclick = () => {
         target,
         op,
       });
-      cells.forEach((i) => state.uncertain.delete(i));
+      cells.forEach((i) => state.cageUncertain.delete(i));
       state.selected = [];
     });
     status(
@@ -813,12 +848,7 @@ $("undo").onclick = () => {
   const previous = state.history.pop();
   if (!previous) return;
   invalidate();
-  state.puzzle = previous.puzzle;
-  state.puzzleSource = previous.source;
-  state.uncertain = new Set(previous.uncertain);
-  state.needsReview = previous.needsReview;
-  state.notes = previous.notes;
-  state.selected = [];
+  restoreEdit(state, previous);
   persist();
   render();
   status("Last edit undone.");
@@ -827,9 +857,9 @@ $("stop").onclick = () => stopTask("Stopped.");
 function requestSolve() {
   try {
     checkSolveReady(state.puzzle);
-    if (state.uncertain.size || state.needsReview) {
+    if (reviewCells().size || state.needsReview) {
       $("confirm-text").textContent =
-        `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${state.uncertain.size} cells were highlighted for review.`;
+        `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${reviewCells().size} cells were highlighted for review.`;
       $("confirm-dialog").showModal();
     } else solveNow();
   } catch (e) {
@@ -844,6 +874,7 @@ function solveNow() {
     return;
   }
   state.uncertain.clear();
+  state.cageUncertain.clear();
   state.needsReview = false;
   state.notes = [];
   state.result = null;
@@ -1026,17 +1057,18 @@ $("save-photo").onclick = () => {
 };
 $("import-json").onclick = () => $("json-file").click();
 $("json-file").onchange = async (e) => {
+  let id = tasks.id;
   try {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 200000)
       throw Error("Puzzle files must be smaller than 200 KB.");
     stopTask();
-    const id = tasks.id;
+    id = tasks.id;
     const parsed = JSON.parse(await file.text());
     if (id === tasks.id) loadPuzzle(parsed);
   } catch (error) {
-    fail(error);
+    if (id === tasks.id) fail(error);
   } finally {
     e.target.value = "";
   }
@@ -1086,6 +1118,7 @@ try {
   if (saved) {
     state.puzzle = normalized(saved.puzzle);
     state.uncertain = new Set(saved.uncertain);
+    state.cageUncertain = new Set(saved.cageUncertain);
     state.needsReview = saved.needsReview;
     state.notes = saved.notes;
   }
