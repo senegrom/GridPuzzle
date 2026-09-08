@@ -232,7 +232,9 @@ def _kakuro(payload: tuple[str, ...]) -> Grid:
     size = _integer(payload[0], "Kakuro size")
     horizontal, vertical = _split_kakuro_sections(payload[1:], size)
 
-    valid_token = lambda token: token in {".", "B", "b"} or token.isascii() and token.isdigit()
+    def valid_token(token: str) -> bool:
+        return token in {".", "B", "b"} or (token.isascii() and token.isdigit())
+
     if any(
         not valid_token(token)
         for section in (horizontal, vertical)

@@ -142,3 +142,5 @@ node_modules/
 _site/
 _preview/
 browser-artifacts/
+# ruff
+.ruff_cache/
