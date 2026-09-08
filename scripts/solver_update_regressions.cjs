@@ -7,13 +7,18 @@ const assert = require("node:assert/strict");
 const source = fs.readFileSync("web/sw.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
-let build = first, held = [];
+let build = first;
 function files() {
   return {
     "index.html": "<!doctype html><title>Solver update regression</title>",
-    "solver-worker.js": `self.onmessage=async({data})=>{
+    "solver-worker.js": `let release;
+    self.onmessage=async({data})=>{
       try {
-        if(data==="start") await fetch("./runtime-ready");
+        if(data==="release") { release(); return; }
+        if(data==="start") await new Promise(resolve=>{
+          release=resolve;
+          self.postMessage({loading:true});
+        });
         const response=await fetch("./solver.${build}.zip");
         self.postMessage({status:response.status,body:await response.text()});
       } catch(error) { self.postMessage({error:error.message}); }
@@ -24,7 +29,6 @@ function files() {
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, "http://localhost").pathname;
   const path = pathname.replace(/^\/GridPuzzle\//, "") || "index.html";
-  if (path === "runtime-ready") { held.push(response); return; }
   const assets = files();
   let body;
   if (path === "sw.js") body = source.replace("__BUILD_ID__", build);
@@ -44,7 +48,6 @@ const server = createServer((request, response) => {
   const base = `http://127.0.0.1:${server.address().port}/GridPuzzle/`;
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     build = first;
-    held = [];
     const browser = await engine.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -62,12 +65,15 @@ const server = createServer((request, response) => {
         window.results = [];
         window.originalController = navigator.serviceWorker.controller;
         window.solver = new Worker("./solver-worker.js", { type: "module" });
-        window.solver.onmessage = ({ data }) => window.results.push(data);
+        window.solver.onmessage = ({ data }) => {
+          if (data.loading) window.loading = true;
+          else window.results.push(data);
+        };
         window.solver.postMessage("start");
       });
-      // The blocked request proves that the old dedicated worker has started.
-      for (let i = 0; i < 100 && !held.length; i++) await new Promise((resolve) => setTimeout(resolve, 50));
-      assert.equal(held.length, 1);
+      // Pause in the worker itself: an outstanding fetch through the old
+      // service worker would intentionally delay activation until it finishes.
+      await page.waitForFunction(() => window.loading === true);
       const other = await context.newPage();
       await other.goto(base);
       build = second;
@@ -75,7 +81,7 @@ const server = createServer((request, response) => {
       await other.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting));
       await other.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting.postMessage({ type: "ACTIVATE" }));
       await page.waitForFunction(() => navigator.serviceWorker.controller !== window.originalController);
-      held.splice(0).forEach((response) => response.end("ready"));
+      await page.evaluate(() => window.solver.postMessage("release"));
       await page.waitForFunction(() => window.results.length === 1);
       assert.deepEqual(await page.evaluate(() => window.results[0]), { status: 200, body: `verified solver ${first}` });
       // Prove the same old URL remains available without any network fallback.
@@ -91,7 +97,6 @@ const server = createServer((request, response) => {
       report.failure = error.stack;
       console.error(name, error);
     } finally {
-      held.splice(0).forEach((response) => response.end("closed"));
       await browser.close();
     }
   }

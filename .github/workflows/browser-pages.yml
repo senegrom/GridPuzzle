@@ -37,13 +37,14 @@ jobs:
         run: |
           npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
           npx playwright install --with-deps chromium webkit
+      - name: Cross-tab solver update regressions
+        run: node scripts/solver_update_regressions.cjs
       - name: Chromium and mobile WebKit acceptance tests
         run: node scripts/browser_smoke.cjs
       - name: Scanner variation, review and real-newspaper regressions
         run: |
           node scripts/browser_regressions.cjs
           node scripts/newspaper_regressions.cjs
-          node scripts/solver_update_regressions.cjs
       - name: Upload screenshots and test report
         if: always()
         uses: actions/upload-artifact@v7
