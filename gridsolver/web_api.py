@@ -110,7 +110,10 @@ def build_grid(payload):
         else:
             values.append(_integer(value, f'Cell {i + 1}',
                                    0 if kind == 'slitherlink' else 1, maximum))
-    coord = lambda i: divmod(i, cols)
+
+    def coord(i):
+        return divmod(i, cols)
+
     if kind in ('sudoku', 'killersudoku'):
         br = _integer(p.get('boxRows', 3), 'boxRows', 1, rows)
         bc = _integer(p.get('boxCols', 3), 'boxCols', 1, cols)

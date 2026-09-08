@@ -35,9 +35,9 @@ def test_multiple_and_no_solution():
 def test_dense_families(kind):
     extra = {}
     if kind in ('killersudoku', 'kenken'):
-        extra['cages'] = [dict(cells=[i], target=n, op='+') for i, n in enumerate(SQUARE)]
+        extra['cages'] = [{'cells': [i], 'target': n, 'op': '+'} for i, n in enumerate(SQUARE)]
     if kind == 'futoshiki':
-        extra['inequalities'] = [dict(less=0, greater=1)]
+        extra['inequalities'] = [{'less': 0, 'greater': 1}]
     p = puzzle(kind, cells=SQUARE.copy(), **extra)
     p['cells'][0] = None
     assert solve_payload(p)['solutions'][0]['cells'] == SQUARE
@@ -61,8 +61,8 @@ def test_slitherlink_zero_and_edge_encoding():
 
 def test_kakuro():
     p = puzzle('kakuro', 3, cells=['#','#','#', '#',1,None, '#',None,None], clues=[
-        dict(cell=1, down=4), dict(cell=2, down=6),
-        dict(cell=3, across=3), dict(cell=6, across=7)])
+        {'cell': 1, 'down': 4}, {'cell': 2, 'down': 6},
+        {'cell': 3, 'across': 3}, {'cell': 6, 'across': 7}])
     result = solve_payload(p)
     assert result['status'] == 'unique'
     assert result['solutions'][0]['cells'] == ['#','#','#', '#',1,2, '#',3,4]
@@ -77,9 +77,9 @@ def test_bad_dimensions(bad):
 @pytest.mark.parametrize('change', [
     {'type': 'auto'}, {'cells': [True] * 16}, {'cells': [0] * 16},
     {'rows': 3}, {'version': 2}, {'diagonal': True},
-    {'inequalities': [dict(less=0, greater=1)]},
+    {'inequalities': [{'less': 0, 'greater': 1}]},
     {'cells': ['#'] * 16}, {'boxRows': 3},
-    {'cages': [dict(cells=[0], target=1)]},
+    {'cages': [{'cells': [0], 'target': 1}]},
 ])
 def test_reject_silently_ignored_or_malformed_data(change):
     with pytest.raises(ValueError):
@@ -87,8 +87,8 @@ def test_reject_silently_ignored_or_malformed_data(change):
 
 
 def test_missing_and_overlapping_cages():
-    for cages in ([], [dict(cells=[0], target=1)],
-                  [dict(cells=[0,0], target=3)]):
+    for cages in ([], [{'cells': [0], 'target': 1}],
+                  [{'cells': [0,0], 'target': 3}]):
         with pytest.raises(ValueError):
             build_grid(puzzle('killersudoku', cages=cages))
 
