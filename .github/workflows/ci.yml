@@ -54,6 +54,9 @@ jobs:
           python -m pip wheel --no-deps . --wheel-dir dist
           python scripts/smoke_wheel.py --wheel-dir dist
 
+      - name: Lint with the pinned ruff rule set
+        run: python -m ruff check .
+
       - name: Compile Python sources
         run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
 

@@ -30,6 +30,7 @@ gridpuzzle = "run:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.16",
 ]
 
 [tool.setuptools]
@@ -47,3 +48,26 @@ xfail_strict = true
 markers = [
     "slow: very long-running tests (deselect with -m 'not slow')",
 ]
+
+[tool.ruff.lint]
+# Pinned so results do not drift with ruff's own default set. Everything here
+# is clean today; widen deliberately, with the fixes in the same commit.
+select = [
+    "E4", "E7", "E9", "F",  # pyflakes and the classic pycodestyle errors
+    "W",                    # pycodestyle warnings
+    "C4",                   # comprehension and literal simplifications
+    "SIM",                  # flake8-simplify
+    "RET",                  # return-statement hygiene
+    "A",                    # builtin shadowing
+    "DTZ",                  # naive datetimes
+    "G", "LOG",             # logging call hygiene
+    "ICN", "TID",           # import conventions and tidy imports
+    "PGH",                  # blanket noqa / type-ignore
+    "T10",                  # leftover debugger calls
+    "YTT",                  # sys.version misuse
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These harnesses put the repository root on sys.path before importing it.
+"tests/fish_rewrite_harness.py" = ["E402"]
+"tests/technique_stats_harness.py" = ["E402"]

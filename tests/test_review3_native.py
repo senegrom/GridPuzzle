@@ -120,8 +120,10 @@ def test_capped_prefix_ignores_unneeded_later_failure(monkeypatch):
         def submit(self, *args):
             self.count += 1
             future = Future()
-            if self.count == 1: future.set_result({"first"})
-            else: future.set_exception(RuntimeError("unneeded later failure"))
+            if self.count == 1:
+                future.set_result({"first"})
+            else:
+                future.set_exception(RuntimeError("unneeded later failure"))
             return future
         def terminate_workers(self): self.terminated = True
     pool = Pool()

@@ -136,3 +136,5 @@ test.py
 mypuz/
 _test/
 solve*.ipynb
+# ruff
+.ruff_cache/
