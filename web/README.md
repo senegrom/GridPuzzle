@@ -34,7 +34,7 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without unsupported browser multiprocessing.
 - Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
 - Local puzzle/settings persistence. Recognition uncertainty is persisted atomically; photographs and solver results are not.
-- Installable PWA icons, hash-verified offline preparation and a request for persistent browser storage.
+- Installable PWA icons, hash-verified offline preparation and a request for persistent browser storage. A banner at the top of the page announces a ready update; nothing reloads until the user chooses to.
 
 ## Recognition trust model
 

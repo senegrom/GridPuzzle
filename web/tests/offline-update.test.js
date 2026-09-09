@@ -50,6 +50,7 @@ function environment(t, { controlled = true, waiting = true } = {}) {
       await new Promise((resolve) => setImmediate(resolve));
       return {
         button: $("update-app"),
+        node: $,
         get reloads() { return reloads; },
         click() { enter(); $("update-app").onclick(); },
         activate(next = newWorker) {
@@ -105,4 +106,18 @@ test("initial service-worker control does not request an unnecessary reload", as
   tab.activate();
   assert.equal(tab.button.textContent, "Reload updated app");
   assert.equal(tab.reloads, 0);
+});
+
+test("the top-of-page banner mirrors the update control", async (t) => {
+  const env = environment(t, { controlled: false, waiting: false }), tab = await env.tab();
+  const $ = (id) => tab.node(id);
+  assert.equal($("update-banner").hidden, true);
+  env.registration.waiting = env.newWorker;
+  env.registration.dispatchEvent(new Event("updatefound"));
+  env.registration.installing.dispatchEvent(new Event("statechange"));
+  assert.equal($("update-banner").hidden, false);
+  assert.equal($("update-banner-button").textContent, "Update app & reload");
+  $("update-banner-button").onclick();
+  assert.deepEqual(env.requests, ["ACTIVATE"]);
+  assert.equal($("update-banner-button").disabled, true);
 });

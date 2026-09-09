@@ -336,6 +336,14 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
       "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
     );
   if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
+  // A scan that marks printed cells but reads none of them is an engine or
+  // version problem rather than a review task; say so, with the evidence a
+  // remote diagnosis needs.
+  const readDigits = valueEntries.filter((e) => values[e.cell] !== null).length;
+  if (valueEntries.length >= 3 && readDigits === 0)
+    notes.unshift(
+      `Recognition found ${valueEntries.length} printed marks but could not read any digit (${entries.filter((e) => e.text).length} of ${entries.length} regions returned text; app build __BUILD_ID__). Install the app update if one is offered, then scan again; otherwise retake the photo straight on, in even light.`,
+    );
   return {
     puzzle,
     uncertain: [...new Set([...uncertain, ...cageUncertain])],

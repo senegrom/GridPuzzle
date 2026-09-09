@@ -25,15 +25,23 @@ export function setupOffline($) {
     navigator.serviceWorker
       .register("./sw.js")
       .then(async (registration) => {
-        const updateButton = $("update-app");
+        // The button inside the collapsed offline section is easy to miss,
+        // so a banner at the top of the page mirrors it: a phone that never
+        // updates keeps every old recognition bug.
+        const updateButton = $("update-app"),
+          banner = $("update-banner"),
+          bannerButton = $("update-banner-button");
         let controller = navigator.serviceWorker.controller,
           needsReload = false,
           reloadRequested = false;
         const offerUpdate = () => {
-          updateButton.hidden = !registration.waiting && !needsReload;
+          const available = Boolean(registration.waiting) || needsReload;
+          updateButton.hidden = !available;
+          banner.hidden = !available;
           updateButton.textContent = registration.waiting
             ? "Update app & reload"
             : "Reload updated app";
+          bannerButton.textContent = updateButton.textContent;
         };
         navigator.serviceWorker.addEventListener("controllerchange", () => {
           const next = navigator.serviceWorker.controller;
@@ -42,7 +50,7 @@ export function setupOffline($) {
           if (reloadRequested) location.reload();
           else offerUpdate();
         });
-        updateButton.onclick = () => {
+        updateButton.onclick = bannerButton.onclick = () => {
           // Another tab may already have activated the waiting worker. Keep
           // this tab's work until its user chooses to reload the updated app.
           const waiting = registration.waiting;
@@ -51,7 +59,7 @@ export function setupOffline($) {
             return;
           }
           reloadRequested = true;
-          updateButton.disabled = true;
+          updateButton.disabled = bannerButton.disabled = true;
           waiting.postMessage({ type: "ACTIVATE" });
         };
         offerUpdate();

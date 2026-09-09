@@ -113,6 +113,21 @@ main {
   margin: auto;
   padding: 0 32px;
 }
+.update-banner {
+  box-sizing: border-box;
+  width: min(100% - 64px, 1156px);
+  margin: 4px auto 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #fff3d1;
+  border: 1px solid #e8c56a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
 .intro {
   padding: 48px 0 35px;
 }
