@@ -87,6 +87,34 @@ export function mapAtlas(data, count, columns, tile) {
   return readings;
 }
 
+// Independent readings of one digit vote. Unanimity of at least two readers
+// is treated as confident even when their individual scores are low, since
+// they fail in different ways; any disagreement keeps the review flag.
+export function voteDigit(readings) {
+  const present = readings.filter(
+    (r) => r && typeof r.text === "string" && /^\d+$/.test(r.text),
+  );
+  if (!present.length) return { text: "", confidence: 0, unanimous: false };
+  const support = new Map();
+  for (const r of present) {
+    const s = support.get(r.text) || { count: 0, confidence: 0 };
+    s.count++;
+    s.confidence = Math.max(
+      s.confidence,
+      Number.isFinite(r.confidence) ? r.confidence : 0,
+    );
+    support.set(r.text, s);
+  }
+  const [text, best] = [...support.entries()].sort(
+    (a, b) => b[1].count - a[1].count || b[1].confidence - a[1].confidence,
+  )[0];
+  return {
+    text,
+    confidence: best.confidence,
+    unanimous: best.count === present.length && present.length >= 2,
+  };
+}
+
 // Solid rules and faint L-shaped grid corners are not cage labels. The edge
 // score is measured against the glyph's bounding box, never the cage mask.
 export function isGridStroke({

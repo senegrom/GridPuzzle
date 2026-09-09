@@ -42,7 +42,7 @@ Automatic recognition is a proposal, not proof. A faint or cropped clue can look
 
 A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly.
 
-Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the single bounded Tesseract atlas call. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
+Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the bounded Tesseract atlas call. Every single-glyph digit is then re-read on its own, once from its binary crop and once from its grayscale crop, and the three readings vote: unanimity clears the review flag even at low individual scores, any disagreement keeps it. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
 
 On the 2026-09-07 real newspaper regressions, Chromium 153 and WebKit 26.6 both read the shaded Sudoku **24/24**. They both read the Str8ts **19/20** printed values, with the one missed clue explicitly flagged for review; both detect the Str8ts black-cell layout exactly and produce **zero unsafe unflagged discrepancies**. Generated regressions remain useful secondary baselines: Chromium reads all tested generated variants exactly, while the current WebKit perspective/shadow case reads 29/30 with the miss flagged.
 

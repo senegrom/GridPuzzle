@@ -1,5 +1,5 @@
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
-import { mapAtlas, atlasLayout } from "./ocr-map.js";
+import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 export function imageOf(canvas) {
   return canvas
@@ -89,6 +89,90 @@ export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeig
     }
   context.putImageData(pixels, 0, 0);
   return canvas;
+}
+const SAMPLE_HEIGHT = 64,
+  SAMPLE_PAD = 16,
+  SAMPLE_GRAY_LIMIT = 150;
+// Grayscale counterpart of digitCrop: same bounds, no binarization, dark
+// digit on light ground for black-cell clues too.
+export function grayCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
+  const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
+    row = Math.floor(entry.cell / cols),
+    col = entry.cell % cols,
+    minX = Math.max(0, Math.round((col + 0.08) * cellWidth)),
+    maxX = Math.min(imageWidth, Math.round((col + 0.92) * cellWidth)),
+    minY = Math.max(0, Math.round((row + 0.08) * cellHeight)),
+    maxY = Math.min(imageHeight, Math.round((row + 0.92) * cellHeight)),
+    x = Math.max(minX, entry.x - pad),
+    y = Math.max(minY, entry.y - pad),
+    width = Math.max(1, Math.min(maxX, entry.x + entry.w + pad) - x),
+    height = Math.max(1, Math.min(maxY, entry.y + entry.h + pad) - y),
+    canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d"),
+    pixels = context.createImageData(width, height);
+  for (let yy = 0; yy < height; yy++)
+    for (let xx = 0; xx < width; xx++) {
+      const source = g[(y + yy) * imageWidth + x + xx],
+        value = entry.invert ? 255 - source : source,
+        at = 4 * (yy * width + xx);
+      pixels.data[at] = pixels.data[at + 1] = pixels.data[at + 2] = value;
+      pixels.data[at + 3] = 255;
+    }
+  context.putImageData(pixels, 0, 0);
+  return canvas;
+}
+function sampleOf(source) {
+  const scale = SAMPLE_HEIGHT / source.height,
+    canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(source.width * scale)) + 2 * SAMPLE_PAD;
+  canvas.height = SAMPLE_HEIGHT + 2 * SAMPLE_PAD;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(source, SAMPLE_PAD, SAMPLE_PAD, canvas.width - 2 * SAMPLE_PAD, SAMPLE_HEIGHT);
+  return canvas.toDataURL("image/png");
+}
+// Single-glyph digits get independent single-character readings of their
+// binary and grayscale crops. Wide crops are multi-digit clues, which the
+// single-character mode cannot read; they keep the atlas reading.
+export function digitSamples(entries, crops, g, w, h, cw, ch, cols) {
+  const digits = [...crops.keys()].filter((i) => {
+    const crop = crops.get(i);
+    return crop.width <= crop.height * 0.85;
+  });
+  const withGray = digits.length <= SAMPLE_GRAY_LIMIT,
+    singles = [];
+  for (const i of digits) {
+    singles.push({ index: i, kind: "binary", png: sampleOf(crops.get(i)) });
+    if (withGray)
+      singles.push({
+        index: i,
+        kind: "gray",
+        png: sampleOf(grayCrop(entries[i], g, w, h, cw, ch, cols)),
+      });
+  }
+  return singles;
+}
+// The atlas reading and the single-character readings vote per digit. A
+// digit nobody could read keeps the atlas result, which downstream flags.
+export function applyDigitVotes(entries, singles = []) {
+  const byIndex = new Map();
+  for (const single of singles) {
+    if (!Number.isInteger(single?.index) || !entries[single.index]) continue;
+    if (!byIndex.has(single.index)) byIndex.set(single.index, []);
+    byIndex.get(single.index).push(single);
+  }
+  for (const [i, reads] of byIndex) {
+    const entry = entries[i],
+      vote = voteDigit([{ text: entry.text, confidence: entry.confidence }, ...reads]);
+    if (!vote.text) continue;
+    entry.text = vote.text;
+    entry.confidence = vote.unanimous ? Math.max(90, vote.confidence) : 0;
+  }
 }
 function componentsForCages(mask, w, h, rows, cols, type) {
   const cw = w / cols,
@@ -362,8 +446,9 @@ export class Scanner {
       throw Error(
         "No printed clues found. Adjust the crop, dimensions or lighting.",
       );
-    // One bounded atlas call, not separate OCR calls for every cell. The
-    // sparse-text mode and character boxes preserve the original clue slots.
+    // One bounded atlas call for every region, plus cheap single-character
+    // re-reads of the digits so that three readings can vote. The sparse-text
+    // mode and character boxes preserve the original clue slots.
     const { tile, columns, rows: atlasRows } = atlasLayout(entries.length),
       atlas = document.createElement("canvas");
     atlas.width = columns * tile;
@@ -383,6 +468,7 @@ export class Scanner {
       bd.data[4 * i + 3] = 255;
     }
     bw.getContext("2d").putImageData(bd, 0, 0);
+    const crops = new Map();
     entries.forEach((e, i) => {
       const isDigit = ["value", "blackvalue"].includes(e.kind),
         source = isDigit
@@ -403,7 +489,10 @@ export class Scanner {
       if (!isDigit && e.invert) ctx.filter = "invert(1)";
       ctx.drawImage(source, sx, sy, sw, sh, x, y, dw, dh);
       ctx.restore();
+      if (isDigit) crops.set(i, source);
     });
+    const singles = digitSamples(entries, crops, g, w, h, cw, ch, cols);
+    check();
     onProgress("Loading printed-clue recognition…", null);
     const blob = await new Promise((resolve, reject) =>
       atlas.toBlob(
@@ -419,7 +508,7 @@ export class Scanner {
     check();
     const data = await this._request(
       "ocr-host-worker.js",
-      { png },
+      { png, singles },
       onProgress,
       "classic",
     );
@@ -429,6 +518,7 @@ export class Scanner {
       e.text = readings[i].text;
       e.confidence = readings[i].confidence;
     });
+    applyDigitVotes(entries, data.singles);
     return {
       ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h }, type, rows, cols),
       rectified,
