@@ -435,6 +435,11 @@ async function cameraOwnershipRegressions(page, report) {
   // Controlled media and queued timers exercise the real application's task
   // wiring in both engines, without depending on CI camera hardware.
   await page.evaluate(() => {
+    // Some WebKit ports (Windows) expose no media capture at all; give
+    // them the same stub surface so the lifecycle check still runs.
+    const installedMedia = !navigator.mediaDevices;
+    if (installedMedia)
+      Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {} });
     const video = document.querySelector("#video"), media = navigator.mediaDevices;
     const original = Object.getOwnPropertyDescriptor(media, "getUserMedia");
     const timeout = window.setTimeout;
@@ -454,6 +459,7 @@ async function cameraOwnershipRegressions(page, report) {
       delete video.play;
       if (original) Object.defineProperty(media, "getUserMedia", original);
       else delete media.getUserMedia;
+      if (installedMedia) delete navigator.mediaDevices;
       delete window.cameraTest;
     };
   });
