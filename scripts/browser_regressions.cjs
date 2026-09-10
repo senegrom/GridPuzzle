@@ -323,6 +323,26 @@ async function layoutAndKeyboardRegressions(page, report) {
     assert.deepEqual(await selectedCells(), []);
   }
   report.checks.push("keyboard Enter/Space selection, arrows, deselection and saving work for cages and inequalities");
+
+  await page.selectOption("#puzzle-type", "sudoku");
+  await page.click("#example");
+  await page.selectOption("#edit-tool", "value");
+  await page.locator('[data-cell="10"]').focus();
+  await page.keyboard.press("Enter");
+  await page.fill("#cell-value", "2");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator("#cell-dialog").isVisible(), false);
+  assert.equal((await page.evaluate(() => window.testState().puzzle)).cells[10], 2);
+  assert.equal(await focusedCell(), "10", "saving a clue restores focus to its rendered cell");
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await focusedCell(), "11", "arrows continue navigating after saving a clue");
+  await page.keyboard.press("Enter");
+  await page.click("#clear-cell");
+  assert.equal(await page.locator("#cell-dialog").isVisible(), false);
+  assert.equal(await focusedCell(), "11", "clearing a clue restores focus to its rendered cell");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await focusedCell(), "20", "arrows continue navigating after clearing a clue");
+  report.checks.push("saving and clearing clues return keyboard focus to the board");
 }
 async function importedBoardTypeRegressions(page, report) {
   for (const [size, boxes, expected] of [
@@ -658,6 +678,11 @@ async function confirmationRegressions(page, report) {
         await page.locator("#cell-title").innerText(),
         "Row 1 · Column 2",
       );
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.id),
+        "cell-value",
+        "Save & next keeps focus in the next clue editor",
+      );
       assert.deepEqual(
         (await page.evaluate(() => window.testState())).uncertain,
         [1],
@@ -670,6 +695,18 @@ async function confirmationRegressions(page, report) {
       assert.equal(
         (await page.evaluate(() => window.testState())).needsReview,
         true,
+      );
+      assert.equal(await page.locator("#cell-dialog").isVisible(), false);
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute("data-cell")),
+        "1",
+        "finishing guided review restores focus to the last edited cell",
+      );
+      await page.keyboard.press("ArrowRight");
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute("data-cell")),
+        "2",
+        "arrows continue navigating after guided review",
       );
       report.checks.push("save-and-next confirms only the edited cell");
       await layoutAndKeyboardRegressions(page, report);

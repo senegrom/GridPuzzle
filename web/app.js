@@ -699,6 +699,9 @@ function saveCell(advance = false) {
       state.uncertain.delete(editing);
     });
     $("cell-dialog").close();
+    // Rendering replaced the dialog's original focus target. Restore the
+    // edited cell before any Save & next dialog takes focus again.
+    $("board").querySelector(`[data-cell="${editing}"]`)?.focus();
     status("Clue saved.", "The previous solution has been cleared.");
     if (advance) {
       const next = nextReviewCell(state.uncertain, editing);
