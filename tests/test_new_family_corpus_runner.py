@@ -72,6 +72,7 @@ def test_main_writes_report_and_fails_for_regressions(
     report = {
         "family": "hidato",
         "status_counts": {"unique": 1, "timeout": 1, "unsupported_variant": 1},
+        "accepted_timeouts": ["Examples/Hidato/reviewed-case.clp"],
         "cases": [],
     }
     monkeypatch.setattr(corpus, "run_corpus", lambda **kwargs: report)
@@ -84,6 +85,7 @@ def test_main_writes_report_and_fails_for_regressions(
     # errors and solution-count regressions each fail the run on their own
     for failing_status in ("error", "unsatisfiable", "multiple"):
         report["status_counts"] = {"unique": 1, failing_status: 1}
+        report["accepted_timeouts"] = []
         assert corpus.main(("--family", "hidato")) == 1
 
 

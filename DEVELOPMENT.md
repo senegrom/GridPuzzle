@@ -133,6 +133,10 @@ Extension output validation uses an explicit depth-first stack and a shared
 4096-item budget. Cycles are detected along the current ancestor path only;
 a shared child is validated again with each sibling's inherited guarantees.
 Valid chains within the budget must not depend on Python's recursion limit.
+Detached state is checked after lazy output iteration and guarantee metadata
+normalization, and parent state is rechecked after the complete child traversal.
+An empty iterator or a child metadata hook must not invalidate a state after
+its last compatibility check.
 
 **Given/candidate consistency:** a nonempty candidate set that excludes an
 existing given is a contradiction. Basic propagation also narrows expanded
@@ -199,9 +203,34 @@ Corpus reports distinguish:
 - `unsupported_variant`;
 - `error`.
 
-Timeouts and explicitly classified historical variants do not fail the matrix. Unexpected parser or solver errors do — and so do `unsatisfiable` and `multiple`, because the retained corpus consists of unique-solution puzzles, making either count a solver soundness regression. A missing or empty corpus directory (wrong `--root`, empty shard) fails instead of reporting a green no-op. Non-standard Mebane Slitherlink files with additional constraints are reported explicitly rather than silently solved as ordinary Slitherlink.
+Unexpected timeouts, parser/solver errors, `unsatisfiable`, and `multiple` fail
+the corpus matrix. The retained supported corpus consists of unique-solution
+puzzles, so either wrong solution count is a soundness regression. Every shard
+must also complete at least one uniquely solved case: an all-timeout or
+all-unsupported run cannot pass. Missing or empty corpus directories and zero
+`max_cases` fail rather than reporting a green no-op. Non-standard Mebane
+Slitherlink files with additional constraints remain explicitly classified,
+not silently solved as ordinary Slitherlink.
 
-Run a local shard with:
+There are **no timeout exemptions by default**. Extended CI explicitly supplies
+`--timeout-baseline benchmarks/corpus_timeout_baseline.json`. This reviewed
+baseline names exact existing corpus paths, gives each a reason, records the
+supporting run, and expires within 31 days of review. Its timeout must match the
+requested case timeout. Expired, future-dated, malformed, duplicate, missing-file,
+or out-of-repository entries fail before cases run. Never renew the dates
+without reviewing fresh reports and removing recovered cases.
+
+Reports retain the raw `timeout` status and separately list `accepted_timeouts`,
+`unexpected_timeouts`, and `resolved_timeouts`. The latter identifies previously
+slow cases that completed uniquely, for baseline cleanup. The initial seven
+Slitherlink allowances were verified against the September 2 run's four shard
+artifacts, not newly measured on September 10. All expire on October 10, 2026.
+Case reports are written before the runner returns a regression failure; invalid
+configuration fails before launching cases. Missing report artifacts fail the
+upload step. Changes anywhere in `gridsolver/`, the corpus runner, its policy
+baseline, or the related regression tests trigger extended CI on `master`.
+
+Run a local shard with the same reviewed exceptions as CI:
 
 ```bash
 python scripts/run_new_family_corpus.py \
@@ -209,8 +238,11 @@ python scripts/run_new_family_corpus.py \
   --shard-index 0 \
   --shard-count 4 \
   --case-timeout 60 \
+  --timeout-baseline benchmarks/corpus_timeout_baseline.json \
   --output hidato-0.json
 ```
+
+Omit `--timeout-baseline` for a strict run in which every timeout fails.
 
 ## Extension transaction boundary
 
@@ -223,6 +255,13 @@ changes are rolled back before canonical outputs are committed. Sandboxes
 restore constraint sets by reference, so cleanup never reruns a failing rule
 hash or equality method. Ordinary speculative trails retain their existing
 retryable rollback semantics.
+
+The three derived cache dictionaries start empty inside each extension sandbox.
+Cache factories rebuild sandbox-owned structures on demand; a shallow dictionary
+copy would leak nested list/set mutations to the parent, while a generic deep
+copy could execute arbitrary extension copy hooks. Rollback restores the exact
+parent dictionaries and cached object identities. This does not change the
+built-in rule fast path or ordinary speculative cache policy.
 
 Rule additions and source removal are prepared as one structural transition,
 including every extension hash and collision check. Canonical guarantees and
