@@ -11,6 +11,7 @@ import {
   checkShape,
   normalizePuzzle,
   changePuzzleType,
+  fitBlackReadings,
   conflicts,
   isCage,
   boxShape,
@@ -37,6 +38,7 @@ const state = {
   puzzle: makePuzzle(),
   layout: null,
   uncertain: new Set(),
+  blackReadings: [],
   cageUncertain: new Set(),
   needsReview: false,
   notes: [],
@@ -214,6 +216,7 @@ function mutate(fn) {
   try {
     fn();
     checkShape(state.puzzle);
+    state.blackReadings = fitBlackReadings(state.puzzle, state.blackReadings);
     state.play = fitPlay(state.puzzle, state.play);
     state.hints = new Set(
       [...state.hints].filter((i) => Number.isInteger(state.play[i])),
@@ -235,6 +238,7 @@ export function loadPuzzle(payload) {
   state.puzzle = p;
   setLayout(p);
   state.uncertain.clear();
+  state.blackReadings = [];
   state.cageUncertain.clear();
   state.needsReview = false;
   state.notes = [];
@@ -265,6 +269,7 @@ export function getState() {
     result: clone(state.result),
     uncertain: [...reviewCells()],
     cellUncertain: [...state.uncertain],
+    blackReadings: clone(state.blackReadings),
     cageUncertain: [...state.cageUncertain],
     needsReview: state.needsReview,
     busy: tasks.busy,
@@ -640,11 +645,11 @@ const boxDefault = boxShape;
 applyType.onclick = () => {
   try {
     const type = $("puzzle-type").value,
-      next = changePuzzleType(state.puzzle, type);
+      next = changePuzzleType(state.puzzle, type, state.blackReadings);
     mutate(() => {
       state.puzzle = next;
       if (!isCage(type)) state.cageUncertain.clear();
-      state.needsReview = Boolean(state.photo);
+      state.needsReview = state.needsReview || Boolean(state.photo) || state.uncertain.size > 0;
       state.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
       ];
@@ -652,7 +657,7 @@ applyType.onclick = () => {
     });
     status(
       `Using ${TYPES[type]}.`,
-      "Printed values are unchanged. Check the rules before solving.",
+      "Printed clues and retained black-cell readings are preserved. Check the rules before solving.",
     );
   } catch (error) {
     fail(error);
@@ -741,6 +746,7 @@ function saveCell(advance = false) {
     mutate(() => {
       state.puzzle = next;
       state.uncertain.delete(editing);
+      state.blackReadings = state.blackReadings.filter((entry) => entry.cell !== editing);
     });
     $("cell-dialog").close();
     // Rendering replaced the dialog's original focus target. Restore the
@@ -1194,6 +1200,7 @@ function solveNow() {
     return;
   }
   state.uncertain.clear();
+  state.blackReadings = [];
   state.cageUncertain.clear();
   state.needsReview = false;
   state.notes = [];
@@ -1416,6 +1423,7 @@ try {
   if (saved) {
     state.puzzle = normalizePuzzle(saved.puzzle);
     state.uncertain = new Set(saved.uncertain);
+    state.blackReadings = saved.blackReadings;
     state.cageUncertain = new Set(saved.cageUncertain);
     state.needsReview = saved.needsReview;
     state.notes = saved.notes;

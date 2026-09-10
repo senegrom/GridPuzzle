@@ -1,10 +1,10 @@
 # GridPuzzle phone scanner
 
-GridPuzzle includes an installable, camera-first static web app, built and deployed from `master`, at:
+The `master` branch provides an installable, camera-first static web app at:
 
 https://senegrom.github.io/GridPuzzle/
 
-Recognition and the complete Python GridPuzzle solver run on-device. Photographs are not uploaded to a recognition service or remote solver.
+Recognition and the complete Python GridPuzzle solver run on-device. Photographs are not uploaded to a recognition service or remote solver. The scanner is integrated into `master`; only `master` publishes the tested Pages app.
 
 ## Build and deploy
 
@@ -52,6 +52,24 @@ Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identif
 
 Digit cleanup retains neighbouring glyphs in multi-digit numbers and preserves ink in pure black-and-white scans. Invalid Str8ts values and Kakuro targets become highlighted blanks for correction. An incompatible cage reading leaves its cells uncovered; missing or ambiguous targets remain unset. These incomplete structures are editable, and Solve requires their correction rather than accepting an invented operator or target.
 
+## Photo imports and retained readings
+
+JPEG, PNG and WebP dimensions are checked before decoding. WebP lossy,
+lossless and extended headers are supported. Unrecognized or incomplete
+headers are rejected with an export-to-JPEG/PNG/WebP message rather than
+using compressed byte count as a decoded-pixel budget. The app requests
+resized bitmaps when available, refuses images over 120 megapixels, and
+refuses full-image fallback over 24 megapixels. Decoder-internal memory
+use is browser-dependent; these checks are not a physical-device memory guarantee.
+
+A numbered black-cell reading that cannot be represented by a proposed
+Hidato/Kakuro type remains highlighted and is retained in editor/session
+metadata, separately from puzzle JSON. Choosing Str8ts restores compatible
+numbered clues. Saving that cell explicitly or confirming the transcription
+clears the pending evidence; Undo restores it with the prior edit.
+Find grid preserves puzzle edit history and does not discard the old crop
+or mapping on failure or cancellation.
+
 ## Data contract
 
 ```json
@@ -70,6 +88,8 @@ Digit cleanup retains neighbouring glyphs in multi-digit numbers and preserves i
 
 Cells are zero-based row-major. `null` is blank; `"#"` is a blocked/blank-black cell where the family supports it; Slitherlink `0` is a real face clue. Str8ts uses `black` as a distinct list of black-cell indices; an index in `black` may contain either `"#"` or an integer printed on that black cell. Cages use `{ "cells": [0,1], "target": 3, "op": "+" }`; inequalities use `{ "less": 0, "greater": 1 }`; a Kakuro clue on a blocked cell can use `{ "cell": 0, "across": 16, "down": 23 }`.
 
+Omitting a cage operator defaults to `+`; explicit `null` is invalid in both JavaScript and Python.
+
 The browser rejects malformed dimensions, boxes, Str8ts black metadata, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become solve requests. Incomplete cage coverage and missing OCR targets remain editable states, but **Solve** performs a solve-ready check before Pyodide starts. The Python adapter remains the authoritative final boundary.
 
 The 25×25 browser limit is a phone resource policy, not a native solver limit. Str8ts itself is limited to square 2×2 through 9×9 boards. A deadline/cancellation means unfinished, never unsatisfiable or unique.
@@ -83,6 +103,7 @@ The startup status is a cheap presence check. **Download for offline use** perfo
 ## Testing
 
 - `tests/test_web_api.py` verifies the Python/browser data contract; `tests/test_str8ts.py` verifies Str8ts street semantics and the uniquely solved newspaper puzzle.
+- `scripts/scanner_repair_regressions.cjs` checks retained black clues, reload/undo, failed re-detection, import pixel limits and cage-operator validation in Chromium and mobile WebKit.
 - `web/tests/` covers geometry, classification, OCR mapping/preprocessing, cache recovery, worker lifecycle, malformed input, type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
 - `scripts/browser_smoke.cjs` exercises all twelve puzzle families through the real Python/Pyodide solver in Chromium and WebKit.
 - `scripts/browser_regressions.cjs` exercises generated OCR/perspective/review regressions.

@@ -40,7 +40,7 @@ function photoImports(t) {
     async choose(id = "photo-file") {
       const request = { started: deferred(), decode: deferred() };
       queue.push(request);
-      const input = { files: [new Blob(["undecodable image"])], value: "photo" };
+      const input = { files: [new Blob([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,16,0,0,0,16])])], value: "photo" };
       const completed = $(id).onchange({ target: input });
       await request.started.promise;
       return { completed, reject: request.decode.reject, input };

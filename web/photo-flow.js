@@ -1,5 +1,6 @@
-import { TYPES, checkShape, fitPlay, makePuzzle } from "./model.js";
+import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { validQuad } from "./geometry.js";
+import { sniffDimensions } from "./image-dimensions.js";
 
 export function setupPhotoFlow({
   $,
@@ -143,51 +144,7 @@ export function setupPhotoFlow({
   $("take-photo").onclick = () => takePhoto();
   $("choose-photo").onclick = () => $("photo-file").click();
   $("native-camera").onclick = () => $("native-file").click();
-  const MAX_SIDE = 1600,
-    JPEG_FRAME_MARKERS = new Set([
-      0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
-      0xcf,
-    ]);
-  // Stored pixel dimensions from a PNG header or the first JPEG frame header;
-  // null for other formats. Orientation metadata is not applied here.
-  function sniffDimensions(bytes) {
-    if (
-      bytes.length >= 24 &&
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47
-    ) {
-      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
-      return { width: view.getUint32(16), height: view.getUint32(20) };
-    }
-    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
-    for (let i = 2; i + 9 < bytes.length; ) {
-      if (bytes[i] !== 0xff) {
-        i++;
-        continue;
-      }
-      const marker = bytes[i + 1];
-      if (marker === 0xff) {
-        i++;
-        continue;
-      }
-      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
-        i += 2;
-        continue;
-      }
-      if (marker === 0xd9 || marker === 0xda) return null;
-      const length = (bytes[i + 2] << 8) | bytes[i + 3];
-      if (length < 2) return null;
-      if (JPEG_FRAME_MARKERS.has(marker))
-        return {
-          height: (bytes[i + 5] << 8) | bytes[i + 6],
-          width: (bytes[i + 7] << 8) | bytes[i + 8],
-        };
-      i += 2 + length;
-    }
-    return null;
-  }
+  const MAX_SIDE = 1600;
   function fit(width, height) {
     const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
     return [
@@ -211,8 +168,10 @@ export function setupPhotoFlow({
     if (file.size > 30 * 1024 * 1024)
       throw Error("Please choose a photo smaller than 30 MB.");
     const head = new Uint8Array(await file.slice(0, 512 * 1024).arrayBuffer()),
-      dimensions = sniffDimensions(head),
-      pixels = dimensions ? dimensions.width * dimensions.height : null;
+      dimensions = sniffDimensions(head, file.size);
+    if (!dimensions)
+      throw Error("The photo dimensions could not be checked safely. Export it as JPEG, PNG or WebP, then try again.");
+    const pixels = dimensions.width * dimensions.height;
     if (dimensions && (dimensions.width < 1 || dimensions.height < 1))
       throw Error("The image is empty.");
     if (pixels > 120e6)
@@ -242,7 +201,7 @@ export function setupPhotoFlow({
     }
     // A full decode is the only remaining route; refuse sizes that can
     // exhaust phone memory instead of crashing the page.
-    if (pixels > 24e6 || (!dimensions && file.size > 10 * 1024 * 1024))
+    if (pixels > 24e6)
       throw Error(
         "This browser cannot downscale this large photo safely. Crop it in your photo app first, then try again.",
       );
@@ -331,11 +290,17 @@ export function setupPhotoFlow({
     state.result = null;
     $("photo-panel").hidden = false;
     render();
+    await detectPhoto(canvas, auto);
+  }
+  // Re-detection is not adoption of a new photograph or a puzzle edit. Keep
+  // undo history and the old crop/mapping intact until a current result exists.
+  async function detectPhoto(canvas, auto = false) {
     const id = begin();
     status("Finding the grid…", "Photo processing stays on this device.");
     try {
       const found = await scanner.detect(canvas);
       if (id !== getJobId()) return;
+      clearPhotoMapping();
       state.corners = found.corners;
       finish();
       if (found.rows && found.cols) {
@@ -373,7 +338,7 @@ export function setupPhotoFlow({
     }
   }
   $("detect-photo").onclick = () => {
-    if (state.photo) void acceptPhoto(state.photo);
+    if (state.photo) return detectPhoto(state.photo);
   };
   $("rotate-photo").onclick = () => {
     if (!state.photo) return;
@@ -535,7 +500,11 @@ export function setupPhotoFlow({
       state.play = fitPlay(found.puzzle, []);
       state.hints = new Set();
       state.playFeedback = state.playSolution = null;
-      state.uncertain = new Set(found.cellUncertain ?? found.uncertain);
+      state.blackReadings = fitBlackReadings(found.puzzle, found.blackReadings);
+      state.uncertain = new Set([
+        ...(found.cellUncertain ?? found.uncertain),
+        ...state.blackReadings.map((entry) => entry.cell),
+      ]);
       state.cageUncertain = new Set(found.cageUncertain || []);
       const needsBoxReview = reviewBoxes &&
         ["sudoku", "killersudoku"].includes(found.puzzle.type);

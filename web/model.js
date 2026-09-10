@@ -163,7 +163,7 @@ export function checkShape(p) {
     if(reached.size!==area.size) throw Error("Cage cells must be orthogonally connected.");
     if (cage.target != null && (!Number.isSafeInteger(cage.target) || cage.target < 1 || cage.target > 1e12))
       throw Error("Invalid cage target.");
-    const op=cage.op??"+";
+    const op=cage.op === undefined ? "+" : cage.op;
     if (!["+", "-", "*", "/", "="].includes(op)) throw Error("Invalid cage operator.");
     if(p.type==="killersudoku"&&op!=="+") throw Error("Killer Sudoku cages must be sums.");
     if(["-","/"].includes(op)&&cage.cells.length!==2) throw Error("Difference and division cages require exactly two cells.");
@@ -208,9 +208,25 @@ export function normalizePuzzle(p) {
     black: clone(p.black || []),
   };
 }
+// Pending black-cell OCR evidence is separate from the strict puzzle contract.
+// Rebuild bounded data-only entries; never overwrite a manually edited cell.
+export function fitBlackReadings(p, readings) {
+  if (!["hidato", "kakuro"].includes(p.type) || !Array.isArray(readings)) return [];
+  const seen = new Set(), fitted = [];
+  for (const entry of readings.slice(0, p.cells.length)) {
+    const cell = entry?.cell, value = entry?.value;
+    if (!Number.isInteger(cell) || cell < 0 || cell >= p.cells.length ||
+        p.cells[cell] !== "#" || seen.has(cell) ||
+        !Number.isInteger(value) || value < 1 || value > 999) continue;
+    seen.add(cell);
+    fitted.push({ cell, value });
+  }
+  return fitted;
+}
+
 // Explicit editor action, not import normalization: preserve clues and reject
 // incompatible structures instead of silently dropping them.
-export function changePuzzleType(p, type) {
+export function changePuzzleType(p, type, blackReadings = []) {
   checkShape(p);
   if (!Object.hasOwn(TYPES, type))
     throw Error("Select an explicit puzzle type.");
@@ -232,6 +248,9 @@ export function changePuzzleType(p, type) {
     // Automatic recognition can propose Hidato for a Str8ts board without
     // numbered black clues. Its # cells already locate the black separators.
     next.black = next.cells.flatMap((value, i) => value === "#" ? [i] : []);
+  if (type === "str8ts" && p.type !== "str8ts")
+    for (const { cell, value } of fitBlackReadings(p, blackReadings))
+      if (value <= p.rows) next.cells[cell] = value;
   next.type = type;
   checkShape(next);
   return next;

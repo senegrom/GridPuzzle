@@ -1,4 +1,4 @@
-import { checkShape, clone, fitPlay } from "./model.js";
+import { checkShape, clone, fitPlay, fitBlackReadings } from "./model.js";
 const KEY = "gridpuzzle-session-v1";
 
 // Persist the transcription AND its uncertainty atomically. Never serialize
@@ -11,6 +11,7 @@ export function saveSession(storage, state) {
     // cell readings from cage structure so either can be reviewed independently.
     uncertain: [...new Set([...state.uncertain, ...(state.cageUncertain || [])])],
     cellUncertain: [...state.uncertain],
+    blackReadings: fitBlackReadings(state.puzzle, state.blackReadings),
     cageUncertain: [...(state.cageUncertain || [])],
     needsReview: Boolean(state.needsReview),
     notes: [...state.notes],
@@ -44,6 +45,9 @@ export function restoreSession(storage) {
     cageUncertain = indices(saved?.cageUncertain),
     play = fitPlay(puzzle, saved?.play),
     hints = indices(saved?.hints).filter((i) => Number.isInteger(play[i]));
+  const blackReadings = fitBlackReadings(puzzle, saved?.blackReadings);
+  for (const { cell } of blackReadings)
+    if (!uncertain.includes(cell)) uncertain.push(cell);
   const notes = Array.isArray(saved?.notes)
     ? saved.notes
         .filter((x) => typeof x === "string")
@@ -53,6 +57,7 @@ export function restoreSession(storage) {
   return {
     puzzle: clone(puzzle),
     uncertain,
+    blackReadings,
     cageUncertain,
     needsReview: Boolean(saved?.needsReview) || uncertain.length > 0 || cageUncertain.length > 0,
     notes,

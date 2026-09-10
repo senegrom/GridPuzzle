@@ -249,7 +249,8 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
   });
   const chosen = type === "auto" ? suggested.type : type,
     puzzle = makePuzzle(chosen, rows, cols),
-    notes = [];
+    notes = [],
+    blackReadings = [];
   const max =
     chosen === "slitherlink"
       ? 4
@@ -261,6 +262,13 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
           : rows;
   if (chosen === "str8ts") puzzle.black = black.flatMap((v, i) => v ? [i] : []);
   puzzle.cells = values.map((v, i) => {
+    if (black[i] && ["hidato", "kakuro"].includes(chosen) &&
+        Number.isInteger(v) && v > 0) {
+      // This family cannot represent a numbered black clue. Keep the evidence
+      // for an explicit Str8ts correction and never silently confirm the loss.
+      blackReadings.push({ cell: i, value: v });
+      uncertain.add(i);
+    }
     if (v !== null && (v > max || v < (chosen === "slitherlink" ? 0 : 1))) {
       uncertain.add(i);
       v = null;
@@ -335,6 +343,8 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
     notes.unshift(
       "Cage recognition is experimental. Check the entire partition: missing boundaries can merge cages.",
     );
+  if (blackReadings.length)
+    notes.unshift("Digits were read on black cells. They remain highlighted; choosing Str8ts restores compatible numbered clues. Check these readings against the photograph.");
   if (chosen === "str8ts") notes.unshift("Str8ts black cells may be blank or numbered; check every black cell before solving.");
   // A scan that marks printed cells but reads none of them is an engine or
   // version problem rather than a review task; say so, with the evidence a
@@ -346,6 +356,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
     );
   return {
     puzzle,
+    blackReadings,
     uncertain: [...new Set([...uncertain, ...cageUncertain])],
     cellUncertain: [...uncertain],
     cageUncertain: [...cageUncertain],
