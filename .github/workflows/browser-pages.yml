@@ -41,6 +41,8 @@ jobs:
         run: node scripts/solver_update_regressions.cjs
       - name: Chromium and mobile WebKit acceptance tests
         run: node scripts/browser_smoke.cjs
+      - name: Scanner settings and type-correction regressions
+        run: node scripts/scanner_settings_regressions.cjs
       - name: Scanner variation, review and real-newspaper regressions
         run: |
           node scripts/browser_regressions.cjs

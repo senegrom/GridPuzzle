@@ -10,6 +10,7 @@ import {
   clone,
   checkShape,
   normalizePuzzle,
+  changePuzzleType,
   conflicts,
   isCage,
   boxShape,
@@ -582,25 +583,8 @@ function render({ replaceDraft = false } = {}) {
 const boxDefault = boxShape;
 applyType.onclick = () => {
   try {
-    const next = clone(state.puzzle),
-      type = $("puzzle-type").value;
-    if (!Object.hasOwn(TYPES, type))
-      throw Error("Select an explicit puzzle type.");
-    if (
-      (next.cages.length && !isCage(type)) ||
-      (next.inequalities.length && type !== "futoshiki") ||
-      (next.clues.length && type !== "kakuro") ||
-      ((next.black || []).length && type !== "str8ts")
-    )
-      throw Error(
-        "This board has structural clues for a different puzzle type. Remove those constraints explicitly or start a blank board; they will not be silently discarded.",
-      );
-    if (type === "killersudoku" && next.cages.some((c) => c.op && c.op !== "+"))
-      throw Error(
-        "Killer Sudoku cages must be sums. Correct the operators before changing the type.",
-      );
-    next.type = type;
-    checkShape(next);
+    const type = $("puzzle-type").value,
+      next = changePuzzleType(state.puzzle, type);
     mutate(() => {
       state.puzzle = next;
       if (!isCage(type)) state.cageUncertain.clear();
@@ -880,7 +864,11 @@ function requestSolve() {
     if (reviewCells().size || state.needsReview) {
       confirmationJob = tasks.id;
       $("confirm-text").textContent =
-        `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${reviewCells().size} cells were highlighted for review.`;
+        `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ` +
+        (["sudoku", "killersudoku"].includes(state.puzzle.type)
+          ? `Boxes: ${state.puzzle.boxRows} rows × ${state.puzzle.boxCols} columns. `
+          : "") +
+        `${reviewCells().size} cells were highlighted for review.`;
       $("confirm-dialog").showModal();
     } else solveNow();
   } catch (e) {

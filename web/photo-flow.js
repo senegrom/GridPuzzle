@@ -24,7 +24,8 @@ export function setupPhotoFlow({
 }) {
   let stream = null,
     cameraEpoch = 0,
-    drag = -1;
+    drag = -1,
+    proposedBoxLayout = null;
   function stopCamera() {
     cameraEpoch++;
     if (stream) for (const track of stream.getTracks()) track.stop();
@@ -303,6 +304,22 @@ export function setupPhotoFlow({
       ctx.fillText(i + 1, p.x, p.y);
     });
   }
+  function currentLayout() {
+    return {
+      rows: Number($("rows").value),
+      cols: Number($("cols").value),
+      boxRows: Number($("box-rows").value),
+      boxCols: Number($("box-cols").value),
+    };
+  }
+  function sameLayout(a, b) {
+    return a !== null && ["rows", "cols", "boxRows", "boxCols"].every(
+      (key) => a[key] === b[key],
+    );
+  }
+  function transposeLayout({ rows, cols, boxRows, boxCols }) {
+    return { rows: cols, cols: rows, boxRows: boxCols, boxCols: boxRows };
+  }
   async function acceptPhoto(canvas, auto = false) {
     invalidate();
     state.history = [];
@@ -321,8 +338,22 @@ export function setupPhotoFlow({
       state.corners = found.corners;
       finish();
       if (found.rows && found.cols) {
-        const b = boxDefault(found.rows);
-        setLayout({ rows: found.rows, cols: found.cols, boxRows: b[0], boxCols: b[1] });
+        const layout = currentLayout(),
+          { boxRows, boxCols } = layout;
+        // Grid detection measures cells, not Sudoku box orientation. Keep a
+        // compatible chosen layout, including when Find grid runs again.
+        if (
+          layout.rows === found.rows && layout.cols === found.cols &&
+          Number.isInteger(boxRows) && Number.isInteger(boxCols) &&
+          boxRows > 0 && boxCols > 0 && boxRows * boxCols === found.rows &&
+          found.rows % boxRows === 0 && found.cols % boxCols === 0
+        )
+          setLayout(layout);
+        else {
+          const [boxRows, boxCols] = boxDefault(found.rows);
+          proposedBoxLayout = { rows: found.rows, cols: found.cols, boxRows, boxCols };
+          setLayout(proposedBoxLayout);
+        }
       }
       drawCrop();
       status(
@@ -352,6 +383,10 @@ export function setupPhotoFlow({
     ctx.translate(c.width, 0);
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(state.photo, 0, 0);
+    // A quarter-turn swaps the box orientation as well as the grid axes.
+    setLayout(transposeLayout(currentLayout()));
+    if (proposedBoxLayout)
+      proposedBoxLayout = transposeLayout(proposedBoxLayout);
     void acceptPhoto(c);
   };
   $("hide-photo").onclick = () => ($("photo-panel").hidden = true);
@@ -449,7 +484,9 @@ export function setupPhotoFlow({
       return;
     }
     const boxRows = Number($("box-rows").value),
-      boxCols = Number($("box-cols").value);
+      boxCols = Number($("box-cols").value),
+      // Snapshot proposal ownership with the rules, before awaiting OCR.
+      reviewBoxes = sameLayout(proposedBoxLayout, { rows, cols, boxRows, boxCols });
     try {
       if (type !== "auto") {
         const layout = makePuzzle(type, rows, cols);
@@ -496,8 +533,14 @@ export function setupPhotoFlow({
       state.puzzle = found.puzzle;
       state.uncertain = new Set(found.cellUncertain ?? found.uncertain);
       state.cageUncertain = new Set(found.cageUncertain || []);
-      state.needsReview = found.needsReview;
-      state.notes = found.notes;
+      const needsBoxReview = reviewBoxes &&
+        ["sudoku", "killersudoku"].includes(found.puzzle.type);
+      state.needsReview = found.needsReview || needsBoxReview;
+      state.notes = [...found.notes];
+      if (needsBoxReview)
+        state.notes.push(
+          `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
+        );
       state.rectified = found.rectified;
       state.puzzleSource = state.photoSource = id;
       state.photoRows = rows;

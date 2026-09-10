@@ -215,6 +215,34 @@ export function normalizePuzzle(p) {
     black: clone(p.black || []),
   };
 }
+// Explicit editor action, not import normalization: preserve clues and reject
+// incompatible structures instead of silently dropping them.
+export function changePuzzleType(p, type) {
+  checkShape(p);
+  if (!Object.hasOwn(TYPES, type))
+    throw Error("Select an explicit puzzle type.");
+  if (
+    ((p.cages || []).length && !isCage(type)) ||
+    ((p.inequalities || []).length && type !== "futoshiki") ||
+    ((p.clues || []).length && type !== "kakuro") ||
+    ((p.black || []).length && type !== "str8ts")
+  )
+    throw Error(
+      "This board has structural clues for a different puzzle type. Remove those constraints explicitly or start a blank board; they will not be silently discarded.",
+    );
+  if (type === "killersudoku" && (p.cages || []).some((c) => c.op && c.op !== "+"))
+    throw Error(
+      "Killer Sudoku cages must be sums. Correct the operators before changing the type.",
+    );
+  const next = clone(p);
+  if (type === "str8ts" && p.type !== "str8ts")
+    // Automatic recognition can propose Hidato for a Str8ts board without
+    // numbered black clues. Its # cells already locate the black separators.
+    next.black = next.cells.flatMap((value, i) => value === "#" ? [i] : []);
+  next.type = type;
+  checkShape(next);
+  return next;
+}
 // The editor allows useful incomplete states; Solve needs the structure the
 // Python adapter will demand, reported here with a local message before the
 // interpreter loads.
