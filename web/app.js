@@ -9,6 +9,7 @@ import {
   demo,
   clone,
   checkShape,
+  normalizePuzzle,
   conflicts,
   isCage,
   boxShape,
@@ -45,6 +46,7 @@ const state = {
   history: [],
 };
 let worker = null,
+  confirmationJob = null,
   editing = 0,
   focused = 0,
   renderedJson = "";
@@ -196,20 +198,8 @@ function mutate(fn) {
   persist();
   render();
 }
-function normalized(p) {
-  checkShape(p);
-  return {
-    ...clone(p),
-    boxRows: p.boxRows === undefined ? 3 : p.boxRows,
-    boxCols: p.boxCols === undefined ? 3 : p.boxCols,
-    cages: clone(p.cages || []),
-    inequalities: clone(p.inequalities || []),
-    clues: clone(p.clues || []),
-    black: clone(p.black || []),
-  };
-}
 export function loadPuzzle(payload) {
-  const p = normalized(payload);
+  const p = normalizePuzzle(payload);
   remember();
   invalidate();
   stopCamera();
@@ -878,9 +868,14 @@ $("undo").onclick = () => {
 };
 $("stop").onclick = () => stopTask("Stopped.");
 function requestSolve() {
+  // Confirmation owns this transcription. Stop camera capture and pending
+  // imports before a modal can hide a replacement board from the user.
+  stopTask();
+  confirmationJob = null;
   try {
     checkSolveReady(state.puzzle);
     if (reviewCells().size || state.needsReview) {
+      confirmationJob = tasks.id;
       $("confirm-text").textContent =
         `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ${reviewCells().size} cells were highlighted for review.`;
       $("confirm-dialog").showModal();
@@ -979,10 +974,24 @@ function solveNow() {
 }
 $("solve").onclick = requestSolve;
 $("confirm-solve").onclick = () => {
+  const confirmedJob = confirmationJob;
+  confirmationJob = null;
   $("confirm-dialog").close();
+  if (confirmedJob === null || confirmedJob !== tasks.id) {
+    status(
+      "Puzzle changed while confirmation was open.",
+      "Check the current clues and choose Solve again.",
+      "warning",
+    );
+    return;
+  }
   solveNow();
 };
-$("confirm-back").onclick = () => $("confirm-dialog").close();
+$("confirm-back").onclick = () => {
+  confirmationJob = null;
+  $("confirm-dialog").close();
+};
+$("confirm-dialog").oncancel = () => { confirmationJob = null; };
 $("next-solution").onclick = () => {
   if (state.result?.solutions?.length) {
     state.solution = (state.solution + 1) % state.result.solutions.length;
@@ -1140,7 +1149,7 @@ setupOffline($);
 try {
   const saved = restoreSession(storage);
   if (saved) {
-    state.puzzle = normalized(saved.puzzle);
+    state.puzzle = normalizePuzzle(saved.puzzle);
     state.uncertain = new Set(saved.uncertain);
     state.cageUncertain = new Set(saved.cageUncertain);
     state.needsReview = saved.needsReview;

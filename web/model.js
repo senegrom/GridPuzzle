@@ -194,6 +194,27 @@ export function checkShape(p) {
   }
   return p;
 }
+export function normalizePuzzle(p) {
+  // Validate first: never repair invalid Sudoku rules supplied by an import.
+  checkShape(p);
+  // Match checkShape's defaults when a valid boxed puzzle supplies only one
+  // dimension; changing that shape would change its Sudoku rules.
+  let boxRows = p.boxRows ?? 3, boxCols = p.boxCols ?? 3;
+  // Box metadata on other families can be absent, or contain the old 3x3
+  // defaults from an autosave. Keep valid explicit shapes for a later type
+  // change; otherwise use a shape compatible with the board dimensions.
+  if (boxRows * boxCols !== p.rows || p.rows % boxRows || p.cols % boxCols)
+    [boxRows, boxCols] = boxShape(p.rows);
+  return {
+    ...clone(p),
+    boxRows,
+    boxCols,
+    cages: clone(p.cages || []),
+    inequalities: clone(p.inequalities || []),
+    clues: clone(p.clues || []),
+    black: clone(p.black || []),
+  };
+}
 // The editor allows useful incomplete states; Solve needs the structure the
 // Python adapter will demand, reported here with a local message before the
 // interpreter loads.

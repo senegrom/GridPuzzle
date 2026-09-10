@@ -324,6 +324,37 @@ async function layoutAndKeyboardRegressions(page, report) {
   }
   report.checks.push("keyboard Enter/Space selection, arrows, deselection and saving work for cages and inequalities");
 }
+async function importedBoardTypeRegressions(page, report) {
+  for (const [size, boxes, expected] of [
+    [4, null, [2, 2]],
+    [6, null, [2, 3]],
+    [4, [3, 3], [2, 2]], // Old autosaves supplied these defaults to every family.
+    [6, [3, 2], [3, 2]],
+  ]) {
+    const before = await page.evaluate(async ({ size, boxes }) => {
+      const { loadPuzzle } = await import("./app.js");
+      const { makePuzzle } = await import("./model.js");
+      const puzzle = makePuzzle("latinsquare", size);
+      puzzle.cells[0] = size;
+      delete puzzle.boxRows;
+      delete puzzle.boxCols;
+      if (boxes) [puzzle.boxRows, puzzle.boxCols] = boxes;
+      loadPuzzle(puzzle);
+      return window.testState().puzzle;
+    }, { size, boxes });
+    await page.selectOption("#puzzle-type", "sudoku");
+    await page.click("#use-type");
+    const after = await page.evaluate(() => window.testState().puzzle);
+    assert.equal(after.type, "sudoku", `${size}x${size}: imported board changes rules`);
+    assert.deepEqual([after.boxRows, after.boxCols], expected);
+    assert.deepEqual(after.cells, before.cells, "changing rules keeps every printed clue");
+    assert.equal(await page.inputValue("#box-rows"), String(expected[0]));
+    assert.equal(await page.inputValue("#box-cols"), String(expected[1]));
+    await page.click("#undo");
+    assert.deepEqual(await page.evaluate(() => window.testState().puzzle), before);
+  }
+  report.checks.push("imported and legacy non-9x9 boards change to Sudoku with compatible boxes and intact clues");
+}
 async function editorRegressions(page, report) {
   await page.evaluate(async () => {
     const { makePuzzle } = await import("./model.js");
@@ -428,10 +459,7 @@ async function editorRegressions(page, report) {
   }
   report.checks.push("superseded JSON import errors are ignored");
 }
-async function cameraOwnershipRegressions(page, report) {
-  await page.selectOption("#puzzle-type", "sudoku");
-  await page.click("#example");
-  const before = await page.evaluate(() => window.testState().puzzle);
+async function installControlledCamera(page) {
   // Controlled media and queued timers exercise the real application's task
   // wiring in both engines, without depending on CI camera hardware.
   await page.evaluate(() => {
@@ -463,6 +491,12 @@ async function cameraOwnershipRegressions(page, report) {
       delete window.cameraTest;
     };
   });
+}
+async function cameraOwnershipRegressions(page, report) {
+  await page.selectOption("#puzzle-type", "sudoku");
+  await page.click("#example");
+  const before = await page.evaluate(() => window.testState().puzzle);
+  await installControlledCamera(page);
   try {
     for (const action of ["edit", "solve"]) {
       await page.click("#camera");
@@ -486,6 +520,69 @@ async function cameraOwnershipRegressions(page, report) {
     await page.evaluate(() => window.cameraTest.restore());
   }
   report.checks.push("editing and solving stop live capture, including already queued detection callbacks");
+}
+async function confirmationRegressions(page, report) {
+  await page.evaluate(async () => {
+    const { demo } = await import("./model.js");
+    localStorage.setItem("gridpuzzle-session-v1", JSON.stringify({
+      puzzle: demo(), cellUncertain: [0], needsReview: true, notes: [],
+    }));
+  });
+  await page.reload();
+  await ready(page);
+  const before = await page.evaluate(() => window.testState());
+  await installControlledCamera(page);
+  try {
+    let stopped = 0;
+    for (const action of ["back", "escape", "confirm"]) {
+      await page.click("#camera");
+      await page.waitForFunction(() => document.querySelector("#status-text").textContent === "Camera ready.");
+      await page.click("#solve");
+      assert.equal(await page.locator("#confirm-dialog").isVisible(), true);
+      assert.equal(await page.locator("#camera-panel").isHidden(), true,
+        "capture must stop before confirmation, not after accepting it");
+      assert.equal(await page.evaluate(() => window.cameraTest.stopped), ++stopped);
+      await page.evaluate(async () => {
+        const pending = window.cameraTest.queued.splice(0);
+        for (const fn of pending) await fn();
+      });
+      assert.equal(await page.evaluate(() => window.cameraTest.queued.length), 0);
+      assert.deepEqual(await page.evaluate(() => window.testState()), before,
+        "opening confirmation preserves the board and its review flags");
+      if (action === "back") await page.click("#confirm-back");
+      else if (action === "escape") await page.keyboard.press("Escape");
+      else await page.click("#confirm-solve");
+    }
+    await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
+    assert.deepEqual(await page.evaluate(() => window.testState().puzzle), before.puzzle);
+  } finally {
+    await page.evaluate(() => window.cameraTest.restore());
+  }
+  // A replacement board invalidates the modal. An old confirmation must not
+  // implicitly accept a transcription that was never shown in that dialog.
+  await page.evaluate((puzzle) => {
+    localStorage.setItem("gridpuzzle-session-v1", JSON.stringify({
+      puzzle, cellUncertain: [0], needsReview: true, notes: [],
+    }));
+  }, before.puzzle);
+  await page.reload();
+  await ready(page);
+  await page.click("#solve");
+  const replacement = await page.evaluate(async () => {
+    const { loadPuzzle } = await import("./app.js");
+    const { demo } = await import("./model.js");
+    loadPuzzle(demo("str8ts"));
+    return window.testState().puzzle;
+  });
+  await page.click("#confirm-solve");
+  const stale = await page.evaluate(() => window.testState());
+  assert.equal(stale.busy, false);
+  assert.equal(stale.result, null);
+  assert.deepEqual(stale.puzzle, replacement);
+  assert.match(await page.locator("#status-text").innerText(), /Puzzle changed/);
+  await page.click("#solve");
+  await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
+  report.checks.push("confirmation stops capture, preserves unchecked clues on dismissal, and rejects a replaced puzzle");
 }
 (async () => {
   for (let i = 0; i < 60; i++) {
@@ -576,8 +673,10 @@ async function cameraOwnershipRegressions(page, report) {
       );
       report.checks.push("save-and-next confirms only the edited cell");
       await layoutAndKeyboardRegressions(page, report);
+      await importedBoardTypeRegressions(page, report);
       await editorRegressions(page, report);
       await cameraOwnershipRegressions(page, report);
+      await confirmationRegressions(page, report);
       // No OCR call should be needed to reject a blank photograph.
       const blank = await page.evaluate(() => {
         const c = document.createElement("canvas");
