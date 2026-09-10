@@ -1,4 +1,4 @@
-import { checkShape, clone } from "./model.js";
+import { checkShape, clone, fitPlay } from "./model.js";
 const KEY = "gridpuzzle-session-v1";
 
 // Persist the transcription AND its uncertainty atomically. Never serialize
@@ -14,6 +14,10 @@ export function saveSession(storage, state) {
     cageUncertain: [...(state.cageUncertain || [])],
     needsReview: Boolean(state.needsReview),
     notes: [...state.notes],
+    // Play answers are the user's own work; the solution they are checked
+    // against is never stored.
+    play: Array.isArray(state.play) ? [...state.play] : [],
+    hints: [...(state.hints || [])],
   });
 }
 export function restoreSession(storage) {
@@ -37,7 +41,9 @@ export function restoreSession(storage) {
   // Legacy flags have no reason attached: retain them as cell warnings rather
   // than guessing that a cage edit is enough to confirm an unread digit.
   const uncertain = indices(Array.isArray(saved?.cellUncertain) ? saved.cellUncertain : saved?.uncertain),
-    cageUncertain = indices(saved?.cageUncertain);
+    cageUncertain = indices(saved?.cageUncertain),
+    play = fitPlay(puzzle, saved?.play),
+    hints = indices(saved?.hints).filter((i) => Number.isInteger(play[i]));
   const notes = Array.isArray(saved?.notes)
     ? saved.notes
         .filter((x) => typeof x === "string")
@@ -50,5 +56,7 @@ export function restoreSession(storage) {
     cageUncertain,
     needsReview: Boolean(saved?.needsReview) || uncertain.length > 0 || cageUncertain.length > 0,
     notes,
+    play,
+    hints,
   };
 }

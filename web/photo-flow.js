@@ -1,4 +1,4 @@
-import { TYPES, checkShape, makePuzzle } from "./model.js";
+import { TYPES, checkShape, fitPlay, makePuzzle } from "./model.js";
 import { validQuad } from "./geometry.js";
 
 export function setupPhotoFlow({
@@ -19,6 +19,7 @@ export function setupPhotoFlow({
   solveNow,
   boxDefault,
   setLayout,
+  warmSolver,
   getJobId,
   setDeadline,
 }) {
@@ -531,6 +532,9 @@ export function setupPhotoFlow({
       finish();
       remember();
       state.puzzle = found.puzzle;
+      state.play = fitPlay(found.puzzle, []);
+      state.hints = new Set();
+      state.playFeedback = state.playSolution = null;
       state.uncertain = new Set(found.cellUncertain ?? found.uncertain);
       state.cageUncertain = new Set(found.cageUncertain || []);
       const needsBoxReview = reviewBoxes &&
@@ -549,6 +553,7 @@ export function setupPhotoFlow({
       persist();
       render({ replaceDraft: true });
       $("photo-panel").hidden = true;
+      warmSolver?.();
       status(
         "Puzzle read.",
         `${type === "auto" ? `${TYPES[state.puzzle.type]} suggested` : TYPES[state.puzzle.type]}. Check highlighted cells and the puzzle rules.`,

@@ -113,14 +113,7 @@ export function checkShape(p) {
     throw Error("Black-cell metadata is only supported for Str8ts.");
   if (p.type === "str8ts" && (p.rows !== p.cols || p.rows > 9))
     throw Error("Str8ts requires a square board no larger than 9 × 9.");
-  const maximum =
-    p.type === "slitherlink"
-      ? 4
-      : ["hidato", "numbrix"].includes(p.type)
-        ? p.cells.filter((v) => v !== "#").length
-        : p.type === "kakuro"
-          ? 9
-          : p.rows;
+  const maximum = maxValue(p);
   p.cells.forEach((v, i) => {
     if (v === null) return;
     if (v === "#" && (["hidato", "kakuro"].includes(p.type) || (p.type === "str8ts" && black.has(i)))) return;
@@ -242,6 +235,73 @@ export function changePuzzleType(p, type) {
   next.type = type;
   checkShape(next);
   return next;
+}
+export function maxValue(p) {
+  return p.type === "slitherlink"
+    ? 4
+    : ["hidato", "numbrix"].includes(p.type)
+      ? p.cells.filter((v) => v !== "#").length
+      : p.type === "kakuro"
+        ? 9
+        : p.rows;
+}
+// Play mode: the user fills blank cells with answers that never enter the
+// puzzle data. Families whose solution is not a digit per cell are excluded.
+export const playable = (p) => p.type !== "slitherlink";
+export function isPlayableCell(p, i) {
+  return (
+    playable(p) &&
+    p.cells[i] === null &&
+    !(p.type === "str8ts" && (p.black || []).includes(i))
+  );
+}
+// Answers are kept only where they are still meaningful: a blank, playable
+// cell and a value inside the family's range. Everything else becomes null.
+export function fitPlay(p, play) {
+  const max = maxValue(p);
+  return p.cells.map((_, i) =>
+    Array.isArray(play) &&
+    isPlayableCell(p, i) &&
+    Number.isInteger(play[i]) &&
+    play[i] >= 1 &&
+    play[i] <= max
+      ? play[i]
+      : null,
+  );
+}
+export function mergePlay(p, play) {
+  const merged = clone(p);
+  merged.cells = p.cells.map((v, i) =>
+    v === null && Number.isInteger(play[i]) ? play[i] : v,
+  );
+  return merged;
+}
+export function playConflicts(p, play) {
+  if (!playable(p) || !play.some(Number.isInteger)) return new Set();
+  return conflicts(mergePlay(p, play));
+}
+export function checkPlay(p, play, solution) {
+  const correct = [],
+    wrong = [],
+    remaining = [];
+  p.cells.forEach((_, i) => {
+    if (!isPlayableCell(p, i)) return;
+    if (!Number.isInteger(play[i])) remaining.push(i);
+    else if (play[i] === solution[i]) correct.push(i);
+    else wrong.push(i);
+  });
+  return { correct, wrong, remaining };
+}
+// The first cell in reading order whose answer is missing or wrong.
+export function nextHint(p, play, solution) {
+  for (let i = 0; i < p.cells.length; i++)
+    if (
+      isPlayableCell(p, i) &&
+      Number.isInteger(solution[i]) &&
+      play[i] !== solution[i]
+    )
+      return { cell: i, value: solution[i] };
+  return null;
 }
 // The editor allows useful incomplete states; Solve needs the structure the
 // Python adapter will demand, reported here with a local message before the

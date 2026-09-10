@@ -18,6 +18,13 @@ import {
   hasCageRemoval,
   hasInequalityRemoval,
   checkSolveReady,
+  maxValue,
+  playable,
+  isPlayableCell,
+  fitPlay,
+  playConflicts,
+  checkPlay,
+  nextHint,
 } from "./model.js";
 import { Scanner } from "./scanner.js";
 import { homography, project } from "./geometry.js";
@@ -45,9 +52,20 @@ const state = {
   view: "board",
   selected: [],
   history: [],
+  // Play mode: the user's answers per cell, the cells filled by hints, the
+  // cells found wrong at the last check, and the solution used for checking
+  // (kept off the board and out of the session store).
+  play: [],
+  hints: new Set(),
+  playFeedback: null,
+  playSolution: null,
+  playSolutionShared: false,
+  solverWarm: false,
 };
+state.play = fitPlay(state.puzzle, []);
 let worker = null,
   confirmationJob = null,
+  playEditing = false,
   editing = 0,
   focused = 0,
   renderedJson = "";
@@ -94,6 +112,7 @@ if (prefs) {
     if (typeof prefs[id] === "boolean") $(id).checked = prefs[id];
   if (["0", "30", "90", "300"].includes(prefs.limit))
     $("time-limit").value = prefs.limit;
+  if (prefs.editing === "play") $("edit-tool").value = "play";
 }
 function savePrefs() {
   storage.set("gridpuzzle-settings-v2", {
@@ -101,9 +120,10 @@ function savePrefs() {
     "auto-capture": $("auto-capture").checked,
     "auto-solve": $("auto-solve").checked,
     limit: $("time-limit").value,
+    editing: $("edit-tool").value === "play" ? "play" : "value",
   });
 }
-for (const id of ["puzzle-type", "auto-capture", "auto-solve", "time-limit"])
+for (const id of ["puzzle-type", "auto-capture", "auto-solve", "time-limit", "edit-tool"])
   $(id).addEventListener("change", savePrefs);
 const layoutFields = {
   rows: "rows", cols: "cols", boxRows: "box-rows", boxCols: "box-cols",
@@ -166,6 +186,7 @@ const tasks = createTaskController({
     if (wasBusy && worker) {
       worker.terminate();
       worker = null;
+      state.solverWarm = false;
     }
   },
 });
@@ -175,6 +196,9 @@ const finish = () => tasks.finish();
 function invalidate() {
   stopTask();
   state.result = null;
+  state.playSolution = null;
+  state.playSolutionShared = false;
+  state.playFeedback = null;
   state.solution = 0;
   state.view = "board";
   status(
@@ -190,6 +214,10 @@ function mutate(fn) {
   try {
     fn();
     checkShape(state.puzzle);
+    state.play = fitPlay(state.puzzle, state.play);
+    state.hints = new Set(
+      [...state.hints].filter((i) => Number.isInteger(state.play[i])),
+    );
   } catch (error) {
     restoreEdit(state, previous);
     state.history = history;
@@ -218,13 +246,18 @@ export function loadPuzzle(payload) {
       null;
   $("photo-panel").hidden = true;
   state.selected = [];
+  state.play = fitPlay(p, []);
+  state.hints = new Set();
   focused = 0;
   persist();
   render({ replaceDraft: true });
   status(
     "Puzzle loaded.",
-    `${TYPES[p.type]} · Tap any cell to edit its printed clue.`,
+    playable(p)
+      ? `${TYPES[p.type]} · Tap a cell to edit its printed clue, or choose Play under Editing to solve it yourself.`
+      : `${TYPES[p.type]} · Tap any cell to edit its printed clue.`,
   );
+  warmSolver();
 }
 export function getState() {
   return {
@@ -235,6 +268,11 @@ export function getState() {
     cageUncertain: [...state.cageUncertain],
     needsReview: state.needsReview,
     busy: tasks.busy,
+    play: [...state.play],
+    hints: [...state.hints],
+    playWrong: [...(state.playFeedback?.wrong ?? [])],
+    playing: playMode(),
+    solverWarm: state.solverWarm,
   };
 }
 function svg(tag, attrs = {}, text = null) {
@@ -260,8 +298,12 @@ function drawBoard() {
     board = $("board"),
     size = 72,
     margin = 5,
-    sol = state.result?.solutions?.[state.solution],
-    bad = conflicts(p),
+    playing = playMode(),
+    // In play mode the board shows the user's answers, never the solution.
+    sol = playing ? null : state.result?.solutions?.[state.solution],
+    entries = state.play,
+    bad = new Set([...conflicts(p), ...playConflicts(p, entries)]),
+    wrong = state.playFeedback?.wrong ?? new Set(),
     flagged = reviewCells();
   focused = Math.min(focused, p.cells.length - 1);
   board.style.minWidth = `${Math.max(240, p.cols * 34)}px`;
@@ -278,11 +320,16 @@ function drawBoard() {
       x = c * size,
       y = r * size,
       given = p.cells[i],
-      value = sol?.cells[i] ?? given,
+      entry = given === null && Number.isInteger(entries[i]) ? entries[i] : null,
+      value = sol?.cells[i] ?? given ?? entry,
       isBlack = given === "#" || (p.type === "str8ts" && (p.black || []).includes(i));
     const classes = ["board-cell"];
     if (isBlack) classes.push("blocked");
-    else if (given === null && Number.isInteger(value)) classes.push("answer");
+    else if (given === null && sol && Number.isInteger(value)) classes.push("answer");
+    else if (entry !== null) {
+      classes.push(state.hints.has(i) ? "hint" : "entry");
+      if (wrong.has(i)) classes.push("wrong");
+    }
     if (flagged.has(i)) classes.push("uncertain");
     if (bad.has(i)) classes.push("conflict");
     if (state.selected.includes(i)) classes.push("selected");
@@ -299,10 +346,11 @@ function drawBoard() {
           ].filter(Boolean).join(", ")
         : value === null
           ? "blank"
-          : `${isBlack ? "black clue " : given === null ? "solution " : ""}${value}`;
+          : `${isBlack ? "black clue " : given !== null ? "" : sol ? "solution " : state.hints.has(i) ? "hint " : "your answer "}${value}`;
     const review = [
       state.uncertain.has(i) ? "check reading" : "",
       state.cageUncertain.has(i) ? "check cage" : "",
+      entry !== null && !sol && wrong.has(i) ? "wrong" : "",
     ].filter(Boolean);
     const g = svg("g", {
       class: classes.join(" "),
@@ -540,12 +588,16 @@ function render({ replaceDraft = false } = {}) {
   for (const option of $("edit-tool").options)
     option.disabled =
       (option.value === "cage" && !isCage(p.type)) ||
-      (option.value === "inequality" && p.type !== "futoshiki");
+      (option.value === "inequality" && p.type !== "futoshiki") ||
+      (option.value === "play" && !playable(p));
   if ($("edit-tool").selectedOptions[0]?.disabled)
     $("edit-tool").value = "value";
   $("cage-editor").hidden = $("edit-tool").value !== "cage";
   $("inequality-editor").hidden = $("edit-tool").value !== "inequality";
   $("cage-op").disabled = p.type === "killersudoku";
+  const playing = playMode();
+  $("check-play").hidden = $("hint-play").hidden = !playing;
+  $("legend-entry").hidden = !state.play.some(Number.isInteger);
   // Refresh pristine data, but do not discard a draft on a view change or an
   // asynchronous solver result. Explicit puzzle loading starts a new draft.
   if (replaceDraft || $("json-data").value === renderedJson) {
@@ -578,7 +630,11 @@ function render({ replaceDraft = false } = {}) {
     ? `${state.cageUncertain.size} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.`
     : "";
   $("review-note").textContent = [checkMessage, cageMessage, ...state.notes].filter(Boolean).join("\n");
-  $("solve").textContent = review ? "Check & solve →" : "Solve puzzle →";
+  $("solve").textContent = playing
+    ? "Reveal solution →"
+    : review
+      ? "Check & solve →"
+      : "Solve puzzle →";
 }
 const boxDefault = boxShape;
 applyType.onclick = () => {
@@ -603,6 +659,9 @@ applyType.onclick = () => {
   }
 };
 function openCell(i) {
+  playEditing = false;
+  $("cell-value-label").textContent = "Printed value";
+  $("save-cell").textContent = "Save clue";
   stopTask(tasks.busy ? "Stopped for editing." : null);
   editing = i;
   focused = i;
@@ -655,6 +714,7 @@ function numberInput(id) {
   return Number(text);
 }
 function saveCell(advance = false) {
+  if (playEditing) return savePlayCell();
   try {
     const next = clone(state.puzzle),
       blocked = !$("block-option").hidden && $("blocked-cell").checked;
@@ -710,6 +770,11 @@ $("cell-form").onsubmit = (e) => {
   saveCell();
 };
 $("clear-cell").onclick = () => {
+  if (playEditing) {
+    $("cell-value").value = "";
+    savePlayCell();
+    return;
+  }
   const keepBlack =
     state.puzzle.type === "str8ts" && (state.puzzle.black || []).includes(editing);
   $("cell-value").value = "";
@@ -718,8 +783,177 @@ $("clear-cell").onclick = () => {
   saveCell();
 };
 $("close-cell").onclick = () => $("cell-dialog").close();
+// ---- Play mode: answers live beside the puzzle, never inside it. ----
+function playMode() {
+  return $("edit-tool").value === "play";
+}
+function openPlayCell(i) {
+  const p = state.puzzle;
+  if (!isPlayableCell(p, i)) {
+    status(
+      "That cell holds a printed clue.",
+      "Pick a blank cell for your answer, or switch Editing to Clues to change the clue.",
+    );
+    return;
+  }
+  stopTask();
+  editing = i;
+  playEditing = true;
+  const r = Math.floor(i / p.cols),
+    c = i % p.cols;
+  $("cell-title").textContent = `Row ${r + 1} · Column ${c + 1}`;
+  $("cell-value-label").textContent = "Your answer";
+  $("save-cell").textContent = "Save answer";
+  $("cell-value").value = Number.isInteger(state.play[i]) ? state.play[i] : "";
+  $("cell-value").disabled = false;
+  $("blocked-cell").checked = false;
+  $("block-option").hidden = true;
+  $("kakuro-inputs").hidden = true;
+  $("clue-crop").hidden = true;
+  $("save-next").hidden = true;
+  $("review-position").hidden = false;
+  $("review-position").textContent =
+    `Enter 1 to ${maxValue(p)}, or leave the field blank to erase.`;
+  $("cell-error").textContent = "";
+  $("cell-dialog").showModal();
+  $("cell-value").focus();
+  $("cell-value").select();
+}
+function savePlayCell() {
+  try {
+    const entered = numberInput("cell-value"),
+      max = maxValue(state.puzzle);
+    if (entered !== null && (entered < 1 || entered > max))
+      throw Error(`Answers must be from 1 to ${max}.`);
+    setPlay(editing, entered);
+    $("cell-dialog").close();
+    $("board").querySelector(`[data-cell="${editing}"]`)?.focus();
+    void reportPlayProgress();
+  } catch (e) {
+    $("cell-error").textContent = e.message;
+  }
+}
+function setPlay(i, value) {
+  remember();
+  state.play[i] = value;
+  state.hints.delete(i);
+  state.playFeedback?.wrong.delete(i);
+  persist();
+  render();
+}
+function playCounts() {
+  const p = state.puzzle,
+    cells = p.cells.map((_, i) => i).filter((i) => isPlayableCell(p, i));
+  return {
+    total: cells.length,
+    filled: cells.filter((i) => Number.isInteger(state.play[i])).length,
+    clashing: [...playConflicts(p, state.play)].filter((i) =>
+      Number.isInteger(state.play[i]),
+    ).length,
+  };
+}
+async function reportPlayProgress() {
+  const { total, filled, clashing } = playCounts();
+  if (total > 0 && filled === total) {
+    await checkPlayAnswers();
+    return;
+  }
+  status(
+    `${filled} of ${total} cells filled.`,
+    clashing
+      ? `${clashing === 1 ? "1 answer clashes" : `${clashing} answers clash`} with a row, column, box or printed clue.`
+      : "Check answers compares them with the solution; Hint fills one cell.",
+  );
+}
+// The solver runs privately for checks and hints: the solution is cached
+// until the puzzle changes and is never drawn on the board.
+function playSolution() {
+  return new Promise((resolve) => {
+    if (state.playSolution) {
+      resolve(state.playSolution);
+      return;
+    }
+    try {
+      checkSolveReady(state.puzzle);
+    } catch (e) {
+      fail(e);
+      resolve(null);
+      return;
+    }
+    runSolver(
+      (r) => {
+        if (r.status === "unique" || r.status === "multiple") {
+          state.playSolution = r.solutions[0].cells;
+          state.playSolutionShared = r.status === "multiple";
+          resolve(state.playSolution);
+          return;
+        }
+        status(
+          r.status === "no-solution"
+            ? "These clues have no solution, so answers cannot be checked."
+            : r.status === "invalid"
+              ? "Check the puzzle data."
+              : "The solver could not finish.",
+          r.message || "Check the printed clues and the puzzle type.",
+          "warning",
+        );
+        resolve(null);
+      },
+      { silent: true },
+    );
+  });
+}
+async function checkPlayAnswers() {
+  if (!state.play.some(Number.isInteger)) {
+    status("Nothing to check yet.", "Enter an answer in a blank cell first.");
+    return;
+  }
+  const solution = await playSolution();
+  if (!solution) return;
+  const result = checkPlay(state.puzzle, state.play, solution);
+  state.playFeedback = { wrong: new Set(result.wrong) };
+  render();
+  const shared = state.playSolutionShared
+    ? " This puzzle has several solutions; answers are checked against one of them."
+    : "";
+  if (!result.wrong.length && !result.remaining.length)
+    status(
+      "Puzzle complete. Every answer is right!",
+      `Well played.${shared} Scan or load another puzzle to keep going.`,
+    );
+  else
+    status(
+      `${result.correct.length} right · ${result.wrong.length} wrong · ${result.remaining.length} to go`,
+      (result.wrong.length
+        ? "Wrong answers are marked. Tap one to change it."
+        : "Keep going, or use Hint for one more cell.") + shared,
+    );
+}
+async function hintPlay() {
+  const solution = await playSolution();
+  if (!solution) return;
+  const hint = nextHint(state.puzzle, state.play, solution);
+  if (!hint) {
+    status("Every cell is already right.", "Nothing left to fill in.");
+    return;
+  }
+  setPlay(hint.cell, hint.value);
+  state.hints.add(hint.cell);
+  persist();
+  render();
+  const p = state.puzzle,
+    { total, filled } = playCounts();
+  status(
+    `Hint: row ${Math.floor(hint.cell / p.cols) + 1}, column ${(hint.cell % p.cols) + 1} is ${hint.value}.`,
+    filled === total ? "That was the last cell." : `${filled} of ${total} cells filled.`,
+  );
+  if (filled === total) await checkPlayAnswers();
+}
+$("check-play").onclick = () => void checkPlayAnswers();
+$("hint-play").onclick = () => void hintPlay();
 function cellAction(i) {
   const tool = $("edit-tool").value;
+  if (tool === "play") return openPlayCell(i);
   if (tool === "value") return openCell(i);
   stopTask();
   focused = i;
@@ -854,6 +1088,83 @@ $("undo").onclick = () => {
   status("Last edit undone.");
 };
 $("stop").onclick = () => stopTask("Stopped.");
+function ensureWorker() {
+  if (!worker) {
+    worker = new Worker(new URL("./solver-worker.js", import.meta.url), {
+      type: "module",
+    });
+    state.solverWarm = false;
+    worker.onmessage = ({ data: m }) => {
+      if (m.type === "ready") state.solverWarm = true;
+    };
+    worker.onerror = () => {
+      worker?.terminate();
+      worker = null;
+      state.solverWarm = false;
+    };
+  }
+  return worker;
+}
+// Load Python while the user is still looking at the puzzle, so the first
+// Solve, Check or Hint does not wait for the runtime. A warm-up failure only
+// means the next request loads the runtime itself.
+function warmSolver() {
+  if (!worker) ensureWorker().postMessage({ type: "warm" });
+}
+// One job at a time; the task controller owns cancellation and deadlines.
+function runSolver(onResult, { silent = false } = {}) {
+  const id = begin(),
+    w = ensureWorker();
+  tasks.setDeadline(() => {
+    if (id === tasks.id)
+      stopTask("Runtime loading timed out. Go online and retry.");
+  }, 180000);
+  w.onmessage = ({ data: m }) => {
+    if (m.type === "ready") {
+      state.solverWarm = true;
+      return;
+    }
+    if (m.id !== tasks.id) return;
+    if (m.type === "status") {
+      status(m.message, "Stop cancels this task.");
+      if (m.message.startsWith("Solving")) {
+        state.solverWarm = true;
+        tasks.clearDeadline();
+        const seconds = Number($("time-limit").value);
+        if (seconds > 0)
+          tasks.setDeadline(() => {
+            if (id === tasks.id)
+              stopTask(
+                "Search limit reached. Increase the limit to continue from a fresh search.",
+              );
+          }, seconds * 1000);
+      }
+      return;
+    }
+    finish();
+    onResult(m.result);
+  };
+  w.onerror = (e) => {
+    if (id !== tasks.id) return;
+    w.terminate();
+    worker = null;
+    state.solverWarm = false;
+    finish();
+    status(
+      "The solver stopped unexpectedly.",
+      e.message ||
+        "The phone may have run out of memory. Retry with other tabs closed.",
+      "error",
+    );
+  };
+  status(
+    silent ? "Checking your answers…" : "Starting the on-device solver…",
+    state.solverWarm
+      ? "The solver runtime is already loaded."
+      : "The first load downloads Python.",
+  );
+  w.postMessage({ id, puzzle: clone(state.puzzle) });
+}
 function requestSolve() {
   // Confirmation owns this transcription. Stop camera capture and pending
   // imports before a modal can hide a replacement board from the user.
@@ -889,38 +1200,13 @@ function solveNow() {
   state.result = null;
   state.solution = 0;
   state.view = "board";
+  // Revealing the solution is the end of play mode for this board.
+  if (playMode()) $("edit-tool").value = "value";
   persist();
   render();
-  const id = begin();
-  if (!worker)
-    worker = new Worker(new URL("./solver-worker.js", import.meta.url), {
-      type: "module",
-    });
-  tasks.setDeadline(() => {
-    if (id === tasks.id)
-      stopTask("Runtime loading timed out. Go online and retry.");
-  }, 180000);
-  worker.onmessage = ({ data: m }) => {
-    if (m.id !== tasks.id) return;
-    if (m.type === "status") {
-      status(m.message, "Stop cancels this task.");
-      if (m.message.startsWith("Solving")) {
-        tasks.clearDeadline();
-        const seconds = Number($("time-limit").value);
-        if (seconds > 0)
-          tasks.setDeadline(() => {
-            if (id === tasks.id)
-              stopTask(
-                "Search limit reached. Increase the limit to continue from a fresh search.",
-              );
-          }, seconds * 1000);
-      }
-      return;
-    }
-    finish();
-    state.result = m.result;
+  runSolver((r) => {
+    state.result = r;
     render();
-    const r = m.result;
     if (r.status === "unique")
       status(
         "Solved · unique solution",
@@ -947,21 +1233,7 @@ function solveNow() {
         "error",
       );
     $("status").dataset.result = r.status;
-  };
-  worker.onerror = (e) => {
-    if (id !== tasks.id) return;
-    worker.terminate();
-    worker = null;
-    finish();
-    status(
-      "The solver stopped unexpectedly.",
-      e.message ||
-        "The phone may have run out of memory. Retry with other tabs closed.",
-      "error",
-    );
-  };
-  status("Starting the on-device solver…", "The first load downloads Python.");
-  worker.postMessage({ id, puzzle: clone(state.puzzle) });
+  });
 }
 $("solve").onclick = requestSolve;
 $("confirm-solve").onclick = () => {
@@ -1124,6 +1396,7 @@ const { stopCamera } = setupPhotoFlow({
   solveNow,
   boxDefault,
   setLayout,
+  warmSolver,
   getJobId: () => tasks.id,
   setDeadline: (callback, ms) => tasks.setDeadline(callback, ms),
 });
@@ -1133,6 +1406,7 @@ window.addEventListener("pagehide", () => {
   if (worker) {
     worker.terminate();
     worker = null;
+    state.solverWarm = false;
   }
 });
 
@@ -1145,6 +1419,8 @@ try {
     state.cageUncertain = new Set(saved.cageUncertain);
     state.needsReview = saved.needsReview;
     state.notes = saved.notes;
+    state.play = fitPlay(state.puzzle, saved.play);
+    state.hints = new Set(saved.hints);
   }
 } catch {
   /* Ignore malformed/old autosaves. */

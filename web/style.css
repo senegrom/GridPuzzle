@@ -471,6 +471,23 @@ progress {
 .answer-dot {
   background: var(--teal);
 }
+.entry-dot {
+  background: #1f5fa8;
+}
+.board-cell.entry text {
+  fill: #1f5fa8;
+  font-weight: 500;
+}
+.board-cell.hint text {
+  fill: var(--teal);
+  font-weight: 500;
+}
+.board-cell.wrong text {
+  fill: #b3261e;
+}
+.board-cell.wrong .cell-hit {
+  fill: #ffdcd1;
+}
 .review-dot {
   background: var(--gold);
 }
@@ -489,6 +506,10 @@ progress {
 }
 .solve-actions > button {
   font-size: 0.86rem;
+}
+#check-play,
+#hint-play {
+  flex: 1 1 120px;
 }
 .small-note {
   font-size: 0.71rem;

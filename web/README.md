@@ -31,6 +31,8 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - All twelve solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin square, diagonal Latin square, pandiagonal Latin square, Hidato, Numbrix, Kakuro, Slitherlink and Str8ts.
 - Str8ts support includes solid black street separators and numbered black cells. Numbered black cells constrain row/column uniqueness but do not join a street.
 - Editors for values/blocked or black cells, cages, inequalities and Kakuro directional clues, plus undo and validated JSON import/export.
+- **Play mode** (Editing → Play): enter your own answers in blank cells, see clashes with rows, columns, boxes and printed clues as you go, check answers against the solver's solution without revealing it, take a hint for one cell, and be told when the puzzle is complete. Answers persist with the puzzle; the checking solution is never stored.
+- The Python runtime loads in the background as soon as a puzzle is on the board, so Solve, Check and Hint respond without a first-load wait.
 - A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without unsupported browser multiprocessing.
 - Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
 - Local puzzle/settings persistence. Recognition uncertainty is persisted atomically; photographs and solver results are not.
@@ -84,6 +86,7 @@ The startup status is a cheap presence check. **Download for offline use** perfo
 - `web/tests/` covers geometry, classification, OCR mapping/preprocessing, cache recovery, worker lifecycle, malformed input, type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
 - `scripts/browser_smoke.cjs` exercises all twelve puzzle families through the real Python/Pyodide solver in Chromium and WebKit.
 - `scripts/browser_regressions.cjs` exercises generated OCR/perspective/review regressions.
+- `scripts/play_regressions.cjs` plays the example through the real solver: answers, clashes, checking, hints, completion, reload persistence, reveal, and the runtime warm-up.
 - `scripts/newspaper_regressions.cjs` runs the production scanner/Tesseract pipeline against the two real user-provided newspaper crops in Chromium and WebKit. Any wrong, missed or invented clue that is not review-flagged fails the deployment.
 - The newspaper images and hand-checked ground truth live in `Examples/BrowserScanner/Newspaper/`, outside `web/`, so they do not inflate the deployed/offline bundle.
 - Normal Linux/Windows CI and forward compatibility remain independent from the single full Pages/browser gate.

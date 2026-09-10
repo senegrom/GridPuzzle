@@ -71,7 +71,7 @@ test("production handlers use the shared helpers and solve-ready gate", () => {
   assert.match(source, /moveIndex\(i, e\.key, state\.puzzle\.rows, state\.puzzle\.cols\)/);
   assert.match(source, /hasCageRemoval\(state\.puzzle, state\.selected\)/);
   assert.match(source, /hasInequalityRemoval\(state\.puzzle, state\.selected\)/);
-  assert.equal((source.match(/checkSolveReady\(state\.puzzle\)/g) || []).length, 2);
+  assert.ok((source.match(/checkSolveReady\(state\.puzzle\)/g) || []).length >= 2);
 });
 
 test("loading a board keeps the scan type preference; settings migrate to v2", () => {

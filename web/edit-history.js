@@ -1,4 +1,4 @@
-import { clone } from "./model.js";
+import { clone, fitPlay } from "./model.js";
 export function captureEdit(state) {
   return {
     puzzle: clone(state.puzzle),
@@ -8,6 +8,8 @@ export function captureEdit(state) {
     needsReview: state.needsReview,
     notes: [...state.notes],
     source: state.puzzleSource,
+    play: Array.isArray(state.play) ? [...state.play] : [],
+    hints: [...(state.hints || [])],
   };
 }
 export function restoreEdit(state, snapshot) {
@@ -19,6 +21,11 @@ export function restoreEdit(state, snapshot) {
   state.notes = snapshot.notes;
   state.puzzleSource = snapshot.source;
   state.selected = [];
+  state.play = fitPlay(state.puzzle, snapshot.play);
+  state.hints = new Set(
+    (snapshot.hints || []).filter((i) => Number.isInteger(state.play[i])),
+  );
+  state.playFeedback = null;
 }
 export function rememberEdit(state) {
   state.history.push(captureEdit(state));
