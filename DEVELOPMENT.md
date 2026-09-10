@@ -129,6 +129,15 @@ KenKen and Killer Sudoku cages create small `ElementsAtMostOnce` groups. Techniq
 
 **Extension validation:** subclasses of a built-in rule must satisfy both the nearest built-in closed form and their own `apply()` fallback. An `isinstance` closed-form shortcut alone can skip subclass semantics.
 
+Extension output validation uses an explicit depth-first stack and a shared
+4096-item budget. Cycles are detected along the current ancestor path only;
+a shared child is validated again with each sibling's inherited guarantees.
+Valid chains within the budget must not depend on Python's recursion limit.
+
+**Given/candidate consistency:** a nonempty candidate set that excludes an
+existing given is a contradiction. Basic propagation also narrows expanded
+candidate sets back to their givens before selecting a branch.
+
 ## Logging and concurrency
 
 Importing the solver does not initialize Colorama, mutate stdout, or reconfigure the root logger. Terminal configuration is explicit through `set_colouring`.
@@ -205,7 +214,21 @@ python scripts/run_new_family_corpus.py \
 
 ## Extension transaction boundary
 
-Third-party rule and guarantee hooks execute inside a reversible sandbox. They receive validated candidate views rather than the raw journal-aware candidate sets. Their iterators, metadata, hashes, equality methods, replacement outputs, and guarantee-normalization hooks must therefore be treated as untrusted: unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache changes are rolled back before canonical outputs are committed. Replacement rules and guarantees are prepared completely before the source rule is deactivated, so failed extension code cannot partially install a batch or strand the source outside propagation.
+Third-party rule and guarantee hooks execute inside a reversible sandbox.
+Rule applications receive detached known values and candidate sets, which are
+validated before publication. Their iterators, metadata, hashes, equality
+methods, replacement outputs, and guarantee-normalization hooks are untrusted:
+unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache
+changes are rolled back before canonical outputs are committed. Sandboxes
+restore constraint sets by reference, so cleanup never reruns a failing rule
+hash or equality method. Ordinary speculative trails retain their existing
+retryable rollback semantics.
+
+Rule additions and source removal are prepared as one structural transition,
+including every extension hash and collision check. Canonical guarantees and
+validated candidate changes publish only after that preparation succeeds.
+Failures and interruptions leave the source scheduled for retry. Built-in
+rule batches retain the in-place set fast path.
 
 Kakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions.
 

@@ -157,13 +157,19 @@ def update_known_from_candidates(
     known: ArrayType,
 ) -> None:
     for cell, possible in enumerate(candidates):
-        if len(possible) == 1 and known[cell] == 0:
+        value = known[cell]
+        if value:
+            if len(possible) != 1 or value not in possible:
+                possible.intersection_update((value,))
+                if not possible:
+                    raise InvalidGrid(f"candidates exclude the given at cell {cell}")
+        elif len(possible) == 1:
             setitem(cell, next(iter(possible)))
 
 
 def update_candidates_from_known(candidates: tuple[set[int], ...], known: ArrayType) -> None:
     for possible, value in zip(candidates, known):
-        if value > 0 and len(possible) > 1:
+        if value > 0 and (len(possible) != 1 or value not in possible):
             possible.intersection_update((value,))
 
 
@@ -227,6 +233,30 @@ def _commit_extension_rule_state(
             grid[cell] = value
 
 
+def _prepare_rule_output(
+    grid: Grid,
+    rule: Rule,
+    known: ArrayType | list[int],
+    candidates: tuple[set[int], ...],
+) -> tuple[bool, tuple[Rule, ...] | None, tuple[Guarantee, ...] | None]:
+    """Apply one rule and materialize its explicit structural outputs."""
+    try:
+        refresh, new_rules, new_guarantees = rule.apply(
+            known, candidates, relevant_guarantees(grid, rule),
+        )
+    except RuleAlwaysSatisfied:
+        refresh, new_rules, new_guarantees = True, (), None
+    prepared_rules = (
+        None if new_rules is None
+        else tuple(grid._validate_rule(item)[0] for item in new_rules)
+    )
+    prepared_guarantees = (
+        None if new_guarantees is None
+        else grid._normalize_guarantees(new_guarantees)
+    )
+    return refresh, prepared_rules, prepared_guarantees
+
+
 def apply_rules(grid: Grid) -> None:
     """Apply every currently active rule exactly once."""
     known = grid._known
@@ -234,76 +264,52 @@ def apply_rules(grid: Grid) -> None:
 
     for rule in grid.take_dirty_rules():
         try:
-            if rule._is_extension:
-                # Extensions mutate a detached copy: their changes are
-                # validated as a whole and either fully published or fully
-                # discarded, so a failing hook cannot leak partial state.
-                rule_known: list[int] = list(known)
-                rule_candidates: tuple[set[int], ...] = tuple(
-                    set(values) for values in candidates
+            if type(rule)._is_extension:
+                rule_known = list(known)
+                rule_candidates = tuple(set(values) for values in candidates)
+                with grid._extension_sandbox():
+                    refresh, prepared_rules, prepared_guarantees = _prepare_rule_output(
+                        grid, rule, rule_known, rule_candidates,
+                    )
+                    if not isinstance(refresh, bool):
+                        raise TypeError("rule extension changed flag must be boolean")
+                # Compare explicit output against the restored input, after
+                # discarding incidental mutations through a captured grid.
+                extension_state = _validated_extension_rule_state(
+                    grid, rule_known, rule_candidates,
                 )
-                detached = True
             else:
-                rule_known = known
-                rule_candidates = candidates
-                detached = False
-
-            try:
-                refresh, new_rules, new_guarantees = rule.apply(
-                    rule_known,
-                    rule_candidates,
-                    relevant_guarantees(grid, rule),
+                # Keep this very hot built-in path inline; only extensions
+                # pay for detached state and the sandbox preparation helper.
+                try:
+                    refresh, new_rules, new_guarantees = rule.apply(
+                        known, candidates, relevant_guarantees(grid, rule),
+                    )
+                except RuleAlwaysSatisfied:
+                    refresh, new_rules, new_guarantees = True, (), None
+                prepared_rules = (
+                    None if new_rules is None
+                    else tuple(grid._validate_rule(item)[0] for item in new_rules)
                 )
-            except RuleAlwaysSatisfied:
-                refresh = True
-                new_rules = []
-                new_guarantees = None
-
-            # Rule implementations may return generators. Materialise and
-            # validate both outputs before deactivating the source rule or
-            # changing either live set.
-            prepared_rules = (
-                None
-                if new_rules is None
-                else tuple(
-                    grid._validate_rule(new_rule)[0]
-                    for new_rule in new_rules
+                prepared_guarantees = (
+                    None if new_guarantees is None
+                    else grid._normalize_guarantees(new_guarantees)
                 )
-            )
-            prepared_guarantees = (
-                None
-                if new_guarantees is None
-                else grid._normalize_guarantees(new_guarantees)
-            )
-            extension_state = (
-                _validated_extension_rule_state(
-                    grid,
-                    rule_known,
-                    rule_candidates,
-                )
-                if detached
-                else None
-            )
+                extension_state = None
 
-            # Commit replacement constraints before removing their source.
-            # Metadata validation catches normal malformed output, but a custom
-            # Rule may still fail while hashing or comparing during set
-            # insertion. Adding first keeps the source active if that happens;
-            # no propagation occurs between these adjacent mutations. Detached
-            # candidate changes publish last so a custom hash failure cannot
-            # leak candidate reductions either.
+            # Additions and source removal share one preparation phase. A
+            # failing source hash/equality must not leave replacements or
+            # guarantees installed. All remaining outputs are canonical data.
             if prepared_rules is not None:
-                grid.add_rules_checked(prepared_rules)
+                grid._update_rules_checked(prepared_rules, deactivate=rule)
             if prepared_guarantees is not None:
                 grid._add_normalized_gtees(prepared_guarantees)
-            if prepared_rules is not None:
-                grid.deactivate_rule(rule)
 
             if extension_state is not None:
                 _commit_extension_rule_state(grid, extension_state)
             if refresh:
                 update_candidates_from_known(candidates, known)
-        except Exception:
+        except BaseException:
             # take_dirty_rules() consumed the pending pass before invoking the
             # extension.  Preserve retryability for metadata/hash/application
             # failures by scheduling every still-active rule again.  Normal
@@ -329,7 +335,9 @@ def propagation_status(grid: Grid) -> SolveStatus:
 
 def propagate_basic(grid: Grid) -> SolveStatus:
     """Propagate rules and guarantees to a full fixpoint without power actions."""
-    while grid.is_valid:
+    # The singles pass checks given/candidate agreement before any rule runs.
+    # Keep the repeated loop guard to the inexpensive empty-domain check.
+    while all(grid._candidates):
         before = propagation_snapshot(grid)
         try:
             propagate_once(grid)
