@@ -341,16 +341,24 @@ def _rule_is_satisfied(
     # Python's recursion limit, bounds extension chains. Retain each parent
     # object as well as its id so newly emitted objects cannot reuse that id.
     ancestors = set(path)
-    pending = [(iter((rule,)), guarantees, None)]
+    pending = [(iter((rule,)), guarantees, None, None)]
     if budget is None:
         budget = _FallbackBudget()
     while pending:
-        children, inherited_guarantees, parent = pending[-1]
+        children, inherited_guarantees, parent, parent_state = pending[-1]
         try:
             current = next(children)
         except StopIteration:
             pending.pop()
             if parent is not None:
+                # Child metadata and apply hooks can retain and mutate their
+                # parent's detached state. Check it again after the complete
+                # child traversal, not merely after materializing its iterator.
+                parent_known, parent_candidates = parent_state
+                if not _fallback_state_is_compatible(
+                    parent_known, parent_candidates, values, plan,
+                ):
+                    return False
                 ancestors.remove(id(parent))
             continue
 
@@ -428,12 +436,17 @@ def _rule_is_satisfied(
         # accounting and output order. Cycle detection is ancestor-only: a
         # shared child must be checked afresh in each sibling's context.
         emitted_rules = _bounded_outputs(raw_rules, "Emitted rules", budget)
+        # Iteration and guarantee normalization execute extension code too.
+        # Even an empty iterator can invalidate a previously checked state.
+        if not _fallback_state_is_compatible(known, candidates, values, plan):
+            return False
         if emitted_rules:
             ancestors.add(rule_id)
             pending.append((
                 iter(emitted_rules),
                 inherited_guarantees + emitted_guarantees,
                 current,
+                (known, candidates),
             ))
     return True
 

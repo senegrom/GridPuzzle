@@ -791,10 +791,14 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self.rules, self.rules_ia, self.guarantees, self.guarantees_ia = (
                 items.copy() for items in original_sets
             )
-            # Cache misses mutate dictionaries without invalidating them.
-            self._struct_cache = self._struct_cache.copy()
-            self._rule_cache = self._rule_cache.copy()
-            self._guarantee_cache = self._guarantee_cache.copy()
+            # Derived caches must start cold: copying only the dictionaries
+            # shares nested lists/sets with the parent. Rebuild on demand in
+            # the sandbox instead of deep-copying arbitrary extension objects
+            # (which could itself invoke untrusted copy hooks). trail_undo()
+            # restores the exact parent dictionaries and their cached values.
+            self._struct_cache = {}
+            self._rule_cache = {}
+            self._guarantee_cache = {}
             # A hook must not be able to mutate a saved queue through the grid.
             self._trail_state.dirty = self._trail_state.dirty.copy()
             yield
