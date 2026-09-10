@@ -20,4 +20,4 @@ jobs:
       - name: Check every browser module parses
         run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
       - name: Explain full-browser coverage
-        run: echo 'The browser-scanner push workflow is the single full Chromium/WebKit + Python deployment gate; PR CI intentionally avoids duplicating that expensive suite.'
+        run: echo 'The master push workflow "Build and deploy phone scanner" is the single full Chromium/WebKit + Python deployment gate; PR CI intentionally avoids duplicating that expensive suite.'

@@ -311,7 +311,7 @@ def build(out):
         newline="\n",
     )
     (out / "THIRD_PARTY_NOTICES.txt").write_text(
-        "GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle/tree/browser-scanner\nBrowser dependencies are self-hosted, version-pinned, and retain their supplied licenses.\n"
+        "GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle\nBrowser dependencies are self-hosted, version-pinned, and retain their supplied licenses.\n"
         + json.dumps(provenance, indent=2)
         + "\n",
         encoding="utf-8",

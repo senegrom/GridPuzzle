@@ -1,10 +1,10 @@
 # GridPuzzle phone scanner
 
-The `browser-scanner` branch provides an installable, camera-first static web app at:
+GridPuzzle includes an installable, camera-first static web app, built and deployed from `master`, at:
 
 https://senegrom.github.io/GridPuzzle/
 
-Recognition and the complete Python GridPuzzle solver run on-device. Photographs are not uploaded to a recognition service or remote solver. Nothing in the deployment workflow merges this branch into `master`.
+Recognition and the complete Python GridPuzzle solver run on-device. Photographs are not uploaded to a recognition service or remote solver.
 
 ## Build and deploy
 
@@ -99,4 +99,4 @@ The page declares a same-origin Content Security Policy and a no-referrer policy
 
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
-Live moving-camera AR and step-by-step deduction explanations are not included in this branch.
+Live moving-camera AR and step-by-step deduction explanations are not included.
