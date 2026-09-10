@@ -262,8 +262,8 @@ def apply_rules(grid: Grid) -> None:
     known = grid._known
     candidates = grid._candidates
 
-    for rule in grid.take_dirty_rules():
-        try:
+    try:
+        for rule in grid.take_dirty_rules():
             if type(rule)._is_extension:
                 rule_known = list(known)
                 rule_candidates = tuple(set(values) for values in candidates)
@@ -309,13 +309,12 @@ def apply_rules(grid: Grid) -> None:
                 _commit_extension_rule_state(grid, extension_state)
             if refresh:
                 update_candidates_from_known(candidates, known)
-        except BaseException:
-            # take_dirty_rules() consumed the pending pass before invoking the
-            # extension.  Preserve retryability for metadata/hash/application
-            # failures by scheduling every still-active rule again.  Normal
-            # InvalidGrid branch exits are rolled back by their trail scope.
-            grid._trail_state.dirty.all_rules = True
-            raise
+    except BaseException:
+        # Include selection itself, not just the loop body: custom selection,
+        # hash, equality, metadata and application failures must all be retryable.
+        # InvalidGrid branch exits are rolled back by their ordinary trail scope.
+        grid._trail_state.dirty.all_rules = True
+        raise
 
 
 def propagate_once(grid: Grid) -> None:

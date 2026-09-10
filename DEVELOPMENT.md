@@ -246,6 +246,27 @@ Omit `--timeout-baseline` for a strict run in which every timeout fails.
 
 ## Extension transaction boundary
 
+Custom `UneqRule` subclasses are never deactivated by native inequality-union
+simplification: a native union preserves only inequality, not subclass semantics.
+Only exact native rules participate in the replacement optimization.
+
+Dirty-rule selection prepares its complete tuple before consuming pending work.
+For extension rules, membership/hash/equality and watcher metadata run inside a
+rollback scope over the original active set and pending queue. Selection failures
+are included in the propagation retry guard. Checked registration maintains an
+extension marker so native selection does not pay for a sandbox.
+
+Public solve and validation capture their validation plan before search and before
+any extension metadata can change the original puzzle. A context-local registry
+protects caller grids even when hooks capture them rather than using their detached
+arguments. Copy hooks, propagation/selection hooks, and fallback validation each
+roll back incidental caller changes; lazy outputs and metadata are included.
+Success, errors and interruptions unwind both source and working-grid scopes.
+Native grids with canonical built-in constraints retain the non-sandbox path.
+These scopes protect Grid-managed transactional state, not arbitrary Python object
+state, external effects, or raw writes bypassing Grid's mutation APIs.
+
+
 Third-party rule and guarantee hooks execute inside a reversible sandbox.
 Rule applications receive detached known values and candidate sets, which are
 validated before publication. Their iterators, metadata, hashes, equality

@@ -1,12 +1,17 @@
 from collections.abc import Generator
 from numbers import Integral
 
+from gridsolver.abstract_grids.extension_scope import sandbox_sources
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import Guarantee
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.solver_log import lg as _lg
-from gridsolver.solver.validation import validate_solutions
+from gridsolver.solver.validation import (
+    _ValidationPlan,
+    _validate_solution_set,
+    validation_context,
+)
 
 
 def set_loglevel(level: int) -> None:
@@ -90,9 +95,20 @@ def _solve_validated(
     if max_sols == 0:
         return set()
 
-    # Solving operates exclusively on clones. The caller may therefore reuse,
-    # extend, or load the original grid after this function returns.
-    working_grid = grid.deepcopy()
+    with validation_context(grid) as plan:
+        return _solve_with_plan(grid, max_sols, processes, plan)
+
+
+def _solve_with_plan(
+    grid: Grid,
+    max_sols: int,
+    processes: int,
+    plan: _ValidationPlan,
+) -> set[ImmutableGrid]:
+    # Protect captured caller references, including subclass copy hooks. Normal
+    # Grid.deepcopy still makes just one API-boundary clone and resets trails.
+    with sandbox_sources():
+        working_grid = grid.deepcopy()
     if processes > 1:
         solutions = _solve_top_parallel(
             working_grid,
@@ -110,7 +126,7 @@ def _solve_validated(
     # Check every generated solution before capping the returned subset. This
     # turns any future unsound deduction into an immediate, local failure rather
     # than allowing a plausible-looking invalid grid to escape the solver.
-    validate_solutions(grid, solutions)
+    _validate_solution_set(plan, solutions)
     solutions = _cap_solutions(solutions, max_sols)
 
     if _lg.is_enabled(0):

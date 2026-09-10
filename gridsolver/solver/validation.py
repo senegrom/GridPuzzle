@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
-from itertools import islice
+from itertools import chain, islice
 from math import prod
 from numbers import Integral
 
+from gridsolver.abstract_grids.extension_scope import protect_source, sandbox_sources
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import (
@@ -478,7 +480,7 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
             validated_rules.append(_validate_rule_metadata(rule, partial))
         except (TypeError, ValueError) as exc:
             raise InvalidSolutionError(
-                f"Malformed rule in source grid: {rule!r}: {exc}"
+                f"Malformed rule in source grid ({type(rule).__name__}): {exc}"
             ) from exc
 
     cell_cache: dict[int, tuple[object, frozenset[int]]] = {}
@@ -498,7 +500,7 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
                 )
             except (TypeError, ValueError) as exc:
                 raise InvalidSolutionError(
-                    f"Malformed guarantee in source grid: {guarantee!r}: {exc}"
+                    f"Malformed guarantee in source grid ({type(guarantee).__name__}): {exc}"
                 ) from exc
         return tuple(canonical)
 
@@ -563,13 +565,19 @@ def _validate_against_plan(
 
     for rule in plan.rules:
         try:
-            satisfied = _rule_is_satisfied(
-                rule,
-                values,
-                plan,
-                plan.active_guarantees,
-                metadata_validated=True,
-            )
+            if type(rule)._is_extension:
+                # Detached arguments alone do not protect a captured source.
+                # Include the entire emitted-rule tree and lazy output hooks.
+                with sandbox_sources():
+                    satisfied = _rule_is_satisfied(
+                        rule, values, plan, plan.active_guarantees,
+                        metadata_validated=True,
+                    )
+            else:
+                satisfied = _rule_is_satisfied(
+                    rule, values, plan, plan.active_guarantees,
+                    metadata_validated=True,
+                )
         except InvalidSolutionError:
             raise
         except Exception as exc:
@@ -578,19 +586,62 @@ def _validate_against_plan(
             ) from exc
         if not satisfied:
             raise InvalidSolutionError(
-                f"Solution violates {type(rule).__name__}: {rule!r}"
+                f"Solution violates {type(rule).__name__}"
             )
 
 
+def _requires_source_isolation(source: Grid) -> bool:
+    """Inspect types only; never invoke rule instance metadata to choose a guard."""
+    if not type(source).__module__.startswith("gridsolver."):
+        return True
+    if any(getattr(type(rule), "_is_extension", True) for rule in chain(source.rules, source.rules_ia)):
+        return True
+    # Checked registration canonicalizes guarantees. Also protect validation of
+    # malformed legacy/extension state containing lazy normalization hooks.
+    return any(
+        type(guarantee) is not Guarantee
+        or type(guarantee.val) is not int
+        or type(guarantee.cells) is not frozenset
+        or type(guarantee.rows) is not int
+        or type(guarantee.cols) is not int
+        for guarantee in chain(source.guarantees, source.guarantees_ia)
+    )
+
+
+@contextmanager
+def validation_context(source: Grid) -> Iterator[_ValidationPlan]:
+    """Snapshot the original puzzle and protect it throughout a solve/validation.
+
+    Native grids/rules never enter a sandbox. Extension metadata is evaluated
+    inside its own nested scope so its incidental edits are gone before cloning
+    or search, while the immutable plan still describes the original puzzle.
+    """
+    if _requires_source_isolation(source):
+        with protect_source(source):
+            with sandbox_sources():
+                plan = _build_validation_plan(source)
+            yield plan
+    else:
+        yield _build_validation_plan(source)
+
+
 def validate_solution(source: Grid, solution: ImmutableGrid) -> None:
-    """Validate a completed grid against the caller's entire puzzle state."""
-    _validate_against_plan(_build_validation_plan(source), solution)
+    """Validate against the original puzzle without mutating caller state."""
+    with validation_context(source) as plan:
+        _validate_against_plan(plan, solution)
+
+
+def _validate_solution_set(
+    plan: _ValidationPlan,
+    solutions: set[ImmutableGrid],
+) -> None:
+    for solution in solutions:
+        _validate_against_plan(plan, solution)
 
 
 def validate_solutions(
     source: Grid,
     solutions: set[ImmutableGrid],
 ) -> None:
-    plan = _build_validation_plan(source)
-    for solution in solutions:
-        _validate_against_plan(plan, solution)
+    with validation_context(source) as plan:
+        _validate_solution_set(plan, solutions)

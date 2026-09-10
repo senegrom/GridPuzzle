@@ -6,6 +6,7 @@ from functools import partial
 from numbers import Integral
 from typing import Any, TypeVar, overload
 
+from gridsolver.abstract_grids.extension_scope import sandbox_sources
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
@@ -205,6 +206,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         # custom set semantics, structural transitions use private replacement
         # sets so an exception cannot leak a partial mutation.
         self._has_untrusted_rule_set_methods = False
+        # Monotone extension marker: native propagation keeps its direct path.
+        # Include subclasses with inherited hashes but custom metadata hooks.
+        self._has_extension_rules = False
         self._struct_cache: dict[str, Any] = {}
         # Rule-only structures survive guarantee churn. This matters during
         # speculative propagation, where guarantees narrow and deactivate far
@@ -399,6 +403,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             "_has_untrusted_rule_set_methods",
             True,
         )
+        result._has_extension_rules = getattr(self, "_has_extension_rules", True)
         result.name = self.name
         result._struct_cache = {}
         result._rule_cache = {}
@@ -760,6 +765,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             self._trail_state.dirty.rules = committed_dirty
             if contains_untrusted:
                 self._has_untrusted_rule_set_methods = True
+            if any(type(rule)._is_extension for rule in additions):
+                self._has_extension_rules = True
         if not additions and deactivate is None:
             return
         if self._trail_state.active:
@@ -783,6 +790,12 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @contextmanager
     def _extension_sandbox(self) -> Iterator[None]:
+        """Discard incidental changes to this grid and captured caller grids."""
+        with sandbox_sources(exclude=self), self._local_extension_sandbox():
+            yield
+
+    @contextmanager
+    def _local_extension_sandbox(self) -> Iterator[None]:
         """Discard incidental hook mutations, including on successful calls."""
         original_sets = self.rules, self.rules_ia, self.guarantees, self.guarantees_ia
         mark = self.trail_mark()
@@ -982,19 +995,38 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             return value
 
     def take_dirty_rules(self) -> tuple[Rule, ...]:
-        """Consume the active rules affected since the previous rule pass."""
+        """Prepare selection before consuming work; failing hooks remain retryable."""
+        rules = self.rules
         dirty = self._trail_state.dirty
-        if dirty.all_rules:
-            selected = set(self.rules)
+        if getattr(self, "_has_extension_rules", True):
+            # Select from the saved live sets/queue, not incidental hook edits.
+            # Membership, watcher metadata, and equality all run in the scope.
+            with self._extension_sandbox():
+                pending = self._select_dirty_rules(rules, dirty)
         else:
-            selected = dirty.rules & self.rules
+            pending = self._select_dirty_rules(rules, dirty)
+        # Rollback can replace the dirty-state object. Consume the restored
+        # queue only after every extension-controlled operation has succeeded.
+        dirty = self._trail_state.dirty
+        dirty.all_rules = False
+        dirty.rules.clear()
+        dirty.rule_cells.clear()
+        dirty.guarantee_rule_cells.clear()
+        return pending
+
+    def _select_dirty_rules(self, rules: set[Rule], dirty) -> tuple[Rule, ...]:
+        """Build the complete pending selection without consuming its inputs."""
+        if dirty.all_rules:
+            selected = set(rules)
+        else:
+            selected = dirty.rules & rules
             watched_cells = dirty.rule_cells | dirty.guarantee_rule_cells
             if watched_cells:
                 def build_rule_watchers() -> tuple[tuple[Rule, ...], ...]:
                     watchers: list[list[Rule]] = [
                         [] for _ in range(self.len)
                     ]
-                    for rule in self.rules:
+                    for rule in rules:
                         for cell in rule.cells:
                             watchers[cell].append(rule)
                     return tuple(tuple(items) for items in watchers)
@@ -1012,11 +1044,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                         if rule.uses_guarantees
                     )
 
-        dirty.all_rules = False
-        dirty.rules.clear()
-        dirty.rule_cells.clear()
-        dirty.guarantee_rule_cells.clear()
-        return tuple(rule for rule in self.rules if rule in selected)
+        return tuple(rule for rule in rules if rule in selected)
 
     def take_dirty_guarantees(self) -> tuple[Guarantee, ...]:
         """Consume live guarantees affected by candidate or known changes."""

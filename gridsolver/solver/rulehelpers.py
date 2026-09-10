@@ -36,7 +36,10 @@ def rulehelper_atmostonce(grid: Grid) -> None:
 
     existing_by_origin: dict[int, list[uneq.UneqRule]] = {}
     for rule in grid.get_rules_of_type(uneq.UneqRule):
-        existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
+        # A subclass can impose more than inequality. Native unions may
+        # supplement it, but deactivating it would discard those semantics.
+        if type(rule) is uneq.UneqRule:
+            existing_by_origin.setdefault(rule.origin_cell, []).append(rule)
 
     additions: list[uneq.UneqRule] = []
     to_deactivate: list[uneq.UneqRule] = []
