@@ -222,19 +222,19 @@ def _solve_full(
     pending = [_solve_branch(grid, steps, max_sols, hidden_pair_checked_gts)]
     solutions = None
     try:
-        while pending:
+        while True:
             try:
                 remaining, checked_guarantees = pending[-1].send(solutions)
             except StopIteration as completed:
                 pending.pop()
+                if not pending:
+                    return completed.value
                 solutions = completed.value
             else:
                 pending.append(
                     _solve_branch(grid, steps, remaining, checked_guarantees)
                 )
                 solutions = None
-        assert solutions is not None
-        return solutions
     finally:
         # Closing from the deepest branch out runs the same trail/step finally
         # blocks as normal completion, including on cancellation or hook errors.
