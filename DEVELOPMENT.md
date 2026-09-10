@@ -21,7 +21,7 @@ solve(grid)
        using nested trail_mark()/trail_undo() scopes
 ```
 
-Top-level process-pool branches are independent copied/pickled grids. Within a process, Nishio, forcing chains, forcing nets, and recursive backtracking reuse one mutable grid through transactional trail scopes.
+Top-level process-pool branches are independent copied/pickled grids. Within a process, Nishio, forcing chains, forcing nets, and backtracking reuse one mutable grid through transactional trail scopes. Backtracking drives an explicit stack of suspended branch generators; child results resume their parent without consuming Python call frames, and closing the stack unwinds every trial in LIFO order.
 
 ### Technique profiles
 
@@ -129,6 +129,19 @@ KenKen and Killer Sudoku cages create small `ElementsAtMostOnce` groups. Techniq
 
 **Extension validation:** subclasses of a built-in rule must satisfy both the nearest built-in closed form and their own `apply()` fallback. An `isinstance` closed-form shortcut alone can skip subclass semantics.
 
+Extension output validation uses an explicit depth-first stack and a shared
+4096-item budget. Cycles are detected along the current ancestor path only;
+a shared child is validated again with each sibling's inherited guarantees.
+Valid chains within the budget must not depend on Python's recursion limit.
+Detached state is checked after lazy output iteration and guarantee metadata
+normalization, and parent state is rechecked after the complete child traversal.
+An empty iterator or a child metadata hook must not invalidate a state after
+its last compatibility check.
+
+**Given/candidate consistency:** a nonempty candidate set that excludes an
+existing given is a contradiction. Basic propagation also narrows expanded
+candidate sets back to their givens before selecting a branch.
+
 ## Logging and concurrency
 
 Importing the solver does not initialize Colorama, mutate stdout, or reconfigure the root logger. Terminal configuration is explicit through `set_colouring`.
@@ -190,9 +203,34 @@ Corpus reports distinguish:
 - `unsupported_variant`;
 - `error`.
 
-Timeouts and explicitly classified historical variants do not fail the matrix. Unexpected parser or solver errors do — and so do `unsatisfiable` and `multiple`, because the retained corpus consists of unique-solution puzzles, making either count a solver soundness regression. A missing or empty corpus directory (wrong `--root`, empty shard) fails instead of reporting a green no-op. Non-standard Mebane Slitherlink files with additional constraints are reported explicitly rather than silently solved as ordinary Slitherlink.
+Unexpected timeouts, parser/solver errors, `unsatisfiable`, and `multiple` fail
+the corpus matrix. The retained supported corpus consists of unique-solution
+puzzles, so either wrong solution count is a soundness regression. Every shard
+must also complete at least one uniquely solved case: an all-timeout or
+all-unsupported run cannot pass. Missing or empty corpus directories and zero
+`max_cases` fail rather than reporting a green no-op. Non-standard Mebane
+Slitherlink files with additional constraints remain explicitly classified,
+not silently solved as ordinary Slitherlink.
 
-Run a local shard with:
+There are **no timeout exemptions by default**. Extended CI explicitly supplies
+`--timeout-baseline benchmarks/corpus_timeout_baseline.json`. This reviewed
+baseline names exact existing corpus paths, gives each a reason, records the
+supporting run, and expires within 31 days of review. Its timeout must match the
+requested case timeout. Expired, future-dated, malformed, duplicate, missing-file,
+or out-of-repository entries fail before cases run. Never renew the dates
+without reviewing fresh reports and removing recovered cases.
+
+Reports retain the raw `timeout` status and separately list `accepted_timeouts`,
+`unexpected_timeouts`, and `resolved_timeouts`. The latter identifies previously
+slow cases that completed uniquely, for baseline cleanup. The initial seven
+Slitherlink allowances were verified against the September 2 run's four shard
+artifacts, not newly measured on September 10. All expire on October 10, 2026.
+Case reports are written before the runner returns a regression failure; invalid
+configuration fails before launching cases. Missing report artifacts fail the
+upload step. Changes anywhere in `gridsolver/`, the corpus runner, its policy
+baseline, or the related regression tests trigger extended CI on `master`.
+
+Run a local shard with the same reviewed exceptions as CI:
 
 ```bash
 python scripts/run_new_family_corpus.py \
@@ -200,12 +238,57 @@ python scripts/run_new_family_corpus.py \
   --shard-index 0 \
   --shard-count 4 \
   --case-timeout 60 \
+  --timeout-baseline benchmarks/corpus_timeout_baseline.json \
   --output hidato-0.json
 ```
 
+Omit `--timeout-baseline` for a strict run in which every timeout fails.
+
 ## Extension transaction boundary
 
-Third-party rule and guarantee hooks execute inside a reversible sandbox. They receive validated candidate views rather than the raw journal-aware candidate sets. Their iterators, metadata, hashes, equality methods, replacement outputs, and guarantee-normalization hooks must therefore be treated as untrusted: unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache changes are rolled back before canonical outputs are committed. Replacement rules and guarantees are prepared completely before the source rule is deactivated, so failed extension code cannot partially install a batch or strand the source outside propagation.
+Custom `UneqRule` subclasses are never deactivated by native inequality-union
+simplification: a native union preserves only inequality, not subclass semantics.
+Only exact native rules participate in the replacement optimization.
+
+Dirty-rule selection prepares its complete tuple before consuming pending work.
+For extension rules, membership/hash/equality and watcher metadata run inside a
+rollback scope over the original active set and pending queue. Selection failures
+are included in the propagation retry guard. Checked registration maintains an
+extension marker so native selection does not pay for a sandbox.
+
+Public solve and validation capture their validation plan before search and before
+any extension metadata can change the original puzzle. A context-local registry
+protects caller grids even when hooks capture them rather than using their detached
+arguments. Copy hooks, propagation/selection hooks, and fallback validation each
+roll back incidental caller changes; lazy outputs and metadata are included.
+Success, errors and interruptions unwind both source and working-grid scopes.
+Native grids with canonical built-in constraints retain the non-sandbox path.
+These scopes protect Grid-managed transactional state, not arbitrary Python object
+state, external effects, or raw writes bypassing Grid's mutation APIs.
+
+
+Third-party rule and guarantee hooks execute inside a reversible sandbox.
+Rule applications receive detached known values and candidate sets, which are
+validated before publication. Their iterators, metadata, hashes, equality
+methods, replacement outputs, and guarantee-normalization hooks are untrusted:
+unrelated candidate, known-value, rule, guarantee, dirty-queue, index, or cache
+changes are rolled back before canonical outputs are committed. Sandboxes
+restore constraint sets by reference, so cleanup never reruns a failing rule
+hash or equality method. Ordinary speculative trails retain their existing
+retryable rollback semantics.
+
+The three derived cache dictionaries start empty inside each extension sandbox.
+Cache factories rebuild sandbox-owned structures on demand; a shallow dictionary
+copy would leak nested list/set mutations to the parent, while a generic deep
+copy could execute arbitrary extension copy hooks. Rollback restores the exact
+parent dictionaries and cached object identities. This does not change the
+built-in rule fast path or ordinary speculative cache policy.
+
+Rule additions and source removal are prepared as one structural transition,
+including every extension hash and collision check. Canonical guarantees and
+validated candidate changes publish only after that preparation succeeds.
+Failures and interruptions leave the source scheduled for retry. Built-in
+rule batches retain the in-place set fast path.
 
 Kakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions.
 

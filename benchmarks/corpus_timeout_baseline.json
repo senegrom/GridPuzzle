@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "case_timeout_seconds": 60,
+  "reviewed_on": "2026-09-10",
+  "expires_on": "2026-10-10",
+  "evidence": "GitHub Actions run 33630723266, commit c40a51d4bd320c0792c4f25419ef47a62e6b112d (2026-09-02). The four new-family-slitherlink shard artifacts were downloaded and reviewed on 2026-09-10. These are historical allowances, not new timing measurements of master. Review resolved_timeouts and remove recovered cases before renewal.",
+  "timeouts": [
+    {
+      "path": "Examples/Slitherlink/Kakuro-online/15x15-Gen-M#1-L208.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 1 of the cited run."
+    },
+    {
+      "path": "Examples/Slitherlink/Kakuro-online/15x15-Gen-M#2-L206.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 2 of the cited run."
+    },
+    {
+      "path": "Examples/Slitherlink/Puzzle-loop/H15x15/1,098,496-L212.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 0 of the cited run."
+    },
+    {
+      "path": "Examples/Slitherlink/Puzzle-loop/H15x15/1,460,363-L242.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 1 of the cited run."
+    },
+    {
+      "path": "Examples/Slitherlink/Puzzle-loop/H15x15/4,364,030-L250.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 2 of the cited run."
+    },
+    {
+      "path": "Examples/Slitherlink/Puzzle-loop/H15x15/4,407,009-L240.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 3 of the cited run."
+    },
+    {
+      "path": "Examples/Slitherlink/Puzzle-loop/H15x15/9,050,649-L242.clp",
+      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 0 of the cited run."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 """Shared parsing helpers for compact Killer Sudoku and KenKen cages."""
 
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from functools import lru_cache
 from typing import TypeVar
 
@@ -122,22 +122,21 @@ def _parse_compact_dictionary(
     label_bits = {label: 1 << index for index, label in enumerate(labels)}
     all_labels = (1 << len(labels)) - 1
 
-    @lru_cache(maxsize=None)
-    def parse_from(
+    def alternatives(
         position: int,
         remaining_labels: int,
-    ) -> tuple[tuple[tuple[str, DefinitionT], ...], ...]:
+    ) -> Iterator[tuple[str, DefinitionT, tuple[int, int]]]:
         if position == len(text):
-            return ((),) if remaining_labels == 0 else ()
+            return
 
         label = text[position]
         label_bit = label_bits.get(label, 0)
         if not label_bit or not remaining_labels & label_bit:
-            return ()
+            return
 
         header = parse_header(text, position)
         if header is None:
-            return ()
+            return
         target_start, metadata = header
         target_end = target_start
         while (
@@ -146,10 +145,9 @@ def _parse_compact_dictionary(
         ):
             target_end += 1
         if target_end == target_start:
-            return ()
+            return
 
         remaining_after_label = remaining_labels ^ label_bit
-        solutions: list[tuple[tuple[str, DefinitionT], ...]] = []
         for boundary in range(target_start + 1, target_end + 1):
             if boundary < len(text):
                 next_bit = label_bits.get(text[boundary], 0)
@@ -160,24 +158,56 @@ def _parse_compact_dictionary(
             definition = make_definition(label, metadata, target)
             if definition is None:
                 continue
+            yield label, definition, (boundary, remaining_after_label)
 
-            for suffix in parse_from(boundary, remaining_after_label):
-                solutions.append(((label, definition), *suffix))
-                # More than one complete parse is enough to reject ambiguity;
-                # never enumerate an exponential number of equivalent forms.
-                if len(solutions) == 2:
-                    return tuple(solutions)
-        return tuple(solutions)
+    # Explicit DFS retains the old boundary order and stops each state after
+    # two complete parses prove ambiguity. Cache counts and the first successful
+    # transition, rather than copying a growing suffix at every cage depth.
+    start = (0, all_labels)
+    complete = (len(text), 0)
+    counts = {complete: 1}
+    first_choices: dict[
+        tuple[int, int], tuple[str, DefinitionT, tuple[int, int]]
+    ] = {}
+    work = [(start, alternatives(*start), 0, None)]
+    while work:
+        state, choices, total, pending = work[-1]
+        choice = next(choices, None) if pending is None else pending
+        if choice is None:
+            counts[state] = total
+            work.pop()
+            continue
 
-    solutions = parse_from(0, all_labels)
-    if not solutions:
+        child = choice[2]
+        if child not in counts:
+            # Resume this transition after its suffix has been evaluated.
+            # Every child advances in the text, so the state graph is acyclic.
+            work[-1] = (state, choices, total, choice)
+            work.append((child, alternatives(*child), 0, None))
+            continue
+
+        if counts[child]:
+            first_choices.setdefault(state, choice)
+            total = min(2, total + counts[child])
+        if total == 2:
+            counts[state] = total
+            work.pop()
+        else:
+            work[-1] = (state, choices, total, None)
+
+    if not counts[start]:
         raise ValueError(f"{description} string format invalid")
-    if len(solutions) > 1:
+    if counts[start] > 1:
         raise ValueError(
             f"{description} dictionary is ambiguous; use load_with_dic() "
             "or non-numeric cage labels"
         )
-    return dict(solutions[0])
+    definitions: dict[str, DefinitionT] = {}
+    state = start
+    while state != complete:
+        label, definition, state = first_choices[state]
+        definitions[label] = definition
+    return definitions
 
 
 def _raise_for_missing_unambiguous_label(

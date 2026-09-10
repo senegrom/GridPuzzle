@@ -5,12 +5,12 @@ on:
   push:
     branches: [master]
     paths:
-      - "gridsolver/rules/sumrules.py"
-      - "gridsolver/grid_classes/cage_loading.py"
-      - "gridsolver/grid_classes/kenken.py"
-      - "gridsolver/grid_classes/killer_sudoku.py"
-      - "gridsolver/solver/solver.py"
-      - "gridsolver/solver/solve_parallel.py"
+      - "gridsolver/**"
+      - "scripts/run_new_family_corpus.py"
+      - "benchmarks/corpus_timeout_baseline.json"
+      - "tests/test_corpus_timeout_policy.py"
+      - "tests/test_new_family_corpus_runner.py"
+      - "tests/test_gridpuzzle_review_regressions.py"
       - "tests/test_review3_native.py"
       - ".github/workflows/extended.yml"
   schedule:
@@ -114,6 +114,7 @@ jobs:
           --shard-index "${{ matrix.shard }}"
           --shard-count 4
           --case-timeout 60
+          --timeout-baseline benchmarks/corpus_timeout_baseline.json
           --output "artifacts/${{ matrix.family }}-${{ matrix.shard }}.json"
       - name: Upload corpus timing and status report
         if: always()
@@ -121,7 +122,7 @@ jobs:
         with:
           name: new-family-${{ matrix.family }}-${{ matrix.shard }}
           path: artifacts/${{ matrix.family }}-${{ matrix.shard }}.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
   # The former large-scale and technique-soundness jobs were removed in

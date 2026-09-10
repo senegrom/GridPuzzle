@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
-from itertools import islice
+from itertools import chain, islice
 from math import prod
 from numbers import Integral
 
+from gridsolver.abstract_grids.extension_scope import protect_source, sandbox_sources
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import (
@@ -337,83 +339,117 @@ def _rule_is_satisfied(
     # subclass-specific apply() semantics must also pass the fallback below,
     # otherwise a subclass would be validated by the parent's semantics only.
 
-    # Extension fallback: exercise the custom rule against singleton
-    # candidates, then validate every structural constraint it emits.
-    rule_id = id(rule)
-    if rule_id in path:
-        return True
+    # Keep an explicit depth-first stack. The 4096-item budget, rather than
+    # Python's recursion limit, bounds extension chains. Retain each parent
+    # object as well as its id so newly emitted objects cannot reuse that id.
+    ancestors = set(path)
+    pending = [(iter((rule,)), guarantees, None, None)]
     if budget is None:
         budget = _FallbackBudget()
-    if budget.remaining_outputs <= 0:
-        raise ValueError(
-            "Extension rule validation exhausted its output budget"
-        )
-    budget.remaining_outputs -= 1
+    while pending:
+        children, inherited_guarantees, parent, parent_state = pending[-1]
+        try:
+            current = next(children)
+        except StopIteration:
+            pending.pop()
+            if parent is not None:
+                # Child metadata and apply hooks can retain and mutate their
+                # parent's detached state. Check it again after the complete
+                # child traversal, not merely after materializing its iterator.
+                parent_known, parent_candidates = parent_state
+                if not _fallback_state_is_compatible(
+                    parent_known, parent_candidates, values, plan,
+                ):
+                    return False
+                ancestors.remove(id(parent))
+            continue
 
-    known = list(values)
-    candidates = tuple({value} for value in values)
-    raised_satisfied = False
-    try:
-        result = rule.apply(
+        if parent is not None:
+            current = _validate_rule_metadata(current, plan)
+            closed_form = _builtin_closed_form(
+                current,
+                tuple(values[cell] for cell in current.cells),
+                values,
+                plan,
+            )
+            if closed_form is False:
+                return False
+            if closed_form is True and type(current) in _BUILTIN_RULE_TYPES:
+                continue
+
+        rule_id = id(current)
+        if rule_id in ancestors:
+            continue
+        if budget.remaining_outputs <= 0:
+            raise ValueError(
+                "Extension rule validation exhausted its output budget"
+            )
+        budget.remaining_outputs -= 1
+
+        known = list(values)
+        candidates = tuple({value} for value in values)
+        raised_satisfied = False
+        try:
+            result = current.apply(
+                known,
+                candidates,
+                _relevant_guarantees_for_rule(current, inherited_guarantees),
+            )
+        except RuleAlwaysSatisfied:
+            raised_satisfied = True
+            result = None
+        except InvalidGrid:
+            return False
+
+        if not _fallback_state_is_compatible(
             known,
             candidates,
-            _relevant_guarantees_for_rule(rule, guarantees),
-        )
-    except RuleAlwaysSatisfied:
-        raised_satisfied = True
-        result = None
-    except InvalidGrid:
-        return False
-
-    if not _fallback_state_is_compatible(
-        known,
-        candidates,
-        values,
-        plan,
-    ):
-        return False
-    if raised_satisfied:
-        return True
-    if not isinstance(result, tuple) or len(result) != 3:
-        raise TypeError(
-            f"{type(rule).__name__}.apply() must return a three-item tuple"
-        )
-    changed, raw_rules, raw_guarantees = result
-    if not isinstance(changed, bool):
-        raise TypeError(
-            f"{type(rule).__name__}.apply() changed flag must be boolean"
-        )
-
-    emitted_guarantees = tuple(
-        _canonical_guarantee(item, plan)
-        for item in _bounded_outputs(
-            raw_guarantees,
-            "Emitted guarantees",
-            budget,
-        )
-    )
-    if any(
-        not _canonical_guarantee_is_satisfied(guarantee, values)
-        for guarantee in emitted_guarantees
-    ):
-        return False
-
-    next_guarantees = guarantees + emitted_guarantees
-    next_path = path | {rule_id}
-    for emitted_rule in _bounded_outputs(
-        raw_rules,
-        "Emitted rules",
-        budget,
-    ):
-        if not _rule_is_satisfied(
-            emitted_rule,
             values,
             plan,
-            next_guarantees,
-            path=next_path,
-            budget=budget,
         ):
             return False
+        if raised_satisfied:
+            continue
+        if not isinstance(result, tuple) or len(result) != 3:
+            raise TypeError(
+                f"{type(current).__name__}.apply() must return a three-item tuple"
+            )
+        changed, raw_rules, raw_guarantees = result
+        if not isinstance(changed, bool):
+            raise TypeError(
+                f"{type(current).__name__}.apply() changed flag must be boolean"
+            )
+
+        emitted_guarantees = tuple(
+            _canonical_guarantee(item, plan)
+            for item in _bounded_outputs(
+                raw_guarantees,
+                "Emitted guarantees",
+                budget,
+            )
+        )
+        if any(
+            not _canonical_guarantee_is_satisfied(guarantee, values)
+            for guarantee in emitted_guarantees
+        ):
+            return False
+
+        # Materialize siblings before descent, preserving shared-budget
+        # accounting and output order. Cycle detection is ancestor-only: a
+        # shared child must be checked afresh in each sibling's context.
+        emitted_rules = _bounded_outputs(raw_rules, "Emitted rules", budget)
+        # Iteration and guarantee normalization execute extension code too.
+        # Even an empty iterator can invalidate a previously checked state.
+        if not _fallback_state_is_compatible(known, candidates, values, plan):
+            return False
+        if emitted_rules:
+            ancestors.add(rule_id)
+            pending.append((
+                iter(emitted_rules),
+                inherited_guarantees + emitted_guarantees,
+                current,
+                (known, candidates),
+            ))
     return True
 
 
@@ -444,7 +480,7 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
             validated_rules.append(_validate_rule_metadata(rule, partial))
         except (TypeError, ValueError) as exc:
             raise InvalidSolutionError(
-                f"Malformed rule in source grid: {rule!r}: {exc}"
+                f"Malformed rule in source grid ({type(rule).__name__}): {exc}"
             ) from exc
 
     cell_cache: dict[int, tuple[object, frozenset[int]]] = {}
@@ -464,7 +500,7 @@ def _build_validation_plan(source: Grid) -> _ValidationPlan:
                 )
             except (TypeError, ValueError) as exc:
                 raise InvalidSolutionError(
-                    f"Malformed guarantee in source grid: {guarantee!r}: {exc}"
+                    f"Malformed guarantee in source grid ({type(guarantee).__name__}): {exc}"
                 ) from exc
         return tuple(canonical)
 
@@ -529,13 +565,19 @@ def _validate_against_plan(
 
     for rule in plan.rules:
         try:
-            satisfied = _rule_is_satisfied(
-                rule,
-                values,
-                plan,
-                plan.active_guarantees,
-                metadata_validated=True,
-            )
+            if type(rule)._is_extension:
+                # Detached arguments alone do not protect a captured source.
+                # Include the entire emitted-rule tree and lazy output hooks.
+                with sandbox_sources():
+                    satisfied = _rule_is_satisfied(
+                        rule, values, plan, plan.active_guarantees,
+                        metadata_validated=True,
+                    )
+            else:
+                satisfied = _rule_is_satisfied(
+                    rule, values, plan, plan.active_guarantees,
+                    metadata_validated=True,
+                )
         except InvalidSolutionError:
             raise
         except Exception as exc:
@@ -544,19 +586,62 @@ def _validate_against_plan(
             ) from exc
         if not satisfied:
             raise InvalidSolutionError(
-                f"Solution violates {type(rule).__name__}: {rule!r}"
+                f"Solution violates {type(rule).__name__}"
             )
 
 
+def _requires_source_isolation(source: Grid) -> bool:
+    """Inspect types only; never invoke rule instance metadata to choose a guard."""
+    if not type(source).__module__.startswith("gridsolver."):
+        return True
+    if any(getattr(type(rule), "_is_extension", True) for rule in chain(source.rules, source.rules_ia)):
+        return True
+    # Checked registration canonicalizes guarantees. Also protect validation of
+    # malformed legacy/extension state containing lazy normalization hooks.
+    return any(
+        type(guarantee) is not Guarantee
+        or type(guarantee.val) is not int
+        or type(guarantee.cells) is not frozenset
+        or type(guarantee.rows) is not int
+        or type(guarantee.cols) is not int
+        for guarantee in chain(source.guarantees, source.guarantees_ia)
+    )
+
+
+@contextmanager
+def validation_context(source: Grid) -> Iterator[_ValidationPlan]:
+    """Snapshot the original puzzle and protect it throughout a solve/validation.
+
+    Native grids/rules never enter a sandbox. Extension metadata is evaluated
+    inside its own nested scope so its incidental edits are gone before cloning
+    or search, while the immutable plan still describes the original puzzle.
+    """
+    if _requires_source_isolation(source):
+        with protect_source(source):
+            with sandbox_sources():
+                plan = _build_validation_plan(source)
+            yield plan
+    else:
+        yield _build_validation_plan(source)
+
+
 def validate_solution(source: Grid, solution: ImmutableGrid) -> None:
-    """Validate a completed grid against the caller's entire puzzle state."""
-    _validate_against_plan(_build_validation_plan(source), solution)
+    """Validate against the original puzzle without mutating caller state."""
+    with validation_context(source) as plan:
+        _validate_against_plan(plan, solution)
+
+
+def _validate_solution_set(
+    plan: _ValidationPlan,
+    solutions: set[ImmutableGrid],
+) -> None:
+    for solution in solutions:
+        _validate_against_plan(plan, solution)
 
 
 def validate_solutions(
     source: Grid,
     solutions: set[ImmutableGrid],
 ) -> None:
-    plan = _build_validation_plan(source)
-    for solution in solutions:
-        _validate_against_plan(plan, solution)
+    with validation_context(source) as plan:
+        _validate_solution_set(plan, solutions)

@@ -1,11 +1,17 @@
+from collections.abc import Generator
 from numbers import Integral
 
+from gridsolver.abstract_grids.extension_scope import sandbox_sources
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import Guarantee
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.solver_log import lg as _lg
-from gridsolver.solver.validation import validate_solutions
+from gridsolver.solver.validation import (
+    _ValidationPlan,
+    _validate_solution_set,
+    validation_context,
+)
 
 
 def set_loglevel(level: int) -> None:
@@ -89,9 +95,20 @@ def _solve_validated(
     if max_sols == 0:
         return set()
 
-    # Solving operates exclusively on clones. The caller may therefore reuse,
-    # extend, or load the original grid after this function returns.
-    working_grid = grid.deepcopy()
+    with validation_context(grid) as plan:
+        return _solve_with_plan(grid, max_sols, processes, plan)
+
+
+def _solve_with_plan(
+    grid: Grid,
+    max_sols: int,
+    processes: int,
+    plan: _ValidationPlan,
+) -> set[ImmutableGrid]:
+    # Protect captured caller references, including subclass copy hooks. Normal
+    # Grid.deepcopy still makes just one API-boundary clone and resets trails.
+    with sandbox_sources():
+        working_grid = grid.deepcopy()
     if processes > 1:
         solutions = _solve_top_parallel(
             working_grid,
@@ -109,7 +126,7 @@ def _solve_validated(
     # Check every generated solution before capping the returned subset. This
     # turns any future unsound deduction into an immediate, local failure rather
     # than allowing a plausible-looking invalid grid to escape the solver.
-    validate_solutions(grid, solutions)
+    _validate_solution_set(plan, solutions)
     solutions = _cap_solutions(solutions, max_sols)
 
     if _lg.is_enabled(0):
@@ -217,6 +234,41 @@ def _solve_full(
     max_sols: int,
     hidden_pair_checked_gts: set[Guarantee],
 ) -> set[ImmutableGrid]:
+    """Drive suspended DFS branches without consuming Python call frames."""
+    pending = [_solve_branch(grid, steps, max_sols, hidden_pair_checked_gts)]
+    solutions = None
+    try:
+        while True:
+            try:
+                remaining, checked_guarantees = pending[-1].send(solutions)
+            except StopIteration as completed:
+                pending.pop()
+                if not pending:
+                    return completed.value
+                solutions = completed.value
+            else:
+                pending.append(
+                    _solve_branch(grid, steps, remaining, checked_guarantees)
+                )
+                solutions = None
+    finally:
+        # Closing from the deepest branch out runs the same trail/step finally
+        # blocks as normal completion, including on cancellation or hook errors.
+        while pending:
+            pending.pop().close()
+
+
+def _solve_branch(
+    grid: Grid,
+    steps: list[int],
+    max_sols: int,
+    hidden_pair_checked_gts: set[Guarantee],
+) -> Generator[
+    tuple[int, set[Guarantee]],
+    set[ImmutableGrid],
+    set[ImmutableGrid],
+]:
+    """Run one DFS frame, yielding its child search request to the driver."""
     steps.append(0)
     try:
         settled, branches, from_guarantee = _atomic_pass_or_branches(
@@ -257,12 +309,7 @@ def _solve_full(
                     if max_sols == -1
                     else max_sols - len(solutions)
                 )
-                branch_solutions = _solve_full(
-                    grid,
-                    steps,
-                    remaining,
-                    checked_guarantees,
-                )
+                branch_solutions = yield remaining, checked_guarantees
             finally:
                 grid.trail_undo(mark)
 

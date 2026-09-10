@@ -1,10 +1,12 @@
 from array import array
 from collections.abc import Callable, Iterable, Iterator, MutableMapping, MutableSequence, MutableSet
+from contextlib import contextmanager
 from enum import Enum
 from functools import partial
 from numbers import Integral
 from typing import Any, TypeVar, overload
 
+from gridsolver.abstract_grids.extension_scope import sandbox_sources
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
@@ -129,6 +131,23 @@ def _validate_load_options(
 RuleT = TypeVar("RuleT", bound=Rule)
 
 
+def _is_canonical_guarantee(guarantee: object, grid: "Grid") -> bool:
+    """Recognise hook-free metadata before using the built-in fast path."""
+    if type(guarantee) is not Guarantee:
+        return False
+    return (
+        type(guarantee.val) is int
+        and type(guarantee.cells) is frozenset
+        and type(guarantee.rows) is int
+        and type(guarantee.cols) is int
+        and 1 <= guarantee.val <= grid.max_elem
+        and guarantee.rows == grid.rows
+        and guarantee.cols == grid.cols
+        and bool(guarantee.cells)
+        and all(type(cell) is int and 0 <= cell < grid.len for cell in guarantee.cells)
+    )
+
+
 def _trusted_rule_set_methods(rule: Rule) -> bool:
     """Return whether set collision handling is owned by GridPuzzle code."""
     rule_type = type(rule)
@@ -187,6 +206,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         # custom set semantics, structural transitions use private replacement
         # sets so an exception cannot leak a partial mutation.
         self._has_untrusted_rule_set_methods = False
+        # Monotone extension marker: native propagation keeps its direct path.
+        # Include subclasses with inherited hashes but custom metadata hooks.
+        self._has_extension_rules = False
         self._struct_cache: dict[str, Any] = {}
         # Rule-only structures survive guarantee churn. This matters during
         # speculative propagation, where guarantees narrow and deactivate far
@@ -381,6 +403,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             "_has_untrusted_rule_set_methods",
             True,
         )
+        result._has_extension_rules = getattr(self, "_has_extension_rules", True)
         result.name = self.name
         result._struct_cache = {}
         result._rule_cache = {}
@@ -504,7 +527,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
 
     @property
     def is_valid(self) -> bool:
-        return all(self._candidates)
+        for value, possible in zip(self._known, self._candidates):
+            if not possible or (value and value not in possible):
+                return False
+        return True
 
     def get_candidates(self, key: IdxType) -> MutableSet[int]:
         """Return a live, domain-validated view of one candidate set."""
@@ -638,13 +664,13 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             )
         return rule, tuple(cells)
 
-    def add_rules_checked(self, rules: Iterable[Rule]) -> None:
-        """Validate a complete rule batch, then commit it in one mutation.
-
-        Validation deliberately finishes before canonicalising, freezing, or
-        hashing any rule, so a malformed later item cannot make a valid
-        caller-owned prefix immutable when the batch is rejected.
-        """
+    def _prepare_rule_additions(
+        self,
+        rules: Iterable[Rule],
+        active: set[Rule],
+        inactive: set[Rule],
+    ) -> set[Rule]:
+        """Validate the entire batch before freezing or hashing its prefix."""
         staged = [self._validate_rule(rule) for rule in rules]
 
         # Canonicalisation and freezing are safe only after every item has
@@ -666,76 +692,140 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         for rule, _ in staged:
             if (
                 rule in additions
-                or rule in self.rules_ia
-                or rule in self.rules
+                or rule in inactive
+                or rule in active
             ):
                 continue
             additions.add(rule)
 
-        if not additions:
-            return
+        return additions
 
-        contains_untrusted = any(
-            not _trusted_rule_set_methods(rule) for rule in additions
+    def _update_rules_checked(
+        self,
+        rules: Iterable[Rule],
+        *,
+        deactivate: Rule | None = None,
+    ) -> None:
+        """Prepare additions and source removal as one structural transition."""
+        active = self.rules
+        inactive = self.rules_ia
+        dirty_rules = self._trail_state.dirty.rules
+        trusted = (
+            not self._has_untrusted_rule_set_methods
+            and type(self)._validate_rule is Grid._validate_rule
+            and "_validate_rule" not in self.__dict__
+            and type(rules) in (tuple, list, set, frozenset)
+            and all(
+                type(rule).__module__.startswith("gridsolver.rules.")
+                and _trusted_rule_set_methods(rule)
+                for rule in rules
+            )
+            and (
+                deactivate is None
+                or (
+                    type(deactivate).__module__.startswith("gridsolver.rules.")
+                    and _trusted_rule_set_methods(deactivate)
+                )
+            )
         )
-        transactional_sets = (
-            getattr(self, "_has_untrusted_rule_set_methods", True)
-            or contains_untrusted
-        )
-        if transactional_sets:
-            # A hash collision can invoke extension ``__eq__`` again while
-            # merging with an existing live set.  Build every replacement set
-            # privately so a failure leaves all published state untouched.
-            committed_rules = self.rules.copy()
-            committed_rules.update(additions)
-            committed_dirty_rules = self._trail_state.dirty.rules.copy()
-            committed_dirty_rules.update(additions)
-            self.rules = committed_rules
-            self._trail_state.dirty.rules = committed_dirty_rules
+        if trusted:
+            additions = self._prepare_rule_additions(rules, active, inactive)
+            # Remove first so a missing source cannot publish additions. The
+            # remaining operations on trusted, validated rules cannot run hooks.
+            if deactivate is not None:
+                active.remove(deactivate)
+            active.update(additions)
+            dirty_rules.update(additions)
+            if deactivate is not None:
+                inactive.add(deactivate)
+                dirty_rules.discard(deactivate)
         else:
-            # Preserve the measured in-place path for repository-owned rules.
-            self.rules.update(additions)
-            self._trail_state.dirty.rules.update(additions)
-        if contains_untrusted:
-            # Keep the conservative mode after trail rollback: inactive custom
-            # rules remain collision candidates for later registrations.
-            self._has_untrusted_rule_set_methods = True
+            with self._extension_sandbox():
+                # Use the original sets, not any incidental changes made by
+                # the iterator, metadata, freeze, hash, or equality hooks.
+                additions = self._prepare_rule_additions(rules, active, inactive)
+                committed_rules = active.copy()
+                committed_rules.update(additions)
+                committed_inactive = inactive.copy()
+                committed_dirty = dirty_rules.copy()
+                committed_dirty.update(additions)
+                if deactivate is not None:
+                    committed_rules.remove(deactivate)
+                    committed_inactive.add(deactivate)
+                    committed_dirty.discard(deactivate)
+                contains_untrusted = any(
+                    not _trusted_rule_set_methods(rule) for rule in additions
+                )
+            if not additions and deactivate is None:
+                return
+            # No extension code runs during publication: even the set hashes
+            # and collision checks finished inside the reversible sandbox.
+            self.rules = committed_rules
+            self.rules_ia = committed_inactive
+            self._trail_state.dirty.rules = committed_dirty
+            if contains_untrusted:
+                self._has_untrusted_rule_set_methods = True
+            if any(type(rule)._is_extension for rule in additions):
+                self._has_extension_rules = True
+        if not additions and deactivate is None:
+            return
         if self._trail_state.active:
             self._trail_state.entries.extend(
                 ("rule+", rule) for rule in additions
             )
+            if deactivate is not None:
+                self._trail_state.entries.append(("rule-", deactivate))
         self._invalidate_rule_cache()
         self._invalidate_struct_cache()
+
+    def add_rules_checked(self, rules: Iterable[Rule]) -> None:
+        """Validate a complete batch and publish only its explicit rules."""
+        self._update_rules_checked(rules)
 
     def add_rule_checked(self, rule: Rule) -> None:
         self.add_rules_checked((rule,))
 
     def deactivate_rule(self, rule: Rule) -> None:
-        if (
-            getattr(self, "_has_untrusted_rule_set_methods", True)
-            or not _trusted_rule_set_methods(rule)
-        ):
-            # Moving a custom rule crosses three sets.  Precompute the complete
-            # new state before publishing any of it, because extension equality
-            # or hash methods may fail while resolving collisions.
-            committed_rules = self.rules.copy()
-            committed_rules_ia = self.rules_ia.copy()
-            committed_dirty_rules = self._trail_state.dirty.rules.copy()
-            committed_rules.remove(rule)
-            committed_rules_ia.add(rule)
-            committed_dirty_rules.discard(rule)
-            self.rules = committed_rules
-            self.rules_ia = committed_rules_ia
-            self._trail_state.dirty.rules = committed_dirty_rules
-            self._has_untrusted_rule_set_methods = True
-        else:
-            self.rules.remove(rule)
-            self.rules_ia.add(rule)
-            self._trail_state.dirty.rules.discard(rule)
-        if self._trail_state.active:
-            self._trail_state.entries.append(("rule-", rule))
-        self._invalidate_rule_cache()
-        self._invalidate_struct_cache()
+        self._update_rules_checked((), deactivate=rule)
+
+    @contextmanager
+    def _extension_sandbox(self) -> Iterator[None]:
+        """Discard incidental changes to this grid and captured caller grids."""
+        with sandbox_sources(exclude=self), self._local_extension_sandbox():
+            yield
+
+    @contextmanager
+    def _local_extension_sandbox(self) -> Iterator[None]:
+        """Discard incidental hook mutations, including on successful calls."""
+        original_sets = self.rules, self.rules_ia, self.guarantees, self.guarantees_ia
+        mark = self.trail_mark()
+        start = self._trail_state.marks[-1].start
+        try:
+            self.rules, self.rules_ia, self.guarantees, self.guarantees_ia = (
+                items.copy() for items in original_sets
+            )
+            # Derived caches must start cold: copying only the dictionaries
+            # shares nested lists/sets with the parent. Rebuild on demand in
+            # the sandbox instead of deep-copying arbitrary extension objects
+            # (which could itself invoke untrusted copy hooks). trail_undo()
+            # restores the exact parent dictionaries and their cached values.
+            self._struct_cache = {}
+            self._rule_cache = {}
+            self._guarantee_cache = {}
+            # A hook must not be able to mutate a saved queue through the grid.
+            self._trail_state.dirty = self._trail_state.dirty.copy()
+            yield
+        finally:
+            # Restore constraint sets by reference, without invoking the very
+            # hash/equality hook that may have failed. The ordinary trail still
+            # restores candidates, givens, indexes, caches, and dirty work.
+            entries = self._trail_state.entries
+            entries[start:] = [
+                entry for entry in entries[start:]
+                if entry[0] not in {"rule+", "rule-", "gt+", "gt-"}
+            ]
+            self.rules, self.rules_ia, self.guarantees, self.guarantees_ia = original_sets
+            self.trail_undo(mark)
 
     def _normalize_guarantee(self, guarantee: Guarantee) -> Guarantee:
         """Validate and canonicalise one guarantee before set membership.
@@ -752,21 +842,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         including bools, floats equal to ints, and Guarantee subclasses --
         still takes the full validation path below.
         """
-        if type(guarantee) is Guarantee:
-            value = guarantee.val
-            cells = guarantee.cells
-            if (
-                type(value) is int
-                and type(cells) is frozenset
-                and type(guarantee.rows) is int
-                and type(guarantee.cols) is int
-                and 1 <= value <= self.max_elem
-                and guarantee.rows == self.rows
-                and guarantee.cols == self.cols
-                and cells
-                and all(type(cell) is int and 0 <= cell < self.len for cell in cells)
-            ):
-                return guarantee
+        if _is_canonical_guarantee(guarantee, self):
+            return guarantee
         if not isinstance(guarantee, Guarantee):
             raise TypeError("Guarantees must be Guarantee instances")
 
@@ -815,10 +892,25 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         once, while callers can still stage a generator before mutating the
         live guarantee sets.
         """
-        return tuple(
-            self._normalize_guarantee(guarantee)
-            for guarantee in guarantees
-        )
+        # Canonical built-in batches cannot invoke extension code. Keep the
+        # common propagation path free of extra trail and cache snapshots.
+        if (
+            type(self)._normalize_guarantee is Grid._normalize_guarantee
+            and "_normalize_guarantee" not in self.__dict__
+            and type(guarantees) in (tuple, list, set, frozenset)
+        ):
+            guarantees = tuple(guarantees)
+            if all(_is_canonical_guarantee(item, self) for item in guarantees):
+                return guarantees
+
+        with self._extension_sandbox():
+            normalize = self._normalize_guarantee
+            # Invoke the legacy override once per item, then canonicalise its
+            # output with the base validator while still inside the scope.
+            return tuple(
+                Grid._normalize_guarantee(self, normalize(guarantee))
+                for guarantee in guarantees
+            )
 
     def _add_normalized_gtees(
         self,
@@ -903,19 +995,38 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             return value
 
     def take_dirty_rules(self) -> tuple[Rule, ...]:
-        """Consume the active rules affected since the previous rule pass."""
+        """Prepare selection before consuming work; failing hooks remain retryable."""
+        rules = self.rules
         dirty = self._trail_state.dirty
-        if dirty.all_rules:
-            selected = set(self.rules)
+        if getattr(self, "_has_extension_rules", True):
+            # Select from the saved live sets/queue, not incidental hook edits.
+            # Membership, watcher metadata, and equality all run in the scope.
+            with self._extension_sandbox():
+                pending = self._select_dirty_rules(rules, dirty)
         else:
-            selected = dirty.rules & self.rules
+            pending = self._select_dirty_rules(rules, dirty)
+        # Rollback can replace the dirty-state object. Consume the restored
+        # queue only after every extension-controlled operation has succeeded.
+        dirty = self._trail_state.dirty
+        dirty.all_rules = False
+        dirty.rules.clear()
+        dirty.rule_cells.clear()
+        dirty.guarantee_rule_cells.clear()
+        return pending
+
+    def _select_dirty_rules(self, rules: set[Rule], dirty) -> tuple[Rule, ...]:
+        """Build the complete pending selection without consuming its inputs."""
+        if dirty.all_rules:
+            selected = set(rules)
+        else:
+            selected = dirty.rules & rules
             watched_cells = dirty.rule_cells | dirty.guarantee_rule_cells
             if watched_cells:
                 def build_rule_watchers() -> tuple[tuple[Rule, ...], ...]:
                     watchers: list[list[Rule]] = [
                         [] for _ in range(self.len)
                     ]
-                    for rule in self.rules:
+                    for rule in rules:
                         for cell in rule.cells:
                             watchers[cell].append(rule)
                     return tuple(tuple(items) for items in watchers)
@@ -933,11 +1044,7 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                         if rule.uses_guarantees
                     )
 
-        dirty.all_rules = False
-        dirty.rules.clear()
-        dirty.rule_cells.clear()
-        dirty.guarantee_rule_cells.clear()
-        return tuple(rule for rule in self.rules if rule in selected)
+        return tuple(rule for rule in rules if rule in selected)
 
     def take_dirty_guarantees(self) -> tuple[Guarantee, ...]:
         """Consume live guarantees affected by candidate or known changes."""

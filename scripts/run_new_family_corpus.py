@@ -1,22 +1,23 @@
 """Solve retained Hidato, Numbrix, Kakuro, and Slitherlink corpora.
 
-Each puzzle runs in a fresh interpreter with a hard timeout. The parent process
-always writes a machine-readable report before returning a non-zero status for
-unexpected loader/solver errors and for solution-count regressions
-(``unsatisfiable`` or ``multiple`` on the retained unique-solution corpus).
-Timeouts and deliberately unsupported historical variants are recorded but do
-not fail the run.
+Each puzzle runs in a fresh interpreter with a hard timeout. Case reports are
+written before returning a non-zero status for unexpected errors, solution-count
+regressions, unexpected timeouts, or a shard without any uniquely solved case.
+Only exact cases in an explicitly supplied, unexpired timeout baseline are
+exempt. Invalid configuration fails before launching cases.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import time
 from collections import Counter
-from pathlib import Path
+from datetime import UTC, date, datetime
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -39,6 +40,87 @@ def classify_unsupported_variant(path: Path) -> str | None:
     if "/Slitherlink/Mebane/" in normalized and not path.name.startswith("#I."):
         return "Mebane non-standard Slitherlink variant with extra constraints"
     return None
+
+
+def load_timeout_baseline(
+    path: Path | None,
+    *,
+    root: Path,
+    timeout_seconds: float,
+    today: date | None = None,
+) -> frozenset[str]:
+    """Read reviewed, exact repository-relative timeout exceptions.
+
+    No baseline means no exceptions. Entries must refer to existing corpus
+    files, include a reason, and expire within 31 days of their review. A
+    baseline is tied to its measured timeout, so reducing the timeout cannot
+    silently reuse an exemption from a different experiment.
+    """
+    if path is None:
+        return frozenset()
+    baseline = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(baseline, dict) or type(baseline.get("schema_version")) is not int or baseline["schema_version"] != 1:
+        raise ValueError("Timeout baseline must have schema_version 1")
+    measured_timeout = baseline.get("case_timeout_seconds")
+    if type(measured_timeout) not in (int, float) or not math.isfinite(measured_timeout) or measured_timeout <= 0 or measured_timeout != timeout_seconds:
+        raise ValueError("Timeout baseline must match the positive, finite case timeout")
+    for field in ("evidence", "reviewed_on", "expires_on"):
+        if not isinstance(baseline.get(field), str) or not baseline[field].strip():
+            raise ValueError(f"Timeout baseline requires {field}")
+    reviewed = date.fromisoformat(baseline["reviewed_on"])
+    expires = date.fromisoformat(baseline["expires_on"])
+    today = datetime.now(UTC).date() if today is None else today
+    if not 0 < (expires - reviewed).days <= 31:
+        raise ValueError("Timeout baseline must expire within 31 days of review")
+    if not reviewed <= today < expires:
+        raise ValueError("Timeout baseline is expired or has a future review date")
+    entries = baseline.get("timeouts")
+    if not isinstance(entries, list):
+        raise ValueError("Timeout baseline timeouts must be a list")
+    root = root.resolve()
+    allowed: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("Timeout baseline entries must be objects")
+        raw_path = entry.get("path")
+        reason = entry.get("reason")
+        if not isinstance(raw_path, str) or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("Each timeout baseline entry needs a path and reason")
+        relative = PurePosixPath(raw_path)
+        if (
+            relative.is_absolute()
+            or relative.as_posix() != raw_path
+            or "\\" in raw_path
+            or ".." in relative.parts
+            or len(relative.parts) < 3
+            or relative.parts[0] != "Examples"
+            or relative.parts[1] not in FAMILY_DIRECTORIES.values()
+            or relative.suffix != ".clp"
+        ):
+            raise ValueError(f"Invalid timeout baseline corpus path: {raw_path!r}")
+        resolved = (root / raw_path).resolve()
+        if not resolved.is_relative_to(root) or not resolved.is_file():
+            raise ValueError(f"Timeout baseline case is missing or outside the repository: {raw_path}")
+        if classify_unsupported_variant(resolved) is not None:
+            raise ValueError(f"Unsupported variants cannot have timeout exemptions: {raw_path}")
+        if raw_path in allowed:
+            raise ValueError(f"Duplicate timeout baseline case: {raw_path}")
+        allowed.add(raw_path)
+    return frozenset(allowed)
+
+
+def report_exit_code(report: dict[str, Any]) -> int:
+    """Fail closed on unexpected outcomes and shards with no completed solve."""
+    counts = report["status_counts"]
+    if counts.get("unique", 0) == 0:
+        return 1
+    if any(count for status, count in counts.items() if status not in {"unique", "timeout", "unsupported_variant"}):
+        return 1
+    if report.get("unexpected_timeouts"):
+        return 1
+    # Reports lacking policy metadata must not silently restore the old
+    # blanket timeout exemption. Count every observed timeout exactly once.
+    return int(counts.get("timeout", 0) != len(report.get("accepted_timeouts", ())))
 
 
 def solve_case(path: Path) -> dict[str, Any]:
@@ -188,7 +270,16 @@ def run_corpus(
     shard_index: int,
     shard_count: int,
     max_cases: int | None = None,
+    timeout_baseline: Path | None = None,
 ) -> dict[str, Any]:
+    root = root.resolve()
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("Case timeout must be positive and finite")
+    if max_cases is not None and (type(max_cases) is not int or max_cases <= 0):
+        raise ValueError("max_cases must be a positive integer")
+    allowed_timeouts = load_timeout_baseline(
+        timeout_baseline, root=root, timeout_seconds=timeout_seconds,
+    )
     paths = corpus_paths(
         root,
         family,
@@ -204,6 +295,17 @@ def run_corpus(
         for path in paths
     ]
     counts = Counter(case["status"] for case in cases)
+    accepted: list[str] = []
+    unexpected: list[str] = []
+    resolved: list[str] = []
+    for path, case in zip(paths, cases, strict=True):
+        relative = path.relative_to(root).as_posix()
+        # Match the input path controlled by the parent, not a child's JSON
+        # path, which must not be able to claim another case's exemption.
+        if case["status"] == "timeout":
+            (accepted if relative in allowed_timeouts else unexpected).append(relative)
+        elif case["status"] == "unique" and relative in allowed_timeouts:
+            resolved.append(relative)
     return {
         "family": family.strip().lower(),
         "shard_index": shard_index,
@@ -212,14 +314,19 @@ def run_corpus(
         "elapsed_seconds": time.perf_counter() - started,
         "case_count": len(cases),
         "status_counts": dict(sorted(counts.items())),
+        "accepted_timeouts": accepted,
+        "unexpected_timeouts": unexpected,
+        "resolved_timeouts": resolved,
+        "no_unique_cases": counts.get("unique", 0) == 0,
+        "timeout_baseline": None if timeout_baseline is None else str(timeout_baseline),
         "cases": cases,
     }
 
 
 def _positive_float(raw: str) -> float:
     value = float(raw)
-    if value <= 0:
-        raise argparse.ArgumentTypeError("must be positive")
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError("must be positive and finite")
     return value
 
 
@@ -247,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shard-count", type=_positive_int, default=1)
     parser.add_argument("--max-cases", type=_positive_int)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--timeout-baseline", type=Path, help="Reviewed, expiring per-case timeout exceptions; default: none")
     return parser
 
 
@@ -265,6 +373,7 @@ def main(argv: list[str] | tuple[str, ...] | None = None) -> int:
         shard_index=args.shard_index,
         shard_count=args.shard_count,
         max_cases=args.max_cases,
+        timeout_baseline=args.timeout_baseline,
     )
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output is not None:
@@ -272,11 +381,7 @@ def main(argv: list[str] | tuple[str, ...] | None = None) -> int:
         args.output.write_text(rendered, encoding="utf-8")
     print(rendered, end="")
 
-    failing = sum(
-        report["status_counts"].get(status, 0)
-        for status in ("error", "unsatisfiable", "multiple")
-    )
-    return 1 if failing else 0
+    return report_exit_code(report)
 
 
 if __name__ == "__main__":
