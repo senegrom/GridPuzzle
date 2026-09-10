@@ -21,7 +21,7 @@ solve(grid)
        using nested trail_mark()/trail_undo() scopes
 ```
 
-Top-level process-pool branches are independent copied/pickled grids. Within a process, Nishio, forcing chains, forcing nets, and recursive backtracking reuse one mutable grid through transactional trail scopes.
+Top-level process-pool branches are independent copied/pickled grids. Within a process, Nishio, forcing chains, forcing nets, and backtracking reuse one mutable grid through transactional trail scopes. Backtracking drives an explicit stack of suspended branch generators; child results resume their parent without consuming Python call frames, and closing the stack unwinds every trial in LIFO order.
 
 ### Technique profiles
 

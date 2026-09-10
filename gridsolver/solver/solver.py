@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from numbers import Integral
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
@@ -217,6 +218,41 @@ def _solve_full(
     max_sols: int,
     hidden_pair_checked_gts: set[Guarantee],
 ) -> set[ImmutableGrid]:
+    """Drive suspended DFS branches without consuming Python call frames."""
+    pending = [_solve_branch(grid, steps, max_sols, hidden_pair_checked_gts)]
+    solutions = None
+    try:
+        while pending:
+            try:
+                remaining, checked_guarantees = pending[-1].send(solutions)
+            except StopIteration as completed:
+                pending.pop()
+                solutions = completed.value
+            else:
+                pending.append(
+                    _solve_branch(grid, steps, remaining, checked_guarantees)
+                )
+                solutions = None
+        assert solutions is not None
+        return solutions
+    finally:
+        # Closing from the deepest branch out runs the same trail/step finally
+        # blocks as normal completion, including on cancellation or hook errors.
+        while pending:
+            pending.pop().close()
+
+
+def _solve_branch(
+    grid: Grid,
+    steps: list[int],
+    max_sols: int,
+    hidden_pair_checked_gts: set[Guarantee],
+) -> Generator[
+    tuple[int, set[Guarantee]],
+    set[ImmutableGrid],
+    set[ImmutableGrid],
+]:
+    """Run one DFS frame, yielding its child search request to the driver."""
     steps.append(0)
     try:
         settled, branches, from_guarantee = _atomic_pass_or_branches(
@@ -257,12 +293,7 @@ def _solve_full(
                     if max_sols == -1
                     else max_sols - len(solutions)
                 )
-                branch_solutions = _solve_full(
-                    grid,
-                    steps,
-                    remaining,
-                    checked_guarantees,
-                )
+                branch_solutions = yield remaining, checked_guarantees
             finally:
                 grid.trail_undo(mark)
 

@@ -129,6 +129,23 @@ def _validate_load_options(
 RuleT = TypeVar("RuleT", bound=Rule)
 
 
+def _is_canonical_guarantee(guarantee: object, grid: "Grid") -> bool:
+    """Recognise hook-free metadata before using the built-in fast path."""
+    if type(guarantee) is not Guarantee:
+        return False
+    return (
+        type(guarantee.val) is int
+        and type(guarantee.cells) is frozenset
+        and type(guarantee.rows) is int
+        and type(guarantee.cols) is int
+        and 1 <= guarantee.val <= grid.max_elem
+        and guarantee.rows == grid.rows
+        and guarantee.cols == grid.cols
+        and bool(guarantee.cells)
+        and all(type(cell) is int and 0 <= cell < grid.len for cell in guarantee.cells)
+    )
+
+
 def _trusted_rule_set_methods(rule: Rule) -> bool:
     """Return whether set collision handling is owned by GridPuzzle code."""
     rule_type = type(rule)
@@ -752,21 +769,8 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         including bools, floats equal to ints, and Guarantee subclasses --
         still takes the full validation path below.
         """
-        if type(guarantee) is Guarantee:
-            value = guarantee.val
-            cells = guarantee.cells
-            if (
-                type(value) is int
-                and type(cells) is frozenset
-                and type(guarantee.rows) is int
-                and type(guarantee.cols) is int
-                and 1 <= value <= self.max_elem
-                and guarantee.rows == self.rows
-                and guarantee.cols == self.cols
-                and cells
-                and all(type(cell) is int and 0 <= cell < self.len for cell in cells)
-            ):
-                return guarantee
+        if _is_canonical_guarantee(guarantee, self):
+            return guarantee
         if not isinstance(guarantee, Guarantee):
             raise TypeError("Guarantees must be Guarantee instances")
 
@@ -815,10 +819,34 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         once, while callers can still stage a generator before mutating the
         live guarantee sets.
         """
-        return tuple(
-            self._normalize_guarantee(guarantee)
-            for guarantee in guarantees
-        )
+        # Canonical built-in batches cannot invoke extension code. Keep the
+        # common propagation path free of extra trail and cache snapshots.
+        if (
+            type(self)._normalize_guarantee is Grid._normalize_guarantee
+            and "_normalize_guarantee" not in self.__dict__
+            and type(guarantees) in (tuple, list, set, frozenset)
+        ):
+            guarantees = tuple(guarantees)
+            if all(_is_canonical_guarantee(item, self) for item in guarantees):
+                return guarantees
+
+        mark = self.trail_mark()
+        try:
+            # Cache misses write into dictionaries without invalidating them.
+            # Isolate those writes as well as the journalled puzzle mutations.
+            self._struct_cache = self._struct_cache.copy()
+            self._rule_cache = self._rule_cache.copy()
+            self._guarantee_cache = self._guarantee_cache.copy()
+            normalize = self._normalize_guarantee
+            # Invoke the legacy override once per item, then canonicalise its
+            # output with the base validator while still inside the scope.
+            return tuple(
+                Grid._normalize_guarantee(self, normalize(guarantee))
+                for guarantee in guarantees
+            )
+        finally:
+            # Only detached, validated guarantees survive, even on success.
+            self.trail_undo(mark)
 
     def _add_normalized_gtees(
         self,
