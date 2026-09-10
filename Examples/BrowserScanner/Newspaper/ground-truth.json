@@ -1,0 +1,37 @@
+{
+  "fixtures": [
+    {
+      "name": "2026-09-07-sudoku",
+      "image": "2026-09-07-sudoku.webp",
+      "type": "sudoku",
+      "cells": [
+        null, null, null, null, 8, null, null, 3, null,
+        8, null, null, 7, null, null, null, null, null,
+        null, null, null, 9, null, 5, null, null, 4,
+        null, null, null, 2, 9, null, 7, null, null,
+        7, null, null, 8, 3, null, null, 2, 5,
+        null, 1, null, null, null, null, 4, 9, null,
+        null, null, null, null, null, null, null, 5, null,
+        null, 8, null, null, 4, null, null, null, null,
+        2, 3, null, null, null, 7, null, null, null
+      ]
+    },
+    {
+      "name": "2026-09-07-str8ts",
+      "image": "2026-09-07-str8ts.webp",
+      "type": "str8ts",
+      "black": [2, 3, 7, 8, 18, 19, 22, 23, 30, 35, 38, 42, 45, 50, 57, 58, 61, 62, 72, 73, 77, 78],
+      "cells": [
+        9, null, "#", 6, null, null, null, "#", "#",
+        null, null, null, 1, 4, null, 6, 5, null,
+        "#", "#", null, 2, "#", "#", null, null, null,
+        3, null, null, "#", 9, null, null, null, 5,
+        null, null, "#", 8, null, null, "#", null, null,
+        "#", null, null, null, null, 1, null, null, null,
+        null, 7, null, 9, "#", null, 3, 2, "#",
+        null, null, null, 4, null, 5, null, null, 8,
+        7, "#", null, null, null, "#", "#", null, null
+      ]
+    }
+  ]
+}

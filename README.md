@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/senegrom/GridPuzzle/actions/workflows/ci.yml/badge.svg)](https://github.com/senegrom/GridPuzzle/actions/workflows/ci.yml)
 
-Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, Latin Squares, Hidato, Numbrix, Kakuro, and Slitherlink.
+Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, Latin Squares, Hidato, Numbrix, Kakuro, Slitherlink, and Str8ts.
 
 **Runtime requirement: Python 3.14 or newer.** Older Python versions are intentionally unsupported; newer releases are not artificially capped.
 
@@ -13,6 +13,10 @@ Additional options print intermediate steps or run one of the built-in examples.
 Try `python run.py -v -m Examples.exampleSudoku` for all intermediate steps.
 
 Try `python run.py -s ..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2. -c sudoku` to solve a Sudoku from an arbitrary string.
+
+## Phone app
+
+The same solver runs in the browser as an installable, camera-first web app at https://senegrom.github.io/GridPuzzle/. It photographs a printed puzzle, straightens it, reads the clues with on-device OCR, lets you review them, and solves with the complete Python engine through Pyodide; nothing leaves the phone. A play mode lets you enter your own answers, check them against the solution and take hints. The sources live in `web/`, the build in `scripts/build_web.py`, and the data boundary in `gridsolver/web_api.py`; `web/README.md` and `web/TESTING.md` describe the design, the recognition trust model and the acceptance tests. Every push to `master` rebuilds the site, runs the Chromium and WebKit acceptance suites against the real solver and OCR, and deploys.
 
 ## Puzzle types
 

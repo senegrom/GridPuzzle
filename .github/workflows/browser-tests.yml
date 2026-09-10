@@ -1,0 +1,23 @@
+name: Browser branch tests
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: browser-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Browser model, lifecycle and safety unit tests
+        run: node --test web/tests/*.test.js
+      - name: Check every browser module parses
+        run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+      - name: Explain full-browser coverage
+        run: echo 'The master push workflow "Build and deploy phone scanner" is the single full Chromium/WebKit + Python deployment gate; PR CI intentionally avoids duplicating that expensive suite.'

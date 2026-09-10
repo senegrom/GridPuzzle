@@ -1,0 +1,123 @@
+[
+  {
+    "browser": "chromium",
+    "version": "153.0.8010.12",
+    "scans": [
+      {
+        "name": "baseline",
+        "givens": 30,
+        "correct": 30,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 0,
+        "elapsedMs": 1308
+      },
+      {
+        "name": "serif",
+        "givens": 30,
+        "correct": 30,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 4,
+        "elapsedMs": 1025
+      },
+      {
+        "name": "shifted",
+        "givens": 30,
+        "correct": 30,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 2,
+        "elapsedMs": 984
+      },
+      {
+        "name": "perspective-shadow",
+        "givens": 30,
+        "correct": 30,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 2,
+        "elapsedMs": 1001
+      },
+      {
+        "name": "four-by-four",
+        "givens": 12,
+        "correct": 12,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 0,
+        "elapsedMs": 798
+      }
+    ],
+    "checks": [
+      "malformed imports rejected without modifying the board",
+      "save-and-next confirms only the edited cell",
+      "blank photo rejected without inventing clues"
+    ],
+    "errors": [],
+    "ok": true
+  },
+  {
+    "browser": "webkit",
+    "version": "26.6",
+    "scans": [
+      {
+        "name": "baseline",
+        "givens": 30,
+        "correct": 30,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 2,
+        "elapsedMs": 1372
+      },
+      {
+        "name": "serif",
+        "givens": 30,
+        "correct": 30,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 2,
+        "elapsedMs": 1179
+      },
+      {
+        "name": "shifted",
+        "givens": 30,
+        "correct": 29,
+        "discrepancies": [
+          0
+        ],
+        "unsafe": [],
+        "flagged": 4,
+        "elapsedMs": 1136
+      },
+      {
+        "name": "perspective-shadow",
+        "givens": 30,
+        "correct": 28,
+        "discrepancies": [
+          0,
+          4
+        ],
+        "unsafe": [],
+        "flagged": 6,
+        "elapsedMs": 1147
+      },
+      {
+        "name": "four-by-four",
+        "givens": 12,
+        "correct": 12,
+        "discrepancies": [],
+        "unsafe": [],
+        "flagged": 0,
+        "elapsedMs": 744
+      }
+    ],
+    "checks": [
+      "malformed imports rejected without modifying the board",
+      "save-and-next confirms only the edited cell",
+      "blank photo rejected without inventing clues"
+    ],
+    "errors": [],
+    "ok": true
+  }
+]
