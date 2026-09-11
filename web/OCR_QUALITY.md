@@ -73,3 +73,23 @@ normalization, gray shading, confirmation and OCR worker mode changes.
 
 Tesseract's segmentation and preprocessing guidance:
 https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
+
+## Follow-up: shaded-cell occupancy and automatic type
+
+The candidate-selection tests above had a blind spot: an explicitly selected
+Sudoku discards structural black metadata, so its final puzzle alone could hide
+a shaded cell that black-cell detection had classified as black. On the faded
+newspaper crop a dark printed digit pulled a gray-shaded cell's mean below the
+darkness cutoff, which would have changed an automatic-type proposal.
+
+Black-cell detection now requires most interior pixels, as well as the cell
+mean, to fall below the same adaptive darkness threshold. A dark digit cannot
+make otherwise lighter shaded paper pass solely by lowering the mean. Three unit
+cases reproduce the failure before the correction and keep a real numbered black
+cell at original, 65 % and 35 % contrast.
+
+The permanent quality suite now observes the unmodified geometry-worker result
+before classification and checks that black mask even for explicit Sudoku. It
+also reads the original and faded newspaper crops in automatic mode, for 60
+scans across the two browser engines. No reference answers are supplied to
+recognition, and no confidence or confirmation rules are relaxed.

@@ -24,7 +24,7 @@ async function measure({ fixture, variation }) {
     canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
     expected = fixture.cells;
     rows = cols = 9;
-    type = fixture.type;
+    type = variation.auto ? "auto" : fixture.type;
   } else {
     rows = cols = 12;
     type = "numbrix";
@@ -71,6 +71,16 @@ async function measure({ fixture, variation }) {
     context.putImageData(pixels, 0, 0);
   }
   const scanner = new Scanner(), start = performance.now();
+  const geometry = scanner.geometry.bind(scanner);
+  let detectedBlack = [];
+  // Observe the real preparation result, including structure which an explicit
+  // puzzle type might discard. No pixels or recognition results are mocked.
+  scanner.geometry = async (...args) => {
+    const result = await geometry(...args);
+    if (args[0] === "prepare")
+      detectedBlack = result.black.flatMap((value, i) => value ? [i] : []);
+    return result;
+  };
   try {
     const result = await scanner.read(canvas, [
       { x: 0, y: 0 }, { x: canvas.width - 1, y: 0 },
@@ -79,7 +89,7 @@ async function measure({ fixture, variation }) {
     const actual = result.puzzle.cells, flagged = new Set(result.uncertain),
       wrong = expected.flatMap((value, cell) => value === actual[cell] ? [] : [{ cell, expected: value, actual: actual[cell] }]);
     return {
-      name: fixture.name, variation: variation.name,
+      name: fixture.name, variation: variation.name, type: result.puzzle.type, detectedBlack,
       printed: expected.filter(Number.isInteger).length,
       correct: expected.filter((value, i) => Number.isInteger(value) && actual[i] === value).length,
       wrong, unsafe: wrong.filter(({ cell }) => !flagged.has(cell)),
@@ -113,6 +123,9 @@ async function run() {
       { name: "original" }, { name: "small", small: true },
       { name: "faded", contrast: 0.35 }, { name: "mild-fade", contrast: 0.65 },
       { name: "blur", blur: 0.6 },
+      { name: "auto-original", auto: true },
+      { name: "auto-faded", auto: true, contrast: 0.35 },
+      { name: "auto-mild-fade", auto: true, contrast: 0.65 },
     ];
     for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const browser = await engine.launch({ headless: true });
@@ -126,13 +139,16 @@ async function run() {
         await page.goto(BASE);
         await page.waitForSelector('body[data-ready="true"]');
         for (const fixture of fixtures)
-          for (const variation of variations.filter((v) => fixture.imageData || (fixture.holdout ? v.name === "original" : v.name !== "small"))) {
+          for (const variation of variations.filter((v) => fixture.imageData || (fixture.holdout ? v.name === "original" : v.name !== "small" && !v.auto))) {
             const scan = await page.evaluate(measure, { fixture, variation });
             report.scans.push(scan);
             const label = `${name}/${fixture.name}/${variation.name}`;
             assert.deepEqual(scan.unsafe, [], `${label}: every wrong, missed or invented clue must be flagged`);
             assert.deepEqual(scan.black, fixture.black || [], `${label}: structural black-cell geometry`);
-            const minimum = fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.name === "faded" ? 19 : 20) : fixture.holdout ? 27 : 29;
+            assert.deepEqual(scan.detectedBlack, fixture.black || [], `${label}: pre-classification black-cell geometry`);
+            if (fixture.imageData)
+              assert.equal(scan.type, fixture.type, `${label}: automatic family classification`);
+            const minimum = fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.contrast === 0.35 || (variation.auto && variation.contrast) ? 19 : 20) : fixture.holdout ? 27 : 29;
             assert.ok(scan.correct >= minimum, `${label}: ${scan.correct}/${scan.printed} (minimum ${minimum})`);
             if (!fixture.imageData)
               assert.ok(scan.flagged.length <= (fixture.holdout ? 8 : 5), `${label}: excessive manual review burden`);
