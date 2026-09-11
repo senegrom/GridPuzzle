@@ -68,7 +68,11 @@ metadata, separately from puzzle JSON. Choosing Str8ts restores compatible
 numbered clues. Saving that cell explicitly or confirming the transcription
 clears the pending evidence; Undo restores it with the prior edit.
 Find grid preserves puzzle edit history and does not discard the old crop
-or mapping on failure or cancellation.
+or mapping on failure or cancellation. Read puzzle also stages its candidate:
+failed/cancelled reads of an unchanged crop preserve the accepted solution,
+photo mapping, Play cache and undo history. A new Read click cancels earlier
+work even when the new dimensions, boxes or crop fail validation. Actual crop
+or photograph changes still invalidate incompatible mappings.
 
 ## Data contract
 
@@ -97,6 +101,26 @@ The 25×25 browser limit is a phone resource policy, not a native solver limit. 
 ## Offline behaviour
 
 Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Runtime assets live in one content-addressed cache keyed by SHA-256, and each build's asset list is stored separately, so an update reuses unchanged verified bytes instead of downloading the whole Pyodide/Tesseract bundle again. Every downloaded asset is digest-verified before it is stored.
+
+Python and OCR dependencies use build-specific `vendor/<build>/` URLs; each
+app starts a build-specific solver worker as well. Service-worker installation
+now prepares the **complete Python runtime** before activation, even before an
+explicit offline download. Identical bytes are reused from the shared digest
+cache, so later application-only updates do not redownload Python. The offline
+button still prepares and verifies the remaining assets, including OCR data.
+
+Activation retains the complete manifests and cached dependency sets of live
+outgoing tabs/workers, not just their Python solver archives. Unversioned
+requests from pre-migration clients are routed through their retained manifest;
+missing bytes can be fetched from a new URL only when the recorded digest is
+identical. Before activation writes its owner index, or when a browser omits a worker's
+client identity, legacy vendor paths use the already-cached manifests only if
+all matches have the same digest. Conflicting historical versions are rejected
+instead of guessed. Retention
+owners survive service-worker restarts and later updates;
+newer tabs do not prolong obsolete clients' retention. Unowned old builds are
+pruned on a subsequent activation. Reused module responses resolve relative
+imports against the requested versioned URL, not a previous download's URL.
 
 The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 

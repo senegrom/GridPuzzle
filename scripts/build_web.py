@@ -221,11 +221,8 @@ def main():
         build(out)
 
 
-def build(out):
-    commit = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-    ).strip()
-    build = commit[:12]
+def write_web_sources(out, build):
+    """Stamp local runtime URLs without modifying any Python or vendor code."""
     for source in (ROOT / "web").iterdir():
         if source.is_file() and source.suffix in (
             ".html",
@@ -235,9 +232,28 @@ def build(out):
             ".webmanifest",
         ):
             text = source.read_text(encoding="utf-8").replace("__BUILD_ID__", build)
+            # Runtime imports are immutable across dependency-changing updates.
+            text = text.replace("./vendor/", f"./vendor/{build}/")
+            if source.name == "app.js":
+                text = text.replace("./solver-worker.js", f"./solver-worker.{build}.js")
             if source.name == "solver-worker.js":
                 text = text.replace("solver.zip", f"solver.{build}.zip")
             (out / source.name).write_text(text, encoding="utf-8", newline="\n")
+            if source.name == "solver-worker.js":
+                # The unversioned alias supports installed pre-migration apps;
+                # new app code always starts the exact worker for its build.
+                (out / f"solver-worker.{build}.js").write_text(
+                    text, encoding="utf-8", newline="\n"
+                )
+
+
+def build(out):
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    build = commit[:12]
+    write_web_sources(out, build)
+    vendor = out / "vendor" / build
     (out / ".nojekyll").touch()
     # Include every original core module byte-for-byte, and its license.
     with zipfile.ZipFile(
@@ -266,10 +282,10 @@ def build(out):
                     "python_stdlib.zip",
                     "pyodide-lock.json",
                 ):
-                    copy(source / file, out / "vendor/pyodide" / file)
+                    copy(source / file, vendor / "pyodide" / file)
             elif name == "tesseract.js":
                 for file in ("tesseract.min.js", "worker.min.js"):
-                    copy(source / "dist" / file, out / "vendor/tesseract" / file)
+                    copy(source / "dist" / file, vendor / "tesseract" / file)
             elif name == "tesseract.js-core":
                 # The OCR host runs Tesseract in LSTM-only mode, so the legacy-engine
                 # core variants would only enlarge the offline download.
@@ -279,7 +295,7 @@ def build(out):
                         f"Expected the plain and SIMD LSTM cores with their loaders: {cores}"
                     )
                 for file in cores:
-                    copy(file, out / "vendor/tesseract-core" / file.name)
+                    copy(file, vendor / "tesseract-core" / file.name)
             else:
                 candidates = sorted(source.rglob("eng.traineddata.gz"))
                 preferred = [p for p in candidates if "best_int" in p.as_posix()]
@@ -287,7 +303,7 @@ def build(out):
                     raise FileNotFoundError(
                         f"English best_int model not found: {candidates}"
                     )
-                copy(preferred[0], out / "vendor/tessdata/eng.traineddata.gz")
+                copy(preferred[0], vendor / "tessdata/eng.traineddata.gz")
             for license_path in source.glob("*LICENSE*"):
                 if license_path.is_file():
                     copy(

@@ -133,7 +133,7 @@ async function checkStartupCancellation(browser, image, report) {
   let release, seen;
   const gate = new Promise((resolve) => (release = resolve)),
     requested = new Promise((resolve) => (seen = resolve));
-  await context.route("**/vendor/tessdata/**", async (route) => {
+  await context.route("**/vendor/**/tessdata/**", async (route) => {
     seen();
     await gate;
     try {
@@ -207,7 +207,7 @@ async function checkStartupCancellation(browser, image, report) {
       0,
       "OCR initialization worker leaked after Stop",
     );
-    await context.unroute("**/vendor/tessdata/**");
+    await context.unroute("**/vendor/**/tessdata/**");
     release();
     await uploadFixture(page, image);
     assert.ok(

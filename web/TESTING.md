@@ -88,3 +88,23 @@ view, photo export and alternative-solution controls. Leaving Play preserves
 answers and the computed solution, allowing the photo view to be restored.
 The existing scanner-repair browser suite covers the same transition with real
 DOM/canvas and the Pyodide solver, while retaining all import-boundary checks.
+
+
+## Transactional reading and dependency-changing updates
+
+`web/tests/photo-read-transactions.test.js` delivers late scanner successes, failures
+and progress even after cancellation. Rejected dimensions, boxes and crops must
+supersede older scans without changing accepted state. Failed, stopped, timed-out
+or invalid replacement reads preserve results, mappings, caches and undo history;
+only an accepted replacement commits. The photo-read acceptance suite repeats
+these checks through real controls with a real Pyodide-solved photograph.
+
+`web/tests/runtime-update.test.js` changes WASM, stdlib and lock-file bytes across
+multiple builds, tests both legacy and immutable paths, and checks online/offline
+routing, full Python installation, activation races and eventual cache cleanup.
+`scripts/solver_update_regressions.cjs` repeats dependency-changing two-tab updates
+in Chromium and WebKit. Both old and new workers must obtain their own dependency
+versions after the origin is shut down. A byte-identical module with different
+relative dependencies specifically guards against cached Response URL leakage.
+`tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest
+coverage without downloading dependencies.
