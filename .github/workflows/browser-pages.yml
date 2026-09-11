@@ -49,6 +49,8 @@ jobs:
         run: node scripts/scanner_settings_regressions.cjs
       - name: Scanner repair regressions
         run: node scripts/scanner_repair_regressions.cjs
+      - name: Photo Read transaction regressions
+        run: node scripts/photo_read_regressions.cjs
       - name: Play mode and solver warm-up regressions
         run: node scripts/play_regressions.cjs
       - name: Play confirmation, uniqueness and cancellation regressions

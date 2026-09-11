@@ -427,6 +427,10 @@ export function setupPhotoFlow({
   };
   async function readPhoto() {
     if (!state.photo || !state.corners) return;
+    // A new Read owns the next outcome even when its settings are invalid.
+    // Supersede earlier OCR before preflight, just as a new import does.
+    stopTask();
+    drag = -1;
     const rows = Number($("rows").value),
       cols = Number($("cols").value),
       type = $("puzzle-type").value;
@@ -464,10 +468,8 @@ export function setupPhotoFlow({
       fail(error);
       return;
     }
-    clearPhotoMapping();
-    state.result = null;
-    $("next-solution").hidden = true;
-    drawBoard();
+    // Keep the accepted board, solution and still-valid photo mapping until
+    // a complete replacement is ready. Crop edits already invalidate mapping.
     const id = begin();
     setDeadline(() => {
       if (id === getJobId())
@@ -494,31 +496,43 @@ export function setupPhotoFlow({
         found.puzzle.boxCols = boxCols;
       }
       checkShape(found.puzzle);
-      finish();
-      remember();
-      state.puzzle = found.puzzle;
-      state.play = fitPlay(found.puzzle, []);
-      state.hints = new Set();
-      state.playFeedback = state.playSolution = null;
-      state.blackReadings = fitBlackReadings(found.puzzle, found.blackReadings);
-      state.uncertain = new Set([
-        ...(found.cellUncertain ?? found.uncertain),
-        ...state.blackReadings.map((entry) => entry.cell),
-      ]);
-      state.cageUncertain = new Set(found.cageUncertain || []);
-      const needsBoxReview = reviewBoxes &&
-        ["sudoku", "killersudoku"].includes(found.puzzle.type);
-      state.needsReview = found.needsReview || needsBoxReview;
-      state.notes = [...found.notes];
+      const blackReadings = fitBlackReadings(found.puzzle, found.blackReadings),
+        needsBoxReview = reviewBoxes &&
+          ["sudoku", "killersudoku"].includes(found.puzzle.type),
+        notes = [...found.notes];
       if (needsBoxReview)
-        state.notes.push(
+        notes.push(
           `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
         );
-      state.rectified = found.rectified;
-      state.puzzleSource = state.photoSource = id;
-      state.photoRows = rows;
-      state.photoCols = cols;
-      state.selected = [];
+      // Prepare every editable field before touching history or accepted state.
+      const next = {
+        puzzle: found.puzzle,
+        result: null,
+        solution: 0,
+        view: "board",
+        play: fitPlay(found.puzzle, []),
+        hints: new Set(),
+        playFeedback: null,
+        playSolution: null,
+        blackReadings,
+        uncertain: new Set([
+          ...(found.cellUncertain ?? found.uncertain),
+          ...blackReadings.map((entry) => entry.cell),
+        ]),
+        cageUncertain: new Set(found.cageUncertain || []),
+        needsReview: found.needsReview || needsBoxReview,
+        notes,
+        rectified: found.rectified,
+        puzzleSource: id,
+        photoSource: id,
+        photoRows: rows,
+        photoCols: cols,
+        selected: [],
+      };
+      finish();
+      remember();
+      clearPhotoMapping();
+      Object.assign(state, next);
       persist();
       render({ replaceDraft: true });
       $("photo-panel").hidden = true;
