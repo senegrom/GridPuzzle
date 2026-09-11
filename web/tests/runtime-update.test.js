@@ -162,3 +162,25 @@ test("unidentified legacy clients never receive a guessed dependency from confli
   assert.equal(await (await three("vendor/pyodide/pyodide.mjs", "unlisted-worker")).text(), "identical module with relative imports");
   assert.equal(h.requests.length, count, "ambiguous bytes must fail closed, not fall back to the origin");
 });
+
+for (const failure of ["evicted manifest", "retention index write"])
+  test(`a failed activation (${failure}) does not poison request routing for the worker's lifetime`, async () => {
+    const h = runtimeUpdates(), meta = () => h.stores.get(prefix + `meta:${first}`);
+    let read;
+    try {
+      read = await h.activate(first, async () => {
+        if (failure === "evicted manifest") await meta().delete(scope + "assets.json");
+        else {
+          const put = meta().put;
+          meta().put = async (request, response) => {
+            if ((typeof request === "string" ? request : request.url).endsWith(".retained-solvers.json")) throw new DOMException("Quota exceeded", "QuotaExceededError");
+            return put(request, response);
+          };
+        }
+      });
+    } catch (error) {
+      assert.fail(`activation must complete instead of rejecting: ${error.message}`);
+    }
+    for (const path of ["index.html", `solver.${first}.zip`, h.root(first) + "pyodide.asm.wasm"])
+      assert.equal(await (await read(path, "tab")).text(), h.files(first)[path], path);
+  });

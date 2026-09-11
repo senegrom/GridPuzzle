@@ -177,15 +177,24 @@ self.addEventListener("install",event=>event.waitUntil((async()=>{
 })()));
 let activationReady=Promise.resolve();
 self.addEventListener("activate",event=>event.waitUntil(activationReady=(async()=>{
-  const assets=await manifest(),retained=await preserveActiveSolvers();
-  await pruneContent([...assets,...retained]);
+  try{
+    const assets=await manifest(),retained=await preserveActiveSolvers();
+    await pruneContent([...assets,...retained]);
+  }catch{
+    // Activation always completes, so a retention or pruning failure (an
+    // evicted manifest, a quota error while writing the retention index)
+    // must not leave this worker unable to route requests. Stale caches
+    // are pruned by the next update; the fetch path restores the manifest.
+  }
   await self.clients.claim();
 })()));
 self.addEventListener("fetch",event=>{
   const request=event.request,target=new URL(request.url);
   if(request.method!=="GET"||target.origin!==self.location.origin||!request.url.startsWith(self.registration.scope)||request.headers.has("range"))return;
   event.respondWith((async()=>{
-    await activationReady;
+    // A rejected activation must fail open: the routing below already falls
+    // back to the network whenever no verified asset can be identified.
+    await activationReady.catch(()=>{});
     let assets;
     // Without a usable asset list (evicted, or this worker outlived its build)
     // the page must still load from the network instead of failing every request.
