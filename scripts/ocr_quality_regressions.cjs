@@ -14,7 +14,29 @@ async function measure({ fixture, variation }) {
   const { Scanner } = await import("./scanner.js");
   const canvas = document.createElement("canvas");
   let expected, rows, cols, type;
-  if (fixture.imageData) {
+  if (fixture.fragmented) {
+    rows = cols = fixture.fragmented === "number" ? 4 : 3;
+    type = fixture.fragmented === "number" ? "numbrix" : fixture.fragmented === "black" ? "str8ts" : "latinsquare";
+    canvas.width = canvas.height = rows * 100;
+    expected = Array(rows * cols).fill(null);
+    expected[0] = fixture.fragmented === "number" ? 11 : 1;
+    expected[rows * cols - 1] = 2;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#f5f5f5"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#101010"; ctx.lineWidth = 2;
+    for (let i = 0; i <= rows; i++) {
+      ctx.beginPath(); ctx.moveTo(i * 100, 0); ctx.lineTo(i * 100, canvas.height);
+      ctx.moveTo(0, i * 100); ctx.lineTo(canvas.width, i * 100); ctx.stroke();
+    }
+    if (fixture.fragmented === "black") { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, 100, 100); }
+    ctx.fillStyle = fixture.fragmented === "black" ? "#f5f5f5" : "#0a0a0a";
+    // A printed 1 with a horizontal ink gap; the number case has a connected
+    // leading 1 and a fragmented trailing 1 that must not be silently cropped.
+    if (fixture.fragmented === "number") ctx.fillRect(27, 30, 5, 38);
+    ctx.fillRect(49, 30, 5, 14); ctx.fillRect(49, 54, 5, 14);
+    ctx.fillStyle = "#101010"; ctx.font = "38px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("2", canvas.width - 50, canvas.height - 50);
+  } else if (fixture.imageData) {
     const image = new Image();
     image.src = `data:image/webp;base64,${fixture.imageData}`;
     await image.decode();
@@ -94,6 +116,7 @@ async function measure({ fixture, variation }) {
       correct: expected.filter((value, i) => Number.isInteger(value) && actual[i] === value).length,
       wrong, unsafe: wrong.filter(({ cell }) => !flagged.has(cell)),
       flagged: result.uncertain, black: result.puzzle.black || [],
+      marked: result.markedCells, recovered: result.entries.filter((entry) => entry.recoveredMark).map((entry) => entry.cell),
       needsReview: result.needsReview, notes: result.notes,
       milliseconds: Math.round(performance.now() - start), retryCount: result.retryCount || 0,
     };
@@ -118,6 +141,7 @@ async function run() {
       ...photographs.map((f) => ({ ...f, imageData: fs.readFileSync(path.join(ROOT, f.image)).toString("base64") })),
       ...["Arial", "Times New Roman", "Courier New"].map((font) => ({ name: `numbers-${font}`, font })),
       ...["DejaVu Sans", "DejaVu Serif"].map((font) => ({ name: `holdout-${font}`, font, holdout: true })),
+      ...["single", "number", "black"].map((fragmented) => ({ name: `fragmented-${fragmented}`, fragmented, black: fragmented === "black" ? [0] : [] })),
     ];
     const variations = [
       { name: "original" }, { name: "small", small: true },
@@ -139,7 +163,7 @@ async function run() {
         await page.goto(BASE);
         await page.waitForSelector('body[data-ready="true"]');
         for (const fixture of fixtures)
-          for (const variation of variations.filter((v) => fixture.imageData || (fixture.holdout ? v.name === "original" : v.name !== "small" && !v.auto))) {
+          for (const variation of variations.filter((v) => fixture.imageData || ((fixture.holdout || fixture.fragmented) ? v.name === "original" : v.name !== "small" && !v.auto))) {
             const scan = await page.evaluate(measure, { fixture, variation });
             report.scans.push(scan);
             const label = `${name}/${fixture.name}/${variation.name}`;
@@ -148,10 +172,15 @@ async function run() {
             assert.deepEqual(scan.detectedBlack, fixture.black || [], `${label}: pre-classification black-cell geometry`);
             if (fixture.imageData)
               assert.equal(scan.type, fixture.type, `${label}: automatic family classification`);
-            const minimum = fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.contrast && (variation.auto || variation.contrast === 0.35) ? 19 : 20) : fixture.holdout ? 27 : 29;
+            const minimum = fixture.fragmented ? 1 : fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.contrast && (variation.auto || variation.contrast === 0.35) ? 19 : 20) : fixture.holdout ? 27 : 29;
             assert.ok(scan.correct >= minimum, `${label}: ${scan.correct}/${scan.printed} (minimum ${minimum})`);
             if (!fixture.imageData)
               assert.ok(scan.flagged.length <= (fixture.holdout ? 8 : 5), `${label}: excessive manual review burden`);
+            if (fixture.fragmented) {
+              assert.ok(scan.marked.includes(0), `${label}: broken ink must remain a printed clue`);
+              assert.ok(scan.recovered.includes(0), `${label}: preserve the complete fragmented crop`);
+              assert.ok(scan.flagged.includes(0), `${label}: recovered geometry must remain uncertain even if OCR agrees`);
+            }
             if (variation.contrast) {
               assert.ok(scan.needsReview, `${label}: low-contrast adjustments require confirmation`);
               assert.ok(scan.notes.some((note) => /Low-contrast/.test(note)), `${label}: missing contrast warning`);

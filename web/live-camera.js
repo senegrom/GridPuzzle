@@ -38,7 +38,7 @@ export function fingerprint(image) {
 export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(),
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
-  let active = false, timer = null, detection = false, epoch = 0, lastDetect = -Infinity;
+  let active = false, timer = null, detection = null, epoch = 0, lastDetect = -Infinity;
   let raw = null, guide = null, initial = null, displayed = null, signature = null;
   let settingsKey = "", setting = null;
   const say = (message) => { if (active) $("camera-help").textContent = message; };
@@ -55,7 +55,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     },
     solve: (puzzle) => solver.solve(puzzle),
     cancelRead: () => reader.cancel(), cancelSolve: () => solver.cancel(),
-    onChange: () => {}, onStatus: say, now,
+    onChange: () => {}, onStatus: say, now, setTimer, clearTimer,
   });
   function render() {
     if (!raw) return;
@@ -81,14 +81,29 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     for (const [key, count] of Object.entries(counts)) canvas.dataset[key] = String(count);
     canvas.setAttribute("aria-label", `Camera preview: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unknown, ${counts.solution} solution entries. Live results are not confirmed.`);
   }
+  function cancelDetection() {
+    const job = detection;
+    detection = null;
+    if (job) clearTimer(job.deadline);
+    detector.cancel();
+  }
   async function locate(image, frameSignature, settings, key, owner) {
-    detection = true; lastDetect = now();
+    const job = {};
+    detection = job; lastDetect = now();
+    const current = () => active && owner === epoch && key === settingsKey && detection === job;
+    // Grid detection is small, bounded geometry work. Do not let a stalled
+    // worker hold the live view hostage to the scanner's longer OCR timeout.
+    job.deadline = setTimer(() => {
+      if (!current()) return;
+      cancelDetection(); guide = initial = null; session.invalidate();
+      say("Grid detection timed out. Keep the grid steady — retrying…");
+    }, 8000);
     try {
       const small = document.createElement("canvas"), scale = Math.min(1, 640 / Math.max(image.width, image.height));
       small.width = Math.round(image.width * scale); small.height = Math.round(image.height * scale);
       small.getContext("2d").drawImage(image, 0, 0, small.width, small.height);
       const found = await detector.detect(small);
-      if (!active || owner !== epoch || key !== settingsKey || !sameFrame(frameSignature, signature)) return;
+      if (!current() || !sameFrame(frameSignature, signature)) return;
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
         guide = initial = null; session.invalidate(); say("Keep the whole grid in view, in even light."); return;
@@ -104,15 +119,21 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       session.observe({ image, signature: frameSignature, corners, width: image.width, height: image.height,
         rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`, sharpness: found.sharpness });
     } catch (error) {
-      if (active && owner === epoch && key === settingsKey) { guide = initial = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
-    } finally { if (owner === epoch) detection = false; }
+      if (current()) { guide = initial = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
+    } finally {
+      clearTimer(job.deadline);
+      if (detection === job) detection = null;
+    }
   }
   function tick() {
     if (!active) return;
     try {
       raw = videoFrame(video, 1600, raw); signature = fingerprint(raw);
       const next = getSettings(), key = JSON.stringify([next, raw.width, raw.height]);
-      if (key !== settingsKey) { settingsKey = key; setting = next; guide = initial = null; session.invalidate(); }
+      if (key !== settingsKey) {
+        settingsKey = key; setting = next; guide = initial = null;
+        cancelDetection(); lastDetect = -Infinity; session.invalidate();
+      }
       session.motion(signature);
       // Never paint a previous board after motion, even between detections.
       if (displayed?.sample && !sameFrame(displayed.sample.signature, signature)) guide = initial = null;
@@ -122,8 +143,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     timer = setTimer(tick, 100);
   }
   return {
-    start() { active = true; epoch++; session.start(); say("Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
-    stop() { active = false; epoch++; clearTimer(timer); timer = null; detector.cancel(); session.stop(); raw = guide = initial = displayed = signature = null; },
+    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); say("Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
+    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = null; },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");
       // Do not grab a different video frame here: preserve precisely the pixels

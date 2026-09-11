@@ -90,8 +90,38 @@ function numberBounds(mask, w, h) {
     }
     parts.push({ area, minx, miny, maxx, maxy });
   }
-  parts.sort((a, b) => b.area - a.area);
-  const anchor = parts.find(
+  // A thin glare/print gap can split a digit into two short components,
+  // neither tall enough to be an anchor. Rejoin only substantial, vertically
+  // aligned fragments; never fill missing pixels or infer a numeric value.
+  // Keep a bounded candidate set so textured paper cannot make this quadratic.
+  const fragments = parts.filter((part) => {
+    const height = part.maxy - part.miny + 1;
+    return part.area >= Math.max(4, w * h * 0.008) &&
+      height >= h * 0.1 && height < h * 0.25;
+  });
+  const joined = new Set();
+  if (fragments.length <= 24)
+    for (let i = 0; i < fragments.length; i++) {
+      const a = fragments[i];
+      if (joined.has(a)) continue;
+      for (let j = i + 1; j < fragments.length; j++) {
+        const b = fragments[j];
+        if (joined.has(b)) continue;
+        const gap = Math.max(a.miny - b.maxy - 1, b.miny - a.maxy - 1),
+          overlap = Math.min(a.maxx, b.maxx) - Math.max(a.minx, b.minx) + 1,
+          height = Math.max(a.maxy, b.maxy) - Math.min(a.miny, b.miny) + 1;
+        if (gap < 1 || gap > h * 0.16 || height < h * 0.25 || height > h * 0.7 ||
+          overlap < Math.min(a.maxx - a.minx + 1, b.maxx - b.minx + 1) * 0.6) continue;
+        joined.add(a); joined.add(b);
+        parts.push({ area: a.area + b.area, minx: Math.min(a.minx, b.minx),
+          miny: Math.min(a.miny, b.miny), maxx: Math.max(a.maxx, b.maxx),
+          maxy: Math.max(a.maxy, b.maxy), recoveredMark: true });
+        break;
+      }
+    }
+  const glyphs = parts.filter((part) => !joined.has(part));
+  glyphs.sort((a, b) => b.area - a.area);
+  const anchor = glyphs.find(
       (part) =>
         part.area >= Math.max(4, w * h * 0.003) &&
         part.maxy - part.miny + 1 >= h * 0.25,
@@ -101,7 +131,7 @@ function numberBounds(mask, w, h) {
     height = anchor.maxy - anchor.miny + 1;
   // Neighbouring digits are separate components too. Keep substantial glyphs
   // on the same line while excluding the small dots of halftone/newsprint.
-  const pending = parts.filter((part) => {
+  const pending = glyphs.filter((part) => {
     const partHeight = part.maxy - part.miny + 1,
       overlap = Math.min(anchor.maxy, part.maxy) - Math.max(anchor.miny, part.miny) + 1;
     return part !== anchor &&
@@ -120,6 +150,7 @@ function numberBounds(mask, w, h) {
       bounds.miny = Math.min(bounds.miny, part.miny);
       bounds.maxy = Math.max(bounds.maxy, part.maxy);
       bounds.area += part.area;
+      if (part.recoveredMark) bounds.recoveredMark = true;
       pending.splice(i, 1);
       changed = true;
     }
@@ -191,6 +222,7 @@ export function prepareScan(image, type, rows, cols) {
     // Filter speckle without cutting a multi-digit clue into a single glyph.
     if (["value", "blackvalue"].includes(kind)) {
       let part = numberBounds(local, rw, rh);
+      recoveredMark = Boolean(part?.recoveredMark);
       if (!part && kind === "blackvalue") {
         // Downsampling makes white printed digits dimmer than the fixed white
         // cutoff. Retry only a missed central black-cell mark, using its own
