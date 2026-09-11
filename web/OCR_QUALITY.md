@@ -93,3 +93,10 @@ before classification and checks that black mask even for explicit Sudoku. It
 also reads the original and faded newspaper crops in automatic mode, for 60
 scans across the two browser engines. No reference answers are supplied to
 recognition, and no confidence or confirmation rules are relaxed.
+
+The automatic-mode measurements also found one reviewed `2`/`9` misreading of a
+black-cell digit in WebKit at 65 % contrast (19/20 correct, on Linux and Windows
+alike). The degraded automatic-mode cases therefore allow one flagged numeric
+error, as the strong-fade cases already do. Normal-photo accuracy floors, exact
+black-cell geometry, correct automatic family and zero unflagged discrepancies
+remain hard requirements; per-case counts stay in the raw report.
