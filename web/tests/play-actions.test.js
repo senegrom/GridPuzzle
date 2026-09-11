@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import * as model from "../model.js";
-import { captureEdit, restoreEdit, rememberEdit } from "../edit-history.js";
+import { captureEdit, restoreEdit, rememberEdit, prepareEdit } from "../edit-history.js";
 
 const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 function section(first, last) {
@@ -16,7 +16,7 @@ function section(first, last) {
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 function harness(t, failure = "") {
-  const nodes = new Map(), workers = [], timers = new Map();
+  const nodes = new Map(), workers = [], timers = new Map(), events = [];
   let timerId = 0;
   const $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
@@ -45,8 +45,8 @@ function harness(t, failure = "") {
   }
   const context = vm.createContext({
     ...model, $, Worker, URL, console, performance,
-    captureEdit, restoreEdit, scanner: { cancel() {} }, stopCamera() {},
-    render() {}, persist() {}, setLayout() {}, remember: () => rememberEdit(context.api.state),
+    captureEdit, restoreEdit, prepareEdit, scanner: { cancel() {} }, stopCamera() {},
+    render() { events.push("render"); }, persist() { events.push("persist"); }, setLayout() {}, remember: () => rememberEdit(context.api.state),
     setInterval: () => 0, clearInterval() {},
     setTimeout: (fn) => { timers.set(++timerId, fn); return timerId; },
     clearTimeout: (id) => timers.delete(id),
@@ -58,6 +58,8 @@ function harness(t, failure = "") {
     section("function status(", "function remember()"),
     section("const tasks =", "function svg("),
     section("function playMode()", "function cellAction("),
+    section("function numberInput(", "function saveCell("),
+    section('$("save-cage").onclick =', '$("stop").onclick ='),
     section("function drawBoard()", "  focused = Math.min(focused,") + "return { bad, sol }; }",
     section('$("edit-tool").onchange =', '$("clear-selection").onclick ='),
     section("function ensureWorker()", '$("next-solution").onclick ='),
@@ -70,7 +72,7 @@ function harness(t, failure = "") {
   state.play = [null, 1, null, null];
   const unique = { status: "unique", complete: true, elapsed: 0.1, solutions: [{ cells: [1, 2, 2, 1], edges: [] }] };
   t.after(() => tasks.stop());
-  return { ...context.api, $, workers, timers, unique,
+  return { ...context.api, $, workers, timers, unique, events,
     worker: () => workers.at(-1), text: () => $("status-text").textContent };
 }
 
@@ -231,4 +233,115 @@ test("Reveal does not paint conflicts from hidden Play answers onto a valid solu
   assert.ok(h.drawBoard().bad.size > 0, "Play still marks the user's conflicting answer");
   h.$("edit-tool").value = "value";
   assert.equal(h.drawBoard().bad.size, 0, "Revealed valid solution must not inherit hidden answer conflicts");
+});
+
+function solvedCage(h) {
+  h.state.puzzle = model.makePuzzle("kenken", 2);
+  h.state.puzzle.cells[0] = 1;
+  h.state.puzzle.cages = [
+    { cells: [0, 1], target: 3, op: "+" },
+    { cells: [2, 3], target: 3, op: "+" },
+  ];
+  h.state.layout = { rows: 2, cols: 2, boxRows: 1, boxCols: 2 };
+  h.state.result = h.unique;
+  h.state.playSolution = h.unique.solutions[0].cells;
+  h.state.playFeedback = { wrong: new Set([1]) };
+  h.state.solution = 1;
+  h.state.view = "photo";
+  h.state.puzzleSource = 7;
+  h.state.uncertain = new Set([1]);
+  h.state.cageUncertain = new Set([0, 3]);
+  h.state.needsReview = true;
+  h.state.notes = ["Retain review evidence"];
+  h.state.hints = new Set([1]);
+  h.state.selected = [0, 3];
+  h.$("cage-target").value = "3";
+  h.$("cage-op").value = "+";
+}
+
+test("rejected disconnected cage preserves the solved board, caches, metadata and task generation", (t) => {
+  const h = harness(t); solvedCage(h);
+  // At the undo limit a failed edit must not evict the oldest accepted edit.
+  for (let i = 0; i < 30; i++) rememberEdit(h.state);
+  const before = { ...h.state }, snapshot = plain(captureEdit(h.state)), id = h.tasks.id;
+  const history = [...h.state.history];
+  h.$("save-cage").onclick();
+  assert.match(h.text(), /orthogonally connected/);
+  for (const key of Object.keys(before))
+    assert.equal(h.state[key], before[key], `${key} must retain its identity`);
+  assert.deepEqual(plain(captureEdit(h.state)), snapshot);
+  assert.deepEqual([...h.state.history], history);
+  assert.equal(h.tasks.id, id);
+  assert.deepEqual(h.events, [], "rejected edits must neither persist nor rerender an unchanged board");
+});
+
+test("a rejected cage does not cancel a compatible in-flight private solve", async (t) => {
+  const h = harness(t); solvedCage(h);
+  h.state.playSolution = null;
+  const pending = h.playSolution(), worker = h.worker(), id = h.tasks.id;
+  h.$("save-cage").onclick();
+  assert.match(h.text(), /orthogonally connected/);
+  assert.equal(h.tasks.id, id);
+  assert.equal(h.tasks.busy, true);
+  assert.equal(worker.terminated, false);
+  worker.result(h.unique);
+  assert.deepEqual(await pending, h.unique.solutions[0].cells);
+});
+
+test("accepted cage edits invalidate once, retain one undo snapshot and undo restores clues", (t) => {
+  const h = harness(t); solvedCage(h);
+  const before = plain(captureEdit(h.state)), id = h.tasks.id;
+  h.state.selected = [0, 1]; h.$("cage-target").value = "4";
+  h.$("save-cage").onclick();
+  assert.match(h.text(), /Cage saved/);
+  assert.equal(h.tasks.id, id + 1);
+  assert.equal(h.state.result, null); assert.equal(h.state.playSolution, null);
+  assert.equal(h.state.playFeedback, null); assert.equal(h.state.solution, 0);
+  assert.equal(h.state.view, "board"); assert.deepEqual(plain(h.state.selected), []);
+  assert.equal(h.state.puzzle.cages.find((q) => q.cells.includes(0)).target, 4);
+  assert.equal(h.state.history.length, 1);
+  assert.deepEqual(plain(h.state.history[0]), before);
+  assert.deepEqual(h.events, ["persist", "render"]);
+  h.$("undo").onclick();
+  assert.deepEqual(plain(captureEdit(h.state)), before);
+  assert.equal(h.state.result, null, "Undo must not revive the old result");
+});
+
+test("accepted cage edits cancel private requests and ignore stale worker completions", async (t) => {
+  const h = harness(t); solvedCage(h); h.state.playSolution = null;
+  const pending = h.playSolution(), worker = h.worker();
+  h.state.selected = [0, 1]; h.$("cage-target").value = "4";
+  h.$("save-cage").onclick();
+  assert.equal(await pending, null); assert.equal(worker.terminated, true);
+  worker.result(h.unique); await flush();
+  assert.equal(h.state.playSolution, null); assert.equal(h.state.result, null);
+  assert.match(h.text(), /Cage saved/);
+});
+
+
+test("inequality saves and removals write the draft, never the captured source puzzle", (t) => {
+  const h = harness(t);
+  h.state.puzzle = model.makePuzzle("futoshiki", 2);
+  h.state.selected = [0, 1];
+  const original = h.state.puzzle;
+  h.$("save-inequality").onclick();
+  assert.deepEqual(original.inequalities, []);
+  assert.deepEqual(plain(h.state.puzzle.inequalities), [{ less: 0, greater: 1 }]);
+  const saved = h.state.puzzle;
+  h.state.selected = [0, 1];
+  h.$("remove-inequality").onclick();
+  assert.deepEqual(plain(saved.inequalities), [{ less: 0, greater: 1 }]);
+  assert.deepEqual(plain(h.state.puzzle.inequalities), []);
+  assert.equal(h.state.history.length, 2);
+});
+
+test("cage removal commits a detached editable board and invalidates the old solution", (t) => {
+  const h = harness(t); solvedCage(h);
+  const original = h.state.puzzle;
+  h.state.selected = [0]; h.$("remove-cage").onclick();
+  assert.equal(original.cages.length, 2);
+  assert.equal(h.state.puzzle.cages.length, 1);
+  assert.deepEqual(plain(h.state.puzzle.cages[0].cells), [2, 3]);
+  assert.equal(h.state.result, null);
+  assert.equal(h.state.history.length, 1);
 });

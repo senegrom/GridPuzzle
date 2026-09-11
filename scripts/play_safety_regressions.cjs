@@ -149,6 +149,52 @@ async function exercise(page, report) {
   assert.equal(await page.locator("#board .conflict").count(), 0);
   assert.equal((await state(page)).play[1], 1, "Reveal keeps, but does not display, the user's old answer");
   report.checks.push("Reveal does not inherit conflict marks from hidden Play answers");
+
+
+  // Failed structural edits must preserve an already-computed solution.
+  // Restore a fresh session so a rejected cage cannot hide an extra undo entry.
+  await page.evaluate(async () => {
+    const { makePuzzle } = await import("./model.js"), puzzle = makePuzzle("kenken", 2);
+    puzzle.cells[0] = 1;
+    puzzle.cages = [
+      { cells: [0, 1], target: 3, op: "+" },
+      { cells: [2, 3], target: 3, op: "+" },
+    ];
+    localStorage.setItem("gridpuzzle-session-v1", JSON.stringify({ puzzle }));
+    localStorage.setItem("gridpuzzle-settings-v2", JSON.stringify({ editing: "value", type: "auto", limit: "30" }));
+  });
+  await page.reload(); await ready(page);
+  await page.click("#solve"); await done(page, "Solved · unique");
+  await page.selectOption("#edit-tool", "cage");
+  await page.click('[data-cell="0"]'); await page.click('[data-cell="3"]');
+  await page.fill("#cage-target", "3"); await page.selectOption("#cage-op", "+");
+  const solved = await state(page), board = await page.locator("#board").innerHTML();
+  const session = await page.evaluate(() => localStorage.getItem("gridpuzzle-session-v1"));
+  assert.equal(solved.result.status, "unique");
+  assert.equal(await page.locator("#undo").isDisabled(), true);
+  await page.click("#save-cage");
+  assert.match(await text(page), /orthogonally connected/);
+  assert.deepEqual(await state(page), solved);
+  assert.equal(await page.locator("#board").innerHTML(), board);
+  assert.equal(await page.evaluate(() => localStorage.getItem("gridpuzzle-session-v1")), session);
+  assert.equal(await page.locator("#undo").isDisabled(), true);
+  report.checks.push("rejected disconnected cage preserves the real solved board, selection, session and undo history");
+
+  // Correct the selection and save a structurally valid (not necessarily
+  // satisfiable) target. Only the accepted edit may invalidate the result.
+  await page.click('[data-cell="3"]'); await page.click('[data-cell="1"]');
+  await page.fill("#cage-target", "4"); await page.click("#save-cage");
+  assert.match(await text(page), /Cage saved/);
+  s = await state(page);
+  assert.equal(s.result, null);
+  assert.equal(s.puzzle.cages.find((cage) => cage.cells.includes(0)).target, 4);
+  assert.equal(await page.locator("#undo").isDisabled(), false);
+  await page.click("#undo");
+  assert.deepEqual((await state(page)).puzzle, solved.puzzle);
+  assert.equal((await state(page)).result, null);
+  assert.equal(await page.locator("#undo").isDisabled(), true);
+  await page.click("#solve"); await done(page, "Solved · unique");
+  report.checks.push("accepted correction invalidates once, Undo restores the original cages, and the real solver still succeeds");
 }
 (async () => {
   try {

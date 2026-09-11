@@ -1,4 +1,4 @@
-import { clone, fitPlay, fitBlackReadings } from "./model.js";
+import { clone, checkShape, fitPlay, fitBlackReadings } from "./model.js";
 export function captureEdit(state) {
   return {
     puzzle: clone(state.puzzle),
@@ -32,4 +32,21 @@ export function restoreEdit(state, snapshot) {
 export function rememberEdit(state) {
   state.history.push(captureEdit(state));
   if (state.history.length > 30) state.history.shift();
+}
+
+// Stage only editable data, not results, history, photo resources or tasks.
+// A rejected edit must leave the accepted state (including object identity)
+// untouched. Callers commit this draft only after all validation succeeds.
+export function prepareEdit(state, edit) {
+  const draft = {};
+  restoreEdit(draft, captureEdit(state));
+  draft.selected = [...state.selected];
+  edit(draft);
+  checkShape(draft.puzzle);
+  draft.blackReadings = fitBlackReadings(draft.puzzle, draft.blackReadings);
+  draft.play = fitPlay(draft.puzzle, draft.play);
+  draft.hints = new Set(
+    [...draft.hints].filter((i) => Number.isInteger(draft.play[i])),
+  );
+  return draft;
 }
