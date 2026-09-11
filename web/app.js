@@ -1,6 +1,6 @@
 import { nextReviewCell } from "./model.js";
 import { createTaskController } from "./task-controller.js";
-import { captureEdit, restoreEdit, rememberEdit } from "./edit-history.js";
+import { prepareEdit, restoreEdit, rememberEdit } from "./edit-history.js";
 import { setupPhotoFlow } from "./photo-flow.js";
 import { setupOffline } from "./offline.js";
 import {
@@ -212,24 +212,10 @@ function invalidate() {
   );
 }
 function mutate(fn) {
-  const previous = captureEdit(state),
-    history = [...state.history];
+  const draft = prepareEdit(state, fn);
   remember();
   invalidate();
-  try {
-    fn();
-    checkShape(state.puzzle);
-    state.blackReadings = fitBlackReadings(state.puzzle, state.blackReadings);
-    state.play = fitPlay(state.puzzle, state.play);
-    state.hints = new Set(
-      [...state.hints].filter((i) => Number.isInteger(state.play[i])),
-    );
-  } catch (error) {
-    restoreEdit(state, previous);
-    state.history = history;
-    render();
-    throw error;
-  }
+  Object.assign(state, draft);
   persist();
   render();
 }
@@ -649,14 +635,14 @@ applyType.onclick = () => {
   try {
     const type = $("puzzle-type").value,
       next = changePuzzleType(state.puzzle, type, state.blackReadings);
-    mutate(() => {
-      state.puzzle = next;
-      if (!isCage(type)) state.cageUncertain.clear();
-      state.needsReview = state.needsReview || Boolean(state.photo) || state.uncertain.size > 0;
-      state.notes = [
+    mutate((draft) => {
+      draft.puzzle = next;
+      if (!isCage(type)) draft.cageUncertain.clear();
+      draft.needsReview = draft.needsReview || Boolean(state.photo) || draft.uncertain.size > 0;
+      draft.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
       ];
-      state.selected = [];
+      draft.selected = [];
     });
     status(
       `Using ${TYPES[type]}.`,
@@ -746,10 +732,10 @@ function saveCell(advance = false) {
         next.clues.push({ cell: editing, across, down });
     }
     checkShape(next);
-    mutate(() => {
-      state.puzzle = next;
-      state.uncertain.delete(editing);
-      state.blackReadings = state.blackReadings.filter((entry) => entry.cell !== editing);
+    mutate((draft) => {
+      draft.puzzle = next;
+      draft.uncertain.delete(editing);
+      draft.blackReadings = draft.blackReadings.filter((entry) => entry.cell !== editing);
     });
     $("cell-dialog").close();
     // Rendering replaced the dialog's original focus target. Restore the
@@ -1032,17 +1018,17 @@ $("save-cage").onclick = () => {
       throw Error("Select cage cells and enter a positive target.");
     const cells = [...state.selected],
       op = state.puzzle.type === "killersudoku" ? "+" : $("cage-op").value;
-    mutate(() => {
-      state.puzzle.cages = state.puzzle.cages.filter(
+    mutate((draft) => {
+      draft.puzzle.cages = draft.puzzle.cages.filter(
         (q) => !q.cells.some((i) => cells.includes(i)),
       );
-      state.puzzle.cages.push({
+      draft.puzzle.cages.push({
         cells: cells.sort((a, b) => a - b),
         target,
         op,
       });
-      cells.forEach((i) => state.cageUncertain.delete(i));
-      state.selected = [];
+      cells.forEach((i) => draft.cageUncertain.delete(i));
+      draft.selected = [];
     });
     status(
       "Cage saved.",
@@ -1054,11 +1040,11 @@ $("save-cage").onclick = () => {
 };
 $("remove-cage").onclick = () => {
   if (!hasCageRemoval(state.puzzle, state.selected)) return;
-  mutate(() => {
-    state.puzzle.cages = state.puzzle.cages.filter(
-      (q) => !q.cells.some((i) => state.selected.includes(i)),
+  mutate((draft) => {
+    draft.puzzle.cages = draft.puzzle.cages.filter(
+      (q) => !q.cells.some((i) => draft.selected.includes(i)),
     );
-    state.selected = [];
+    draft.selected = [];
   });
 };
 $("save-inequality").onclick = () => {
@@ -1073,14 +1059,14 @@ $("save-inequality").onclick = () => {
       1
     )
       throw Error("Inequality cells must share a side.");
-    mutate(() => {
-      p.inequalities = p.inequalities.filter(
+    mutate((draft) => {
+      draft.puzzle.inequalities = draft.puzzle.inequalities.filter(
         (q) =>
           ![less, greater].includes(q.less) ||
           ![less, greater].includes(q.greater),
       );
-      p.inequalities.push({ less, greater });
-      state.selected = [];
+      draft.puzzle.inequalities.push({ less, greater });
+      draft.selected = [];
     });
   } catch (e) {
     fail(e);
@@ -1088,14 +1074,14 @@ $("save-inequality").onclick = () => {
 };
 $("remove-inequality").onclick = () => {
   if (!hasInequalityRemoval(state.puzzle, state.selected)) return;
-  mutate(() => {
-    state.puzzle.inequalities = state.puzzle.inequalities.filter(
+  mutate((draft) => {
+    draft.puzzle.inequalities = draft.puzzle.inequalities.filter(
       (q) =>
         !(
-          state.selected.includes(q.less) && state.selected.includes(q.greater)
+          draft.selected.includes(q.less) && draft.selected.includes(q.greater)
         ),
     );
-    state.selected = [];
+    draft.selected = [];
   });
 };
 $("undo").onclick = () => {
@@ -1378,9 +1364,9 @@ $("apply-layout").onclick = () => {
       rows === state.puzzle.rows &&
       cols === state.puzzle.cols
     ) {
-      mutate(() => {
-        state.puzzle.boxRows = next.boxRows;
-        state.puzzle.boxCols = next.boxCols;
+      mutate((draft) => {
+        draft.puzzle.boxRows = next.boxRows;
+        draft.puzzle.boxCols = next.boxCols;
       });
     } else if (
       confirm(
