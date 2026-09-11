@@ -139,15 +139,23 @@ def relevant_guarantees(grid: Grid, rule: Rule) -> Iterable[Guarantee]:
     fresh instead of cached. The list is safely re-iterable (SaEAMO reads
     it twice).
     """
-    if not rule.uses_guarantees:
-        return _NO_GUARANTEES
+    if type(rule)._is_extension:
+        uses_guarantees, cells = grid._read_rule_metadata(
+            rule, lambda item: (bool(item.uses_guarantees), tuple(item.cells)),
+        )
+        if not uses_guarantees:
+            return _NO_GUARANTEES
+    else:
+        if not rule.uses_guarantees:
+            return _NO_GUARANTEES
+        cells = rule.cells
     index = grid.cached_guarantee_struct(
         "gts_by_min_cell",
         lambda: _build_guarantee_index(grid),
     )
     return [
         guarantee
-        for cell in rule.cells
+        for cell in cells
         for guarantee in index.get(cell, ())
     ]
 

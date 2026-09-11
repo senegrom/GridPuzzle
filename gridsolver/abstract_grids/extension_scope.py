@@ -15,29 +15,44 @@ if TYPE_CHECKING:
     from gridsolver.abstract_grids.grid import Grid
 
 
+_WORKER_SERIALIZATION: ContextVar[bool] = ContextVar("gridpuzzle_worker_serialization", default=False)
+
+
 _PROTECTED_SOURCES: ContextVar[tuple[Grid, ...]] = ContextVar(
     "gridpuzzle_protected_sources", default=(),
 )
 
 
 @contextmanager
-def sandbox_sources(*, exclude: Grid | None = None) -> Iterator[None]:
-    """Rollback incidental captured-source changes from one extension operation.
+def sandbox_sources(
+    *, exclude: Grid | None = None, extra: tuple[Grid, ...] = (),
+) -> Iterator[None]:
+    """Rollback captured-source changes, including in nested hook operations.
 
-    Clear the registry while entering these scopes to prevent recursion through
-    Grid._extension_sandbox. The enclosing scopes already protect those sources
-    for nested hook operations, and the context token is restored on every exit.
+    Enter local scopes directly rather than recursively entering the public
+    sandbox. Keep the registry live during the operation: a nested operation
+    needs its own rollback boundary before the outer operation resumes.
     """
     sources = _PROTECTED_SOURCES.get()
+    if extra:
+        # Grid equality invokes rule equality and cannot be used for identity
+        # deduplication. Preserve ancestor-first order for nested clones.
+        seen = {id(source) for source in sources}
+        additions = []
+        for source in extra:
+            if id(source) not in seen:
+                seen.add(id(source))
+                additions.append(source)
+        sources += tuple(additions)
     if not sources:
         yield
         return
-    token = _PROTECTED_SOURCES.set(())
+    token = _PROTECTED_SOURCES.set(sources)
     try:
         with ExitStack() as stack:
             for source in sources:
                 if source is not exclude:
-                    stack.enter_context(source._extension_sandbox())
+                    stack.enter_context(source._local_extension_sandbox())
             yield
     finally:
         _PROTECTED_SOURCES.reset(token)
@@ -45,13 +60,17 @@ def sandbox_sources(*, exclude: Grid | None = None) -> Iterator[None]:
 
 @contextmanager
 def protect_source(source: Grid) -> Iterator[None]:
-    """Protect one caller throughout an API call and register it for hook scopes."""
-    previous = _PROTECTED_SOURCES.get()
-    with source._extension_sandbox():
-        token = _PROTECTED_SOURCES.set(
-            tuple(item for item in previous if item is not source) + (source,)
-        )
-        try:
-            yield
-        finally:
-            _PROTECTED_SOURCES.reset(token)
+    """Protect the API caller and the source owners of its shared rules."""
+    owners = getattr(source, "_extension_sources", ())
+    with sandbox_sources(extra=(*owners, source)):
+        yield
+
+
+@contextmanager
+def worker_serialization() -> Iterator[None]:
+    """Send puzzle state, not live caller trails or derived caches, to workers."""
+    token = _WORKER_SERIALIZATION.set(True)
+    try:
+        yield
+    finally:
+        _WORKER_SERIALIZATION.reset(token)
