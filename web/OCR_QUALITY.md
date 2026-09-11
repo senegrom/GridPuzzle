@@ -73,3 +73,34 @@ normalization, gray shading, confirmation and OCR worker mode changes.
 
 Tesseract's segmentation and preprocessing guidance:
 https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
+
+## Publication review: shaded-cell occupancy and automatic type
+
+The recovery review found a blind spot in the candidate-selection tests above:
+an explicitly selected Sudoku discards structural black metadata, so its final
+puzzle alone could hide a shaded cell incorrectly detected as black. This
+occurred on the faded newspaper crop and could change an automatic proposal.
+
+Black-cell detection now requires most interior pixels, as well as the cell
+mean, to fall below the same adaptive darkness threshold. A dark printed digit
+cannot make otherwise lighter shaded paper pass solely by lowering its mean.
+Three unit cases reproduce this failure before correction and preserve a real
+numbered black cell at original, 65% and 35% contrast.
+
+The permanent quality suite now observes the unmodified geometry-worker result
+prior to classification and checks that black mask even for explicit Sudoku.
+It also checks the original and faded newspaper crops in automatic mode, for
+60 scans across the two browser engines. The table above records the earlier
+candidate-selection runs, not a universal accuracy estimate; final integrated
+measurements are retained in each run's `browser-artifacts/ocr-quality.json`.
+
+Publication is based on current master `13975b0`, preserving its immutable
+runtime, photo-read transaction, editor and Play repairs. No reference answers
+are supplied to recognition, and no confidence or confirmation rules are relaxed.
+
+The expanded automatic-mode measurements also found a reviewed `2`/`9`
+misreading in WebKit at 65% contrast (19/20 correct). The new degraded-auto
+cases therefore allow one flagged numeric error, as the existing strong-fade
+cases already do. This does not relax the normal-photo accuracy floor, exact
+black-cell geometry, correct automatic family, or zero-unflagged-discrepancy
+requirements. Actual per-case counts and errors remain in the raw report.

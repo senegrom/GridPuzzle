@@ -4,7 +4,7 @@ The deployment build tests the actual Python solver and OCR WebAssembly in both 
 
 ## Recognition is measured before correction
 
-Every single-glyph digit is read three times: in the sparse-text atlas, and on its own as a single character from its binary crop and from its grayscale crop. The readings vote; unanimity of at least two readers clears the review flag, any disagreement or a lone reading keeps it. Across eight fonts in Chromium and WebKit this raised clean correct readings from 364 to 453 of 480 digits and removed the only unflagged misread.
+For scans with at most 150 numeric crops, each narrow digit is read three times: in the sparse-text atlas, and on its own as a single character from its binary crop and from its grayscale crop. The readings vote; unanimity of at least two readers clears the review flag, any disagreement or a lone reading keeps it. Across eight fonts in Chromium and WebKit this raised clean correct readings from 364 to 453 of 480 digits and removed the only unflagged misread.
 
 Generated acceptance fixtures record raw cells, confidence/review flags and discrepancies **before** manual correction. A wrong or missed clue without a review flag fails. Generated fixtures are baselines, not claims about arbitrary photographs, handwriting or publisher styles.
 
@@ -12,12 +12,12 @@ The generated browser suite also requires exact transcription of a binary 4×4 S
 
 The deployment also runs two real user-provided newspaper crops from `Examples/BrowserScanner/Newspaper/` through the same production scanner and self-hosted Tesseract.js path. `newspaper-regressions.json` compares the raw transcription with hand-checked `ground-truth.json` and fails on any unsafe unflagged discrepancy or incorrect Str8ts black-cell geometry.
 
-For the 2026-09-07 fixtures, Chromium 153.0.8010.12 and WebKit 26.6 both produce:
+An earlier baseline run of the 2026-09-07 fixtures in Chromium 153.0.8010.12 and WebKit 26.6 recorded:
 
 - shaded Sudoku: **24/24** printed values correct, no structural black cells, no unsafe discrepancies;
 - Str8ts: **19/20** printed values correct, exact 22-cell black layout, with the one missed white-cell clue flagged for review and no unsafe discrepancies.
 
-The same run's generated suite reads all baseline, serif, shifted and 4×4 values exactly in both browsers. Chromium also reads the perspective/shadow case 30/30; WebKit reads it 29/30 and flags the miss. Production code never substitutes fixture answers.
+That historical run's generated suite read all baseline, serif, shifted and 4×4 values exactly in both browsers. Chromium also reads the perspective/shadow case 30/30; WebKit reads it 29/30 and flags the miss. Production code never substitutes fixture answers.
 
 Automatic classification is treated as a trust boundary: automatically identified puzzles remain `needsReview` until their rules are confirmed. Str8ts black cells are structural data and remain review-gated even when OCR is otherwise clean.
 
@@ -89,6 +89,7 @@ answers and the computed solution, allowing the photo view to be restored.
 The existing scanner-repair browser suite covers the same transition with real
 DOM/canvas and the Pyodide solver, while retaining all import-boundary checks.
 
+
 ## Transactional reading and dependency-changing updates
 
 `web/tests/photo-read-transactions.test.js` delivers late scanner successes, failures
@@ -112,4 +113,5 @@ coverage without downloading dependencies.
 
 See [OCR_QUALITY.md](OCR_QUALITY.md) for the measured multi-digit and faded-photo
 improvements, confirmation policy, extra recognition cost and remaining limits.
-The existing newspaper gate also runs the new production OCR quality suite.
+The existing newspaper gate also runs the production OCR quality suite in
+Chromium and mobile WebKit, using real Tesseract and fixed reference clues.

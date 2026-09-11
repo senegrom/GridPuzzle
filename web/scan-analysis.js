@@ -31,25 +31,25 @@ function mean(grayImage, w, h, x, y, rw, rh) {
 export function detectBlackCells(g, w, h, rows, cols) {
   const cw = w / cols,
     ch = h / rows,
-    dark = new Uint8Array(g.length),
-    means = [],
-    darkFractions = [];
-  for (let i = 0; i < g.length; i++) dark[i] = g[i] < 125 ? 1 : 0;
-  for (let i = 0; i < rows * cols; i++) {
-    const c = i % cols,
-      r = Math.floor(i / cols),
-      x = (c + 0.16) * cw,
-      y = (r + 0.16) * ch,
-      rw = 0.68 * cw,
-      rh = 0.68 * ch;
-    means.push(mean(g, w, h, x, y, rw, rh));
-    darkFractions.push(fraction(dark, w, h, x, y, rw, rh));
-  }
+    means = [];
+  const interior = (i) => [
+    (i % cols + 0.16) * cw,
+    (Math.floor(i / cols) + 0.16) * ch,
+    0.68 * cw,
+    0.68 * ch,
+  ];
+  for (let i = 0; i < rows * cols; i++)
+    means.push(mean(g, w, h, ...interior(i)));
   const sorted = [...means].sort((a, b) => a - b),
     brightReference = sorted[Math.floor((sorted.length - 1) * 0.8)] || 255,
-    meanCutoff = Math.min(105, brightReference * 0.48);
-  return means.map(
-    (value, i) => value < meanCutoff && darkFractions[i] > 0.65,
+    meanCutoff = Math.min(105, brightReference * 0.48),
+    dark = new Uint8Array(g.length);
+  // Use the same adaptive cutoff for pixel occupancy and cell brightness.
+  // A digit can pull shaded paper's mean below the cutoff even though most
+  // pixels are above it, especially after low-contrast normalization.
+  for (let i = 0; i < g.length; i++) dark[i] = g[i] < meanCutoff ? 1 : 0;
+  return means.map((value, i) =>
+    value < meanCutoff && fraction(dark, w, h, ...interior(i)) > 0.65,
   );
 }
 
