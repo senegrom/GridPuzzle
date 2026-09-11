@@ -131,4 +131,11 @@ function assess(fixture, scanResult) {
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(() => server.kill());
+  .finally(() => server.kill())
+  .then(() => {
+    if (!process.exitCode) return require("./ocr_quality_regressions.cjs").run();
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

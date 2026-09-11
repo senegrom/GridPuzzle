@@ -145,3 +145,9 @@ The page declares a same-origin Content Security Policy and a no-referrer policy
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
 Live moving-camera AR and step-by-step deduction explanations are not included.
+
+## OCR quality follow-up
+
+See [OCR_QUALITY.md](OCR_QUALITY.md) for the measured multi-digit and faded-photo
+improvements, confirmation policy, extra recognition cost and remaining limits.
+The existing newspaper gate also runs the new production OCR quality suite.

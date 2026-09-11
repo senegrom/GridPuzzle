@@ -53,8 +53,8 @@ self.onmessage = async ({ data }) => {
       {},
       { text: true, blocks: true },
     );
-    // Second pass: every digit crop on its own as a single character. The
-    // readings are independent of the atlas layout and vote in the scanner.
+    // Read numeric crops independently of the atlas layout. Narrow glyphs
+    // use character mode; wide numbers use line mode to keep all digits.
     const singles = [],
       samples = Array.isArray(data.singles) ? data.singles : [];
     if (samples.length) {
@@ -63,7 +63,13 @@ self.onmessage = async ({ data }) => {
         tessedit_pageseg_mode: "10",
         tessedit_char_whitelist: "0123456789",
       });
+      let psm = "10";
       for (let i = 0; i < samples.length; i++) {
+        const next = samples[i].psm === "7" ? "7" : "10";
+        if (psm !== next) {
+          await worker.setParameters({ tessedit_pageseg_mode: next });
+          psm = next;
+        }
         const { data: read } = await worker.recognize(
           samples[i].png,
           {},
