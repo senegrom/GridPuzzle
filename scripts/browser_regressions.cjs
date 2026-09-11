@@ -498,7 +498,7 @@ async function installControlledCamera(page) {
     Object.defineProperty(video, "srcObject", { configurable: true, writable: true, value: null });
     Object.defineProperty(video, "play", { configurable: true, value: async () => {} });
     window.setTimeout = (fn, ms, ...args) => {
-      if (ms === 800 || ms === 900) { camera.queued.push(fn); return -1; }
+      if (ms === 800 || ms === 900 || (ms === 100 && fn.name === "tick")) { camera.queued.push(fn); return -1; }
       return timeout(fn, ms, ...args);
     };
     camera.restore = () => {
@@ -521,8 +521,11 @@ async function cameraOwnershipRegressions(page, report) {
     for (const action of ["edit", "solve"]) {
       await page.click("#camera");
       await page.waitForFunction(() => document.querySelector("#status-text").textContent === "Camera ready.");
-      if (action === "edit") await page.click('[data-cell="0"]');
-      else await page.click("#solve");
+      // The live view is now full-screen. Invoke the actual editor handlers
+      // without a pointer hit-test through that overlay; the streamed-camera
+      // suite covers the user's visible Close/Review controls separately.
+      if (action === "edit") await page.dispatchEvent('[data-cell="0"]', "click");
+      else await page.dispatchEvent("#solve", "click");
       assert.equal(await page.locator("#camera-panel").isHidden(), true, `${action} closes the camera`);
       assert.equal(await page.evaluate(() => window.cameraTest.stopped), action === "edit" ? 1 : 2);
       await page.evaluate(async () => {
@@ -557,7 +560,7 @@ async function confirmationRegressions(page, report) {
     for (const action of ["back", "escape", "confirm"]) {
       await page.click("#camera");
       await page.waitForFunction(() => document.querySelector("#status-text").textContent === "Camera ready.");
-      await page.click("#solve");
+      await page.dispatchEvent("#solve", "click");
       assert.equal(await page.locator("#confirm-dialog").isVisible(), true);
       assert.equal(await page.locator("#camera-panel").isHidden(), true,
         "capture must stop before confirmation, not after accepting it");

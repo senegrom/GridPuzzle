@@ -234,7 +234,7 @@ def write_web_sources(out, build):
             text = source.read_text(encoding="utf-8").replace("__BUILD_ID__", build)
             # Runtime imports are immutable across dependency-changing updates.
             text = text.replace("./vendor/", f"./vendor/{build}/")
-            if source.name == "app.js":
+            if source.suffix == ".js":
                 text = text.replace("./solver-worker.js", f"./solver-worker.{build}.js")
             if source.name == "solver-worker.js":
                 text = text.replace("solver.zip", f"solver.{build}.zip")

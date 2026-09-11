@@ -101,6 +101,27 @@ self.onmessage = async ({ data }) => {
           });
       }
     }
+    // A bounded extra segmentation pass targets only numeric crops whose two
+    // independent reads disagree or contain a miss. Raw-line mode bypasses
+    // Tesseract's word/character segmentation assumptions. No solver values,
+    // substitutions, dictionaries or reference answers enter recognition.
+    const groups = new Map();
+    for (const reading of singles) {
+      if (!groups.has(reading.index)) groups.set(reading.index, []);
+      groups.get(reading.index).push(reading);
+    }
+    let retries = 0;
+    for (const [index, reads] of groups) {
+      if (retries >= 24) break;
+      if (reads.length < 2 || (reads.every((r) => /^\d{1,3}$/.test(r.text)) && reads.every((r) => r.text === reads[0].text))) continue;
+      const sample = samples.find((s) => s.index === index && s.kind === "gray");
+      if (!sample) continue;
+      if (!retries) await worker.setParameters({ tessedit_pageseg_mode: "13" });
+      const { data: read } = await worker.recognize(sample.png, {}, { text: true, blocks: true });
+      singles.push({ index, kind: "retry", text: (read.text || "").replace(/\s/g, ""), confidence: read.confidence || 0 });
+      retries++;
+    }
+    result.retryCount = retries;
     result.singles = singles;
     await worker.terminate();
     self.postMessage({ result });

@@ -24,7 +24,7 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 
 ## Features
 
-- Rear-facing live camera with manual shutter and optional stable-grid capture.
+- Rear-facing live camera with automatic stable-frame recognition and a solution preview on the same screen. Green values are recognised, yellow values are uncertain, red question marks are unknown, and blue values are solved entries. The shutter saves the exact annotated picture; it is never pressed automatically.
 - Photo-library import and a native camera-file fallback for denied/unavailable live camera access.
 - Four draggable crop corners, rotation, projective straightening, automatic continuous-grid size detection, explicit dimensions and puzzle-type selection.
 - Local printed-clue OCR with confidence/review flags and guided **Review highlighted clues → Save & next**.
@@ -35,22 +35,24 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - The Python runtime loads in the background as soon as a puzzle is on the board, so Solve, Check and Hint respond without a first-load wait.
 - A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without unsupported browser multiprocessing.
 - Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
-- Local puzzle/settings persistence. Recognition uncertainty is persisted atomically; photographs and solver results are not.
+- Local puzzle/settings persistence. Recognition uncertainty is persisted atomically. Only an explicit live-camera shutter press saves a photograph: one annotated PNG is retained locally, with download and delete controls. Imported photos, uncaptured frames and editor solver results are not stored.
 - Installable PWA icons, hash-verified offline preparation and a request for persistent browser storage. A banner at the top of the page announces a ready update; nothing reloads until the user chooses to.
 
 ## Recognition trust model
 
 Automatic recognition is a proposal, not proof. A faint or cropped clue can look like an intentionally blank cell, so an **automatically identified puzzle type always requires one rules confirmation**, including boxed Sudoku. Structural families such as Str8ts remain review-gated. An explicitly selected type represents a separate user decision, but uncertainty flags still block silent trust of suspect readings.
 
-A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly.
+A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly. The live camera may show a clearly labelled provisional solution without interrupting the view; unread printed marks, inconsistent clues and nonunique results block blue entries. Captured readings transferred to the editor retain their uncertainty and still require the normal rules confirmation.
 
 Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the bounded Tesseract atlas call. Every single-glyph digit is then re-read on its own, once from its binary crop and once from its grayscale crop, and the three readings vote: unanimity clears the review flag even at low individual scores, any disagreement keeps it. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
 
-On the 2026-09-07 real newspaper regressions, Chromium 153 and WebKit 26.6 both read the shaded Sudoku **24/24**. They both read the Str8ts **19/20** printed values, with the one missed clue explicitly flagged for review; both detect the Str8ts black-cell layout exactly and produce **zero unsafe unflagged discrepancies**. Generated regressions remain useful secondary baselines: Chromium reads all tested generated variants exactly, while the current WebKit perspective/shadow case reads 29/30 with the miss flagged.
+An earlier baseline on the 2026-09-07 real newspaper regressions recorded Chromium 153 and WebKit 26.6 reading the shaded Sudoku **24/24**. They both read the Str8ts **19/20** printed values, with the one missed clue explicitly flagged for review; both detect the Str8ts black-cell layout exactly and produce **zero unsafe unflagged discrepancies**. Generated regressions remain useful secondary baselines: Chromium reads all tested generated variants exactly, while that baseline's WebKit perspective/shadow case read 29/30 with the miss flagged. Current measurements are retained in the workflow reports.
 
 Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised. Physical-iPhone autofocus/exposure, installed-mode camera behaviour, storage eviction and airplane-mode use still require hardware testing.
 
 Digit cleanup retains neighbouring glyphs in multi-digit numbers and preserves ink in pure black-and-white scans. Invalid Str8ts values and Kakuro targets become highlighted blanks for correction. An incompatible cage reading leaves its cells uncovered; missing or ambiguous targets remain unset. These incomplete structures are editable, and Solve requires their correction rather than accepting an invented operator or target.
+
+See [LIVE_SCANNING.md](LIVE_SCANNING.md) for the live workflow, colour semantics, storage policy, bounded OCR retries and dim white-on-black glyph recovery.
 
 ## Photo imports and retained readings
 
@@ -126,6 +128,8 @@ The startup status is a cheap presence check. **Download for offline use** perfo
 
 ## Testing
 
+- `scripts/live_camera_regressions.cjs` uses a real canvas MediaStream, production OCR and Pyodide, and real IndexedDB in Chromium/WebKit to verify live solutions, exact shutter pixels, reload/delete, movement and uncertainty.
+
 - `tests/test_web_api.py` verifies the Python/browser data contract; `tests/test_str8ts.py` verifies Str8ts street semantics and the uniquely solved newspaper puzzle.
 - `scripts/scanner_repair_regressions.cjs` checks retained black clues, reload/undo, failed re-detection, import pixel limits and cage-operator validation in Chromium and mobile WebKit.
 - `web/tests/` covers geometry, classification, OCR mapping/preprocessing, cache recovery, worker lifecycle, malformed input, type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
@@ -144,7 +148,7 @@ The page declares a same-origin Content Security Policy and a no-referrer policy
 
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
-Live moving-camera AR and step-by-step deduction explanations are not included.
+The live camera detects a stable grid, processes it off the interface thread and projects coloured readings and solution entries onto the same view. Moving away clears stale answers. This is not a physical-device autofocus or motion-tracking certification; step-by-step deduction explanations are not included.
 
 ## OCR quality follow-up
 

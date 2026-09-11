@@ -168,6 +168,7 @@ export function prepareScan(image, type, rows, cols) {
     rw = Math.max(1, Math.min(w - x, Math.round(rw)));
     rh = Math.max(1, Math.min(h - y, Math.round(rh)));
     const local = new Uint8Array(rw * rh);
+    let recoveredMark = false;
     let minx = rw,
       miny = rh,
       maxx = -1,
@@ -189,7 +190,26 @@ export function prepareScan(image, type, rows, cols) {
       }
     // Filter speckle without cutting a multi-digit clue into a single glyph.
     if (["value", "blackvalue"].includes(kind)) {
-      const part = numberBounds(local, rw, rh);
+      let part = numberBounds(local, rw, rh);
+      if (!part && kind === "blackvalue") {
+        // Downsampling makes white printed digits dimmer than the fixed white
+        // cutoff. Retry only a missed central black-cell mark, using its own
+        // contrast. A flat black block, dust or shallow texture is not a digit.
+        const levels = [];
+        for (let yy = 0; yy < rh; yy++)
+          for (let xx = 0; xx < rw; xx++) levels.push(g[(y + yy) * w + x + xx]);
+        levels.sort((a, b) => a - b);
+        const background = levels[Math.floor(levels.length * 0.5)],
+          highlight = levels[Math.floor((levels.length - 1) * 0.98)];
+        if (highlight - background >= 40) {
+          const cutoff = Math.min(135, background + (highlight - background) * 0.5);
+          for (let yy = 0; yy < rh; yy++)
+            for (let xx = 0; xx < rw; xx++)
+              local[yy * rw + xx] = g[(y + yy) * w + x + xx] > cutoff ? 1 : 0;
+          part = numberBounds(local, rw, rh);
+          recoveredMark = Boolean(part);
+        }
+      }
       if (!part) return;
       ({ minx, miny, maxx, maxy } = part);
       ink = part.area;
@@ -233,6 +253,7 @@ export function prepareScan(image, type, rows, cols) {
       invert,
       text: "",
       confidence: 0,
+      ...(recoveredMark ? { recoveredMark: true } : {}),
     });
   }
 

@@ -44,7 +44,7 @@
             <div class="fields"><label>Rows<input id="rows" type="number" min="1" max="25" value="9" inputmode="numeric" /></label><label>Columns<input id="cols" type="number" min="1" max="25" value="9" inputmode="numeric" /></label></div>
             <div class="fields" id="box-fields"><label>Box height<input id="box-rows" type="number" min="1" max="25" value="3" inputmode="numeric" /></label><label>Box width<input id="box-cols" type="number" min="1" max="25" value="3" inputmode="numeric" /></label></div>
             <button id="apply-layout">Apply layout to board</button>
-            <label class="check"><input id="auto-capture" type="checkbox" checked /> Capture a sharp, stable grid automatically</label>
+            <label class="check"><input id="auto-capture" type="checkbox" checked /> Read stable camera frames automatically</label>
             <label class="check"><input id="auto-solve" type="checkbox" checked /> Solve clear, unambiguous scans automatically</label>
             <label class="field">Search limit<select id="time-limit"><option value="30">30 seconds</option><option value="90" selected>90 seconds</option><option value="300">5 minutes</option><option value="0">Until I press Stop</option></select></label>
             <p class="muted">The full deduction hierarchy is retained. Search never runs on the interface thread.</p>
@@ -55,15 +55,28 @@
             <input id="json-file" type="file" accept=".json,application/json" hidden />
             <button id="prepare-offline" disabled>Download for offline use</button>
             <p id="offline-state" class="muted">First use needs an internet connection.</p>
-            <p class="muted">On iPhone: Safari → Share → Add to Home Screen → Open as Web App. Photos stay on this device and are not uploaded. Your last puzzle is saved locally; photographs are not saved.</p>
+            <p class="muted">On iPhone: Safari → Share → Add to Home Screen → Open as Web App. Photos stay on this device and are not uploaded. Your last puzzle is saved locally. Pressing the camera shutter also saves your latest annotated picture in this browser. Other live frames are never stored. You can download or delete the saved picture below.</p>
             <button id="update-app" hidden>Update app & reload</button>
           </details>
         </section>
         <section class="solve card" aria-labelledby="board-title">
           <div class="section-heading"><span class="step">02</span><div><h2 id="board-title">Your puzzle</h2><p id="board-meta" class="muted"></p></div><button id="undo" class="compact" disabled>Undo</button></div>
           <div id="status" class="status" role="status" aria-live="polite"><strong id="status-text">Ready when you are.</strong><span id="status-detail">Scan a puzzle, load an example, or tap a cell to enter clues.</span><progress id="progress" max="1" hidden></progress></div>
-          <section id="camera-panel" hidden><div class="viewfinder"><video id="video" autoplay muted playsinline></video><div class="camera-guide" aria-hidden="true"></div></div><p id="camera-help" class="muted">Keep the entire grid in view. Hold steady or tap Capture.</p><div class="inline-buttons"><button id="take-photo" class="primary">Capture</button><button id="close-camera">Close camera</button></div></section>
+          <section id="camera-panel" aria-label="Live puzzle scanner" hidden>
+            <div class="camera-heading"><h2>Live scan & solve</h2><button id="close-camera" type="button" aria-label="Close camera">✕</button></div>
+            <div class="viewfinder"><video id="video" autoplay muted playsinline aria-hidden="true"></video><canvas id="live-preview" aria-label="Live camera preview"></canvas></div>
+            <div class="live-legend" aria-label="Scan colours"><span class="live-green">Green · recognised</span><span class="live-yellow">Yellow · uncertain ?</span><span class="live-red">Red · unknown ?</span><span class="live-blue">Blue · solution</span></div>
+            <p id="camera-help" role="status" aria-live="polite">Hold the whole grid steady. Recognition and solution appear here.</p>
+            <p class="live-warning">Preview only: a solution cannot verify the photograph or invisible variant rules.</p>
+            <div class="camera-actions"><button id="start-camera" type="button" hidden>Start preview</button><button id="take-photo" class="shutter" type="button" aria-label="Capture and save this picture">▣ <span>Save picture</span></button><button id="retake-photo" type="button" hidden>Scan another</button><button id="download-live-capture" type="button" hidden>Download PNG</button><button id="use-live-capture" type="button" hidden>Review captured clues</button></div>
+          </section>
           <section id="photo-panel" hidden><p class="muted">Drag the four corners onto the grid’s outside corners. Exclude titles and margins. Set the row/column count before reading.</p><canvas id="crop-canvas" aria-label="Puzzle crop: drag the numbered corner handles"></canvas><div class="inline-buttons"><button id="read-photo" class="primary">Read puzzle</button><button id="rotate-photo">Rotate ↻</button><button id="detect-photo">Find grid</button><button id="hide-photo">Hide photo</button></div></section>
+          <section id="saved-capture" class="saved-capture" aria-labelledby="saved-capture-title" hidden>
+            <h3 id="saved-capture-title">Last saved picture</h3><p id="saved-capture-time" class="muted"></p>
+            <img id="saved-capture-image" alt="Your captured puzzle with coloured readings and solution preview" />
+            <div class="inline-buttons"><button id="download-capture" type="button">Download PNG</button><button id="delete-capture" type="button">Delete saved picture</button></div>
+          </section>
+          <p id="capture-storage-status" class="muted" role="status"></p>
           <div class="board-toolbar"><label>Editing<select id="edit-tool"><option value="value">Clues</option><option value="cage">Cages</option><option value="inequality">Inequalities</option><option value="play">Play (enter answers)</option></select></label><div class="view-tabs"><button id="clean-view" aria-pressed="true">Board</button><button id="photo-view" aria-pressed="false" disabled>Photo</button></div></div>
           <div id="cage-editor" class="subeditor" hidden><p>Select the cells of a cage. Saving replaces any intersecting cages.</p><div class="fields"><label>Target<input id="cage-target" inputmode="numeric" type="number" min="1" /></label><label>Operator<select id="cage-op"><option value="+">Sum +</option><option value="*">Product ×</option><option value="-">Difference −</option><option value="/">Ratio ÷</option><option value="=">Single cell =</option></select></label></div><div class="inline-buttons"><button id="save-cage">Save cage</button><button id="remove-cage">Remove cage</button><button id="clear-selection">Clear selection</button></div></div>
           <div id="inequality-editor" class="subeditor" hidden><p>Tap the smaller cell, then its larger neighbour.</p><div class="inline-buttons"><button id="save-inequality">Add smaller &lt; larger</button><button id="remove-inequality">Remove between selected</button></div></div>
