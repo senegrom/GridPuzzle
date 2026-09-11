@@ -126,6 +126,21 @@ async function run() {
         assert.ok(Number(unclear.recognised)>0&&Number(unclear.uncertain)>0&&Number(unclear.unknown)>0);
         assert.equal(Number(unclear.solution),0);await page.click("#close-camera");
         report.checks.push("green/yellow/red readings remain distinct and an unread printed clue is never replaced by a blue guess");
+        // With automatic reading paused there is no live transcription, but the
+        // shutter must still lead somewhere: the exact frame enters the crop editor.
+        await page.evaluate(()=>{document.getElementById("auto-capture").checked=false;});
+        await startLive(page);
+        await page.waitForFunction(()=>/Automatic reading paused/.test(document.getElementById("camera-help").textContent));
+        await page.click("#take-photo");
+        await page.waitForFunction(()=>!document.getElementById("use-live-capture").hidden);
+        assert.match(await page.textContent("#use-live-capture"),/Crop and read/);
+        await page.click("#use-live-capture");
+        await page.waitForFunction(()=>document.getElementById("status-text").textContent==="Grid found.");
+        assert.equal(await page.locator("#camera-panel").isHidden(),true);
+        assert.equal(await page.locator("#photo-panel").isVisible(),true);
+        assert.equal(await page.locator("#crop-canvas").isVisible(),true);assert.match(await page.textContent("#status-detail"),/Detected 4/);
+        await page.evaluate(()=>{document.getElementById("auto-capture").checked=true;});
+        report.checks.push("a capture without a live reading opens the crop editor with the detected grid");
         assert.deepEqual(report.errors,[]);report.ok=true;console.log(`${name}: live camera and capture regressions passed`);
       } catch(error){report.ok=false;report.failure=error.stack;
         report.storageStatus=await page.textContent("#capture-storage-status").catch(()=>"");
