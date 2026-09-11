@@ -5,6 +5,7 @@ const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
 const source = fs.readFileSync("web/sw.js", "utf8");
+const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
 let build = first, requests = [], legacy = false;
@@ -32,6 +33,7 @@ function files() {
     };`;
   return {
     "index.html": `<!doctype html><title>Solver update ${build}</title>`,
+    "offline.js": offlineSource,
     "solver-worker.js": worker,
     [`solver-worker.${build}.js`]: worker,
     [`solver.${build}.zip`]: `verified solver ${build}`,
@@ -98,6 +100,39 @@ async function stopServer() {
       // a subsequent claim(), must already have gone through the old worker.
       await page.reload();
       await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
+      // Keep the real DOM, MessageChannels and service-worker lifecycle;
+      // delay only the offline replies to make their ownership deterministic.
+      await page.evaluate(async () => {
+        window.offlineReplies = [];
+        const post = ServiceWorker.prototype.postMessage;
+        ServiceWorker.prototype.postMessage = function (message, ports) {
+          if (["OFFLINE_STATUS", "PREPARE_OFFLINE"].includes(message.type)) {
+            offlineReplies.push({ type: message.type, port: ports[0] });
+            return;
+          }
+          return post.call(this, message, ports);
+        };
+        for (const id of ["prepare-offline", "offline-state", "update-app", "update-banner", "update-banner-button"]) {
+          const node = document.createElement(id === "offline-state" || id === "update-banner" ? "div" : "button");
+          node.id = id; node.textContent = id; document.body.append(node);
+        }
+        const { setupOffline } = await import("./offline.js");
+        setupOffline((id) => document.getElementById(id));
+      });
+      await page.waitForFunction(() => offlineReplies.length === 1);
+      await page.click("#prepare-offline");
+      await page.evaluate(() => offlineReplies[1].port.postMessage({ error: "Verification failed" }));
+      await page.waitForFunction(() => document.getElementById("offline-state").textContent === "Verification failed");
+      await page.evaluate(() => offlineReplies[0].port.postMessage({ done: true, ready: true }));
+      await page.waitForTimeout(100);
+      assert.equal(await page.textContent("#offline-state"), "Verification failed", "late startup status cannot replace verification failure");
+      await page.click("#prepare-offline");
+      await page.evaluate(() => offlineReplies[2].port.postMessage({ done: true, ready: false }));
+      await page.waitForFunction(() => !document.getElementById("prepare-offline").disabled);
+      assert.match(await page.textContent("#offline-state"), /verification did not complete/i);
+      await page.click("#prepare-offline");
+      await page.evaluate(() => offlineReplies[3].port.postMessage({ progress: 1, total: 3 }));
+      await page.waitForFunction(() => /1 \/ 3/.test(document.getElementById("offline-state").textContent));
       await page.evaluate((script) => {
         window.results = [];
         window.workerDebug = [];
@@ -136,6 +171,16 @@ async function stopServer() {
       // Resume as soon as control changes to cover requests racing activation.
       await page.evaluate(() => window.solver.postMessage("release"));
       await page.waitForFunction(() => window.results.length === 1);
+      await page.waitForFunction(() => /App updated/.test(document.getElementById("offline-state").textContent));
+      await page.evaluate(() => {
+        offlineReplies[3].port.postMessage({ progress: 3, total: 3 });
+        offlineReplies[3].port.postMessage({ done: true, ready: true });
+      });
+      await page.waitForTimeout(100);
+      assert.match(await page.textContent("#offline-state"), /Reload the updated app/);
+      assert.equal(await page.locator("#prepare-offline").isEnabled(), true);
+      await page.click("#prepare-offline");
+      assert.equal(await page.evaluate(() => offlineReplies.length), 4, "old tab must not certify the replacement build");
       // controllerchange precedes the activate event's waitUntil work. Read
       // diagnostic metadata only once that migration has actually completed.
       await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
@@ -175,6 +220,9 @@ async function stopServer() {
         "old and new workers keep their exact archive, WASM, stdlib and lock files online and offline",
         "a reused module response resolves relative dependencies against its requested versioned URL",
         `${oldLayout} outgoing worker migration`,
+        "late startup replies cannot override explicit offline verification failures",
+        "negative offline verification is never reported as ready",
+        "controller changes cancel old offline acknowledgements without reloading the other tab",
       ];
     } catch (error) {
       report.ok = false;
