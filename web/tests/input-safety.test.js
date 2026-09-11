@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { checkShape, conflicts, makePuzzle, boxShape } from "../model.js";
+import { checkShape, checkSolveReady, conflicts, makePuzzle, boxShape } from "../model.js";
 import { restoreSession } from "../session.js";
 const fixtures = JSON.parse(
   fs.readFileSync(new URL("./fixtures/payloads.json", import.meta.url), "utf8"),
 );
 for (const fixture of fixtures)
   test(fixture.name, () => {
+    if (fixture.solver) assert.doesNotThrow(() => checkSolveReady(fixture.payload));
+    else assert.throws(() => checkSolveReady(fixture.payload));
     if (fixture.editor) assert.doesNotThrow(() => checkShape(fixture.payload));
     else {
       assert.throws(() => checkShape(fixture.payload));

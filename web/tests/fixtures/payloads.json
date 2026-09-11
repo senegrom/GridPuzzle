@@ -304,5 +304,194 @@
     },
     "editor": true,
     "solver": false
+  },
+  {
+    "name": "invalid black metadata null",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "black": null
+    },
+    "editor": false,
+    "solver": false
+  },
+  {
+    "name": "invalid black metadata false",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "black": false
+    },
+    "editor": false,
+    "solver": false
+  },
+  {
+    "name": "invalid black metadata 0",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "black": 0
+    },
+    "editor": false,
+    "solver": false
+  },
+  {
+    "name": "invalid black metadata \"\"",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "black": ""
+    },
+    "editor": false,
+    "solver": false
+  },
+  {
+    "name": "Str8ts rejects a 1x1 board",
+    "payload": {
+      "type": "str8ts",
+      "rows": 1,
+      "cols": 1,
+      "cells": [
+        null
+      ]
+    },
+    "editor": false,
+    "solver": false
+  },
+  {
+    "name": "Str8ts empty black board remains editable, not solve-ready",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        "#",
+        "#",
+        "#",
+        "#"
+      ],
+      "black": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "editor": true,
+    "solver": false
+  },
+  {
+    "name": "Str8ts numbered black cells do not replace white cells",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        1,
+        2,
+        2,
+        1
+      ],
+      "black": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "editor": true,
+    "solver": false
+  },
+  {
+    "name": "Hidato requires a playable cell before solving",
+    "payload": {
+      "type": "hidato",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        "#",
+        "#",
+        "#",
+        "#"
+      ]
+    },
+    "editor": true,
+    "solver": false
+  },
+  {
+    "name": "Str8ts accepts a 2x2 board",
+    "payload": {
+      "type": "str8ts",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "editor": true,
+    "solver": true
+  },
+  {
+    "name": "hidato duplicate clues remain editable, not solve-ready",
+    "payload": {
+      "type": "hidato",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        1,
+        1,
+        null,
+        null
+      ]
+    },
+    "editor": true,
+    "solver": false
+  },
+  {
+    "name": "numbrix duplicate clues remain editable, not solve-ready",
+    "payload": {
+      "type": "numbrix",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        1,
+        1,
+        null,
+        null
+      ]
+    },
+    "editor": true,
+    "solver": false
   }
 ]

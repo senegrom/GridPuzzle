@@ -106,13 +106,16 @@ export function checkShape(p) {
     if (!allowed.has(key)) throw Error(`Unsupported puzzle field: ${key}`);
   if (p.version !== undefined && p.version !== 1)
     throw Error("Unsupported puzzle format version.");
-  const black = new Set(p.black || []);
-  if (!Array.isArray(p.black || []) || black.size !== (p.black || []).length || [...black].some((i) => !Number.isInteger(i) || i < 0 || i >= p.cells.length))
+  const blackValues = p.black === undefined ? [] : p.black;
+  if (!Array.isArray(blackValues))
+    throw Error("Invalid black-cell metadata.");
+  const black = new Set(blackValues);
+  if (black.size !== blackValues.length || [...black].some((i) => !Number.isInteger(i) || i < 0 || i >= p.cells.length))
     throw Error("Invalid black-cell metadata.");
   if (p.type !== "str8ts" && black.size)
     throw Error("Black-cell metadata is only supported for Str8ts.");
-  if (p.type === "str8ts" && (p.rows !== p.cols || p.rows > 9))
-    throw Error("Str8ts requires a square board no larger than 9 × 9.");
+  if (p.type === "str8ts" && (p.rows !== p.cols || p.rows < 2 || p.rows > 9))
+    throw Error("Str8ts requires a square board from 2 × 2 through 9 × 9.");
   const maximum = maxValue(p);
   p.cells.forEach((v, i) => {
     if (v === null) return;
@@ -327,6 +330,17 @@ export function nextHint(p, play, solution) {
 // interpreter loads.
 export function checkSolveReady(p) {
   checkShape(p);
+  // Fully blocked drafts can still be edited, but the native constructors
+  // require a playable cell. Numbered Str8ts separators are not white cells.
+  if (p.type === "str8ts" && (p.black || []).length === p.cells.length)
+    throw Error("Str8ts needs at least one white cell before solving.");
+  if (p.type === "hidato" && p.cells.every((value) => value === "#"))
+    throw Error("Hidato needs at least one playable cell before solving.");
+  if (["hidato", "numbrix"].includes(p.type)) {
+    const givens = p.cells.filter(Number.isInteger);
+    if (new Set(givens).size !== givens.length)
+      throw Error(`${TYPES[p.type]} clues must not repeat a number before solving.`);
+  }
   if (isCage(p.type)) {
     const covered = new Set();
     for (const cage of p.cages || []) {

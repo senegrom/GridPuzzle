@@ -1409,10 +1409,12 @@ $("json-file").onchange = async (e) => {
   try {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 200000)
-      throw Error("Puzzle files must be smaller than 200 KB.");
+    // Selecting a file is a new intent even if preflight validation rejects
+    // it. Do not let an older read overwrite this attempt's board or error.
     stopTask();
     id = tasks.id;
+    if (file.size > 200000)
+      throw Error("Puzzle files must be smaller than 200 KB.");
     const parsed = JSON.parse(await file.text());
     if (id === tasks.id) loadPuzzle(parsed);
   } catch (error) {
@@ -1422,6 +1424,8 @@ $("json-file").onchange = async (e) => {
   }
 };
 $("apply-json").onclick = () => {
+  // A rejected draft also supersedes pending file/photo reads and solves.
+  stopTask();
   try {
     if ($("json-data").value.length > 200000)
       throw Error("Puzzle data is too large.");
