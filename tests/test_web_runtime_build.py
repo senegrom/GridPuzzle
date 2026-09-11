@@ -10,18 +10,18 @@ from scripts import build_web
 @pytest.mark.parametrize("build", ["111111111111", "222222222222"])
 def test_runtime_urls_and_worker_are_immutable(build, tmp_path):
     build_web.write_web_sources(tmp_path, build)
-    worker = (tmp_path / f"solver-worker.{build}.js").read_text()
-    assert (tmp_path / "solver-worker.js").read_text() == worker
+    worker = (tmp_path / f"solver-worker.{build}.js").read_text(encoding="utf-8")
+    assert (tmp_path / "solver-worker.js").read_text(encoding="utf-8") == worker
     assert f'./vendor/{build}/pyodide/pyodide.mjs' in worker
     assert f'./vendor/{build}/pyodide/' in worker
     assert f'solver.{build}.zip' in worker
-    assert f'./solver-worker.{build}.js' in (tmp_path / "app.js").read_text()
-    ocr = (tmp_path / "ocr-host-worker.js").read_text()
+    assert f'./solver-worker.{build}.js' in (tmp_path / "app.js").read_text(encoding="utf-8")
+    ocr = (tmp_path / "ocr-host-worker.js").read_text(encoding="utf-8")
     for name in ["tesseract", "tesseract-core", "tessdata"]:
         assert f'./vendor/{build}/{name}/' in ocr
     for script in tmp_path.glob("*.js"):
-        assert './vendor/pyodide/' not in script.read_text()
-        assert '__BUILD_ID__' not in script.read_text()
+        assert './vendor/pyodide/' not in script.read_text(encoding="utf-8")
+        assert '__BUILD_ID__' not in script.read_text(encoding="utf-8")
 
 
 def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path):
@@ -45,7 +45,7 @@ def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path)
 
     monkeypatch.setattr(build_web, "package", package)
     build_web.build(tmp_path)
-    manifest = json.loads((tmp_path / "assets.json").read_text())
+    manifest = json.loads((tmp_path / "assets.json").read_text(encoding="utf-8"))
     paths = {asset["path"] for asset in manifest["assets"]}
     assert manifest["build"] == build
     assert f"solver-worker.{build}.js" in paths
