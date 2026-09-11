@@ -5,7 +5,7 @@ from gridsolver.web_api import build_grid
 from scripts.build_web import build_destination, validate_output
 
 FIXTURES = json.loads(
-    (Path(__file__).parents[1] / "web/tests/fixtures/payloads.json").read_text()
+    (Path(__file__).parents[1] / "web/tests/fixtures/payloads.json").read_text(encoding="utf-8")
 )
 
 
