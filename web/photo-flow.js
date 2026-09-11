@@ -171,7 +171,12 @@ export function setupPhotoFlow({
       document.body?.classList.add("camera-open");
       $("take-photo").hidden = true;
       $("retake-photo").hidden = false;
-      $("use-live-capture").hidden = !picture.found;
+      // Without a live reading the picture still goes to the crop editor, so
+      // "capture for manual review" is always a real path, not a dead end.
+      $("use-live-capture").hidden = false;
+      $("use-live-capture").textContent = picture.found
+        ? "Review captured clues"
+        : "Crop and read in the editor";
       $("download-live-capture").hidden = true;
       $("camera-help").textContent = "Saving this picture on your device…";
       const epoch = cameraEpoch;
@@ -191,8 +196,16 @@ export function setupPhotoFlow({
   $("take-photo").onclick = () => void takePhoto();
   $("retake-photo").onclick = openCamera;
   $("use-live-capture").onclick = () => {
-    if (!captured?.found) return;
+    if (!captured) return;
     const picture = captured, found = picture.found;
+    if (!found) {
+      // No automatic reading was available (paused, blurred or undetected):
+      // hand the exact captured frame to the ordinary crop-and-read flow.
+      stopTask();
+      stopCamera();
+      void acceptPhoto(picture.photo);
+      return;
+    }
     try {
       checkShape(found.puzzle);
       const next = {
@@ -209,6 +222,7 @@ export function setupPhotoFlow({
       setLayout(found.puzzle);
       state.puzzleSource = state.photoSource = getJobId();
       persist(); render({ replaceDraft: true });
+      warmSolver?.();
       status("Captured clues ready for review.", "The saved picture is unchanged. Confirm the clues and rules before solving or playing.");
     } catch (error) { fail(error); }
   };
