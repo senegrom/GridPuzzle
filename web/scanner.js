@@ -136,22 +136,21 @@ function sampleOf(source) {
   context.drawImage(source, SAMPLE_PAD, SAMPLE_PAD, canvas.width - 2 * SAMPLE_PAD, SAMPLE_HEIGHT);
   return canvas.toDataURL("image/png");
 }
-// Single-glyph digits get independent single-character readings of their
-// binary and grayscale crops. Wide crops are multi-digit clues, which the
-// single-character mode cannot read; they keep the atlas reading.
+// Read narrow glyphs as characters and wide numeric clues as a single line.
+// Both retain independent binary/grayscale evidence without dropping possible
+// second or third digits. The atlas remains the third vote.
 export function digitSamples(entries, crops, g, w, h, cw, ch, cols) {
-  const digits = [...crops.keys()].filter((i) => {
-    const crop = crops.get(i);
-    return crop.width <= crop.height * 0.85;
-  });
+  const digits = [...crops.keys()];
   const withGray = digits.length <= SAMPLE_GRAY_LIMIT,
     singles = [];
   for (const i of digits) {
-    singles.push({ index: i, kind: "binary", png: sampleOf(crops.get(i)) });
+    const psm = crops.get(i).width > crops.get(i).height * 0.85 ? "7" : "10";
+    singles.push({ index: i, kind: "binary", psm, png: sampleOf(crops.get(i)) });
     if (withGray)
       singles.push({
         index: i,
         kind: "gray",
+        psm,
         png: sampleOf(grayCrop(entries[i], g, w, h, cw, ch, cols)),
       });
   }
@@ -214,7 +213,7 @@ function componentsForCages(mask, w, h, rows, cols, type) {
   return [...groups.values()];
 }
 // OCR proposals must remain editable without relaxing the import/solver contract.
-export function puzzleFromReadings({ entries, black, meta, mask, width, height }, type, rows, cols) {
+export function puzzleFromReadings({ entries, black, meta, mask, width, height, contrastAdjusted = false }, type, rows, cols) {
   const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
     values = Array(rows * cols).fill(null),
     blackValueCells = new Set(),
@@ -333,11 +332,14 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height }
   }
   conflicts(puzzle).forEach((i) => uncertain.add(i));
   const needsReview =
+    contrastAdjusted ||
     (type === "auto" && suggested.review) ||
     isCage(chosen) ||
     ["futoshiki", "kakuro", "hidato", "numbrix", "slitherlink", "str8ts"].includes(
       chosen,
     );
+  if (contrastAdjusted)
+    notes.unshift("Low-contrast photo adjusted for recognition. Check the printed clues and any black cells against the original photograph.");
   if (type === "auto") notes.unshift(suggested.reason);
   if (isCage(chosen))
     notes.unshift(
@@ -443,7 +445,7 @@ export class Scanner {
         if (epoch !== this.epoch) throw aborted();
       };
     onProgress("Straightening the photograph…", null);
-    const { image, meta, mask, g, black, entries } = await this.geometry(
+    const { image, meta, mask, g, black, entries, contrastAdjusted } = await this.geometry(
       "prepare",
       {
         image: imageOf(canvas),
@@ -539,7 +541,7 @@ export class Scanner {
     });
     applyDigitVotes(entries, data.singles);
     return {
-      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h }, type, rows, cols),
+      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted }, type, rows, cols),
       rectified,
       entries,
     };

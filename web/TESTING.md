@@ -89,7 +89,6 @@ answers and the computed solution, allowing the photo view to be restored.
 The existing scanner-repair browser suite covers the same transition with real
 DOM/canvas and the Pyodide solver, while retaining all import-boundary checks.
 
-
 ## Transactional reading and dependency-changing updates
 
 `web/tests/photo-read-transactions.test.js` delivers late scanner successes, failures
@@ -108,3 +107,9 @@ versions after the origin is shut down. A byte-identical module with different
 relative dependencies specifically guards against cached Response URL leakage.
 `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest
 coverage without downloading dependencies.
+
+## OCR quality follow-up
+
+See [OCR_QUALITY.md](OCR_QUALITY.md) for the measured multi-digit and faded-photo
+improvements, confirmation policy, extra recognition cost and remaining limits.
+The existing newspaper gate also runs the new production OCR quality suite.

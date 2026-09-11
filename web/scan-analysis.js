@@ -127,12 +127,36 @@ function numberBounds(mask, w, h) {
   return bounds;
 }
 
+// Restore faded ink before the fixed ink/solid-black thresholds. Percentiles
+// ignore isolated dust/bright pixels. Keep the white endpoint fixed: stretching
+// paper highlights too aggressively can misclassify gray Sudoku shading.
+// Normally exposed and almost uniform images are deliberately left untouched.
+export function normalizeScanContrast(g) {
+  const histogram = new Uint32Array(256);
+  for (const value of g) histogram[value]++;
+  const lowCount = Math.max(1, Math.ceil(g.length * 0.001)),
+    highCount = Math.max(1, Math.ceil(g.length * 0.995));
+  let cumulative = 0, low = -1, high = 255;
+  for (let value = 0; value < 256; value++) {
+    cumulative += histogram[value];
+    if (low < 0 && cumulative >= lowCount) low = value;
+    if (cumulative >= highCount) { high = value; break; }
+  }
+  // A nearly uniform cell/page is not evidence of a faint printed digit.
+  if (low < 64 || high - low < 48) return { gray: g, adjusted: false };
+  const normalized = new Uint8Array(g.length), scale = 255 / (255 - low);
+  for (let i = 0; i < g.length; i++)
+    normalized[i] = Math.max(0, Math.min(255, Math.round((g[i] - low) * scale)));
+  return { gray: normalized, adjusted: true };
+}
+
 export function prepareScan(image, type, rows, cols) {
   const w = image.width,
     h = image.height,
     cw = w / cols,
     ch = h / rows,
-    g = gray(image),
+    contrast = normalizeScanContrast(gray(image)),
+    g = contrast.gray,
     mask = thresholdGray(g, w, h),
     black = detectBlackCells(g, w, h, rows, cols),
     anyBlack = black.some(Boolean),
@@ -293,5 +317,5 @@ export function prepareScan(image, type, rows, cols) {
       }
     }
 
-  return { image, meta: estimateGrid(image, mask), mask, g, black, entries };
+  return { image, meta: estimateGrid(image, mask), mask, g, black, entries, contrastAdjusted: contrast.adjusted };
 }
