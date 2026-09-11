@@ -95,7 +95,7 @@ async function measure({ fixture, variation }) {
       wrong, unsafe: wrong.filter(({ cell }) => !flagged.has(cell)),
       flagged: result.uncertain, black: result.puzzle.black || [],
       needsReview: result.needsReview, notes: result.notes,
-      milliseconds: Math.round(performance.now() - start),
+      milliseconds: Math.round(performance.now() - start), retryCount: result.retryCount || 0,
     };
   } finally {
     scanner.cancel();

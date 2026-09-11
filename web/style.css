@@ -741,3 +741,32 @@ summary:focus-visible {
     max-height: none;
   }
 }
+
+
+/* The live camera owns one screen. No board/editor or secondary solver view is
+   needed to watch recognition and blue answers arrive over the paper. */
+body.camera-open { overflow: hidden; }
+#camera-panel:not([hidden]) {
+  position: fixed; inset: 0; z-index: 40; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: .65rem;
+  padding: max(.75rem, env(safe-area-inset-top)) max(.75rem, env(safe-area-inset-right)) max(.75rem, env(safe-area-inset-bottom)) max(.75rem, env(safe-area-inset-left));
+  background: #101820; color: #fff; overflow: auto;
+}
+.camera-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.camera-heading h2 { margin: 0; color: #fff; font-size: 1.2rem; }
+#camera-panel .viewfinder { flex: 1 1 auto; min-height: 160px; position: relative; background: #000; border-radius: .75rem; aspect-ratio: auto; overflow: hidden; }
+#camera-panel video, #live-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+#live-preview { z-index: 1; }
+.live-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem 1rem; font-size: .8rem; font-weight: 650; }
+.live-green { color: #22c55e; } .live-yellow { color: #facc15; } .live-red { color: #ef4444; } .live-blue { color: #3b82f6; }
+#camera-help { margin: 0; color: #fff; font-size: .95rem; min-height: 2.6em; text-align: center; }
+.live-warning { margin: 0; color: #bdc8d1; font-size: .75rem; text-align: center; }
+.camera-actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; }
+.camera-actions .shutter { min-height: 58px; min-width: 180px; background: #fff; color: #101820; border: 3px solid #cbd5e1; border-radius: 40px; font-size: 1.1rem; }
+.saved-capture { margin: 1rem 0; padding: 1rem; border: 1px solid #d7e3dd; border-radius: 12px; }
+.saved-capture img { display: block; width: 100%; max-height: 360px; object-fit: contain; margin: .65rem 0; }
+@media (orientation: landscape) and (max-height: 520px) {
+  #camera-panel:not([hidden]) { gap: .25rem; }
+  #camera-help { min-height: 1.3em; font-size: .8rem; }
+  .camera-actions .shutter { min-height: 44px; }
+}

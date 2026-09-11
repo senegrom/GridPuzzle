@@ -3,6 +3,7 @@ import { createTaskController } from "./task-controller.js";
 import { prepareEdit, restoreEdit, rememberEdit } from "./edit-history.js";
 import { setupPhotoFlow } from "./photo-flow.js";
 import { setupOffline } from "./offline.js";
+import { setupCaptureGallery } from "./capture-store.js";
 import {
   TYPES,
   makePuzzle,
@@ -1437,6 +1438,10 @@ $("apply-json").onclick = () => {
 };
 
 const { stopCamera } = setupPhotoFlow({
+  savePicture: setupCaptureGallery($),
+  releaseSolver: () => {
+    worker?.terminate(); worker = null; state.solverWarm = false;
+  },
   $,
   state,
   scanner,

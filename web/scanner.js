@@ -167,10 +167,14 @@ export function applyDigitVotes(entries, singles = []) {
   }
   for (const [i, reads] of byIndex) {
     const entry = entries[i],
-      vote = voteDigit([{ text: entry.text, confidence: entry.confidence }, ...reads]);
+      original = { text: entry.text, confidence: entry.confidence },
+      prior = voteDigit([original, ...reads.filter((read) => read.kind !== "retry")]),
+      vote = voteDigit([original, ...reads]);
     if (!vote.text) continue;
     entry.text = vote.text;
-    entry.confidence = vote.unanimous ? Math.max(90, vote.confidence) : 0;
+    entry.confidence = !entry.recoveredMark && vote.unanimous &&
+      (!reads.some((read) => read.kind === "retry") || (prior.unanimous && prior.text === vote.text))
+      ? Math.max(90, vote.confidence) : 0;
   }
 }
 function componentsForCages(mask, w, h, rows, cols, type) {
@@ -359,6 +363,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
   return {
     puzzle,
     blackReadings,
+    markedCells: [...new Set(valueEntries.map((entry) => entry.cell))],
     uncertain: [...new Set([...uncertain, ...cageUncertain])],
     cellUncertain: [...uncertain],
     cageUncertain: [...cageUncertain],
@@ -544,6 +549,7 @@ export class Scanner {
       ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted }, type, rows, cols),
       rectified,
       entries,
+      retryCount: data.retryCount || 0,
     };
   }
 }

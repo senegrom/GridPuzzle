@@ -16,6 +16,9 @@ def test_runtime_urls_and_worker_are_immutable(build, tmp_path):
     assert f'./vendor/{build}/pyodide/' in worker
     assert f'solver.{build}.zip' in worker
     assert f'./solver-worker.{build}.js' in (tmp_path / "app.js").read_text(encoding="utf-8")
+    preview = (tmp_path / "live-solver.js").read_text(encoding="utf-8")
+    assert f'./solver-worker.{build}.js' in preview
+    assert './solver-worker.js' not in preview
     ocr = (tmp_path / "ocr-host-worker.js").read_text(encoding="utf-8")
     for name in ["tesseract", "tesseract-core", "tessdata"]:
         assert f'./vendor/{build}/{name}/' in ocr

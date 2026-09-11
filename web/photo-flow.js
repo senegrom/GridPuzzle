@@ -1,6 +1,7 @@
 import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { validQuad } from "./geometry.js";
 import { sniffDimensions } from "./image-dimensions.js";
+import { createLiveCamera } from "./live-camera.js";
 
 export function setupPhotoFlow({
   $,
@@ -23,33 +24,42 @@ export function setupPhotoFlow({
   warmSolver,
   getJobId,
   setDeadline,
+  savePicture,
+  releaseSolver,
+  liveFactory = createLiveCamera,
 }) {
   let stream = null,
     cameraEpoch = 0,
     drag = -1,
-    proposedBoxLayout = null;
+    proposedBoxLayout = null,
+    live = null,
+    pendingPlayback = null,
+    playbackTimer = null,
+    captured = null,
+    saving = false;
   function stopCamera() {
     cameraEpoch++;
+    live?.stop();
+    live = null;
+    pendingPlayback = null;
+    clearTimeout(playbackTimer); playbackTimer = null;
+    $("start-camera").hidden = true;
+    document.body?.classList.remove("camera-open");
     if (stream) for (const track of stream.getTracks()) track.stop();
     stream = null;
     $("video").srcObject = null;
     $("camera-panel").hidden = true;
   }
-  function frame(video, max = 1600) {
-    if (!video.videoWidth) throw Error("The camera is not ready yet.");
-    const scale = Math.min(
-        1,
-        max / Math.max(video.videoWidth, video.videoHeight),
-      ),
-      c = document.createElement("canvas");
-    c.width = Math.round(video.videoWidth * scale);
-    c.height = Math.round(video.videoHeight * scale);
-    c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
-    return c;
-  }
   async function openCamera() {
     stopTask();
     stopCamera();
+    releaseSolver?.();
+    captured = null;
+    const previewCanvas = $("live-preview");
+    previewCanvas.getContext?.("2d")?.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);
+    $("take-photo").hidden = false;
+    $("take-photo").disabled = saving;
+    $("retake-photo").hidden = $("download-live-capture").hidden = $("use-live-capture").hidden = true;
     const epoch = cameraEpoch;
     try {
       if (!navigator.mediaDevices?.getUserMedia)
@@ -69,56 +79,67 @@ export function setupPhotoFlow({
       }
       stream = acquired;
       $("camera-panel").hidden = false;
-      $("video").srcObject = stream;
-      await $("video").play();
-      if (epoch !== cameraEpoch) return;
-      $("camera-panel").scrollIntoView({ behavior: "smooth", block: "start" });
-      status("Camera ready.", "Capture manually or hold a clear grid steady.");
-      let stable = 0,
-        previous = null;
-      const loop = async () => {
-        if (epoch !== cameraEpoch || !stream) return;
+      // Set the properties as well as the HTML attributes before assigning a
+      // MediaStream. WebKit can require explicit muted inline playback.
+      const video = $("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      document.body?.classList.add("camera-open");
+      const startPreview = async () => {
+        if (epoch !== cameraEpoch || live) return;
+        $("start-camera").disabled = true;
         try {
-          if ($("auto-capture").checked) {
-            const small = frame($("video"), 480),
-              found = await scanner.detect(small);
-            if (epoch !== cameraEpoch) return;
-            const movement = previous
-              ? Math.max(
-                  ...found.corners.map((p, i) =>
-                    Math.hypot(
-                      p.x - previous.corners[i].x,
-                      p.y - previous.corners[i].y,
-                    ),
-                  ),
-                )
-              : Infinity;
-            if (
-              found.confidence > 0.85 &&
-              found.sharpness > 100 &&
-              movement < small.width * 0.018 &&
-              found.rows === previous?.rows &&
-              found.cols === previous?.cols
-            )
-              stable++;
-            else stable = 0;
-            previous = found;
-            $("camera-help").textContent = stable
-              ? `Grid found. Hold steady… ${stable}/3`
-              : "Keep the entire grid in view. Hold steady or tap Capture.";
-            if (stable >= 3) {
-              takePhoto(true);
-              return;
-            }
-          }
+          // A playback promise can remain pending when a browser has connected
+          // a stream but received no frame. Offer a recoverable explicit retry.
+          await Promise.race([
+            video.play(),
+            new Promise((_, reject) => {
+              playbackTimer = setTimeout(() => reject(Object.assign(
+                Error("No camera frame arrived. Tap Start preview to retry."),
+                { name: "PreviewTimeout" },
+              )), 8000);
+            }),
+          ]);
+          if (epoch !== cameraEpoch) return;
+          pendingPlayback = null;
+          $("start-camera").hidden = true;
+          status("Camera ready.", "Hold a clear grid steady; the shutter saves the view.");
+          live = liveFactory({ $, video, canvas: $("live-preview"),
+            getSettings: () => ({
+              type: $("puzzle-type").value,
+              rows: Number($("rows").value), cols: Number($("cols").value),
+              boxRows: Number($("box-rows").value), boxCols: Number($("box-cols").value),
+              enabled: $("auto-capture").checked,
+            }),
+          });
+          live.start();
         } catch (error) {
-          if (error.name !== "AbortError")
-            $("camera-help").textContent =
-              "Automatic capture is unavailable. Tap Capture to continue.";
+          if (epoch !== cameraEpoch) return;
+          if (["NotAllowedError", "PreviewTimeout"].includes(error.name)) {
+            // Camera permission may be granted while autoplay is disallowed.
+            // Keep the acquired stream and let an explicit user gesture start it.
+            $("start-camera").hidden = false;
+            $("camera-help").textContent = error.name === "PreviewTimeout"
+              ? error.message : "Camera connected. Tap Start preview to allow video playback.";
+            return;
+          }
+          stopCamera();
+          status("Camera preview could not start.", error.message || "Please retry the camera.", "warning");
+        } finally {
+          if (epoch === cameraEpoch) {
+            clearTimeout(playbackTimer); playbackTimer = null;
+            $("start-camera").disabled = false;
+          }
         }
-        if (epoch === cameraEpoch) setTimeout(loop, 800);
       };
-      setTimeout(loop, 900);
+      pendingPlayback = startPreview;
+      await startPreview();
+      if (epoch !== cameraEpoch) return;
+      for (const track of acquired.getTracks())
+        track.addEventListener?.("ended", () => {
+          if (epoch === cameraEpoch) { stopCamera(); status("Camera disconnected.", "Your saved pictures and puzzle are unchanged.", "warning"); }
+        }, { once: true });
     } catch (e) {
       if (epoch !== cameraEpoch) return;
       stopCamera();
@@ -132,16 +153,65 @@ export function setupPhotoFlow({
   }
   $("camera").onclick = openCamera;
   $("close-camera").onclick = stopCamera;
-  function takePhoto(auto = false) {
+  $("start-camera").onclick = () => {
+    if (!pendingPlayback) return;
+    // Reset a stalled element on the user gesture, retaining the granted stream.
+    const video = $("video");
+    video.pause?.(); video.srcObject = stream; video.load?.();
+    return pendingPlayback();
+  };
+  async function takePhoto() {
+    if (!live || saving) return;
+    let owner = cameraEpoch;
     try {
-      const canvas = frame($("video"));
+      const picture = live.capture();
       stopCamera();
-      void acceptPhoto(canvas, auto);
-    } catch (e) {
-      fail(e);
-    }
+      captured = picture;
+      $("camera-panel").hidden = false;
+      document.body?.classList.add("camera-open");
+      $("take-photo").hidden = true;
+      $("retake-photo").hidden = false;
+      $("use-live-capture").hidden = !picture.found;
+      $("download-live-capture").hidden = true;
+      $("camera-help").textContent = "Saving this picture on your device…";
+      const epoch = cameraEpoch;
+      owner = epoch;
+      saving = true;
+      const saved = await savePicture(picture.annotated, picture.createdAt);
+      if (epoch === cameraEpoch) {
+        $("download-live-capture").hidden = false;
+        $("camera-help").textContent = saved
+          ? "Picture saved in this browser. Download PNG to keep a separate copy, or scan another."
+          : "The picture could not be stored here. Download the PNG to keep it.";
+      }
+    } catch (error) {
+      if (owner === cameraEpoch) $("camera-help").textContent = error.message || "Could not capture this frame. Please retry.";
+    } finally { saving = false; $("take-photo").disabled = false; }
   }
-  $("take-photo").onclick = () => takePhoto();
+  $("take-photo").onclick = () => void takePhoto();
+  $("retake-photo").onclick = openCamera;
+  $("use-live-capture").onclick = () => {
+    if (!captured?.found) return;
+    const picture = captured, found = picture.found;
+    try {
+      checkShape(found.puzzle);
+      const next = {
+        photo: picture.photo, corners: picture.corners,
+        puzzle: found.puzzle, play: fitPlay(found.puzzle, []), hints: new Set(),
+        uncertain: new Set(found.cellUncertain ?? found.uncertain ?? []),
+        blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
+        cageUncertain: new Set(found.cageUncertain ?? []),
+        needsReview: true, notes: [...found.notes], rectified: found.rectified,
+        photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
+      };
+      stopTask(); stopCamera(); remember(); invalidate();
+      Object.assign(state, next);
+      setLayout(found.puzzle);
+      state.puzzleSource = state.photoSource = getJobId();
+      persist(); render({ replaceDraft: true });
+      status("Captured clues ready for review.", "The saved picture is unchanged. Confirm the clues and rules before solving or playing.");
+    } catch (error) { fail(error); }
+  };
   $("choose-photo").onclick = () => $("photo-file").click();
   $("native-camera").onclick = () => $("native-file").click();
   const MAX_SIDE = 1600;
