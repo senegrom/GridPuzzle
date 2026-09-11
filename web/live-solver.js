@@ -25,7 +25,9 @@ export function createLiveSolver({ makeWorker = () => new Worker(new URL("./solv
             }
             if (data.type === "result") settle(data.result);
           };
-          owned.onerror = cancel;
+          owned.onerror = () => {
+            if (owned === worker && id === serial) cancel();
+          };
           timer = setTimer(cancel, 90000);
           owned.postMessage({ id, puzzle });
         } catch { cancel(); }

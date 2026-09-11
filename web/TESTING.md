@@ -115,3 +115,17 @@ See [OCR_QUALITY.md](OCR_QUALITY.md) for the measured multi-digit and faded-phot
 improvements, confirmation policy, extra recognition cost and remaining limits.
 The existing newspaper gate also runs the production OCR quality suite in
 Chromium and mobile WebKit, using real Tesseract and fixed reference clues.
+
+## Live detector recovery
+
+`web/tests/live-camera-recovery.test.js` tests the production live-camera module
+with a controlled detector, clock and canvas. Changing settings must immediately
+cancel pending geometry work; a stalled detection has an eight-second deadline
+and retries while video remains active. Start/Stop cycles reset the pipeline,
+repeated Start is idempotent, and retired detector cleanup or solver errors must
+not cancel a newer request. The real MediaStream browser suite repeats settings
+and deadline recovery, keeping exact displayed-PNG capture and colour checks.
+
+`web/tests/fragmented-clues.test.js` covers complete fragmented crops in both ink
+polarities and trailing digits, rejected speckles, unchanged connected glyphs,
+and mandatory review/red unknown status before any solver-backed blue entries.

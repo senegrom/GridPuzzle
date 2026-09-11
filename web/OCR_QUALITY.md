@@ -104,3 +104,20 @@ cases therefore allow one flagged numeric error, as the existing strong-fade
 cases already do. This does not relax the normal-photo accuracy floor, exact
 black-cell geometry, correct automatic family, or zero-unflagged-discrepancy
 requirements. Actual per-case counts and errors remain in the raw report.
+
+## Fragmented printed marks
+
+The follow-up recognizer keeps substantial vertically aligned ink fragments
+inside one numeric crop when a narrow print/glare gap splits a glyph below the
+normal component-height threshold. This also preserves a fragmented trailing
+digit beside a connected leading digit. It does not draw replacement strokes,
+substitute numbers or use solver answers as OCR evidence. Every recovered crop
+stays review-flagged, even when the numeric readers agree. Small isolated dots
+and broadly separated fragments are still excluded, and grouping is bounded.
+
+The permanent quality gate adds single-digit, trailing-digit and white-on-black
+fragment fixtures in both engines (66 scans in total). It records actual numeric
+results and requires the damaged clue to remain marked and uncertain. A missed
+reading must remain red in the live preview instead of becoming a blue answer
+slot. All previous newspaper/font accuracy and zero-unflagged-error checks stay
+in force; these extra artificial fixtures are not a phone-camera accuracy claim.

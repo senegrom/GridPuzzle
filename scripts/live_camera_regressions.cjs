@@ -141,6 +141,34 @@ async function run() {
         assert.equal(await page.locator("#crop-canvas").isVisible(),true);assert.match(await page.textContent("#status-detail"),/Detected 4/);
         await page.evaluate(()=>{document.getElementById("auto-capture").checked=true;});
         report.checks.push("a capture without a live reading opens the crop editor with the detected grid");
+        // Keep the real canvas MediaStream and real grid detector. Delay one
+        // detector call to exercise settings cancellation and bounded recovery.
+        for (const recovery of ["settings", "deadline"]) {
+          await page.evaluate(async () => {
+            const { Scanner } = await import("./scanner.js");
+            window.originalLiveDetect ??= Scanner.prototype.detect;
+            window.recoveryDetectCalls = 0;
+            window.delayedDetect = null;
+            Scanner.prototype.detect = function (...args) {
+              if (++window.recoveryDetectCalls === 1)
+                return new Promise((resolve, reject) => { window.delayedDetect = { resolve, reject }; });
+              return originalLiveDetect.apply(this, args);
+            };
+          });
+          await startLive(page);
+          await page.waitForFunction(() => Boolean(window.delayedDetect));
+          if (recovery === "settings")
+            await page.evaluate(() => { document.getElementById("puzzle-type").value = "sudoku"; });
+          await page.waitForFunction(() => Number(document.getElementById("live-preview").dataset.uncertain) > 0, null, { timeout: 20000 });
+          assert.ok(await page.evaluate(() => recoveryDetectCalls >= 2));
+          const status = await page.textContent("#camera-help");
+          await page.evaluate(async () => { delayedDetect.reject(Error("Obsolete detector failure")); await new Promise((resolve) => setTimeout(resolve, 0)); });
+          assert.equal(await page.textContent("#camera-help"), status);
+          assert.equal(await page.locator("#camera-panel").isVisible(), true);
+          assert.equal(await page.evaluate(() => liveTestStream.getTracks()[0].readyState), "live");
+          await page.click("#close-camera");
+        }
+        report.checks.push("settings changes and detection deadlines recover from a stalled detector without stopping video or accepting its late error");
         assert.deepEqual(report.errors,[]);report.ok=true;console.log(`${name}: live camera and capture regressions passed`);
       } catch(error){report.ok=false;report.failure=error.stack;
         report.storageStatus=await page.textContent("#capture-storage-status").catch(()=>"");
