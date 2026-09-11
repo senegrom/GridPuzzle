@@ -173,6 +173,27 @@ async function exercise(page) {
   assert.match(await page.textContent("#status-text"), /operator/);
   assert.deepEqual(await page.evaluate(() => repairApp.getState().puzzle), before);
 }
+async function playPhotoRegressions(page) {
+  // Re-scan without reloading: the photo mapping must still be present.
+  await scan(page);
+  await page.selectOption("#puzzle-type", "str8ts"); await page.click("#use-type");
+  await page.click("#solve"); await page.click("#confirm-solve");
+  await page.waitForFunction(() => repairApp.getState().result !== null, null, { timeout: 120000 });
+  assert.equal(await page.evaluate(() => repairApp.getState().result.status), "unique");
+  await page.click("#photo-view");
+  assert.equal(await page.locator("#solution-photo").isVisible(), true);
+  const solved = await page.evaluate(() => repairApp.getState());
+  await page.selectOption("#edit-tool", "play");
+  assert.equal(await page.locator("#solution-photo").isVisible(), false);
+  assert.equal(await page.locator("#board-scroll").isVisible(), true);
+  assert.equal(await page.locator("#photo-view").isDisabled(), true);
+  assert.equal(await page.locator("#save-photo").isVisible(), false);
+  assert.equal(await page.locator("#next-solution").isVisible(), false);
+  assert.deepEqual(await page.evaluate(() => repairApp.getState().play), solved.play);
+  await page.selectOption("#edit-tool", "value"); await page.click("#photo-view");
+  assert.equal(await page.locator("#solution-photo").isVisible(), true);
+  assert.deepEqual(await page.evaluate(() => repairApp.getState().result), solved.result);
+}
 (async () => {
   try {
     let available = false;
@@ -187,7 +208,7 @@ async function exercise(page) {
       const page = await context.newPage(), errors = []; page.setDefaultTimeout(20000);
       page.on("pageerror", (e) => errors.push(e.message));
       try {
-        await exercise(page); await importRegressions(page); assert.deepEqual(errors, []);
+        await exercise(page); await playPhotoRegressions(page); await importRegressions(page); assert.deepEqual(errors, []);
         reports.push({ browser: name, version: browser.version(), status: "passed" });
       } catch (e) {
         reports.push({ browser: name, status: "failed", message: e.message, errors });

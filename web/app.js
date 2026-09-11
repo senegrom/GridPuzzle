@@ -502,6 +502,7 @@ function drawBoard() {
 }
 function canOverlay() {
   return !!(
+    !playMode() &&
     state.photo &&
     state.corners &&
     state.rectified &&
@@ -609,7 +610,7 @@ function render({ replaceDraft = false } = {}) {
   $("clean-view").setAttribute("aria-pressed", String(state.view === "board"));
   $("photo-view").setAttribute("aria-pressed", String(state.view === "photo"));
   if (overlay) drawOverlay();
-  $("next-solution").hidden = (state.result?.solutions?.length || 0) < 2;
+  $("next-solution").hidden = playing || (state.result?.solutions?.length || 0) < 2;
   const review = reviewCells().size || state.needsReview;
   $("review-note").hidden = !review;
   $("review-clues").hidden = !state.uncertain.size;

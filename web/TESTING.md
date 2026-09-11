@@ -79,3 +79,12 @@ requirement.
 
 Duplicate Hidato and Numbrix clues also remain editable, but fail solve-ready
 validation consistently with the native path loader.
+
+## Play photo-view privacy
+
+`web/tests/editor-followup.test.js` exercises the production view handlers.
+Entering Play hides retained full-solution photo overlays and disables photo
+view, photo export and alternative-solution controls. Leaving Play preserves
+answers and the computed solution, allowing the photo view to be restored.
+The existing scanner-repair browser suite covers the same transition with real
+DOM/canvas and the Pyodide solver, while retaining all import-boundary checks.
