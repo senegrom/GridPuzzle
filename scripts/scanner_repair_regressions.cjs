@@ -14,6 +14,79 @@ async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async () => { window.repairApp = await import("./app.js"); });
 }
+async function importRegressions(page) {
+  const before = await page.evaluate(() => repairApp.getState().puzzle);
+  const latin = { type: "latinsquare", rows: 2, cols: 2, cells: [null, null, null, null] };
+  await page.evaluate(() => {
+    window.originalImportText = File.prototype.text;
+    File.prototype.text = function () {
+      if (this.name === "held-puzzle.json")
+        return new Promise((resolve, reject) => { window.heldImport = { resolve, reject }; });
+      return originalImportText.call(this);
+    };
+  });
+  try {
+    for (const late of ["success", "error"]) {
+      for (const newer of ["oversized file", "oversized draft", "invalid JSON draft", "invalid puzzle draft"]) {
+        await page.evaluate(() => { window.heldImport = null; });
+        await page.setInputFiles("#json-file", {
+          name: "held-puzzle.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(latin)),
+        });
+        await page.waitForFunction(() => window.heldImport !== null);
+        if (newer === "oversized file")
+          await page.setInputFiles("#json-file", {
+            name: "oversized.json", mimeType: "application/json", buffer: Buffer.alloc(200001, 32),
+          });
+        else {
+          await page.fill("#json-data", newer === "oversized draft" ? "x".repeat(200001)
+            : newer === "invalid JSON draft" ? "{" : '{"type":"auto"}');
+          await page.click("#apply-json");
+        }
+        const message = await page.textContent("#status-text");
+        assert.ok(message.length > 0);
+        await page.evaluate(async ({ late, payload }) => {
+          if (late === "success") heldImport.resolve(JSON.stringify(payload));
+          else heldImport.reject(Error("Obsolete file failed"));
+          // Let the real asynchronous onchange continuation finish.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }, { late, payload: latin });
+        assert.deepEqual(await page.evaluate(() => repairApp.getState().puzzle), before, `${newer}: stale board`);
+        assert.equal(await page.textContent("#status-text"), message, `${newer}: stale status`);
+      }
+    }
+  } finally {
+    await page.evaluate(() => { File.prototype.text = originalImportText; });
+  }
+  for (const black of [null, false, 0, ""]) {
+    await page.fill("#json-data", JSON.stringify({ ...latin, black }));
+    await page.click("#apply-json");
+    assert.match(await page.textContent("#status-text"), /black-cell metadata/);
+    assert.deepEqual(await page.evaluate(() => repairApp.getState().puzzle), before);
+  }
+  await page.fill("#json-data", JSON.stringify({ type: "str8ts", rows: 1, cols: 1, cells: [null] }));
+  await page.click("#apply-json");
+  assert.match(await page.textContent("#status-text"), /2 × 2/);
+  assert.deepEqual(await page.evaluate(() => repairApp.getState().puzzle), before);
+  for (const type of ["str8ts", "hidato"]) {
+    await page.fill("#json-data", JSON.stringify({ ...latin, type, cells: ["#", "#", "#", "#"],
+      ...(type === "str8ts" ? { black: [0, 1, 2, 3] } : {}) }));
+    await page.click("#apply-json");
+    assert.match(await page.textContent("#status-text"), /Puzzle loaded/);
+    await page.click("#solve");
+    assert.match(await page.textContent("#status-text"), /at least one/);
+    assert.equal(await page.evaluate(() => repairApp.getState().busy), false);
+    assert.equal(await page.evaluate(() => repairApp.getState().result), null);
+  }
+  for (const type of ["hidato", "numbrix"]) {
+    await page.fill("#json-data", JSON.stringify({ ...latin, type, cells: [1, 1, null, null] }));
+    await page.click("#apply-json");
+    assert.match(await page.textContent("#status-text"), /Puzzle loaded/);
+    await page.click("#solve");
+    assert.match(await page.textContent("#status-text"), /must not repeat/);
+    assert.equal(await page.evaluate(() => repairApp.getState().busy), false);
+    assert.equal(await page.evaluate(() => repairApp.getState().result), null);
+  }
+}
 async function scan(page) {
   const image = await page.evaluate(async () => {
     const { Scanner, puzzleFromReadings } = await import("./scanner.js");
@@ -114,7 +187,7 @@ async function exercise(page) {
       const page = await context.newPage(), errors = []; page.setDefaultTimeout(20000);
       page.on("pageerror", (e) => errors.push(e.message));
       try {
-        await exercise(page); assert.deepEqual(errors, []);
+        await exercise(page); await importRegressions(page); assert.deepEqual(errors, []);
         reports.push({ browser: name, version: browser.version(), status: "passed" });
       } catch (e) {
         reports.push({ browser: name, status: "failed", message: e.message, errors });

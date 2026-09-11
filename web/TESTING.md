@@ -61,3 +61,21 @@ real solver check. Node tests execute the production action/worker handlers
 with controlled browser I/O, covering cached-result races, superseded requests,
 construction/postMessage failures, worker errors and deadlines. Unfinished
 searches cannot populate the private unique-solution cache.
+
+## Import ownership and shared boundary checks
+
+A selected JSON file or applied JSON draft supersedes older pending reads,
+including when the newer input fails size, syntax or shape validation. Cancelling
+an empty file picker does not supersede existing work. Production-handler tests
+exercise both late successes and late errors; the scanner-repair browser suite
+repeats the races through real file inputs and the advanced-data editor.
+
+The shared payload fixtures now check browser editability and solve-readiness as
+separate contracts against the native adapter. Explicit malformed black metadata
+is rejected rather than normalized to an empty list. Str8ts dimensions must be
+2 through 9, and fully blocked Str8ts/Hidato drafts remain editable but cannot be
+submitted for solving. Numbered black cells do not satisfy Str8ts's white-cell
+requirement.
+
+Duplicate Hidato and Numbrix clues also remain editable, but fail solve-ready
+validation consistently with the native path loader.
