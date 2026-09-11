@@ -44,3 +44,20 @@ Camera lifecycle tests cover cancellation while permission, video playback or gr
 Both browsers exercise a real two-tab service-worker update while an old dedicated solver worker is initializing, then request its original verified archive online and with the origin server stopped. This focused lifecycle fixture controls the initialization delay; the full solver and OCR checks above still use the production runtimes. Unit tests cover changed and reused archive bytes, repeated updates, workers that are not enumerable yet, and cleanup after the owning clients close. Old solver archives are retained for the tabs and workers present at activation and pruned at a later activation once those clients have gone.
 
 The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs unit/parse checks; normal Linux/Windows CI and forward compatibility remain independent.
+
+
+## Play confirmation and uniqueness
+
+`scripts/play_safety_regressions.cjs` exercises scan confirmation for Check,
+Hint and final-cell checking in Chromium and mobile WebKit. Back and Escape
+leave warnings and answers untouched; confirmation resumes only the requested
+private action, and a replaced board invalidates it. The real Pyodide solver
+checks both completions of a blank 2x2 Latin square: neither may be marked
+wrong or overwritten by a hint from an arbitrary solution. Reveal remains
+available for inspecting multiple solutions.
+
+Controlled delayed callbacks test Stop and mode changes, followed by a fresh
+real solver check. Node tests execute the production action/worker handlers
+with controlled browser I/O, covering cached-result races, superseded requests,
+construction/postMessage failures, worker errors and deadlines. Unfinished
+searches cannot populate the private unique-solution cache.

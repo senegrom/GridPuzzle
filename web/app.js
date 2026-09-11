@@ -61,12 +61,12 @@ const state = {
   hints: new Set(),
   playFeedback: null,
   playSolution: null,
-  playSolutionShared: false,
   solverWarm: false,
 };
 state.play = fitPlay(state.puzzle, []);
 let worker = null,
   confirmationJob = null,
+  cancelSolver = null,
   playEditing = false,
   editing = 0,
   focused = 0,
@@ -184,6 +184,10 @@ const tasks = createTaskController({
   scanner,
   status,
   onStop: (wasBusy) => {
+    // Settle private Check/Hint requests as well as terminating their worker.
+    const cancel = cancelSolver;
+    cancelSolver = null;
+    cancel?.();
     stopCamera();
     if (wasBusy && worker) {
       worker.terminate();
@@ -199,7 +203,6 @@ function invalidate() {
   stopTask();
   state.result = null;
   state.playSolution = null;
-  state.playSolutionShared = false;
   state.playFeedback = null;
   state.solution = 0;
   state.view = "board";
@@ -307,7 +310,7 @@ function drawBoard() {
     // In play mode the board shows the user's answers, never the solution.
     sol = playing ? null : state.result?.solutions?.[state.solution],
     entries = state.play,
-    bad = new Set([...conflicts(p), ...playConflicts(p, entries)]),
+    bad = new Set([...conflicts(p), ...(sol ? [] : playConflicts(p, entries))]),
     wrong = state.playFeedback?.wrong ?? new Set(),
     flagged = reviewCells();
   focused = Math.min(focused, p.cells.length - 1);
@@ -803,7 +806,7 @@ function openPlayCell(i) {
     return;
   }
   stopTask();
-  editing = i;
+  editing = focused = i;
   playEditing = true;
   const r = Math.floor(i / p.cols),
     c = i % p.cols;
@@ -840,6 +843,7 @@ function savePlayCell() {
   }
 }
 function setPlay(i, value) {
+  stopTask();
   remember();
   state.play[i] = value;
   state.hints.delete(i);
@@ -861,7 +865,7 @@ function playCounts() {
 async function reportPlayProgress() {
   const { total, filled, clashing } = playCounts();
   if (total > 0 && filled === total) {
-    await checkPlayAnswers();
+    await requestSolve("check");
     return;
   }
   status(
@@ -871,8 +875,8 @@ async function reportPlayProgress() {
       : "Check answers compares them with the solution; Hint fills one cell.",
   );
 }
-// The solver runs privately for checks and hints: the solution is cached
-// until the puzzle changes and is never drawn on the board.
+// Only a completed, unique solution can justify per-cell verdicts or hints.
+// It is cached until the puzzle changes, never drawn or saved to the session.
 function playSolution() {
   return new Promise((resolve) => {
     if (state.playSolution) {
@@ -888,10 +892,20 @@ function playSolution() {
     }
     runSolver(
       (r) => {
-        if (r.status === "unique" || r.status === "multiple") {
+        if (r.status === "unique" && r.complete === true) {
           state.playSolution = r.solutions[0].cells;
-          state.playSolutionShared = r.status === "multiple";
           resolve(state.playSolution);
+          return;
+        }
+        if (r.status === "multiple") {
+          state.playFeedback = null;
+          render();
+          status(
+            "Multiple solutions: Check and Hint need a unique puzzle.",
+            "Your answers are unchanged. Check for missing printed clues or rules; an arbitrary solution cannot label an alternative answer wrong or supply a forced hint.",
+            "warning",
+          );
+          resolve(null);
           return;
         }
         status(
@@ -905,7 +919,7 @@ function playSolution() {
         );
         resolve(null);
       },
-      { silent: true },
+      { silent: true, onCancel: () => resolve(null) },
     );
   });
 }
@@ -914,30 +928,29 @@ async function checkPlayAnswers() {
     status("Nothing to check yet.", "Enter an answer in a blank cell first.");
     return;
   }
-  const solution = await playSolution();
-  if (!solution) return;
+  const pending = playSolution(), id = tasks.id;
+  const solution = await pending;
+  if (!solution || id !== tasks.id || !playMode()) return;
   const result = checkPlay(state.puzzle, state.play, solution);
   state.playFeedback = { wrong: new Set(result.wrong) };
   render();
-  const shared = state.playSolutionShared
-    ? " This puzzle has several solutions; answers are checked against one of them."
-    : "";
   if (!result.wrong.length && !result.remaining.length)
     status(
       "Puzzle complete. Every answer is right!",
-      `Well played.${shared} Scan or load another puzzle to keep going.`,
+      "Well played. Scan or load another puzzle to keep going.",
     );
   else
     status(
       `${result.correct.length} right · ${result.wrong.length} wrong · ${result.remaining.length} to go`,
-      (result.wrong.length
+      result.wrong.length
         ? "Wrong answers are marked. Tap one to change it."
-        : "Keep going, or use Hint for one more cell.") + shared,
+        : "Keep going, or use Hint for one more cell.",
     );
 }
 async function hintPlay() {
-  const solution = await playSolution();
-  if (!solution) return;
+  const pending = playSolution(), id = tasks.id;
+  const solution = await pending;
+  if (!solution || id !== tasks.id || !playMode()) return;
   const hint = nextHint(state.puzzle, state.play, solution);
   if (!hint) {
     status("Every cell is already right.", "Nothing left to fill in.");
@@ -953,10 +966,10 @@ async function hintPlay() {
     `Hint: row ${Math.floor(hint.cell / p.cols) + 1}, column ${(hint.cell % p.cols) + 1} is ${hint.value}.`,
     filled === total ? "That was the last cell." : `${filled} of ${total} cells filled.`,
   );
-  if (filled === total) await checkPlayAnswers();
+  if (filled === total) await requestSolve("check");
 }
-$("check-play").onclick = () => void checkPlayAnswers();
-$("hint-play").onclick = () => void hintPlay();
+$("check-play").onclick = () => void requestSolve("check");
+$("hint-play").onclick = () => void requestSolve("hint");
 function cellAction(i) {
   const tool = $("edit-tool").value;
   if (tool === "play") return openPlayCell(i);
@@ -1004,6 +1017,7 @@ $("board").onkeydown = (e) => {
   }
 };
 $("edit-tool").onchange = () => {
+  stopTask();
   state.selected = [];
   render();
 };
@@ -1096,15 +1110,17 @@ $("undo").onclick = () => {
 $("stop").onclick = () => stopTask("Stopped.");
 function ensureWorker() {
   if (!worker) {
-    worker = new Worker(new URL("./solver-worker.js", import.meta.url), {
+    const w = new Worker(new URL("./solver-worker.js", import.meta.url), {
       type: "module",
     });
+    worker = w;
     state.solverWarm = false;
-    worker.onmessage = ({ data: m }) => {
-      if (m.type === "ready") state.solverWarm = true;
+    w.onmessage = ({ data: m }) => {
+      if (worker === w && m.type === "ready") state.solverWarm = true;
     };
-    worker.onerror = () => {
-      worker?.terminate();
+    w.onerror = () => {
+      if (worker !== w) return;
+      w.terminate();
       worker = null;
       state.solverWarm = false;
     };
@@ -1115,71 +1131,98 @@ function ensureWorker() {
 // Solve, Check or Hint does not wait for the runtime. A warm-up failure only
 // means the next request loads the runtime itself.
 function warmSolver() {
-  if (!worker) ensureWorker().postMessage({ type: "warm" });
-}
-// One job at a time; the task controller owns cancellation and deadlines.
-function runSolver(onResult, { silent = false } = {}) {
-  const id = begin(),
-    w = ensureWorker();
-  tasks.setDeadline(() => {
-    if (id === tasks.id)
-      stopTask("Runtime loading timed out. Go online and retry.");
-  }, 180000);
-  w.onmessage = ({ data: m }) => {
-    if (m.type === "ready") {
-      state.solverWarm = true;
-      return;
-    }
-    if (m.id !== tasks.id) return;
-    if (m.type === "status") {
-      status(m.message, "Stop cancels this task.");
-      if (m.message.startsWith("Solving")) {
-        state.solverWarm = true;
-        tasks.clearDeadline();
-        const seconds = Number($("time-limit").value);
-        if (seconds > 0)
-          tasks.setDeadline(() => {
-            if (id === tasks.id)
-              stopTask(
-                "Search limit reached. Increase the limit to continue from a fresh search.",
-              );
-          }, seconds * 1000);
-      }
-      return;
-    }
-    finish();
-    onResult(m.result);
-  };
-  w.onerror = (e) => {
-    if (id !== tasks.id) return;
-    w.terminate();
+  try {
+    if (!worker) ensureWorker().postMessage({ type: "warm" });
+  } catch {
+    worker?.terminate();
     worker = null;
     state.solverWarm = false;
-    finish();
-    status(
-      "The solver stopped unexpectedly.",
-      e.message ||
-        "The phone may have run out of memory. Retry with other tabs closed.",
-      "error",
-    );
-  };
-  status(
-    silent ? "Checking your answers…" : "Starting the on-device solver…",
-    state.solverWarm
-      ? "The solver runtime is already loaded."
-      : "The first load downloads Python.",
-  );
-  w.postMessage({ id, puzzle: clone(state.puzzle) });
+  }
 }
-function requestSolve() {
+// One job at a time; the task controller owns cancellation and deadlines.
+function runSolver(onResult, { silent = false, onCancel = () => {} } = {}) {
+  const id = begin();
+  cancelSolver = onCancel;
+  try {
+    const w = ensureWorker();
+    tasks.setDeadline(() => {
+      if (id === tasks.id)
+        stopTask("Runtime loading timed out. Go online and retry.");
+    }, 180000);
+    w.onmessage = ({ data: m }) => {
+      if (worker !== w || id !== tasks.id) return;
+      if (m.type === "ready") {
+        state.solverWarm = true;
+        return;
+      }
+      if (m.id !== id) return;
+      if (m.type === "status") {
+        status(m.message, "Stop cancels this task.");
+        if (m.message.startsWith("Solving")) {
+          state.solverWarm = true;
+          tasks.clearDeadline();
+          const seconds = Number($("time-limit").value);
+          if (seconds > 0)
+            tasks.setDeadline(() => {
+              if (id === tasks.id)
+                stopTask(
+                  "Search limit reached. Increase the limit to continue from a fresh search.",
+                );
+            }, seconds * 1000);
+        }
+        return;
+      }
+      if (m.type !== "result" || !tasks.busy) return;
+      cancelSolver = null;
+      finish();
+      onResult(m.result);
+    };
+    w.onerror = (e) => {
+      if (worker !== w || id !== tasks.id) return;
+      w.terminate();
+      worker = null;
+      state.solverWarm = false;
+      stopTask();
+      status(
+        "The solver stopped unexpectedly.",
+        e.message ||
+          "The phone may have run out of memory. Retry with other tabs closed.",
+        "error",
+      );
+    };
+    status(
+      silent ? "Checking your answers…" : "Starting the on-device solver…",
+      state.solverWarm
+        ? "The solver runtime is already loaded."
+        : "The first load downloads Python.",
+    );
+    w.postMessage({ id, puzzle: clone(state.puzzle) });
+  } catch (error) {
+    stopTask();
+    fail(error);
+  }
+}
+function requestSolve(action = "solve") {
   // Confirmation owns this transcription. Stop camera capture and pending
   // imports before a modal can hide a replacement board from the user.
   stopTask();
   confirmationJob = null;
   try {
     checkSolveReady(state.puzzle);
+    if (action !== "solve" && !playMode()) return;
+    if (action === "check" && !state.play.some(Number.isInteger)) {
+      status("Nothing to check yet.", "Enter an answer in a blank cell first.");
+      return;
+    }
     if (reviewCells().size || state.needsReview) {
-      confirmationJob = tasks.id;
+      confirmationJob = { id: tasks.id, action };
+      $("confirm-dialog").querySelector("h2").textContent =
+        action === "solve" ? "Solve this transcription?" : "Use this transcription for Play?";
+      $("confirm-solve").textContent = {
+        solve: "Use these clues & solve",
+        check: "Use these clues & check answers",
+        hint: "Use these clues & give one hint",
+      }[action];
       $("confirm-text").textContent =
         `${TYPES[state.puzzle.type]} · ${state.puzzle.rows} × ${state.puzzle.cols}. ` +
         (["sudoku", "killersudoku"].includes(state.puzzle.type)
@@ -1187,10 +1230,27 @@ function requestSolve() {
           : "") +
         `${reviewCells().size} cells were highlighted for review.`;
       $("confirm-dialog").showModal();
-    } else solveNow();
+    } else return executeSolverAction(action);
   } catch (e) {
     fail(e);
   }
+}
+function confirmTranscription() {
+  state.uncertain.clear();
+  state.blackReadings = [];
+  state.cageUncertain.clear();
+  state.needsReview = false;
+  state.notes = [];
+  persist();
+  render();
+}
+function executeSolverAction(action) {
+  if (action === "solve") return solveNow();
+  if (!playMode()) return;
+  // Both explicit confirmation and the already-reviewed route reach here.
+  checkSolveReady(state.puzzle);
+  confirmTranscription();
+  return action === "hint" ? hintPlay() : checkPlayAnswers();
 }
 function solveNow() {
   try {
@@ -1199,11 +1259,7 @@ function solveNow() {
     fail(e);
     return;
   }
-  state.uncertain.clear();
-  state.blackReadings = [];
-  state.cageUncertain.clear();
-  state.needsReview = false;
-  state.notes = [];
+  confirmTranscription();
   state.result = null;
   state.solution = 0;
   state.view = "board";
@@ -1242,20 +1298,24 @@ function solveNow() {
     $("status").dataset.result = r.status;
   });
 }
-$("solve").onclick = requestSolve;
+$("solve").onclick = () => requestSolve();
 $("confirm-solve").onclick = () => {
   const confirmedJob = confirmationJob;
   confirmationJob = null;
   $("confirm-dialog").close();
-  if (confirmedJob === null || confirmedJob !== tasks.id) {
+  if (confirmedJob === null || confirmedJob.id !== tasks.id) {
     status(
       "Puzzle changed while confirmation was open.",
-      "Check the current clues and choose Solve again.",
+      "Check the current clues and choose Solve, Check or Hint again.",
       "warning",
     );
     return;
   }
-  solveNow();
+  try {
+    void executeSolverAction(confirmedJob.action);
+  } catch (error) {
+    fail(error);
+  }
 };
 $("confirm-back").onclick = () => {
   confirmationJob = null;

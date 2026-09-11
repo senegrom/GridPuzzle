@@ -51,6 +51,8 @@ jobs:
         run: node scripts/scanner_repair_regressions.cjs
       - name: Play mode and solver warm-up regressions
         run: node scripts/play_regressions.cjs
+      - name: Play confirmation, uniqueness and cancellation regressions
+        run: node scripts/play_safety_regressions.cjs
       - name: Scanner variation, review and real-newspaper regressions
         run: |
           node scripts/browser_regressions.cjs
