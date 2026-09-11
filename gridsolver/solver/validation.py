@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from itertools import chain, islice
 from math import prod
@@ -325,11 +325,13 @@ def _rule_is_satisfied(
     budget: _FallbackBudget | None = None,
     metadata_validated: bool = False,
 ) -> bool:
-    if not metadata_validated:
-        rule = _validate_rule_metadata(rule, plan)
-    cell_values = tuple(values[cell] for cell in rule.cells)
+    scope = sandbox_sources() if type(rule)._is_extension else nullcontext()
+    with scope:
+        if not metadata_validated:
+            rule = _validate_rule_metadata(rule, plan)
+        cell_values = tuple(values[cell] for cell in rule.cells)
 
-    closed_form = _builtin_closed_form(rule, cell_values, values, plan)
+        closed_form = _builtin_closed_form(rule, cell_values, values, plan)
     if closed_form is False:
         return False
     if closed_form is True and type(rule) in _BUILTIN_RULE_TYPES:
@@ -365,13 +367,14 @@ def _rule_is_satisfied(
             continue
 
         if parent is not None:
-            current = _validate_rule_metadata(current, plan)
-            closed_form = _builtin_closed_form(
-                current,
-                tuple(values[cell] for cell in current.cells),
-                values,
-                plan,
-            )
+            with sandbox_sources():
+                current = _validate_rule_metadata(current, plan)
+                closed_form = _builtin_closed_form(
+                    current,
+                    tuple(values[cell] for cell in current.cells),
+                    values,
+                    plan,
+                )
             if closed_form is False:
                 return False
             if closed_form is True and type(current) in _BUILTIN_RULE_TYPES:
@@ -388,68 +391,67 @@ def _rule_is_satisfied(
 
         known = list(values)
         candidates = tuple({value} for value in values)
-        raised_satisfied = False
-        try:
-            result = current.apply(
+        with sandbox_sources():
+            raised_satisfied = False
+            with sandbox_sources():
+                relevant = _relevant_guarantees_for_rule(current, inherited_guarantees)
+            try:
+                result = current.apply(known, candidates, relevant)
+            except RuleAlwaysSatisfied:
+                raised_satisfied = True
+                result = None
+            except InvalidGrid:
+                return False
+
+            if not _fallback_state_is_compatible(
                 known,
                 candidates,
-                _relevant_guarantees_for_rule(current, inherited_guarantees),
-            )
-        except RuleAlwaysSatisfied:
-            raised_satisfied = True
-            result = None
-        except InvalidGrid:
-            return False
+                values,
+                plan,
+            ):
+                return False
+            if raised_satisfied:
+                continue
+            if not isinstance(result, tuple) or len(result) != 3:
+                raise TypeError(
+                    f"{type(current).__name__}.apply() must return a three-item tuple"
+                )
+            changed, raw_rules, raw_guarantees = result
+            if not isinstance(changed, bool):
+                raise TypeError(
+                    f"{type(current).__name__}.apply() changed flag must be boolean"
+                )
 
-        if not _fallback_state_is_compatible(
-            known,
-            candidates,
-            values,
-            plan,
-        ):
-            return False
-        if raised_satisfied:
-            continue
-        if not isinstance(result, tuple) or len(result) != 3:
-            raise TypeError(
-                f"{type(current).__name__}.apply() must return a three-item tuple"
+            emitted_guarantees = tuple(
+                _canonical_guarantee(item, plan)
+                for item in _bounded_outputs(
+                    raw_guarantees,
+                    "Emitted guarantees",
+                    budget,
+                )
             )
-        changed, raw_rules, raw_guarantees = result
-        if not isinstance(changed, bool):
-            raise TypeError(
-                f"{type(current).__name__}.apply() changed flag must be boolean"
-            )
+            if any(
+                not _canonical_guarantee_is_satisfied(guarantee, values)
+                for guarantee in emitted_guarantees
+            ):
+                return False
 
-        emitted_guarantees = tuple(
-            _canonical_guarantee(item, plan)
-            for item in _bounded_outputs(
-                raw_guarantees,
-                "Emitted guarantees",
-                budget,
-            )
-        )
-        if any(
-            not _canonical_guarantee_is_satisfied(guarantee, values)
-            for guarantee in emitted_guarantees
-        ):
-            return False
-
-        # Materialize siblings before descent, preserving shared-budget
-        # accounting and output order. Cycle detection is ancestor-only: a
-        # shared child must be checked afresh in each sibling's context.
-        emitted_rules = _bounded_outputs(raw_rules, "Emitted rules", budget)
-        # Iteration and guarantee normalization execute extension code too.
-        # Even an empty iterator can invalidate a previously checked state.
-        if not _fallback_state_is_compatible(known, candidates, values, plan):
-            return False
-        if emitted_rules:
-            ancestors.add(rule_id)
-            pending.append((
-                iter(emitted_rules),
-                inherited_guarantees + emitted_guarantees,
-                current,
-                (known, candidates),
-            ))
+            # Materialize siblings before descent, preserving shared-budget
+            # accounting and output order. Cycle detection is ancestor-only: a
+            # shared child must be checked afresh in each sibling's context.
+            emitted_rules = _bounded_outputs(raw_rules, "Emitted rules", budget)
+            # Iteration and guarantee normalization execute extension code too.
+            # Even an empty iterator can invalidate a previously checked state.
+            if not _fallback_state_is_compatible(known, candidates, values, plan):
+                return False
+            if emitted_rules:
+                ancestors.add(rule_id)
+                pending.append((
+                    iter(emitted_rules),
+                    inherited_guarantees + emitted_guarantees,
+                    current,
+                    (known, candidates),
+                ))
     return True
 
 

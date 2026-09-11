@@ -1,5 +1,5 @@
 import itertools
-from typing import List, Dict, FrozenSet
+from typing import List, Dict
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.trail import TrailedDict
@@ -106,7 +106,8 @@ def rulehelper_house_sums(grid: Grid) -> None:
     if not sum_rules:
         return
 
-    fingerprint = frozenset((frozenset(r.cells), r.sum) for r in sum_rules)
+    cage_facts = [grid._read_rule_metadata(r, lambda item: (frozenset(item.cells), item.sum)) for r in sum_rules]
+    fingerprint = frozenset(cage_facts)
     memo = _house_sums_memo(grid)
     if memo.get("cages") == fingerprint:
         return
@@ -116,7 +117,7 @@ def rulehelper_house_sums(grid: Grid) -> None:
     house_total = n * (n + 1) // 2
 
     # complete houses: full-size at-most-once groups that also carry at-least-once
-    at_least = {frozenset(r.cells) for r in itertools.chain(grid.rules, grid.rules_ia)
+    at_least = {grid._read_rule_metadata(r, lambda item: frozenset(item.cells)) for r in itertools.chain(grid.rules, grid.rules_ia)
                 if isinstance(r, unique.ElementsAtLeastOnce)}
     houses = [fs for fs in grid.unique_rule_cells if len(fs) == n and fs in at_least]
     if not houses:
@@ -125,7 +126,7 @@ def rulehelper_house_sums(grid: Grid) -> None:
 
     known = grid._known
     # smallest first: original cages win over derived merged ones in the greedy pick
-    cages = sorted(((frozenset(r.cells), r.sum) for r in sum_rules), key=lambda t: (len(t[0]), sorted(t[0])))
+    cages = sorted(cage_facts, key=lambda t: (len(t[0]), sorted(t[0])))
     all_caged = frozenset().union(*(c for c, _ in cages))
     cages_by_cell: Dict[int, List] = {}
     for c_cells, c_sum in cages:
@@ -208,46 +209,34 @@ def rulehelper_house_sums(grid: Grid) -> None:
 
 
 def rulehelper_sum_atmostonce(grid: Grid) -> None:
-    most_one_rule_cells = [frozenset(rule.cells) for rule in grid.rules if
-                           isinstance(rule, unique.ElementsAtMostOnce)
-                           and not isinstance(rule, sumrules.SumAndElementsAtMostOnce)]
-
+    most_one_rule_cells = [
+        grid._read_rule_metadata(rule, lambda item: frozenset(item.cells))
+        for rule in grid.rules
+        if isinstance(rule, unique.ElementsAtMostOnce)
+        and not isinstance(rule, sumrules.SumAndElementsAtMostOnce)
+    ]
     sum_once_rules = grid.get_rules_of_type(sumrules.SumAndElementsAtMostOnce)
     if not sum_once_rules:
         return
-
-    set_dic: Dict[sumrules.SumAndElementsAtMostOnce, FrozenSet[int]] = {}
-    rule_cntn_dic: Dict[FrozenSet[int], List[sumrules.SumAndElementsAtMostOnce]] = {key: [] for key in
-                                                                                    most_one_rule_cells}
-
-    for rule_sum in sum_once_rules:
-        cells = frozenset(rule_sum.cells)
-        set_dic[rule_sum] = cells
-        for rule_most_cells in most_one_rule_cells:
-            if cells <= rule_most_cells:
-                rule_cntn_dic[rule_most_cells].append(rule_sum)
-
-    for rule_most_cells in most_one_rule_cells:
-        for rule1, rule2 in itertools.combinations(rule_cntn_dic[rule_most_cells], 2):
-            cells1 = set_dic[rule1]
-            cells2 = set_dic[rule2]
-
+    cages = [
+        grid._read_rule_metadata(rule, lambda item: (frozenset(item.cells), item.sum))
+        for rule in sum_once_rules
+    ]
+    contained_by_house = [(house, [(cells, target) for cells, target in cages if cells <= house])
+                          for house in most_one_rule_cells]
+    for house, contained in contained_by_house:
+        for (cells1, sum1), (cells2, sum2) in itertools.combinations(contained, 2):
             if cells1 & cells2:
                 continue
-
             union_cells = cells1 | cells2
-            luc = len(union_cells)
-            if luc != len(rule_most_cells) and luc <= _MAX_SAEAMO_CELLS:
-                new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=union_cells,
-                                                             mysum=rule1.sum + rule2.sum)
-                grid.add_rule_checked(new_rule)
-
-    for rule_most_cells in most_one_rule_cells:
-        lrmc = len(rule_most_cells)
-        for rule in rule_cntn_dic[rule_most_cells]:
-            cells = set_dic[rule]
-            lc = len(cells)
-            if lc != len(rule_most_cells) and grid.max_elem == lrmc and lrmc - lc <= _MAX_SAEAMO_CELLS:
-                new_sum = grid.max_elem * (grid.max_elem + 1) // 2 - rule.sum
-                new_rule = sumrules.SumAndElementsAtMostOnce(gsz=grid, cells=rule_most_cells - cells, mysum=new_sum)
-                grid.add_rule_checked(new_rule)
+            if len(union_cells) != len(house) and len(union_cells) <= _MAX_SAEAMO_CELLS:
+                grid.add_rule_checked(sumrules.SumAndElementsAtMostOnce(
+                    gsz=grid, cells=union_cells, mysum=sum1 + sum2,
+                ))
+    for house, contained in contained_by_house:
+        for cells, target in contained:
+            if len(cells) != len(house) and grid.max_elem == len(house) and len(house) - len(cells) <= _MAX_SAEAMO_CELLS:
+                grid.add_rule_checked(sumrules.SumAndElementsAtMostOnce(
+                    gsz=grid, cells=house - cells,
+                    mysum=grid.max_elem * (grid.max_elem + 1) // 2 - target,
+                ))

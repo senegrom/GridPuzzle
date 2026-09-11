@@ -6,7 +6,7 @@ from functools import partial
 from numbers import Integral
 from typing import Any, TypeVar, overload
 
-from gridsolver.abstract_grids.extension_scope import sandbox_sources
+from gridsolver.abstract_grids.extension_scope import _WORKER_SERIALIZATION, sandbox_sources
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.abstract_grids.rule_container import RuleContainer
@@ -209,6 +209,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         # Monotone extension marker: native propagation keeps its direct path.
         # Include subclasses with inherited hashes but custom metadata hooks.
         self._has_extension_rules = False
+        # Source owners travel with shared extension rules across clones and
+        # processes. Native grids keep this tuple empty.
+        self._extension_sources: tuple[Grid, ...] = ()
         self._struct_cache: dict[str, Any] = {}
         # Rule-only structures survive guarantee churn. This matters during
         # speculative propagation, where guarantees narrow and deactivate far
@@ -377,6 +380,41 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
         Solver caches and trail journals must never be copied here.
         """
 
+    def __getstate__(self):
+        """Serialize rule source owners before any shared hash-bearing rules.
+
+        A clone's rule may point back to its original grid, whose sets contain
+        that same rule. Restoring the original first prevents those sets from
+        hashing a half-restored rule. Preserve normal dict/slot state for grid
+        subclasses; do not invoke rule hashes or copy hooks to serialize.
+        """
+        state = object.__getstate__(self)
+        if isinstance(state, tuple):
+            dictionary, slots = state
+        else:
+            dictionary, slots = state, None
+        if dictionary and _WORKER_SERIALIZATION.get():
+            # Captured owners may be inside live rollback scopes in the parent.
+            # Do not serialize their journals, saved cache frames, or memo hooks.
+            # Ordinary pickle round trips retain their historical full state.
+            dictionary = dictionary.copy()
+            journal = TrailState(candidate_max_elem=self.max_elem)
+            dictionary["_trail_state"] = journal
+            dictionary["_candidates"] = tuple(
+                TrailedSet(values, journal, cell=cell)
+                for cell, values in enumerate(self._candidates)
+            )
+            for cache in ("_struct_cache", "_rule_cache", "_guarantee_cache"):
+                dictionary[cache] = {}
+            for memo in ("_fish_value_memo", "_house_sums_memo"):
+                dictionary.pop(memo, None)
+        if dictionary and dictionary.get("_extension_sources"):
+            dictionary = {
+                "_extension_sources": dictionary["_extension_sources"],
+                **dictionary,
+            }
+        return (dictionary, slots) if isinstance(state, tuple) else dictionary
+
     def __deepcopy__(self, memo: MutableMapping[int, Any] | None = None) -> "Grid":
         return self.deepcopy()
 
@@ -404,6 +442,10 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             True,
         )
         result._has_extension_rules = getattr(self, "_has_extension_rules", True)
+        result._extension_sources = getattr(self, "_extension_sources", ())
+        if (result._has_extension_rules or not cls.__module__.startswith("gridsolver.")) and not result._extension_sources:
+            # Legacy grids have no owner marker; preserve their source too.
+            result._extension_sources = (self,)
         result.name = self.name
         result._struct_cache = {}
         result._rule_cache = {}
@@ -545,12 +587,16 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             # other cell. Represent that clique implicitly rather than storing
             # O(cells**2) entries (e.g. Slitherlink's global loop constraint).
             # None is cached with the usual rule-only invalidation lifecycle.
-            if any(rule.len_cells == self.len for rule in self.rules):
-                return None
-            peers = [set() for _ in range(self.len)]
+            groups = []
             for rule in self.rules:
-                rule_cells = set(rule.cells)
-                for cell in rule.cells:
+                cells = self._read_rule_metadata(rule, lambda item: tuple(item.cells))
+                if len(cells) == self.len:
+                    return None
+                groups.append(cells)
+            peers = [set() for _ in range(self.len)]
+            for cells in groups:
+                rule_cells = set(cells)
+                for cell in cells:
                     peers[cell].update(rule_cells - {cell})
             return tuple(frozenset(items) for items in peers)
 
@@ -767,6 +813,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
                 self._has_untrusted_rule_set_methods = True
             if any(type(rule)._is_extension for rule in additions):
                 self._has_extension_rules = True
+                owners = getattr(self, "_extension_sources", ())
+                if not any(owner is self for owner in owners):
+                    self._extension_sources = (*owners, self)
         if not additions and deactivate is None:
             return
         if self._trail_state.active:
@@ -791,7 +840,9 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
     @contextmanager
     def _extension_sandbox(self) -> Iterator[None]:
         """Discard incidental changes to this grid and captured caller grids."""
-        with sandbox_sources(exclude=self), self._local_extension_sandbox():
+        with sandbox_sources(
+            exclude=self, extra=getattr(self, "_extension_sources", ()),
+        ), self._local_extension_sandbox():
             yield
 
     @contextmanager
@@ -1217,8 +1268,23 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             for index in range(self.cols)
         )
 
+    def _read_rule_metadata(self, rule: Rule, reader: Callable[[Rule], Any]) -> Any:
+        """Materialize structural metadata before incidental hook writes escape.
+
+        Callers must return detached scalar/tuple/frozenset facts, not lazy
+        iterators. Each extension is read in its own scope, so one getter cannot
+        alter the puzzle observed by the next rule or by later propagation.
+        """
+        if type(rule)._is_extension:
+            with self._extension_sandbox():
+                return reader(rule)
+        return reader(rule)
+
     def get_rule_cells_of_type(self, class_: type[Rule]) -> list[frozenset[int]]:
-        return [frozenset(rule.cells) for rule in self.get_rules_of_type(class_)]
+        return [
+            self._read_rule_metadata(rule, lambda item: frozenset(item.cells))
+            for rule in self.get_rules_of_type(class_)
+        ]
 
     def get_rules_of_type(self, class_: type[RuleT]) -> list[RuleT]:
         return [rule for rule in self.rules if isinstance(rule, class_)]
@@ -1255,9 +1321,11 @@ class Grid(ImmutableGrid, RuleContainer, MutableSequence[int]):
             for rule in self.rules:
                 if not isinstance(rule, UneqRule):
                     continue
-                origin = rule.origin_cell
-                result[origin].update(rule.rel_cells)
-                for related in rule.rel_cells:
+                origin, relations = self._read_rule_metadata(
+                    rule, lambda item: (item.origin_cell, tuple(item.rel_cells)),
+                )
+                result[origin].update(relations)
+                for related in relations:
                     result[related].add(origin)
             return result
 

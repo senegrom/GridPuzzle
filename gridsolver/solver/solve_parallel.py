@@ -8,6 +8,9 @@ start methods are exercised by the regression suite.
 import concurrent.futures
 import pickle
 from collections import deque
+from contextlib import nullcontext
+
+from gridsolver.abstract_grids.extension_scope import protect_source, sandbox_sources, worker_serialization
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
@@ -17,9 +20,17 @@ from gridsolver.solver.atomic_solver import (
     current_power_stats,
 )
 from gridsolver.solver.solver import _cap_solutions
+from gridsolver.solver.validation import _requires_source_isolation
 
 
 _WORKER_ROOT_GRID: Grid | None = None
+
+
+def _serialize_worker_root(grid: Grid) -> bytes:
+    """Serialize the complete source-owner graph without transient solver state."""
+    scope = grid._extension_sandbox() if _requires_source_isolation(grid) else nullcontext()
+    with scope, worker_serialization():
+        return pickle.dumps(grid, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def _init_worker(worker_payload: bytes) -> None:
@@ -37,25 +48,29 @@ def _fresh_worker_grid() -> Grid:
         raise RuntimeError("Parallel worker root grid was not initialised")
     # Grid.deepcopy is purpose-built for branch isolation: it copies puzzle
     # state, resets trails and derived caches, and invokes subclass copy hooks.
-    return root.deepcopy()
+    with sandbox_sources():
+        return root.deepcopy()
 
 
 def _solve_branch(
     payload: tuple[int, int, int],
 ) -> set[ImmutableGrid]:
     cell, value, max_sols = payload
-    grid = _fresh_worker_grid()
+    root = _WORKER_ROOT_GRID
+    if root is None:
+        raise RuntimeError("Parallel worker root grid was not initialised")
     from gridsolver.solver import solver as _solver
     from gridsolver.solver.solver_log import lg as _lg
 
-    _lg.set_lvl(0)
-    grid[cell] = value
-    return _solver._solve_full(
-        grid,
-        [0],
-        max_sols,
-        set(),
-    )
+    # A fresh interpreter has no parent's ContextVar registry. The serialized
+    # source-owner tuple reconstructs that context; both copy hooks and every
+    # search hook must finish rollback before the next sibling/task executes.
+    scope = protect_source(root) if _requires_source_isolation(root) else nullcontext()
+    with scope:
+        grid = _fresh_worker_grid()
+        _lg.set_lvl(0)
+        grid[cell] = value
+        return _solver._solve_full(grid, [0], max_sols, set())
 
 
 def _solve_branch_with_stats(
@@ -110,10 +125,7 @@ def solve_parallel_trials(
 
     # Serialize the root once. Each worker receives that immutable payload
     # through its initializer; task payloads remain compact three-scalar tuples.
-    worker_payload = pickle.dumps(
-        grid,
-        protocol=pickle.HIGHEST_PROTOCOL,
-    )
+    worker_payload = _serialize_worker_root(grid)
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=processes,
         initializer=_init_worker,

@@ -246,6 +246,33 @@ Omit `--timeout-baseline` for a strict run in which every timeout fails.
 
 ## Extension transaction boundary
 
+Structural metadata is extension code too. Branch peer selection, visibility and
+house construction, arithmetic helpers, and transitive inequality bounds read
+extension facts through `Grid._read_rule_metadata`. Readers materialize their
+scalars/tuples/frozensets inside an individual rollback scope before consulting
+candidates or another rule. Metadata preparation and application are distinct
+operations; validation also restores captured sources between emitted-rule nodes.
+The source registry stays active inside nested scopes, which enter local grid
+sandboxes directly rather than recursively dispatching public scopes.
+
+Clones retain the source owners of shared extension rules in `_extension_sources`.
+Checked registration records a new owner by identity (never Grid equality), and
+native-only clones keep the tuple empty. This is source ownership, not rebinding:
+a rule that reads original givens must not be redirected to the changing working
+grid. Ordinary pickle serializes owners before shared rule sets, preventing a
+nested source set from hashing a partially restored rule; default subclass dict
+and slot state remain intact. As before, extension classes and semantic fields
+must themselves support standard pickle when used with process workers.
+
+The parallel root serializer transfers that owner graph but omits derived caches,
+solver memos and active trail frames from every Grid in the payload. Ordinary
+(non-worker) pickle retains the full historical grid state. Every worker task
+establishes a fresh protection context before cloning, then uses nested per-hook
+scopes throughout search. Owners and the worker seed must be unchanged on success,
+exceptions, or interruptions, so siblings and later tasks observe pristine source
+state. Context variables alone are not a process-transport mechanism.
+
+
 Custom `UneqRule` subclasses are never deactivated by native inequality-union
 simplification: a native union preserves only inequality, not subclass semantics.
 Only exact native rules participate in the replacement optimization.
