@@ -1,0 +1,46 @@
+name: OCR latency baseline
+on:
+  push:
+    branches: [verify/ocr-latency-20260912-baseline]
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 8120f385829d2a6ab2606490f67f734906bf8ced
+      - name: Retain exact baseline source
+        run: |
+          mkdir -p baseline-artifacts
+          git archive --format=zip HEAD -o baseline-artifacts/source.zip
+          git rev-parse HEAD HEAD^{tree} > baseline-artifacts/source.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ocr-latency-baseline-source
+          path: baseline-artifacts
+          retention-days: 7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: python -m pip install -e '.[dev]'
+      - run: node --test web/tests/*.test.js
+      - run: python scripts/build_web.py
+      - run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Measure original OCR and live camera
+        run: |
+          node scripts/ocr_quality_regressions.cjs
+          node scripts/live_camera_regressions.cjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ocr-latency-baseline-results
+          path: browser-artifacts
+          retention-days: 7
