@@ -1,0 +1,118 @@
+name: Verify OCR speed and accuracy
+on:
+  push:
+    branches: ['verify/ocr-latency-20260912-candidate*']
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - run: python .github/ocr-latency-patch/apply.py
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m ruff check .
+      - run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+      - run: python -m pytest -q tests -m 'not slow'
+      - run: python -m pip wheel --no-deps . --wheel-dir dist
+      - run: python scripts/smoke_wheel.py --wheel-dir dist
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: python .github/ocr-latency-patch/apply.py
+      - run: python -m pip install -e '.[dev]'
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          mkdir -p review-artifacts
+          node --test web/tests/*.test.js | tee review-artifacts/node.txt
+      - name: Exact candidate and matched baseline builds
+        run: |
+          python scripts/build_web.py
+          git worktree add --detach /tmp/gridpuzzle-baseline 8120f385829d2a6ab2606490f67f734906bf8ced
+          cd /tmp/gridpuzzle-baseline
+          python scripts/build_web.py
+      - name: Install browser engines
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Matched OCR latency and live camera regressions
+        env:
+          OCR_BASELINE_SITE: /tmp/gridpuzzle-baseline/_site
+        run: node scripts/live_camera_regressions.cjs
+      - name: All existing browser acceptance suites
+        run: |
+          node scripts/solver_update_regressions.cjs
+          node scripts/browser_smoke.cjs
+          node scripts/scanner_settings_regressions.cjs
+          node scripts/scanner_repair_regressions.cjs
+          node scripts/photo_read_regressions.cjs
+          node scripts/play_regressions.cjs
+          node scripts/play_safety_regressions.cjs
+          node scripts/browser_regressions.cjs
+          node scripts/newspaper_regressions.cjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ocr-speed-browser
+          path: |
+            browser-artifacts
+            review-artifacts
+          retention-days: 7
+  tested-files:
+    needs: [native, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - run: python .github/ocr-latency-patch/apply.py
+      - name: Retain tested file objects without changing a branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, subprocess, urllib.request, zipfile
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          assert len(paths) == 13 and all(not p.startswith('.github/') for p in paths), paths
+          entries = []
+          for path in paths:
+              data = pathlib.Path(path).read_bytes()
+              sha = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              request = urllib.request.Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/blobs', data=json.dumps({'encoding': 'base64', 'content': base64.b64encode(data).decode()}).encode(), method='POST', headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  result = json.load(response)
+              assert result['sha'] == sha
+              entries.append({'path': path, 'type': 'blob', 'mode': '100644', 'sha': sha})
+          out = pathlib.Path('review-artifacts'); out.mkdir(exist_ok=True)
+          (out / 'tested-files.json').write_text(json.dumps({'base': '8120f385829d2a6ab2606490f67f734906bf8ced', 'expected_tree': '82ce7edd45c9c5da0593b86d6e5ec66aa8f09bfc', 'entries': entries}, indent=2), encoding='utf-8')
+          with zipfile.ZipFile(out / 'tested-files.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for path in paths: archive.write(path, path)
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ocr-speed-tested-files
+          path: review-artifacts
+          retention-days: 7
