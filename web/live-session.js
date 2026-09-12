@@ -5,11 +5,11 @@ import { clone, checkShape } from "./model.js";
 // The camera keeps streaming while one OCR request and one bounded solve run.
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   let active = false, generation = 0, pending = false, preview = null;
-  let reference = null, best = null, stable = 0, lastRead = -Infinity, deadline = null;
+  let reference = null, best = null, stable = 0, attempts = 0, lastRead = -Infinity, deadline = null;
   function clearDeadline() { clearTimer(deadline); deadline = null; }
   const publish = (value) => { preview = value; onChange(value); };
   function reset() {
-    generation++; clearDeadline(); pending = false; stable = 0; best = null; reference = null;
+    generation++; clearDeadline(); pending = false; stable = 0; attempts = 0; best = null; reference = null;
     lastRead = -Infinity; cancelRead(); cancelSolve(); publish(null);
   }
   function motion(signature) {
@@ -22,13 +22,19 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     motion(frame.signature);
     if (reference && (reference.key !== frame.key || reference.corners.some((p, i) =>
       Math.hypot(p.x - frame.corners[i].x, p.y - frame.corners[i].y) > frame.width * .012))) reset();
-    if (!reference) reference = frame;
+    // The reference only anchors geometry and motion checks; drop its pixels.
+    if (!reference) reference = { ...frame, image: null };
     stable++;
     if (!best || frame.sharpness >= best.sharpness) best = frame;
     if (preview) { preview = { ...preview, corners: frame.corners }; onChange(preview); }
-    if (pending || stable < 2 || now() - lastRead < (preview?.result?.status === "unique" ? 12000 : 3000)) return;
+    // A stable scene with a complete unique preview is finished: reading the
+    // same pixels again cannot improve it, so wait for motion or new settings.
+    // An unresolved scene retries with a doubling interval rather than every
+    // three seconds, bounding the OCR and battery cost of an unreadable page.
+    if (pending || stable < 2 || preview?.result?.status === "unique") return;
+    if (now() - lastRead < Math.min(24000, 3000 * 2 ** Math.max(0, attempts - 1))) return;
     const id = ++generation, sample = best;
-    best = frame; pending = true; lastRead = now();
+    best = frame; pending = true; attempts++; lastRead = now();
     const current = () => active && id === generation;
     onStatus("Reading printed clues… Keep the grid steady.");
     deadline = setTimer(() => {
@@ -38,7 +44,11 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     }, 90000);
     void (async () => {
       try {
-        const found = await read(sample, (message) => { if (current()) onStatus(message); });
+        let found;
+        // The sampled pixels have served recognition once the read settles;
+        // only the signature and geometry are needed afterwards.
+        try { found = await read(sample, (message) => { if (current()) onStatus(message); }); }
+        finally { sample.image = null; }
         if (!current()) return;
         clearDeadline();
         checkShape(found.puzzle);

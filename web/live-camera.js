@@ -143,7 +143,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     timer = setTimer(tick, 100);
   }
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); say("Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
+    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); solver.prepare?.(); say("Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
     stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = null; },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");

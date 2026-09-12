@@ -24,7 +24,13 @@ requirement still applies to Solve, Check and Hint there.
 
 The camera waits for stable detections and chooses the sharper sampled frame.
 Local image changes invalidate the overlay and cancel obsolete recognition and
-solving. Only one recognition job and one preview solve are active. Recognition has a 90-second deadline, after which the camera can retry. The preview
+solving. Only one recognition job and one preview solve are active. Once a
+complete unique preview is showing, a still scene is not read again until the
+picture or the settings change; an unresolved scene retries with a doubling
+interval (3, 6, 12, then 24 seconds), so an unreadable page does not keep OCR
+busy. A sampled frame is released as soon as recognition has used it, and the
+preview runtime is loaded when the camera opens and reloaded in the background
+after a search budget had to terminate it. Recognition has a 90-second deadline, after which the camera can retry. The preview
 solver has a 90-second runtime-loading deadline and an 8-second search budget;
 the full editor still supports its longer configurable budgets. Detection,
 recognition and solving use workers. Closing the camera, backgrounding the page,
