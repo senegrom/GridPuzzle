@@ -1,0 +1,119 @@
+{
+  "cases": {
+    "blank4_all": {
+      "count": 288,
+      "digest": "5d03baf4414c5c37c9bb2b1b8cfe54b6c010b888a07e7e740bffcc4eb8071b0b",
+      "improvement_percent": -1.3592082449380483,
+      "left_label": "process",
+      "left_median": 17.025946345000023,
+      "left_seconds": [
+        17.012142408000045,
+        17.039750282
+      ],
+      "right_label": "thread",
+      "right_median": 17.257364411499992,
+      "right_over_left": 1.0135920824493805,
+      "right_seconds": [
+        17.194720564000022,
+        17.320008258999962
+      ]
+    },
+    "blank4_cap1": {
+      "count": 1,
+      "digest": "21067cbccb187b2218f96f97a7e71bf9b77a8eab40845a57892ac700d925d280",
+      "improvement_percent": 2.9386746439559186,
+      "left_label": "process",
+      "left_median": 3.5263340639999683,
+      "left_seconds": [
+        3.5182152120000296,
+        3.5263340639999683,
+        3.5559788769999727
+      ],
+      "right_label": "thread",
+      "right_median": 3.422706579000021,
+      "right_over_left": 0.9706132535604408,
+      "right_seconds": [
+        3.4204616790000273,
+        3.4324127759999783,
+        3.422706579000021
+      ]
+    },
+    "loaded4_all": {
+      "count": 4,
+      "digest": "484be136bb2b590f81c4b23096dc1af609324b9280fa83b61969618fc785a89c",
+      "improvement_percent": 53.43984256244649,
+      "left_label": "process",
+      "left_median": 0.25305675600003497,
+      "left_seconds": [
+        0.24374729300001263,
+        0.24414480499996216,
+        0.25395237599997245,
+        0.25345172699996965,
+        0.25305675600003497
+      ],
+      "right_label": "thread",
+      "right_median": 0.11782362399998192,
+      "right_over_left": 0.4656015743755351,
+      "right_seconds": [
+        0.11782362399998192,
+        0.119842785000003,
+        0.11593492600002264,
+        0.11686828300003071,
+        0.11786763300000302
+      ]
+    },
+    "nonsquare6_cap20": {
+      "count": 20,
+      "digest": "9d2144281f7e118083da5fe96ecd6e073e754cfe4ea675d649980bc7965e5878",
+      "improvement_percent": -0.20446143510191028,
+      "left_label": "process",
+      "left_median": 13.706385502999979,
+      "left_seconds": [
+        13.702712374999976,
+        13.710058630999981
+      ],
+      "right_label": "thread",
+      "right_median": 13.734409775500012,
+      "right_over_left": 1.002044614351019,
+      "right_seconds": [
+        13.760989483999992,
+        13.707830067000032
+      ]
+    },
+    "synthetic500": {
+      "count": 500,
+      "digest": "425b638a5fec983dc99f092fd8316c4054a4c870b9fd347bba787cfe48e1404b",
+      "improvement_percent": 80.38338312793589,
+      "left_label": "process",
+      "left_median": 0.2548488779999616,
+      "left_seconds": [
+        0.28070107100000996,
+        0.2548488779999616,
+        0.24388341399998126
+      ],
+      "right_label": "thread",
+      "right_median": 0.04999272800000654,
+      "right_over_left": 0.19616616872064108,
+      "right_seconds": [
+        0.05317927599998029,
+        0.04999272800000654,
+        0.048370233000014196
+      ]
+    }
+  },
+  "depth_gate": null,
+  "gates": {
+    "positive_cap_max_ratio": 1.03,
+    "positive_cap_ratio": 0.9706132535604408,
+    "real_geomean_max_ratio": 1.0,
+    "real_geomean_ratio": 0.8231002455713955,
+    "real_worst_max_ratio": 1.03,
+    "real_worst_ratio": 1.0135920824493805,
+    "synthetic_ratio": 0.19616616872064108
+  },
+  "mode": "thread",
+  "passed": true,
+  "python": "3.14.7 free-threading build (main, Aug  6 2026, 02:20:28) [GCC 13.3.0]",
+  "title": "Free-threaded search executor \u2014 2026-08-12",
+  "workers": 2
+}
