@@ -14,15 +14,29 @@ export function createLiveSolver({ makeWorker = () => new Worker(new URL("./solv
   function prepare() {
     if (worker) return;
     try {
-      worker = makeWorker();
-      worker.postMessage({ type: "warm" });
-    } catch { worker = null; }
+      const owned = makeWorker();
+      worker = owned;
+      // A warm-up is a real request too: bound it, handle failure immediately,
+      // and ignore late notifications from an interpreter already retired.
+      owned.onmessage = ({ data }) => {
+        if (owned !== worker) return;
+        if (data.type === "ready") clear();
+        else if (data.type === "warm-error") cancel();
+      };
+      owned.onerror = () => { if (owned === worker) cancel(); };
+      timer = setTimer(() => { if (owned === worker) cancel(); }, 90000);
+      owned.postMessage({ type: "warm" });
+    } catch { cancel(); }
   }
+  // Cancelling a running Python search needs termination; discarding a camera
+  // alignment does not. Keep an idle or warming worker for the next reading.
+  function invalidate() { if (finish) cancel(); }
   const expire = () => { cancel(); prepare(); };
   return {
-    cancel, prepare,
+    cancel, invalidate, prepare,
     solve(puzzle) {
       if (finish) cancel();
+      clear(); // The solve now owns a fresh deadline, replacing warm-up's timer.
       return new Promise((resolve) => {
         const id = ++serial;
         finish = resolve;

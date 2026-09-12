@@ -54,7 +54,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       return found;
     },
     solve: (puzzle) => solver.solve(puzzle),
-    cancelRead: () => reader.cancel(), cancelSolve: () => solver.cancel(),
+    cancelRead: () => reader.cancel(),
+    // Realignment retires answers, not an idle interpreter. Closing the camera
+    // still cancels everything; older/injected solvers keep the cancel contract.
+    cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
     onChange: () => {}, onStatus: say, now, setTimer, clearTimer,
   });
   function render() {

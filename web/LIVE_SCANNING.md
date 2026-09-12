@@ -26,7 +26,8 @@ The camera waits for stable detections and chooses the sharper sampled frame.
 Local image changes invalidate the overlay and cancel obsolete recognition and
 solving. Only one recognition job and one preview solve are active. Once a
 complete unique preview is showing, a still scene is not read again until the
-picture or the settings change; an unresolved scene retries with a doubling
+picture or the settings change, or autofocus yields a substantially sharper
+frame. An unresolved scene retries with a doubling
 interval (3, 6, 12, then 24 seconds), so an unreadable page does not keep OCR
 busy. A sampled frame is released as soon as recognition has used it, and the
 preview runtime is loaded when the camera opens and reloaded in the background
@@ -86,3 +87,24 @@ camera, exact shutter pixels, review gating, reload/delete, motion and uncertain
 readings. It is a simulated camera test, not a physical-phone camera certification.
 The existing OCR quality suite records retries and retains its accuracy and
 zero-unflagged-discrepancy requirements.
+
+## Camera retry latency
+
+The live session selects fresh pixels after each recognition attempt. A released
+frame is never eligible for a later retry merely because it was sharper, and
+frames observed while OCR was pending do not outrank the next fresh capture.
+The existing 3/6/12/24-second backoff still bounds repeated work on an unchanged
+unreadable scene. A sharpness gain of both 30 percent and 40 points may retry
+after one second instead, including a provisional solved scene: improved focus
+is new recognition evidence. Small focus fluctuations do not restart OCR.
+
+Camera realignment now cancels an active search but preserves an idle or warming
+Python worker. The first camera frame and settings changes no longer discard
+the interpreter started by the camera's warm-up. Closing the camera still
+terminates it. Warm-up failures and timeouts are handled and retired, so later
+requests can retry without inheriting a broken worker.
+
+`web/tests/live-latency.test.js` covers these ownership and scheduling cases.
+The repairs do not change OCR confidence thresholds, voting, reference answers,
+or solver constraints. They remove failed retries and unnecessary cold starts;
+they do not establish a new universal OCR accuracy or physical-phone speed figure.

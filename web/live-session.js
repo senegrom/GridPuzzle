@@ -5,12 +5,12 @@ import { clone, checkShape } from "./model.js";
 // The camera keeps streaming while one OCR request and one bounded solve run.
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   let active = false, generation = 0, pending = false, preview = null;
-  let reference = null, best = null, stable = 0, attempts = 0, lastRead = -Infinity, deadline = null;
+  let reference = null, best = null, stable = 0, attempts = 0, lastRead = -Infinity, lastSharpness = 0, deadline = null;
   function clearDeadline() { clearTimer(deadline); deadline = null; }
   const publish = (value) => { preview = value; onChange(value); };
   function reset() {
     generation++; clearDeadline(); pending = false; stable = 0; attempts = 0; best = null; reference = null;
-    lastRead = -Infinity; cancelRead(); cancelSolve(); publish(null);
+    lastRead = -Infinity; lastSharpness = 0; cancelRead(); cancelSolve(); publish(null);
   }
   function motion(signature) {
     if (active && reference && !sameFrame(reference.signature, signature)) {
@@ -25,16 +25,29 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     // The reference only anchors geometry and motion checks; drop its pixels.
     if (!reference) reference = { ...frame, image: null };
     stable++;
-    if (!best || frame.sharpness >= best.sharpness) best = frame;
+    // A pending read owns its sample. Do not retain other old images that can
+    // out-rank the fresh frame after its pixels have been released.
+    if (!pending && (!best || frame.sharpness >= best.sharpness)) best = frame;
     if (preview) { preview = { ...preview, corners: frame.corners }; onChange(preview); }
-    // A stable scene with a complete unique preview is finished: reading the
-    // same pixels again cannot improve it, so wait for motion or new settings.
-    // An unresolved scene retries with a doubling interval rather than every
-    // three seconds, bounding the OCR and battery cost of an unreadable page.
-    if (pending || stable < 2 || preview?.result?.status === "unique") return;
-    if (now() - lastRead < Math.min(24000, 3000 * 2 ** Math.max(0, attempts - 1))) return;
+    // Keep the battery-saving backoff for unchanged images, but autofocus can
+    // deliver genuinely better evidence without moving the grid. Let a large
+    // sharpness improvement retry promptly, including a provisional solution.
+    // A small absolute/relative change must not turn focus noise into a loop.
+    if (pending || stable < 2) return;
+    const elapsed = now() - lastRead,
+      sharper = attempts > 0 && Number.isFinite(best.sharpness) &&
+        best.sharpness >= Math.max(lastSharpness * 1.3, lastSharpness + 40);
+    if (sharper) {
+      if (elapsed < 1000) return;
+    } else {
+      if (preview?.result?.status === "unique") return;
+      if (elapsed < Math.min(24000, 3000 * 2 ** Math.max(0, attempts - 1))) return;
+    }
     const id = ++generation, sample = best;
-    best = frame; pending = true; attempts++; lastRead = now();
+    // Never keep the sampled object in the candidate slot: finally releases
+    // its image, and a less-sharp next frame still needs real pixels to read.
+    best = null; pending = true; attempts = sharper ? 1 : attempts + 1;
+    lastRead = now(); lastSharpness = Number.isFinite(sample.sharpness) ? sample.sharpness : 0;
     const current = () => active && id === generation;
     onStatus("Reading printed clues… Keep the grid steady.");
     deadline = setTimer(() => {
