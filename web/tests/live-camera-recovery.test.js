@@ -15,7 +15,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   const previous = globalThis.document;
   const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
-    getImageData: () => ({ data: new Uint8ClampedArray(64 * 64 * 4).fill(180) }) };
+    getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
   const canvas = () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} });
   globalThis.document = { createElement: canvas };
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };

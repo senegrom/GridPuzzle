@@ -12,7 +12,9 @@ Green numbers are recognised printed values. Yellow numbers with a question mark
 are uncertain readings. A red `?` means an unresolved cell, including a printed
 mark OCR could not read. Blue numbers are entries from a completed, unique solution
 to the current transcription. Slitherlink solution edges are blue too. Blank black
-cells are not answer slots. A missed printed digit is never painted over in blue.
+cells are not answer slots. A retained unread printed mark is never painted over
+in blue. Recognition can still fail when the photograph contains insufficient
+visible evidence; preview colours are not a guarantee of correct transcription.
 
 Live solutions are explicitly **previews**, not confirmation that the photograph
 or inferred rules are right. Conflicting readings, incomplete structural data,
@@ -108,3 +110,40 @@ requests can retry without inheriting a broken worker.
 The repairs do not change OCR confidence thresholds, voting, reference answers,
 or solver constraints. They remove failed retries and unnecessary cold starts;
 they do not establish a new universal OCR accuracy or physical-phone speed figure.
+
+## Content checks, faint clues and deletion ordering
+
+The coarse camera-motion fingerprint is not used to certify individual clues.
+The live preview also keeps an area-sampled 24-by-24 signature for each cell,
+including white-on-black marks. Cell-local illumination normalization and small
+registration offsets tolerate modest brightness changes and sub-cell jitter.
+A changed signature retires the old recognition and solution, including delayed
+callbacks and captured metadata, before accepting a new reading. The comparison
+uses a bounded-resolution copy of the frame and never includes solver values.
+Unchanged solved scenes keep the existing battery-saving behaviour. These are
+pixel heuristics, not a guarantee of detecting every arbitrarily faint or tiny
+change; physical-camera motion, autofocus and lighting still require testing.
+
+When the normal foreground threshold misses a white-cell digit, a bounded local
+contrast pass can retain it despite dark grid lines elsewhere in the image.
+Recovered crops remain uncertain even when OCR agrees. Plausible central ink
+without a usable numeric component is carried as unread evidence, not converted
+into a blank answer slot. Empty cells, shallow noise, gradients and shading have
+negative regression controls. No numeric answers are inferred by preprocessing.
+
+PNG saves and deletes take ownership when requested, before byte conversion or
+database opening finishes. A superseded operation cannot start a later write;
+already queued read/write transactions on the same store complete in IndexedDB
+order. Delete therefore cannot be undone by an earlier delayed save from this
+app instance. A new capture deliberately requested afterwards can still replace
+it. UI messages remain tied to their request, and failed writes retain the
+existing saved image.
+
+`web/tests/review-safety.test.js` covers these boundaries. The permanent camera
+acceptance gate additionally runs `scripts/review_safety_regressions.cjs` using
+real Chromium/WebKit canvas processing, Tesseract and IndexedDB. It changes and
+erases clues after solving and during delayed reads/searches, exercises both
+ink polarities, preserves jitter/brightness controls, checks faint mixed-contrast
+clues and verifies deletion again after reloading the app. Camera completion
+callbacks are controlled to make race conditions reproducible; this is not
+physical-phone certification or an OCR-speed benchmark.
