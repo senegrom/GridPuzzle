@@ -1,9 +1,10 @@
 import { sameFrame, previewAllowed } from "./live-overlay.js";
+import { sameGridContent } from "./live-content.js";
 import { clone, checkShape } from "./model.js";
 
 // Camera-only work owns a separate generation from the accepted editor.
 // The camera keeps streaming while one OCR request and one bounded solve run.
-export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus, isCurrent = () => true, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   let active = false, generation = 0, pending = false, preview = null;
   let reference = null, best = null, stable = 0, attempts = 0, lastRead = -Infinity, lastSharpness = 0, deadline = null;
   function clearDeadline() { clearTimer(deadline); deadline = null; }
@@ -12,15 +13,24 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     generation++; clearDeadline(); pending = false; stable = 0; attempts = 0; best = null; reference = null;
     lastRead = -Infinity; lastSharpness = 0; cancelRead(); cancelSolve(); publish(null);
   }
+  function validate() {
+    if (active && reference && !isCurrent(reference)) {
+      reset(); onStatus("Printed content changed — reading the new clues…"); return false;
+    }
+    return true;
+  }
   function motion(signature) {
     if (active && reference && !sameFrame(reference.signature, signature)) {
       reset(); onStatus("Hold still — aligning the grid…");
     }
+    validate();
   }
   function observe(frame) {
     if (!active) return;
     motion(frame.signature);
-    if (reference && (reference.key !== frame.key || reference.corners.some((p, i) =>
+    if (!isCurrent(frame)) { reset(); return; }
+    if (reference && (reference.key !== frame.key ||
+      (reference.content && !sameGridContent(reference.content, frame.content)) || reference.corners.some((p, i) =>
       Math.hypot(p.x - frame.corners[i].x, p.y - frame.corners[i].y) > frame.width * .012))) reset();
     // The reference only anchors geometry and motion checks; drop its pixels.
     if (!reference) reference = { ...frame, image: null };
@@ -48,7 +58,13 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     // its image, and a less-sharp next frame still needs real pixels to read.
     best = null; pending = true; attempts = sharper ? 1 : attempts + 1;
     lastRead = now(); lastSharpness = Number.isFinite(sample.sharpness) ? sample.sharpness : 0;
-    const current = () => active && id === generation;
+    const current = () => {
+      if (!active || id !== generation) return false;
+      if (!isCurrent(sample)) {
+        reset(); onStatus("Printed content changed — reading the new clues…"); return false;
+      }
+      return true;
+    };
     onStatus("Reading printed clues… Keep the grid steady.");
     deadline = setTimer(() => {
       if (!current()) return;
@@ -89,7 +105,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     start() { active = true; reset(); },
     stop() { active = false; reset(); },
     invalidate() { reset(); },
-    motion, observe,
+    motion, observe, validate,
     get preview() { return preview; },
     get busy() { return pending; },
   };

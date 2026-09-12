@@ -169,6 +169,8 @@ async function run() {
           await page.click("#close-camera");
         }
         report.checks.push("settings changes and detection deadlines recover from a stalled detector without stopping video or accepting its late error");
+        report.reviewSafety=await require("./review_safety_regressions.cjs")(page);
+        report.checks.push("single-clue changes retire pending and solved overlays; faint clues retain ink evidence; deleted PNGs stay deleted after reload");
         assert.deepEqual(report.errors,[]);report.ok=true;console.log(`${name}: live camera and capture regressions passed`);
       } catch(error){report.ok=false;report.failure=error.stack;
         report.storageStatus=await page.textContent("#capture-storage-status").catch(()=>"");

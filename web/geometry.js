@@ -9,7 +9,7 @@ export function gray(image) {
 export function threshold(image, window = 25, bias = 12) {
   return thresholdGray(gray(image), image.width, image.height, window, bias);
 }
-export function thresholdGray(g, w, h, window = 25, bias = 12) {
+export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
   const sum = new Float64Array((w + 1) * (h + 1));
   for (let y = 0; y < h; y++) {
     let row = 0;
@@ -32,7 +32,7 @@ export function thresholdGray(g, w, h, window = 25, bias = 12) {
           sum[d * (w + 1) + a] +
           sum[c * (w + 1) + a]) /
         ((b - a) * (d - c));
-      out[y * w + x] = g[y * w + x] < Math.min(215, mean - bias) ? 1 : 0;
+      out[y * w + x] = g[y * w + x] < Math.min(ceiling, mean - bias) ? 1 : 0;
     }
   return out;
 }

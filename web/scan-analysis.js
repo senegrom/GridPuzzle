@@ -181,6 +181,41 @@ export function normalizeScanContrast(g) {
   return { gray: normalized, adjusted: true };
 }
 
+// Only missed white-cell marks take this path. Work in the cell interior so
+// dark grid lines elsewhere cannot hide a light digit. Preserve original gray
+// pixels for OCR; local thresholding supplies geometry, never a guessed value.
+function lightCellMark(g, width, x, y, w, h) {
+  const pixels = new Uint8Array(w * h), histogram = new Uint32Array(256);
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+    const value = g[(y + yy) * width + x + xx];
+    pixels[yy * w + xx] = value; histogram[value]++;
+  }
+  let cumulative = 0, dark = -1, paper = 255;
+  for (let value = 0; value < 256; value++) {
+    cumulative += histogram[value];
+    if (dark < 0 && cumulative >= pixels.length * .02) dark = value;
+    if (cumulative >= pixels.length * .8) { paper = value; break; }
+  }
+  const contrast = paper - dark;
+  if (paper < 150 || contrast < 16) return null; // Flat paper or shallow noise.
+  const local = thresholdGray(pixels, w, h, Math.max(9, Math.round(h * .55)),
+    Math.max(4, contrast * .15), 256);
+  let minx = w, miny = h, maxx = -1, maxy = -1, area = 0;
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++)
+    if (local[yy * w + xx]) {
+      area++; minx = Math.min(minx, xx); maxx = Math.max(maxx, xx);
+      miny = Math.min(miny, yy); maxy = Math.max(maxy, yy);
+    }
+  // Gradients, panel shading, crop/grid edges and isolated dust are not glyphs.
+  // A substantial central mark can still require review without a tall enough
+  // connected component to justify sending a numeric crop to OCR.
+  if (minx < 2 || miny < 2 || maxx >= w - 2 || maxy >= h - 2 ||
+    maxy - miny < h * .18 || area < Math.max(8, w * h * .012) ||
+    area > w * h * .4 || area / ((maxx - minx + 1) * (maxy - miny + 1)) < .12)
+    return null;
+  return { part: numberBounds(local, w, h) };
+}
+
 export function prepareScan(image, type, rows, cols) {
   const w = image.width,
     h = image.height,
@@ -191,7 +226,7 @@ export function prepareScan(image, type, rows, cols) {
     mask = thresholdGray(g, w, h),
     black = detectBlackCells(g, w, h, rows, cols),
     anyBlack = black.some(Boolean),
-    entries = [];
+    entries = [], unreadCells = [];
 
   function region(kind, cell, x, y, rw, rh, invert = false, other = null) {
     x = Math.max(0, Math.round(x));
@@ -240,6 +275,14 @@ export function prepareScan(image, type, rows, cols) {
               local[yy * rw + xx] = g[(y + yy) * w + x + xx] > cutoff ? 1 : 0;
           part = numberBounds(local, rw, rh);
           recoveredMark = Boolean(part);
+        }
+      }
+      if (!part && kind === "value") {
+        const recovered = lightCellMark(g, w, x, y, rw, rh);
+        if (recovered) {
+          part = recovered.part;
+          recoveredMark = true;
+          if (!part) unreadCells.push(cell);
         }
       }
       if (!part) return;
@@ -370,5 +413,5 @@ export function prepareScan(image, type, rows, cols) {
       }
     }
 
-  return { image, meta: estimateGrid(image, mask), mask, g, black, entries, contrastAdjusted: contrast.adjusted };
+  return { image, meta: estimateGrid(image, mask), mask, g, black, entries, unreadCells, contrastAdjusted: contrast.adjusted };
 }

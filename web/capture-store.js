@@ -33,6 +33,22 @@ export function captureTransaction(mode, operation, { indexedDB = globalThis.ind
     } catch (error) { finish(error); }
   });
 }
+// Ownership is assigned when the user requests a write, not when PNG encoding
+// or opening IndexedDB happens to finish. A newer save/delete supersedes older
+// unfinished writes. Once a transaction has queued its put, IndexedDB serializes
+// later readwrite transactions on this same store behind it.
+const mutationOwners = new WeakMap(), unavailableStorage = {};
+function ownMutation(options) {
+  const storage = options && Object.hasOwn(options, "indexedDB")
+    ? options.indexedDB : globalThis.indexedDB;
+  const key = storage ?? unavailableStorage, owner = {};
+  mutationOwners.set(key, owner);
+  return () => {
+    if (mutationOwners.get(key) !== owner)
+      throw new DOMException("Picture operation was superseded.", "AbortError");
+  };
+}
+
 export async function saveCapture(blob, createdAt = Date.now(), options) {
   if (!(blob instanceof Blob) || blob.type !== "image/png" || !blob.size || blob.size > MAX_PNG_BYTES)
     throw Error("The captured PNG is empty or too large to store.");
@@ -41,8 +57,13 @@ export async function saveCapture(blob, createdAt = Date.now(), options) {
   // Some WebKit storage backends abort Blob writes despite supporting other
   // structured-clone data. Persist the exact PNG bytes instead. Read them before
   // opening the transaction: awaiting inside an IDB transaction can close it.
+  const checkOwner = ownMutation(options);
   const bytes = await blob.arrayBuffer();
-  await captureTransaction("readwrite", (store) => store.put({ bytes, type: "image/png", createdAt }, "latest"), options);
+  checkOwner();
+  await captureTransaction("readwrite", (store) => {
+    checkOwner();
+    return store.put({ bytes, type: "image/png", createdAt }, "latest");
+  }, options);
 }
 export async function loadCapture(options) {
   const record = await captureTransaction("readonly", (store) => store.get("latest"), options);
@@ -54,7 +75,13 @@ export async function loadCapture(options) {
     return null;
   return { blob: new Blob([record.bytes], { type: "image/png" }), createdAt: record.createdAt };
 }
-export const deleteCapture = () => captureTransaction("readwrite", (store) => store.delete("latest"));
+export function deleteCapture(options) {
+  const checkOwner = ownMutation(options);
+  return captureTransaction("readwrite", (store) => {
+    checkOwner();
+    return store.delete("latest");
+  }, options);
+}
 
 export function setupCaptureGallery($, { load = loadCapture, save = saveCapture, remove = deleteCapture } = {}) {
   let revision = 0, objectURL = null, latest = null;

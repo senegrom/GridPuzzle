@@ -1,6 +1,7 @@
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape } from "./model.js";
 import { validQuad } from "./geometry.js";
+import { gridContent, sameGridContent } from "./live-content.js";
 import { createLiveSession } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, sameFrame, SCAN_COLOURS } from "./live-overlay.js";
@@ -40,7 +41,28 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, timer = null, detection = null, epoch = 0, lastDetect = -Infinity;
   let raw = null, guide = null, initial = null, displayed = null, signature = null;
-  let settingsKey = "", setting = null;
+  let settingsKey = "", setting = null, currentPixels = null;
+  const contentCanvas = document.createElement("canvas"), contentCache = new Map();
+  function contentPixels(image) {
+    const scale = Math.min(1, 640 / Math.max(image.width, image.height));
+    contentCanvas.width = Math.max(2, Math.round(image.width * scale));
+    contentCanvas.height = Math.max(2, Math.round(image.height * scale));
+    const ctx = contentCanvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0, contentCanvas.width, contentCanvas.height);
+    return ctx.getImageData(0, 0, contentCanvas.width, contentCanvas.height);
+  }
+  function contentOf(image, frame) {
+    const pixels = image === raw ? (currentPixels ??= contentPixels(image)) : contentPixels(image);
+    const corners = frame.corners.map((p) => ({ x: p.x * (pixels.width - 1) / (image.width - 1),
+      y: p.y * (pixels.height - 1) / (image.height - 1) }));
+    return gridContent(pixels, corners, frame.rows, frame.cols);
+  }
+  function isCurrent(frame) {
+    if (!raw || !frame.content) return false;
+    const key = JSON.stringify([frame.rows, frame.cols, frame.corners]);
+    if (!contentCache.has(key)) contentCache.set(key, contentOf(raw, frame));
+    return sameGridContent(frame.content, contentCache.get(key));
+  }
   const say = (message) => { if (active) $("camera-help").textContent = message; };
   const session = createLiveSession({
     read: async (frame, progress) => {
@@ -58,13 +80,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Realignment retires answers, not an idle interpreter. Closing the camera
     // still cancels everything; older/injected solvers keep the cancel contract.
     cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
-    onChange: () => {}, onStatus: say, now, setTimer, clearTimer,
+    onChange: () => {}, onStatus: say, isCurrent, now, setTimer, clearTimer,
   });
   function render() {
     if (!raw) return;
     if (canvas.width !== raw.width) canvas.width = raw.width;
     if (canvas.height !== raw.height) canvas.height = raw.height;
     const ctx = canvas.getContext("2d"); ctx.drawImage(raw, 0, 0);
+    session.validate();
     const preview = session.preview;
     displayed = preview ?? (guide && initial ? { found: initial, corners: guide, result: null } : null);
     if (displayed) drawLiveOverlay(ctx, raw.width, raw.height, displayed.corners, displayed.found, displayed.result);
@@ -119,8 +142,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       guide = corners; initial = { puzzle };
       if (!settings.enabled) { session.invalidate(); say("Automatic reading paused. Enable it in camera settings or capture for manual review."); return; }
       if (found.sharpness < 60) { session.invalidate(); say("Move closer and hold still for sharper numbers."); return; }
-      session.observe({ image, signature: frameSignature, corners, width: image.width, height: image.height,
-        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`, sharpness: found.sharpness });
+      const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
+        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`, sharpness: found.sharpness };
+      frame.content = contentOf(image, frame);
+      session.observe(frame);
     } catch (error) {
       if (current()) { guide = initial = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
@@ -131,7 +156,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   function tick() {
     if (!active) return;
     try {
-      raw = videoFrame(video, 1600, raw); signature = fingerprint(raw);
+      raw = videoFrame(video, 1600, raw); currentPixels = null; contentCache.clear(); signature = fingerprint(raw);
       const next = getSettings(), key = JSON.stringify([next, raw.width, raw.height]);
       if (key !== settingsKey) {
         settingsKey = key; setting = next; guide = initial = null;
@@ -147,9 +172,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   return {
     start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); solver.prepare?.(); say("Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
-    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = null; },
+    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = currentPixels = null; contentCache.clear(); },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");
+      // Validate the displayed raw frame, not a later camera frame. Never attach
+      // stale metadata to a capture even when an async result arrived mid-tick.
+      if (displayed?.sample && !isCurrent(displayed.sample)) { session.invalidate(); render(); }
       // Do not grab a different video frame here: preserve precisely the pixels
       // and overlay the user was looking at when pressing the shutter.
       return { photo: copyCanvas(raw), annotated: copyCanvas(canvas),

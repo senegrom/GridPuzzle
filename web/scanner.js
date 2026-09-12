@@ -217,16 +217,16 @@ function componentsForCages(mask, w, h, rows, cols, type) {
   return [...groups.values()];
 }
 // OCR proposals must remain editable without relaxing the import/solver contract.
-export function puzzleFromReadings({ entries, black, meta, mask, width, height, contrastAdjusted = false }, type, rows, cols) {
+export function puzzleFromReadings({ entries, black, meta, mask, width, height, contrastAdjusted = false, unreadCells = [] }, type, rows, cols) {
   const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
     values = Array(rows * cols).fill(null),
     blackValueCells = new Set(),
-    uncertain = new Set(),
+    uncertain = new Set(unreadCells),
     cageUncertain = new Set();
   for (const e of valueEntries) {
     if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
     if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
-    if (values[e.cell] === null || e.confidence < 85) uncertain.add(e.cell);
+    if (values[e.cell] === null || e.confidence < 85 || e.recoveredMark) uncertain.add(e.cell);
   }
   const labels = entries.filter(
     (e) => e.kind === "label" && /^\d{1,12}[+\-xX*\/÷×=]?$/.test(e.text),
@@ -363,7 +363,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
   return {
     puzzle,
     blackReadings,
-    markedCells: [...new Set(valueEntries.map((entry) => entry.cell))],
+    markedCells: [...new Set([...unreadCells, ...valueEntries.map((entry) => entry.cell)])],
     uncertain: [...new Set([...uncertain, ...cageUncertain])],
     cellUncertain: [...uncertain],
     cageUncertain: [...cageUncertain],
@@ -450,7 +450,7 @@ export class Scanner {
         if (epoch !== this.epoch) throw aborted();
       };
     onProgress("Straightening the photograph…", null);
-    const { image, meta, mask, g, black, entries, contrastAdjusted } = await this.geometry(
+    const { image, meta, mask, g, black, entries, contrastAdjusted, unreadCells } = await this.geometry(
       "prepare",
       {
         image: imageOf(canvas),
@@ -546,7 +546,7 @@ export class Scanner {
     });
     applyDigitVotes(entries, data.singles);
     return {
-      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted }, type, rows, cols),
+      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells }, type, rows, cols),
       rectified,
       entries,
       retryCount: data.retryCount || 0,
