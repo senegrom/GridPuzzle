@@ -166,3 +166,54 @@ test("stalled playback offers a bounded retry and closing clears its timer",asyn
  assert.equal(h.$("start-camera").hidden,false);assert.match(h.$("camera-help").textContent,/No camera frame/);assert.equal(timers.size,0);
  h.flow.stopCamera();assert.equal(h.$("start-camera").hidden,true);assert.equal(timers.size,0);
 });
+
+test("a finished unique preview stops periodic re-reading until the scene changes", async t => {
+ const h=session(t);h.s.observe(h.frame());h.s.observe(h.frame());
+ h.reads[0].resolve(found());await tick();h.solves[0].resolve(unique);await tick();
+ assert.equal(h.s.preview.result,unique);
+ for(let i=0;i<12;i++){h.advance(5000);h.s.observe(h.frame());}
+ assert.equal(h.reads.length,1,"a solved stable scene must not be re-read every few seconds");
+ h.s.motion(new Uint8Array(4096));h.s.observe(h.frame());h.s.observe(h.frame());
+ assert.equal(h.reads.length,2,"motion starts a fresh read");
+});
+test("an unresolved scene backs off between recognition attempts",async t=>{
+ const h=session(t);const unread=()=>{const f=found();f.markedCells.push(1);return f;};
+ h.s.observe(h.frame());h.s.observe(h.frame());assert.equal(h.reads.length,1);
+ h.reads[0].resolve(unread());await tick();assert.equal(h.solves.length,0);
+ const attempt=async(wait,expected)=>{h.advance(wait);h.s.observe(h.frame());
+  assert.equal(h.reads.length,expected,`after ${wait}ms`);
+  if(h.reads.length===expected&&h.reads.at(-1).resolve&&!h.reads.at(-1).done){h.reads.at(-1).done=true;h.reads.at(-1).resolve(unread());await tick();}};
+ await attempt(2900,1);await attempt(200,2);
+ await attempt(5900,2);await attempt(200,3);
+ await attempt(11900,3);await attempt(200,4);
+ await attempt(23900,4);await attempt(200,5);
+ await attempt(23900,5);await attempt(200,6);
+});
+test("sampled frames release their pixels once recognition has used them",async t=>{
+ const h=session(t);const a={...h.frame(),image:{pixels:true}},b={...h.frame(),image:{pixels:true},sharpness:500};
+ h.s.observe(a);h.s.observe(b);assert.equal(h.reads[0].frame,b);
+ h.reads[0].resolve(found());await tick();
+ assert.equal(b.image,null,"the recognised sample keeps only its signature and geometry");
+ assert.equal(h.s.preview.sample.image,null);
+});
+test("an exhausted search budget warms a replacement runtime for the next preview",async()=>{
+ const h=workerHarness(),pending=h.solver.solve(found().puzzle),w=h.workers[0];
+ w.onmessage({data:{id:1,type:"status",message:"Solving and checking uniqueness…"}});
+ [...h.timers.values()][0].fn();assert.equal(await pending,null);assert.equal(w.terminated,true);
+ assert.equal(h.workers.length,2);assert.deepEqual(h.workers[1].messages,[{type:"warm"}]);
+ const next=h.solver.solve(found().puzzle);assert.equal(h.workers.length,2,"the warmed worker serves the next preview");
+ assert.equal(h.workers[1].messages.length,2);h.result(h.workers[1],unique);assert.equal(await next,unique);
+});
+test("closing the camera or a runtime-loading timeout does not warm another worker",async()=>{
+ const h=workerHarness(),one=h.solver.solve(found().puzzle);h.solver.cancel();assert.equal(await one,null);
+ assert.equal(h.workers.length,1);
+ const two=h.solver.solve(found().puzzle);[...h.timers.values()][0].fn();assert.equal(await two,null);
+ assert.equal(h.workers.length,2,"a loading timeout terminates without an immediate reload");
+});
+test("preparing the preview solver warms one worker that the first preview reuses",async()=>{
+ const h=workerHarness();h.solver.prepare();h.solver.prepare();
+ assert.equal(h.workers.length,1);assert.deepEqual(h.workers[0].messages,[{type:"warm"}]);
+ const pending=h.solver.solve(found().puzzle);assert.equal(h.workers.length,1);
+ assert.equal(h.workers[0].messages[1].puzzle,undefined===h.workers[0].messages[1].puzzle?undefined:h.workers[0].messages[1].puzzle);
+ h.result(h.workers[0],unique);assert.equal(await pending,unique);
+});

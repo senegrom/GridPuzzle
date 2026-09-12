@@ -9,7 +9,7 @@ function deferred() {
   const promise = new Promise((a, b) => { resolve = a; reject = b; });
   return { promise, resolve, reject };
 }
-function harness(t) {
+function harness(t, solver = { solve: async () => null, cancel() {} }) {
   let time = 0, serial = 0, cancellations = 0;
   const timers = new Map(), detections = [], readings = [], nodes = new Map();
   const previous = globalThis.document;
@@ -24,7 +24,7 @@ function harness(t) {
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },
-    solver: { solve: async () => null, cancel() {} }, now: () => time,
+    solver, now: () => time,
     setTimer(fn, ms) { timers.set(++serial, { fn, at: time + ms }); return serial; },
     clearTimer(id) { timers.delete(id); },
   });
@@ -107,4 +107,12 @@ test("a delayed error from an obsolete solver cannot cancel a replacement solve"
   const result = { status: "unique", complete: true, solutions: [{ cells: [1] }] };
   workers[1].onmessage({ data: { type: "result", id: workers[1].message.id, result } });
   assert.equal(await second, result); assert.equal(timers.size, 0); solver.cancel();
+});
+
+test("starting the live camera warms the preview runtime once", async (t) => {
+  let prepared = 0;
+  const h = harness(t, { solve: async () => null, cancel() {}, prepare() { prepared++; } });
+  assert.equal(prepared, 1);
+  h.camera.start(); assert.equal(prepared, 1, "a repeated start must not warm again");
+  h.camera.stop(); h.camera.start(); assert.equal(prepared, 2);
 });
