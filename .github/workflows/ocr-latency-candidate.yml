@@ -59,6 +59,7 @@ jobs:
           OCR_BASELINE_SITE: /tmp/gridpuzzle-baseline/_site
         run: node scripts/live_camera_regressions.cjs
       - name: All existing browser acceptance suites
+        if: always()
         run: |
           node scripts/solver_update_regressions.cjs
           node scripts/browser_smoke.cjs
@@ -107,7 +108,7 @@ jobs:
               assert result['sha'] == sha
               entries.append({'path': path, 'type': 'blob', 'mode': '100644', 'sha': sha})
           out = pathlib.Path('review-artifacts'); out.mkdir(exist_ok=True)
-          (out / 'tested-files.json').write_text(json.dumps({'base': '8120f385829d2a6ab2606490f67f734906bf8ced', 'expected_tree': '82ce7edd45c9c5da0593b86d6e5ec66aa8f09bfc', 'entries': entries}, indent=2), encoding='utf-8')
+          (out / 'tested-files.json').write_text(json.dumps({'base': '8120f385829d2a6ab2606490f67f734906bf8ced', 'expected_tree': 'f0efe9b80979bc3a23532e81d331c9c249d5eec7', 'entries': entries}, indent=2), encoding='utf-8')
           with zipfile.ZipFile(out / 'tested-files.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
               for path in paths: archive.write(path, path)
           PY
