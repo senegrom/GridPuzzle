@@ -144,3 +144,13 @@ board-shrinking edits drop stale indices, and the solver worker keeps its
 interpreter across Python exceptions while retrying failed loads. The runtime
 tests additionally pin that one long-lived tab no longer retains every later
 build, and that an ambiguous legacy dependency answers with a legible 502.
+
+## OCR engine reuse
+
+`web/tests/ocr-engine-reuse.test.js` covers the reusable OCR runtime (one host
+across warm-up and consecutive reads, prompt rejection of superseded reads with
+suppressed partials, the two-second replacement of a stuck call, disposal, and
+recovery after decoding errors), the host's exact-image cache and cooperative
+cancellation, geometry worker reuse with transferred buffers, and provisional
+live readings that never start a solve. `scripts/ocr_latency_regressions.cjs`
+measures the real engines and asserts reuse and safety.

@@ -43,6 +43,8 @@ jobs:
           npx playwright install --with-deps chromium webkit
       - name: Live camera overlays and saved-picture regressions
         run: node scripts/live_camera_regressions.cjs
+      - name: OCR latency and engine reuse regressions
+        run: node scripts/ocr_latency_regressions.cjs
       - name: Cross-tab solver update regressions
         run: node scripts/solver_update_regressions.cjs
       - name: Chromium and mobile WebKit acceptance tests

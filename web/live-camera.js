@@ -67,18 +67,23 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   const say = (message) => { if (active) $("camera-help").textContent = message; };
   const session = createLiveSession({
-    read: async (frame, progress) => {
-      const found = await reader.read(frame.image, frame.corners, frame.settings.type, frame.rows, frame.cols, progress);
-      if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
-        found.puzzle.boxRows = frame.boxRows; found.puzzle.boxCols = frame.boxCols;
-      }
+    read: async (frame, progress, onPreview = () => {}) => {
+      const boxed = (found) => {
+        if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
+          found.puzzle.boxRows = frame.boxRows; found.puzzle.boxCols = frame.boxCols;
+        }
+        return found;
+      };
+      const found = boxed(await reader.read(frame.image, frame.corners, frame.settings.type, frame.rows, frame.cols, progress,
+        { onPreview: (partial) => onPreview(boxed(partial)) }));
       // A live overlay is explicitly a preview. Capturing must not silently
       // confirm inferred rules or accept OCR on behalf of the user.
       found.needsReview = true;
       return found;
     },
     solve: (puzzle) => solver.solve(puzzle),
-    cancelRead: () => reader.cancel(),
+    // Realignment retires the pending read, not the warm OCR engine.
+    cancelRead: () => reader.cancel({ keepEngine: true }),
     // Realignment retires answers, not an idle interpreter. Closing the camera
     // still cancels everything; older/injected solvers keep the cancel contract.
     cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
@@ -177,13 +182,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // Never paint a previous board after motion, even between detections.
       if (displayed?.sample && !sameFrame(displayed.sample.signature, signature)) guide = initial = null;
       render();
-      if (!detection && now() - lastDetect >= 650) void locate(copyCanvas(raw), signature, setting, settingsKey, epoch);
+      // Detect quickly until something is on screen, then ease off.
+      if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300)) void locate(copyCanvas(raw), signature, setting, settingsKey, epoch);
     } catch (error) { say(error.message || "Waiting for the camera…"); }
     timer = setTimer(tick, 100);
   }
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
-    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = currentPixels = null; contentCache.clear(); },
+    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
+    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); reader.cancel(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = currentPixels = null; contentCache.clear(); },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");
       // Validate the displayed raw frame, not a later camera frame. Never attach

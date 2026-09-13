@@ -85,8 +85,15 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         let found;
         // The sampled pixels have served recognition once the read settles;
         // only the signature and geometry are needed afterwards.
-        try { found = await read(sample, (message) => { if (current()) onStatus(message); }); }
-        finally { release(sample); }
+        try {
+          found = await read(sample, (message) => { if (current()) onStatus(message); }, (partial) => {
+            // Provisional readings are shown as unconfirmed yellow clues while
+            // the independent checks finish; they never start a solve.
+            if (!current()) return;
+            checkShape(partial.puzzle);
+            publish({ found: partial, result: null, corners: reference.corners, sample });
+          });
+        } finally { release(sample); }
         if (!current()) return;
         clearDeadline();
         checkShape(found.puzzle);

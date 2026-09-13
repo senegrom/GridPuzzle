@@ -154,3 +154,30 @@ ink polarities, preserves jitter/brightness controls, checks faint mixed-contras
 clues and verifies deletion again after reloading the app. Camera completion
 callbacks are controlled to make race conditions reproducible; this is not
 physical-phone certification or an OCR-speed benchmark.
+
+## Latency: one warm OCR engine
+
+Starting a Tesseract worker and loading its language data costs more than a
+whole read on a phone, and the live camera reads a scene several times. Each
+Scanner therefore keeps one OCR host and one geometry worker alive across reads.
+The camera warms the OCR engine together with the private Python solver when it
+opens; realignment cancels the pending read cooperatively, between recognition
+calls, and keeps the engine (a stuck atomic call is replaced after two seconds);
+closing the camera releases everything. Fresh pixel buffers are transferred
+between workers rather than copied.
+
+The atlas pass finishes long before the independent per-digit checks, so its
+readings are offered as a provisional, fully review-flagged (yellow) preview.
+They never start a solve; only the checked transcription does. A small
+in-memory cache reuses isolated readings only for byte-identical crop images
+with the identical segmentation mode, never for approximate matches, cell
+indices or solver answers; it is bounded to 256 entries or two megabytes of
+keys and cleared with the engine. Grid detection runs every 300 ms until a
+preview exists, then every second.
+
+`scripts/ocr_latency_regressions.cjs` reads the two retained newspaper crops
+five times on one Scanner in both engines and records cold and warm read times,
+time to the first provisional reading, worker counts and cache hits; it asserts
+engine reuse and zero unflagged discrepancies, while wall-clock times are
+reported rather than enforced. `OCR_BASELINE_SITE=<other _site>` times a second
+build in the same browser session for an A/B comparison.
