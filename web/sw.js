@@ -150,7 +150,11 @@ async function preserveActiveSolvers(){
     if(!response)continue;
     try{
       const assets=validateManifest(await response.json(),key.slice((PREFIX+"meta:").length));
-      for(const asset of assets)if(isSolver(asset)&&!keep.has(asset.path))keep.set(asset.path,{...asset,clients:[...alive]});
+      // A tab that already owns an older retained build never ran this one:
+      // recording it again would keep every intermediate build alive for as
+      // long as that single tab stays open.
+      const owned=new Set([...keep.values()].flatMap(asset=>asset.clients));
+      for(const asset of assets)if(isSolver(asset)&&!keep.has(asset.path))keep.set(asset.path,{...asset,clients:[...alive].filter(id=>!owned.has(id))});
     }catch{/* Damaged old metadata must not prevent a verified update. */}
   }
   const retained=[...keep.values()].filter(asset=>asset.clients.length);
@@ -200,20 +204,28 @@ self.addEventListener("fetch",event=>{
     // the page must still load from the network instead of failing every request.
     try{assets=await manifest({network:true});}catch{return fetch(request);}
     if(target.href===url("assets.json"))return (await (await caches.open(META)).match(url("assets.json")))||fetch(request);
-    const key=routeAsset(request,target),current=assets.find(a=>url(a.path)===key);
-    let historical=request.mode==="navigate"?null:await historicalAsset(key,event.clientId);
-    if(!historical&&!current)historical=await legacyAsset(key);
-    const asset=historical||current;
-    if(!asset)return fetch(request);
-    // An outgoing legacy URL may no longer exist on the origin. Identical
-    // bytes under the current immutable URL are a safe cache-miss fallback;
-    // never substitute a dependency merely because its filename matches.
-    const equivalent=historical&&assets.find(current=>current.sha256===asset.sha256);
-    const response=await verifiedAsset(equivalent||asset,{requireStorage:false,trustStored:true});
-    // A digest cache may reuse a module downloaded under another build's URL.
-    // Strip that old response URL so relative imports resolve against THIS
-    // request's versioned directory, not the cache entry's original location.
-    return new Response(response.body,{status:response.status,statusText:response.statusText,headers:response.headers});
+    try{
+      const key=routeAsset(request,target),current=assets.find(a=>url(a.path)===key);
+      let historical=request.mode==="navigate"?null:await historicalAsset(key,event.clientId);
+      if(!historical&&!current)historical=await legacyAsset(key);
+      const asset=historical||current;
+      if(!asset)return fetch(request);
+      // An outgoing legacy URL may no longer exist on the origin. Identical
+      // bytes under the current immutable URL are a safe cache-miss fallback;
+      // never substitute a dependency merely because its filename matches.
+      const equivalent=historical&&assets.find(current=>current.sha256===asset.sha256);
+      const response=await verifiedAsset(equivalent||asset,{requireStorage:false,trustStored:true});
+      // A digest cache may reuse a module downloaded under another build's URL.
+      // Strip that old response URL so relative imports resolve against THIS
+      // request's versioned directory, not the cache entry's original location.
+      return new Response(response.body,{status:response.status,statusText:response.statusText,headers:response.headers});
+    }catch(error){
+      // Fail closed, but legibly: a rejected respondWith reaches the page only
+      // as "Failed to fetch". A 502 keeps the diagnostic and is never cached.
+      const message=error?.message||String(error);
+      console.warn(`GridPuzzle service worker: ${message} (${target.href})`);
+      return new Response(message,{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+    }
   })());
 });
 let downloading=false;
@@ -227,7 +239,7 @@ self.addEventListener("message",event=>{
         port.postMessage({done:true,ready:await offlineReadyFast(assets)});return;
       }
       if(event.data?.type!=="PREPARE_OFFLINE")throw Error("Unknown offline task");
-      if(downloading)throw Error("Offline preparation is already running in another tab.");
+      if(downloading)throw Error("Offline preparation is already running. Wait for it to finish, then check the status again.");
       downloading=true;
       try{
         const cache=await contentCache();

@@ -618,15 +618,22 @@ button:focus-visible,
 select:focus-visible,
 input:focus-visible,
 summary:focus-visible {
-  outline: 3px solid #74b5a6;
+  outline: 3px solid var(--teal);
   outline-offset: 3px;
 }
 @media (max-width: 760px) {
   .masthead {
-    padding: max(20px, calc(env(safe-area-inset-top) + 10px)) 18px 0;
+    padding: max(20px, calc(env(safe-area-inset-top) + 10px)) max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
   }
   main {
-    padding: 0 14px;
+    padding: 0 max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left));
+  }
+  /* iOS Safari zooms the page when a control smaller than 16 px gains focus
+     and leaves it zoomed. Every field on the phone layout stays at 16 px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
   .intro {
     padding: 26px 4px 18px;

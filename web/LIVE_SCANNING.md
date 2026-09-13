@@ -24,6 +24,10 @@ yellow. Inferred family/box settings and all OCR warnings are preserved when
 **Review captured clues** transfers a capture to the editor. The usual confirmation
 requirement still applies to Solve, Check and Hint there.
 
+If the detected grid contradicts the selected rules (a 9 × 6 board while Sudoku
+is selected, a 12 × 12 Str8ts), the outline is shown with the reason and no
+cell overlay is attempted until the type or the grid settings change.
+
 The camera waits for stable detections and chooses the sharper sampled frame.
 Local image changes invalidate the overlay and cancel obsolete recognition and
 solving. Only one recognition job and one preview solve are active. Once a
@@ -44,7 +48,10 @@ are never explicitly captured are never stored.
 
 **Save picture** freezes and stores the exact annotated camera frame that was on
 screen, including the colour legend and PREVIEW label. The camera stops and the
-picture remains on the same screen. It is not a fresh, differently positioned
+picture remains on the same screen, also when the page is hidden meanwhile (an
+app switch, the lock screen, a download prompt): only a live camera is released
+on hide, a captured still holds no camera. Escape closes the camera panel like a
+dialog and returns focus to the Scan button. It is not a fresh, differently positioned
 camera frame, and the coloured overlay is never fed back into OCR.
 
 The latest captured PNG is saved as exact binary bytes in this browser's IndexedDB,

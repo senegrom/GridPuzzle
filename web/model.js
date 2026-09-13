@@ -116,6 +116,10 @@ export function checkShape(p) {
     throw Error("Black-cell metadata is only supported for Str8ts.");
   if (p.type === "str8ts" && (p.rows !== p.cols || p.rows < 2 || p.rows > 9))
     throw Error("Str8ts requires a square board from 2 × 2 through 9 × 9.");
+  // Name the actual problem for a Str8ts # outside the black list before the
+  // generic range check would report it as an out-of-range value.
+  if (p.type === "str8ts")
+    p.cells.forEach((v, i) => { if (v === "#" && !black.has(i)) throw Error("Every # Str8ts cell must be listed as black."); });
   const maximum = maxValue(p);
   p.cells.forEach((v, i) => {
     if (v === null) return;
@@ -129,7 +133,6 @@ export function checkShape(p) {
   });
   if (p.type === "str8ts") {
     for (const i of black) if (p.cells[i] === null) throw Error("A Str8ts black cell must contain # or a numbered clue.");
-    p.cells.forEach((v, i) => { if (v === "#" && !black.has(i)) throw Error("Every # Str8ts cell must be listed as black."); });
   }
   for (const key of ["boxRows", "boxCols"])
     if (p[key] !== undefined) dimension(p[key]);

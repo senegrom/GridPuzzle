@@ -61,3 +61,32 @@ def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path)
         data = (tmp_path / Path(asset["path"])).read_bytes()
         assert hashlib.sha256(data).hexdigest() == asset["sha256"]
         assert len(data) == asset["bytes"]
+
+
+def test_solver_archive_is_reproducible(monkeypatch, tmp_path):
+    build = "111111111111"
+    monkeypatch.setattr(build_web.subprocess, "check_output", lambda *a, **k: build + "0" * 28)
+    monkeypatch.setattr(build_web, "icon", lambda size, path: None)
+
+    def package(name, version, integrity, temporary):
+        root = temporary / name.replace("/", "_")
+        files = {
+            "pyodide": ["pyodide.mjs", "pyodide.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"],
+            "tesseract.js": ["dist/tesseract.min.js", "dist/worker.min.js"],
+            "tesseract.js-core": ["tesseract-core-lstm.wasm", "tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm.js"],
+            "@tesseract.js-data/eng": ["best_int/eng.traineddata.gz"],
+        }[name]
+        for file in files:
+            path = root / file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"bytes of {name}/{file}", encoding="utf-8")
+        return root, integrity
+
+    monkeypatch.setattr(build_web, "package", package)
+    archives = []
+    for attempt in ("one", "two"):
+        out = tmp_path / attempt
+        out.mkdir()
+        build_web.build(out)
+        archives.append((out / f"solver.{build}.zip").read_bytes())
+    assert archives[0] == archives[1], "identical sources must produce an identical solver archive"

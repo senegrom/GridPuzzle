@@ -4,7 +4,7 @@
 const JPEG_FRAMES = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
 ]);
-export function sniffDimensions(bytes, fileSize = bytes.length) {
+export function sniffDimensions(bytes, fileSize = bytes?.length) {
   if (!(bytes instanceof Uint8Array)) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const text = (at, value) => at + value.length <= bytes.length &&

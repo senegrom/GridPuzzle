@@ -63,7 +63,7 @@ async function enter(page, cell, value) {
       await page.selectOption("#edit-tool", "play");
       assert.equal(await page.locator("#check-play").isVisible(), true);
       assert.equal(await page.locator("#hint-play").isVisible(), true);
-      assert.equal(await page.locator("#solve").innerText(), "Reveal solution →");
+      assert.equal(await page.locator("#solve-label").innerText(), "Reveal solution");
       await page.click('[data-cell="0"]');
       assert.match(await statusText(page), /printed clue/);
       await page.click('[data-cell="2"]');

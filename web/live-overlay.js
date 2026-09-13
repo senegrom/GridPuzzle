@@ -30,27 +30,37 @@ export function overlayCells(found, result = null) {
   });
 }
 
-export function previewAllowed(found) {
+// Why a reading cannot carry a solution preview yet, or null when it can. The
+// message names the actual obstacle instead of blaming red cells for everything.
+const UNREAD = "Red ? cells are printed marks that could not be read. Move closer for a clearer read.";
+export function previewBlocker(found) {
   try {
-    checkSolveReady(found.puzzle);
     const p = found.puzzle;
-    if ((!p.cells.some(Number.isInteger) && !p.cages.length && !p.clues.length && !p.inequalities.length) || conflicts(p).size) return false;
+    checkSolveReady(p);
+    if (!p.cells.some(Number.isInteger) && !p.cages.length && !p.clues.length && !p.inequalities.length)
+      return "No printed clues were read yet. Move closer for a clearer read.";
+    if (conflicts(p).size) return "Conflicting readings (yellow) must be corrected before a solution can be shown.";
     const marked = new Set(found.markedCells ?? []);
-    for (const cell of Array.isArray(found.markedCells) ? [] : found.cellUncertain ?? found.uncertain ?? []) {
-      if (found.puzzle.cells[cell] === null) return false;
-    }
-    for (const cell of marked) if (!Number.isInteger(found.puzzle.cells[cell])) return false;
-    return true;
-  } catch { return false; }
+    for (const cell of Array.isArray(found.markedCells) ? [] : found.cellUncertain ?? found.uncertain ?? [])
+      if (p.cells[cell] === null) return UNREAD;
+    for (const cell of marked) if (!Number.isInteger(p.cells[cell])) return UNREAD;
+    return null;
+  } catch (error) {
+    return `${error?.message || "The readings are incomplete."} Check the readings and the puzzle type.`;
+  }
 }
+export const previewAllowed = (found) => previewBlocker(found) === null;
 
 export function drawLiveOverlay(ctx, width, height, corners, found, result = null) {
   if (!validQuad(corners, width, height) || !found?.puzzle) return;
   const { rows, cols } = found.puzzle, m = homography(corners);
+  // Classify before touching the context state: a rejected puzzle shape must
+  // not leave an unbalanced save() behind.
+  const items = overlayCells(found, result);
   ctx.save();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
-  for (const item of overlayCells(found, result)) {
+  for (const item of items) {
     const r = Math.floor(item.cell / cols), c = item.cell % cols;
     const a = project(m, (c + .5) / cols, (r + .5) / rows);
     const left = project(m, c / cols, (r + .5) / rows);

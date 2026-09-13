@@ -264,7 +264,11 @@ def build(out):
             entry = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
             entry.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(entry, source.read_bytes())
-        archive.writestr("LICENSE", (ROOT / "LICENSE").read_bytes())
+        # The same fixed timestamp as the modules: identical sources must
+        # produce an identical archive digest so the offline cache can reuse it.
+        licence = zipfile.ZipInfo("LICENSE", date_time=(2020, 1, 1, 0, 0, 0))
+        licence.compress_type = zipfile.ZIP_DEFLATED
+        archive.writestr(licence, (ROOT / "LICENSE").read_bytes())
     provenance = []
     with tempfile.TemporaryDirectory() as temporary:
         for name, (version, pinned) in PACKAGES.items():

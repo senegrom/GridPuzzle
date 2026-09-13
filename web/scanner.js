@@ -294,9 +294,13 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
       if (puzzle.cells[i] === "#") {
         const clue = { cell: i };
         for (const d of ["across", "down"]) {
-          const e = triangles.find((e) => e.cell === i && e.kind === d);
+          const e = triangles.find((e) => e.cell === i && e.kind === d),
+            raw = entries.find((entry) => entry.cell === i && entry.kind === d),
+            note = "A Kakuro target could not be read. Check the highlighted black cells.";
           if (e && +e.text >= 1 && +e.text <= 45) clue[d] = +e.text;
-          else if (e) notes.push("A Kakuro target could not be read. Check the highlighted black cells.");
+          // A triangle that read as something other than 1..45 (a stray operator,
+          // a third digit) is an unread target too, not a blank corner.
+          else if ((e || raw?.text) && !notes.includes(note)) notes.push(note);
         }
         if (clue.across || clue.down) puzzle.clues.push(clue);
         uncertain.add(i);
@@ -426,7 +430,7 @@ export class Scanner {
           onProgress(data.message, data.progress);
           return;
         }
-        end(data.error ? Error(data.error) : null, data.result);
+        end("error" in data ? Error(data.error || "Image processing failed") : null, data.result);
       };
       worker.onerror = (e) =>
         end(Error(e.message || "Image processing failed"), null, true);
@@ -497,24 +501,25 @@ export class Scanner {
     const crops = new Map();
     entries.forEach((e, i) => {
       const isDigit = ["value", "blackvalue"].includes(e.kind),
+        // White-on-black triangle and label crops are inverted per pixel by
+        // grayCrop: canvas filters are unsupported in shipping Safari, where
+        // ctx.filter = "invert(1)" is a silent no-op.
+        cropped = isDigit || e.invert,
         source = isDigit
           ? digitCrop(e, g, w, h, cw, ch, cols)
           : e.invert
-            ? rectified
+            ? grayCrop(e, g, w, h, cw, ch, cols)
             : bw,
-        sx = isDigit ? 0 : e.x,
-        sy = isDigit ? 0 : e.y,
-        sw = isDigit ? source.width : e.w,
-        sh = isDigit ? source.height : e.h,
+        sx = cropped ? 0 : e.x,
+        sy = cropped ? 0 : e.y,
+        sw = cropped ? source.width : e.w,
+        sh = cropped ? source.height : e.h,
         scale = Math.min((tile * 74) / 112 / sw, (tile * 72) / 112 / sh),
         dw = sw * scale,
         dh = sh * scale,
         x = (i % columns) * tile + (tile - dw) / 2,
         y = Math.floor(i / columns) * tile + (tile - dh) / 2;
-      ctx.save();
-      if (!isDigit && e.invert) ctx.filter = "invert(1)";
       ctx.drawImage(source, sx, sy, sw, sh, x, y, dw, dh);
-      ctx.restore();
       if (isDigit) crops.set(i, source);
     });
     const singles = digitSamples(entries, crops, g, w, h, cw, ch, cols);

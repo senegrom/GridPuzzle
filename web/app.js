@@ -84,10 +84,19 @@ const storage = {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch {
-      /* Private/storage-full mode must not break solving. */
+      // Private/storage-full mode must not break solving, but the promised
+      // autosave is broken: say so once, after the current action's status.
+      if (storageWarned) return;
+      storageWarned = true;
+      queueMicrotask(() => status(
+        "Your puzzle is not being saved in this browser.",
+        "Private browsing or full storage blocks autosave. Export the puzzle as JSON to keep it.",
+        "warning",
+      ));
     }
   },
 };
+let storageWarned = false;
 for (const [value, label] of Object.entries(TYPES)) {
   const option = document.createElement("option");
   option.value = value;
@@ -586,8 +595,10 @@ function render({ replaceDraft = false } = {}) {
       (option.value === "cage" && !isCage(p.type)) ||
       (option.value === "inequality" && p.type !== "futoshiki") ||
       (option.value === "play" && !playable(p));
-  if ($("edit-tool").selectedOptions[0]?.disabled)
+  if ($("edit-tool").selectedOptions[0]?.disabled) {
     $("edit-tool").value = "value";
+    savePrefs();
+  }
   $("cage-editor").hidden = $("edit-tool").value !== "cage";
   $("inequality-editor").hidden = $("edit-tool").value !== "inequality";
   $("cage-op").disabled = p.type === "killersudoku";
@@ -626,29 +637,39 @@ function render({ replaceDraft = false } = {}) {
     ? `${state.cageUncertain.size} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.`
     : "";
   $("review-note").textContent = [checkMessage, cageMessage, ...state.notes].filter(Boolean).join("\n");
-  $("solve").textContent = playing
-    ? "Reveal solution →"
+  // Only the label changes; the decorative arrow stays hidden from readers.
+  $("solve-label").textContent = playing
+    ? "Reveal solution"
     : review
-      ? "Check & solve →"
-      : "Solve puzzle →";
+      ? "Check & solve"
+      : "Solve puzzle";
 }
 const boxDefault = boxShape;
 applyType.onclick = () => {
   try {
     const type = $("puzzle-type").value,
-      next = changePuzzleType(state.puzzle, type, state.blackReadings);
+      next = changePuzzleType(state.puzzle, type, state.blackReadings),
+      // Black-cell readings larger than the board cannot become Str8ts clues;
+      // the conversion drops them, so say so rather than claiming every
+      // reading was kept.
+      dropped = type === "str8ts" && state.puzzle.type !== "str8ts"
+        ? state.blackReadings.filter((entry) => entry.value > state.puzzle.rows).length
+        : 0;
     mutate((draft) => {
       draft.puzzle = next;
       if (!isCage(type)) draft.cageUncertain.clear();
       draft.needsReview = draft.needsReview || Boolean(state.photo) || draft.uncertain.size > 0;
       draft.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
+        ...(dropped ? [`${dropped} black-cell reading${dropped === 1 ? "" : "s"} exceeded the board size and ${dropped === 1 ? "was" : "were"} not applied; those cells stay highlighted for review.`] : []),
       ];
       draft.selected = [];
     });
     status(
       `Using ${TYPES[type]}.`,
-      "Printed clues and retained black-cell readings are preserved. Check the rules before solving.",
+      dropped
+        ? `Printed clues are preserved. ${dropped} black-cell reading${dropped === 1 ? "" : "s"} did not fit this board and ${dropped === 1 ? "stays" : "stay"} highlighted. Check the rules before solving.`
+        : "Printed clues and retained black-cell readings are preserved. Check the rules before solving.",
     );
   } catch (error) {
     fail(error);
@@ -1251,8 +1272,12 @@ function solveNow() {
   state.result = null;
   state.solution = 0;
   state.view = "board";
-  // Revealing the solution is the end of play mode for this board.
-  if (playMode()) $("edit-tool").value = "value";
+  // Revealing the solution is the end of play mode for this board, and the
+  // saved preference must agree or a reload would show the answers again.
+  if (playMode()) {
+    $("edit-tool").value = "value";
+    savePrefs();
+  }
   persist();
   render();
   runSolver((r) => {
@@ -1358,8 +1383,12 @@ $("apply-layout").onclick = () => {
           ? state.puzzle.type
           : $("puzzle-type").value;
     const next = makePuzzle(type, rows, cols);
-    next.boxRows = Number($("box-rows").value);
-    next.boxCols = Number($("box-cols").value);
+    // The box fields are hidden for families without boxes; a blank or stale
+    // value there must neither fail the layout nor leak into the puzzle.
+    if (["sudoku", "killersudoku"].includes(type)) {
+      next.boxRows = Number($("box-rows").value);
+      next.boxCols = Number($("box-cols").value);
+    } else [next.boxRows, next.boxCols] = boxShape(rows);
     checkShape(next);
     if (
       type === state.puzzle.type &&

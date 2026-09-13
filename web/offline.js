@@ -31,9 +31,16 @@ export function setupOffline($) {
       try {
         channel = new MessageChannel();
         controller.signal.addEventListener("abort", cancel, { once: true });
-        timeout = setTimeout(() => settle(
-          Error("Offline preparation did not finish. Go online and retry."),
-        ), 300000);
+        // An inactivity deadline: tens of megabytes on a slow connection can
+        // legitimately take longer than five minutes, but a download that
+        // stops reporting progress for that long has stalled.
+        const arm = () => {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => settle(
+            Error("Offline preparation did not finish. Go online and retry."),
+          ), 300000);
+        };
+        arm();
         channel.port1.onmessage = ({ data: m }) => {
           if (settled) return;
           if (!m || typeof m !== "object") {
@@ -42,7 +49,7 @@ export function setupOffline($) {
           }
           if (m.done || m.error) {
             settle(m.error ? Error(m.error) : null, m);
-          } else if (m.progress !== undefined) onProgress(m);
+          } else if (m.progress !== undefined) { arm(); onProgress(m); }
         };
         channel.port1.onmessageerror = () => settle(
           Error("Could not read the offline worker response. Retry."),

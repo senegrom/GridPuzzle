@@ -49,6 +49,7 @@ export function setupPhotoFlow({
     stream = null;
     $("video").srcObject = null;
     $("camera-panel").hidden = true;
+    captured = null;
   }
   async function openCamera() {
     stopTask();
@@ -78,7 +79,15 @@ export function setupPhotoFlow({
         return;
       }
       stream = acquired;
+      // Listen before playback starts: a track can end while the browser is
+      // still deciding whether to play, and a dead stream must not sit behind
+      // a "Start preview" button.
+      for (const track of acquired.getTracks())
+        track.addEventListener?.("ended", () => {
+          if (epoch === cameraEpoch) { stopCamera(); status("Camera disconnected.", "Your saved pictures and puzzle are unchanged.", "warning"); }
+        }, { once: true });
       $("camera-panel").hidden = false;
+      $("close-camera").focus?.();
       // Set the properties as well as the HTML attributes before assigning a
       // MediaStream. WebKit can require explicit muted inline playback.
       const video = $("video");
@@ -135,11 +144,6 @@ export function setupPhotoFlow({
       };
       pendingPlayback = startPreview;
       await startPreview();
-      if (epoch !== cameraEpoch) return;
-      for (const track of acquired.getTracks())
-        track.addEventListener?.("ended", () => {
-          if (epoch === cameraEpoch) { stopCamera(); status("Camera disconnected.", "Your saved pictures and puzzle are unchanged.", "warning"); }
-        }, { once: true });
     } catch (e) {
       if (epoch !== cameraEpoch) return;
       stopCamera();
@@ -152,7 +156,16 @@ export function setupPhotoFlow({
     }
   }
   $("camera").onclick = openCamera;
-  $("close-camera").onclick = stopCamera;
+  const closeCamera = () => {
+    stopCamera();
+    status("Camera closed.", "Your puzzle and saved pictures are unchanged.");
+    $("camera").focus?.();
+  };
+  $("close-camera").onclick = closeCamera;
+  document.addEventListener("keydown", (event) => {
+    // The camera panel covers the whole screen; Escape must leave it like a dialog.
+    if (event.key === "Escape" && !$("camera-panel").hidden) { event.preventDefault?.(); closeCamera(); }
+  });
   $("start-camera").onclick = () => {
     if (!pendingPlayback) return;
     // Reset a stalled element on the user gesture, retaining the granted stream.
@@ -169,6 +182,7 @@ export function setupPhotoFlow({
       captured = picture;
       $("camera-panel").hidden = false;
       document.body?.classList.add("camera-open");
+      $("close-camera").focus?.();
       $("take-photo").hidden = true;
       $("retake-photo").hidden = false;
       // Without a live reading the picture still goes to the crop editor, so
@@ -219,6 +233,9 @@ export function setupPhotoFlow({
       };
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
+      // The crop editor may still show an earlier import; this capture is
+      // reviewed on the board.
+      $("photo-panel").hidden = true;
       setLayout(found.puzzle);
       state.puzzleSource = state.photoSource = getJobId();
       persist(); render({ replaceDraft: true });
@@ -643,7 +660,10 @@ export function setupPhotoFlow({
   }
   $("read-photo").onclick = () => void readPhoto();
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopCamera();
+    // Release the camera when the page is hidden. A captured still holds no
+    // camera resource, and its review path must survive an app switch, the
+    // lock screen or a download prompt.
+    if (document.hidden && !(captured && !stream && !live)) stopCamera();
   });
 
   return { stopCamera };

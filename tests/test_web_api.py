@@ -110,3 +110,15 @@ def test_browser_str8ts_numbered_black_cell():
     result = solve_payload(p)
     assert result["status"] == "unique"
     assert result["solutions"][0]["cells"] == [1,2,3,2,3,1,3,1,2]
+
+
+def test_unexpected_solver_exception_is_reported_not_raised(monkeypatch):
+    import gridsolver.web_api as web_api
+
+    def explode(payload):
+        raise RuntimeError('unexpected solver state')
+
+    monkeypatch.setattr(web_api, 'build_grid', explode)
+    result = json.loads(solve_json('{"type": "sudoku", "rows": 4, "cols": 4, "cells": ' + json.dumps([None] * 16) + '}'))
+    assert result['status'] == 'error'
+    assert 'RuntimeError' in result['message']
