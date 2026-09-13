@@ -20,6 +20,6 @@ self.onmessage = ({ data }) => {
       : [];
     self.postMessage({ result }, transfer);
   } catch (error) {
-    self.postMessage({ error: error.message });
+    self.postMessage({ error: error?.message || String(error) });
   }
 };

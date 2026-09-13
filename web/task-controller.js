@@ -16,6 +16,7 @@ export function createTaskController({ $, scanner, status, onStop }) {
     clearDeadline();
     $("stop").hidden = true;
     $("solve").disabled = false;
+    $("check-play").disabled = $("hint-play").disabled = false;
     $("progress").hidden = true;
     $("status").setAttribute("aria-busy", "false");
   };
@@ -50,7 +51,10 @@ export function createTaskController({ $, scanner, status, onStop }) {
       busy = true;
       started = performance.now();
       $("stop").hidden = false;
+      // Check and Hint start private solves too; a second tap must not cancel
+      // a nearly finished one and throw the warm interpreter away.
       $("solve").disabled = true;
+      $("check-play").disabled = $("hint-play").disabled = true;
       $("status").setAttribute("aria-busy", "true");
       timer = setInterval(() => {
         $("status-detail").textContent =

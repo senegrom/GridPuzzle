@@ -19,7 +19,11 @@ async function ensureRuntime(status) {
   loaded.runPython("from gridsolver.web_api import solve_json");
   runtime = loaded;
 }
-let warming = null;
+// One load at a time: a solve arriving during warm-up, or two solves before
+// the runtime is ready, share the same download instead of starting another.
+let loading = null;
+const load = (status) =>
+  (loading ??= ensureRuntime(status).finally(() => { loading = null; }));
 self.onmessage = async ({ data }) => {
   const { id, puzzle, type } = data;
   const status = (message) => self.postMessage({ id, type: "status", message });
@@ -27,29 +31,32 @@ self.onmessage = async ({ data }) => {
     // Load the runtime ahead of the first request. Failures are reported
     // without an id and simply leave the next solve to load it again.
     try {
-      warming = warming || ensureRuntime(() => {});
-      await warming;
+      await load(() => {});
       self.postMessage({ type: "ready" });
     } catch (error) {
       runtime = null;
       self.postMessage({ type: "warm-error", message: error.message || String(error) });
-    } finally {
-      warming = null;
     }
     return;
   }
+  let ready = false;
   try {
-    if (warming) await warming;
-    await ensureRuntime(status);
+    await load(status);
+    ready = true;
     status("Solving and checking uniqueness…");
     runtime.globals.set("_browser_payload", JSON.stringify(puzzle));
-    const result = JSON.parse(
-      runtime.runPython("solve_json(_browser_payload)"),
-    );
-    runtime.globals.delete("_browser_payload");
-    self.postMessage({ id, type: "result", result });
+    let text;
+    try {
+      text = runtime.runPython("solve_json(_browser_payload)");
+    } finally {
+      runtime.globals.delete("_browser_payload");
+    }
+    self.postMessage({ id, type: "result", result: JSON.parse(text) });
   } catch (error) {
-    runtime = null;
+    // A Python exception leaves the interpreter healthy, so keep it. Only a
+    // runtime that failed to load, or a JavaScript-side failure, is discarded
+    // so that the next request loads a fresh interpreter.
+    if (!ready || error?.name !== "PythonError") runtime = null;
     self.postMessage({
       id,
       type: "result",

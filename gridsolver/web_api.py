@@ -252,4 +252,8 @@ def solve_json(text):
         result = solve_payload(payload)
     except (TypeError, ValueError, KeyError) as exc:
         result = {'status': 'invalid', 'message': str(exc)}
+    except Exception as exc:
+        # The browser must never see a raw traceback; an unexpected failure is
+        # a solver error, not invalid puzzle data, and the interpreter stays usable.
+        result = {'status': 'error', 'message': f'{type(exc).__name__}: {exc}'}
     return json.dumps(result)

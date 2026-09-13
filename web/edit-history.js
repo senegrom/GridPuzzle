@@ -43,6 +43,11 @@ export function prepareEdit(state, edit) {
   draft.selected = [...state.selected];
   edit(draft);
   checkShape(draft.puzzle);
+  // Indices recorded before the edit must still lie inside the edited board.
+  const inside = (i) => Number.isInteger(i) && i >= 0 && i < draft.puzzle.cells.length;
+  draft.uncertain = new Set([...draft.uncertain].filter(inside));
+  draft.cageUncertain = new Set([...draft.cageUncertain].filter(inside));
+  draft.selected = draft.selected.filter(inside);
   draft.blackReadings = fitBlackReadings(draft.puzzle, draft.blackReadings);
   draft.play = fitPlay(draft.puzzle, draft.play);
   draft.hints = new Set(

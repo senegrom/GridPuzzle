@@ -130,7 +130,7 @@ async function run() {
         // shutter must still lead somewhere: the exact frame enters the crop editor.
         await page.evaluate(()=>{document.getElementById("auto-capture").checked=false;});
         await startLive(page);
-        await page.waitForFunction(()=>/Automatic reading paused/.test(document.getElementById("camera-help").textContent));
+        await page.waitForFunction(()=>/Automatic reading is paused/.test(document.getElementById("camera-help").textContent));
         await page.click("#take-photo");
         await page.waitForFunction(()=>!document.getElementById("use-live-capture").hidden);
         assert.match(await page.textContent("#use-live-capture"),/Crop and read/);

@@ -108,7 +108,10 @@ test("later updates retain live owners without extending closed workers' archive
   h.workers(["new-worker"]);
   fetch = await h.activate(fourth);
   assert.equal((await fetch(`solver.${first}.zip`)).status, 404, "a newer worker cannot keep an obsolete archive alive");
-  assert.equal((await fetch(`solver.${third}.zip`)).status, 200);
+  // new-worker appeared at the third update, so it runs build two: that archive
+  // stays, while build three, which no live client ever ran, is released.
+  assert.equal((await fetch(`solver.${second}.zip`)).status, 200);
+  assert.equal((await fetch(`solver.${third}.zip`)).status, 404, "a worker owns only the build it loaded");
   const content = h.stores.get(prefix + "content-v1");
   const oldDigest = createHash("sha256").update(`solver ${first}`).digest("hex");
   assert.equal(await content.match(scope + ".gridpuzzle-cache/" + oldDigest), undefined);

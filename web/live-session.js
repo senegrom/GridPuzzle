@@ -1,4 +1,4 @@
-import { sameFrame, previewAllowed } from "./live-overlay.js";
+import { sameFrame, previewBlocker } from "./live-overlay.js";
 import { sameGridContent } from "./live-content.js";
 import { clone, checkShape } from "./model.js";
 
@@ -8,9 +8,17 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   let active = false, generation = 0, pending = false, preview = null;
   let reference = null, best = null, stable = 0, attempts = 0, lastRead = -Infinity, lastSharpness = 0, deadline = null;
   function clearDeadline() { clearTimer(deadline); deadline = null; }
+  // A frame's pixels are needed only until recognition has read them. Zeroing
+  // a canvas releases its backing store promptly, which matters on phones.
+  const release = (frame) => {
+    const image = frame?.image;
+    if (!image) return;
+    frame.image = null;
+    if (typeof image.width === "number") { try { image.width = image.height = 0; } catch { /* plain data */ } }
+  };
   const publish = (value) => { preview = value; onChange(value); };
   function reset() {
-    generation++; clearDeadline(); pending = false; stable = 0; attempts = 0; best = null; reference = null;
+    generation++; clearDeadline(); pending = false; stable = 0; attempts = 0; release(best); best = null; reference = null;
     lastRead = -Infinity; lastSharpness = 0; cancelRead(); cancelSolve(); publish(null);
   }
   function validate() {
@@ -37,7 +45,8 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     stable++;
     // A pending read owns its sample. Do not retain other old images that can
     // out-rank the fresh frame after its pixels have been released.
-    if (!pending && (!best || frame.sharpness >= best.sharpness)) best = frame;
+    if (!pending && (!best || frame.sharpness >= best.sharpness)) { if (best !== frame) release(best); best = frame; }
+    else release(frame);
     if (preview) { preview = { ...preview, corners: frame.corners }; onChange(preview); }
     // Keep the battery-saving backoff for unchanged images, but autofocus can
     // deliver genuinely better evidence without moving the grid. Let a large
@@ -77,14 +86,13 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         // The sampled pixels have served recognition once the read settles;
         // only the signature and geometry are needed afterwards.
         try { found = await read(sample, (message) => { if (current()) onStatus(message); }); }
-        finally { sample.image = null; }
+        finally { release(sample); }
         if (!current()) return;
         clearDeadline();
         checkShape(found.puzzle);
         publish({ found, result: null, corners: reference.corners, sample });
-        if (!previewAllowed(found)) {
-          onStatus("Check yellow readings; red ? cells are not yet resolved. Move closer for a clearer read."); return;
-        }
+        const blocker = previewBlocker(found);
+        if (blocker) { onStatus(blocker); return; }
         onStatus("Finding a solution on this device…");
         const result = await solve(clone(found.puzzle));
         if (!current()) return;

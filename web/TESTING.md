@@ -129,3 +129,18 @@ and deadline recovery, keeping exact displayed-PNG capture and colour checks.
 `web/tests/fragmented-clues.test.js` covers complete fragmented crops in both ink
 polarities and trailing digits, rejected speckles, unchanged connected glyphs,
 and mandatory review/red unknown status before any solver-backed blue entries.
+
+## Review hardening (2026-09-13)
+
+`web/tests/review-hardening.test.js` covers the fixes from the webapp code review:
+a captured still survives the page being hidden while a live camera is released,
+track-ended listeners are attached before playback is awaited, Escape closes the
+camera panel and restores focus, the preview blocker names the real obstacle,
+an invalid guide puzzle leaves the canvas state balanced and produces a message
+instead of a per-frame error, the saved-picture download reuses its long-lived
+object URL, a version-1 picture database without its store is reset, a running
+task disables Check and Hint, Str8ts `#` cells outside the black list are named,
+board-shrinking edits drop stale indices, and the solver worker keeps its
+interpreter across Python exceptions while retrying failed loads. The runtime
+tests additionally pin that one long-lived tab no longer retains every later
+build, and that an ambiguous legacy dependency answers with a legible 502.

@@ -123,13 +123,16 @@ test("later clients do not extend the lifetime of old dependency graphs", async 
   const h = runtimeUpdates(), oldRead = await h.activate(first);
   for (const path of Object.keys(h.files(first))) await oldRead(path);
   h.clients(["old-tab"]); await h.activate(second);
+  // middle-tab appears here, so it loaded build two; it never ran build three.
   h.clients(["old-tab", "middle-tab"]); await h.activate(third);
   h.clients(["middle-tab"]); const read = await h.activate(fourth);
   assert.equal(h.stores.has(prefix + `meta:${first}`), false);
   assert.equal(await h.cached(first, h.root(first) + "pyodide.asm.wasm"), false);
   assert.equal((await read(h.root(first) + "pyodide.asm.wasm")).status, 404);
+  assert.equal(h.stores.has(prefix + `meta:${second}`), true, "the surviving tab's own build stays");
+  assert.equal(h.stores.has(prefix + `meta:${third}`), false, "a build no live client ever ran is released");
   h.offline(true);
-  assert.equal(await (await read(h.root(third) + "pyodide.asm.wasm")).text(), `WASM ${third}`);
+  assert.equal(await (await read(h.root(second) + "pyodide.asm.wasm", "middle-tab")).text(), `WASM ${second}`);
 });
 
 test("navigation loads the new app even when the old document has a retained manifest", async () => {
@@ -158,7 +161,9 @@ test("unidentified legacy clients never receive a guessed dependency from confli
     assert.equal(await (await two(path, "second-tab")).text(), h.files(second)[path]);
   h.clients(["old-tab", "second-tab"]); const three = await h.activate(third);
   h.offline(true); const count = h.requests.length;
-  await assert.rejects(three("vendor/pyodide/pyodide.asm.wasm", "unlisted-worker"), /Cannot identify the outgoing runtime version/);
+  const ambiguous = await three("vendor/pyodide/pyodide.asm.wasm", "unlisted-worker");
+  assert.equal(ambiguous.status, 502, "ambiguous legacy bytes fail closed with a legible status");
+  assert.match(await ambiguous.text(), /Cannot identify the outgoing runtime version/);
   assert.equal(await (await three("vendor/pyodide/pyodide.mjs", "unlisted-worker")).text(), "identical module with relative imports");
   assert.equal(h.requests.length, count, "ambiguous bytes must fail closed, not fall back to the origin");
 });
@@ -184,3 +189,14 @@ for (const failure of ["evicted manifest", "retention index write"])
     for (const path of ["index.html", `solver.${first}.zip`, h.root(first) + "pyodide.asm.wasm"])
       assert.equal(await (await read(path, "tab")).text(), h.files(first)[path], path);
   });
+
+test("one long-lived tab does not become the owner of every later build", async () => {
+  const h = runtimeUpdates(), one = await h.activate(first);
+  for (const path of Object.keys(h.files(first))) await one(path);
+  h.clients(["old-tab"]); await h.activate(second);
+  h.clients(["old-tab"]); await h.activate(third);
+  h.clients(["old-tab"]); await h.activate(fourth);
+  assert.equal(h.stores.has(prefix + `meta:${first}`), true, "the tab's own build stays retained");
+  assert.equal(h.stores.has(prefix + `meta:${second}`), false, "the tab never ran build two");
+  assert.equal(h.stores.has(prefix + `meta:${third}`), false, "nor build three");
+});

@@ -20,6 +20,15 @@ export function captureTransaction(mode, operation, { indexedDB = globalThis.ind
       open.onsuccess = () => {
         db = open.result;
         if (ended) { db.close(); return; }
+        if (!db.objectStoreNames.contains(STORE)) {
+          // An interrupted first upgrade can leave a version-1 database
+          // without the store, and onupgradeneeded never runs again for it.
+          // Reset it so the next attempt starts cleanly.
+          db.close(); db = null;
+          try { indexedDB.deleteDatabase(DB); } catch { /* best effort */ }
+          finish(Error("Picture storage was reset. Retry saving."));
+          return;
+        }
         db.onversionchange = () => db.close();
         try {
           transaction = db.transaction(STORE, mode);
@@ -96,15 +105,17 @@ export function setupCaptureGallery($, { load = loadCapture, save = saveCapture,
   }
   function download() {
     if (!latest) return;
-    const link = document.createElement("a"), url = URL.createObjectURL(latest.blob);
+    // Reuse the gallery's URL for the same blob: a download prompt (iOS) can
+    // fetch it well after the click, so a short-lived URL would fail.
+    const link = document.createElement("a"), owned = !objectURL, url = objectURL ?? URL.createObjectURL(latest.blob);
     link.href = url; link.download = `gridpuzzle-scan-${new Date(latest.createdAt).toISOString().replace(/[:.]/g, "-")}.png`;
-    link.click(); setTimeout(() => URL.revokeObjectURL(url), 3000);
+    link.click(); if (owned) setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
   $("download-capture").onclick = $("download-live-capture").onclick = download;
   $("delete-capture").onclick = async () => {
     const id = ++revision; $("delete-capture").disabled = true;
     try { await remove(); if (id === revision) { show(null); $("capture-storage-status").textContent = "Saved picture deleted from this browser."; } }
-    catch (error) { if (id === revision) $("capture-storage-status").textContent = error.message; }
+    catch (error) { if (id === revision) $("capture-storage-status").textContent = error.message || error.name || "Could not delete the saved picture."; }
     finally { $("delete-capture").disabled = false; }
   };
   const id = revision;
@@ -122,7 +133,7 @@ export function setupCaptureGallery($, { load = loadCapture, save = saveCapture,
       if (id === revision) $("capture-storage-status").textContent = "Picture saved in this browser. Download PNG to keep a separate copy.";
       return id === revision;
     } catch (error) {
-      if (id === revision) $("capture-storage-status").textContent = `${error.message} This picture is still available to download.`;
+      if (id === revision) $("capture-storage-status").textContent = `${error.message || error.name || "Could not save the picture."} This picture is still available to download.`;
       return false;
     }
   };
