@@ -1,3 +1,4 @@
+import { createOCRRuntime } from "./ocr-runtime.js";
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
@@ -379,15 +380,31 @@ export class Scanner {
   constructor() {
     this.epoch = 0;
     this.jobs = new Set();
+    // One warm OCR engine and one geometry worker per scanner. Starting a
+    // Tesseract worker and loading its language costs more than a whole read
+    // on a phone, so successive reads must not pay it again.
+    this.ocr = createOCRRuntime();
+    this.geometryWorker = null;
+    this.geometryBusy = false;
   }
-  cancel() {
+  prepare() { this.ocr.prepare(); }
+  cancel({ keepEngine = false } = {}) {
     this.epoch++;
+    if (keepEngine) this.ocr.cancel();
+    else this.ocr.dispose();
     for (const job of this.jobs) job.cancel();
     this.jobs.clear();
+    if (!keepEngine && this.geometryWorker) {
+      this.geometryWorker.terminate(); this.geometryWorker = null; this.geometryBusy = false;
+    }
   }
   _request(path, payload, onProgress = () => {}, type = "module") {
     return new Promise((resolve, reject) => {
-      const worker = new Worker(new URL(path, import.meta.url), { type });
+      const geometry = path === "geometry-worker.js";
+      const worker = geometry && this.geometryWorker && !this.geometryBusy
+        ? this.geometryWorker : new Worker(new URL(path, import.meta.url), { type });
+      if (geometry && !this.geometryWorker) this.geometryWorker = worker;
+      if (this.geometryWorker === worker) this.geometryBusy = true;
       let settled = false;
       const end = (error, result, cancel = false) => {
         if (settled) return;
@@ -411,7 +428,13 @@ export class Scanner {
             clearTimeout(kill);
             worker.terminate();
           }
-        } else worker.terminate();
+        } else if (geometry && !error && !cancel && this.geometryWorker === worker) {
+          // A finished geometry request leaves an idle, reusable worker.
+          this.geometryBusy = false;
+        } else {
+          worker.terminate();
+          if (this.geometryWorker === worker) { this.geometryWorker = null; this.geometryBusy = false; }
+        }
         error ? reject(error) : resolve(result);
       };
       const job = { cancel: () => end(aborted(), null, true) };
@@ -435,7 +458,8 @@ export class Scanner {
       worker.onerror = (e) =>
         end(Error(e.message || "Image processing failed"), null, true);
       try {
-        worker.postMessage(payload);
+        // Pixel buffers are fresh per request: transfer them instead of copying.
+        worker.postMessage(payload, payload.image?.data?.buffer ? [payload.image.data.buffer] : []);
       } catch (error) {
         end(error, null, true);
       }
@@ -447,8 +471,9 @@ export class Scanner {
   detect(canvas) {
     return this.geometry("detect", { image: imageOf(canvas) });
   }
-  async read(canvas, corners, type, rows, cols, onProgress = () => {}) {
-    this.cancel();
+  async read(canvas, corners, type, rows, cols, onProgress = () => {}, { onPreview = () => {} } = {}) {
+    this.cancel({ keepEngine: true });
+    const started = performance.now();
     const epoch = this.epoch,
       check = () => {
         if (epoch !== this.epoch) throw aborted();
@@ -467,6 +492,7 @@ export class Scanner {
       },
     );
     check();
+    const prepared = performance.now();
     const w = image.width,
       h = image.height,
       cw = w / cols,
@@ -537,12 +563,19 @@ export class Scanner {
     check();
     const png = await blob.arrayBuffer();
     check();
-    const data = await this._request(
-      "ocr-host-worker.js",
-      { png, singles },
-      onProgress,
-      "classic",
-    );
+    const packed = performance.now();
+    // The atlas pass finishes long before the independent per-digit checks.
+    // Offer it as a provisional, fully review-flagged reading so a live view
+    // can show yellow clues early; only the checked transcription is returned.
+    const data = await this.ocr.recognize({ png, singles }, onProgress, (atlasData) => {
+      check();
+      const readings = mapAtlas(atlasData, entries.length, columns, tile);
+      const provisional = entries.map((entry, i) => ({ ...entry, text: readings[i].text, confidence: 0 }));
+      onPreview({
+        ...puzzleFromReadings({ entries: provisional, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells }, type, rows, cols),
+        rectified, entries: provisional, refining: true, needsReview: true,
+      });
+    });
     check();
     const readings = mapAtlas(data, entries.length, columns, tile);
     entries.forEach((e, i) => {
@@ -555,6 +588,8 @@ export class Scanner {
       rectified,
       entries,
       retryCount: data.retryCount || 0,
+      ocrStats: data.ocrStats,
+      timings: { prepare: prepared - started, pack: packed - prepared, ocr: performance.now() - packed, total: performance.now() - started },
     };
   }
 }
