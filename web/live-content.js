@@ -1,8 +1,10 @@
 import { homography, project, validQuad } from "./geometry.js";
 
 // Geometry/motion and printed content are different signals. Keep 24x24 samples
-// PER CELL rather than averaging a whole grid down to a 64x64 thumbnail. This
-// is a comparison of observed pixels only: no OCR or solver answers are used.
+// PER REGION rather than averaging a whole grid down to a 64x64 thumbnail.
+// Cell interiors alone miss inequalities on grid lines, small cage labels and
+// cage walls. Track those independently; never dilute a changed constraint in
+// the pixels of the rest of the board. No OCR or solver answers are used.
 const SIDE = 24, CELL = SIDE * SIDE;
 const SHIFTS = [[0,0]];
 for (const distance of [1/3, 2/3, 1])
@@ -14,6 +16,7 @@ export function gridContent(image, corners, rows, cols) {
     rows > 25 || cols > 25 || data?.length !== width * height * 4 ||
     !validQuad(corners, width, height)) return null;
   const m = homography(corners), pixels = new Uint8Array(rows * cols * CELL);
+  const structure = new Uint8Array(structureCount(rows, cols) * CELL);
   const histogram = new Uint16Array(256), cell = new Uint8Array(CELL);
   // Area sampling prevents thin anti-aliased strokes from changing merely
   // because a camera pixel moves across a sampling point. The integral image
@@ -34,19 +37,17 @@ export function gridContent(image, corners, rows, cols) {
     return (integral[y0 * stride + x0] * (1 - dx) + integral[y0 * stride + x1] * dx) * (1 - dy) +
       (integral[y1 * stride + x0] * (1 - dx) + integral[y1 * stride + x1] * dx) * dy;
   };
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+  function sample(leftX, topY, w, h, output, offset) {
     histogram.fill(0);
-    const left = project(m, (c + .5 - .42 / SIDE) / cols, (r + .5) / rows),
-      right = project(m, (c + .5 + .42 / SIDE) / cols, (r + .5) / rows),
-      top = project(m, (c + .5) / cols, (r + .5 - .42 / SIDE) / rows),
-      bottom = project(m, (c + .5) / cols, (r + .5 + .42 / SIDE) / rows),
+    const left = project(m, (leftX + w / 2 - w / (2 * SIDE)) / cols, (topY + h / 2) / rows),
+      right = project(m, (leftX + w / 2 + w / (2 * SIDE)) / cols, (topY + h / 2) / rows),
+      top = project(m, (leftX + w / 2) / cols, (topY + h / 2 - h / (2 * SIDE)) / rows),
+      bottom = project(m, (leftX + w / 2) / cols, (topY + h / 2 + h / (2 * SIDE)) / rows),
       rx = Math.max(.5, (Math.abs(right.x - left.x) + Math.abs(bottom.x - top.x)) / 2),
       ry = Math.max(.5, (Math.abs(right.y - left.y) + Math.abs(bottom.y - top.y)) / 2);
     for (let y = 0; y < SIDE; y++) for (let x = 0; x < SIDE; x++) {
-      // Retain nearly the full interior, including small structural clues,
-      // while keeping thick grid boundaries out of the content comparison.
-      const p = project(m, (c + .08 + .84 * (x + .5) / SIDE) / cols,
-        (r + .08 + .84 * (y + .5) / SIDE) / rows);
+      const p = project(m, (leftX + w * (x + .5) / SIDE) / cols,
+        (topY + h * (y + .5) / SIDE) / rows);
       const x0 = Math.max(0, p.x + .5 - rx), x1 = Math.min(width, p.x + .5 + rx),
         y0 = Math.max(0, p.y + .5 - ry), y1 = Math.min(height, p.y + .5 + ry);
       const value = Math.round((sumAt(x1,y1) - sumAt(x0,y1) - sumAt(x1,y0) + sumAt(x0,y0)) / ((x1-x0)*(y1-y0)));
@@ -65,19 +66,41 @@ export function gridContent(image, corners, rows, cols) {
     }
     // Either polarity can carry a printed constraint. White-on-black clues
     // would disappear if only pixels darker than the background were retained.
+    // Do not stretch structural strips to their darkest sample: a thin grid
+    // line straddling two samples would then change intensity under tiny motion.
+    // Their smaller change budget retains small labels without that amplification.
     const lightInk = high - middle > middle - low,
-      scale = 255 / Math.max(40, lightInk ? high - low : paper - low),
-      offset = (r * cols + c) * CELL;
-    for (let i = 0; i < CELL; i++) pixels[offset + i] = Math.max(0, Math.min(255,
+      scale = output === pixels ? 255 / Math.max(40, lightInk ? high - low : paper - low) : 1;
+    for (let i = 0; i < CELL; i++) output[offset + i] = Math.max(0, Math.min(255,
       Math.round((lightInk ? cell[i] - low : paper - cell[i]) * scale)));
   }
-  return { rows, cols, pixels };
+  let region = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    sample(c + .08, r + .08, .84, .84, pixels, (r * cols + c) * CELL);
+    // Supersets of scan-analysis's label/hsign/vsign crops. Boundary strips
+    // span the entire edge so dotted cage walls are covered as well as signs.
+    for (const dy of [0, .16]) for (const dx of [.01, .37])
+      sample(c + dx, r + dy, .4, .2, structure, region++ * CELL);
+    if (c < cols - 1) sample(c + .75, r, .5, 1, structure, region++ * CELL);
+    if (r < rows - 1) sample(c, r + .75, 1, .5, structure, region++ * CELL);
+  }
+  return { rows, cols, pixels, structure };
+}
+
+function structureCount(rows, cols) {
+  return 4 * rows * cols + rows * (cols - 1) + (rows - 1) * cols;
 }
 
 export function sameGridContent(a, b) {
   if (!a || !b || a.rows !== b.rows || a.cols !== b.cols ||
-    a.pixels?.length !== a.rows * a.cols * CELL || a.pixels.length !== b.pixels?.length) return false;
-  for (let offset = 0; offset < a.pixels.length; offset += CELL) {
+    a.pixels?.length !== a.rows * a.cols * CELL || a.pixels.length !== b.pixels?.length ||
+    a.structure?.length !== structureCount(a.rows, a.cols) * CELL ||
+    a.structure.length !== b.structure?.length) return false;
+  return sameRegions(a.pixels, b.pixels) && sameRegions(a.structure, b.structure, .01, .8);
+}
+
+function sameRegions(a, b, fraction = .03, average = 2.5) {
+  for (let offset = 0; offset < a.length; offset += CELL) {
     let matches = false;
     // One sample of registration jitter is tolerable. Do not blur or average
     // away a changed stroke: every cell must independently pass the test.
@@ -87,14 +110,14 @@ export function sameGridContent(a, b) {
       const ix = Math.floor(dx), iy = Math.floor(dy), fx = dx - ix, fy = dy - iy;
       for (let y = 1; y < SIDE - 1; y++) for (let x = 1; x < SIDE - 1; x++) {
         const at = offset + (y + iy) * SIDE + x + ix;
-        const top = b.pixels[at] * (1 - fx) + b.pixels[at + (fx ? 1 : 0)] * fx;
-        const below = fy ? b.pixels[at + SIDE] * (1 - fx) + b.pixels[at + SIDE + (fx ? 1 : 0)] * fx : top;
-        const delta = Math.abs(a.pixels[offset + y * SIDE + x] - (top * (1 - fy) + below * fy));
+        const top = b[at] * (1 - fx) + b[at + (fx ? 1 : 0)] * fx;
+        const below = fy ? b[at + SIDE] * (1 - fx) + b[at + SIDE + (fx ? 1 : 0)] * fx : top;
+        const delta = Math.abs(a[offset + y * SIDE + x] - (top * (1 - fy) + below * fy));
         difference += delta;
         if (delta > 64) changed++;
       }
       const count = (SIDE - 2) ** 2;
-      matches = changed <= count * .03 || difference <= count * 2.5;
+      matches = changed <= count * fraction || difference <= count * average;
     }
     if (!matches) return false;
   }
