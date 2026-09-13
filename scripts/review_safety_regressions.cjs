@@ -126,5 +126,6 @@ module.exports = async function reviewSafety(page) {
   const faint=await page.evaluate(faintClueProbe);
   for(const result of faint){assert.equal(result.marked,true);assert.equal(result.uncertain,true);assert.equal(result.value,6);
     assert.equal(result.allowed,false);assert.equal(result.unreadAllowed,false);assert.equal(result.unreadColour,"unknown");}
-  return {camera,storage,faint};
+  const structuralCapture = await require("./structural_capture_regressions.cjs")(page);
+  return {camera,storage,faint,structuralCapture};
 };
