@@ -8,6 +8,8 @@ import { createLiveSession } from "../live-session.js";
 import { saveCapture, deleteCapture, loadCapture, setupCaptureGallery } from "../capture-store.js";
 import { makePuzzle } from "../model.js";
 
+import { memoryStore } from "./capture-memory.js";
+
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 function paper(level = 220, control = "digit") {
@@ -86,18 +88,6 @@ for (const phase of ["reading", "solving", "solved"]) test(`new pixels retire ${
   if (phase === "reading") assert.equal(solveCalls,0);
 });
 
-function memoryStore() {
-  let record = null, held = false; const openings=[];
-  const db = { objectStoreNames:{contains:()=>true},close(){},transaction(){
-    const tx={abort(){tx.onabort?.();},objectStore(){return {
-      put(value){record=structuredClone(value);return done();},delete(){record=null;return done();},get(){return done(record);},
-    };}};
-    function done(result){const request={result};queueMicrotask(()=>{request.onsuccess?.();tx.oncomplete?.();});return request;}
-    return tx;
-  }};
-  return {indexedDB:{open(){const request={result:db};if(held){held=false;openings.push(request);}else queueMicrotask(()=>request.onsuccess?.());return request;}},
-    hold(){held=true;},release(){openings.shift().onsuccess();}};
-}
 function slowPng() { const bytes=deferred(), blob=new Blob(["png"],{type:"image/png"});blob.arrayBuffer=()=>bytes.promise;return {blob,release:()=>bytes.resolve(new TextEncoder().encode("png").buffer)}; }
 for (const phase of ["conversion", "opening"]) test(`Delete wins over an older save delayed during ${phase}`, async () => {
   const options=memoryStore(), pic=slowPng();

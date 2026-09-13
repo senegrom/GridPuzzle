@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { captureTransaction, saveCapture, loadCapture, setupCaptureGallery } from "../capture-store.js";
+import { memoryStore } from "./capture-memory.js";
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function idb({ failure = null }={}) {
   let closes=0,abort=0,request=null,transaction=null;
@@ -36,7 +37,6 @@ test("invalid or oversized captures are rejected before opening storage",async()
    await assert.rejects(saveCapture(blob),/empty|large/);
 });
 
-
 function deferred() { let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject}; }
 function gallery(backend){
  const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,{hidden:false,disabled:false,textContent:"",removeAttribute(){}});return nodes.get(id);};
@@ -61,19 +61,6 @@ test("deletion supersedes an in-flight save acknowledgement",async()=>{
  assert.match(h.$("capture-storage-status").textContent,/deleted/);
 });
 
-function memoryStore(initial) {
-  let record=initial, transactions=0;
-  const db={objectStoreNames:{contains:()=>true},close(){},transaction(){
-    transactions++;
-    const tx={abort(){tx.onabort?.();},objectStore(){return {
-      put(next){assert.ok(next.bytes instanceof ArrayBuffer);assert.equal(Object.hasOwn(next,"blob"),false);record=structuredClone(next);return complete(next);},
-      get(){return complete(record);},
-    };}};
-    function complete(result){const req={result};queueMicrotask(()=>{req.onsuccess?.();tx.oncomplete?.();});return req;}
-    return tx;
-  }};
-  return {indexedDB:{open(){const req={result:db};queueMicrotask(()=>req.onsuccess?.());return req;}},get record(){return record;},get transactions(){return transactions;}};
-}
 test("PNG byte storage round-trips exact pixels without requiring IndexedDB Blob support",async()=>{
  const h=memoryStore(),bytes=new Uint8Array([137,80,78,71,0,1,254,255]),blob=new Blob([bytes],{type:"image/png"});
  await saveCapture(blob,42,h);
@@ -92,8 +79,24 @@ test("invalid capture metadata and encoded data never create a gallery image",as
   assert.equal(await loadCapture(memoryStore(record)),null);
  const h=memoryStore();await assert.rejects(saveCapture(new Blob(["png"],{type:"image/png"}),Infinity,h),/timestamp/);assert.equal(h.transactions,0);
 });
-test("PNG conversion finishes before opening its write transaction",async()=>{
+test("PNG conversion runs outside transactions and before the final picture write",async()=>{
  const h=memoryStore(),blob=new Blob(["png"],{type:"image/png"}),conversion=deferred();
- blob.arrayBuffer=()=>conversion.promise;const pending=saveCapture(blob,42,h);await tick();assert.equal(h.transactions,0);
- conversion.resolve(new TextEncoder().encode("png").buffer);await pending;assert.equal(h.transactions,1);
+ blob.arrayBuffer=()=>conversion.promise;const pending=saveCapture(blob,42,h);await tick();
+ assert.equal(h.transactions,1,"only the short ownership reservation has committed");assert.equal(h.writes,0);
+ conversion.resolve(new TextEncoder().encode("png").buffer);await pending;assert.equal(h.transactions,2);assert.equal(h.writes,1);
+});
+test("a follow-up request callback failure aborts the read-modify-write transaction",async()=>{
+ const h=memoryStore({createdAt:1});
+ await assert.rejects(captureTransaction("readwrite",store=>{const request=store.get("latest");request.onsuccess=()=>{store.delete("latest");throw Error("superseded callback");};return request;},h),/superseded callback/);
+ assert.equal(h.record.createdAt,1);
+});
+test("missing cross-context coordination never downgrades to an unsafe write",async()=>{
+ const h=memoryStore();await assert.rejects(saveCapture(new Blob(["png"],{type:"image/png"}),42,{...h,locks:null}),/Download/);
+ assert.equal(h.transactions,0);
+});
+test("a timed-out lock request cannot later save a picture",async()=>{
+ const h=memoryStore();let cancelled=false;
+ const locks={request(_name,{signal}){return new Promise((resolve,reject)=>signal.addEventListener("abort",()=>{cancelled=true;reject(signal.reason);},{once:true}));}};
+ await assert.rejects(saveCapture(new Blob(["png"],{type:"image/png"}),42,{...h,locks,lockTimeout:5}),/timed out/);
+ assert.equal(cancelled,true);assert.equal(h.transactions,0);
 });
