@@ -155,31 +155,20 @@ cancellation, geometry worker reuse with transferred buffers, and provisional
 live readings that never start a solve. `scripts/ocr_latency_regressions.cjs`
 measures the real engines and asserts reuse and safety.
 
-## Public photograph corpus
+## Puzzle image corpus
 
-`scripts/sudoku_dataset_benchmark.cjs <dir> [limit] [chromium|webkit]` runs the
-production detector, OCR and voting over a directory of Sudoku photographs with
-ground truth, one warm Scanner for the whole run, and writes
-`browser-artifacts/sudoku-dataset-benchmark.json`. It expects the layout of
-Baptiste Wicht's Sudoku dataset (https://github.com/wichtounet/sudoku_dataset,
-images and grids CC BY 4.0): `imageN.jpg` beside `imageN.dat`, whose last nine
-lines hold the printed grid with 0 for an empty cell. The 200 pictures are
-640 x 480 newspaper photographs taken with older phones, so cells are about
-40 pixels wide; nothing from the ground truth reaches recognition.
+A local corpus of puzzle images with targets lives outside the repository (by
+default `E:\OneDrive\Coding\PuzzleCorpus`, override with `PUZZLE_CORPUS`); it holds
+only images and one `<name>.json` target each. `corpus/SOURCES.md` lists where
+every set comes from and under which licence, `corpus/build_corpus.py` fetches
+and normalises the downloaded sets, and `corpus/render_puzzles.py` draws the
+families that no public photograph corpus covers.
 
-Clone the dataset outside the repository (it is not vendored) and run, for example:
-
-    git clone --depth 1 https://github.com/wichtounet/sudoku_dataset ../sudoku_dataset
-    node scripts/sudoku_dataset_benchmark.cjs ../sudoku_dataset/images 200 chromium
-
-First measurement on 2026-09-13 (master 598503c, Chromium, this Windows host):
-5820 printed clues, 2920 read correctly, 671 errors left unflagged, 26 perfect
-pictures, 92 without an unflagged error; median 813 ms per picture on the warm
-engine. The split by grid detection is the finding: on the 115 pictures where
-the grid was found (confidence at least 0.8) the median accuracy is 81 percent
-with 44 unflagged errors in total, while on the 85 pictures where detection fell
-back to the whole frame the median accuracy is 8 percent and almost every
-invented clue and unflagged error occurs. Several pictures are also rotated by
-180 degrees, which the pipeline does not detect. Detection robustness at this
-resolution and orientation handling are therefore the next targets; the script
-is a measurement, not a gate.
+`node corpus/benchmark.cjs --family sudoku --set wichtounet-newspaper --limit 50`
+runs the production detector, OCR and voting over a selection and scores it
+against the targets: correct, wrong, missed and invented clues, unflagged
+errors, whether the grid was found, the corner error as a percentage of the
+grid diagonal, and per-image timings. `--true-corners` feeds the target
+outline instead of the detector's, which separates recognition from detection;
+`--engine webkit` switches browser. Results go to
+`browser-artifacts/corpus-benchmark.json`. It is a measurement, not a gate.
