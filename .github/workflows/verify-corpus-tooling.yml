@@ -1,0 +1,101 @@
+name: Verify corpus tooling changes
+on:
+  push:
+    branches: [verify/corpus-tooling-20260914]
+permissions:
+  contents: read
+env:
+  BASE: 93a0c9ecda8d3ec7f1a37a39cb9088070e819d42
+  TREE: 07aa2bc200aeb6344faac0f9f296a7860e6251dc
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Verify transport and assemble exact source tree
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, os, pathlib, subprocess
+          encoded = ''.join(pathlib.Path(f'.github/corpus-fixes-{i}.b64').read_text().strip() for i in range(4))
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '96efae925f579e67984f4bb8401f601fa535b5612431729ffdeada8695d9bdc1'
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tooling.patch'
+          dest.write_bytes(patch)
+          subprocess.run(['git','checkout','--detach',os.environ['BASE']],check=True)
+          subprocess.run(['git','apply','--index',str(dest)],check=True)
+          assert subprocess.check_output(['git','write-tree'],text=True).strip() == os.environ['TREE']
+          PY
+          git diff --cached --check
+      - run: python -m pip install -e '.[dev,corpus]'
+      - run: python -m pip check
+      - run: python -m ruff check .
+      - run: python -m compileall -q corpus gridsolver tests scripts
+      - name: Complete bounded Python suite including real renderer tests
+        run: python -X dev -m pytest -q tests -m 'not slow' --junitxml=results.xml
+      - name: Complete Node suite including benchmark failure paths
+        run: node --test web/tests/*.test.js > node-results.txt
+      - name: Wheel validation
+        run: |
+          python -m pip wheel --no-deps . --wheel-dir dist
+          python scripts/smoke_wheel.py --wheel-dir dist
+      - name: Archive tested source
+        if: always()
+        run: git archive --format=tar --output=tooling-source.tar "$TREE"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verified-corpus-${{ matrix.os }}
+          path: |
+            results.xml
+            node-results.txt
+            tooling-source.tar
+          retention-days: 7
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Publish only the verified files to the requested feature branch
+        run: |
+          python - <<'PY'
+          import base64,gzip,hashlib,os,pathlib,subprocess
+          encoded=''.join(pathlib.Path(f'.github/corpus-fixes-{i}.b64').read_text().strip() for i in range(4))
+          patch=gzip.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='96efae925f579e67984f4bb8401f601fa535b5612431729ffdeada8695d9bdc1'
+          dest=pathlib.Path(os.environ['RUNNER_TEMP'])/'tooling.patch';dest.write_bytes(patch)
+          subprocess.run(['git','checkout','--detach',os.environ['BASE']],check=True)
+          subprocess.run(['git','apply','--index',str(dest)],check=True)
+          assert subprocess.check_output(['git','write-tree'],text=True).strip()==os.environ['TREE']
+          PY
+          test "$(git ls-remote origin refs/heads/fix/corpus-tooling-20260914 | cut -f1)" = "$BASE"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Fix corpus rebuild consistency, benchmark cleanup and portable rendering'
+          git push origin HEAD:refs/heads/fix/corpus-tooling-20260914
+          git rev-parse HEAD
