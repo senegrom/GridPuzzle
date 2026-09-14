@@ -187,3 +187,15 @@ The existing `scripts/live_camera_regressions.cjs` gate also runs the extended
 three ink levels, both orientations, flips/erasures and all three asynchronous
 phases, in each engine. The pre-existing black-sign, label/wall, illumination,
 jitter, capture migration and cross-tab ordering checks are retained.
+
+### Real-photograph freshness controls
+
+`scripts/structural_capture_regressions.cjs` feeds the two newspaper crops in
+`Examples/BrowserScanner/Newspaper` to the live-content comparison as camera
+frames and asserts that a quarter- and half-pixel shift, four levels of noise,
+both together and a six percent brightness change read as the same print, while
+an erased clue, a changed grey sign (also under shift and noise) and an added
+cage wall read as changed. `web/tests/anchored-content.test.js` pins the
+anchored polarity and the raw signature format. Synthetic boards alone cannot
+stand in for halftone paper here: the comparison that shipped in PR #39 passed
+every synthetic control and failed on real photographs.
