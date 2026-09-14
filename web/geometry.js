@@ -139,44 +139,147 @@ export function warp(image, corners, width = 900, height = 900) {
 }
 function groups(values, cutoff) {
   const out = [];
-  let start = -1;
+  let start = -1,
+    peak = 0;
   for (let i = 0; i <= values.length; i++) {
     if (i < values.length && values[i] > cutoff) {
-      if (start < 0) start = i;
+      if (start < 0) { start = i; peak = 0; }
+      peak = Math.max(peak, values[i]);
     } else if (start >= 0) {
-      out.push({ at: (start + i - 1) / 2, width: i - start });
+      out.push({ at: (start + i - 1) / 2, width: i - start, peak });
       start = -1;
     }
   }
   return out;
 }
+// Fraction of ink along each column and row of a mask, optionally skipping
+// the rows (columns) that belong to lines of the other axis.
+export function lineProfile(b, w, h, skipRows = null, skipCols = null) {
+  const x = new Float64Array(w),
+    y = new Float64Array(h);
+  let rows = 0,
+    cols = 0;
+  for (let r = 0; r < h; r++) if (!skipRows?.[r]) rows++;
+  for (let c = 0; c < w; c++) if (!skipCols?.[c]) cols++;
+  if (!rows || !cols) return lineProfile(b, w, h);
+  for (let r = 0; r < h; r++) {
+    const keepRow = !skipRows?.[r];
+    for (let c = 0; c < w; c++) {
+      const v = b[r * w + c];
+      if (keepRow) x[c] += v / rows;
+      if (!skipCols?.[c]) y[r] += v / cols;
+    }
+  }
+  return { x, y };
+}
+// Lines are read from a mask more sensitive than the ink mask (bias 6, no
+// ceiling): measured on real photographs, thin and light-grey grid lines
+// reach only 25-45% darkness in the ink mask against a 47% cutoff, so one
+// line dropped out in most rejected detections and only the thick box lines
+// survived in others (a 3x3 reading). In the sensitive mask the weakest true
+// line sits near 50-75% while the darkest column of digits stays near 30-40%.
+const LINE_CUTOFF = 0.42;
 export function gridLines(image, mask) {
   const w = image.width,
     h = image.height,
-    b = mask ?? threshold(image),
-    x = new Float64Array(w),
-    y = new Float64Array(h);
-  for (let r = 0; r < h; r++)
-    for (let c = 0; c < w; c++) {
-      x[c] += b[r * w + c] / h;
-      y[r] += b[r * w + c] / w;
-    }
-  return { x: groups(x, 0.47), y: groups(y, 0.47) };
+    b = mask ?? thresholdGray(gray(image), w, h, 25, 6, 255),
+    first = lineProfile(b, w, h);
+  // Every column crosses all the horizontal lines and vice versa; that shared
+  // ink alone lifts a column of digits toward the cutoff. Measure each axis
+  // again over the rows (columns) that are not lines of the other axis.
+  const skipRows = new Uint8Array(h),
+    skipCols = new Uint8Array(w);
+  for (const l of groups(first.y, LINE_CUTOFF))
+    for (let r = Math.max(0, Math.floor(l.at - l.width / 2 - 1)); r <= Math.min(h - 1, Math.ceil(l.at + l.width / 2 + 1)); r++) skipRows[r] = 1;
+  for (const l of groups(first.x, LINE_CUTOFF))
+    for (let c = Math.max(0, Math.floor(l.at - l.width / 2 - 1)); c <= Math.min(w - 1, Math.ceil(l.at + l.width / 2 + 1)); c++) skipCols[c] = 1;
+  const profile = lineProfile(b, w, h, skipRows, skipCols);
+  return { x: groups(profile.x, LINE_CUTOFF), y: groups(profile.y, LINE_CUTOFF) };
+}
+// Lines closer than 3% of the length are one line: a cage wall drawn just
+// inside a cell edge, a doubled border, an anti-aliased thick line split by
+// the threshold. The strongest member gives the position.
+function cluster(lines, radius) {
+  const out = [];
+  for (const l of lines) {
+    const last = out.at(-1);
+    if (last && l.at - last.at <= radius) {
+      last.width += l.width;
+      if (l.peak > last.peak) { last.peak = l.peak; last.at = l.at; }
+    } else out.push({ at: l.at, width: l.width, peak: l.peak });
+  }
+  return out;
+}
+// Fit an evenly spaced lattice to the detected lines. The spacing is the
+// median gap, which survives one dropped line; the anchor is the strongest
+// line. Lines off the lattice (a doubled border, a shadow) are strays,
+// tolerated up to one in five; at least four in five lattice positions must
+// hold a line, and the outermost ones must sit near the warp's edges.
+function lattice(found, length) {
+  const lines = cluster(found, length * 0.03);
+  if (lines.length < 3) return 0;
+  const at = lines.map((l) => l.at),
+    gaps = at.slice(1).map((v, i) => v - at[i]).sort((a, b) => a - b),
+    spacing = gaps[gaps.length >> 1];
+  if (!(spacing > 0)) return 0;
+  const anchor = lines.reduce((best, l) => (l.peak > best.peak ? l : best), lines[0]).at,
+    kept = [],
+    strays = [];
+  for (const l of lines) {
+    const k = Math.round((l.at - anchor) / spacing);
+    (Math.abs(l.at - (anchor + k * spacing)) <= spacing * 0.25 ? kept : strays).push(l);
+  }
+  if (kept.length < 3 || strays.length > Math.floor(lines.length / 5)) return 0;
+  const first = kept[0].at,
+    last = kept.at(-1).at;
+  if (first > length * 0.1 || last < length * 0.9) return 0;
+  const cells = Math.round((last - first) / spacing);
+  if (cells < 3 || cells > 25) return 0;
+  const step = (last - first) / cells,
+    present = new Map();
+  for (const l of kept) {
+    const k = Math.round((l.at - first) / step);
+    if (Math.abs(l.at - (first + k * step)) > step * 0.25) return 0;
+    present.set(k, Math.max(present.get(k) ?? 0, l.peak));
+  }
+  if (present.size < Math.ceil((cells + 1) * 0.8)) return 0;
+  // Columns of digits sit half-way between lines. When every other lattice
+  // position is markedly weaker than its neighbours, those are cell centres
+  // and the true lattice is half as fine.
+  if (cells % 2 === 0 && cells >= 6) {
+    const even = [],
+      odd = [];
+    for (const [k, peak] of present) (k % 2 ? odd : even).push(peak);
+    const median = (a) => a.sort((p, q) => p - q)[a.length >> 1];
+    if (odd.length && even.length && median(odd) < median(even) * 0.75) return cells / 2;
+  }
+  return cells;
 }
 function regular(lines, length) {
-  if (lines.length < 4 || lines.length > 26) return 0;
-  const gap = (lines.at(-1).at - lines[0].at) / (lines.length - 1);
-  if (lines[0].at > length * 0.1 || lines.at(-1).at < length * 0.9) return 0;
-  return lines
-    .slice(1)
-    .every((l, i) => Math.abs(l.at - lines[i].at - gap) < gap * 0.23)
-    ? lines.length - 1
-    : 0;
+  return lattice(lines, length);
+}
+// Test one axis at a cell count the other axis established: the warp maps
+// the quad to a square, so a square-celled grid has the same spacing both
+// ways. Four in five positions must hold a line and strays stay bounded.
+function latticeAt(found, length, cells) {
+  const lines = cluster(found, length * 0.03),
+    step = (length - 1) / cells;
+  let present = 0,
+    strays = 0;
+  const seen = new Set();
+  for (const l of lines) {
+    const k = Math.round(l.at / step);
+    if (k < 0 || k > cells || Math.abs(l.at - k * step) > step * 0.25) strays++;
+    else if (!seen.has(k)) { seen.add(k); present++; }
+  }
+  return present >= Math.ceil((cells + 1) * 0.8) && strays <= Math.floor(lines.length / 5) ? cells : 0;
 }
 export function estimateGrid(image, mask) {
-  const lines = gridLines(image, mask),
-    cols = regular(lines.x, image.width),
+  const lines = gridLines(image, mask);
+  let cols = regular(lines.x, image.width),
     rows = regular(lines.y, image.height);
+  if (cols && !rows) rows = latticeAt(lines.y, image.height, cols);
+  else if (rows && !cols) cols = latticeAt(lines.x, image.width, rows);
   let boxes = false;
   if (rows === cols && [4, 6, 9, 16, 25].includes(rows)) {
     const mid = lines.x.slice(1, -1),

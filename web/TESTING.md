@@ -199,3 +199,14 @@ cage wall read as changed. `web/tests/anchored-content.test.js` pins the
 anchored polarity and the raw signature format. Synthetic boards alone cannot
 stand in for halftone paper here: the comparison that shipped in PR #39 passed
 every synthetic control and failed on real photographs.
+
+### Grid detection
+
+`node corpus/detect_benchmark.cjs [--set regex] [--limit N]` runs the
+detector alone over every corpus image with corner ground truth, at the live
+and photograph scales, and prints per set how many grids were found with the
+right size and corners within 3% of the diagonal, how many quads the line
+stage rejected, and the time per frame; `web/GRID_DETECTION.md` explains the
+stages and records the measurements. `web/tests/grid-lines.test.js` pins each
+rule of the line stage on synthetic warps: thin and light-grey lines, digit
+columns, a dropped line, a stray line, cage walls, and the one-axis fallback.
