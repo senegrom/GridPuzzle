@@ -114,10 +114,14 @@ the targets, including the corners, are exact by construction.
 **janko.at** — <https://www.janko.at/Raetsel/>. Around 6000 published puzzles
 across our families, each page carrying a plain-text block with the printed
 clues and the solution; the site renders its grids in the browser and serves no
-images. `corpus/fetch_janko.py` caches 40 pages per family, spaced across each
-collection, one request every three seconds with an identifying user agent.
-`corpus/parse_janko.py` converts them and drops any puzzle whose reading
-disagrees with the published solution. Licence, quoted from every puzzle page:
+images. `corpus/fetch_janko.py` caches 40 pages per family (80 for Kendoku),
+spaced across each collection, one request every three seconds with an
+identifying user agent. `corpus/parse_janko.py` converts them: it keeps the
+first copy of a block a page prints twice, drops the Kendoku pages whose
+multi-cell cages print no operator (the operation is left to be deduced, which
+the app cannot model), and checks every reading against the published solution
+with the native rule validator before it counts toward a set. Licence, quoted
+from every puzzle page:
 *"Creative Commons 3.0 BY-NC-SA — Namensnennung, Keine kommerzielle Nutzung,
 Weitergabe unter gleichen Bedingungen"*. Non-commercial: private measurement
 only, and the corpus is not republished.
@@ -171,12 +175,17 @@ and no stated licence.
 
 ## Correctness and scoring version 2
 
-The contents table above records the September 13, 2026 build, not a count of
-revalidated images. Rebuild rendered sets after the generator correction:
-Killer cages now grow only through cells with distinct solution digits. The
-renderer rejects invalid stored solutions (including changed givens, sums,
-inequalities and blocked cells) using the native solution validator, without
-searching for a different solution that could conceal bad ground truth.
+The contents table above records the September 14, 2026 rebuild, in which every
+rendered target passed `corpus/validate_target.py`. Killer cages now grow only
+through cells with distinct solution digits (the September 13 build had 17
+cages with a repeated digit across 14 puzzles), and the renderer rejects invalid
+stored solutions (including changed givens, sums, inequalities and blocked
+cells) using the native solution validator, without searching for a different
+solution that could conceal bad ground truth. The same validator caught two
+parsing defects in the janko sets, both fixed: a page that prints its solution
+block twice had been stored with a doubled grid, and eight Kendoku pages whose
+multi-cell cages print no operator had been read as sums. Every target on disk,
+downloaded sets included, has been re-validated since.
 
 Benchmark JSON now carries `scoreVersion: 2`. Do not compare its percentages
 or perfect counts directly with older reports. Every Futoshiki sign is keyed
