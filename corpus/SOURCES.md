@@ -22,8 +22,10 @@ Every image has a target. A target is:
 
 Only `puzzle` is always present. Every payload is built through
 `gridsolver.web_api.build_grid`, so a target can never disagree with the
-solver's own contract, and janko puzzles are additionally checked against the
-published solution before being accepted.
+solver's input contract. Rendered targets with a supplied solution are also
+checked against every original rule by `corpus/validate_target.py` before any
+image or target is written. Shape acceptance alone does not prove a solution;
+no uniqueness claim is made for generated puzzles or witness-free targets.
 
 ## Contents
 
@@ -166,3 +168,33 @@ that would have to be recovered path by path; its Kakuro books have no answers
 at all. Internet Archive scans of puzzle books are lending-library only.
 mathinenglish.com has about 62 puzzles as four-per-sheet GIFs with answer PDFs
 and no stated licence.
+
+## Correctness and scoring version 2
+
+The contents table above records the September 13, 2026 build, not a count of
+revalidated images. Rebuild rendered sets after the generator correction:
+Killer cages now grow only through cells with distinct solution digits. The
+renderer rejects invalid stored solutions (including changed givens, sums,
+inequalities and blocked cells) using the native solution validator, without
+searching for a different solution that could conceal bad ground truth.
+
+Benchmark JSON now carries `scoreVersion: 2`. Do not compare its percentages
+or perfect counts directly with older reports. Every Futoshiki sign is keyed
+by its boundary and checked for direction; duplicate observations are counted
+as extra readings. Cage membership is unordered, operator aliases are normalized,
+and single-cell `=` and `+` targets are equivalent. Multi-cell operators and
+numeric targets must still agree.
+
+`topologyWrong` counts black/white or blocked/active cell disagreements, including
+numbered Str8ts cells; `topologyUnsafe` is its unflagged subset. These are separate
+from the printed-clue denominator. Invented numbers on blocked cells also count
+as invented clues. `unsafe` counts unflagged errors, not distinct affected cells,
+so a cell can contribute a topology error and a clue error. A perfect reading
+requires no topology, shape, missing, wrong or invented-item errors as well as
+all printed clues correct. Review flags never turn an erroneous reading perfect.
+
+The pure scorer runs in the normal Node gate through
+`web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded
+Killer witnesses at sizes 4, 6 and 9, plus validation of dense and compact target
+mappings, in `tests/test_corpus_targets.py`. The external image collection is not
+needed for these regressions and is not vendored.

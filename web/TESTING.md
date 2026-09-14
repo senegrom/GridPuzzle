@@ -172,3 +172,18 @@ grid diagonal, and per-image timings. `--true-corners` feeds the target
 outline instead of the detector's, which separates recognition from detection;
 `--engine webkit` switches browser. Results go to
 `browser-artifacts/corpus-benchmark.json`. It is a measurement, not a gate.
+
+### Corpus correctness and low-contrast review regressions
+
+`node --test web/tests/*.test.js` includes semantic corpus scoring regressions:
+reversed, missing, invented and duplicate inequalities; production-read singleton
+cages; member ordering and aliases; blocked and numbered-black topology; and
+perfect-result gating. `python -m pytest -q tests/test_corpus_targets.py` validates
+stored witnesses against the native rules, including the formerly impossible
+four-cell Killer cage and 150 seeded generators. Neither suite downloads images.
+
+The existing `scripts/live_camera_regressions.cjs` gate also runs the extended
+`structural_capture_regressions.cjs` matrix: 36 grey-sign lifecycle cases across
+three ink levels, both orientations, flips/erasures and all three asynchronous
+phases, in each engine. The pre-existing black-sign, label/wall, illumination,
+jitter, capture migration and cross-tab ordering checks are retained.

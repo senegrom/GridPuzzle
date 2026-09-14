@@ -81,8 +81,13 @@ def neighbours(cell: int, rows: int, cols: int, diagonal: bool = False):
             yield y * cols + x
 
 
-def partition(rng: random.Random, rows: int, cols: int, largest: int) -> list[list[int]]:
-    """Split the board into orthogonally connected cages of at most ``largest``."""
+def partition(rng: random.Random, rows: int, cols: int, largest: int,
+              *, distinct_values: list[int] | None = None) -> list[list[int]]:
+    """Grow connected cages, optionally keeping witness values distinct.
+
+    Killer cages require distinct digits even across different Sudoku houses.
+    KenKen does not: keep its unrestricted partitioning when no values are given.
+    """
     free = set(range(rows * cols))
     cages = []
     while free:
@@ -90,7 +95,9 @@ def partition(rng: random.Random, rows: int, cols: int, largest: int) -> list[li
         cage = [seed]
         free.discard(seed)
         while len(cage) < rng.randint(1, largest):
-            options = [n for cell in cage for n in neighbours(cell, rows, cols) if n in free]
+            used = {distinct_values[i] for i in cage} if distinct_values is not None else set()
+            options = [n for cell in cage for n in neighbours(cell, rows, cols)
+                       if n in free and (distinct_values is None or distinct_values[n] not in used)]
             if not options:
                 break
             chosen = rng.choice(options)
@@ -122,7 +129,7 @@ def gen_killersudoku(rng: random.Random, size: int = 9) -> tuple[dict, list]:
     solution = latin_square(rng, size, box)
     flat = [v for row in solution for v in row]
     cages = [{"cells": cage, "target": sum(flat[i] for i in cage), "op": "+"}
-             for cage in partition(rng, size, size, largest=4)]
+             for cage in partition(rng, size, size, largest=4, distinct_values=flat)]
     return (payload("killersudoku", size, size, [None] * (size * size),
                     boxRows=box[0], boxCols=box[1], cages=cages), flat)
 

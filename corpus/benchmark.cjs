@@ -11,6 +11,7 @@
 
    Writes browser-artifacts/corpus-benchmark.json and prints a summary.        */
 const { chromium, webkit } = require("playwright");
+const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -75,7 +76,8 @@ async function scan({ data, mime, puzzle, corners, useTrue }) {
     return { detected, total: performance.now() - started, confidence: detection?.confidence ?? null,
       grid: Boolean(found), fell_back: !found && !useTrue,
       read: { cells: result.puzzle.cells, cages: result.puzzle.cages || [],
-        clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [] },
+        clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [],
+        black: result.puzzle.black || [] },
       uncertain: result.uncertain, cageUncertain: result.cageUncertain || [],
       corners: found ? found.map((p) => [p.x, p.y]) : null,
       ocr: result.timings ? Math.round(result.timings.ocr) : null };
@@ -84,68 +86,6 @@ async function scan({ data, mime, puzzle, corners, useTrue }) {
   }
 }
 
-function score(target, reading) {
-  const truth = target.puzzle.cells, read = reading.read.cells;
-  const flagged = new Set(reading.uncertain || []);
-  const structural = new Set(reading.cageUncertain || []);
-  const result = { printed: 0, correct: 0, wrong: 0, missed: 0, invented: 0, unsafe: 0 };
-  // Families print their clues outside the cells: Kakuro sums in the black
-  // corners, cage targets in Killer and KenKen, signs between Futoshiki cells.
-  // Each of those is scored as one printed item too.
-  const pair = (list) => new Map(list.map((item) => [JSON.stringify(item.cells ?? item.cell), item]));
-  const compare = (wanted, got, same, cells) => {
-    const mine = pair(got);
-    for (const [key, item] of pair(wanted)) {
-      result.printed++;
-      const found = mine.get(key);
-      if (found && same(item, found)) { result.correct++; continue; }
-      if (!found) result.missed++; else result.wrong++;
-      const touched = cells(item);
-      if (!touched.some((cell) => flagged.has(cell) || structural.has(cell))) result.unsafe++;
-    }
-    for (const [key, item] of mine) {
-      if (pair(wanted).has(key)) continue;
-      result.invented++;
-      const touched = cells(item);
-      if (!touched.some((cell) => flagged.has(cell) || structural.has(cell))) result.unsafe++;
-    }
-  };
-  const kind = target.puzzle.type;
-  if (kind === "kakuro") {
-    compare(target.puzzle.clues || [], reading.read.clues,
-      (a, b) => (a.across ?? null) === (b.across ?? null) && (a.down ?? null) === (b.down ?? null),
-      (item) => [item.cell]);
-  } else if (kind === "killersudoku" || kind === "kenken") {
-    compare(target.puzzle.cages || [], reading.read.cages,
-      (a, b) => a.target === b.target && (a.op || "+") === (b.op || "+"), (item) => item.cells);
-  } else if (kind === "futoshiki") {
-    compare(target.puzzle.inequalities || [], reading.read.inequalities,
-      () => true, (item) => [item.less, item.greater]);
-  }
-  truth.forEach((value, cell) => {
-    const got = read[cell];
-    if (Number.isInteger(value)) {
-      result.printed++;
-      if (got === value) { result.correct++; return; }
-      if (got === null || got === undefined) result.missed++; else result.wrong++;
-      if (!flagged.has(cell)) result.unsafe++;
-      return;
-    }
-    if (value === "#") return;                      // structural cell, not a printed number
-    if (Number.isInteger(got)) {
-      result.invented++;
-      if (!flagged.has(cell)) result.unsafe++;
-    }
-  });
-  if (target.corners && reading.corners) {
-    const size = Math.hypot(target.corners[2][0] - target.corners[0][0],
-      target.corners[2][1] - target.corners[0][1]) || 1;
-    const distance = target.corners.reduce((sum, [x, y], index) =>
-      sum + Math.hypot(x - reading.corners[index][0], y - reading.corners[index][1]), 0) / 4;
-    result.cornerError = Math.round((distance / size) * 1000) / 10;   // percent of the grid diagonal
-  }
-  return result;
-}
 
 (async () => {
   const items = entries();
@@ -192,15 +132,16 @@ function score(target, reading) {
       gridFound: ok.filter((r) => r.grid).length,
       printed: sum("printed"), correct: sum("correct"), wrong: sum("wrong"), missed: sum("missed"),
       invented: sum("invented"), unsafe: sum("unsafe"),
-      perfect: ok.filter((r) => r.printed && r.correct === r.printed && !r.invented).length,
+      topologyWrong: sum("topologyWrong"), topologyUnsafe: sum("topologyUnsafe"), shapeErrors: sum("shapeErrors"),
+      perfect: ok.filter(isPerfect).length,
       medianCornerError: corner.length ? corner[Math.floor(corner.length / 2)] : null,
       medianMs: ok.length ? ok.map((r) => r.total).sort((a, b) => a - b)[Math.floor(ok.length / 2)] : null });
   }
   fs.writeFileSync("browser-artifacts/corpus-benchmark.json",
-    JSON.stringify({ options, summary, results }, null, 1) + "\n");
+    JSON.stringify({ scoreVersion: SCORE_VERSION, options, summary, results }, null, 1) + "\n");
   for (const row of summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `
-      + `${row.perfect}/${row.images} perfect, grid found ${row.gridFound}/${row.images}, `
+      + `${row.topologyWrong} topology errors, ${row.perfect}/${row.images} perfect, grid found ${row.gridFound}/${row.images}, `
       + `corner error ${row.medianCornerError ?? "-"}%, ${row.medianMs} ms`);
   }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

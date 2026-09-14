@@ -53,3 +53,22 @@ captures with identical timestamps.
 These are bounded regressions, not a guarantee that arbitrary tiny, blurred or
 occluded marks are distinguishable. Physical-camera testing remains important;
 results stay provisional and the user must review recognized clues and rules.
+
+## Lower-contrast structural changes
+
+The structural comparison now retains its original high-contrast test and adds
+an unblurred low-contrast residual check. A delta below 64 is no longer automatic
+agreement. The added check allows two intensity levels of noise, bounded relative
+illumination change and a fraction of the local edge contrast for sub-sample
+registration jitter. Its decision uses the best raw registration; it cannot pick
+a different shift merely to hide weak ink behind a strong grid line. Identical
+and near-noise regions skip the extra work.
+
+The permanent Chromium/WebKit gate exercises grey horizontal and vertical sign
+flips and erasures at RGB levels 150, 205 and 210 during reading, solving and
+solved display. Old answers, pending completions and captured metadata must be
+retired, with a fresh read afterwards. Identical images, modest illumination and
+one-pixel registration changes remain controls. Recognition/solver completions
+are controlled; these are real-pixel state-safety tests, not an OCR accuracy
+benchmark or a physical-phone guarantee. Comparison remains heuristic below the
+noise/registration bounds and for very small marks.

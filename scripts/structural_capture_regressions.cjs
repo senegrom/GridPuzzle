@@ -2,12 +2,15 @@
    Recognition completions are controlled so late-result races are repeatable. */
 const assert = require("node:assert/strict");
 
-async function structuralProbe() {
+async function structuralProbe({ ink = 0, vertical = false, erase = false, hold = 12000 } = {}) {
   const { demo } = await import("./model.js");
   const { gridContent, sameGridContent } = await import("./live-content.js");
   const { createLiveCamera, fingerprint } = await import("./live-camera.js");
   const { sameFrame } = await import("./live-overlay.js");
   const puzzle = demo("futoshiki"), size = 900, cell = size / 4;
+  puzzle.inequalities = [{ less: 0, greater: vertical ? 4 : 1 }];
+  const scenario = vertical ? "vertical" : "horizontal";
+  const cameraKind = scenario + (erase ? "-erase" : "");
   const corners = [{x:0,y:0},{x:899,y:0},{x:899,y:899},{x:0,y:899}];
   const solved = {status:"unique",complete:true,solutions:[{cells:[1,2,3,4,3,4,1,2,2,1,4,3,4,3,2,1]}]};
   function board(kind = "horizontal", changed = false, shift = 0, light = 1) {
@@ -26,7 +29,7 @@ async function structuralProbe() {
       const vertical=kind.startsWith("vertical"), erased=kind.endsWith("erase") && changed;
       x.save();x.translate(vertical?cell/2:cell,vertical?cell:cell/2);if(vertical)x.rotate(Math.PI/2);
       x.fillStyle="white";x.fillRect(-15,-27,30,54);
-      if(!erased) { const a=changed?-1:1;x.lineWidth=4;x.beginPath();x.moveTo(a*10,-20);x.lineTo(-a*10,0);x.lineTo(a*10,20);x.stroke(); }
+      if(!erased) { x.strokeStyle=`rgb(${ink},${ink},${ink})`;const a=changed?-1:1;x.lineWidth=4;x.beginPath();x.moveTo(a*10,-20);x.lineTo(-a*10,0);x.lineTo(a*10,20);x.stroke(); }
       x.restore();
     }
     if(light!==1) { const image=x.getImageData(0,0,size,size);for(let i=0;i<image.data.length;i+=4)for(let k=0;k<3;k++)image.data[i+k]=Math.round(image.data[i+k]*light);x.putImageData(image,0,0); }
@@ -48,28 +51,28 @@ async function structuralProbe() {
   for(const phase of ["reading","solving","solved"]) {
     let clock=0,serial=0,reads=0,solves=0,changed=false,release=null;
     const timers=new Map(),nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,document.createElement("div"));return nodes.get(id);};
-    const video=board();video.videoWidth=video.videoHeight=size;const overlay=document.createElement("canvas");
+    const video=board(cameraKind);video.videoWidth=video.videoHeight=size;const overlay=document.createElement("canvas");
     const camera=createLiveCamera({$,video,canvas:overlay,getSettings:()=>({type:"futoshiki",rows:4,cols:4,enabled:true}),
       detector:{async detect(){return {confidence:.99,sharpness:200,rows:4,cols:4,corners:corners.map(p=>({x:p.x*639/899,y:p.y*639/899}))};},cancel(){}},
-      reader:{async read(){reads++;const p=structuredClone(puzzle);if(changed)p.inequalities=[{less:1,greater:0}];
+      reader:{async read(){reads++;const p=structuredClone(puzzle);if(changed)p.inequalities=erase ? [] : [{less:vertical ? 4 : 1,greater:0}];
         const found={puzzle:p,markedCells:p.cells.flatMap((v,i)=>v===null?[]:[i]),cellUncertain:[],notes:[]};
         return phase==="reading"&&reads===1?new Promise(resolve=>{release=()=>resolve(found);}):found;},cancel(){}},
-      solver:{async solve(p){solves++;const result=p.inequalities[0].less===0?solved:{status:"no-solution",complete:true,solutions:[]};
+      solver:{async solve(p){solves++;const result=p.inequalities[0]?.less===0?solved:{status:erase?"multiple":"no-solution",complete:true,solutions:[]};
         return phase==="solving"&&solves===1?new Promise(resolve=>{release=()=>resolve(result);}):result;},cancel(){}},
       now:()=>clock,setTimer(fn,ms){timers.set(++serial,{fn,at:clock+ms});return serial;},clearTimer(id){timers.delete(id);}});
     async function advance(ms){const end=clock+ms;for(;;){const next=[...timers].filter(([,v])=>v.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;
       const [id,v]=next;clock=v.at;timers.delete(id);v.fn();await new Promise(resolve=>setTimeout(resolve,0));}clock=end;}
     try {
       camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
-      if(phase==="solved"){await advance(12000);if(reads!==1)throw Error("unchanged structural board was reread");}
-      changed=true;video.getContext("2d").drawImage(board("horizontal",true),0,0);await advance(100);
+      if(phase==="solved"){await advance(hold);if(reads!==1)throw Error("unchanged structural board was reread");}
+      changed=true;video.getContext("2d").drawImage(board(cameraKind,true),0,0);await advance(100);
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
       const capture=camera.capture();
       const row={phase,before,after:Number(overlay.dataset.solution),metadata:capture.found,rawMatches:capture.photo.toDataURL()===video.toDataURL(),solvesBeforeReread:solves};
       await advance(1600);row.reads=reads;row.finalAnswers=Number(overlay.dataset.solution);outcomes.push(row);
     } finally { camera.stop(); }
   }
-  return {pixels,outcomes};
+  return {ink,vertical,erase,pixels,outcomes};
 }
 
 async function installStorageProbe() {
@@ -163,14 +166,23 @@ async function storageProbe(page) {
   } finally { await other.close(); }
 }
 
-module.exports=async function structuralCapture(page) {
-  const structural=await page.evaluate(structuralProbe);
-  for(const p of structural.pixels){assert.equal(p.changed,false,`${p.kind} change`);assert.equal(p.identical,true);assert.equal(p.light,true,`${p.kind} lighting`);assert.equal(p.jitter,true,`${p.kind} jitter`);}
+function assertStructural(structural) {
+  for(const p of structural.pixels){assert.equal(p.changed,false,`${structural.ink}: ${p.kind} change`);assert.equal(p.identical,true);assert.equal(p.light,true,`${p.kind} lighting`);assert.equal(p.jitter,true,`${p.kind} jitter`);}
   assert.equal(structural.pixels[0].coarseSame,true,"fixture must exercise a change the coarse motion check misses");
   for(const row of structural.outcomes){assert.equal(row.after,0,row.phase);assert.equal(row.metadata,null);assert.equal(row.rawMatches,true);assert.ok(row.reads>=2);assert.equal(row.finalAnswers,0);
     if(row.phase==="solved")assert.equal(row.before,4);if(row.phase==="reading")assert.equal(row.solvesBeforeReread,0);}
+}
+module.exports=async function structuralCapture(page) {
+  const structural=await page.evaluate(structuralProbe);
+  assertStructural(structural);
+  const faint=[];
+  for (const ink of [150,205,210]) for (const vertical of [false,true]) for (const erase of [false,true]) {
+    const result=await page.evaluate(structuralProbe,{ink,vertical,erase,hold:1200});
+    assertStructural(result);faint.push(result);
+  }
   const storage=await storageProbe(page);
-  return {structural,storage};
+  return {structural,faint,storage};
 };
+module.exports.assertStructural=assertStructural;
 module.exports.structuralProbe=structuralProbe;
 module.exports.storageProbe=storageProbe;

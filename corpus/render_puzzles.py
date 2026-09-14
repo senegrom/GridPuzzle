@@ -292,7 +292,7 @@ def main() -> int:
     parser.add_argument("--only", action="append", default=[], help="limit to these families")
     args = parser.parse_args()
 
-    from gridsolver.web_api import build_grid
+    from corpus.validate_target import validate_target
 
     rng = random.Random(args.seed)
     entries, described = [], {}
@@ -309,9 +309,9 @@ def main() -> int:
         made = 0
         for name, puzzle, solution in puzzles:
             try:
-                build_grid(puzzle)
+                validate_target(puzzle, solution)
             except Exception as error:  # noqa: BLE001
-                print(f"  {family}/{name}: rejected by the solver contract: {error}")
+                print(f"  {family}/{name}: rejected by target validation: {error}")
                 continue
             image, corners = draw_puzzle(puzzle, rng)
             for variant, picture, placed, suffix, options in variants(image, corners, rng):

@@ -96,15 +96,31 @@ export function sameGridContent(a, b) {
     a.pixels?.length !== a.rows * a.cols * CELL || a.pixels.length !== b.pixels?.length ||
     a.structure?.length !== structureCount(a.rows, a.cols) * CELL ||
     a.structure.length !== b.structure?.length) return false;
-  return sameRegions(a.pixels, b.pixels) && sameRegions(a.structure, b.structure, .01, .8);
+  return sameRegions(a.pixels, b.pixels) && sameRegions(a.structure, b.structure, .01, .8) &&
+    sameRegions(a.structure, b.structure, .003, .06, true);
 }
 
-function sameRegions(a, b, fraction = .03, average = 2.5) {
+// Supplemental low-contrast check: do not interpret "no delta above 64" as
+// unchanged. Allow bounded sensor noise, illumination and sub-sample edge
+// motion, then require even weak, coherent residual strokes to agree. Keep the
+// original high-contrast check as well, so these allowances cannot weaken it.
+function sameRegions(a, b, fraction = .03, average = 2.5, detail = false) {
+  const rangesA = detail ? new Uint8Array(CELL) : null,
+    rangesB = detail ? new Uint8Array(CELL) : null;
   for (let offset = 0; offset < a.length; offset += CELL) {
+    if (detail) {
+      // Avoid all registration/gradient work for identical or near-noise
+      // regions; unchanged scenes remain the common battery-saving path.
+      let quiet = true;
+      for (let i = 0; i < CELL; i++) if (Math.abs(a[offset+i] - b[offset+i]) > 2) { quiet = false; break; }
+      if (quiet) continue;
+      localRanges(a, offset, rangesA); localRanges(b, offset, rangesB);
+    }
     let matches = false;
+    const shifts = detail ? [bestRegistration(a, b, offset)] : SHIFTS;
     // One sample of registration jitter is tolerable. Do not blur or average
     // away a changed stroke: every cell must independently pass the test.
-    for (const [dx, dy] of SHIFTS) {
+    for (const [dx, dy] of shifts) {
       if (matches) break;
       let changed = 0, difference = 0;
       const ix = Math.floor(dx), iy = Math.floor(dy), fx = dx - ix, fy = dy - iy;
@@ -112,9 +128,15 @@ function sameRegions(a, b, fraction = .03, average = 2.5) {
         const at = offset + (y + iy) * SIDE + x + ix;
         const top = b[at] * (1 - fx) + b[at + (fx ? 1 : 0)] * fx;
         const below = fy ? b[at + SIDE] * (1 - fx) + b[at + SIDE + (fx ? 1 : 0)] * fx : top;
-        const delta = Math.abs(a[offset + y * SIDE + x] - (top * (1 - fy) + below * fy));
+        const av = a[offset + y * SIDE + x], bv = top * (1 - fy) + below * fy;
+        const raw = Math.abs(av - bv);
+        // A fraction of the local range models antialiasing at a moving edge;
+        // the intensity term covers illumination even inside a flat stroke.
+        const allowance = detail ? 2 + .15 * Math.max(av, bv) +
+          .4 * Math.max(rangesA[y * SIDE + x], rangesB[at - offset]) : 0;
+        const delta = Math.max(0, raw - allowance);
         difference += delta;
-        if (delta > 64) changed++;
+        if (delta > (detail ? 2 : 64)) changed++;
       }
       const count = (SIDE - 2) ** 2;
       matches = changed <= count * fraction || difference <= count * average;
@@ -122,4 +144,38 @@ function sameRegions(a, b, fraction = .03, average = 2.5) {
     if (!matches) return false;
   }
   return true;
+}
+
+// Unblurred contrast around each sample. No neighbourhood crosses a region.
+function localRanges(pixels, offset, output) {
+  for (let y = 0; y < SIDE; y++) for (let x = 0; x < SIDE; x++) {
+    let low = 255, high = 0;
+    for (let yy = Math.max(0, y-1); yy <= Math.min(SIDE-1, y+1); yy++)
+      for (let xx = Math.max(0, x-1); xx <= Math.min(SIDE-1, x+1); xx++) {
+        const value = pixels[offset + yy * SIDE + xx];
+        low = Math.min(low, value); high = Math.max(high, value);
+      }
+    output[y * SIDE + x] = high - low;
+  }
+}
+
+// Select by raw L1 error BEFORE applying any allowances. Computing expensive
+// residuals only for the winning shift preserves the same decision and ties.
+// Non-negative partial sums let losing shifts stop early without approximation.
+function bestRegistration(a, b, offset) {
+  let best = SHIFTS[0], bestRaw = Infinity;
+  shifts: for (const shift of SHIFTS) {
+    if (bestRaw === 0) break;
+    const [dx, dy] = shift, ix = Math.floor(dx), iy = Math.floor(dy), fx = dx - ix, fy = dy - iy;
+    let raw = 0;
+    for (let y = 1; y < SIDE - 1; y++) for (let x = 1; x < SIDE - 1; x++) {
+      const at = offset + (y + iy) * SIDE + x + ix;
+      const top = b[at] * (1 - fx) + b[at + (fx ? 1 : 0)] * fx;
+      const below = fy ? b[at + SIDE] * (1 - fx) + b[at + SIDE + (fx ? 1 : 0)] * fx : top;
+      raw += Math.abs(a[offset + y * SIDE + x] - (top * (1 - fy) + below * fy));
+      if (raw >= bestRaw) continue shifts;
+    }
+    bestRaw = raw; best = shift;
+  }
+  return best;
 }
