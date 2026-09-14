@@ -141,6 +141,7 @@ corner ground truth, which is tracked through the perspective transform.
 ## Rebuilding
 
 ```bash
+python -m pip install -e ".[dev,corpus]" # renderer dependencies and tooling tests
 python corpus/build_corpus.py          # fetch and normalise the downloaded sets
 python corpus/fetch_janko.py           # cache puzzle data, ~15 minutes, polite
 python corpus/render_puzzles.py        # draw the rendered sets
@@ -207,3 +208,65 @@ The pure scorer runs in the normal Node gate through
 Killer witnesses at sizes 4, 6 and 9, plus validation of dense and compact target
 mappings, in `tests/test_corpus_targets.py`. The external image collection is not
 needed for these regressions and is not vendored.
+
+
+## Reliable partial rebuilds and portable tooling
+
+All three Python entry points use `corpus/config.py`. `PUZZLE_CORPUS_CACHE`
+controls the downloaded datasets **and** the Janko fetcher, parser and renderer;
+Janko data lives under `<cache>/janko`. Existing path defaults are retained.
+`PUZZLE_CORPUS_INDEX` optionally relocates the inventory JSON (useful for isolated
+runs); otherwise it remains `corpus/index.json` in the checkout. Set these
+variables before starting a command.
+
+A rebuild collects and validates the selected sources before touching their
+outputs. Missing caches are **skipped**, not treated as empty datasets: their
+existing images, targets and inventory/provenance remain. A run with a skipped
+source returns exit status 1 to avoid claiming a complete rebuild. A source
+that successfully yields no accepted images is a completed empty rebuild and
+its old managed images/targets are removed. Collector errors abort before any
+output changes. Do not run multiple builders concurrently on one corpus/index.
+
+Deduplication considers actual bytes of retained, indexed images, including
+skipped sources, together with the selected rebuild candidates. The first
+source in the registry owns a duplicate, with filename as a stable tie-breaker;
+unknown source sets sort after registered sources by relative path. A higher
+priority source can reclaim an indexed duplicate from another set, removing
+only that duplicate image/target pair after writing the canonical copy. Full,
+partial and reordered rebuilds therefore agree on duplicate ownership for the
+available inventory. Index and target JSON replacements are atomic. Older
+unindexed/orphaned files should be reconciled with a full rebuild before scoring.
+
+The renderer checks all font resources before changing corpus outputs. It uses
+only available fonts; without system fonts it uses Pillow's scalable bundled
+Aileron fallback. No fonts are downloaded or copied into the repository. Explicit
+configuration is strict and errors are reported before rendering:
+
+```bash
+python corpus/render_puzzles.py --font /path/to/font.ttf --only sudoku --per-family 1
+python corpus/render_puzzles.py --font-dir /path/to/fonts --only kenken
+```
+
+Both options may be repeated. Use `.[corpus]` to install Pillow with FreeType and
+NumPy. Cage labels use ASCII `-`, `x` and `/` so missing mathematical-symbol
+glyphs do not silently turn operators into replacement boxes. Font selection
+and this label change can alter regenerated pixels; a fixed seed alone does
+not make outputs portable across different font installations. Supply the same
+font files explicitly when comparing renderer output between machines.
+
+The benchmark checkpoints `browser-artifacts/corpus-benchmark.json` before
+startup, after each image and after cleanup. Bad JSON, unreadable images and
+recoverable scan errors become individual error rows, and later images continue.
+A browser disconnect or SIGINT/SIGTERM stops the run and saves partial results.
+Reports include `status`, `totalImages`, `completedImages`, `failure` and
+`cleanupErrors`; cleanup never replaces the primary failure. The CLI returns
+nonzero for incomplete runs, any failed image or failed cleanup. Context,
+browser and HTTP-server cleanup is attempted independently, including startup
+and output-write failures. Hard process termination or loss of disk access can
+only preserve the last successful checkpoint, not guarantee a final report.
+
+`Corpus tools` CI runs on Linux and Windows with the optional renderer dependencies.
+It exercises full/partial/skipped rebuilds, cache overrides, a real three-variant
+render with the bundled font, bad-font preflight, and benchmark failure/interrupt
+paths. Tests use temporary fixtures, never fetch public datasets or mutate the
+external corpus, and retain the tested source and test reports as artifacts.

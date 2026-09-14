@@ -28,6 +28,10 @@ classifiers = [
 gridpuzzle = "run:main"
 
 [project.optional-dependencies]
+corpus = [
+    "Pillow>=10.1",
+    "numpy>=2.0",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.16",

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-JANKO_CACHE = Path("E:/tmp-claude/corpus-cache/janko")
+from corpus.config import JANKO_CACHE as JANKO_CACHE
 
 
 def sections(text: str) -> tuple[dict, dict]:
