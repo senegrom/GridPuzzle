@@ -72,3 +72,38 @@ one-pixel registration changes remain controls. Recognition/solver completions
 are controlled; these are real-pixel state-safety tests, not an OCR accuracy
 benchmark or a physical-phone guarantee. Comparison remains heuristic below the
 noise/registration bounds and for very small marks.
+
+## Anchored normalisation and real photographs
+
+The comparison above was measured on real photographs for the first time on
+September 14, 2026, and it failed: a quarter-pixel shift, sensor-like noise or a
+six percent brightness change read as changed printed content on five of six
+corpus photographs, and a jittered stream of a newspaper photograph reset the
+live view twelve times in twenty-five seconds without ever reaching a solution.
+The cause was not texture but the per-region normalisation: each frame chose its
+own polarity and paper level from single percentiles, so a blank strip of grey
+paper could flip between "dark ink" and "light ink", or its anchor could jump by
+twenty levels, and the whole region then looked changed.
+
+Signatures now hold raw area averages. When two signatures are compared, the
+polarity and the contrast stretch come from the reference region and apply to
+both, so they cannot flip between two views of the same print; only the paper
+(or black) level follows each frame, from the mean of a histogram band rather
+than a single percentile, which absorbs a uniform illumination change. Light ink
+on a dark ground is assumed only when the bright band clearly dominates. The
+high-contrast test still tries every small shift strictly; when all fail, the
+best raw registration alone is forgiven a tenth of the local contrast, because a
+grid line thinner than the sample spacing cannot be interpolated to a fractional
+shift. A shift chosen merely to hide a change gets no allowance, which is what
+keeps a small changed cage label visible.
+
+The permanent camera gate now includes the two in-repository newspaper
+photographs as camera frames: a quarter- and half-pixel shift, noise of four
+levels, both together, and a six percent brightness change must read as the same
+print, while an erased clue, a changed grey sign (also under shift and noise) and
+an added cage wall must read as changed. Measured limits: paper photographs are
+robust to shifts of half a pixel at the 720-pixel working size with noise and
+illumination change; at a full pixel one region in five can still trip, and the
+whole-frame motion check retires the answer for larger movement anyway.
+Photographs of screens (moiré) are not covered. These remain sampled,
+heuristic comparisons; physical-phone testing is still required.

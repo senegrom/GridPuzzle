@@ -1,6 +1,7 @@
 /* Permanent live-camera gate: real pixels and real two-tab IndexedDB/Web Locks.
    Recognition completions are controlled so late-result races are repeatable. */
 const assert = require("node:assert/strict");
+const fs = require("node:fs"), path = require("node:path");
 
 async function structuralProbe({ ink = 0, vertical = false, erase = false, hold = 12000 } = {}) {
   const { demo } = await import("./model.js");
@@ -73,6 +74,59 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
     } finally { camera.stop(); }
   }
   return {ink,vertical,erase,pixels,outcomes};
+}
+
+// Real newsprint photographs (the OCR quality fixtures) as camera frames: a
+// sub-pixel shift, sensor-like noise and a small brightness change must not
+// read as printed content changing, while an erased clue, a changed small grey
+// sign or an added cage wall must. Synthetic boards cannot stand in for
+// halftone paper here; before the anchored normalisation, a quarter-pixel
+// shift of a newspaper photograph reset the live view on every frame.
+async function realPhotoProbe({ photos }) {
+  const { gridContent, sameGridContent } = await import("./live-content.js");
+  const results = [];
+  for (const photo of photos) {
+    const img = new Image(); img.src = `data:image/webp;base64,${photo.data}`; await img.decode();
+    const scale = Math.min(1, 720 / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale), h = Math.round(img.height * scale), cell = { w: w / 9, h: h / 9 };
+    const corners = [{ x: 0, y: 0 }, { x: w - 1, y: 0 }, { x: w - 1, y: h - 1 }, { x: 0, y: h - 1 }];
+    function frame({ shift = 0, noise = 0, light = 1, seed = 1, paint = null } = {}) {
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      // The unshifted image underneath keeps a sub-pixel shift from exposing a blank sliver at the frame edge.
+      const x = c.getContext("2d"); x.drawImage(img, 0, 0, w, h); x.drawImage(img, shift, shift * .6, w, h);
+      if (paint) paint(x);
+      if (noise || light !== 1) {
+        const image = x.getImageData(0, 0, w, h), d = image.data; let s = seed;
+        for (let i = 0; i < d.length; i += 4) {
+          s = (s * 1664525 + 1013904223) >>> 0; const n = noise ? ((s >>> 8) % (2 * noise + 1)) - noise : 0;
+          for (let k = 0; k < 3; k++) d[i + k] = Math.max(0, Math.min(255, Math.round(d[i + k] * light + n)));
+        }
+        x.putImageData(image, 0, 0);
+      }
+      return gridContent(x.getImageData(0, 0, w, h), corners, 9, 9);
+    }
+    const reference = frame(), clue = photo.cells.findIndex((v) => Number.isInteger(v));
+    const paper = (x) => { const r = Math.floor(clue / 9), c = clue % 9; x.fillStyle = "#e8e4dc";
+      x.fillRect((c + .12) * cell.w, (r + .12) * cell.h, cell.w * .76, cell.h * .76); };
+    const chevron = (flip) => (x) => { x.save(); x.translate(3 * cell.w, 4.5 * cell.h); x.strokeStyle = "rgb(150,150,150)";
+      x.lineWidth = Math.max(2, cell.w / 16); const a = flip ? -1 : 1, s = cell.h * .18;
+      x.beginPath(); x.moveTo(a * s / 2, -s); x.lineTo(-a * s / 2, 0); x.lineTo(a * s / 2, s); x.stroke(); x.restore(); };
+    // The wall goes between two empty white cells of column 4 and 5, so it is
+    // never drawn onto a black Str8ts cell where it would be invisible.
+    const wallRow = Math.max(0, photo.cells.findIndex((v, i) => i % 9 === 4 && v === null && photo.cells[i + 1] === null)) / 9 | 0;
+    const wall = (x) => { x.setLineDash([6, 4]); x.strokeStyle = "#333"; x.lineWidth = 2; x.beginPath();
+      x.moveTo(5 * cell.w, (wallRow + .1) * cell.h); x.lineTo(5 * cell.w, (wallRow + .9) * cell.h); x.stroke(); };
+    results.push({ name: photo.name, size: `${w}x${h}`,
+      controls: { identical: sameGridContent(reference, frame()), shift025: sameGridContent(reference, frame({ shift: .25 })),
+        shift05: sameGridContent(reference, frame({ shift: .5 })),
+        noise: sameGridContent(reference, frame({ noise: 4, seed: 3 })), shiftNoise: sameGridContent(reference, frame({ shift: .5, noise: 4, seed: 7 })),
+        light: sameGridContent(reference, frame({ light: .94 })) },
+      changes: { erasedClue: sameGridContent(reference, frame({ paint: paper })),
+        greySign: sameGridContent(frame({ paint: chevron(false) }), frame({ paint: chevron(true) })),
+        greySignJitter: sameGridContent(frame({ paint: chevron(false) }), frame({ shift: .5, noise: 4, seed: 9, paint: chevron(true) })),
+        wall: sameGridContent(reference, frame({ paint: wall })) } });
+  }
+  return results;
 }
 
 async function installStorageProbe() {
@@ -180,9 +234,17 @@ module.exports=async function structuralCapture(page) {
     const result=await page.evaluate(structuralProbe,{ink,vertical,erase,hold:1200});
     assertStructural(result);faint.push(result);
   }
+  const fixtures="Examples/BrowserScanner/Newspaper", photos=JSON.parse(fs.readFileSync(path.join(fixtures,"ground-truth.json"))).fixtures
+    .map((f)=>({name:f.name,cells:f.cells,data:fs.readFileSync(path.join(fixtures,f.image)).toString("base64")}));
+  const real=await page.evaluate(realPhotoProbe,{photos});
+  for(const r of real){
+    for(const [k,v] of Object.entries(r.controls))assert.equal(v,true,`${r.name}: ${k} must not read as changed printed content`);
+    for(const [k,v] of Object.entries(r.changes))assert.equal(v,false,`${r.name}: ${k} must read as changed printed content`);
+  }
   const storage=await storageProbe(page);
-  return {structural,faint,storage};
+  return {structural,faint,real,storage};
 };
 module.exports.assertStructural=assertStructural;
+module.exports.realPhotoProbe=realPhotoProbe;
 module.exports.structuralProbe=structuralProbe;
 module.exports.storageProbe=storageProbe;
