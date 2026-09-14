@@ -1,9 +1,10 @@
 """Turn cached janko.at data blocks into puzzle payloads.
 
 The blocks are plain text with ``[problem]``, sometimes ``[areas]``, and
-``[solution]``. Each family has its own notation; the solution is used to check
-the reading, so a misparsed puzzle is dropped rather than stored as a wrong
-target.
+``[solution]``. Each family has its own notation. Every reading is checked
+against the published solution with the native rule validator, so a misparsed
+puzzle, a doubled block or an unsupported variant is dropped rather than stored
+as a wrong target.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ def sections(text: str) -> tuple[dict, dict]:
     meta: dict = {}
     blocks: dict = {}
     current = None
+    skipping = False
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -23,8 +25,13 @@ def sections(text: str) -> tuple[dict, dict]:
         if stripped.startswith("[") and stripped.endswith("]"):
             name = stripped[1:-1]
             current = None if name in ("begin", "end") else name
-            if current:
-                blocks.setdefault(current, [])
+            # Some pages print a block twice (Hidoku 001 repeats its solution);
+            # keep the first copy so the grid is not doubled.
+            skipping = current is not None and current in blocks
+            if current and not skipping:
+                blocks[current] = []
+            continue
+        if skipping:
             continue
         if current:
             blocks[current].append(stripped.split())
@@ -183,7 +190,11 @@ def read_kenken(meta: dict, blocks: dict):
             return None
         operator = {"+": "+", "-": "-", "*": "*", "x": "*", "/": "/", ":": "/"}.get(op, "")
         if not operator:
-            operator = "=" if len(members) == 1 else "+"
+            if len(members) > 1:
+                # A multi-cell cage printed without an operator is the variant
+                # where the operation must be deduced; the app cannot model it.
+                return None
+            operator = "="
         if operator in ("-", "/") and len(members) != 2:
             return None
         if operator == "=" and len(members) != 1:
@@ -278,8 +289,10 @@ READERS = {
 
 def consistent(puzzle: dict, solution: list | None) -> bool:
     """Every printed clue must appear in the published solution."""
-    if not solution or len(solution) != len(puzzle["cells"]):
+    if not solution:
         return True
+    if len(solution) != len(puzzle["cells"]):
+        return False
     for index, value in enumerate(puzzle["cells"]):
         if value is None:
             continue
@@ -298,6 +311,8 @@ def parse_janko(cache: Path, limit: int | None = None) -> dict:
     type the puzzle actually is: a Sumdoku page is a sum puzzle over a Latin
     square, which this app models as KenKen unless its 9x9 solution also
     satisfies boxes."""
+    from corpus.validate_target import validate_target
+
     collected: dict = {}
     for folder in sorted(p for p in cache.glob("*") if p.is_dir()):
         collection = folder.name
@@ -315,6 +330,10 @@ def parse_janko(cache: Path, limit: int | None = None) -> dict:
                 continue
             puzzle, solution = parsed
             if not consistent(puzzle, solution):
+                continue
+            try:
+                validate_target(puzzle, solution)
+            except Exception:  # noqa: BLE001 - whatever the reason, the page is dropped
                 continue
             key = (collection, puzzle["type"])
             if limit and len(taken.get(key, [])) >= limit:
