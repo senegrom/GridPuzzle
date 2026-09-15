@@ -1,0 +1,100 @@
+{
+  "cases": {
+    "blank4_cap20": {
+      "count": 20,
+      "digest": "a541dfcd60eb7337c2ea4c843788d96e9e81f2a2d84fda8bf78612b630a15c47",
+      "improvement_percent": 2.595102265517768,
+      "left_label": "master",
+      "left_median": 4.527219121999991,
+      "left_seconds": [
+        4.63619737099998,
+        4.418240873000002
+      ],
+      "right_label": "candidate",
+      "right_median": 4.409733156000016,
+      "right_over_left": 0.9740489773448223,
+      "right_seconds": [
+        4.411114868000027,
+        4.4083514440000044
+      ]
+    },
+    "example9_first": {
+      "count": 1,
+      "digest": "35f97b923de81836469683ff8effd4da9e613651a0774f0f395c61379440fb03",
+      "improvement_percent": -0.2398216148107979,
+      "left_label": "master",
+      "left_median": 0.05552835599996797,
+      "left_seconds": [
+        0.055815291999977035,
+        0.05701139600000715,
+        0.05463534199998321,
+        0.05552835599996797,
+        0.054602112999987185
+      ],
+      "right_label": "candidate",
+      "right_median": 0.055661525000004985,
+      "right_over_left": 1.002398216148108,
+      "right_seconds": [
+        0.05516419600002109,
+        0.058106889999976374,
+        0.05602529399999412,
+        0.05501991199997747,
+        0.055661525000004985
+      ]
+    },
+    "loaded4_all": {
+      "count": 4,
+      "digest": "484be136bb2b590f81c4b23096dc1af609324b9280fa83b61969618fc785a89c",
+      "improvement_percent": 0.41309822969139987,
+      "left_label": "master",
+      "left_median": 0.11434277999995857,
+      "left_seconds": [
+        0.21881121799998482,
+        0.11419166700000005,
+        0.11802718600000617,
+        0.11403180899998233,
+        0.11434277999995857
+      ],
+      "right_label": "candidate",
+      "right_median": 0.1138704319999988,
+      "right_over_left": 0.995869017703086,
+      "right_seconds": [
+        0.11941603299999315,
+        0.11333222600001136,
+        0.1138704319999988,
+        0.11449845900000355,
+        0.1136641939999663
+      ]
+    },
+    "nonsquare6_cap20": {
+      "count": 20,
+      "digest": "9d2144281f7e118083da5fe96ecd6e073e754cfe4ea675d649980bc7965e5878",
+      "improvement_percent": -2.6823374298416747,
+      "left_label": "master",
+      "left_median": 12.295938994500005,
+      "left_seconds": [
+        12.335305070000004,
+        12.256572919000007
+      ],
+      "right_label": "candidate",
+      "right_median": 12.625757568499978,
+      "right_over_left": 1.0268233742984167,
+      "right_seconds": [
+        12.722847704999992,
+        12.528667431999963
+      ]
+    }
+  },
+  "depth_gate": null,
+  "gates": {
+    "macro_geomean_max_ratio": 1.01,
+    "macro_geomean_ratio": 0.9996080890069506,
+    "macro_worst_max_ratio": 1.03,
+    "macro_worst_ratio": 1.0268233742984167
+  },
+  "mode": "default",
+  "passed": true,
+  "python": "3.14.7 (main, Aug  6 2026, 02:19:46) [GCC 13.3.0]",
+  "title": "Default executor overhead \u2014 2026-08-12",
+  "workers": 2
+}
