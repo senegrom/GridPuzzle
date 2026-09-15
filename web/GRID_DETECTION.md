@@ -14,6 +14,17 @@ worker on a copy of the frame no larger than 640 pixels (the live camera) or
    from the warp; the line count gives rows and columns and decides the
    confidence (0.94 with a lattice, 0.45 without, which the callers reject).
 
+## The outline stage
+
+A photograph of a page on a dark table makes the page's edge the largest
+component of the ink mask: a thin ring around the grid, whose extreme points
+are the page's corners, not the grid's. Measured on the rendered "photo"
+variants of the corpus this was the whole loss in every family: in each case
+the true grid was the second-largest candidate, inside the ring, with corners
+within 0.2–0.8%. When a substantial candidate (at least a quarter of the
+largest one's area) lies inside the largest one, it is taken as the grid if it
+carries a lattice; otherwise the largest wins as before.
+
 ## The line stage
 
 Measured on September 14, 2026 against the corpus (`corpus/SOURCES.md`), the
@@ -53,25 +64,30 @@ The stage now works as follows.
 Good detections (grid found, right size, corners within 3% of the diagonal)
 at the live scale, per corpus set, before and after the change:
 
-| Set | Before | After |
-| --- | ---: | ---: |
-| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 |
-| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 |
-| KenKen renders (janko) | 1 / 120 | 87 / 120 |
-| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 |
-| Str8ts renders (janko) | 65 / 120 | 74 / 120 |
-| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | unchanged (about 88 of 120 each) |
+| Set | Original | Line stage | + outline stage |
+| --- | ---: | ---: | ---: |
+| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 |
+| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 |
+| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 |
+| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 |
+| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 |
+| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each |
 
-Fourteen images that the old stage accepted are now rejected, all with one
-axis found and the other not. The change costs no time: the median is about
-20 ms per frame at 640 pixels either way.
+The line stage lost fourteen images the original accepted, all with one axis
+found and the other not; the outline stage lost one more. Neither change
+costs time: the median stays about 20 ms per frame at 640 pixels.
 
 ## Known gaps
 
 - **Kakuro** (black cells everywhere) and **Slitherlink** (dots, no lines) are
-  not found by either stage; they need their own outline and lattice logic.
-- The rendered "photo" variants fail mostly in the outline stage, where the
-  paper's edge on a dark surface can become the largest component.
+  not found. The adaptive ink mask marks only pixels darker than their
+  surroundings, so the inside of a black cell is never ink and a black corner
+  cell is missing from its own outline, which slides the corners along the
+  edges; and columns of black cells read as wide dark bands in the line stage.
+  Adding absolute black to the outline mask was tried and rejected: it gained
+  three Kakuro images and lost five elsewhere, because dark regions of real
+  photographs pull the corners. The fix is corner refinement by fitting the
+  four border lines, plus a lattice that ignores wide dark groups.
 - Photographs of screens can carry a light-on-dark theme; the sensitive mask
   reads the dark halo beside a bright line, which is enough for box lines but
   not always for cell lines.

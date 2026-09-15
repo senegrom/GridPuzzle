@@ -294,8 +294,7 @@ export function findGrid(image) {
     b = threshold(image),
     seen = new Uint8Array(b.length),
     queue = new Int32Array(b.length);
-  let best = null,
-    score = 0;
+  const candidates = [];
   for (let i = 0; i < b.length; i++) {
     if (!b[i] || seen[i]) continue;
     let head = 0,
@@ -354,11 +353,23 @@ export function findGrid(image) {
       maxx - minx > w * 0.15 &&
       maxy - miny > h * 0.15 &&
       validQuad(corners, w, h) &&
-      polygonArea(corners) > area * 0.5 &&
-      area > score
-    ) {
-      score = area;
-      best = corners;
+      polygonArea(corners) > area * 0.5
+    )
+      candidates.push({ corners, area, minx, miny, maxx, maxy });
+  }
+  candidates.sort((p, q) => q.area - p.area);
+  let best = candidates[0]?.corners ?? null;
+  // A photograph of a page on a dark table makes the page's edge the largest
+  // component, a thin ring around the grid. When a substantial candidate lies
+  // inside the largest one, it is the grid if it carries a lattice.
+  if (candidates.length > 1) {
+    const outer = candidates[0];
+    for (const inner of candidates.slice(1, 3)) {
+      if (inner.area < outer.area * 0.25 || inner.minx < outer.minx || inner.miny < outer.miny ||
+        inner.maxx > outer.maxx || inner.maxy > outer.maxy) continue;
+      const estimated = estimateGrid(warp(image, inner.corners, 540, 540));
+      if (estimated.rows && estimated.cols)
+        return { corners: inner.corners, confidence: 0.94, ...estimated, lines: undefined };
     }
   }
   if (!best)

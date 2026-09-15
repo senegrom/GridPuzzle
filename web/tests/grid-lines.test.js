@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { estimateGrid, gridLines } from "../geometry.js";
+import { estimateGrid, findGrid, gridLines } from "../geometry.js";
 
 // A 540 x 540 warp of a 9 x 9 grid drawn the way a photograph thresholds:
 // thick box lines, thin cell lines at a chosen grey, digits as short strokes
@@ -71,6 +71,18 @@ test("cage walls drawn just inside the cell edges do not split the lattice", () 
   }
   const grid = estimateGrid({ width: n, height: n, data });
   assert.equal(grid.rows, 4); assert.equal(grid.cols, 4);
+});
+test("a page on a dark table: the grid inside the page's edge wins over the edge", () => {
+  // Dark surface, lighter page with a 9 x 9 grid inside it: the page edge is
+  // the largest component of the ink mask and must not be the outline.
+  const n = 640, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, x >= 60 && x < 580 && y >= 60 && y < 580 ? 245 : 120);
+  const g0 = 130, cell = 40;
+  for (let k = 0; k <= 9; k++) for (let t = g0; t <= g0 + 9 * cell; t++) for (let d = 0; d < (k % 3 ? 1 : 3); d++) { px(g0 + k * cell + d, t, 0); px(t, g0 + k * cell + d, 0); }
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 9); assert.equal(found.cols, 9);
+  assert.ok(Math.abs(found.corners[0].x - g0) <= 3 && Math.abs(found.corners[2].x - (g0 + 9 * cell + 2)) <= 4, JSON.stringify(found.corners));
 });
 test("a blank warp has no grid", () => {
   const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
