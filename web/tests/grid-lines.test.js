@@ -84,6 +84,32 @@ test("a page on a dark table: the grid inside the page's edge wins over the edge
   assert.equal(found.rows, 9); assert.equal(found.cols, 9);
   assert.ok(Math.abs(found.corners[0].x - g0) <= 3 && Math.abs(found.corners[2].x - (g0 + 9 * cell + 2)) <= 4, JSON.stringify(found.corners));
 });
+test("black corner cells: the lattice is read past them and the corners settle on it", () => {
+  // A Kakuro-like 8 x 8 grid whose first row and column are black cells.
+  const n = 640, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 245);
+  const g0 = 80, cell = 60, g1 = g0 + 8 * cell;
+  for (let y = g0; y < g1; y++) for (let x = g0; x < g1; x++) if (x < g0 + cell || y < g0 + cell) px(x, y, 20);
+  for (let k = 0; k <= 8; k++) for (let t = g0; t <= g1; t++) { px(g0 + k * cell, t, 20); px(t, g0 + k * cell, 20); }
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 8); assert.equal(found.cols, 8);
+  const truth = [[g0, g0], [g1, g0], [g1, g1], [g0, g1]];
+  // Within about 1% of the grid: the border along black cells is read from
+  // the outer member of its cluster, the black cell's rim being the stronger.
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("a blob touching a corner does not keep the corner off the grid", () => {
+  const n = 640, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 245);
+  const g0 = 100, cell = 48, g1 = g0 + 9 * cell;
+  for (let k = 0; k <= 9; k++) for (let t = g0; t <= g1; t++) for (let d = 0; d < (k % 3 ? 1 : 3); d++) { px(g0 + k * cell + d, t, 0); px(t, g0 + k * cell + d, 0); }
+  for (let y = g0 - 14; y <= g0 + 2; y++) for (let x = g1 - 2; x <= g1 + 14; x++) px(x, y, 0);
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 9); assert.equal(found.cols, 9);
+  assert.ok(Math.abs(found.corners[1].x - (g1 + 1)) <= 6 && Math.abs(found.corners[1].y - (g0 + 1)) <= 6, JSON.stringify(found.corners[1]));
+});
 test("a blank warp has no grid", () => {
   const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
   for (let i = 3; i < data.length; i += 4) data[i] = 255;

@@ -58,24 +58,51 @@ The stage now works as follows.
   true lattice is half as fine.
 - **One-axis fallback.** When only one axis yields a lattice, the other is
   tested at that cell count, since the warp maps the quad to a square.
+- **Black cells.** The adaptive mask never marks the inside of a black cell,
+  only its edges, so a grid line running past black cells is visible only
+  along white cells and its column read at half strength. Each column and row
+  is measured over the pixels that are ink or not absolutely dark, so the line
+  counts where it can be seen; a column or row that is mostly hidden cannot
+  carry a line.
+- **Skew.** A quad a few percent off the grid slants every line in the warp
+  and smears its column across several. Each axis is read in the frame that
+  straightens it: a small search over shears (up to about 3% of the length,
+  scored on a subsample by the energy of the profile) picks the sharpest one,
+  and the lattice is read there.
+
+## Settling the corners
+
+The outline's extreme points can sit a few percent off the grid (a digit
+touching the border, a black corner cell missing from the ink mask, a
+shadow), and a warp cut exactly at the border leaves the border line without
+a lighter neighbour on its outer side, so along black cells it is never
+marked. The quad is therefore warped with a 4% outward margin; the lattice's
+outer lines, read in the sheared frame, are the grid's border and are mapped
+back through the homography; and the tighter quad is confirmed with a second
+padded warp that must find the same lattice. Fitting lines to the component's
+boundary was measured first and rejected: on tilted quads a slanted side
+contaminates its neighbour's samples and pulls the fit by about 4%.
 
 ## Measured
 
 Good detections (grid found, right size, corners within 3% of the diagonal)
 at the live scale, per corpus set, before and after the change:
 
-| Set | Original | Line stage | + outline stage |
-| --- | ---: | ---: | ---: |
-| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 |
-| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 |
-| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 |
-| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 |
-| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 |
-| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each |
+| Set | Original | Line stage | + outline stage | + black cells, skew, settling |
+| --- | ---: | ---: | ---: | ---: |
+| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 | 187 / 202 |
+| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 | 957 / 1398 |
+| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 | 120 / 120 |
+| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 | 238 / 240 |
+| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 | 120 / 120 |
+| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each | 116–119 / 120 each |
 
 The line stage lost fourteen images the original accepted, all with one axis
-found and the other not; the outline stage lost one more. Neither change
-costs time: the median stays about 20 ms per frame at 640 pixels.
+found and the other not; the outline stage lost one more; the last step lost
+ten book and app photographs against fifty gained. The first two changes cost
+no time; the settling step raised the median from about 20 to 25–40 ms per
+frame at 640 pixels, since a quad whose corners move by more than one percent
+is confirmed on a second warp.
 
 ## Known gaps
 
@@ -83,11 +110,10 @@ costs time: the median stays about 20 ms per frame at 640 pixels.
   not found. The adaptive ink mask marks only pixels darker than their
   surroundings, so the inside of a black cell is never ink and a black corner
   cell is missing from its own outline, which slides the corners along the
-  edges; and columns of black cells read as wide dark bands in the line stage.
-  Adding absolute black to the outline mask was tried and rejected: it gained
-  three Kakuro images and lost five elsewhere, because dark regions of real
-  photographs pull the corners. The fix is corner refinement by fitting the
-  four border lines, plus a lattice that ignores wide dark groups.
+  edges. Adding absolute black to the outline mask was tried and rejected: it
+  gained three Kakuro images and lost five elsewhere, because dark regions of
+  real photographs pull the corners. The black-cell profile and the settling
+  step above recover Str8ts entirely; Kakuro still fails: its corner cells are black and its clue cells are split by a white diagonal, and neither the outline nor the lattice survives that yet.
 - Photographs of screens can carry a light-on-dark theme; the sensitive mask
   reads the dark halo beside a bright line, which is enough for box lines but
   not always for cell lines.

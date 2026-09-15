@@ -153,24 +153,74 @@ function groups(values, cutoff) {
   return out;
 }
 // Fraction of ink along each column and row of a mask, optionally skipping
-// the rows (columns) that belong to lines of the other axis.
-export function lineProfile(b, w, h, skipRows = null, skipCols = null) {
+// the rows (columns) that belong to lines of the other axis, and counting
+// only the pixels marked visible. A column or row that is mostly hidden
+// cannot carry a line.
+// ``shearX`` slants the columns: a vertical line that drifts by shearX
+// pixels from the top row to the bottom row is read as one column.
+// ``shearY`` does the same for rows.
+export function lineProfile(b, w, h, skipRows = null, skipCols = null, visible = null, shearX = 0, shearY = 0) {
   const x = new Float64Array(w),
-    y = new Float64Array(h);
-  let rows = 0,
-    cols = 0;
-  for (let r = 0; r < h; r++) if (!skipRows?.[r]) rows++;
-  for (let c = 0; c < w; c++) if (!skipCols?.[c]) cols++;
-  if (!rows || !cols) return lineProfile(b, w, h);
+    y = new Float64Array(h),
+    nx = new Int32Array(w),
+    ny = new Int32Array(h);
   for (let r = 0; r < h; r++) {
-    const keepRow = !skipRows?.[r];
+    const keepRow = !skipRows?.[r],
+      dx = Math.round(shearX * (r / (h - 1) - 0.5));
     for (let c = 0; c < w; c++) {
-      const v = b[r * w + c];
-      if (keepRow) x[c] += v / rows;
-      if (!skipCols?.[c]) y[r] += v / cols;
+      const i = r * w + c;
+      if (visible && !visible[i]) continue;
+      if (keepRow) {
+        const cc = c - dx;
+        if (cc >= 0 && cc < w) { x[cc] += b[i]; nx[cc]++; }
+      }
+      if (!skipCols?.[c]) {
+        const rr = r - Math.round(shearY * (c / (w - 1) - 0.5));
+        if (rr >= 0 && rr < h) { y[rr] += b[i]; ny[rr]++; }
+      }
     }
   }
+  for (let c = 0; c < w; c++) x[c] = nx[c] >= h * 0.2 ? x[c] / nx[c] : 0;
+  for (let r = 0; r < h; r++) y[r] = ny[r] >= w * 0.2 ? y[r] / ny[r] : 0;
   return { x, y };
+}
+// The shear (in pixels over the full length) that makes the profile sharpest.
+// A line slanted across k columns spreads its ink over k of them, so the sum
+// of squared column values is largest when the shear straightens it.
+function bestShear(b, w, h, visible, axis) {
+  // Scored on every sixth row (column): the energy of a profile is a coarse
+  // measure and the subsample keeps the search to a couple of milliseconds.
+  const along = axis === "x" ? w : h,
+    across = axis === "x" ? h : w,
+    acc = new Float64Array(along),
+    count = new Int32Array(along);
+  const score = (shear) => {
+    acc.fill(0); count.fill(0);
+    for (let t = 0; t < across; t += 6) {
+      const drift = Math.round(shear * (t / (across - 1) - 0.5));
+      for (let a = 0; a < along; a++) {
+        const i = axis === "x" ? t * w + a : a * w + t;
+        if (visible && !visible[i]) continue;
+        const aa = a - drift;
+        if (aa >= 0 && aa < along) { acc[aa] += b[i]; count[aa]++; }
+      }
+    }
+    let sum = 0;
+    for (let a = 0; a < along; a++) if (count[a]) { const v = acc[a] / count[a]; sum += v * v; }
+    return sum;
+  };
+  let best = 0,
+    bestScore = -1;
+  for (const shear of [-12, -6, 0, 6, 12]) {
+    const value = score(shear);
+    if (value > bestScore) { bestScore = value; best = shear; }
+  }
+  const coarse = best;
+  for (const shear of [coarse - 3, coarse + 3]) {
+    const value = score(shear);
+    if (value > bestScore) { bestScore = value; best = shear; }
+  }
+  return best;
 }
 // Lines are read from a mask more sensitive than the ink mask (bias 6, no
 // ceiling): measured on real photographs, thin and light-grey grid lines
@@ -179,22 +229,34 @@ export function lineProfile(b, w, h, skipRows = null, skipCols = null) {
 // survived in others (a 3x3 reading). In the sensitive mask the weakest true
 // line sits near 50-75% while the darkest column of digits stays near 30-40%.
 const LINE_CUTOFF = 0.42;
-export function gridLines(image, mask) {
+export function gridLines(image, mask, shear = null) {
   const w = image.width,
     h = image.height,
-    b = mask ?? thresholdGray(gray(image), w, h, 25, 6, 255),
-    first = lineProfile(b, w, h);
+    g = gray(image),
+    b = mask ?? thresholdGray(g, w, h, 25, 6, 255);
+  // The adaptive mask never marks the inside of a black cell, only its edges,
+  // so a grid line running past black cells is visible only along white
+  // cells and its column reads at half strength. Measure over the pixels that
+  // are ink or not absolutely dark, so the line counts where it can be seen.
+  const visible = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) visible[i] = b[i] || g[i] >= 50 ? 1 : 0;
+  // A quad a few percent off the grid slants every line in the warp and
+  // smears its column; read each axis in the frame that straightens it.
+  const shearX = shear ? shear.x : bestShear(b, w, h, visible, "x"),
+    shearY = shear ? shear.y : bestShear(b, w, h, visible, "y"),
+    first = lineProfile(b, w, h, null, null, visible, shearX, shearY);
   // Every column crosses all the horizontal lines and vice versa; that shared
   // ink alone lifts a column of digits toward the cutoff. Measure each axis
-  // again over the rows (columns) that are not lines of the other axis.
+  // again over the rows (columns) that are not lines of the other axis. The
+  // bands are widened by the shear so a slanted line is excluded entirely.
   const skipRows = new Uint8Array(h),
     skipCols = new Uint8Array(w);
   for (const l of groups(first.y, LINE_CUTOFF))
-    for (let r = Math.max(0, Math.floor(l.at - l.width / 2 - 1)); r <= Math.min(h - 1, Math.ceil(l.at + l.width / 2 + 1)); r++) skipRows[r] = 1;
+    for (let r = Math.max(0, Math.floor(l.at - l.width / 2 - 1 - Math.abs(shearY) / 2)); r <= Math.min(h - 1, Math.ceil(l.at + l.width / 2 + 1 + Math.abs(shearY) / 2)); r++) skipRows[r] = 1;
   for (const l of groups(first.x, LINE_CUTOFF))
-    for (let c = Math.max(0, Math.floor(l.at - l.width / 2 - 1)); c <= Math.min(w - 1, Math.ceil(l.at + l.width / 2 + 1)); c++) skipCols[c] = 1;
-  const profile = lineProfile(b, w, h, skipRows, skipCols);
-  return { x: groups(profile.x, LINE_CUTOFF), y: groups(profile.y, LINE_CUTOFF) };
+    for (let c = Math.max(0, Math.floor(l.at - l.width / 2 - 1 - Math.abs(shearX) / 2)); c <= Math.min(w - 1, Math.ceil(l.at + l.width / 2 + 1 + Math.abs(shearX) / 2)); c++) skipCols[c] = 1;
+  const profile = lineProfile(b, w, h, skipRows, skipCols, visible, shearX, shearY);
+  return { x: groups(profile.x, LINE_CUTOFF), y: groups(profile.y, LINE_CUTOFF), shear: { x: shearX, y: shearY } };
 }
 // Lines closer than 3% of the length are one line: a cage wall drawn just
 // inside a cell edge, a doubled border, an anti-aliased thick line split by
@@ -205,8 +267,9 @@ function cluster(lines, radius) {
     const last = out.at(-1);
     if (last && l.at - last.at <= radius) {
       last.width += l.width;
+      last.hi = l.at;
       if (l.peak > last.peak) { last.peak = l.peak; last.at = l.at; }
-    } else out.push({ at: l.at, width: l.width, peak: l.peak });
+    } else out.push({ at: l.at, width: l.width, peak: l.peak, lo: l.at, hi: l.at });
   }
   return out;
 }
@@ -217,11 +280,11 @@ function cluster(lines, radius) {
 // hold a line, and the outermost ones must sit near the warp's edges.
 function lattice(found, length) {
   const lines = cluster(found, length * 0.03);
-  if (lines.length < 3) return 0;
+  if (lines.length < 3) return null;
   const at = lines.map((l) => l.at),
     gaps = at.slice(1).map((v, i) => v - at[i]).sort((a, b) => a - b),
     spacing = gaps[gaps.length >> 1];
-  if (!(spacing > 0)) return 0;
+  if (!(spacing > 0)) return null;
   const anchor = lines.reduce((best, l) => (l.peak > best.peak ? l : best), lines[0]).at,
     kept = [],
     strays = [];
@@ -229,20 +292,21 @@ function lattice(found, length) {
     const k = Math.round((l.at - anchor) / spacing);
     (Math.abs(l.at - (anchor + k * spacing)) <= spacing * 0.25 ? kept : strays).push(l);
   }
-  if (kept.length < 3 || strays.length > Math.floor(lines.length / 5)) return 0;
+  if (kept.length < 3 || strays.length > Math.floor(lines.length / 5)) return null;
   const first = kept[0].at,
-    last = kept.at(-1).at;
-  if (first > length * 0.1 || last < length * 0.9) return 0;
+    last = kept.at(-1).at,
+    outer = [kept[0].lo, kept.at(-1).hi];
+  if (first > length * 0.1 || last < length * 0.9) return null;
   const cells = Math.round((last - first) / spacing);
-  if (cells < 3 || cells > 25) return 0;
+  if (cells < 3 || cells > 25) return null;
   const step = (last - first) / cells,
     present = new Map();
   for (const l of kept) {
     const k = Math.round((l.at - first) / step);
-    if (Math.abs(l.at - (first + k * step)) > step * 0.25) return 0;
+    if (Math.abs(l.at - (first + k * step)) > step * 0.25) return null;
     present.set(k, Math.max(present.get(k) ?? 0, l.peak));
   }
-  if (present.size < Math.ceil((cells + 1) * 0.8)) return 0;
+  if (present.size < Math.ceil((cells + 1) * 0.8)) return null;
   // Columns of digits sit half-way between lines. When every other lattice
   // position is markedly weaker than its neighbours, those are cell centres
   // and the true lattice is half as fine.
@@ -251,12 +315,12 @@ function lattice(found, length) {
       odd = [];
     for (const [k, peak] of present) (k % 2 ? odd : even).push(peak);
     const median = (a) => a.sort((p, q) => p - q)[a.length >> 1];
-    if (odd.length && even.length && median(odd) < median(even) * 0.75) return cells / 2;
+    if (odd.length && even.length && median(odd) < median(even) * 0.75) return { cells: cells / 2, first: outer[0], last: outer[1] };
   }
-  return cells;
+  return { cells, first: outer[0], last: outer[1] };
 }
 function regular(lines, length) {
-  return lattice(lines, length);
+  return lattice(lines, length) ?? { cells: 0, first: 0, last: length - 1 };
 }
 // Test one axis at a cell count the other axis established: the warp maps
 // the quad to a square, so a square-celled grid has the same spacing both
@@ -265,28 +329,98 @@ function latticeAt(found, length, cells) {
   const lines = cluster(found, length * 0.03),
     step = (length - 1) / cells;
   let present = 0,
-    strays = 0;
+    strays = 0,
+    first = Infinity,
+    last = -Infinity;
   const seen = new Set();
   for (const l of lines) {
     const k = Math.round(l.at / step);
     if (k < 0 || k > cells || Math.abs(l.at - k * step) > step * 0.25) strays++;
-    else if (!seen.has(k)) { seen.add(k); present++; }
+    else {
+      if (!seen.has(k)) { seen.add(k); present++; }
+      if (k === 0) first = Math.min(first, l.at);
+      if (k === cells) last = Math.max(last, l.at);
+    }
   }
-  return present >= Math.ceil((cells + 1) * 0.8) && strays <= Math.floor(lines.length / 5) ? cells : 0;
+  return present >= Math.ceil((cells + 1) * 0.8) && strays <= Math.floor(lines.length / 5)
+    ? { cells, first: Number.isFinite(first) ? first : 0, last: Number.isFinite(last) ? last : length - 1 }
+    : { cells: 0, first: 0, last: length - 1 };
 }
-export function estimateGrid(image, mask) {
-  const lines = gridLines(image, mask);
-  let cols = regular(lines.x, image.width),
-    rows = regular(lines.y, image.height);
-  if (cols && !rows) rows = latticeAt(lines.y, image.height, cols);
-  else if (rows && !cols) cols = latticeAt(lines.x, image.width, rows);
+export function estimateGrid(image, mask, shear = null) {
+  const lines = gridLines(image, mask, shear);
+  let across = regular(lines.x, image.width),
+    down = regular(lines.y, image.height);
+  if (across.cells && !down.cells) down = latticeAt(lines.y, image.height, across.cells);
+  else if (down.cells && !across.cells) across = latticeAt(lines.x, image.width, down.cells);
+  const cols = across.cells,
+    rows = down.cells;
   let boxes = false;
   if (rows === cols && [4, 6, 9, 16, 25].includes(rows)) {
     const mid = lines.x.slice(1, -1),
       thin = Math.min(...mid.map((l) => l.width));
     boxes = mid.some((l) => l.width > thin * 1.45 && l.width >= 3);
   }
-  return { rows, cols, boxes, lines };
+  return { rows, cols, boxes, lines,
+    extent: rows && cols ? { x: [across.first, across.last], y: [down.first, down.last], shear: lines.shear } : null };
+}
+// A quad pushed outward from its centre by a fraction of its size, clamped
+// to the image.
+function padded(corners, width, height, fraction = 0.04) {
+  const cx = corners.reduce((sum, p) => sum + p.x, 0) / 4,
+    cy = corners.reduce((sum, p) => sum + p.y, 0) / 4;
+  return corners.map((p) => ({
+    x: Math.min(width - 1, Math.max(0, p.x + (p.x - cx) * fraction)),
+    y: Math.min(height - 1, Math.max(0, p.y + (p.y - cy) * fraction)),
+  }));
+}
+// The outline's extreme points can sit a few percent off the grid (a digit
+// touching the border, a black corner cell missing from the ink mask, a
+// shadow), and a warp cut exactly at the border leaves the border line
+// without a lighter neighbour on its outer side, so along black cells it is
+// never marked. The quad is therefore warped with a small outward margin;
+// the lattice's outer lines are the grid's border, mapped back through the
+// homography, and the tighter quad is confirmed with a second padded warp
+// that must find the same lattice.
+function settle(image, corners) {
+  const size = 540,
+    grown = padded(corners, image.width, image.height),
+    // Clamping a quad that touches the frame can fold it; fall back to the
+    // quad itself rather than let the warp refuse it.
+    loose = validQuad(grown, image.width, image.height) ? grown : corners,
+    estimated = estimateGrid(warp(image, loose, size, size));
+  if (!estimated.rows || !estimated.cols || !estimated.extent) return { corners, estimated };
+  const [x0, x1] = estimated.extent.x,
+    [y0, y1] = estimated.extent.y,
+    { x: shearX, y: shearY } = estimated.extent.shear,
+    m = homography(loose),
+    at = (u, v) => {
+      const p = project(m, u / (size - 1), v / (size - 1));
+      return { x: Math.min(image.width - 1, Math.max(0, p.x)), y: Math.min(image.height - 1, Math.max(0, p.y)) };
+    },
+    // A vertical line read at column x0 in the sheared frame sits at
+    // x0 + shearX * (v / (size - 1) - 0.5) in row v of the warp, and likewise
+    // for horizontal lines; a corner is where an outer line of each axis meets.
+    corner = (x, y) => {
+      let v = y, u = x;
+      for (let pass = 0; pass < 3; pass++) {
+        u = x + shearX * (v / (size - 1) - 0.5);
+        v = y + shearY * (u / (size - 1) - 0.5);
+      }
+      return at(u, v);
+    },
+    tight = [corner(x0, y0), corner(x1, y0), corner(x1, y1), corner(x0, y1)],
+    diagonal = Math.hypot(corners[2].x - corners[0].x, corners[2].y - corners[0].y);
+  const moved = Math.max(...tight.map((p, i) => Math.hypot(p.x - corners[i].x, p.y - corners[i].y)));
+  if (!validQuad(tight, image.width, image.height) || moved > diagonal * 0.12) return { corners, estimated };
+  // A refinement within one percent needs no confirmation; a larger move is
+  // confirmed on a second padded warp, which after settling has no skew left
+  // to search for.
+  if (moved <= diagonal * 0.01) return { corners: tight, estimated };
+  const grownTight = padded(tight, image.width, image.height),
+    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 });
+  return again.rows === estimated.rows && again.cols === estimated.cols
+    ? { corners: tight, estimated: again }
+    : { corners, estimated };
 }
 export function findGrid(image) {
   const w = image.width,
@@ -367,9 +501,9 @@ export function findGrid(image) {
     for (const inner of candidates.slice(1, 3)) {
       if (inner.area < outer.area * 0.25 || inner.minx < outer.minx || inner.miny < outer.miny ||
         inner.maxx > outer.maxx || inner.maxy > outer.maxy) continue;
-      const estimated = estimateGrid(warp(image, inner.corners, 540, 540));
-      if (estimated.rows && estimated.cols)
-        return { corners: inner.corners, confidence: 0.94, ...estimated, lines: undefined };
+      const settled = settle(image, inner.corners);
+      if (settled.estimated.rows && settled.estimated.cols)
+        return { corners: settled.corners, confidence: 0.94, ...settled.estimated, lines: undefined, extent: undefined };
     }
   }
   if (!best)
@@ -385,13 +519,13 @@ export function findGrid(image) {
       cols: 0,
       boxes: false,
     };
-  const small = warp(image, best, 540, 540),
-    estimated = estimateGrid(small);
+  const settled = settle(image, best);
   return {
-    corners: best,
-    confidence: estimated.rows && estimated.cols ? 0.94 : 0.45,
-    ...estimated,
+    corners: settled.corners,
+    confidence: settled.estimated.rows && settled.estimated.cols ? 0.94 : 0.45,
+    ...settled.estimated,
     lines: undefined,
+    extent: undefined,
   };
 }
 export function sharpness(image) {
