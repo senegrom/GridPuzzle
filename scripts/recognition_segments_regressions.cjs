@@ -3,6 +3,7 @@ const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), os = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
+const { measure: measureQuality, qualityCases } = require("./ocr_quality_regressions.cjs");
 const BASELINE = "1ed4507570050c87543f2e1986fc092fb6acae14";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -43,8 +44,8 @@ async function measure(fixture) {
     printed: values.length, correct: values.filter((value, j) => found.puzzle.cells[(j * 37 + 13) % 144] === value).length,
     wrong, unsafe: wrong.filter(({ cell }) => !found.uncertain.includes(cell)),
     flagged: found.uncertain, retryCount: found.retryCount, ocrStats: found.ocrStats,
-    timings: found.timings, entries: found.entries.map(({ cell, text, confidence, glyphCount, segmentedRead }) =>
-      ({ cell, text, confidence, glyphCount, segmentedRead })),
+    timings: found.timings, entries: found.entries.map(({ cell, text, confidence, glyphCount, segmentedRead, lengthRecovered }) =>
+      ({ cell, text, confidence, glyphCount, segmentedRead, lengthRecovered })),
   };
 }
 
@@ -73,7 +74,7 @@ async function run() {
         [1, 0.65, 0.5].map((scale) => ({ name: `${font}-${scale}`, font, scale })))];
     for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const browser = await engine.launch({ headless: true });
-      const report = { browser: name, version: browser.version(), baseline: BASELINE, pairs: [], errors: [] };
+      const report = { browser: name, version: browser.version(), baseline: BASELINE, pairs: [], qualityPairs: [], errors: [] };
       reports.push(report);
       try {
         const pages = {};
@@ -100,6 +101,31 @@ async function run() {
           console.log(`${name}/${fixture.name}: ${before.correct} -> ${after.correct}/${after.printed}; +${pair.gained.length}, -${pair.lost.length}`);
         }
         for (const page of Object.values(pages)) await page.evaluate(() => window.segmentScanner?.cancel());
+        // Recheck every existing quality case against the preceding scanner.
+        // The old minimum-accuracy gate allowed a previously correct clue to
+        // become a flagged error. Compare individual cells, not just totals.
+        const currentQuality = JSON.parse(fs.readFileSync("browser-artifacts/ocr-quality.json"))
+          .find((r) => r.browser === name);
+        assert.ok(currentQuality?.ok, "run the existing quality suite before the paired suite");
+        assert.equal(currentQuality.version, report.version, "compare the same browser version");
+        const cases = qualityCases();
+        assert.equal(currentQuality.scans.length, cases.length);
+        for (const spec of cases) {
+          const before = await pages.baseline.evaluate(measureQuality, spec);
+          const after = currentQuality.scans.find((scan) =>
+            scan.name === spec.fixture.name && scan.variation === spec.variation.name);
+          assert.ok(after, "every baseline quality case has a candidate result");
+          const priorWrong = new Set(before.wrong.map((item) => item.cell)),
+            currentWrong = new Set(after.wrong.map((item) => item.cell)),
+            lost = after.wrong.filter((item) => !priorWrong.has(item.cell)),
+            gained = before.wrong.filter((item) => !currentWrong.has(item.cell));
+          report.qualityPairs.push({ name: before.name, variation: before.variation,
+            baseline: before, candidate: after, gained, lost });
+          assert.deepEqual(lost, [], `${name}/${before.name}/${before.variation}: no previously correct quality cell lost`);
+          assert.deepEqual(after.unsafe, []);
+          console.log(`${name}/existing/${before.name}/${before.variation}: ${before.correct} -> ${after.correct}/${after.printed}`);
+        }
+
         assert.deepEqual(report.errors, []); report.ok = true;
       } catch (error) { report.ok = false; report.failure = error.stack; throw error; }
       finally { await browser.close(); }

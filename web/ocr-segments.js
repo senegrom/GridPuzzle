@@ -36,12 +36,14 @@ export function separatedCrops(entry, g, width, height, cellWidth, cellHeight) {
 export function applySeparatedReading(entry, reads) {
   const count = entry.segments?.length;
   if (count !== entry.glyphCount || count < 2 || count > 3) return;
-  if (/^\d{1,3}$/.test(entry.text) && entry.text.length === count) return;
+  if (/^\d{1,3}$/.test(entry.text) && entry.text.length >= count) return;
+  // Segmentation is a lower bound: touching digits may share a component.
+  // Never shorten a longer reading to force an exact component count.
   // Prefer an existing complete OCR alternative to a truncated majority.
   // Geometry selects between readings; it supplies no numeric value. Keep
   // the correction uncertain even if all full-length alternatives agree.
   const complete = voteDigit([entry, ...reads.filter((r) => r.kind !== "segments")]
-    .filter((r) => /^\d{1,3}$/.test(r.text) && r.text.length === count));
+    .filter((r) => /^\d{1,3}$/.test(r.text) && r.text.length >= count));
   if (complete.text) {
     entry.text = complete.text;
     entry.confidence = 0;

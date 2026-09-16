@@ -171,7 +171,7 @@ async function recognize(data, check) {
       if (retries >= 24) break;
       const { index, reads, sample, segments } = job;
       if (!segments.length || reads.length < 2 || !sample) continue;
-      const complete = (r) => r && /^\d{1,3}$/.test(r.text) && r.text.length === segments.length;
+      const complete = (r) => r && /^\d{1,3}$/.test(r.text) && r.text.length >= segments.length;
       if ([...reads, job.retry].some(complete)) continue;
       // False agreement on a truncated number still gets a whole-crop retry.
       if (!job.retry) {

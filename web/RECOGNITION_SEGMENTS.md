@@ -8,11 +8,13 @@ It preserves the existing grid detector, classification and solver.
 ## Evidence and safeguards
 
 The preparation stage retains the absolute bounding boxes of two or three
-separate glyphs, ordered left to right. Grayscale crops include real padding,
-cut at the midpoint of the empty gap so an adjacent digit cannot leak into the
-individual crop. Existing raw-line recognition first gets a chance to read the
-whole number. Only if no isolated whole-crop reading has the expected length
-are the glyphs read separately.
+separate glyphs, ordered left to right. This count is a lower bound, not an
+exact number length: touching digits can share one component. Longer existing
+readings must never be shortened to force a match to that count. Grayscale
+crops include real padding, cut at the midpoint of the empty gap so an adjacent
+digit cannot leak into the individual crop. Existing raw-line recognition first
+gets a chance to read the whole number. Only if no isolated whole-crop reading
+has at least the detected length are the glyphs read separately.
 
 At the final voting boundary, a complete existing OCR alternative is preferred
 to a truncated majority. This can recover a full atlas or raw-line reading that
@@ -39,22 +41,26 @@ rather than new engine calls.
 
 ## Tests and measurement
 
-`web/tests/ocr-segments.test.js` adds 21 focused tests of geometry, actual crop
-pixels in both polarities, malformed input, budgets, evidence precedence,
-review, cache ownership and cancellation. The existing fragment, quality,
-engine reuse and runtime-build suites remain intact.
+`web/tests/ocr-segments.test.js` and `ocr-length-floor.test.js` add 24 focused
+tests of geometry, actual crop pixels in both polarities, malformed input,
+budgets, evidence precedence, review, cache ownership and cancellation. The
+existing fragment, quality, engine reuse and runtime-build suites remain intact.
 
 `scripts/recognition_segments_regressions.cjs` compares the production scanner
 against PR #48 commit `1ed4507570050c87543f2e1986fc092fb6acae14`, with the same
 built dependencies and browser fonts. It uses 13 fixtures per browser (narrow
 bar digits and four fonts at three horizontal scales), alternates execution
 order and records raw before/after cells, gains, losses, flags and timings.
+The suite also runs all 66 pre-existing quality cases on the baseline and
+compares each cell with the candidate quality report from the same run. This
+rejects any newly lost correct cell, even when the older minimum-accuracy gate
+would allow a flagged error. All input variations are shared with the existing
+quality suite to prevent fixture drift.
+
 The gate rejects newly lost correct clues or any unflagged discrepancy and
 requires exact reading of the narrow-number control. Its baseline is a scanner
-comparison, not a second independently deployed app build.
-
-The existing `Recognition quality` workflow runs this paired suite together
-with the 66 existing quality scans and 16 fragment scans. Results are stored
-in `recognition-quality-report/recognition-segments.json`. These targeted
+comparison, not a second independently deployed app build. The existing
+`Recognition quality` workflow retains the 16 fragment scans too. Results are
+stored in `recognition-quality-report/recognition-segments.json`. These targeted
 synthetic controls and two existing newspaper photographs are not a general
 accuracy estimate for unseen photos, handwriting or the external local corpus.
