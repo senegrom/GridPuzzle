@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), os = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { measure: measureQuality, qualityCases } = require("./ocr_quality_regressions.cjs");
-const BASELINE = "1ed4507570050c87543f2e1986fc092fb6acae14";
+const BASELINE = "23f7bc9e223410f5f64d749adcbce2b84be769bc";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function measure(fixture) {
@@ -44,8 +44,8 @@ async function measure(fixture) {
     printed: values.length, correct: values.filter((value, j) => found.puzzle.cells[(j * 37 + 13) % 144] === value).length,
     wrong, unsafe: wrong.filter(({ cell }) => !found.uncertain.includes(cell)),
     flagged: found.uncertain, retryCount: found.retryCount, ocrStats: found.ocrStats,
-    timings: found.timings, entries: found.entries.map(({ cell, text, confidence, glyphCount, segmentedRead, lengthRecovered }) =>
-      ({ cell, text, confidence, glyphCount, segmentedRead, lengthRecovered })),
+    timings: found.timings, entries: found.entries.map(({ cell, text, confidence, glyphCount, segmentedRead, lengthRecovered, aspectRecovered }) =>
+      ({ cell, text, confidence, glyphCount, segmentedRead, lengthRecovered, aspectRecovered })),
   };
 }
 
@@ -71,7 +71,9 @@ async function run() {
     assert.ok(ready, "Paired recognition server must start");
     const fixtures = [{ name: "narrow-bars", bars: true },
       ...["Arial", "Times New Roman", "Courier New", "DejaVu Sans"].flatMap((font) =>
-        [1, 0.65, 0.5].map((scale) => ({ name: `${font}-${scale}`, font, scale })))];
+        [1, 0.65, 0.5].map((scale) => ({ name: `${font}-${scale}`, font, scale }))),
+      ...["FreeSans", "FreeSerif"].flatMap((font) =>
+        [1, 0.65, 0.5].map((scale) => ({ name: `holdout-${font}-${scale}`, font, scale })))];
     for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const browser = await engine.launch({ headless: true });
       const report = { browser: name, version: browser.version(), baseline: BASELINE, pairs: [], qualityPairs: [], errors: [] };
@@ -97,7 +99,7 @@ async function run() {
           pair.gained = after.expected.flatMap((v, cell) => Number.isInteger(v) && after.actual[cell] === v && before.actual[cell] !== v ? [cell] : []);
           pair.lost = after.expected.flatMap((v, cell) => Number.isInteger(v) && before.actual[cell] === v && after.actual[cell] !== v ? [cell] : []);
           assert.deepEqual(pair.lost, [], `${name}/${fixture.name}: previously correct clues are retained`);
-          if (fixture.bars) assert.equal(after.correct, after.printed, "separated narrow numbers must actually improve, not merely become flagged");
+          if (!fixture.name.startsWith("holdout-")) assert.equal(after.correct, after.printed, "the original narrow-number matrix must now transcribe every clue, not merely flag it");
           console.log(`${name}/${fixture.name}: ${before.correct} -> ${after.correct}/${after.printed}; +${pair.gained.length}, -${pair.lost.length}`);
         }
         for (const page of Object.values(pages)) await page.evaluate(() => window.segmentScanner?.cancel());

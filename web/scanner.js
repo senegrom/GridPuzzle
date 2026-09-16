@@ -2,6 +2,7 @@ import { createOCRRuntime } from "./ocr-runtime.js";
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
+import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 export function imageOf(canvas) {
   return canvas
@@ -125,7 +126,7 @@ export function grayCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeigh
   context.putImageData(pixels, 0, 0);
   return canvas;
 }
-function sampleOf(source) {
+function sampleCanvas(source) {
   const scale = SAMPLE_HEIGHT / source.height,
     canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(source.width * scale)) + 2 * SAMPLE_PAD;
@@ -136,8 +137,9 @@ function sampleOf(source) {
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   context.drawImage(source, SAMPLE_PAD, SAMPLE_PAD, canvas.width - 2 * SAMPLE_PAD, SAMPLE_HEIGHT);
-  return canvas.toDataURL("image/png");
+  return canvas;
 }
+function sampleOf(source) { return sampleCanvas(source).toDataURL("image/png"); }
 // Read narrow glyphs as characters and wide numeric clues as a single line.
 // Both retain independent binary/grayscale evidence without dropping possible
 // second or third digits. The atlas remains the third vote.
@@ -145,6 +147,7 @@ export function digitSamples(entries, crops, g, w, h, cw, ch, cols) {
   const digits = [...crops.keys()];
   const withGray = digits.length <= SAMPLE_GRAY_LIMIT,
     singles = [];
+  let aspectBudget = 48; // At most 24 optional pairs, independent of the OCR-call ceiling.
   let segmentBudget = 72; // Bound optional raster packing independently of OCR calls.
   for (const i of digits) {
     // Two narrow neighbouring glyphs (for example "11") can still have a
@@ -156,11 +159,15 @@ export function digitSamples(entries, crops, g, w, h, cw, ch, cols) {
       const separated = entries[i].segments?.length <= segmentBudget
         ? separatedCrops(entries[i], g, w, h, cw, ch) : [];
       segmentBudget -= separated.length;
+      const graySample = sampleCanvas(grayCrop(entries[i], g, w, h, cw, ch, cols)),
+        aspect = aspectBudget >= 2 && aspectEligible(entries[i]) ? aspectSamples(graySample) : [];
+      aspectBudget -= aspect.length;
       singles.push({
         index: i,
         kind: "gray",
         psm,
-        png: sampleOf(grayCrop(entries[i], g, w, h, cw, ch, cols)),
+        png: graySample.toDataURL("image/png"),
+        ...(aspect.length ? { aspect } : {}),
         ...(separated.length ? { segments: separated.map(sampleOf) } : {}),
       });
     }
@@ -179,18 +186,20 @@ export function applyDigitVotes(entries, singles = []) {
   for (const [i, reads] of byIndex) {
     const entry = entries[i],
       original = { text: entry.text, confidence: entry.confidence },
-      whole = reads.filter((read) => read.kind !== "segments"),
+      ordinary = [original, ...reads.filter((read) => read.kind !== "aspect")],
+      whole = reads.filter((read) => !["segments", "aspect"].includes(read.kind)),
       prior = voteDigit([original, ...whole.filter((read) => read.kind !== "retry")]),
       vote = voteDigit([original, ...whole]);
-    if (!vote.text) {
-      applySeparatedReading(entry, [original, ...reads]);
-      continue;
+    if (vote.text) {
+      entry.text = vote.text;
+      entry.confidence = !entry.recoveredMark && vote.unanimous &&
+        (!reads.some((read) => read.kind === "retry") || (prior.unanimous && prior.text === vote.text))
+        ? Math.max(90, vote.confidence) : 0;
     }
-    entry.text = vote.text;
-    entry.confidence = !entry.recoveredMark && vote.unanimous &&
-      (!reads.some((read) => read.kind === "retry") || (prior.unanimous && prior.text === vote.text))
-      ? Math.max(90, vote.confidence) : 0;
-    applySeparatedReading(entry, [original, ...reads]);
+    applySeparatedReading(entry, ordinary);
+    if (entry.glyphCount > 1 && /^\d+$/.test(entry.text) && entry.text.length < entry.glyphCount)
+      entry.confidence = 0;
+    applyAspectReading(entry, [original, ...reads]);
   }
   // Even a unanimous whole-crop truncation is not evidence that a detected
   // second glyph was blank. Keep the discrepancy visible if retries ran out.
