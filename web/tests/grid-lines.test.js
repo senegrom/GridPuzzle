@@ -148,6 +148,89 @@ test("clue diagonals that cut the lines at their intersections still leave the w
   const truth = [[g0, g0], [g0 + cols * cell, g0], [g0 + cols * cell, g0 + rows * cell], [g0, g0 + rows * cell]];
   assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
 });
+test("a light-on-dark screen grid is found", () => {
+  // A dark-theme app: background 28, thin cell lines 150, box lines 230,
+  // light digits in a third of the cells, a lighter toolbar band below.
+  const n = 640, cell = 60, g0 = 50, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 28);
+  for (let k = 0; k <= 9; k++) for (let t = g0; t <= g0 + 9 * cell; t++) {
+    const v = k % 3 === 0 ? 230 : 150, thick = k % 3 === 0 ? 3 : 1;
+    for (let d = 0; d < thick; d++) { px(g0 + k * cell + d, t, v); px(t, g0 + k * cell + d, v); }
+  }
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if ((r * 4 + c * 7) % 3 === 0)
+    for (let y = 18; y < 42; y++) for (let x = 24; x < 36; x++) if (x < 27 || x > 32 || y < 22 || y > 38) px(g0 + c * cell + x, g0 + r * cell + y, 220);
+  for (let y = g0 + 9 * cell + 20; y < g0 + 9 * cell + 40; y++) for (let x = g0; x < g0 + 9 * cell; x++) px(x, y, 70);
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 9); assert.equal(found.cols, 9);
+  const truth = [[g0, g0], [g0 + 9 * cell, g0], [g0 + 9 * cell, g0 + 9 * cell], [g0, g0 + 9 * cell]];
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("a grid joined to a toolbar below it is found without the toolbar", () => {
+  // 9 x 9 grid of 50 px cells; a 75 px toolbar box hangs from the bottom
+  // border with irregular dividers, so the component's quad is too tall.
+  const n = 640, cell = 50, g0 = 60, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 246);
+  for (let k = 0; k <= 9; k++) for (let t = g0; t <= g0 + 9 * cell; t++) { px(g0 + k * cell, t, 30); px(t, g0 + k * cell, 30); if (k % 3 === 0) { px(g0 + k * cell + 1, t, 30); px(t, g0 + k * cell + 1, 30); } }
+  const bottom = g0 + 9 * cell + 75;
+  for (let t = g0; t <= g0 + 9 * cell; t++) px(t, bottom, 30);
+  for (let t = g0 + 9 * cell; t <= bottom; t++) { px(g0, t, 30); px(g0 + 9 * cell, t, 30); for (const x of [g0 + 70, g0 + 190, g0 + 260, g0 + 410]) px(x, t, 30); }
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if ((r * 4 + c * 7) % 3 === 0)
+    for (let y = 14; y < 36; y++) for (let x = 20; x < 30; x++) if (x < 23 || x > 27 || y < 18 || y > 32) px(g0 + c * cell + x, g0 + r * cell + y, 30);
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 9); assert.equal(found.cols, 9);
+  const truth = [[g0, g0], [g0 + 9 * cell, g0], [g0 + 9 * cell, g0 + 9 * cell], [g0, g0 + 9 * cell]];
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("a grid whose every cell is full of pencil marks is found", () => {
+  // 9 x 9 grid of 54 px cells with thin lines; every cell carries a 3 x 3
+  // block of small candidate digits (short dark strokes), so columns and
+  // rows of marks are as dark as the lines.
+  const n = 640, cell = 54, g0 = 60, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 246);
+  for (let k = 0; k <= 9; k++) for (let t = g0; t <= g0 + 9 * cell; t++) { px(g0 + k * cell, t, 40); px(t, g0 + k * cell, 40); }
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((r + c + i * 2 + j) % 4 !== 0) {
+    const x0 = g0 + c * cell + 8 + j * 15, y0 = g0 + r * cell + 6 + i * 15;
+    for (let y = 0; y < 10; y++) { px(x0 + 1, y0 + y, 30); px(x0 + 2, y0 + y, 30); }
+    for (let x = 0; x < 7; x++) { px(x0 + x, y0, 30); px(x0 + x, y0 + 9, 30); }
+  }
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 9); assert.equal(found.cols, 9);
+  const truth = [[g0, g0], [g0 + 9 * cell, g0], [g0 + 9 * cell, g0 + 9 * cell], [g0, g0 + 9 * cell]];
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("a Slitherlink grid of dots with clue digits is found", () => {
+  // 10 x 10 cells of 44 px marked by 5 px dots at the lattice points, digits
+  // (short strokes) in a third of the cells, a caption line below.
+  const n = 640, cell = 44, g0 = 70, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 246);
+  for (let r = 0; r <= 10; r++) for (let c = 0; c <= 10; c++) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (dx * dx + dy * dy <= 5) px(g0 + c * cell + dx, g0 + r * cell + dy, 30);
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) if ((r * 3 + c * 5) % 3 === 0) {
+    const x0 = g0 + c * cell + 17, y0 = g0 + r * cell + 12;
+    for (let y = 0; y < 20; y++) { px(x0 + 4, y0 + y, 30); px(x0 + 5, y0 + y, 30); }
+    if ((r + c) % 2) for (let x = 0; x < 10; x++) { px(x0 + x, y0, 30); px(x0 + x, y0 + 19, 30); }
+  }
+  for (let x = g0; x < g0 + 10 * cell; x += 3) for (let y = g0 + 10 * cell + 30; y < g0 + 10 * cell + 38; y++) if ((x / 3) % 5 !== 0) px(x, y, 30);
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, 10); assert.equal(found.cols, 10);
+  const truth = [[g0, g0], [g0 + 10 * cell, g0], [g0 + 10 * cell, g0 + 10 * cell], [g0, g0 + 10 * cell]];
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+function blankWarp() {
+  const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  return { width: n, height: n, data };
+}
+test("the estimate crosses the worker boundary", () => {
+  // The warp's metadata is posted from the geometry worker to the page, so
+  // every part of it must be structured-cloneable; a function in the line
+  // data broke every photo read and every live read once.
+  for (const estimate of [estimateGrid(warp()), estimateGrid(warp({ thin: 210, dense: true })), estimateGrid(blankWarp())])
+    assert.doesNotThrow(() => structuredClone(estimate), JSON.stringify(Object.keys(estimate)));
+});
 test("a blank warp has no grid", () => {
   const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
   for (let i = 3; i < data.length; i += 4) data[i] = 255;

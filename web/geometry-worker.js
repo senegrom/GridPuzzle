@@ -4,7 +4,7 @@ self.onmessage = ({ data }) => {
   try {
     let result;
     if (data.op === "detect")
-      result = { ...findGrid(data.image), sharpness: sharpness(data.image) };
+      result = { ...findGrid(data.image, { thorough: data.thorough !== false }), sharpness: sharpness(data.image) };
     else if (data.op === "warp" || data.op === "prepare") {
       const image = warp(data.image, data.corners, data.width, data.height);
       result =
