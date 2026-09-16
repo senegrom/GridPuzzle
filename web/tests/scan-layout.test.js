@@ -197,3 +197,31 @@ test("an obsolete detection cannot change the pending layout", async (t) => {
   assert.deepEqual(flow.errors, []);
   assert.deepEqual(flow.state.layout, { rows: 4, cols: 4, boxRows: 2, boxCols: 2 });
 });
+
+// Leave these inputs invalid AFTER detection, as happens when a user edits
+// Sudoku settings and then selects a family whose box controls are hidden.
+for (const type of ["latinsquare", "futoshiki", "numbrix", "hidato", "kenken", "kakuro", "slitherlink", "str8ts"])
+  for (const value of ["", "not-a-number", "-1", "1.5", "26"])
+    test(`${type}: hidden box value ${JSON.stringify(value)} cannot block Read`, async t => {
+      const flow = photoFlow(t, { type });
+      await flow.click("detect-photo");
+      flow.$("box-rows").value = flow.$("box-cols").value = value;
+      let reads = 0; const read = flow.scanner.read;
+      flow.scanner.read = (...args) => { reads++; return read(...args); };
+      await flow.click("read-photo");
+      assert.equal(reads, 1); assert.deepEqual(flow.errors, []);
+      assert.equal(flow.state.puzzle.type, type);
+      assert.deepEqual([flow.state.puzzle.rows, flow.state.puzzle.cols], [6, 6]);
+    });
+for (const type of ["sudoku", "killersudoku"])
+  for (const value of ["", "not-a-number", "-1", "1.5", "26"])
+    test(`${type}: relevant invalid box value ${JSON.stringify(value)} still blocks Read`, async t => {
+      const flow = photoFlow(t, { type });
+      await flow.click("detect-photo");
+      const accepted = flow.state.puzzle;
+      flow.$("box-rows").value = flow.$("box-cols").value = value;
+      let reads = 0; flow.scanner.read = () => { reads++; throw Error("must not read"); };
+      await flow.click("read-photo");
+      assert.equal(reads, 0); assert.equal(flow.errors.length, 1);
+      assert.equal(flow.state.puzzle, accepted);
+    });

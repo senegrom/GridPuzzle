@@ -143,10 +143,15 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         guide = initial = null; session.invalidate(); say("Keep the whole grid in view, in even light."); return;
       }
       const rows = found.rows || settings.rows, cols = found.cols || settings.cols;
-      const selected = settings.rows === rows && settings.cols === cols;
+      const selected = settings.rows === rows && settings.cols === cols &&
+        ["auto", "sudoku", "killersudoku"].includes(settings.type);
       const [br, bc] = selected ? [settings.boxRows, settings.boxCols] : boxShape(rows);
       const puzzle = makePuzzle(settings.type === "auto" ? "hidato" : settings.type, rows, cols);
-      puzzle.boxRows = br; puzzle.boxCols = bc;
+      // Auto validates the boxes only after recognition chooses a boxed type.
+      // Other families must never inherit hidden, possibly incomplete inputs.
+      if (["sudoku", "killersudoku"].includes(puzzle.type)) {
+        puzzle.boxRows = br; puzzle.boxCols = bc;
+      }
       try { checkShape(puzzle); } catch (error) {
         // The detected grid contradicts the chosen rules (a 9 × 6 board for
         // Sudoku, a 12 × 12 Str8ts). Keep the outline, skip the cell overlay

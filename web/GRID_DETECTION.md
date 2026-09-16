@@ -68,10 +68,14 @@ The stage now works as follows.
   drawn just inside a cell edge, a doubled border, a thick line split by the
   threshold. Without this the median gap of a KenKen collapses to the wall
   offset.
-- **A tolerant lattice.** The spacing is the median gap, which survives one
-  dropped line; the anchor is the strongest line; lines off the lattice are
-  strays, tolerated up to one in five; at least four in five lattice positions
-  must hold a line and the outermost ones must sit near the warp's edges.
+- **A tolerant lattice.** The median gap seeds the spacing, but pixel-rounded
+  gaps must not be extrapolated unchanged across a large board. For each phase
+  hypothesis, fit phase and spacing globally to the supported thin lines,
+  iterating up to three times before rejecting strays. Wide black-cell bands
+  still match by centre/edge but do not bias the fit. Refinement stays within
+  ten percent of the initial pitch; the best hypothesis holds the most lines,
+  with squared residual breaking ties. Strays remain limited to one in five;
+  at least four in five positions and the outer-edge checks still apply.
 - **Digit columns.** When every other lattice position is markedly weaker
   than its neighbours, those are cell centres of a fully written grid and the
   true lattice is half as fine.
@@ -176,3 +180,35 @@ long, 80 ms per frame at 640 pixels for Kakuro against 26-41 ms for the other se
   image with corner ground truth, at both scales, in a few minutes; it is a
   measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above
   on synthetic warps.
+
+## Rounding and benchmark regressions (September 16, 2026)
+
+The later outline/phase work already recovered the original 21x21 and 25x25
+full-frame examples from the review, but direct 24/25-cell warps could still
+lose two rows/columns and a thick 23x23 frame could still lose its lattice.
+Global pitch refinement fixes those remaining cases without reverting the
+black-cell, edge-map or widening work. `web/tests/grid-size-range.test.js`
+checks both the 540px lattice stage and complete detection for every size
+3 through 25 at three stroke widths, plus rectangular grids in both
+orientations. Sizes 1 and 2 remain outside automatic lattice inference.
+The photographic corpus was not rerun for this change; the historical table
+above is not a new measurement of the refined implementation.
+
+`corpus/detect_benchmark.cjs` now shares the OCR benchmark's checkpointing and
+cleanup runner. The output is a **formatVersion 1 object**, not the previous
+bare array: per-image measurements are in `results`; run `status`, `failure`,
+`cleanupErrors`, `totalImages`, `completedImages`, and per-set/per-scale
+`summary` fields describe completion. Consumers of the old JSON array must
+read `report.results`. The numeric `error` inside each scale remains corner
+error; a top-level row `error` is an input or execution failure, excluded from
+success metrics and counted separately as `failed`.
+
+The report is saved before startup, after each image, and after cleanup.
+Malformed targets and image decoding failures are recorded individually and
+later images continue. Browser loss, SIGINT or SIGTERM stop the run with a
+partial failed/interrupted report; all allocated resources are closed.
+Images with valid targets but no corner truth remain intentionally excluded;
+invalid targets are included as diagnostic failures and count toward the
+per-set `--limit`. `--engine webkit` is also available. The permanent
+scanner-settings browser gate exercises an actual bad PNG between two valid
+PNGs in both Chromium and WebKit, alongside the hidden-box-control regression.

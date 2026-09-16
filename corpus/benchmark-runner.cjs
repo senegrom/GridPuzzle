@@ -59,17 +59,29 @@ async function waitForServer(base, getError) {
 }
 
 async function runBenchmark({ items, options, scan, output = "browser-artifacts/corpus-benchmark.json",
-  base = "http://127.0.0.1:8780/", signal }, dependencies = {}) {
+  base = "http://127.0.0.1:8780/", signal, measure,
+  summarizeResults = summarize, reportMetadata = { scoreVersion: SCORE_VERSION } }, dependencies = {}) {
   const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true }));
   const startServer = dependencies.startServer || (() => spawn("python",
-    ["-m", "http.server", "8780", "--bind", "127.0.0.1", "--directory", "_site"], { stdio: "ignore" }));
+    ["-m", "http.server", new URL(base).port || "80", "--bind", "127.0.0.1", "--directory", options.site || "_site"], { stdio: "ignore" }));
   const wait = dependencies.waitForServer || waitForServer;
   const persist = dependencies.writeReport || writeReport;
   const log = dependencies.log || console.log;
+  // Both OCR and detection-only measurements use this lifecycle. The callback
+  // returns a row without mutating results, so an aborted read cannot append
+  // late data after the final report has been saved.
+  const measureItem = measure || (async (page, item) => {
+    const target = JSON.parse(fs.readFileSync(item.target, "utf8"));
+    const reading = await page.evaluate(scan, { data: fs.readFileSync(item.file).toString("base64"),
+      mime: item.mime, puzzle: target.puzzle, corners: target.corners || null, useTrue: options.trueCorners });
+    return { confidence: reading.confidence, grid: reading.grid,
+      total: Math.round(reading.total || 0), detected: Math.round(reading.detected || 0), error: reading.error,
+      ...(!reading.error ? score(target, reading) : {}) };
+  });
   const results = [], cleanupErrors = [];
   let browser, context, server, serverError, failure = null, closing = false, status = "running";
-  const report = () => ({ scoreVersion: SCORE_VERSION, options, status, totalImages: items.length,
-    completedImages: results.length, failure, cleanupErrors, summary: summarize(results), results });
+  const report = () => ({ ...reportMetadata, options, status, totalImages: items.length,
+    completedImages: results.length, failure, cleanupErrors, summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());
   try {
@@ -93,12 +105,7 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
       const row = { family: item.family, set: item.set, name: item.name };
       let itemError;
       try {
-        const target = JSON.parse(fs.readFileSync(item.target, "utf8"));
-        const reading = await abortable(page.evaluate(scan, { data: fs.readFileSync(item.file).toString("base64"),
-          mime: item.mime, puzzle: target.puzzle, corners: target.corners || null, useTrue: options.trueCorners }), signal);
-        Object.assign(row, { confidence: reading.confidence, grid: reading.grid,
-          total: Math.round(reading.total || 0), detected: Math.round(reading.detected || 0), error: reading.error });
-        if (!reading.error) Object.assign(row, score(target, reading));
+        Object.assign(row, await abortable(measureItem(page, item), signal));
       } catch (error) { row.error = message(error); itemError = error; }
       results.push(row);
       persist(output, report());

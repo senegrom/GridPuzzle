@@ -270,3 +270,14 @@ It exercises full/partial/skipped rebuilds, cache overrides, a real three-varian
 render with the bundled font, bad-font preflight, and benchmark failure/interrupt
 paths. Tests use temporary fixtures, never fetch public datasets or mutate the
 external corpus, and retain the tested source and test reports as artifacts.
+
+### Detection-only report lifecycle
+
+The detection-only benchmark now uses the same checkpoint and cleanup runner
+as the OCR benchmark. Run `node corpus/detect_benchmark.cjs --set regex` as
+before; `--limit` remains per set. Its JSON output is now a formatVersion 1
+envelope: use `report.results` in place of the previous bare array. It also
+contains per-scale summaries, completion status, input errors and cleanup
+diagnostics. A later corrupt image cannot discard earlier measurements.
+See `web/GRID_DETECTION.md` for the format and validation tests. No new full
+photographic-corpus measurements are asserted by this tooling change.

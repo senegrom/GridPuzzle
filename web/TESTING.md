@@ -210,3 +210,24 @@ stage rejected, and the time per frame; `web/GRID_DETECTION.md` explains the
 stages and records the measurements. `web/tests/grid-lines.test.js` pins each
 rule of the line stage on synthetic warps: thin and light-grey lines, digit
 columns, a dropped line, a stray line, cage walls, and the one-axis fallback.
+
+### Scanner review regressions
+
+`web/tests/grid-size-range.test.js` checks rounded large-grid pitches and
+rectangular counts through both `estimateGrid` and `findGrid`, retaining the
+existing light-line, dense-digit, missing-line and black-cell controls.
+`scan-layout.test.js` and `live-camera-recovery.test.js` ensure irrelevant
+hidden box values never block non-boxed families, while invalid Sudoku and
+Killer Sudoku boxes still prevent recognition.
+
+`web/tests/corpus-detect-runner.test.js` exercises detection checkpoints,
+malformed targets, decode failures, browser loss, interruption, cleanup and
+selection. The existing `scripts/scanner_settings_regressions.cjs` gate also
+runs real hidden-control UI transitions and calls
+`scripts/detect_benchmark_regressions.cjs` for real browser PNG-decoding and
+HTTP-server cleanup in both engines. These UI tests control OCR responses;
+they do not claim new photographic OCR accuracy.
+
+The detection benchmark report is now a versioned envelope with a `results`
+array and explicit run/failure metadata; see `GRID_DETECTION.md` before
+updating any external consumers of its previous bare-array output.

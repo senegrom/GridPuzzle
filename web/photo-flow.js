@@ -561,8 +561,12 @@ export function setupPhotoFlow({
     try {
       if (type !== "auto") {
         const layout = makePuzzle(type, rows, cols);
-        layout.boxRows = boxRows;
-        layout.boxCols = boxCols;
+        // Hidden box controls belong only to boxed families. An incomplete
+        // Sudoku setting must not block a later Futoshiki/Kakuro/etc. read.
+        if (["sudoku", "killersudoku"].includes(type)) {
+          layout.boxRows = boxRows;
+          layout.boxCols = boxCols;
+        }
         checkShape(layout);
       }
     } catch (error) {
