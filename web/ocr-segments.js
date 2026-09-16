@@ -1,3 +1,4 @@
+import { voteDigit } from "./ocr-map.js";
 // Independent re-reads of whole glyphs, never artificial strokes or solver clues.
 export function separatedCrops(entry, g, width, height, cellWidth, cellHeight) {
   const boxes = entry.segments;
@@ -35,10 +36,20 @@ export function separatedCrops(entry, g, width, height, cellWidth, cellHeight) {
 export function applySeparatedReading(entry, reads) {
   const count = entry.segments?.length;
   if (count !== entry.glyphCount || count < 2 || count > 3) return;
-  // Complete whole-crop evidence wins. One segmented proposal must not outvote
-  // it, and duplicate messages are not additional independent measurements.
-  if ([entry, ...reads.filter((r) => r.kind !== "segments")].some((r) =>
-    /^\d{1,3}$/.test(r.text) && r.text.length === count)) return;
+  if (/^\d{1,3}$/.test(entry.text) && entry.text.length === count) return;
+  // Prefer an existing complete OCR alternative to a truncated majority.
+  // Geometry selects between readings; it supplies no numeric value. Keep
+  // the correction uncertain even if all full-length alternatives agree.
+  const complete = voteDigit([entry, ...reads.filter((r) => r.kind !== "segments")]
+    .filter((r) => /^\d{1,3}$/.test(r.text) && r.text.length === count));
+  if (complete.text) {
+    entry.text = complete.text;
+    entry.confidence = 0;
+    entry.lengthRecovered = true;
+    return;
+  }
+  // A segmented proposal is only a last resort. Duplicate messages never
+  // acquire additional weight or overrule any complete whole-crop reading.
   const split = reads.find((r) => r.kind === "segments" && /^\d{2,3}$/.test(r.text) && r.text.length === count);
   if (!split) return;
   entry.text = split.text;

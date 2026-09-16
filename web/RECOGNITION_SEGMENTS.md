@@ -1,9 +1,9 @@
 # Recover truncated multi-digit readings
 
-This follow-up to PR #48 uses the separately located, non-overlapping glyphs in a
-numeric crop as a fallback when whole-number recognition omits a digit. It does
-not split connected ink, draw missing strokes, consult a solver or use fixture
-answers. It preserves the existing grid detector, classification and solver.
+This follow-up to PR #48 uses separately located, non-overlapping glyphs in a
+numeric crop when whole-number recognition omits a digit. It does not split
+connected ink, draw missing strokes, consult a solver or use fixture answers.
+It preserves the existing grid detector, classification and solver.
 
 ## Evidence and safeguards
 
@@ -12,8 +12,14 @@ separate glyphs, ordered left to right. Grayscale crops include real padding,
 cut at the midpoint of the empty gap so an adjacent digit cannot leak into the
 individual crop. Existing raw-line recognition first gets a chance to read the
 whole number. Only if no isolated whole-crop reading has the expected length
-are the glyphs read separately. A complete original atlas reading also prevents
-replacement at the final voting boundary.
+are the glyphs read separately.
+
+At the final voting boundary, a complete existing OCR alternative is preferred
+to a truncated majority. This can recover a full atlas or raw-line reading that
+would previously lose to two shortened readings. Geometry selects between
+actual OCR strings; it supplies no numeric values. Such selections are marked
+`lengthRecovered` and keep confidence zero. Complete existing readings always
+take precedence over assembled per-glyph proposals.
 
 Every individual glyph must return exactly one numeric character before a
 combined proposal is accepted. Partial results are never assembled. A fallback
@@ -23,15 +29,17 @@ uncertain when shorter than the detected glyph count. Duplicate segmented
 messages never acquire extra voting weight.
 
 The existing 24-extra-read ceiling is shared between raw-line and per-glyph
-retries. Optional raster preparation is capped at 72 glyph crops per scan and
-is disabled above the existing 150-clue grayscale limit. Both raster bounds and
-runtime work are limited. Exact-image caching and cooperative cancellation
-apply to the additional reads too. `ocrStats.segmentReads` counts attempted
-per-glyph reads, including cache hits, rather than new engine calls.
+retries. The original raw-line retries execute first, in their original order;
+the new fallback only consumes the remaining budget and cannot starve an
+existing recovery. Optional raster preparation is capped at 72 glyph crops per
+scan and is disabled above the existing 150-clue grayscale limit. Exact-image
+caching and cooperative cancellation apply to the additional reads too.
+`ocrStats.segmentReads` counts attempted per-glyph reads, including cache hits,
+rather than new engine calls.
 
 ## Tests and measurement
 
-`web/tests/ocr-segments.test.js` adds 19 focused tests of geometry, actual crop
+`web/tests/ocr-segments.test.js` adds 21 focused tests of geometry, actual crop
 pixels in both polarities, malformed input, budgets, evidence precedence,
 review, cache ownership and cancellation. The existing fragment, quality,
 engine reuse and runtime-build suites remain intact.

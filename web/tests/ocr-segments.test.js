@@ -107,7 +107,8 @@ test("a complete ordinary reading cannot be outvoted by duplicated segment messa
 test("retain complete original atlas evidence when considering a fallback", () => {
   const entry = clue({ text: "17" });
   applyDigitVotes([entry], [reads("1", "binary"), reads("1"), reads("11", "segments")]);
-  assert.equal(entry.text, "1", "ordinary voting is retained, not replaced by contradictory split evidence");
+  assert.equal(entry.text, "17", "reuse the complete atlas reading instead of the truncated majority or contradictory split");
+  assert.equal(entry.lengthRecovered, true);
   assert.equal(entry.segmentedRead, undefined); assert.equal(entry.confidence, 0);
 });
 
@@ -194,4 +195,18 @@ test("missing, excessive and non-string segment payloads never add OCR calls", a
     assert.equal(result.ocrStats.segmentReads, 0);
     assert.equal(result.retryCount, 0);
   }
+});
+
+test("complete raw-line alternatives are retained ahead of shortened majorities", () => {
+  const entry = clue();
+  applyDigitVotes([entry], [reads("1", "binary"), reads("1"), reads("17", "retry")]);
+  assert.equal(entry.text, "17"); assert.equal(entry.confidence, 0); assert.equal(entry.lengthRecovered, true);
+});
+
+test("existing raw-line retries cannot be starved by earlier per-glyph fallbacks", async () => {
+  const h = host((png, mode) => ({ text: png === "gray" && mode === "7" ? "" : "1", confidence: 90 }));
+  const result = await h.run(Array.from({ length: 24 }, (_, i) => samples(i)).flat());
+  assert.equal(result.retryCount, 24); assert.equal(result.ocrStats.segmentReads, 0);
+  assert.deepEqual(Array.from(result.singles.filter((s) => s.kind === "retry"), (s) => s.index),
+    Array.from({ length: 24 }, (_, i) => i));
 });
