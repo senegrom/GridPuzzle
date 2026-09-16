@@ -133,27 +133,52 @@ async function recognize(data, check) {
       if (!groups.has(reading.index)) groups.set(reading.index, []);
       groups.get(reading.index).push(reading);
     }
-    let retries = 0;
+    let retries = 0, segmentReads = 0;
     for (const [index, reads] of groups) {
       check();
       if (retries >= 24) break;
-      if (reads.length < 2 || (reads.every((r) => /^\d{1,3}$/.test(r.text)) && reads.every((r) => r.text === reads[0].text))) continue;
-      const sample = samples.find((s) => s.index === index && s.kind === "gray");
+      const sample = samples.find((s) => s.index === index && s.kind === "gray"),
+        segments = Array.isArray(sample?.segments) && sample.segments.length >= 2 &&
+          sample.segments.length <= 3 && sample.segments.every((png) => typeof png === "string" && png)
+          ? sample.segments : [];
+      const agrees = reads.length >= 2 && reads.every((r) => /^\d{1,3}$/.test(r.text)) &&
+        reads.every((r) => r.text === reads[0].text);
+      if (reads.length < 2 || (agrees && (!segments.length || reads[0].text.length === segments.length))) continue;
       if (!sample) continue;
       if (!retries) await worker.setParameters({ tessedit_pageseg_mode: "13" });
-      const key = "13:" + sample.png;
-      let read = cached(key);
-      if (read) cacheHits++;
-      else {
-        ({ data: read } = await worker.recognize(sample.png, {}, { text: true, blocks: true }));
-        calls++; check(); remember(key, read);
+      const raw = async (png) => {
+        check();
+        const key = "13:" + png;
+        let read = cached(key);
+        if (read) cacheHits++;
+        else {
+          ({ data: read } = await worker.recognize(png, {}, { text: true, blocks: true }));
+          calls++; check(); remember(key, read);
+        }
+        retries++;
+        return { text: (read.text || "").replace(/\s/g, ""), confidence: read.confidence || 0 };
+      };
+      const retry = await raw(sample.png);
+      singles.push({ index, kind: "retry", ...retry });
+      // Do not challenge any complete whole-number reading with a different
+      // segmentation. Only recover missing/truncated numbers from actual,
+      // non-overlapping glyph boxes, within the SAME 24-call retry ceiling.
+      if (!segments.length || retries + segments.length > 24 ||
+          [...reads, retry].some((r) => /^\d{1,3}$/.test(r.text) && r.text.length === segments.length)) continue;
+      const parts = [];
+      for (const png of segments) {
+        const part = await raw(png);
+        segmentReads++;
+        if (!/^\d$/.test(part.text)) break; // Never return a partial number.
+        parts.push(part);
       }
-      singles.push({ index, kind: "retry", text: (read.text || "").replace(/\s/g, ""), confidence: read.confidence || 0 });
-      retries++;
+      if (parts.length === segments.length)
+        singles.push({ index, kind: "segments", text: parts.map((p) => p.text).join(""),
+          confidence: Math.min(...parts.map((p) => p.confidence)) });
     }
     result.retryCount = retries;
     result.singles = singles;
-    result.ocrStats = { calls, cacheHits, samples: samples.length };
+    result.ocrStats = { calls, cacheHits, samples: samples.length, segmentReads };
     check();
     return result;
 

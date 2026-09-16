@@ -1,6 +1,7 @@
 import { createOCRRuntime } from "./ocr-runtime.js";
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
+import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 export function imageOf(canvas) {
   return canvas
@@ -144,19 +145,25 @@ export function digitSamples(entries, crops, g, w, h, cw, ch, cols) {
   const digits = [...crops.keys()];
   const withGray = digits.length <= SAMPLE_GRAY_LIMIT,
     singles = [];
+  let segmentBudget = 72; // Bound optional raster packing independently of OCR calls.
   for (const i of digits) {
     // Two narrow neighbouring glyphs (for example "11") can still have a
     // portrait-shaped crop. Segmentation evidence beats the aspect heuristic.
     const psm = entries[i].glyphCount > 1 ||
       crops.get(i).width > crops.get(i).height * 0.85 ? "7" : "10";
     singles.push({ index: i, kind: "binary", psm, png: sampleOf(crops.get(i)) });
-    if (withGray)
+    if (withGray) {
+      const separated = entries[i].segments?.length <= segmentBudget
+        ? separatedCrops(entries[i], g, w, h, cw, ch) : [];
+      segmentBudget -= separated.length;
       singles.push({
         index: i,
         kind: "gray",
         psm,
         png: sampleOf(grayCrop(entries[i], g, w, h, cw, ch, cols)),
+        ...(separated.length ? { segments: separated.map(sampleOf) } : {}),
       });
+    }
   }
   return singles;
 }
@@ -172,14 +179,24 @@ export function applyDigitVotes(entries, singles = []) {
   for (const [i, reads] of byIndex) {
     const entry = entries[i],
       original = { text: entry.text, confidence: entry.confidence },
-      prior = voteDigit([original, ...reads.filter((read) => read.kind !== "retry")]),
-      vote = voteDigit([original, ...reads]);
-    if (!vote.text) continue;
+      whole = reads.filter((read) => read.kind !== "segments"),
+      prior = voteDigit([original, ...whole.filter((read) => read.kind !== "retry")]),
+      vote = voteDigit([original, ...whole]);
+    if (!vote.text) {
+      applySeparatedReading(entry, [original, ...reads]);
+      continue;
+    }
     entry.text = vote.text;
     entry.confidence = !entry.recoveredMark && vote.unanimous &&
       (!reads.some((read) => read.kind === "retry") || (prior.unanimous && prior.text === vote.text))
       ? Math.max(90, vote.confidence) : 0;
+    applySeparatedReading(entry, [original, ...reads]);
   }
+  // Even a unanimous whole-crop truncation is not evidence that a detected
+  // second glyph was blank. Keep the discrepancy visible if retries ran out.
+  for (const entry of entries)
+    if (entry.glyphCount > 1 && /^\d+$/.test(entry.text) && entry.text.length < entry.glyphCount)
+      entry.confidence = 0;
 }
 function componentsForCages(mask, w, h, rows, cols, type) {
   const cw = w / cols,

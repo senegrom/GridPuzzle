@@ -10,6 +10,7 @@ on:
       - 'web/ocr*.js'
       - 'web/model.js'
       - 'web/tests/*fragments*'
+      - 'web/tests/ocr*.test.js'
       - 'scripts/*regressions.cjs'
       - 'scripts/build_web.py'
       - 'Examples/BrowserScanner/**'
@@ -26,6 +27,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
@@ -37,6 +40,7 @@ jobs:
           node --test web/tests/*.test.js
           find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
           node --check scripts/recognition_fragments_regressions.cjs
+          node --check scripts/recognition_segments_regressions.cjs
       - name: Build pinned self-hosted recognition runtime
         run: python scripts/build_web.py
       - name: Install the repository browser test versions
@@ -47,6 +51,8 @@ jobs:
         run: node scripts/ocr_quality_regressions.cjs
       - name: Fragment and narrow-number recognition in both browsers
         run: node scripts/recognition_fragments_regressions.cjs
+      - name: Paired multi-digit recognition against the preceding scanner
+        run: node scripts/recognition_segments_regressions.cjs
       - name: Retain raw recognition measurements
         if: always()
         uses: actions/upload-artifact@v7

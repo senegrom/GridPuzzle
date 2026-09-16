@@ -139,6 +139,7 @@ function numberBounds(mask, w, h) {
         part.maxy - part.miny + 1 >= h * 0.25,
     );
   if (!anchor) return null;
+  const selected = [anchor];
   const bounds = { ...anchor, glyphCount: 1 },
     height = anchor.maxy - anchor.miny + 1;
   // Neighbouring digits are separate components too. Keep substantial glyphs
@@ -163,11 +164,19 @@ function numberBounds(mask, w, h) {
       bounds.maxy = Math.max(bounds.maxy, part.maxy);
       bounds.area += part.area;
       bounds.glyphCount++;
+      selected.push(part);
       if (part.recoveredMark) bounds.recoveredMark = true;
       pending.splice(i, 1);
       changed = true;
     }
   }
+  // Only side-by-side, non-overlapping glyphs can be independently read.
+  // Retain the actual boxes, not an inferred digit or a cut through joined ink.
+  selected.sort((a, b) => a.minx - b.minx);
+  if (selected.length >= 2 && selected.length <= 3 &&
+      selected.every((part, i) => !i || part.minx > selected[i - 1].maxx + 1))
+    bounds.segments = selected.map(({ minx, miny, maxx, maxy }) =>
+      ({ x: minx, y: miny, w: maxx - minx + 1, h: maxy - miny + 1 }));
   return bounds;
 }
 
@@ -247,7 +256,7 @@ export function prepareScan(image, type, rows, cols) {
     rw = Math.max(1, Math.min(w - x, Math.round(rw)));
     rh = Math.max(1, Math.min(h - y, Math.round(rh)));
     const local = new Uint8Array(rw * rh);
-    let recoveredMark = false, glyphCount = 1;
+    let recoveredMark = false, glyphCount = 1, segments;
     let minx = rw,
       miny = rh,
       maxx = -1,
@@ -302,6 +311,7 @@ export function prepareScan(image, type, rows, cols) {
       ({ minx, miny, maxx, maxy } = part);
       ink = part.area;
       glyphCount = part.glyphCount;
+      segments = part.segments?.map((box) => ({ ...box, x: x + box.x, y: y + box.y }));
     }
     if (
       ink < Math.max(4, rw * rh * 0.008) ||
@@ -344,6 +354,7 @@ export function prepareScan(image, type, rows, cols) {
       confidence: 0,
       ...(recoveredMark ? { recoveredMark: true } : {}),
       ...(glyphCount > 1 ? { glyphCount } : {}),
+      ...(segments ? { segments } : {}),
     });
   }
 
