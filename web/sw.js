@@ -226,10 +226,9 @@ self.addEventListener("fetch",event=>{
     }catch(error){
       // Fail closed, but legibly: a rejected respondWith reaches the page only
       // as "Failed to fetch". A 502 keeps the diagnostic and is never cached.
-      const detail=error?.message||String(error),
-        shown=error?.diagnostic?detail:"Request failed.";
+      const detail=error?.message||String(error);
       console.warn(`GridPuzzle service worker: ${detail} (${target.href})`);
-      return new Response(shown,{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+      return new Response("Request failed.",{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
     }
   })());
 });
