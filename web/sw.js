@@ -7,10 +7,11 @@ const url=path=>new URL(path,self.registration.scope).href;
 const scopeURL=new URL(self.registration.scope);
 const RETAINED=url(".retained-solvers.json");
 const isSolver=asset=>/^solver\.[a-f0-9]{12}\.zip$/.test(asset.path);
-// Diagnostics this worker raises itself are sentences written for the reader,
-// and the fetch handler may show them; the text of anything else (a host
-// failure, a bug) must never be echoed into a response.
-const diagnostic=message=>Object.assign(Error(message),{diagnostic:true});
+// Failures the fetch handler is allowed to explain. The body it returns is
+// one of these literals, chosen by a code carried on the error; no text from
+// an exception ever reaches a response, and everything else fails generically.
+const SHOWN={ambiguousRuntime:"Cannot identify the outgoing runtime version. Reload this tab."};
+const diagnostic=(message,code)=>code?Object.assign(Error(message),{code}):Error(message);
 
 function validateManifest(data,build=VERSION){
   if(data?.build!==build||!Array.isArray(data.assets))throw diagnostic("Update the app before downloading offline assets.");
@@ -122,7 +123,7 @@ async function legacyAsset(key){
     if(!name.startsWith(PREFIX+"meta:")||name===META)continue;
     const asset=(await buildAssets(name.slice((PREFIX+"meta:").length))).find(a=>url(a.path)===key);
     if(!asset)continue;
-    if(match&&match.sha256!==asset.sha256)throw diagnostic("Cannot identify the outgoing runtime version. Reload this tab.");
+    if(match&&match.sha256!==asset.sha256)throw diagnostic(SHOWN.ambiguousRuntime,"ambiguousRuntime");
     match=asset;
   }
   return match;
@@ -226,9 +227,9 @@ self.addEventListener("fetch",event=>{
     }catch(error){
       // Fail closed, but legibly: a rejected respondWith reaches the page only
       // as "Failed to fetch". A 502 keeps the diagnostic and is never cached.
-      const detail=error?.message||String(error);
-      console.warn(`GridPuzzle service worker: ${detail} (${target.href})`);
-      return new Response("Request failed.",{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+      const code=error?.code,body=Object.hasOwn(SHOWN,code??"")?SHOWN[code]:"Request failed.";
+      console.warn(`GridPuzzle service worker: ${error?.message||String(error)} (${target.href})`);
+      return new Response(body,{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
     }
   })());
 });
