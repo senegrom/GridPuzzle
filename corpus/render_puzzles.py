@@ -34,17 +34,15 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from corpus.build_corpus import CORPUS, INDEX, jpeg_png_size, prune, rule_conflicts  # noqa: E402
+from corpus.build_corpus import jpeg_png_size, prune, rule_conflicts, write_json  # noqa: E402
+from corpus.config import CORPUS, INDEX, JANKO_CACHE  # noqa: E402
+from corpus.fonts import font, resolve_fonts  # noqa: E402
 from corpus.generate_puzzles import FAMILIES  # noqa: E402
-from corpus.parse_janko import JANKO_CACHE, parse_janko  # noqa: E402
+from corpus.parse_janko import parse_janko  # noqa: E402
 
-FONTS = ["arial.ttf", "times.ttf", "calibri.ttf", "verdana.ttf", "georgia.ttf"]
 INK = (26, 26, 26)
 PAPER = (252, 251, 248)
 
-
-def font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(name, size)
 
 
 def centred(draw: ImageDraw.ImageDraw, box: tuple[float, float, float, float], text: str,
@@ -82,13 +80,13 @@ def dashed(draw: ImageDraw.ImageDraw, start: tuple[float, float], end: tuple[flo
                    (x0 + (x1 - x0) * b, y0 + (y1 - y0) * b)], fill=INK, width=width)
 
 
-def draw_puzzle(puzzle: dict, rng: random.Random) -> tuple[Image.Image, list]:
+def draw_puzzle(puzzle: dict, rng: random.Random, *, faces=None) -> tuple[Image.Image, list]:
     """Draw one puzzle; return the image and its grid corners in pixels."""
     rows, cols = puzzle["rows"], puzzle["cols"]
     kind = puzzle["type"]
     cell = rng.choice([52, 60, 68, 76])
     margin = rng.choice([28, 40, 56])
-    face = rng.choice(FONTS)
+    face = rng.choice(faces if faces is not None else resolve_fonts())
     thin, thick = 2, 4
     width, height = cols * cell + 2 * margin, rows * cell + 2 * margin
     image = Image.new("RGB", (width, height), PAPER)
@@ -153,7 +151,7 @@ def draw_puzzle(puzzle: dict, rng: random.Random) -> tuple[Image.Image, list]:
                         str(clue["down"]), small, fill=PAPER)
 
     if kind in ("killersudoku", "kenken"):
-        signs = {"+": "+", "-": "−", "*": "×", "/": "÷", "=": ""}
+        signs = {"+": "+", "-": "-", "*": "x", "/": "/", "=": ""}
         for cage in puzzle.get("cages", []):
             members = set(cage["cells"])
             for index in members:
@@ -290,7 +288,13 @@ def main() -> int:
     parser.add_argument("--per-family", type=int, default=40)
     parser.add_argument("--seed", type=int, default=20260913)
     parser.add_argument("--only", action="append", default=[], help="limit to these families")
+    parser.add_argument("--font", action="append", default=[], help="font file; repeat to vary fonts")
+    parser.add_argument("--font-dir", action="append", default=[], help="directory of .ttf/.otf/.ttc fonts")
     args = parser.parse_args()
+    try:
+        faces = resolve_fonts(args.font, args.font_dir)
+    except (ValueError, OSError, RuntimeError) as error:
+        parser.error(str(error))
 
     from corpus.validate_target import validate_target
 
@@ -313,7 +317,7 @@ def main() -> int:
             except Exception as error:  # noqa: BLE001
                 print(f"  {family}/{name}: rejected by target validation: {error}")
                 continue
-            image, corners = draw_puzzle(puzzle, rng)
+            image, corners = draw_puzzle(puzzle, rng, faces=faces)
             for variant, picture, placed, suffix, options in variants(image, corners, rng):
                 stem = f"{name}-{variant}"
                 path = folder / f"{stem}.{suffix}"
@@ -344,7 +348,8 @@ def main() -> int:
     known = {(s["family"], s["slug"]): s for s in index["sources"]}
     known.update(described)
     index["sources"] = sorted(known.values(), key=lambda s: (s["family"], s["slug"]))
-    INDEX.write_text(json.dumps(prune(index), indent=1) + "\n", encoding="utf-8")
+    index["corpus"] = str(CORPUS)
+    write_json(INDEX, prune(index))
     total = sum(e["bytes"] for e in index["entries"])
     print(f"\n{index['images']} images, {total / 1048576:.0f} MiB in {CORPUS}")
     return 0

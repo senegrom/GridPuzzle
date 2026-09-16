@@ -1,0 +1,63 @@
+name: Recognition quality
+on:
+  push:
+    branches: ['improve/recognition-*']
+  pull_request:
+    paths:
+      - 'web/scanner.js'
+      - 'web/scan-analysis.js'
+      - 'web/geometry*.js'
+      - 'web/ocr*.js'
+      - 'web/model.js'
+      - 'web/tests/*fragments*'
+      - 'web/tests/ocr*.test.js'
+      - 'scripts/*regressions.cjs'
+      - 'scripts/build_web.py'
+      - 'Examples/BrowserScanner/**'
+      - '.github/workflows/recognition-quality.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: recognition-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  recognition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Unit regressions and syntax checks
+        run: |
+          node --test web/tests/*.test.js
+          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+          node --check scripts/recognition_fragments_regressions.cjs
+          node --check scripts/recognition_segments_regressions.cjs
+      - name: Build pinned self-hosted recognition runtime
+        run: python scripts/build_web.py
+      - name: Install the repository browser test versions
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Existing real-newspaper, font and degraded-photo quality gate
+        run: node scripts/ocr_quality_regressions.cjs
+      - name: Fragment and narrow-number recognition in both browsers
+        run: node scripts/recognition_fragments_regressions.cjs
+      - name: Paired multi-digit recognition against the preceding scanner
+        run: node scripts/recognition_segments_regressions.cjs
+      - name: Retain raw recognition measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: recognition-quality-report
+          path: browser-artifacts
+          if-no-files-found: ignore
+          retention-days: 7

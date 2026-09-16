@@ -1,37 +1,35 @@
-/* Detection-only benchmark over corpus images with corner ground truth.
-
-   Runs findGrid in the browser (the same code as the geometry worker) at the
-   live scale (longest side 640) and at the photograph scale (1600), and
-   records per image the stage reached (0 no quad, 0.45 quad without a
-   lattice, 0.94 found), the corner error as a percentage of the true
-   diagonal, rows/cols agreement with the target, and the time taken.
-
-     node corpus/detect_benchmark.cjs [--site _site] [--limit N] [--set regex] [--out file.json]
-
-   Prints one line per set and writes the per-image records (default
-   browser-artifacts/detect-benchmark.json). It is a measurement, not a gate. */
-const { chromium } = require("playwright");
+/* Detection-only measurement at the live (640) and photo (1600) scales.
+   Uses the same checkpoint/cleanup lifecycle as the OCR benchmark.
+   node corpus/detect_benchmark.cjs [--site _site] [--limit N] [--set regex] [--out file.json]
+   Reports use the versioned envelope documented in web/GRID_DETECTION.md. */
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
-
-const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus", site: "_site", limit: 0, set: null,
-  out: "browser-artifacts/detect-benchmark.json" };
-for (let i = 2; i < process.argv.length; i++) {
-  const flag = process.argv[i].replace(/^--/, "");
-  if (flag in options) options[flag] = flag === "limit" ? Number(process.argv[++i]) : process.argv[++i];
-}
-const filter = options.set ? new RegExp(options.set) : null;
-const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+const { runBenchmark } = require("./benchmark-runner.cjs");
 const BASE = "http://127.0.0.1:8782/";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const SCALES = [640, 1600];
+const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
-function items() {
-  const out = [], root = path.resolve(options.corpus);
-  for (const family of fs.readdirSync(root)) {
+function parseOptions(args) {
+  const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
+    site: "_site", limit: 0, set: null, out: "browser-artifacts/detect-benchmark.json", engine: "chromium" };
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i].replace(/^--/, "");
+    if (!args[i].startsWith("--") || !Object.hasOwn(options, flag)) throw Error(`Unknown option: ${args[i]}`);
+    const value = args[++i];
+    if (!value || value.startsWith("--")) throw Error(`Missing value for --${flag}`);
+    options[flag] = flag === "limit" ? Number(value) : value;
+  }
+  if (!Number.isSafeInteger(options.limit) || options.limit < 0) throw Error("Limit must be a nonnegative whole number");
+  if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
+  return options;
+}
+
+function items(options) {
+  const out = [], root = path.resolve(options.corpus), filter = options.set ? new RegExp(options.set) : null;
+  for (const family of fs.readdirSync(root).sort()) {
     const familyDir = path.join(root, family);
     if (!fs.statSync(familyDir).isDirectory()) continue;
-    for (const set of fs.readdirSync(familyDir)) {
+    for (const set of fs.readdirSync(familyDir).sort()) {
       const setDir = path.join(familyDir, set), key = `${family}/${set}`;
       if (!fs.statSync(setDir).isDirectory() || (filter && !filter.test(key))) continue;
       let n = 0;
@@ -40,11 +38,12 @@ function items() {
         if (!MIME[ext]) continue;
         const target = path.join(setDir, name.slice(0, -ext.length) + ".json");
         if (!fs.existsSync(target)) continue;
-        const t = JSON.parse(fs.readFileSync(target, "utf8"));
-        if (!t.corners) continue;
         if (options.limit && n >= options.limit) break;
+        // No corner truth is an intentional exclusion. Malformed/unreadable
+        // targets instead enter the run and produce diagnostic error rows.
+        try { if (!JSON.parse(fs.readFileSync(target, "utf8"))?.corners) continue; } catch {}
         n++;
-        out.push({ key, name, file: path.join(setDir, name), mime: MIME[ext], corners: t.corners, rows: t.puzzle.rows, cols: t.puzzle.cols });
+        out.push({ family, set, name, file: path.join(setDir, name), target, mime: MIME[ext] });
       }
     }
   }
@@ -80,41 +79,61 @@ async function detectOne({ data, mime, corners, rows, cols, scales }) {
   return out;
 }
 
-(async () => {
-  const list = items();
-  if (!list.length) { console.error("no corpus images with corner ground truth under", options.corpus); process.exit(2); }
-  console.log(`${list.length} images with corner ground truth`);
-  const server = spawn("python", ["-m", "http.server", "8782", "--bind", "127.0.0.1", "--directory", options.site], { stdio: "ignore" });
-  const results = [];
-  try {
-    for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE)).ok) break; } catch {} await sleep(100); }
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await (await browser.newContext({ serviceWorkers: "block" })).newPage();
-      page.setDefaultTimeout(120000);
-      await page.goto(BASE);
-      await page.waitForSelector('body[data-ready="true"]');
-      for (const [i, item] of list.entries()) {
-        const r = await page.evaluate(detectOne, { data: fs.readFileSync(item.file).toString("base64"), mime: item.mime,
-          corners: item.corners, rows: item.rows, cols: item.cols, scales: [640, 1600] });
-        results.push({ key: item.key, name: item.name, rows: item.rows, cols: item.cols, at640: r[640], at1600: r[1600] });
-        if ((i + 1) % 250 === 0) console.log(`  ${i + 1}/${list.length}`);
-      }
-    } finally { await browser.close(); }
-  } finally { server.kill(); }
-  fs.mkdirSync(path.dirname(options.out), { recursive: true });
-  fs.writeFileSync(options.out, JSON.stringify(results) + "\n");
+
+async function measureDetection(page, item) {
+  const target = JSON.parse(fs.readFileSync(item.target, "utf8")), { corners, puzzle } = target;
+  if (!Array.isArray(corners) || corners.length !== 4 ||
+      !corners.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)) ||
+      ![puzzle?.rows, puzzle?.cols].every(n => Number.isInteger(n) && n >= 1 && n <= 25))
+    throw Error("Invalid detection target: expected four numeric corners and valid rows/columns");
+  const r = await page.evaluate(detectOne, { data: fs.readFileSync(item.file).toString("base64"), mime: item.mime,
+    corners, rows: puzzle.rows, cols: puzzle.cols, scales: SCALES });
+  return { key: `${item.family}/${item.set}`, rows: puzzle.rows, cols: puzzle.cols, at640: r[640], at1600: r[1600] };
+}
+
+function summarizeDetection(results) {
   const groups = new Map();
-  for (const r of results) { if (!groups.has(r.key)) groups.set(r.key, []); groups.get(r.key).push(r); }
-  const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[s.length >> 1] : null; };
-  for (const scale of ["at640", "at1600"]) {
-    console.log(`\n=== longest side ${scale.slice(2)}`);
-    for (const [key, rows] of [...groups].sort()) {
-      const g = rows.map((r) => r[scale]), found = g.filter((x) => x.confidence >= 0.9);
-      const good = found.filter((x) => x.sizeOk && x.error <= 3).length, quad = g.filter((x) => x.confidence > 0 && x.confidence < 0.9).length;
-      console.log(`${key.padEnd(34)} n ${String(rows.length).padStart(4)}  good ${String(good).padStart(4)}  found ${String(found.length).padStart(4)}`
-        + `  quad only ${String(quad).padStart(4)}  none ${String(g.length - found.length - quad).padStart(4)}`
-        + `  median corner error ${median(found.map((x) => x.error)) ?? "-"}%  median ms ${median(g.map((x) => x.ms))}`);
-    }
+  for (const row of results) {
+    const key = `${row.family}/${row.set}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
   }
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+  const median = values => values.length ? [...values].sort((a, b) => a - b)[values.length >> 1] : null;
+  return [...groups].sort().flatMap(([set, rows]) => SCALES.map(scale => {
+    const ok = rows.filter(r => !r.error).map(r => r[`at${scale}`]), found = ok.filter(r => r.confidence >= .9);
+    const quad = ok.filter(r => r.confidence > 0 && r.confidence < .9).length;
+    return { set, scale, images: rows.length, failed: rows.length - ok.length,
+      good: found.filter(r => r.sizeOk && r.error <= 3).length, found: found.length, quad,
+      none: ok.length - found.length - quad, medianCornerError: median(found.map(r => r.error)),
+      medianMs: median(ok.map(r => r.ms)) };
+  }));
+}
+
+function runDetectionBenchmark({ items, options, signal }, dependencies) {
+  return runBenchmark({ items, options, signal, output: options.out, base: BASE,
+    measure: measureDetection, summarizeResults: summarizeDetection,
+    reportMetadata: { benchmark: "grid-detection", formatVersion: 1, scales: SCALES } }, dependencies);
+}
+
+async function main(args = process.argv.slice(2)) {
+  const options = parseOptions(args), list = items(options);
+  if (!list.length) { console.error("no corpus images with corner ground truth under", options.corpus); return 2; }
+  console.log(`${list.length} selected images (including invalid targets for diagnosis)`);
+  const controller = new AbortController();
+  const onInt = () => controller.abort(Error("Detection benchmark interrupted by SIGINT")),
+    onTerm = () => controller.abort(Error("Detection benchmark interrupted by SIGTERM"));
+  process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
+  let report;
+  try { report = await runDetectionBenchmark({ items: list, options, signal: controller.signal }); }
+  finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
+  for (const row of report.summary)
+    console.log(`${row.set} at ${row.scale}: ${row.good}/${row.images} good, ${row.found} found, `
+      + `${row.quad} quad only, ${row.none} none, ${row.failed} failed; `
+      + `median corner error ${row.medianCornerError ?? "-"}%, ${row.medianMs ?? "-"} ms`);
+  if (report.failure) console.error(report.failure);
+  for (const error of report.cleanupErrors) console.error(error);
+  return report.status !== "complete" || report.results.some(row => row.error) ? 1 : 0;
+}
+if (require.main === module) main().then(code => { process.exitCode = code; })
+  .catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { items, detectOne, measureDetection, summarizeDetection, runDetectionBenchmark, parseOptions, main };

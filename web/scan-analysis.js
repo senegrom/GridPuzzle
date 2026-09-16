@@ -90,35 +90,47 @@ function numberBounds(mask, w, h) {
     }
     parts.push({ area, minx, miny, maxx, maxy });
   }
-  // A thin glare/print gap can split a digit into two short components,
-  // neither tall enough to be an anchor. Rejoin only substantial, vertically
-  // aligned fragments; never fill missing pixels or infer a numeric value.
-  // Keep a bounded candidate set so textured paper cannot make this quadratic.
+  // Recover complete printed glyphs, not just two equally short fragments.
+  // At least one side of each join must be short: two intact neighbouring
+  // digits must never become one glyph. The limits exclude paper speckle,
+  // widely separated marks and grid edges; no pixels are filled or invented.
   const fragments = parts.filter((part) => {
     const height = part.maxy - part.miny + 1;
     return part.area >= Math.max(4, w * h * 0.008) &&
-      height >= h * 0.1 && height < h * 0.25;
+      height >= h * 0.1 && height <= h * 0.7;
   });
   const joined = new Set();
-  if (fragments.length <= 24)
-    for (let i = 0; i < fragments.length; i++) {
-      const a = fragments[i];
-      if (joined.has(a)) continue;
-      for (let j = i + 1; j < fragments.length; j++) {
-        const b = fragments[j];
-        if (joined.has(b)) continue;
-        const gap = Math.max(a.miny - b.maxy - 1, b.miny - a.maxy - 1),
-          overlap = Math.min(a.maxx, b.maxx) - Math.max(a.minx, b.minx) + 1,
-          height = Math.max(a.maxy, b.maxy) - Math.min(a.miny, b.miny) + 1;
-        if (gap < 1 || gap > h * 0.16 || height < h * 0.25 || height > h * 0.7 ||
-          overlap < Math.min(a.maxx - a.minx + 1, b.maxx - b.minx + 1) * 0.6) continue;
-        joined.add(a); joined.add(b);
-        parts.push({ area: a.area + b.area, minx: Math.min(a.minx, b.minx),
-          miny: Math.min(a.miny, b.miny), maxx: Math.max(a.maxx, b.maxx),
-          maxy: Math.max(a.maxy, b.maxy), recoveredMark: true });
-        break;
+  if (fragments.length <= 24) {
+    // Join closest vertical neighbours first so chains of three or more
+    // pieces work too. Each iteration removes one candidate; work is bounded.
+    for (;;) {
+      let best = null;
+      for (let i = 0; i < fragments.length; i++) {
+        const a = fragments[i];
+        for (let j = i + 1; j < fragments.length; j++) {
+          const b = fragments[j],
+            ah = a.maxy - a.miny + 1, bh = b.maxy - b.miny + 1,
+            gap = Math.max(a.miny - b.maxy - 1, b.miny - a.maxy - 1),
+            overlap = Math.min(a.maxx, b.maxx) - Math.max(a.minx, b.minx) + 1,
+            height = Math.max(a.maxy, b.maxy) - Math.min(a.miny, b.miny) + 1;
+          if (Math.min(ah, bh) >= h * 0.25 || gap < 1 || gap > h * 0.16 ||
+            height > h * 0.7 ||
+            overlap < Math.min(a.maxx - a.minx + 1, b.maxx - b.minx + 1) * 0.6)
+            continue;
+          if (!best || gap < best.gap) best = { i, j, gap };
+        }
       }
+      if (!best) break;
+      const a = fragments[best.i], b = fragments[best.j],
+        merged = { area: a.area + b.area, minx: Math.min(a.minx, b.minx),
+          miny: Math.min(a.miny, b.miny), maxx: Math.max(a.maxx, b.maxx),
+          maxy: Math.max(a.maxy, b.maxy), recoveredMark: true };
+      joined.add(a); joined.add(b);
+      parts.push(merged);
+      fragments[best.i] = merged;
+      fragments.splice(best.j, 1);
     }
+  }
   const glyphs = parts.filter((part) => !joined.has(part));
   glyphs.sort((a, b) => b.area - a.area);
   const anchor = glyphs.find(
@@ -127,7 +139,8 @@ function numberBounds(mask, w, h) {
         part.maxy - part.miny + 1 >= h * 0.25,
     );
   if (!anchor) return null;
-  const bounds = { ...anchor },
+  const selected = [anchor];
+  const bounds = { ...anchor, glyphCount: 1 },
     height = anchor.maxy - anchor.miny + 1;
   // Neighbouring digits are separate components too. Keep substantial glyphs
   // on the same line while excluding the small dots of halftone/newsprint.
@@ -150,11 +163,20 @@ function numberBounds(mask, w, h) {
       bounds.miny = Math.min(bounds.miny, part.miny);
       bounds.maxy = Math.max(bounds.maxy, part.maxy);
       bounds.area += part.area;
+      bounds.glyphCount++;
+      selected.push(part);
       if (part.recoveredMark) bounds.recoveredMark = true;
       pending.splice(i, 1);
       changed = true;
     }
   }
+  // Only side-by-side, non-overlapping glyphs can be independently read.
+  // Retain the actual boxes, not an inferred digit or a cut through joined ink.
+  selected.sort((a, b) => a.minx - b.minx);
+  if (selected.length >= 2 && selected.length <= 3 &&
+      selected.every((part, i) => !i || part.minx > selected[i - 1].maxx + 1))
+    bounds.segments = selected.map(({ minx, miny, maxx, maxy }) =>
+      ({ x: minx, y: miny, w: maxx - minx + 1, h: maxy - miny + 1 }));
   return bounds;
 }
 
@@ -234,7 +256,7 @@ export function prepareScan(image, type, rows, cols) {
     rw = Math.max(1, Math.min(w - x, Math.round(rw)));
     rh = Math.max(1, Math.min(h - y, Math.round(rh)));
     const local = new Uint8Array(rw * rh);
-    let recoveredMark = false;
+    let recoveredMark = false, glyphCount = 1, segments;
     let minx = rw,
       miny = rh,
       maxx = -1,
@@ -288,6 +310,8 @@ export function prepareScan(image, type, rows, cols) {
       if (!part) return;
       ({ minx, miny, maxx, maxy } = part);
       ink = part.area;
+      glyphCount = part.glyphCount;
+      segments = part.segments?.map((box) => ({ ...box, x: x + box.x, y: y + box.y }));
     }
     if (
       ink < Math.max(4, rw * rh * 0.008) ||
@@ -329,6 +353,8 @@ export function prepareScan(image, type, rows, cols) {
       text: "",
       confidence: 0,
       ...(recoveredMark ? { recoveredMark: true } : {}),
+      ...(glyphCount > 1 ? { glyphCount } : {}),
+      ...(segments ? { segments } : {}),
     });
   }
 

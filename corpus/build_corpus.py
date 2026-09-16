@@ -30,6 +30,7 @@ import os
 import shutil
 import struct
 import subprocess
+import tempfile
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,9 +39,7 @@ from typing import Callable, Iterator
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-CORPUS = Path(os.environ.get("PUZZLE_CORPUS", "E:/OneDrive/Coding/PuzzleCorpus"))
-CACHE = Path(os.environ.get("PUZZLE_CORPUS_CACHE", "E:/tmp-claude/corpus-cache"))
-INDEX = Path(__file__).resolve().parent / "index.json"
+from corpus.config import CACHE, CORPUS, INDEX  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -424,37 +423,108 @@ def rule_conflicts(puzzle: dict) -> int:
     return conflicts
 
 
-def build(sources: list[Source], fetch: bool, verify: bool) -> list[dict]:
+@dataclass
+class BuildResult:
+    entries: list[dict] = field(default_factory=list)
+    completed: set[tuple[str, str]] = field(default_factory=set)
+    skipped: set[tuple[str, str]] = field(default_factory=set)
+    removed: set[str] = field(default_factory=set)
+
+
+def write_json(path: Path, value: dict) -> None:
+    """Replace an index/target atomically; never leave a truncated JSON file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False, mode="w",
+                                     encoding="utf-8", newline="\n") as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(value, handle, indent=1)
+            handle.write("\n")
+        except BaseException:
+            handle.close()
+            temporary.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def build(sources: list[Source], fetch: bool, verify: bool,
+          previous: list[dict] | None = None) -> BuildResult:
     from gridsolver.web_api import build_grid
 
-    CORPUS.mkdir(parents=True, exist_ok=True)
-    seen: dict[str, str] = {}
-    entries: list[dict] = []
+    result = BuildResult()
+    pending = []
+    # Collect before changing outputs. An inaccessible cache is not an empty
+    # rebuild, and a failing collector must not delete the old set.
     for source in sources:
+        key = (source.family, source.slug)
         cache = CACHE / (source.cache or source.url.rstrip("/").split("/")[-1])
         if source.fetch and fetch:
             source.fetch(cache)
         if not cache.exists():
-            print(f"  {source.slug}: cache missing ({cache}); run without --no-fetch")
+            print(f"  {source.slug}: cache missing ({cache}); previous inventory retained")
+            result.skipped.add(key)
             continue
-        target_dir = CORPUS / source.family / source.slug
-        target_dir.mkdir(parents=True, exist_ok=True)
-        existing = {path.name for path in target_dir.iterdir()}
-        kept = duplicates = invalid = 0
+        items = []
+        targets = set()
         for item in source.collect(cache):
-            digest = hashlib.md5(item.image.read_bytes()).hexdigest()
-            if digest in seen:
-                duplicates += 1
-                continue
+            if Path(item.name).name != item.name or item.name in ("", ".", ".."):
+                raise ValueError(f"Invalid corpus image name: {item.name!r}")
             if verify:
                 try:
                     build_grid(item.puzzle)
-                except Exception as error:  # noqa: BLE001 - report, do not abort the build
-                    invalid += 1
+                except Exception as error:  # noqa: BLE001 - report rejected input
                     print(f"  {source.slug}/{item.name}: rejected by the solver contract: {error}")
                     continue
-            seen[digest] = f"{source.family}/{source.slug}/{item.name}"
-            destination = target_dir / item.name
+            target_name = Path(item.name).with_suffix(".json").name
+            if target_name in targets:
+                raise ValueError(f"Duplicate target name in {source.slug}: {target_name}")
+            targets.add(target_name)
+            digest = hashlib.md5(item.image.read_bytes()).hexdigest()
+            relative = f"{source.family}/{source.slug}/{item.name}"
+            items.append((relative, digest, item))
+        pending.append((source, items))
+        result.completed.add(key)
+
+    # Canonical ownership is registry order, then filename, never invocation
+    # order. Retained/skipped sets participate using their actual image bytes.
+    ranks = {(s.family, s.slug): n for n, s in enumerate(SOURCES)}
+
+    def priority(relative):
+        family, slug, _ = relative.split("/", 2)
+        return ranks.get((family, slug), len(ranks)), relative
+
+    candidates = []
+    for entry in previous or []:
+        if (entry["family"], entry["set"]) in result.completed:
+            continue
+        relative = entry["path"]
+        image = CORPUS / relative
+        if not image.resolve().is_relative_to(CORPUS.resolve()):
+            raise ValueError(f"Inventory path escapes the corpus: {relative}")
+        if image.is_file():
+            candidates.append((relative, hashlib.md5(image.read_bytes()).hexdigest()))
+    retained = {relative for relative, _ in candidates}
+    candidates += [(relative, digest) for _, items in pending for relative, digest, _ in items]
+    winners = {}
+    for relative, digest in sorted(candidates, key=lambda pair: priority(pair[0])):
+        winners.setdefault(digest, relative)
+    accepted = set(winners.values())
+    result.removed = retained - accepted
+    CORPUS.mkdir(parents=True, exist_ok=True)
+    for source, items in pending:
+        target_dir = CORPUS / source.family / source.slug
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # Only image/target outputs belong to the builder, not arbitrary notes.
+        existing = {p.name for p in target_dir.iterdir()
+                    if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".json")}
+        kept = 0
+        for relative, digest, item in items:
+            if relative not in accepted:
+                continue
+            destination = CORPUS / relative
             if not destination.exists() or hashlib.md5(destination.read_bytes()).hexdigest() != digest:
                 shutil.copy2(item.image, destination)
             target = {"puzzle": item.puzzle}
@@ -462,12 +532,10 @@ def build(sources: list[Source], fetch: bool, verify: bool) -> list[dict]:
                 target["corners"] = item.corners
             if item.solution:
                 target["solution"] = item.solution
-            destination.with_suffix(".json").write_text(
-                json.dumps(target, separators=(",", ":")) + "\n", encoding="utf-8")
+            write_json(destination.with_suffix(".json"), target)
             size = jpeg_png_size(item.image)
-            entries.append({
-                "path": f"{source.family}/{source.slug}/{item.name}",
-                "family": source.family, "set": source.slug, "kind": source.kind,
+            result.entries.append({
+                "path": relative, "family": source.family, "set": source.slug, "kind": source.kind,
                 "bytes": destination.stat().st_size,
                 "width": size[0] if size else None, "height": size[1] if size else None,
                 "clues": sum(1 for value in item.puzzle["cells"] if isinstance(value, int)),
@@ -480,12 +548,15 @@ def build(sources: list[Source], fetch: bool, verify: bool) -> list[dict]:
             kept += 1
         for stale in existing:
             (target_dir / stale).unlink()
-        if not kept:
+        if not any(target_dir.iterdir()):
             target_dir.rmdir()
-        print(f"  {source.slug}: {kept} images"
-              + (f", {duplicates} duplicates skipped" if duplicates else "")
-              + (f", {invalid} rejected" if invalid else ""))
-    return entries
+        print(f"  {source.slug}: {kept} images, {len(items) - kept} duplicates skipped")
+    # Reclaim only known duplicate pairs, after the canonical copies exist.
+    for relative in sorted(result.removed):
+        image = CORPUS / relative
+        image.unlink(missing_ok=True)
+        image.with_suffix(".json").unlink(missing_ok=True)
+    return result
 
 
 def prune(index: dict) -> dict:
@@ -519,26 +590,27 @@ def main() -> int:
         print("no matching sources; --list shows the registry")
         return 2
     print(f"corpus: {CORPUS}\ncache:  {CACHE}")
-    entries = build(sources, fetch=not args.no_fetch, verify=not args.no_verify)
 
     # Merge into whatever the other builders contributed; a run of one source,
     # or of the renderer alone, must never drop the rest of the corpus.
     index = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else {"sources": [], "entries": []}
+    result = build(sources, fetch=not args.no_fetch, verify=not args.no_verify, previous=index.get("entries", []))
     index["corpus"] = str(CORPUS)
     described = [{"slug": s.slug, "family": s.family, "kind": s.kind, "origin": s.origin,
-                  "licence": s.licence, "url": s.url, "note": s.note} for s in sources]
-    rebuilt = {(s["family"], s["slug"]) for s in described}
-    index["entries"] = sorted([e for e in index.get("entries", []) if (e["family"], e["set"]) not in rebuilt]
-                              + entries, key=lambda e: e["path"])
+                  "licence": s.licence, "url": s.url, "note": s.note}
+                 for s in sources if (s.family, s.slug) in result.completed]
+    rebuilt = result.completed
+    index["entries"] = sorted([e for e in index.get("entries", []) if (e["family"], e["set"]) not in rebuilt and e["path"] not in result.removed]
+                              + result.entries, key=lambda e: e["path"])
     known = {(s.get("family"), s["slug"]): s for s in index.get("sources", [])}
     known.update({(s["family"], s["slug"]): s for s in described})
     index["sources"] = sorted(known.values(), key=lambda s: (s.get("family", ""), s["slug"]))
-    INDEX.write_text(json.dumps(prune(index), indent=1) + "\n", encoding="utf-8")
+    write_json(INDEX, prune(index))
 
     total = sum(e["bytes"] for e in index["entries"])
     print(f"\n{index['images']} images, {total / 1048576:.0f} MiB in {CORPUS}")
-    print(f"index: {INDEX.relative_to(ROOT)}")
-    return 0
+    print(f"index: {INDEX}")
+    return 1 if result.skipped else 0
 
 
 if __name__ == "__main__":

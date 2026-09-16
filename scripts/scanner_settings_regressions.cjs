@@ -135,6 +135,44 @@ async function exercise(page) {
   await page.click("#use-type");
   assert.deepEqual(await page.evaluate(() => settingsApp.getState().puzzle), cageBoard);
   assert.match(await page.textContent("#status-text"), /structural clues/);
+
+  // Invalid Sudoku inputs become hidden when the family is changed. Read
+  // must ignore them for non-boxed families, while still rejecting them for
+  // Sudoku and Killer Sudoku. OCR completions remain controlled in this gate.
+  await page.evaluate(async () => {
+    settingsApp.loadPuzzle(settingsModel.makePuzzle("sudoku", 6));
+    settingsMode = { rows: 6, cols: 6, type: "sudoku" };
+    document.getElementById("auto-solve").checked = false;
+    window.settingsReads = 0;
+    const { Scanner } = await import("./scanner.js");
+    Scanner.prototype.read = async (_photo, _corners, type, rows, cols) => {
+      settingsReads++;
+      const rectified = document.createElement("canvas"); rectified.width = rectified.height = 600;
+      return { puzzle: settingsModel.makePuzzle(type, rows, cols), uncertain: [], cageUncertain: [],
+        needsReview: true, notes: [], rectified };
+    };
+  });
+  await page.locator("#layout-settings").evaluate(el => { el.open = true; });
+  for (const type of ["latinsquare", "futoshiki", "numbrix", "hidato", "kenken", "kakuro", "slitherlink", "str8ts"]) {
+    await page.selectOption("#puzzle-type", "sudoku");
+    await photograph(page, image, `hidden-boxes-${type}`);
+    await page.fill("#box-rows", ""); await page.fill("#box-cols", "");
+    await page.selectOption("#puzzle-type", type);
+    assert.equal(await page.locator("#box-fields").isHidden(), true);
+    await page.click("#read-photo");
+    await page.waitForFunction(() => document.getElementById("status-text").textContent === "Puzzle read.");
+    assert.equal(await page.evaluate(() => settingsApp.getState().puzzle.type), type);
+  }
+  assert.equal(await page.evaluate(() => settingsReads), 8);
+  for (const type of ["sudoku", "killersudoku"]) {
+    await page.selectOption("#puzzle-type", type);
+    await photograph(page, image, `invalid-boxes-${type}`);
+    await page.fill("#box-rows", ""); await page.fill("#box-cols", "");
+    await page.click("#read-photo");
+    await page.waitForFunction(() => /Board dimensions/.test(document.getElementById("status-text").textContent));
+  }
+  assert.equal(await page.evaluate(() => settingsReads), 8, "boxed-family preflight must still reject invalid settings");
+  return image;
 }
 (async () => {
   try {
@@ -153,9 +191,10 @@ async function exercise(page) {
       page.setDefaultTimeout(20000);
       page.on("pageerror", (error) => errors.push(error.message));
       try {
-        await exercise(page);
+        const image = await exercise(page);
+        const detection = await require("./detect_benchmark_regressions.cjs")(name, engine, image);
         assert.deepEqual(errors, [], "Uncaught page errors");
-        reports.push({ browser: name, version: browser.version(), status: "passed" });
+        reports.push({ browser: name, version: browser.version(), status: "passed", hiddenBoxes: "passed", detection });
         console.log(`${name}: scanner settings, correction, undo and solver regressions passed`);
       } catch (error) {
         reports.push({ browser: name, status: "failed", message: error.message, errors });

@@ -133,27 +133,69 @@ async function recognize(data, check) {
       if (!groups.has(reading.index)) groups.set(reading.index, []);
       groups.get(reading.index).push(reading);
     }
-    let retries = 0;
-    for (const [index, reads] of groups) {
+    let retries = 0, segmentReads = 0;
+    const jobs = [...groups].map(([index, reads]) => {
+      const sample = samples.find((s) => s.index === index && s.kind === "gray"),
+        segments = Array.isArray(sample?.segments) && sample.segments.length >= 2 &&
+          sample.segments.length <= 3 && sample.segments.every((png) => typeof png === "string" && png)
+          ? sample.segments : [];
+      return { index, reads, sample, segments,
+        agrees: reads.length >= 2 && reads.every((r) => /^\d{1,3}$/.test(r.text)) &&
+          reads.every((r) => r.text === reads[0].text) };
+    });
+    const raw = async (png) => {
       check();
-      if (retries >= 24) break;
-      if (reads.length < 2 || (reads.every((r) => /^\d{1,3}$/.test(r.text)) && reads.every((r) => r.text === reads[0].text))) continue;
-      const sample = samples.find((s) => s.index === index && s.kind === "gray");
-      if (!sample) continue;
       if (!retries) await worker.setParameters({ tessedit_pageseg_mode: "13" });
-      const key = "13:" + sample.png;
+      const key = "13:" + png;
       let read = cached(key);
       if (read) cacheHits++;
       else {
-        ({ data: read } = await worker.recognize(sample.png, {}, { text: true, blocks: true }));
+        ({ data: read } = await worker.recognize(png, {}, { text: true, blocks: true }));
         calls++; check(); remember(key, read);
       }
-      singles.push({ index, kind: "retry", text: (read.text || "").replace(/\s/g, ""), confidence: read.confidence || 0 });
       retries++;
+      return { text: (read.text || "").replace(/\s/g, ""), confidence: read.confidence || 0 };
+    };
+    // Reserve the original retries first, in their original order. A hard
+    // image must not lose an existing recovery because an earlier glyph used
+    // up the shared budget on the new fallback.
+    for (const job of jobs) {
+      check();
+      if (retries >= 24) break;
+      if (job.reads.length < 2 || job.agrees || !job.sample) continue;
+      job.retry = await raw(job.sample.png);
+      singles.push({ index: job.index, kind: "retry", ...job.retry });
+    }
+    for (const job of jobs) {
+      check();
+      if (retries >= 24) break;
+      const { index, reads, sample, segments } = job;
+      if (!segments.length || reads.length < 2 || !sample) continue;
+      const complete = (r) => r && /^\d{1,3}$/.test(r.text) && r.text.length >= segments.length;
+      if ([...reads, job.retry].some(complete)) continue;
+      // False agreement on a truncated number still gets a whole-crop retry.
+      if (!job.retry) {
+        job.retry = await raw(sample.png);
+        singles.push({ index, kind: "retry", ...job.retry });
+        if (complete(job.retry)) continue;
+      }
+      // Only recover missing/truncated numbers from non-overlapping glyph
+      // boxes, within the SAME 24-call retry ceiling. Never assemble a prefix.
+      if (retries + segments.length > 24) continue;
+      const parts = [];
+      for (const png of segments) {
+        const part = await raw(png);
+        segmentReads++;
+        if (!/^\d$/.test(part.text)) break;
+        parts.push(part);
+      }
+      if (parts.length === segments.length)
+        singles.push({ index, kind: "segments", text: parts.map((p) => p.text).join(""),
+          confidence: Math.min(...parts.map((p) => p.confidence)) });
     }
     result.retryCount = retries;
     result.singles = singles;
-    result.ocrStats = { calls, cacheHits, samples: samples.length };
+    result.ocrStats = { calls, cacheHits, samples: samples.length, segmentReads };
     check();
     return result;
 

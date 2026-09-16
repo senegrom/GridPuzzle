@@ -125,6 +125,28 @@ async function measure({ fixture, variation }) {
   }
 }
 
+function qualityCases() {
+  const photographs = JSON.parse(fs.readFileSync(path.join(ROOT, "ground-truth.json"))).fixtures;
+  const fixtures = [
+    ...photographs.map((f) => ({ ...f, imageData: fs.readFileSync(path.join(ROOT, f.image)).toString("base64") })),
+    ...["Arial", "Times New Roman", "Courier New"].map((font) => ({ name: `numbers-${font}`, font })),
+    ...["DejaVu Sans", "DejaVu Serif"].map((font) => ({ name: `holdout-${font}`, font, holdout: true })),
+    ...["single", "number", "black"].map((fragmented) => ({ name: `fragmented-${fragmented}`, fragmented, black: fragmented === "black" ? [0] : [] })),
+  ];
+  const variations = [
+    { name: "original" }, { name: "small", small: true },
+    { name: "faded", contrast: 0.35 }, { name: "mild-fade", contrast: 0.65 },
+    { name: "blur", blur: 0.6 },
+    { name: "auto-original", auto: true },
+    { name: "auto-faded", auto: true, contrast: 0.35 },
+    { name: "auto-mild-fade", auto: true, contrast: 0.65 },
+  ];
+  return fixtures.flatMap((fixture) => variations
+    .filter((v) => fixture.imageData || ((fixture.holdout || fixture.fragmented)
+      ? v.name === "original" : v.name !== "small" && !v.auto))
+    .map((variation) => ({ fixture, variation })));
+}
+
 async function run() {
   const server = spawn("python", ["-m", "http.server", "8775", "--bind", "127.0.0.1", "--directory", "_site"], { stdio: "ignore" });
   const reports = [];
@@ -136,21 +158,7 @@ async function run() {
       await sleep(100);
     }
     assert.ok(available, "OCR quality test server did not start");
-    const photographs = JSON.parse(fs.readFileSync(path.join(ROOT, "ground-truth.json"))).fixtures;
-    const fixtures = [
-      ...photographs.map((f) => ({ ...f, imageData: fs.readFileSync(path.join(ROOT, f.image)).toString("base64") })),
-      ...["Arial", "Times New Roman", "Courier New"].map((font) => ({ name: `numbers-${font}`, font })),
-      ...["DejaVu Sans", "DejaVu Serif"].map((font) => ({ name: `holdout-${font}`, font, holdout: true })),
-      ...["single", "number", "black"].map((fragmented) => ({ name: `fragmented-${fragmented}`, fragmented, black: fragmented === "black" ? [0] : [] })),
-    ];
-    const variations = [
-      { name: "original" }, { name: "small", small: true },
-      { name: "faded", contrast: 0.35 }, { name: "mild-fade", contrast: 0.65 },
-      { name: "blur", blur: 0.6 },
-      { name: "auto-original", auto: true },
-      { name: "auto-faded", auto: true, contrast: 0.35 },
-      { name: "auto-mild-fade", auto: true, contrast: 0.65 },
-    ];
+    const cases = qualityCases();
     for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const browser = await engine.launch({ headless: true });
       const report = { browser: name, version: browser.version(), scans: [], errors: [] };
@@ -162,8 +170,7 @@ async function run() {
         page.on("pageerror", (error) => report.errors.push(error.message));
         await page.goto(BASE);
         await page.waitForSelector('body[data-ready="true"]');
-        for (const fixture of fixtures)
-          for (const variation of variations.filter((v) => fixture.imageData || ((fixture.holdout || fixture.fragmented) ? v.name === "original" : v.name !== "small" && !v.auto))) {
+        for (const { fixture, variation } of cases) {
             const scan = await page.evaluate(measure, { fixture, variation });
             report.scans.push(scan);
             const label = `${name}/${fixture.name}/${variation.name}`;
@@ -202,5 +209,5 @@ async function run() {
     server.kill();
   }
 }
-module.exports = { run };
+module.exports = { run, measure, qualityCases };
 if (require.main === module) run().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -116,3 +116,20 @@ test("starting the live camera warms the preview runtime once", async (t) => {
   h.camera.start(); assert.equal(prepared, 1, "a repeated start must not warm again");
   h.camera.stop(); h.camera.start(); assert.equal(prepared, 2);
 });
+
+for (const type of ["latinsquare", "futoshiki", "numbrix", "hidato", "kenken", "kakuro", "slitherlink", "str8ts", "auto"])
+  test(`${type}: invalid hidden box inputs do not block live recognition`, async t => {
+    const h = harness(t);
+    Object.assign(h.settings, { type, boxRows: 0, boxCols: NaN });
+    await h.advance(100); await h.result(); await h.advance(700); await h.result();
+    assert.equal(h.readings.length, 1);
+    assert.doesNotMatch(h.$("camera-help").textContent, /does not fit/);
+  });
+for (const type of ["sudoku", "killersudoku"])
+  test(`${type}: invalid live box settings still block recognition`, async t => {
+    const h = harness(t);
+    Object.assign(h.settings, { type, boxRows: 0, boxCols: NaN });
+    await h.advance(100); await h.result(); await h.advance(700); await h.result();
+    assert.equal(h.readings.length, 0);
+    assert.match(h.$("camera-help").textContent, /does not fit/);
+  });

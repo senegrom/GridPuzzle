@@ -381,7 +381,7 @@ function cluster(lines, radius) {
   return out;
 }
 // Fit an evenly spaced lattice to the detected lines. The spacing is the
-// median gap, which survives one dropped line; the phase is the one that
+// median gap refined by a global fit; the phase is the one that
 // holds the most lines (the strongest line is no guide: a black border
 // column reads as a band as strong as any line, centred half a cell inside
 // the border). A band at least half a cell wide is a run of black cells, so
@@ -426,27 +426,51 @@ function lattice(found, length, beyond) {
   if (lines.length < 3) return null;
   const at = lines.map((l) => l.at),
     gaps = at.slice(1).map((v, i) => v - at[i]).sort((a, b) => a - b),
-    spacing = gaps[gaps.length >> 1];
-  if (!(spacing > 0)) return null;
-  // Where a line meets the lattice through `anchor`: its centre, or for a
-  // wide band either edge; null when it is a stray.
-  const meets = (l, anchor) => {
+    initialSpacing = gaps[gaps.length >> 1];
+  if (!(initialSpacing > 0)) return null;
+  // Pixel-rounded adjacent gaps are only a seed. Extrapolating a 22px
+  // median across a 25-cell warp (true pitch 539/25) loses real end lines.
+  // Refine phase AND pitch over the currently supported thin lines before
+  // deciding which lines are strays. Wide black-cell bands still meet the
+  // lattice with their centre or either edge, but do not bias the fit.
+  const meets = (l, anchor, spacing) => {
     for (const p of l.width >= spacing * 0.5 ? [l.at, l.lo, l.hi] : [l.at]) {
       const k = Math.round((p - anchor) / spacing);
       if (Math.abs(p - (anchor + k * spacing)) <= spacing * 0.25) return p;
     }
     return null;
   };
-  let anchor = lines[0].at,
-    most = -1;
-  for (const l of lines) {
-    const held = lines.reduce((n, m) => n + (meets(m, l.at) !== null ? 1 : 0), 0);
-    if (held > most) { most = held; anchor = l.at; }
+  let anchor = lines[0].at, spacing = initialSpacing, most = -1, bestError = Infinity;
+  for (const line of lines) {
+    let phase = line.at, pitch = initialSpacing;
+    for (let pass = 0; pass < 3; pass++) {
+      const points = lines.filter(l => l.width < pitch * 0.5 && meets(l, phase, pitch) !== null)
+        .map(l => ({ k: Math.round((l.at - phase) / pitch), p: l.at }));
+      if (points.length < 3) break;
+      const meanK = points.reduce((sum, p) => sum + p.k, 0) / points.length,
+        meanP = points.reduce((sum, p) => sum + p.p, 0) / points.length,
+        variance = points.reduce((sum, p) => sum + (p.k - meanK) ** 2, 0);
+      if (!variance) break;
+      const next = points.reduce((sum, p) => sum + (p.k - meanK) * (p.p - meanP), 0) / variance;
+      // Refine this hypothesis, never jump to a different lattice harmonic.
+      if (Math.abs(next - initialSpacing) > initialSpacing * 0.1) break;
+      pitch = next; phase = meanP - pitch * meanK;
+    }
+    let held = 0, error = 0;
+    for (const l of lines) {
+      const p = meets(l, phase, pitch);
+      if (p === null) continue;
+      held++;
+      error += ((p - phase) / pitch - Math.round((p - phase) / pitch)) ** 2;
+    }
+    if (held > most || (held === most && error < bestError)) {
+      most = held; bestError = error; anchor = phase; spacing = pitch;
+    }
   }
   const kept = [],
     strays = [];
   for (const l of lines) {
-    const pos = meets(l, anchor);
+    const pos = meets(l, anchor, spacing);
     if (pos === null) strays.push(l);
     else kept.push({ ...l, pos });
   }

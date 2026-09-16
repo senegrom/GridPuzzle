@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-CACHE = Path("E:/tmp-claude/corpus-cache/janko")
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from corpus.config import JANKO_CACHE as CACHE  # noqa: E402
 AGENT = "GridPuzzle corpus (private research, not republished; github.com/senegrom/GridPuzzle)"
 
 # family -> (url segment, highest index seen, zero padding)
