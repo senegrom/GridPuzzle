@@ -110,6 +110,44 @@ test("a blob touching a corner does not keep the corner off the grid", () => {
   assert.equal(found.rows, 9); assert.equal(found.cols, 9);
   assert.ok(Math.abs(found.corners[1].x - (g1 + 1)) <= 6 && Math.abs(found.corners[1].y - (g0 + 1)) <= 6, JSON.stringify(found.corners[1]));
 });
+test("a Kakuro-like grid with two fifths black cells and split clue cells is found", () => {
+  // 10 x 12 cells, 36 px each, black first row and column, scattered black
+  // clue cells (some adjacent, so their shared boundary is invisible), each
+  // clue cell split by a white diagonal, thin lines elsewhere.
+  const n = 640, rows = 10, cols = 12, cell = 36, g0 = 60, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 246);
+  const black = (r, c) => r === 0 || c === 0 || (r * 7 + c * 3) % 5 === 0 || (r === 4 && c >= 5 && c <= 7);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (black(r, c)) {
+    for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) px(g0 + c * cell + x, g0 + r * cell + y, 22);
+    for (let d = 0; d < cell; d++) px(g0 + c * cell + d, g0 + r * cell + d, 246);
+  }
+  for (let k = 0; k <= cols; k++) for (let t = g0; t <= g0 + rows * cell; t++) px(g0 + k * cell, t, 22);
+  for (let k = 0; k <= rows; k++) for (let t = g0; t <= g0 + cols * cell; t++) px(t, g0 + k * cell, 22);
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, rows); assert.equal(found.cols, cols);
+  const truth = [[g0, g0], [g0 + cols * cell, g0], [g0 + cols * cell, g0 + rows * cell], [g0, g0 + rows * cell]];
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("clue diagonals that cut the lines at their intersections still leave the whole grid", () => {
+  // As the Kakuro-like grid above, but each diagonal is drawn over the lines
+  // and runs corner to corner, so the border band and the corner triangles
+  // become separate pieces of ink and the interior is a sub-grid of its own.
+  const n = 640, rows = 10, cols = 12, cell = 36, g0 = 60, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 246);
+  const black = (r, c) => r === 0 || c === 0 || (r * 7 + c * 3) % 5 === 0 || (r === 4 && c >= 5 && c <= 7);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (black(r, c))
+    for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) px(g0 + c * cell + x, g0 + r * cell + y, 22);
+  for (let k = 0; k <= cols; k++) for (let t = g0; t <= g0 + rows * cell; t++) px(g0 + k * cell, t, 22);
+  for (let k = 0; k <= rows; k++) for (let t = g0; t <= g0 + cols * cell; t++) px(t, g0 + k * cell, 22);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (black(r, c))
+    for (let d = 0; d <= cell; d++) { px(g0 + c * cell + d, g0 + r * cell + d, 246); px(g0 + c * cell + d + 1, g0 + r * cell + d, 246); }
+  const found = findGrid({ width: n, height: n, data });
+  assert.equal(found.rows, rows); assert.equal(found.cols, cols);
+  const truth = [[g0, g0], [g0 + cols * cell, g0], [g0 + cols * cell, g0 + rows * cell], [g0, g0 + rows * cell]];
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
 test("a blank warp has no grid", () => {
   const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
   for (let i = 3; i < data.length; i += 4) data[i] = 255;
