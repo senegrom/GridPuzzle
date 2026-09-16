@@ -136,7 +136,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const small = detectCanvas, scale = Math.min(1, 640 / Math.max(image.width, image.height));
       small.width = Math.round(image.width * scale); small.height = Math.round(image.height * scale);
       small.getContext("2d").drawImage(image, 0, 0, small.width, small.height);
-      const found = await detector.detect(small);
+      // A live frame is read the quick way: the last-resort readings cost
+      // more than the interval between frames, and a grid held in front of
+      // the camera is found without them.
+      const found = await detector.detect(small, { thorough: false });
       if (!current() || !sameFrame(frameSignature, signature)) return;
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {

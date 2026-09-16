@@ -488,8 +488,11 @@ export class Scanner {
   geometry(op, options) {
     return this._request("geometry-worker.js", { op, ...options });
   }
-  detect(canvas) {
-    return this.geometry("detect", { image: imageOf(canvas) });
+  // `thorough` runs the last-resort readings (inverted screens, continuous
+  // runs, dot lattices). They cost a still photograph a fraction of a second
+  // and would stall a live preview, which sees an unframed grid every frame.
+  detect(canvas, { thorough = true } = {}) {
+    return this.geometry("detect", { image: imageOf(canvas), thorough });
   }
   async read(canvas, corners, type, rows, cols, onProgress = () => {}, { onPreview = () => {} } = {}) {
     this.cancel({ keepEngine: true });

@@ -44,6 +44,42 @@ Widening alone was measured first and rejected: a toolbar or caption a few
 pixels from a screenshot's grid pulled forty app screenshots off their
 lattice.
 
+### Light-on-dark screens
+
+The ink mask marks only what is darker than its surroundings, so a grid on a
+screen with a dark theme has no ink of its own: its light lines survive only
+as the dark halos beside them, enough for the box lines and not always for
+the cell lines. A frame or warp that is mostly dark, and whose pixels far
+from the median are bright rather than dark, is a light-on-dark screen (a
+dimly lit page is mostly dark too, but what stands out on it is ink) and is
+read inverted: in the line stage always, in the outline stage as a second
+attempt when the plain one finds no grid.
+
+### More candidates, and the grid within a quad
+
+The largest component may be an app's frame, a browser panel or a shadow
+beside the grid. When it carries no lattice the next two largest are tried,
+and a full reading from any of them beats a partial one. When a quad took in
+a toolbar or a page beside the grid, no axis spans the warp: as a last
+resort, after the edge map and the continuous-run profile, one axis that
+does span it is matched by a regular run of exactly its number of lines
+anywhere along the other, and when neither spans it both are searched for
+runs of at least five lines whose pitches agree with the quad's aspect. A
+run must hold seven tenths of the axis's lines (a window of a fragmented
+grid must not pass as a smaller grid), a contained candidate never wins with
+a partial reading, and settling must confirm the tightened quad or the
+reading is dropped.
+
+### Dot lattices
+
+Slitherlink draws no lines, only dots at the lattice points, so no component
+is grid-sized. When nothing else finds a grid, small round blobs (nearly
+square, mostly filled) whose nearest neighbours sit at one common distance
+are taken as the dots; their extreme points are the quad, the dots re-found
+in the padded warp give the lattice on each axis, and the outer dots are the
+corners, mapped back through the homography. Digits sit at cell centres, off
+the common distance, and are not round.
+
 ## The line stage
 
 Measured on September 14, 2026 against the corpus (`corpus/SOURCES.md`), the
@@ -96,6 +132,12 @@ The stage now works as follows.
   pair of edges, and the inside of a black cell is nothing. Dark pixels count
   as visible only where they are edges, so the invisible boundary between two
   black cells is not held against a line.
+- **The continuous-run profile as third chance.** Cells full of pencil marks
+  or handwriting lift columns of small digits over the cutoff and bury the
+  lattice in strays. When neither the ink nor the edge profile yields a
+  lattice, each column and row is measured by its longest continuous run of
+  ink (in the sheared frame, tolerating one pixel sideways): a grid line on a
+  screen runs the height of the warp, while marks break at every cell.
 - **The lattice's phase and bands.** The phase is the one that holds the most
   lines, not the strongest line's: a black border column reads as a band as
   strong as any line, centred half a cell inside the border. A group at least
@@ -131,20 +173,36 @@ grid wins. Empty paper between a grid and a page's edge one cell out is not
 that; the ring is measured inside the outer quad inset by three gaps, so the
 band of dark table marked along the edge does not count.
 
+## A live frame and a photograph
+
+The readings above are tried in order and each costs only when the ones
+before it find nothing, but the frames that reach the end are exactly the
+ones the live camera sees most: a page in view, not yet framed, with a quad
+and no grid. `findGrid(image, { thorough })` divides them. A live frame gets
+the outline, the widening, the edge map, the inverted line stage and the
+partial lattice; a still photograph also gets the extra outline candidates,
+the continuous-run profile, the inverted outline pass and the dot lattice.
+Measured on the app photographs at the live scale, a frame with a quad and
+no grid takes 68 ms in the middle and 218 at its worst the quick way,
+against 53 and 192 before this change and 120 and 794 with everything on;
+the live path still finds more grids than before (1008 of 1398 against 986),
+and the photograph finds 1056.
+
 ## Measured
 
 Good detections (grid found, right size, corners within 3% of the diagonal)
 at the live scale, per corpus set, before and after the change:
 
-| Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 | 187 / 202 | 191 / 202 |
-| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 | 957 / 1398 | 986 / 1398 |
-| Kakuro renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 106 / 111 |
-| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
-| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 | 238 / 240 | 238 / 240 |
-| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 | 120 / 120 | 120 / 120 |
-| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 116–119 / 120 each |
+| Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase | + polarity, candidates, runs, dots |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 | 187 / 202 | 191 / 202 | 191 / 202 |
+| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 | 957 / 1398 | 986 / 1398 | 1054 / 1398 |
+| Kakuro renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 106 / 111 | 107 / 111 |
+| Slitherlink renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 85 / 111 |
+| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
+| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 | 238 / 240 | 238 / 240 | 239 / 240 |
+| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
+| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 119–120 / 120 each |
 
 The line stage lost fourteen images the original accepted, all with one axis
 found and the other not; the outline stage lost one more; the last step lost
@@ -155,12 +213,15 @@ is confirmed on a second warp. The last step costs nothing on a grid whose
 plain extreme points already carry a lattice; a grid that needs the second
 reading (every Kakuro, a quad pulled off by a blob) takes about twice as
 long, 80 ms per frame at 640 pixels for Kakuro against 26-41 ms for the other sets, one to nine milliseconds more than before for the widening walk and the second settle where it applies.
+The polarity pass, the extra candidates, the continuous-run profile and the
+dot lattice all run only when the readings before them find nothing, so a
+frame that carries a grid costs the same as before; a grid that reaches the last of them costs about twice what it did, and one that never resolves about three times, all of it inside the one-shot photograph path.
 
 ## Known gaps
 
-- **Slitherlink** (dots, no lines) is not found. **Kakuro** (black cells
-  everywhere) was not either until the widening, the edge map and the
-  lattice's phase: the adaptive ink mask marks only pixels darker than their
+- **Kakuro** (black cells everywhere) was not found until the widening, the
+  edge map and the lattice's phase, and **Slitherlink** (dots, no lines) not
+  until the dot lattice (85 of 111 renders): the adaptive ink mask marks only pixels darker than their
   surroundings, so the inside of a black cell is never ink, and a white clue
   diagonal cuts a black corner cell off its own outline. Adding absolute
   black to the outline mask was tried first and rejected: it gained three
@@ -173,9 +234,11 @@ long, 80 ms per frame at 640 pixels for Kakuro against 26-41 ms for the other se
   lattice positions are held by the edge, the ring between is empty paper,
   and nothing distinguishes it from an empty border row. One Numbrix render
   in 120 is lost to it.
-- Photographs of screens can carry a light-on-dark theme; the sensitive mask
-  reads the dark halo beside a bright line, which is enough for box lines but
-  not always for cell lines.
+- Screens with a light-on-dark theme are read inverted now; the app
+  photographs still lost are boards whose grid touches a UI row at exactly
+  one cell's distance (read one row too tall), photographs at a steep angle
+  or with glare, and grids drawn on lined or squared paper whose ruling
+  merges with the grid.
 - `corpus/detect_benchmark.cjs` reproduces the measurement over every corpus
   image with corner ground truth, at both scales, in a few minutes; it is a
   measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above

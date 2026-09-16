@@ -9,6 +9,33 @@ export function gray(image) {
 export function threshold(image, window = 25, bias = 12) {
   return thresholdGray(gray(image), image.width, image.height, window, bias);
 }
+// Whether a grey image is a screen with a light-on-dark theme: mostly dark,
+// and what stands out from the median is bright (lines, digits) rather than
+// dark (ink on a dimly lit page). Sampled, so a warp costs nothing.
+export function lightOnDark(g) {
+  const bins = new Uint32Array(256);
+  let n = 0;
+  for (let i = 0; i < g.length; i += 5) {
+    bins[g[i]]++;
+    n++;
+  }
+  let median = 0,
+    seen = 0;
+  while (median < 255 && seen + bins[median] < n / 2) seen += bins[median++];
+  if (median >= 128) return false;
+  let bright = 0,
+    dark = 0;
+  for (let v = 0; v < 256; v++) {
+    if (v > median + 40) bright += bins[v];
+    else if (v < median - 40) dark += bins[v];
+  }
+  return bright > n * 0.02 && bright > dark * 1.5;
+}
+export function inverted(g) {
+  const out = new Uint8Array(g.length);
+  for (let i = 0; i < g.length; i++) out[i] = 255 - g[i];
+  return out;
+}
 export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
   const sum = new Float64Array((w + 1) * (h + 1));
   for (let y = 0; y < h; y++) {
@@ -229,6 +256,39 @@ function bestShear(b, w, h, visible, axis) {
 // survived in others (a 3x3 reading). In the sensitive mask the weakest true
 // line sits near 50-75% while the darkest column of digits stays near 30-40%.
 const LINE_CUTOFF = 0.42;
+// The longest continuous run of ink along each column and row as a share of
+// the length, read in the sheared frame and tolerating one pixel sideways.
+// A grid line runs the height of the warp; pencil marks, candidates and
+// handwriting break at every cell and never reach the cutoff.
+export function runProfile(b, w, h, shearX = 0, shearY = 0) {
+  const x = new Float64Array(w),
+    y = new Float64Array(h);
+  for (let c = 0; c < w; c++) {
+    let run = 0,
+      best = 0;
+    for (let r = 0; r < h; r++) {
+      const cc = Math.round(c + shearX * (r / (h - 1) - 0.5)),
+        i = r * w + cc,
+        ink = cc >= 0 && cc < w && (b[i] || (cc > 0 && b[i - 1]) || (cc < w - 1 && b[i + 1]));
+      run = ink ? run + 1 : 0;
+      if (run > best) best = run;
+    }
+    x[c] = best / h;
+  }
+  for (let r = 0; r < h; r++) {
+    let run = 0,
+      best = 0;
+    for (let c = 0; c < w; c++) {
+      const rr = Math.round(r + shearY * (c / (w - 1) - 0.5)),
+        i = rr * w + c,
+        ink = rr >= 0 && rr < h && (b[i] || (rr > 0 && b[i - w]) || (rr < h - 1 && b[i + w]));
+      run = ink ? run + 1 : 0;
+      if (run > best) best = run;
+    }
+    y[r] = best / w;
+  }
+  return { x, y };
+}
 // Edge map: a pixel whose neighbours two apart differ by 30 levels or more,
 // in either direction. Every boundary between a black cell and a white one
 // is an edge exactly at the lattice, a grid line on paper is a pair of edges
@@ -242,10 +302,14 @@ export function edgeMask(g, w, h) {
     }
   return e;
 }
-export function gridLines(image, mask, shear = null, mode = "ink") {
+// `mode` picks what counts as a line: "ink" the adaptive mask, "edge" the
+// boundaries of black and white, "run" the longest continuous run of ink.
+export function gridLines(image, mask, shear = null, mode = "ink", invert = false) {
   const w = image.width,
     h = image.height,
-    g = gray(image),
+    // Inverted, a screen with a light-on-dark theme has its light lines as
+    // ink and its background as paper.
+    g = invert ? inverted(gray(image)) : gray(image),
     b = mode === "edge" ? edgeMask(g, w, h) : mask ?? thresholdGray(g, w, h, 25, 6, 255);
   // The adaptive mask never marks the inside of a black cell, only its edges,
   // so a grid line running past black cells is visible only along white
@@ -270,7 +334,8 @@ export function gridLines(image, mask, shear = null, mode = "ink") {
     for (let r = Math.max(0, Math.floor(l.at - l.width / 2 - 1 - Math.abs(shearY) / 2)); r <= Math.min(h - 1, Math.ceil(l.at + l.width / 2 + 1 + Math.abs(shearY) / 2)); r++) skipRows[r] = 1;
   for (const l of groups(first.x, LINE_CUTOFF))
     for (let c = Math.max(0, Math.floor(l.at - l.width / 2 - 1 - Math.abs(shearX) / 2)); c <= Math.min(w - 1, Math.ceil(l.at + l.width / 2 + 1 + Math.abs(shearX) / 2)); c++) skipCols[c] = 1;
-  const profile = lineProfile(b, w, h, skipRows, skipCols, visible, shearX, shearY);
+  const profile = mode === "run" ? runProfile(b, w, h, shearX, shearY) : lineProfile(b, w, h, skipRows, skipCols, visible, shearX, shearY),
+    cutoff = mode === "run" ? 0.5 : LINE_CUTOFF;
   // The visible share and the mean grey of each column and row tell the
   // lattice what lies beyond an outer band: paper, or the table past the
   // page's edge.
@@ -295,7 +360,9 @@ export function gridLines(image, mask, shear = null, mode = "ink") {
     visibleY[y] /= w;
     grayY[y] /= w;
   }
-  return { x: groups(profile.x, LINE_CUTOFF), y: groups(profile.y, LINE_CUTOFF), shear: { x: shearX, y: shearY },
+  // Plain data only: this travels to the page with the warp's metadata, and
+  // a function cannot be cloned across that boundary.
+  return { x: groups(profile.x, cutoff), y: groups(profile.y, cutoff), shear: { x: shearX, y: shearY },
     beyondX: { visible: visibleX, gray: grayX }, beyondY: { visible: visibleY, gray: grayY } };
 }
 // Lines closer than 3% of the length are one line: a cage wall drawn just
@@ -441,6 +508,38 @@ function lattice(found, length, beyond) {
 function regular(lines, length, beyond) {
   return lattice(lines, length, beyond) ?? { cells: 0, first: 0, last: length - 1, quality: 0 };
 }
+// The longest regular run of lines anywhere along an axis, at least `least`
+// long and at most `most`: gaps within a quarter of their median. The grid
+// may occupy only part of the warp when the quad took in a toolbar or a
+// page beside it. Ties go to the stronger run.
+function regularRun(lines, least, most = Infinity) {
+  let best = null;
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + least - 1; j < lines.length && j - i < most; j++) {
+      const run = lines.slice(i, j + 1),
+        gaps = run.slice(1).map((l, k) => l.at - run[k].at),
+        median = [...gaps].sort((a, b) => a - b)[gaps.length >> 1];
+      if (gaps.some((g) => Math.abs(g - median) > median * 0.25)) break;
+      const strength = run.reduce((sum, l) => sum + l.peak, 0) / run.length;
+      if (!best || run.length > best.run.length || (run.length === best.run.length && strength > best.strength))
+        best = { run, strength, pitch: median };
+    }
+  }
+  return best;
+}
+// A lattice from a regular run: its cells, its extent and a quality that
+// counts the lines outside the run as strays. The run must hold at least
+// three fifths of the axis's lines, or a window of a fragmented grid would
+// pass as a smaller grid.
+function runLattice(best, lines, length) {
+  // The run must hold seven tenths of the axis's lines and span half the
+  // warp: the grid is the greater part of its own quad, and a run over a
+  // corner of it is some other regular thing in the frame.
+  if (!best || best.run.length < lines.length * 0.7) return null;
+  if (best.run.at(-1).at - best.run[0].at < length * 0.5) return null;
+  const { run } = best;
+  return { cells: run.length - 1, first: run[0].at, last: run.at(-1).at, quality: 1 - (lines.length - run.length) / lines.length, partial: true };
+}
 // Test one axis at a cell count the other axis established: the warp maps
 // the quad to a square, so a square-celled grid has the same spacing both
 // ways. Four in five positions must hold a line and strays stay bounded.
@@ -466,8 +565,8 @@ function latticeAt(found, length, cells, beyond) {
       quality: present / (cells + 1) - strays / lines.length }
     : { cells: 0, first: 0, last: length - 1, quality: 0 };
 }
-export function estimateGrid(image, mask, shear = null, mode = "ink") {
-  let lines = gridLines(image, mask, shear, mode),
+export function estimateGrid(image, mask, shear = null, mode = "ink", aspect = 1, invert = false, thorough = true) {
+  let lines = gridLines(image, mask, shear, mode, invert),
     across = regular(lines.x, image.width, lines.beyondX),
     down = regular(lines.y, image.height, lines.beyondY);
   if (across.cells && !down.cells) down = latticeAt(lines.y, image.height, across.cells, lines.beyondY);
@@ -478,8 +577,64 @@ export function estimateGrid(image, mask, shear = null, mode = "ink") {
   // The edge lattice must account for at least half of the ink profile's
   // groups, or faint cell lines would leave a coarse lattice of box lines.
   if (mode === "ink" && !(across.cells && down.cells)) {
-    const edged = estimateGrid(image, undefined, shear, "edge");
+    const edged = estimateGrid(image, undefined, shear, "edge", aspect, invert, thorough);
     if (edged.rows && edged.cols && edged.rows + 1 >= lines.y.length * 0.5 && edged.cols + 1 >= lines.x.length * 0.5) return edged;
+  }
+  // Cells full of pencil marks or handwriting lift columns of small digits
+  // over the cutoff and bury the lattice in strays. Lines are continuous
+  // where marks are not: the longest-run profile keeps only what runs the
+  // length of the warp.
+  if (thorough && mode === "ink" && !(across.cells && down.cells)) {
+    const runs = gridLines(image, mask, lines.shear, "run", invert),
+      runAcross = regular(runs.x, image.width, runs.beyondX),
+      runDown = regular(runs.y, image.height, runs.beyondY);
+    // At least five cells each way: a coarser lattice found only by continuous
+    // runs is the box lines of a nine-cell grid whose cell lines are broken,
+    // not a small grid, which the ink profile reads on its own.
+    if (runAcross.cells >= 5 && runDown.cells >= 5) {
+      lines = runs;
+      across = runAcross;
+      down = runDown;
+    }
+  }
+  // Last resort: the grid occupies only part of the warp because the quad
+  // took in a toolbar or a page beside it. When one axis spans the warp, the
+  // other is searched for a regular run of exactly its number of lines; when
+  // neither does, both are searched for runs of at least five lines whose
+  // pitches agree with the quad's aspect (square cells). settle() must then
+  // confirm the tightened quad, or the reading is dropped.
+  if (mode === "ink" && !(across.cells && down.cells)) {
+    const tx = trimmed(lines.x, image.width, lines.beyondX),
+      ty = trimmed(lines.y, image.height, lines.beyondY);
+    if (across.cells && !down.cells) {
+      const run = regularRun(ty, across.cells + 1, across.cells + 1);
+      if (run && run.run.length === across.cells + 1) down = runLattice(run, ty, image.height) ?? down;
+    } else if (down.cells && !across.cells) {
+      const run = regularRun(tx, down.cells + 1, down.cells + 1);
+      if (run && run.run.length === down.cells + 1) across = runLattice(run, tx, image.width) ?? across;
+    } else {
+      const runX = regularRun(tx, 5, 26),
+        runY = regularRun(ty, 5, 26);
+      if (runX && runY && Math.abs(runX.pitch / runY.pitch / aspect - 1) < 0.25) {
+        const partialX = runLattice(runX, tx, image.width),
+          partialY = runLattice(runY, ty, image.height);
+        if (partialX && partialY) {
+          across = partialX;
+          down = partialY;
+        }
+      }
+    }
+  }
+  // Nothing at either polarity of ink: a screen with a light-on-dark theme,
+  // whose light lines are not ink at all. Inverting is a last chance rather
+  // than a reflex, since a dimly lit page is mostly dark too. It runs even
+  // for a live frame: a dark theme is the commonest thing the line stage
+  // cannot read, and one more profile is cheap beside a second outline.
+  if (mode === "ink" && !invert && !(across.cells && down.cells) && lightOnDark(gray(image))) {
+    // The skew is a property of the quad, not of the ink's polarity: the
+    // inverted pass reuses the shear rather than searching for it again.
+    const flipped = estimateGrid(image, undefined, shear ?? lines.shear, "ink", aspect, true, thorough);
+    if (flipped.rows && flipped.cols) return flipped;
   }
   const cols = across.cells,
     rows = down.cells;
@@ -490,6 +645,7 @@ export function estimateGrid(image, mask, shear = null, mode = "ink") {
     boxes = mid.some((l) => l.width > thin * 1.45 && l.width >= 3);
   }
   return { rows, cols, boxes, lines,
+    partial: Boolean(rows && cols && (across.partial || down.partial)),
     quality: rows && cols ? Math.min(across.quality, down.quality) : 0,
     extent: rows && cols ? { x: [across.first, across.last], y: [down.first, down.last], shear: lines.shear } : null };
 }
@@ -511,13 +667,17 @@ function padded(corners, width, height, fraction = 0.04) {
 // the lattice's outer lines are the grid's border, mapped back through the
 // homography, and the tighter quad is confirmed with a second padded warp
 // that must find the same lattice.
-function settle(image, corners) {
+function settle(image, corners, thorough = true) {
   const size = 540,
     grown = padded(corners, image.width, image.height),
     // Clamping a quad that touches the frame can fold it; fall back to the
     // quad itself rather than let the warp refuse it.
     loose = validQuad(grown, image.width, image.height) ? grown : corners,
-    estimated = estimateGrid(warp(image, loose, size, size));
+    // Square cells appear in the warp with a pitch ratio equal to the quad's
+    // height over its width, which a partial lattice must respect.
+    aspect = (Math.hypot(loose[3].x - loose[0].x, loose[3].y - loose[0].y) + Math.hypot(loose[2].x - loose[1].x, loose[2].y - loose[1].y)) /
+      Math.max(1, Math.hypot(loose[1].x - loose[0].x, loose[1].y - loose[0].y) + Math.hypot(loose[2].x - loose[3].x, loose[2].y - loose[3].y)),
+    estimated = estimateGrid(warp(image, loose, size, size), undefined, null, "ink", aspect, false, thorough);
   if (!estimated.rows || !estimated.cols || !estimated.extent) return { corners, estimated };
   const [x0, x1] = estimated.extent.x,
     [y0, y1] = estimated.extent.y,
@@ -540,17 +700,20 @@ function settle(image, corners) {
     },
     tight = [corner(x0, y0), corner(x1, y0), corner(x1, y1), corner(x0, y1)],
     diagonal = Math.hypot(corners[2].x - corners[0].x, corners[2].y - corners[0].y);
-  const moved = Math.max(...tight.map((p, i) => Math.hypot(p.x - corners[i].x, p.y - corners[i].y)));
-  if (!validQuad(tight, image.width, image.height) || moved > diagonal * 0.12) return { corners, estimated };
+  const moved = Math.max(...tight.map((p, i) => Math.hypot(p.x - corners[i].x, p.y - corners[i].y))),
+    none = { corners, estimated: { ...estimated, rows: 0, cols: 0, quality: 0, extent: null, partial: false } };
+  // A partial reading (the grid within part of the quad) stands only when
+  // the quad it tightens to is confirmed; any other reading keeps its quad.
+  if (!validQuad(tight, image.width, image.height) || moved > (estimated.partial ? 0.6 : 0.12) * diagonal)
+    return estimated.partial ? none : { corners, estimated };
   // A refinement within one percent needs no confirmation; a larger move is
   // confirmed on a second padded warp, which after settling has no skew left
   // to search for.
-  if (moved <= diagonal * 0.01) return { corners: tight, estimated };
+  if (moved <= diagonal * 0.01 && !estimated.partial) return { corners: tight, estimated };
   const grownTight = padded(tight, image.width, image.height),
-    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 });
-  return again.rows === estimated.rows && again.cols === estimated.cols
-    ? { corners: tight, estimated: again }
-    : { corners, estimated };
+    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 }, "ink", 1, false, thorough);
+  if (again.rows === estimated.rows && again.cols === estimated.cols && !again.partial) return { corners: tight, estimated: again };
+  return estimated.partial ? none : { corners, estimated };
 }
 // A white line through a black region splits its ink component: a Kakuro
 // corner cell cut by its clue diagonal leaves the corner triangle on its own,
@@ -629,10 +792,9 @@ function widened(b, w, h, start, gap, queue) {
   }
   return [tl, tr, br, bl];
 }
-export function findGrid(image) {
+function findIn(image, b, thorough = true) {
   const w = image.width,
     h = image.height,
-    b = threshold(image),
     seen = new Uint8Array(b.length),
     queue = new Int32Array(b.length),
     // Gaps up to about half a percent of the frame are bridged: a clue
@@ -745,8 +907,9 @@ export function findGrid(image) {
       cols: 0,
       boxes: false,
     };
-  const result = (settled, confidence) => ({ corners: settled.corners, confidence, ...settled.estimated, lines: undefined, extent: undefined, quality: undefined }),
+  const result = (settled, confidence) => ({ corners: settled.corners, confidence, ...settled.estimated, lines: undefined, extent: undefined, quality: undefined, partial: undefined }),
     found = (settled) => Boolean(settled.estimated.rows && settled.estimated.cols),
+    complete = (settled) => found(settled) && !settled.estimated.partial,
     pitch = (settled) => Math.hypot(settled.corners[1].x - settled.corners[0].x, settled.corners[1].y - settled.corners[0].y) / settled.estimated.cols,
     samePitch = (p, q) => Math.abs(pitch(p) / pitch(q) - 1) < 0.15,
     // A candidate is read from its own extreme points and, when they differ
@@ -758,13 +921,13 @@ export function findGrid(image) {
     // quad short by a black clue band leaves one a column short.
     tried = (candidate) => {
       if (candidate.tried) return candidate.tried;
-      const plain = settle(image, candidate.corners),
+      const plain = settle(image, candidate.corners, thorough),
         wide = widen(candidate),
         diagonal = Math.hypot(candidate.corners[2].x - candidate.corners[0].x, candidate.corners[2].y - candidate.corners[0].y),
         moved = Math.max(...wide.map((p, i) => Math.hypot(p.x - candidate.corners[i].x, p.y - candidate.corners[i].y)));
       let outcome = plain;
       if (moved > diagonal * 0.01) {
-        const wider = settle(image, wide);
+        const wider = settle(image, wide, thorough);
         if (found(wider) && (!found(plain) ||
           wider.estimated.quality > plain.estimated.quality + 0.05 ||
           (samePitch(wider, plain) && wider.estimated.rows + wider.estimated.cols > plain.estimated.rows + plain.estimated.cols &&
@@ -815,7 +978,9 @@ export function findGrid(image) {
       if (inner.area < outer.area * 0.25 || inner.minx < outer.minx || inner.miny < outer.miny ||
         inner.maxx > outer.maxx || inner.maxy > outer.maxy) continue;
       const within = tried(inner);
-      if (!found(within)) continue;
+      // A partial reading of a contained candidate is a window of a
+      // fragmented grid, not the grid.
+      if (!complete(within)) continue;
       if (ring(outer.corners, within.corners) < 0.2) return result(within, 0.94);
       const whole = tried(outer);
       if (found(whole) && samePitch(whole, within) && ring(whole.corners, within.corners) >= 0.2) return result(whole, 0.94);
@@ -823,7 +988,170 @@ export function findGrid(image) {
     }
   }
   const settled = tried(candidates[0]);
-  return result(settled, found(settled) ? 0.94 : 0.45);
+  if (complete(settled)) return result(settled, 0.94);
+  // The largest component may be a frame, a panel or a shadow beside the
+  // grid: the next two largest get their turn before giving up, and a full
+  // reading from any of them beats a partial one. Each turn is a warp and a
+  // lattice, too much for a live frame.
+  let partial = found(settled) ? settled : null;
+  for (const next of thorough ? candidates.slice(1, 3) : []) {
+    const other = tried(next);
+    if (complete(other)) return result(other, 0.94);
+    if (!partial && found(other)) partial = other;
+  }
+  return partial ? result(partial, 0.94) : result(settled, 0.45);
+}
+// Small round blobs of ink: components of at most `side` pixels a side,
+// nearly square and mostly filled. Their centroids, with the count of
+// pixels and the bounding box.
+function blobs(b, w, h, side) {
+  const seen = new Uint8Array(b.length),
+    queue = new Int32Array(b.length),
+    out = [];
+  for (let i = 0; i < b.length; i++) {
+    if (!b[i] || seen[i]) continue;
+    let head = 0,
+      tail = 1,
+      minx = w,
+      maxx = 0,
+      miny = h,
+      maxy = 0,
+      sx = 0,
+      sy = 0;
+    queue[0] = i;
+    seen[i] = 1;
+    while (head < tail) {
+      const k = queue[head++],
+        x = k % w,
+        y = (k - x) / w;
+      if (x < minx) minx = x;
+      if (x > maxx) maxx = x;
+      if (y < miny) miny = y;
+      if (y > maxy) maxy = y;
+      sx += x;
+      sy += y;
+      if (x > 0 && b[k - 1] && !seen[k - 1]) { seen[k - 1] = 1; queue[tail++] = k - 1; }
+      if (x < w - 1 && b[k + 1] && !seen[k + 1]) { seen[k + 1] = 1; queue[tail++] = k + 1; }
+      if (y > 0 && b[k - w] && !seen[k - w]) { seen[k - w] = 1; queue[tail++] = k - w; }
+      if (y < h - 1 && b[k + w] && !seen[k + w]) { seen[k + w] = 1; queue[tail++] = k + w; }
+    }
+    const bw = maxx - minx + 1,
+      bh = maxy - miny + 1;
+    if (tail >= 3 && bw <= side && bh <= side && Math.max(bw, bh) <= 1.5 * Math.min(bw, bh) && tail >= 0.5 * bw * bh)
+      out.push({ x: sx / tail, y: sy / tail, pixels: tail, side: Math.max(bw, bh) });
+  }
+  return out;
+}
+// The dots of a dot lattice among small blobs: those with at least two
+// neighbours at about the common nearest-neighbour distance. Digits sit at
+// cell centres, off that distance, and are not round anyway.
+function latticeDots(dots) {
+  if (dots.length < 12 || dots.length > 3000) return [];
+  const nearest = dots.map((d, i) => {
+    let best = Infinity;
+    for (let j = 0; j < dots.length; j++) {
+      if (j === i) continue;
+      const dd = Math.hypot(dots[j].x - d.x, dots[j].y - d.y);
+      if (dd < best) best = dd;
+    }
+    return best;
+  });
+  const pitch = [...nearest].sort((a, b) => a - b)[nearest.length >> 1];
+  if (!(pitch > 3)) return [];
+  return dots.filter((d) => {
+    let near = 0;
+    for (const o of dots) {
+      if (o === d) continue;
+      const dd = Math.hypot(o.x - d.x, o.y - d.y);
+      if (dd > pitch * 0.7 && dd < pitch * 1.4) near++;
+    }
+    return near >= 2;
+  });
+}
+// Line groups from dot positions along one axis, for the lattice fit:
+// positions within 3% of the length are one dot column (row).
+function dotGroups(values, length) {
+  const sorted = [...values].sort((a, b) => a - b),
+    out = [];
+  for (const v of sorted) {
+    const last = out.at(-1);
+    if (last && v - last.hi <= length * 0.03) {
+      last.count++;
+      last.hi = v;
+      last.sum += v;
+    } else out.push({ count: 1, lo: v, hi: v, sum: v });
+  }
+  const most = Math.max(...out.map((o) => o.count));
+  return out.map((o) => ({ at: o.sum / o.count, width: 3, peak: o.count / most, lo: o.lo, hi: o.hi }));
+}
+// A grid drawn as dots at the lattice points (Slitherlink): the dots' extreme
+// points are the quad, the dots re-found in the padded warp give the lattice
+// on each axis, and the outer dots are the corners, mapped back through the
+// homography.
+export function dotGrid(image, b) {
+  const w = image.width,
+    h = image.height,
+    side = Math.max(4, Math.round(Math.max(w, h) * 0.02)),
+    dots = latticeDots(blobs(b, w, h, side));
+  if (dots.length < 12) return null;
+  let minsum = Infinity,
+    maxsum = -Infinity,
+    mindiff = Infinity,
+    maxdiff = -Infinity,
+    tl, tr, br, bl;
+  for (const d of dots) {
+    if (d.x + d.y < minsum) { minsum = d.x + d.y; tl = d; }
+    if (d.x + d.y > maxsum) { maxsum = d.x + d.y; br = d; }
+    if (d.x - d.y < mindiff) { mindiff = d.x - d.y; bl = d; }
+    if (d.x - d.y > maxdiff) { maxdiff = d.x - d.y; tr = d; }
+  }
+  const corners = [tl, tr, br, bl].map((d) => ({ x: d.x, y: d.y }));
+  if (!validQuad(corners, w, h) || polygonArea(corners) < w * h * 0.03) return null;
+  const grown = padded(corners, w, h, 0.06),
+    loose = validQuad(grown, w, h) ? grown : corners,
+    // A square warp of a wide quad stretches its dots into ellipses, which
+    // are no longer round enough to be dots: keep the quad's own aspect.
+    aspect = Math.min(4, Math.max(0.25,
+      (Math.hypot(loose[3].x - loose[0].x, loose[3].y - loose[0].y) + Math.hypot(loose[2].x - loose[1].x, loose[2].y - loose[1].y)) /
+        Math.max(1, Math.hypot(loose[1].x - loose[0].x, loose[1].y - loose[0].y) + Math.hypot(loose[2].x - loose[3].x, loose[2].y - loose[3].y)))),
+    sizeX = 540,
+    sizeY = Math.round(540 * aspect),
+    warped = warp(image, loose, sizeX, sizeY),
+    wb = thresholdGray(gray(warped), sizeX, sizeY),
+    // A dot in the warp is a dot of the frame scaled by it. Measuring the
+    // limit from the dots already found keeps a magnified small grid's dots
+    // and still refuses clue digits, which would corrupt the pitch.
+    across0 = Math.max(1, (Math.hypot(loose[1].x - loose[0].x, loose[1].y - loose[0].y) + Math.hypot(loose[2].x - loose[3].x, loose[2].y - loose[3].y)) / 2),
+    dotSide = [...dots.map((d) => d.side)].sort((a, c) => a - c)[dots.length >> 1],
+    inWarp = latticeDots(blobs(wb, sizeX, sizeY, Math.max(4, Math.round((dotSide * sizeX) / across0 * 1.8))));
+  if (inWarp.length < 12) return null;
+  const across = lattice(dotGroups(inWarp.map((d) => d.x), sizeX), sizeX),
+    down = lattice(dotGroups(inWarp.map((d) => d.y), sizeY), sizeY);
+  if (!across || !down || across.cells < 3 || down.cells < 3) return null;
+  const m = homography(loose),
+    at = (u, v) => {
+      const q = project(m, u / (sizeX - 1), v / (sizeY - 1));
+      return { x: Math.min(w - 1, Math.max(0, q.x)), y: Math.min(h - 1, Math.max(0, q.y)) };
+    },
+    tight = [at(across.first, down.first), at(across.last, down.first), at(across.last, down.last), at(across.first, down.last)];
+  if (!validQuad(tight, w, h)) return null;
+  return { corners: tight, confidence: 0.94, rows: down.cells, cols: across.cells, boxes: false };
+}
+// The grid in a frame: read from the ink mask; when that finds no grid in a
+// mostly dark frame (a screen with a light-on-dark theme, whose light lines
+// are not ink), from the inverted frame; and failing both, as a lattice of
+// dots.
+export function findGrid(image, { thorough = true } = {}) {
+  const g = gray(image),
+    b = thresholdGray(g, image.width, image.height);
+  let best = findIn(image, b, thorough);
+  if (best.confidence >= 0.9 || !thorough) return best;
+  if (lightOnDark(g)) {
+    const second = findIn(image, thresholdGray(inverted(g), image.width, image.height), thorough);
+    if (second.confidence >= 0.9) return second;
+    if (second.confidence > best.confidence) best = second;
+  }
+  return dotGrid(image, b) ?? best;
 }
 export function sharpness(image) {
   const g = gray(image),
