@@ -7,12 +7,16 @@ const url=path=>new URL(path,self.registration.scope).href;
 const scopeURL=new URL(self.registration.scope);
 const RETAINED=url(".retained-solvers.json");
 const isSolver=asset=>/^solver\.[a-f0-9]{12}\.zip$/.test(asset.path);
+// Diagnostics this worker raises itself are sentences written for the reader,
+// and the fetch handler may show them; the text of anything else (a host
+// failure, a bug) must never be echoed into a response.
+const diagnostic=message=>Object.assign(Error(message),{diagnostic:true});
 
 function validateManifest(data,build=VERSION){
-  if(data?.build!==build||!Array.isArray(data.assets))throw Error("Update the app before downloading offline assets.");
+  if(data?.build!==build||!Array.isArray(data.assets))throw diagnostic("Update the app before downloading offline assets.");
   const seen=new Set();
   for(const asset of data.assets){
-    if(!asset||typeof asset.path!=="string"||seen.has(asset.path)||!url(asset.path).startsWith(self.registration.scope)||!/^[a-f0-9]{64}$/.test(asset.sha256))throw Error("Invalid offline asset manifest.");
+    if(!asset||typeof asset.path!=="string"||seen.has(asset.path)||!url(asset.path).startsWith(self.registration.scope)||!/^[a-f0-9]{64}$/.test(asset.sha256))throw diagnostic("Invalid offline asset manifest.");
     seen.add(asset.path);
   }
   return data.assets;
@@ -33,12 +37,12 @@ async function manifest({network=false}={}){
     // Browsers may evict this cache under storage pressure. Restore the list
     // for this exact build rather than failing every request until a reinstall.
     response=await fetch(new Request(key,{cache:"reload"}));
-    if(!response.ok)throw Error("Could not load the offline manifest.");
+    if(!response.ok)throw diagnostic("Could not load the offline manifest.");
     const assets=validateManifest(await response.clone().json());
     try{await cache.put(key,response.clone());}catch{}
     return assets;
   }
-  if(!response)throw Error("The offline asset list is missing. Reload online.");
+  if(!response)throw diagnostic("The offline asset list is missing. Reload online.");
   return validateManifest(await response.clone().json());
 }
 async function verifiedAsset(cacheOrAsset,assetOrOptions={},maybeOptions={}){
@@ -53,8 +57,8 @@ async function verifiedAsset(cacheOrAsset,assetOrOptions={},maybeOptions={}){
   if(response)return response;
   if(!network)return null;
   response=await fetch(new Request(url(asset.path),{cache:"reload"}));
-  if(!response.ok)throw Error(`Could not download ${asset.path}. Stay online and retry.`);
-  if(!(await matchesAsset(response,asset)))throw Error(`Asset changed during download: ${asset.path}. Update the app and retry.`);
+  if(!response.ok)throw diagnostic(`Could not download ${asset.path}. Stay online and retry.`);
+  if(!(await matchesAsset(response,asset)))throw diagnostic(`Asset changed during download: ${asset.path}. Update the app and retry.`);
   try{await cache.put(key,response.clone());}catch(error){if(requireStorage)throw error;}
   return response;
 }
@@ -118,7 +122,7 @@ async function legacyAsset(key){
     if(!name.startsWith(PREFIX+"meta:")||name===META)continue;
     const asset=(await buildAssets(name.slice((PREFIX+"meta:").length))).find(a=>url(a.path)===key);
     if(!asset)continue;
-    if(match&&match.sha256!==asset.sha256)throw Error("Cannot identify the outgoing runtime version. Reload this tab.");
+    if(match&&match.sha256!==asset.sha256)throw diagnostic("Cannot identify the outgoing runtime version. Reload this tab.");
     match=asset;
   }
   return match;
@@ -170,7 +174,7 @@ async function preserveActiveSolvers(){
 
 self.addEventListener("install",event=>event.waitUntil((async()=>{
   const response=await fetch(new Request(url("assets.json"),{cache:"reload"}));
-  if(!response.ok)throw Error("Could not load the offline manifest.");
+  if(!response.ok)throw diagnostic("Could not load the offline manifest.");
   const assets=validateManifest(await response.clone().json()),meta=await caches.open(META),cache=await contentCache();
   await meta.put(url("assets.json"),response);
   // Install the complete Python runtime before this build can control tabs.
@@ -222,9 +226,10 @@ self.addEventListener("fetch",event=>{
     }catch(error){
       // Fail closed, but legibly: a rejected respondWith reaches the page only
       // as "Failed to fetch". A 502 keeps the diagnostic and is never cached.
-      const message=error?.message||String(error);
-      console.warn(`GridPuzzle service worker: ${message} (${target.href})`);
-      return new Response("Request failed.",{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+      const detail=error?.message||String(error),
+        shown=error?.diagnostic?detail:"Request failed.";
+      console.warn(`GridPuzzle service worker: ${detail} (${target.href})`);
+      return new Response(shown,{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
     }
   })());
 });
@@ -238,8 +243,8 @@ self.addEventListener("message",event=>{
       if(event.data?.type==="OFFLINE_STATUS"){
         port.postMessage({done:true,ready:await offlineReadyFast(assets)});return;
       }
-      if(event.data?.type!=="PREPARE_OFFLINE")throw Error("Unknown offline task");
-      if(downloading)throw Error("Offline preparation is already running. Wait for it to finish, then check the status again.");
+      if(event.data?.type!=="PREPARE_OFFLINE")throw diagnostic("Unknown offline task");
+      if(downloading)throw diagnostic("Offline preparation is already running. Wait for it to finish, then check the status again.");
       downloading=true;
       try{
         const cache=await contentCache();
@@ -247,7 +252,7 @@ self.addEventListener("message",event=>{
           await verifiedAsset(cache,assets[i],{verifyStored:true,requireStorage:true});
           port.postMessage({progress:i+1,total:assets.length});
         }
-        if(!(await offlineReadyVerified(cache,assets)))throw Error("Offline verification failed. Retry while online.");
+        if(!(await offlineReadyVerified(cache,assets)))throw diagnostic("Offline verification failed. Retry while online.");
         port.postMessage({done:true,ready:true});
       }finally{downloading=false;}
     }catch(error){port.postMessage({error:error?.message||String(error)});}
