@@ -224,7 +224,7 @@ self.addEventListener("fetch",event=>{
       // as "Failed to fetch". A 502 keeps the diagnostic and is never cached.
       const message=error?.message||String(error);
       console.warn(`GridPuzzle service worker: ${message} (${target.href})`);
-      return new Response(message,{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+      return new Response("Request failed.",{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
     }
   })());
 });
