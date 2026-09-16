@@ -145,7 +145,10 @@ export function digitSamples(entries, crops, g, w, h, cw, ch, cols) {
   const withGray = digits.length <= SAMPLE_GRAY_LIMIT,
     singles = [];
   for (const i of digits) {
-    const psm = crops.get(i).width > crops.get(i).height * 0.85 ? "7" : "10";
+    // Two narrow neighbouring glyphs (for example "11") can still have a
+    // portrait-shaped crop. Segmentation evidence beats the aspect heuristic.
+    const psm = entries[i].glyphCount > 1 ||
+      crops.get(i).width > crops.get(i).height * 0.85 ? "7" : "10";
     singles.push({ index: i, kind: "binary", psm, png: sampleOf(crops.get(i)) });
     if (withGray)
       singles.push({
