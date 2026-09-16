@@ -133,7 +133,7 @@ async function recognize(data, check) {
       if (!groups.has(reading.index)) groups.set(reading.index, []);
       groups.get(reading.index).push(reading);
     }
-    let retries = 0, segmentReads = 0;
+    let retries = 0, segmentReads = 0, aspectReads = 0;
     const jobs = [...groups].map(([index, reads]) => {
       const sample = samples.find((s) => s.index === index && s.kind === "gray"),
         segments = Array.isArray(sample?.segments) && sample.segments.length >= 2 &&
@@ -193,9 +193,42 @@ async function recognize(data, check) {
         singles.push({ index, kind: "segments", text: parts.map((p) => p.text).join(""),
           confidence: Math.min(...parts.map((p) => p.confidence)) });
     }
+    // Original raw-line and per-glyph recoveries have priority. Only doubtful
+    // numeric crops receive the two correlated width checks, and only when
+    // BOTH fit in the remaining shared 24-read budget. No partial pair is sent.
+    let aspectMode = false;
+    for (const job of jobs) {
+      check();
+      if (retries + 2 > 24) break;
+      if (!job.sample || job.reads.length < 2 ||
+          (job.agrees && !job.retry)) continue;
+      const variants = job.sample.aspect;
+      if (!Array.isArray(variants) || variants.length !== 2 ||
+          [1.5, 2].some((factor) => variants.filter((v) => v?.factor === factor).length !== 1) ||
+          variants.some((v) => typeof v.png !== "string" || !v.png || v.png.length > 100000)) continue;
+      if (!aspectMode) {
+        await worker.setParameters({ tessedit_pageseg_mode: "7" });
+        check(); aspectMode = true;
+      }
+      const pair = [];
+      for (const { factor, png } of variants) {
+        check();
+        const key = "7:" + png;
+        let read = cached(key);
+        if (read) cacheHits++;
+        else {
+          ({ data: read } = await worker.recognize(png, {}, { text: true, blocks: true }));
+          calls++; check(); remember(key, read);
+        }
+        retries++; aspectReads++;
+        pair.push({ index: job.index, kind: "aspect", factor,
+          text: (read.text || "").replace(/\s/g, ""), confidence: read.confidence || 0 });
+      }
+      check(); singles.push(...pair);
+    }
     result.retryCount = retries;
     result.singles = singles;
-    result.ocrStats = { calls, cacheHits, samples: samples.length, segmentReads };
+    result.ocrStats = { calls, cacheHits, samples: samples.length, segmentReads, aspectReads };
     check();
     return result;
 
