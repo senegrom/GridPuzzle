@@ -219,6 +219,18 @@ test("a Slitherlink grid of dots with clue digits is found", () => {
   const truth = [[g0, g0], [g0 + 10 * cell, g0], [g0 + 10 * cell, g0 + 10 * cell], [g0, g0 + 10 * cell]];
   assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
 });
+function blankWarp() {
+  const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  return { width: n, height: n, data };
+}
+test("the estimate crosses the worker boundary", () => {
+  // The warp's metadata is posted from the geometry worker to the page, so
+  // every part of it must be structured-cloneable; a function in the line
+  // data broke every photo read and every live read once.
+  for (const estimate of [estimateGrid(warp()), estimateGrid(warp({ thin: 210, dense: true })), estimateGrid(blankWarp())])
+    assert.doesNotThrow(() => structuredClone(estimate), JSON.stringify(Object.keys(estimate)));
+});
 test("a blank warp has no grid", () => {
   const n = 540, data = new Uint8ClampedArray(n * n * 4).fill(250);
   for (let i = 3; i < data.length; i += 4) data[i] = 255;

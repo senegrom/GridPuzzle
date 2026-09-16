@@ -302,6 +302,8 @@ export function edgeMask(g, w, h) {
     }
   return e;
 }
+// `mode` picks what counts as a line: "ink" the adaptive mask, "edge" the
+// boundaries of black and white, "run" the longest continuous run of ink.
 export function gridLines(image, mask, shear = null, mode = "ink", invert = false) {
   const w = image.width,
     h = image.height,
@@ -332,7 +334,8 @@ export function gridLines(image, mask, shear = null, mode = "ink", invert = fals
     for (let r = Math.max(0, Math.floor(l.at - l.width / 2 - 1 - Math.abs(shearY) / 2)); r <= Math.min(h - 1, Math.ceil(l.at + l.width / 2 + 1 + Math.abs(shearY) / 2)); r++) skipRows[r] = 1;
   for (const l of groups(first.x, LINE_CUTOFF))
     for (let c = Math.max(0, Math.floor(l.at - l.width / 2 - 1 - Math.abs(shearX) / 2)); c <= Math.min(w - 1, Math.ceil(l.at + l.width / 2 + 1 + Math.abs(shearX) / 2)); c++) skipCols[c] = 1;
-  const profile = lineProfile(b, w, h, skipRows, skipCols, visible, shearX, shearY);
+  const profile = mode === "run" ? runProfile(b, w, h, shearX, shearY) : lineProfile(b, w, h, skipRows, skipCols, visible, shearX, shearY),
+    cutoff = mode === "run" ? 0.5 : LINE_CUTOFF;
   // The visible share and the mean grey of each column and row tell the
   // lattice what lies beyond an outer band: paper, or the table past the
   // page's edge.
@@ -357,14 +360,10 @@ export function gridLines(image, mask, shear = null, mode = "ink", invert = fals
     visibleY[y] /= w;
     grayY[y] /= w;
   }
-  return { x: groups(profile.x, LINE_CUTOFF), y: groups(profile.y, LINE_CUTOFF), shear: { x: shearX, y: shearY },
-    beyondX: { visible: visibleX, gray: grayX }, beyondY: { visible: visibleY, gray: grayY },
-    // The continuous-run profile, for the third chance: lines that run the
-    // length of the warp while everything else breaks at every cell.
-    runs: () => {
-      const r = runProfile(b, w, h, shearX, shearY);
-      return { x: groups(r.x, 0.5), y: groups(r.y, 0.5) };
-    } };
+  // Plain data only: this travels to the page with the warp's metadata, and
+  // a function cannot be cloned across that boundary.
+  return { x: groups(profile.x, cutoff), y: groups(profile.y, cutoff), shear: { x: shearX, y: shearY },
+    beyondX: { visible: visibleX, gray: grayX }, beyondY: { visible: visibleY, gray: grayY } };
 }
 // Lines closer than 3% of the length are one line: a cage wall drawn just
 // inside a cell edge, a doubled border, an anti-aliased thick line split by
@@ -562,14 +561,14 @@ export function estimateGrid(image, mask, shear = null, mode = "ink", aspect = 1
   // where marks are not: the longest-run profile keeps only what runs the
   // length of the warp.
   if (thorough && mode === "ink" && !(across.cells && down.cells)) {
-    const runs = lines.runs(),
-      runAcross = regular(runs.x, image.width, lines.beyondX),
-      runDown = regular(runs.y, image.height, lines.beyondY);
+    const runs = gridLines(image, mask, lines.shear, "run", invert),
+      runAcross = regular(runs.x, image.width, runs.beyondX),
+      runDown = regular(runs.y, image.height, runs.beyondY);
     // At least five cells each way: a coarser lattice found only by continuous
     // runs is the box lines of a nine-cell grid whose cell lines are broken,
     // not a small grid, which the ink profile reads on its own.
     if (runAcross.cells >= 5 && runDown.cells >= 5) {
-      lines = { ...lines, x: runs.x, y: runs.y };
+      lines = runs;
       across = runAcross;
       down = runDown;
     }
