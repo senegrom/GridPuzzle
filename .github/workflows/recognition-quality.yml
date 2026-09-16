@@ -1,5 +1,7 @@
 name: Recognition quality
 on:
+  push:
+    branches: ['improve/recognition-*']
   pull_request:
     paths:
       - 'web/scanner.js'
