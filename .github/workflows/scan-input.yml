@@ -1,50 +1,58 @@
 name: Scan input quality
 on:
   push:
-    branches: ['improve/scan-input-20260917']
+    branches: ['improve/scan-input-*']
+  pull_request:
+    paths: ['web/**', 'scripts/scan_input_regressions.cjs', '.github/workflows/scan-input.yml']
+  workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: scan-input-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
-  import:
-    if: github.ref == 'refs/heads/improve/scan-input-20260917'
+  scan-input:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Import the exact locally tested code patch
-        run: |
-          python - <<'PY'
-          import base64, gzip, hashlib, pathlib, subprocess
-          parts = [pathlib.Path(f'.scan-input-code.{i}.b64') for i in range(1, 4)]
-          if not all(p.exists() for p in parts):
-              raise SystemExit('Incomplete staged patch; no source changed')
-          data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts), validate=True))
-          assert hashlib.sha256(data).hexdigest() == '9b549f24642b0bfe33d9ea84d5886dad73082239b38e626122825434be161555', 'Patch checksum mismatch'
-          patch = pathlib.Path('/tmp/scan-input.patch')
-          patch.write_bytes(data)
-          subprocess.run(['git', 'apply', '--check', str(patch)], check=True)
-          subprocess.run(['git', 'apply', str(patch)], check=True)
-          PY
-          node --test --test-concurrency=1 web/tests/*.test.js > /tmp/scan-input-units.log
-          git rm .scan-input-code.*.b64
-          git add web scripts
-          git config user.name 'senegrom'
-          git config user.email '6349874+senegrom@users.noreply.github.com'
-          git commit -m 'Preserve original photo detail, score clue quality and refine numeric cell bounds'
-          git push origin HEAD:improve/scan-input-20260917
-      - name: Retain tested source and measurements
-        if: always()
+      - name: Retain exact tested source
         run: |
           mkdir -p scan-input-artifacts
           git archive HEAD > scan-input-artifacts/source.tar
           git rev-parse HEAD > scan-input-artifacts/commit.txt
-          cp /tmp/scan-input-units.log scan-input-artifacts/unit-tests.log || true
+      - name: Unit regressions and syntax checks
+        run: |
+          node --test --test-concurrency=1 web/tests/*.test.js > scan-input-artifacts/unit-tests.log
+          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+          node --check scripts/scan_input_regressions.cjs
+      - name: Build pinned self-hosted runtime
+        run: python scripts/build_web.py
+      - name: Install repository browser test versions
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Existing newspaper, font and degraded-image quality checks
+        run: node scripts/ocr_quality_regressions.cjs
+      - name: Existing damaged-clue checks
+        run: node scripts/recognition_fragments_regressions.cjs
+      - name: Existing multi-digit paired recognition checks
+        run: node scripts/recognition_segments_regressions.cjs
+      - name: Original-detail decoding, cell alignment and end-to-end photo scans
+        run: node scripts/scan_input_regressions.cjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: scan-input-report
-          path: scan-input-artifacts
-          retention-days: 3
+          path: |
+            scan-input-artifacts
+            browser-artifacts
+          retention-days: 7
