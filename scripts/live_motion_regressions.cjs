@@ -22,8 +22,9 @@ assert.equal(expected.filter(Number.isInteger).length, 22);
 async function beginMotion(cells) {
   const { Scanner }=await import('./scanner.js'),{createLiveCamera}=await import('./live-camera.js');
   const source=document.createElement('canvas');source.width=720;source.height=960;
-  const video=document.createElement('video');video.muted=true;video.playsInline=true;document.body.append(video);
-  const out=document.createElement('canvas');document.body.append(out);window.motionOutput=out;
+  const video=document.createElement('video');video.muted=true;video.playsInline=true;
+  video.style.cssText='position:fixed;left:0;top:0;width:215px;height:287px;z-index:9998';document.body.append(video);
+  const out=document.createElement('canvas');out.style.cssText='position:fixed;left:215px;top:0;width:215px;height:287px;z-index:9999';document.body.append(out);window.motionOutput=out;
   const ctx=source.getContext('2d'),reader=new Scanner();
   const state=window.motionState={mode:'grid',ticks:0,reads:0,cancels:0,cells:[...cells],reading:false,source,video};
   function paint(){
@@ -42,21 +43,29 @@ async function beginMotion(cells) {
     ctx.textAlign='start';ctx.textBaseline='alphabetic';
     if(state.mode==='finger'){ctx.fillStyle='#ac8064';ctx.fillRect(285,430,140,160);}
     if(state.mode==='blank'){ctx.fillStyle='#fff';ctx.fillRect(40,110,640,770);}
+    ctx.setTransform(1,0,0,1,0,0);
+    // An out-of-grid pixel witness proves each commanded scene has reached
+    // the displayed camera frame, not just the source canvas.
+    ctx.fillStyle=`rgb(${state.mode==='finger'?172:36},${state.cells[1]*20},80)`;ctx.fillRect(0,0,25,25);
     state.stream?.getVideoTracks().forEach(t=>t.requestFrame?.());
   }
   paint();state.stream=source.captureStream(12);video.srcObject=state.stream;await video.play();
   state.timer=setInterval(paint,80);
-  let readerEpoch=0;
+  let readerEpoch=0,finishSolve=null;
+  const cancelSolve=()=>{finishSolve?.({status:'cancelled'});finishSolve=null;};
   state.camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,
     getSettings:()=>({type:'sudoku',rows:9,cols:9,boxRows:3,boxCols:3,enabled:true}),
     reader:{prepare:()=>reader.prepare(),cancel(options){readerEpoch++;state.cancels++;reader.cancel(options);},
       async read(...args){const owner=readerEpoch;state.reads++;state.reading=true;
         // Hold the real OCR job across several moving frames; no reference
         // values are injected into Scanner. This catches cancellation loops.
-        await new Promise(r=>setTimeout(r,900));
-        if(owner!==readerEpoch)throw new DOMException('retired','AbortError');
-        try{return await reader.read(...args);}finally{state.reading=false;}}
-    },solver:{prepare(){},cancel(){},invalidate(){},solve:async()=>({status:'multiple'})}});
+        try{await new Promise(r=>setTimeout(r,900));
+          if(owner!==readerEpoch)throw new DOMException('retired','AbortError');
+          return await reader.read(...args);
+        }finally{if(owner===readerEpoch)state.reading=false;}}
+    },// Keep the solver pending to isolate OCR retention from the normal
+    // multiple-solution retry backoff. No answers are injected.
+    solver:{prepare(){},cancel:cancelSolve,invalidate:cancelSolve,solve:()=>new Promise(resolve=>{finishSolve=resolve;})}});
   state.camera.start();
 }
 async function externalTracking(fixtures) {
@@ -92,21 +101,23 @@ async function run(){
     await page.waitForFunction(()=>motionState.reads>0);
     const first=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,unknown:motionOutput.dataset.unknown}));
     assert.equal(Number(first.unknown),0,'initial grid outline must not cover blank cells in red');
-    await page.waitForFunction(()=>Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
-    const captured=await page.evaluate(()=>{const c=motionState.camera.capture();return {cells:c.found?.puzzle.cells,review:c.found?.needsReview,reads:motionState.reads,cancels:motionState.cancels,ticks:motionState.ticks,unknown:motionOutput.dataset.unknown};});
+    await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
+    const captured=await page.evaluate(()=>{const c=motionState.camera.capture();return {cells:c.found?.puzzle.cells,review:c.found?.needsReview,reads:motionState.reads,cancels:motionState.cancels,ticks:motionState.ticks,unknown:motionOutput.dataset.unknown,refining:!!c.found?.refining};});
     report.reading=captured;
-    assert.deepEqual(captured.cells,expected);assert.equal(captured.review,true);assert.equal(captured.reads,1);assert.equal(captured.cancels,first.cancels);
+    assert.deepEqual(captured.cells,expected);assert.equal(captured.review,true);assert.equal(captured.refining,false);assert.equal(captured.reads,1);assert.equal(captured.cancels,first.cancels);
     assert.equal(Number(captured.unknown),0);report.reading=captured;report.checks.push('22/22 real OCR clues finish during continual jitter and changing background; one read, no motion cancellation');
     await page.evaluate(()=>{motionState.mode='finger';});
-    await page.waitForFunction(()=>Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===0);
+    await page.waitForFunction(()=>{const p=motionOutput.getContext('2d').getImageData(10,10,1,1).data;return Math.abs(p[0]-172)<3 && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===0;});
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found),null,'occluded current frame must not carry old readings');
     await page.evaluate(()=>{motionState.mode='grid';});
-    await page.waitForFunction(()=>Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
+    await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
     assert.equal(await page.evaluate(()=>motionState.reads),1,'brief occlusion reuses verified work');report.checks.push('finger immediately hides metadata; same board returns without starting OCR again');
     await page.evaluate(()=>{motionState.cells[1]=3;});
+    await page.waitForFunction(()=>{const p=motionOutput.getContext('2d').getImageData(10,10,1,1).data;return Math.abs(p[1]-60)<3;});
+    assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'first displayed changed frame cannot show the old clue');
     await page.waitForFunction(()=>motionState.reads>1);
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'changed clue must never retain the old value');
-    await page.waitForFunction(()=>motionState.camera.capture().found?.puzzle.cells[1]===3);
+    await page.waitForFunction(()=>!motionState.reading && motionState.camera.capture().found?.puzzle.cells[1]===3);
     report.changed=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,cells:motionState.camera.capture().found.puzzle.cells}));
     report.checks.push('a changed clue starts a new genuine OCR read, never reusing old clue metadata');
     await page.evaluate(()=>{motionState.camera.stop();clearInterval(motionState.timer);motionState.stream.getTracks().forEach(t=>t.stop());motionState.video.remove();});
@@ -122,7 +133,7 @@ async function run(){
    }catch(e){
     report.ok=false;report.failure=e.stack;
     report.state=await page?.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
-      ticks:window.motionState?.ticks,counts:{...window.motionOutput?.dataset},status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
+      ticks:window.motionState?.ticks,reading:window.motionState?.reading,witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
     await page?.screenshot({path:`browser-artifacts/${name}-failure.png`}).catch(()=>{});
     throw e;
    }finally{await browser.close();}

@@ -9,7 +9,9 @@ The camera now registers bounded local image patches across the detected grid.
 A robust projective fit accounts for small translations, rotation and scale;
 only then is the original per-region content guard applied. The content guard
 has not been weakened: labels, inequality signs, cage edges and both ink
-polarities still participate. Content sampling uses up to 1280 pixels rather
+polarities still participate. An additional interior residual check rejects
+small changed digit strokes (including an 8 becoming 3) that previously passed
+the interior area-only guard. Content sampling uses up to 1280 pixels rather
 than 640; detection retains its 640-pixel budget. Registration is not identity:
 a fitted rectangle alone never authorizes an overlay or captured metadata.
 
@@ -41,16 +43,19 @@ accepts the clues or rules for the user.
 background changes and rejection of changed digits, erasure, fingers, weak
 labels and boundary marks. `live-retention.test.js` covers pending/completed
 OCR, provisional results, changed-board ownership, bounded loss and shutdown.
+`live-interior-change.test.js` covers small stroke changes in both polarities.
 Existing content, low-contrast, lifecycle and confidence tests stay in place.
 
 `node scripts/live_motion_regressions.cjs` drives a real canvas MediaStream
 through production detection, camera/session logic and Tesseract, with
 continual jitter and an animated background. It uses the 22-clue pattern from
 the reported screen failure, rendered independently; the user's photograph is
-NOT committed. It delays real OCR to expose cancellation starvation, checks
-that the read finishes, tests covering/uncovering the grid and changing one
-clue, and checks captured metadata. The solver is stubbed in this scanning
-suite; `live_camera_regressions.cjs` separately covers the real solver/capture.
+NOT committed. It delays real OCR to expose cancellation starvation, waits for
+completed rather than provisional readings, tests covering/uncovering the grid
+and changing one clue, and checks captured metadata. Out-of-grid pixel witnesses
+prove scene changes reached the displayed video frame. A pending cancellable
+solver stub isolates retention from normal repeated-search backoff in this
+scanning suite; `live_camera_regressions.cjs` separately covers the real solver.
 
 `python scripts/fetch_live_fixtures.py` retrieves 12 hash-selected records from
 the **test** split of Lexski/sudoku-image-recognition at revision 733559b. It
