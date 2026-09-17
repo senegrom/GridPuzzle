@@ -76,10 +76,12 @@ export function sameGridContent(a, b) {
     a.pixels?.length !== a.rows * a.cols * CELL || a.pixels.length !== b.pixels?.length ||
     a.structure?.length !== structureCount(a.rows, a.cols) * CELL ||
     a.structure.length !== b.structure?.length) return false;
-  // Cell interiors: contrast-stretched, high-contrast test. Boundary strips:
+  // Cell interiors also need residual checks: the small missing left strokes
+  // between 8 and 3 can pass a high-contrast area-only test. Registration must
+  // not turn that changed clue into evidence of unchanged content. Boundary strips:
   // unstretched (a thin grid line straddling two samples must not be amplified
   // by tiny motion), the high-contrast test and the low-contrast residual test.
-  return sameRegions(a.pixels, b.pixels, true, [[.03, 2.5, false]]) &&
+  return sameRegions(a.pixels, b.pixels, true, [[.03, 2.5, false], [.01, .06, true]]) &&
     sameRegions(a.structure, b.structure, false, [[.01, .8, false], [.01, .06, true]]);
 }
 

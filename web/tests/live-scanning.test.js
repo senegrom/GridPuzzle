@@ -12,7 +12,7 @@ const unique = {status:"unique",complete:true,solutions:[{cells:[1,2,2,1]}]};
 
 test("live colours distinguish readings, uncertainty, unresolved cells and solution entries",()=>{
  const f=found();f.cellUncertain=[3];
- assert.deepEqual(overlayCells(f).map(c=>c.kind),["recognised","unknown","unknown","uncertain"]);
+ assert.deepEqual(overlayCells(f).map(c=>c.kind),["recognised","uncertain"]);
  assert.deepEqual(overlayCells(f,unique).map(c=>c.kind),["recognised","solution","solution","uncertain"]);
  assert.equal(SCAN_COLOURS.recognised,"#22c55e");assert.equal(SCAN_COLOURS.uncertain,"#facc15");
  assert.equal(SCAN_COLOURS.unknown,"#ef4444");assert.equal(SCAN_COLOURS.solution,"#3b82f6");
@@ -71,7 +71,7 @@ for(const end of ["success","error","progress"])test(`motion ignores stale OCR $
  const h=session(t);h.s.observe(h.frame());h.s.observe(h.frame());
  h.s.motion(new Uint8Array(4096));const status=h.statuses.at(-1);
  if(end==="success")h.reads[0].resolve(found());else if(end==="error")h.reads[0].reject(Error("obsolete"));else h.reads[0].progress("obsolete");
- await tick();assert.equal(h.s.preview,null);assert.equal(h.solves.length,0);assert.equal(h.statuses.at(-1),status);
+ await tick();assert.equal(h.s.preview,null);assert.equal(h.solves.length,0);assert.match(h.statuses.at(-1),/Aligning the grid/);
 });
 test("camera close cancels both pipelines and ignores a delayed solution",async t=>{
  const h=session(t);h.s.observe(h.frame());h.s.observe(h.frame());h.reads[0].resolve(found());await tick();
@@ -174,7 +174,7 @@ test("a finished unique preview stops periodic re-reading until the scene change
  for(let i=0;i<12;i++){h.advance(5000);h.s.observe(h.frame());}
  assert.equal(h.reads.length,1,"a solved stable scene must not be re-read every few seconds");
  h.s.motion(new Uint8Array(4096));h.s.observe(h.frame());h.s.observe(h.frame());
- assert.equal(h.reads.length,2,"motion starts a fresh read");
+ assert.equal(h.reads.length,1,"brief motion followed by the same board reuses the verified reading");
 });
 test("an unresolved scene backs off between recognition attempts",async t=>{
  const h=session(t);const unread=()=>{const f=found();f.markedCells.push(1);return f;};

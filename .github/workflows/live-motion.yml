@@ -1,0 +1,53 @@
+name: Live motion regression
+on:
+  push:
+    branches: ['fix/live-registration-*']
+  pull_request:
+    paths: ['web/**', 'scripts/live_motion_regressions.cjs', 'scripts/fetch_live_fixtures.py', '.github/workflows/live-motion.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: live-motion-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  live-motion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Unit and syntax regressions
+        run: |
+          mkdir -p browser-artifacts
+          node --test --test-concurrency=1 web/tests/*.test.js > browser-artifacts/unit-tests.log
+          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+          node --check scripts/live_motion_regressions.cjs
+      - name: Build pinned scanner runtime
+        run: python scripts/build_web.py
+      - name: Install pinned browser test engines
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Fetch bounded external picture tests
+        run: python scripts/fetch_live_fixtures.py
+      - name: Real moving-video scanning and external picture tracking
+        run: node scripts/live_motion_regressions.cjs
+      - name: Existing camera capture and solver integration
+        run: node scripts/live_camera_regressions.cjs
+      - name: Preserve measurements and exact source
+        if: always()
+        run: |
+          git archive HEAD > browser-artifacts/source.tar
+          git rev-parse HEAD > browser-artifacts/commit.txt
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: live-motion-report
+          path: browser-artifacts
+          retention-days: 7

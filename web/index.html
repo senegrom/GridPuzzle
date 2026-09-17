@@ -65,7 +65,7 @@
           <section id="camera-panel" aria-label="Live puzzle scanner" hidden>
             <div class="camera-heading"><h2>Live scan & solve</h2><button id="close-camera" type="button" aria-label="Close camera">✕</button></div>
             <div class="viewfinder"><video id="video" autoplay muted playsinline aria-hidden="true"></video><canvas id="live-preview" role="img" aria-label="Live camera preview"></canvas></div>
-            <div class="live-legend" role="group" aria-label="Scan colours"><span class="live-green">Green · recognised</span><span class="live-yellow">Yellow · uncertain ?</span><span class="live-red">Red · unknown ?</span><span class="live-blue">Blue · solution</span></div>
+            <div class="live-legend" role="group" aria-label="Scan colours"><span class="live-green">Green · recognised</span><span class="live-yellow">Yellow · uncertain ?</span><span class="live-red">Red · unread clue ?</span><span class="live-blue">Blue · solution</span></div>
             <p id="camera-help" role="status" aria-live="polite">Hold the whole grid steady. Recognition and solution appear here.</p>
             <p class="live-warning">Preview only: a solution cannot verify the photograph or invisible variant rules.</p>
             <div class="camera-actions"><button id="start-camera" type="button" hidden>Start preview</button><button id="take-photo" class="shutter" type="button" aria-label="Capture and save this picture">▣ <span>Save picture</span></button><button id="retake-photo" type="button" hidden>Scan another</button><button id="download-live-capture" type="button" hidden>Download PNG</button><button id="use-live-capture" type="button" hidden>Review captured clues</button></div>
