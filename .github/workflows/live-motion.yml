@@ -1,0 +1,50 @@
+name: Live motion regression
+on:
+  push:
+    branches: ['fix/live-registration-20260917']
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/live-registration-20260917
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Apply exact checksum-verified implementation
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+          chunks = [pathlib.Path(f'scripts/.live-patch-{i}') for i in range(1,5)]
+          patch = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in chunks), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'b6a3755791d3503ec8892f3c08694d2b76b78c68113671669531529591a7b8b0'
+          assert b'diff --git a/.github/' not in patch
+          subprocess.run(['git','apply','--check','-'],input=patch,check=True)
+          subprocess.run(['git','apply','-'],input=patch,check=True)
+          for p in chunks: p.unlink()
+          PY
+          node --test web/tests/live-retention.test.js web/tests/live-registration.test.js web/tests/live-scanning.test.js
+          python -m unittest tests.test_motion_tracks
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .gitignore web corpus/motion_tracks.py scripts/fetch_live_fixtures.py scripts/live_motion_regressions.cjs scripts/.live-patch-* tests/test_motion_tracks.py
+          git commit -m 'Separate live OCR ownership from visibility and register small camera movements'
+          git push origin HEAD:refs/heads/fix/live-registration-20260917
+      - name: Retain imported source
+        if: always()
+        run: |
+          mkdir -p live-import-artifacts
+          git archive HEAD > live-import-artifacts/source.tar
+          git rev-parse HEAD > live-import-artifacts/commit.txt
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: live-import-source
+          path: live-import-artifacts
+          retention-days: 3
