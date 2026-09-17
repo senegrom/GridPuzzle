@@ -1,3 +1,4 @@
+import { numericCropBounds } from './cell-boundaries.js';
 import { createOCRRuntime } from "./ocr-runtime.js";
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
@@ -63,12 +64,7 @@ function otsuThreshold(g, width, x, y, w, h) {
 }
 export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
   const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
-    row = Math.floor(entry.cell / cols),
-    col = entry.cell % cols,
-    minX = Math.max(0, Math.round((col + 0.08) * cellWidth)),
-    maxX = Math.min(imageWidth, Math.round((col + 0.92) * cellWidth)),
-    minY = Math.max(0, Math.round((row + 0.08) * cellHeight)),
-    maxY = Math.min(imageHeight, Math.round((row + 0.92) * cellHeight)),
+    { minX, maxX, minY, maxY } = numericCropBounds(entry, imageWidth, imageHeight, cellWidth, cellHeight, cols),
     x = Math.max(minX, entry.x - pad),
     y = Math.max(minY, entry.y - pad),
     right = Math.min(maxX, entry.x + entry.w + pad),
@@ -100,12 +96,7 @@ const SAMPLE_HEIGHT = 64,
 // digit on light ground for black-cell clues too.
 export function grayCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
   const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
-    row = Math.floor(entry.cell / cols),
-    col = entry.cell % cols,
-    minX = Math.max(0, Math.round((col + 0.08) * cellWidth)),
-    maxX = Math.min(imageWidth, Math.round((col + 0.92) * cellWidth)),
-    minY = Math.max(0, Math.round((row + 0.08) * cellHeight)),
-    maxY = Math.min(imageHeight, Math.round((row + 0.92) * cellHeight)),
+    { minX, maxX, minY, maxY } = numericCropBounds(entry, imageWidth, imageHeight, cellWidth, cellHeight, cols),
     x = Math.max(minX, entry.x - pad),
     y = Math.max(minY, entry.y - pad),
     width = Math.max(1, Math.min(maxX, entry.x + entry.w + pad) - x),
@@ -192,7 +183,7 @@ export function applyDigitVotes(entries, singles = []) {
       vote = voteDigit([original, ...whole]);
     if (vote.text) {
       entry.text = vote.text;
-      entry.confidence = !entry.recoveredMark && vote.unanimous &&
+      entry.confidence = !entry.recoveredMark && !entry.refinedCell && vote.unanimous &&
         (!reads.some((read) => read.kind === "retry") || (prior.unanimous && prior.text === vote.text))
         ? Math.max(90, vote.confidence) : 0;
     }
@@ -256,7 +247,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
   for (const e of valueEntries) {
     if (/^\d{1,3}$/.test(e.text)) values[e.cell] = +e.text;
     if (e.kind === "blackvalue" && values[e.cell] !== null) blackValueCells.add(e.cell);
-    if (values[e.cell] === null || e.confidence < 85 || e.recoveredMark) uncertain.add(e.cell);
+    if (values[e.cell] === null || e.confidence < 85 || e.recoveredMark || e.refinedCell) uncertain.add(e.cell);
   }
   const labels = entries.filter(
     (e) => e.kind === "label" && /^\d{1,12}[+\-xX*\/÷×=]?$/.test(e.text),
@@ -500,8 +491,8 @@ export class Scanner {
   // `thorough` runs the last-resort readings (inverted screens, continuous
   // runs, dot lattices). They cost a still photograph a fraction of a second
   // and would stall a live preview, which sees an unframed grid every frame.
-  detect(canvas, { thorough = true } = {}) {
-    return this.geometry("detect", { image: imageOf(canvas), thorough });
+  detect(canvas, { thorough = true, rows = null, cols = null } = {}) {
+    return this.geometry("detect", { image: imageOf(canvas), thorough, rows, cols });
   }
   async read(canvas, corners, type, rows, cols, onProgress = () => {}, { onPreview = () => {} } = {}) {
     this.cancel({ keepEngine: true });

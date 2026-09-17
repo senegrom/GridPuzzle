@@ -1,3 +1,4 @@
+import { retainPhotoSource, rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
 import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { validQuad } from "./geometry.js";
 import { sniffDimensions } from "./image-dimensions.js";
@@ -295,7 +296,7 @@ export function setupPhotoFlow({
       }
       if (bitmap)
         try {
-          return draw(bitmap, ...fit(bitmap.width, bitmap.height));
+          return retainPhotoSource(draw(bitmap, ...fit(bitmap.width, bitmap.height)), file, dimensions);
         } finally {
           bitmap.close?.();
         }
@@ -313,7 +314,7 @@ export function setupPhotoFlow({
       await img.decode();
       if (!img.naturalWidth || !img.naturalHeight)
         throw Error("The image is empty.");
-      return draw(img, ...fit(img.naturalWidth, img.naturalHeight));
+      return retainPhotoSource(draw(img, ...fit(img.naturalWidth, img.naturalHeight)), file, dimensions);
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -450,6 +451,7 @@ export function setupPhotoFlow({
     ctx.translate(c.width, 0);
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(state.photo, 0, 0);
+    rotatePhotoSource(state.photo, c);
     // A quarter-turn swaps the box orientation as well as the grid axes.
     setLayout(transposeLayout(currentLayout()));
     if (proposedBoxLayout)
@@ -583,16 +585,17 @@ export function setupPhotoFlow({
         );
     }, 120000);
     try {
-      const found = await scanner.read(
-        state.photo,
-        state.corners,
-        type,
-        rows,
-        cols,
-        (text, p) => {
-          if (id === getJobId()) status(text, "", "info", p);
-        },
-      );
+      const photograph = state.photo, corners = state.corners.map((p) => ({ ...p })),
+        detail = hasPhotoSource(photograph)
+          ? await photoDetail(photograph, corners, { current: () => id === getJobId() })
+          : { image: photograph, corners, release() {} };
+      let found;
+      try {
+        if (id !== getJobId()) return;
+        found = await scanner.read(detail.image, detail.corners, type, rows, cols,
+          (text, p) => { if (id === getJobId()) status(text, "", "info", p); });
+        if (detail.note) found.notes = [...found.notes, detail.note];
+      } finally { detail.release(); }
       if (id !== getJobId()) return;
       // Snapshot settings belong to this scan. Validate the complete candidate
       // before committing history, state or autosave, including automatic type.

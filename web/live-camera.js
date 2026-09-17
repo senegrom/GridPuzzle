@@ -1,3 +1,4 @@
+import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
@@ -139,7 +140,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // A live frame is read the quick way: the last-resort readings cost
       // more than the interval between frames, and a grid held in front of
       // the camera is found without them.
-      const found = await detector.detect(small, { thorough: false });
+      const found = await detector.detect(small, { thorough: false, rows: settings.rows, cols: settings.cols });
       if (!current() || !sameFrame(frameSignature, signature)) return;
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
@@ -165,9 +166,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       }
       guide = corners; initial = { puzzle };
       if (!settings.enabled) { session.invalidate(); say("Automatic reading is paused (Grid size & settings). Capture to crop and read in the editor."); return; }
-      if (found.sharpness < 60) { session.invalidate(); say("Move closer and hold still for sharper numbers."); return; }
+      const warning = qualityMessage(found.quality),
+        clueSharpness = found.quality?.assessable ? found.quality.score : found.sharpness;
+      if (warning) { session.invalidate(); say(warning); return; }
+      if (!found.quality?.assessable && found.sharpness < 60) { session.invalidate(); say("Move closer and hold still for sharper numbers."); return; }
       const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
-        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`, sharpness: found.sharpness };
+        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`, sharpness: clueSharpness, quality: found.quality };
       frame.content = contentOf(image, frame);
       session.observe(frame);
     } catch (error) {

@@ -1,3 +1,4 @@
+import { refineCellBounds } from './cell-boundaries.js';
 import { isGridStroke } from "./ocr-map.js";
 import { isCage } from "./model.js";
 import { gray, thresholdGray, estimateGrid } from "./geometry.js";
@@ -246,11 +247,19 @@ export function prepareScan(image, type, rows, cols) {
     contrast = normalizeScanContrast(gray(image)),
     g = contrast.gray,
     mask = thresholdGray(g, w, h),
+    cellBounds = refineCellBounds(g, w, h, rows, cols),
     black = detectBlackCells(g, w, h, rows, cols),
     anyBlack = black.some(Boolean),
     entries = [], unreadCells = [];
 
   function region(kind, cell, x, y, rw, rh, invert = false, other = null) {
+    const bounds = ["value", "blackvalue"].includes(kind) ? cellBounds?.[cell] : null;
+    if (bounds) {
+      const ox = (cell % cols) * cw, oy = Math.floor(cell / cols) * ch;
+      x = bounds.x + (x - ox) / cw * bounds.w;
+      y = bounds.y + (y - oy) / ch * bounds.h;
+      rw = rw / cw * bounds.w; rh = rh / ch * bounds.h;
+    }
     x = Math.max(0, Math.round(x));
     y = Math.max(0, Math.round(y));
     rw = Math.max(1, Math.min(w - x, Math.round(rw)));
@@ -352,6 +361,7 @@ export function prepareScan(image, type, rows, cols) {
       invert,
       text: "",
       confidence: 0,
+      ...(bounds ? { cellBounds: bounds, refinedCell: true } : {}),
       ...(recoveredMark ? { recoveredMark: true } : {}),
       ...(glyphCount > 1 ? { glyphCount } : {}),
       ...(segments ? { segments } : {}),
