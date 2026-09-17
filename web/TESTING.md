@@ -211,6 +211,13 @@ stages and records the measurements. `web/tests/grid-lines.test.js` pins each
 rule of the line stage on synthetic warps: thin and light-grey lines, digit
 columns, a dropped line, a stray line, cage walls, and the one-axis fallback.
 
+### Unavailable corpus sources
+
+`tests/test_corpus_source_layout.py` checks that a missing registered source
+subfolder, or missing required metadata, preserves the images, targets and
+provenance already built, while a source that is readable and genuinely empty
+can still be rebuilt to an empty set. The bounded Python suite discovers it.
+
 ### Scanner review regressions
 
 `web/tests/grid-size-range.test.js` checks rounded large-grid pitches and
