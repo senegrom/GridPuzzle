@@ -92,13 +92,13 @@ test('numeric padding follows the refined cell instead of re-clipping to a unifo
   assert.equal(numericCropBounds({ cell: 1 }, 400, 400, 100, 100, 4).minX, 108);
 });
 test('local geometry changes keep unanimous OCR reviewable and preserve black structure', () => {
-  const image = raster(); image.paint(109, 0, 2, 400); image.paint(139, 30, 8, 42); image.paint(300, 300, 100, 100);
-  const prepared = prepareScan(image, 'str8ts', 4, 4), entry = prepared.entries.find((e) => e.cell === 1);
+  const image = raster(); image.paint(109, 0, 2, 400); image.paint(80, 30, 12, 42); image.paint(300, 300, 100, 100);
+  const prepared = prepareScan(image, 'str8ts', 4, 4), entry = prepared.entries.find((e) => e.cell === 0);
   assert.ok(entry?.refinedCell); assert.deepEqual(prepared.black.flatMap((b, i) => b ? [i] : []), [15]);
   entry.text = '1'; entry.confidence = 99;
   applyDigitVotes([entry], [{ index: 0, text: '1', kind: 'gray', confidence: 99 }, { index: 0, text: '1', kind: 'binary', confidence: 99 }]);
   assert.equal(entry.confidence, 0);
-  assert.ok(puzzleFromReadings(prepared, 'str8ts', 4, 4).uncertain.includes(1));
+  assert.ok(puzzleFromReadings(prepared, 'str8ts', 4, 4).uncertain.includes(0));
 });
 for (const turns of [0, 1, 2, 3]) test(`original detail coordinates survive ${turns} quarter-turns`, () => {
   const w = 1600, h = 1200, original = [{ x: 400, y: 300 }, { x: 800, y: 300 }, { x: 800, y: 700 }, { x: 400, y: 700 }];
@@ -158,4 +158,22 @@ test('rotating a retained preview keeps original-source ownership', async (t) =>
   const rotated = { width: 1200, height: 1600 }; rotatePhotoSource(preview, rotated);
   const result = await photoDetail(rotated, quad(1200, 1600));
   assert.ok(result.enhanced); assert.equal(result.image.width, 1350); assert.equal(result.image.height, 1800); result.release();
+});
+
+test('local lines do not change complete printed crops or create unnecessary review', () => {
+  const image = raster(); image.paint(109, 0, 2, 400); image.paint(139, 30, 8, 42);
+  const entry = prepareScan(image, 'str8ts', 4, 4).entries.find((e) => e.cell === 1);
+  assert.equal(entry.refinedCell, undefined); assert.equal(entry.cellBounds, undefined);
+  assert.deepEqual([entry.x, entry.y, entry.w, entry.h], [139, 30, 8, 42]);
+  entry.text = '1'; entry.confidence = 99;
+  applyDigitVotes([entry], [{ index: 0, text: '1', kind: 'gray', confidence: 99 },
+    { index: 0, text: '1', kind: 'binary', confidence: 99 }]);
+  assert.equal(entry.confidence, 99);
+});
+
+test('a proposed smaller cell never clips an existing glyph', () => {
+  const image = raster(); image.paint(90, 0, 2, 400); image.paint(78, 30, 8, 42);
+  const entry = prepareScan(image, 'latinsquare', 4, 4).entries.find((e) => e.cell === 0);
+  assert.equal(entry.refinedCell, undefined);
+  assert.deepEqual([entry.x, entry.y, entry.w, entry.h], [78, 30, 8, 42]);
 });

@@ -56,8 +56,13 @@ measured boundaries. Already aligned cell bounds preserve the old rounding.
 
 Only numeric regions and their later padding use these local bounds. Black-cell
 classification, cage partitions, signs, labels, rectified-image pixels and the
-external four-corner mapping are not modified. Every clue with changed geometry
-remains review-flagged even when OCR agrees. This corrects modest local spacing
+external four-corner mapping are not modified. Both the uniform and locally
+refined extractions are compared before OCR. A refined region is used only when
+it finds a previously missing mark or strictly contains the old glyph bounds
+with additional ink. Identical, shifted or smaller crops retain the original
+entry, preserving its padding and avoiding unnecessary review of complete clues.
+Every adopted correction remains review-flagged even when OCR agrees. This
+corrects modest local spacing
 errors; it is not full curved-page dewarping or solver-based clue repair.
 
 ## Verification
@@ -70,6 +75,9 @@ cover quality guidance, recovery and manual capture.
 `scripts/scan_input_regressions.cjs` runs real image decoding in Chromium and
 mobile WebKit (all eight EXIF orientations plus user turns), original-photo
 crop checks, a clipped-glyph geometry case and full-page detector-to-OCR cases.
+A separate small-grid control stays below the existing detector's 7% area
+threshold in both versions. Its explicit manual corner-selection route is tested
+and reported separately; it is not counted as successful automatic detection.
 It also compares every cell in the 66 existing quality cases against the exact
 pre-change master with the same dependencies and browser versions. No expected
 answers enter either recognizer. The existing fragment and number-quality
