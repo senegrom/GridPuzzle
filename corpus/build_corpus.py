@@ -104,8 +104,27 @@ def read_dat(path: Path) -> tuple[list, str]:
     return cells, device
 
 
+class SourceUnavailableError(OSError):
+    """Required source assets are unavailable, not an intentionally empty set."""
+
+
+def source_files(folder: Path) -> list[Path]:
+    """Enumerate explicitly: glob can silently treat a missing folder as empty."""
+    try:
+        return sorted(folder.iterdir())
+    except OSError as error:
+        raise SourceUnavailableError(f"Required source directory unavailable: {folder}") from error
+
+
+def source_file(path: Path) -> Path:
+    if not path.is_file():
+        raise SourceUnavailableError(f"Required source file unavailable: {path}")
+    return path
+
+
 def paired_dat_images(folder: Path, corners: dict | None = None) -> Iterator[Item]:
-    for image in sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png")):
+    files = source_files(folder)
+    for image in (p for suffix in (".jpg", ".png") for p in files if p.suffix == suffix):
         dat = image.with_suffix(".dat")
         if not dat.exists():
             continue
@@ -128,11 +147,13 @@ def paired_dat_images(folder: Path, corners: dict | None = None) -> Iterator[Ite
 
 def wichtounet_outlines(repo: Path) -> dict:
     outlines: dict = {}
-    path = repo / "outlines_sorted.csv"
-    if not path.exists():
-        return outlines
+    path = source_file(repo / "outlines_sorted.csv")
     with path.open(encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        reader = csv.DictReader(handle)
+        required = {"filepath", *(f"p{i}_{axis}" for i in range(1, 5) for axis in ("x", "y"))}
+        if not required.issubset(reader.fieldnames or []):
+            raise SourceUnavailableError(f"Required outline columns unavailable: {path}")
+        for row in reader:
             name = Path(row["filepath"]).name
             try:
                 outlines[name] = [[int(row[f"p{i}_x"]), int(row[f"p{i}_y"])] for i in (1, 2, 3, 4)]
@@ -151,7 +172,9 @@ def wichtounet(folder: str, with_corners: bool = False):
 
 def wichtounet_originals(repo: Path) -> Iterator[Item]:
     """Full-resolution phone photographs; their grids live beside the small copies."""
-    for image in sorted((repo / "original").glob("*.original.jpg")):
+    originals = source_files(repo / "original")
+    source_files(repo / "images")  # annotations live in the downscaled sibling set
+    for image in (p for p in originals if p.name.endswith(".original.jpg")):
         dat = repo / "images" / f"{image.name.removesuffix('.original.jpg')}.dat"
         if not dat.exists():
             continue
@@ -188,16 +211,13 @@ def lexski(repo: Path) -> Iterator[Item]:
     and hand-drawn grids. Each record carries a 9x9x10 flag block (entry 0 marks
     a definite value, entries 1-9 the digit) and four corner keypoints."""
     for split in ("train", "val", "test"):
-        metadata = repo / "data" / split / "metadata.jsonl"
-        if not metadata.exists():
-            continue
+        metadata = source_file(repo / "data" / split / "metadata.jsonl")
         for line in metadata.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             record = json.loads(line)
             image = repo / "data" / split / Path(record["file_name"].replace("\\", "/"))
-            if not image.exists():
-                continue
+            source_file(image)
             cells, pencil = [], 0
             for row in record["cells"]:
                 for flags in row:
@@ -229,9 +249,9 @@ def kuleuven_app(cache: Path) -> Iterator[Item]:
             tar.extractall(root, filter="data")
     folder = next((p.parent for p in root.rglob("data.npy")), None) if root.exists() else None
     if folder is None:
-        return
-    images = np.load(folder / "data.npy")
-    labels = np.load(folder / "labels.npy")
+        raise SourceUnavailableError(f"Required extracted data.npy unavailable under {root}")
+    images = np.load(source_file(folder / "data.npy"))
+    labels = np.load(source_file(folder / "labels.npy"))
     handwritten = np.load(folder / "labels_hw.npy") if (folder / "labels_hw.npy").exists() else None
     staging = cache / "png"
     staging.mkdir(exist_ok=True)
@@ -261,9 +281,7 @@ FUTOSHIKI_PHOTO = {
 
 
 def futoshiki_photo(cache: Path) -> Iterator[Item]:
-    image = cache / "futoshiki-photo.jpg"
-    if not image.exists():
-        return
+    image = source_file(cache / "futoshiki-photo.jpg")
     cells = [FUTOSHIKI_PHOTO["givens"].get(index) for index in range(25)]
     puzzle = {"version": 1, "type": "futoshiki", "rows": 5, "cols": 5, "cells": cells,
               "cages": [], "clues": [],
@@ -469,22 +487,29 @@ def build(sources: list[Source], fetch: bool, verify: bool,
             continue
         items = []
         targets = set()
-        for item in source.collect(cache):
-            if Path(item.name).name != item.name or item.name in ("", ".", ".."):
-                raise ValueError(f"Invalid corpus image name: {item.name!r}")
-            if verify:
-                try:
-                    build_grid(item.puzzle)
-                except Exception as error:  # noqa: BLE001 - report rejected input
-                    print(f"  {source.slug}/{item.name}: rejected by the solver contract: {error}")
-                    continue
-            target_name = Path(item.name).with_suffix(".json").name
-            if target_name in targets:
-                raise ValueError(f"Duplicate target name in {source.slug}: {target_name}")
-            targets.add(target_name)
-            digest = hashlib.md5(item.image.read_bytes()).hexdigest()
-            relative = f"{source.family}/{source.slug}/{item.name}"
-            items.append((relative, digest, item))
+        try:
+            for item in source.collect(cache):
+                if Path(item.name).name != item.name or item.name in ("", ".", ".."):
+                    raise ValueError(f"Invalid corpus image name: {item.name!r}")
+                if verify:
+                    try:
+                        build_grid(item.puzzle)
+                    except Exception as error:  # noqa: BLE001 - report rejected input
+                        print(f"  {source.slug}/{item.name}: rejected by the solver contract: {error}")
+                        continue
+                target_name = Path(item.name).with_suffix(".json").name
+                if target_name in targets:
+                    raise ValueError(f"Duplicate target name in {source.slug}: {target_name}")
+                targets.add(target_name)
+                digest = hashlib.md5(item.image.read_bytes()).hexdigest()
+                relative = f"{source.family}/{source.slug}/{item.name}"
+                items.append((relative, digest, item))
+        except SourceUnavailableError as error:
+            # Discard even a partially collected source. Other valid sources may
+            # still rebuild; this source's files and provenance remain retained.
+            print(f"  {source.slug}: {error}; previous inventory retained")
+            result.skipped.add(key)
+            continue
         pending.append((source, items))
         result.completed.add(key)
 

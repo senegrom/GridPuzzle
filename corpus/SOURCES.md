@@ -220,8 +220,8 @@ runs); otherwise it remains `corpus/index.json` in the checkout. Set these
 variables before starting a command.
 
 A rebuild collects and validates the selected sources before touching their
-outputs. Missing caches are **skipped**, not treated as empty datasets: their
-existing images, targets and inventory/provenance remain. A run with a skipped
+outputs. Missing caches or required source assets are **skipped**, not treated
+as empty datasets: their existing images, targets and inventory/provenance remain. A run with a skipped
 source returns exit status 1 to avoid claiming a complete rebuild. A source
 that successfully yields no accepted images is a completed empty rebuild and
 its old managed images/targets are removed. Collector errors abort before any
@@ -281,3 +281,26 @@ contains per-scale summaries, completion status, input errors and cleanup
 diagnostics. A later corrupt image cannot discard earlier measurements.
 See `web/GRID_DETECTION.md` for the format and validation tests. No new full
 photographic-corpus measurements are asserted by this tooling change.
+
+### Missing source assets are not empty datasets
+
+The shared cache root alone is not proof that a selected source is available.
+Directory collectors explicitly enumerate their required image folders (including
+both folders of a combined source and the originals' sibling annotation folder).
+A missing, unreadable, or non-directory path raises a source-unavailable result.
+The builder discards any items collected for that source before the failure,
+preserves the prior source inventory and outputs, and exits nonzero. Other
+available sources can still rebuild. An existing, readable, intentionally empty
+image directory remains a valid empty rebuild.
+
+Required metadata is checked too: newspaper corner CSV headers, each Lexski split's
+metadata and referenced images, KU Leuven's data/label arrays, and the standalone
+Futoshiki photograph. Optional handwritten labels and per-image annotations for
+unlabelled photographs remain optional; these are not used as a blanket reason
+to reject otherwise valid datasets. Corrupt input that raises an unexpected
+collector error still aborts collection before corpus outputs are changed.
+
+`tests/test_corpus_source_layout.py` exercises registered collectors, real files,
+byte-for-byte output and index preservation, late failures in combined sources,
+and the valid-empty control. The tests use temporary cache/corpus directories;
+no external dataset rebuild is implied by these checks.
