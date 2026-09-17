@@ -1,50 +1,53 @@
 name: Live motion regression
 on:
   push:
-    branches: ['fix/live-registration-20260917']
+    branches: ['fix/live-registration-*']
+  pull_request:
+    paths: ['web/**', 'scripts/live_motion_regressions.cjs', 'scripts/fetch_live_fixtures.py', '.github/workflows/live-motion.yml']
+  workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: live-motion-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
-  import:
+  live-motion:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: fix/live-registration-20260917
-          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Apply exact checksum-verified implementation
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Unit and syntax regressions
         run: |
-          python - <<'PY'
-          import base64, gzip, hashlib, pathlib, subprocess
-          chunks = [pathlib.Path(f'scripts/.live-patch-{i}') for i in range(1,5)]
-          patch = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in chunks), validate=True))
-          assert hashlib.sha256(patch).hexdigest() == 'b6a3755791d3503ec8892f3c08694d2b76b78c68113671669531529591a7b8b0'
-          assert b'diff --git a/.github/' not in patch
-          subprocess.run(['git','apply','--check','-'],input=patch,check=True)
-          subprocess.run(['git','apply','-'],input=patch,check=True)
-          for p in chunks: p.unlink()
-          PY
-          node --test web/tests/live-retention.test.js web/tests/live-registration.test.js web/tests/live-scanning.test.js
-          python -m unittest tests.test_motion_tracks
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .gitignore web corpus/motion_tracks.py scripts/fetch_live_fixtures.py scripts/live_motion_regressions.cjs scripts/.live-patch-* tests/test_motion_tracks.py
-          git commit -m 'Separate live OCR ownership from visibility and register small camera movements'
-          git push origin HEAD:refs/heads/fix/live-registration-20260917
-      - name: Retain imported source
+          mkdir -p browser-artifacts
+          node --test --test-concurrency=1 web/tests/*.test.js > browser-artifacts/unit-tests.log
+          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+          node --check scripts/live_motion_regressions.cjs
+      - name: Build pinned scanner runtime
+        run: python scripts/build_web.py
+      - name: Install pinned browser test engines
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Fetch bounded external picture tests
+        run: python scripts/fetch_live_fixtures.py
+      - name: Real moving-video scanning and external picture tracking
+        run: node scripts/live_motion_regressions.cjs
+      - name: Existing camera capture and solver integration
+        run: node scripts/live_camera_regressions.cjs
+      - name: Preserve measurements and exact source
         if: always()
         run: |
-          mkdir -p live-import-artifacts
-          git archive HEAD > live-import-artifacts/source.tar
-          git rev-parse HEAD > live-import-artifacts/commit.txt
+          git archive HEAD > browser-artifacts/source.tar
+          git rev-parse HEAD > browser-artifacts/commit.txt
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: live-import-source
-          path: live-import-artifacts
-          retention-days: 3
+          name: live-motion-report
+          path: browser-artifacts
+          retention-days: 7
