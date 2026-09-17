@@ -1,6 +1,8 @@
 /* Detection-only measurement at the live (640) and photo (1600) scales.
    Uses the same checkpoint/cleanup lifecycle as the OCR benchmark.
-   node corpus/detect_benchmark.cjs [--site _site] [--limit N] [--set regex] [--out file.json]
+   node corpus/detect_benchmark.cjs [--site _site] [--limit N] [--set names] [--out file.json]
+   --set takes one name or a comma-separated list; each matches any set whose
+   "family/set" key contains it, for example --set lexski,newspaper
    Reports use the versioned envelope documented in web/GRID_DETECTION.md. */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -25,13 +27,18 @@ function parseOptions(args) {
 }
 
 function items(options) {
-  const out = [], root = path.resolve(options.corpus), filter = options.set ? new RegExp(options.set) : null;
+  // Names, not a pattern: the filter is a comma-separated list and each part
+  // matches a set whose "family/set" key contains it. A regular expression
+  // built from the command line buys nothing here and can be made to run for
+  // a very long time on a long key.
+  const out = [], root = path.resolve(options.corpus),
+    wanted = options.set ? options.set.split(",").map((part) => part.trim()).filter(Boolean) : null;
   for (const family of fs.readdirSync(root).sort()) {
     const familyDir = path.join(root, family);
     if (!fs.statSync(familyDir).isDirectory()) continue;
     for (const set of fs.readdirSync(familyDir).sort()) {
       const setDir = path.join(familyDir, set), key = `${family}/${set}`;
-      if (!fs.statSync(setDir).isDirectory() || (filter && !filter.test(key))) continue;
+      if (!fs.statSync(setDir).isDirectory() || (wanted && !wanted.some((part) => key.includes(part)))) continue;
       let n = 0;
       for (const name of fs.readdirSync(setDir).sort()) {
         const ext = path.extname(name).toLowerCase();

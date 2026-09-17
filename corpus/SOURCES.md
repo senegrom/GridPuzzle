@@ -274,7 +274,7 @@ external corpus, and retain the tested source and test reports as artifacts.
 ### Detection-only report lifecycle
 
 The detection-only benchmark now uses the same checkpoint and cleanup runner
-as the OCR benchmark. Run `node corpus/detect_benchmark.cjs --set regex` as
+as the OCR benchmark. Run `node corpus/detect_benchmark.cjs --set names` as
 before; `--limit` remains per set. Its JSON output is now a formatVersion 1
 envelope: use `report.results` in place of the previous bare array. It also
 contains per-scale summaries, completion status, input errors and cleanup
