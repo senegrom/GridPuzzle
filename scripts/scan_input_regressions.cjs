@@ -47,13 +47,13 @@ async function detailChecks() {
   source.width = source.height = 0; return cases;
 }
 
-async function widePage({ font, candidate }) {
+async function widePage({ font, candidate, manual = false }) {
   const { Scanner } = await import('./scanner.js');
   const { retainPhotoSource, photoDetail } = await import('./photo-detail.js');
   const page = document.createElement('canvas'); page.width = 3200; page.height = 2400;
   const ctx = page.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, page.width, page.height);
   ctx.fillStyle = '#333'; ctx.font = '24px serif'; ctx.fillText('Daily puzzle — printed number recognition', 900, 650);
-  const x = 1200, y = 850, cell = 60, size = cell * 9;
+  const x = 1200, y = 850, cell = manual ? 60 : 90, size = cell * 9;
   ctx.strokeStyle = '#111';
   for (let k = 0; k <= 9; k++) {
     ctx.lineWidth = k % 3 === 0 ? 3 : 1;
@@ -72,14 +72,21 @@ async function widePage({ font, candidate }) {
   const scanner = new Scanner();
   try {
     const detected = await scanner.detect(preview);
-    // Real detector output feeds both versions. Failed detection is reported,
-    // never silently replaced with reference corners to improve the score.
-    if (!detected.rows || !detected.cols) return { font, detection: false, detected };
-    const detail = candidate ? await photoDetail(preview, detected.corners) : { image: preview, corners: detected.corners, enhanced: false, release() {} };
+    const detection = Boolean(detected.rows && detected.cols), mode = manual ? 'manual-crop' : 'automatic';
+    // The smaller board is BELOW the unchanged detector's 7% area threshold.
+    // Keep that failed detection as a negative control, then explicitly emulate
+    // a user's corner selection. It is not counted as automatic detection.
+    if (!detection && !manual) return { font, mode, detection, detected };
+    const corners = manual
+      ? [{ x, y }, { x: x + size, y }, { x: x + size, y: y + size }, { x, y: y + size }]
+          .map((p) => ({ x: p.x * preview.width / 3200, y: p.y * preview.height / 2400 }))
+      : detected.corners,
+      rows = manual ? 9 : detected.rows, cols = manual ? 9 : detected.cols,
+      detail = candidate ? await photoDetail(preview, corners) : { image: preview, corners, enhanced: false, release() {} };
     const width = detail.image.width, height = detail.image.height;
-    let found; try { found = await scanner.read(detail.image, detail.corners, 'sudoku', detected.rows, detected.cols); } finally { detail.release(); }
+    let found; try { found = await scanner.read(detail.image, detail.corners, 'sudoku', rows, cols); } finally { detail.release(); }
     const wrong = expected.flatMap((value, i) => found.puzzle.cells[i] === value ? [] : [{ cell: i, expected: value, actual: found.puzzle.cells[i] }]);
-    return { font, detection: true, rows: detected.rows, cols: detected.cols, enhanced: detail.enhanced, width, height,
+    return { font, mode, detection, rows, cols, enhanced: detail.enhanced, width, height,
       expected, actual: found.puzzle.cells, wrong, flagged: found.uncertain,
       unsafe: wrong.filter((item) => !found.uncertain.includes(item.cell)), quality: detected.quality,
       correct: expected.filter((value, i) => Number.isInteger(value) && found.puzzle.cells[i] === value).length };
@@ -126,14 +133,17 @@ async function run() {
         assert.ok(report.alignment.after.some((e)=>e.cell===0&&e.refinedCell));
         const b=report.alignment.before.find((e)=>e.cell===0),a=report.alignment.after.find((e)=>e.cell===0);
         assert.ok(a.w>(b?.w||0),'retain more of the previously clipped glyph');
-        for (const font of ['Arial','Times New Roman','Courier New']) {
-          const pair={font,before:await pages.baseline.evaluate(widePage,{font,candidate:false}),after:await pages.candidate.evaluate(widePage,{font,candidate:true})};report.wide.push(pair);
-          assert.ok(pair.before.detection&&pair.after.detection,`${name}/${font}: real grid detection`);
+        for (const manual of [false,true]) for (const font of ['Arial','Times New Roman','Courier New']) {
+          const pair={font,mode:manual?'manual-crop':'automatic',before:await pages.baseline.evaluate(widePage,{font,candidate:false,manual}),after:await pages.candidate.evaluate(widePage,{font,candidate:true,manual})};report.wide.push(pair);
+          if (manual) {
+            assert.equal(pair.before.detection,false,'small-grid control remains below the original detection threshold');
+            assert.equal(pair.after.detection,false,'do not claim the manual crop as a detected grid');
+          } else assert.ok(pair.before.detection&&pair.after.detection,`${name}/${font}: real grid detection`);
           assert.equal(pair.after.rows,9);assert.equal(pair.after.cols,9);assert.ok(pair.after.enhanced);
           const beforeWrong=new Set(pair.before.wrong.map((x)=>x.cell));
           assert.deepEqual(pair.after.wrong.filter((x)=>!beforeWrong.has(x.cell)),[],`${name}/${font}: no previously correct cell lost`);
           assert.deepEqual(pair.after.unsafe,[]);
-          console.log(`${name}/wide/${font}: ${pair.before.correct} -> ${pair.after.correct}/27`);
+          console.log(`${name}/${pair.mode}/${font}: ${pair.before.correct} -> ${pair.after.correct}/27`);
         }
         const candidates=JSON.parse(fs.readFileSync('browser-artifacts/ocr-quality.json')).find((r)=>r.browser===name);
         assert.ok(candidates?.ok);assert.equal(candidates.version,report.version);
