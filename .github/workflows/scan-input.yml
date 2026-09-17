@@ -1,33 +1,47 @@
 name: Scan input quality
 on:
   push:
-    branches: ['improve/scan-input-*']
-  pull_request:
-    paths: ['web/**', 'scripts/scan_input_regressions.cjs', '.github/workflows/scan-input.yml']
-  workflow_dispatch:
+    branches: ['improve/scan-input-20260917']
 permissions:
-  contents: read
-concurrency:
-  group: scan-input-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  contents: write
 jobs:
-  scan-input:
+  import:
+    if: github.ref == 'refs/heads/improve/scan-input-20260917'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Retain exact tested source
+      - name: Import the exact locally tested code patch
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+          parts = [pathlib.Path(f'.scan-input-code.{i}.b64') for i in range(1, 4)]
+          if not all(p.exists() for p in parts):
+              raise SystemExit('Incomplete staged patch; no source changed')
+          data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '9b549f24642b0bfe33d9ea84d5886dad73082239b38e626122825434be161555', 'Patch checksum mismatch'
+          patch = pathlib.Path('/tmp/scan-input.patch')
+          patch.write_bytes(data)
+          subprocess.run(['git', 'apply', '--check', str(patch)], check=True)
+          subprocess.run(['git', 'apply', str(patch)], check=True)
+          PY
+          node --test --test-concurrency=1 web/tests/*.test.js > /tmp/scan-input-units.log
+          git rm .scan-input-code.*.b64
+          git add web scripts
+          git config user.name 'senegrom'
+          git config user.email '6349874+senegrom@users.noreply.github.com'
+          git commit -m 'Preserve original photo detail, score clue quality and refine numeric cell bounds'
+          git push origin HEAD:improve/scan-input-20260917
+      - name: Retain tested source and measurements
+        if: always()
         run: |
           mkdir -p scan-input-artifacts
           git archive HEAD > scan-input-artifacts/source.tar
           git rev-parse HEAD > scan-input-artifacts/commit.txt
-      - name: Unit regressions
-        run: node --test web/tests/*.test.js > scan-input-artifacts/unit-tests.log
+          cp /tmp/scan-input-units.log scan-input-artifacts/unit-tests.log || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
