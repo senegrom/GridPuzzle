@@ -2,10 +2,10 @@ import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
-import { gridContent, sameGridContent } from "./live-content.js";
+import { gridAnchor, matchGrid } from "./live-registration.js";
 import { createLiveSession } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
-import { drawLiveOverlay, overlayCells, sameFrame, SCAN_COLOURS } from "./live-overlay.js";
+import { drawLiveOverlay, overlayCells, SCAN_COLOURS } from "./live-overlay.js";
 
 export function videoFrame(video, maxSide = 1600, target = null) {
   if (!video.videoWidth || !video.videoHeight) throw Error("The camera is not ready yet.");
@@ -43,28 +43,38 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(),
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, timer = null, detection = null, epoch = 0, lastDetect = -Infinity;
-  let raw = null, guide = null, initial = null, displayed = null, signature = null;
+  let raw = null, guide = null, guideFrame = null, displayed = null, signature = null;
   let settingsKey = "", setting = null, currentPixels = null;
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas"), contentCache = new Map();
   function contentPixels(image) {
-    const scale = Math.min(1, 640 / Math.max(image.width, image.height));
+    const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
     contentCanvas.width = Math.max(2, Math.round(image.width * scale));
     contentCanvas.height = Math.max(2, Math.round(image.height * scale));
     const ctx = contentCanvas.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(image, 0, 0, contentCanvas.width, contentCanvas.height);
     return ctx.getImageData(0, 0, contentCanvas.width, contentCanvas.height);
   }
-  function contentOf(image, frame) {
+  // The content sampler needs enough real pixels for thin screen/grid lines.
+  // Detection remains at 640px; registration/content use at most 1280px.
+  function anchorOf(image, corners, rows, cols) {
     const pixels = image === raw ? (currentPixels ??= contentPixels(image)) : contentPixels(image);
-    const corners = frame.corners.map((p) => ({ x: p.x * (pixels.width - 1) / (image.width - 1),
+    const points = corners.map(p => ({ x: p.x * (pixels.width - 1) / (image.width - 1),
       y: p.y * (pixels.height - 1) / (image.height - 1) }));
-    return gridContent(pixels, corners, frame.rows, frame.cols);
+    return gridAnchor(pixels, points, rows, cols);
   }
   function isCurrent(frame) {
-    if (!raw || !frame.content) return false;
-    const key = JSON.stringify([frame.rows, frame.cols, frame.corners]);
-    if (!contentCache.has(key)) contentCache.set(key, contentOf(raw, frame));
-    return sameGridContent(frame.content, contentCache.get(key));
+    if (!raw || !frame.anchor) return false;
+    if (!contentCache.has(frame.anchor)) {
+      const pixels = currentPixels ??= contentPixels(raw),
+        matched = matchGrid(frame.anchor, pixels, frame.anchor.hint ?? frame.anchor.corners);
+      if (matched) frame.anchor.hint = matched.corners;
+      contentCache.set(frame.anchor, matched ? { corners: matched.corners.map(p => ({
+        x: p.x * (raw.width - 1) / (pixels.width - 1), y: p.y * (raw.height - 1) / (pixels.height - 1) })) } : false);
+    }
+    return contentCache.get(frame.anchor);
+  }
+  function sameScene(a, b) {
+    return !!(a.anchor && b.anchor && matchGrid(a.anchor, b.anchor.image, b.anchor.corners));
   }
   const say = (message) => { if (active) $("camera-help").textContent = message; };
   const session = createLiveSession({
@@ -88,7 +98,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Realignment retires answers, not an idle interpreter. Closing the camera
     // still cancels everything; older/injected solvers keep the cancel contract.
     cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
-    onChange: () => {}, onStatus: say, isCurrent, now, setTimer, clearTimer,
+    onChange: () => {}, onStatus: say, isCurrent, sameScene, now, setTimer, clearTimer,
   });
   function render() {
     if (!raw) return;
@@ -97,7 +107,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     const ctx = canvas.getContext("2d"); ctx.drawImage(raw, 0, 0);
     session.validate();
     const preview = session.preview;
-    displayed = preview ?? (guide && initial ? { found: initial, corners: guide, result: null } : null);
+    displayed = preview;
+    guide = (guideFrame && isCurrent(guideFrame)?.corners) || preview?.corners || null;
     if (displayed) drawLiveOverlay(ctx, raw.width, raw.height, displayed.corners, displayed.found, displayed.result);
     if (guide) {
       ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, raw.width / 500);
@@ -108,7 +119,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     ctx.fillStyle = "#101820e8"; ctx.fillRect(0, raw.height - bar, raw.width, bar);
     ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff"; ctx.fillText("PREVIEW", font * .6, raw.height - bar / 2);
-    const labels = [["recognised", "Read"], ["uncertain", "Check ?"], ["unknown", "Unknown ?"], ["solution", "Solution"]];
+    const labels = [["recognised", "Read"], ["uncertain", "Check ?"], ["unknown", "Unread ?"], ["solution", "Solution"]];
     labels.forEach(([kind, label], i) => { ctx.fillStyle = SCAN_COLOURS[kind]; ctx.fillText(label, raw.width * (.18 + i * .205), raw.height - bar / 2); });
     const counts = { recognised: 0, uncertain: 0, unknown: 0, solution: 0 };
     for (const cell of displayed ? overlayCells(displayed.found, displayed.result) : []) counts[cell.kind]++;
@@ -129,7 +140,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // worker hold the live view hostage to the scanner's longer OCR timeout.
     job.deadline = setTimer(() => {
       if (!current()) return;
-      cancelDetection(); guide = initial = null; session.invalidate();
+      cancelDetection(); guide = guideFrame = null; session.invalidate();
       say("Grid detection timed out. Keep the grid steady — retrying…");
     }, 8000);
     try {
@@ -141,10 +152,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // more than the interval between frames, and a grid held in front of
       // the camera is found without them.
       const found = await detector.detect(small, { thorough: false, rows: settings.rows, cols: settings.cols });
-      if (!current() || !sameFrame(frameSignature, signature)) return;
+      if (!current()) return;
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
-        guide = initial = null; session.invalidate(); say("Keep the whole grid in view, in even light."); return;
+        guide = guideFrame = null; session.suspend(); say("Keep the whole grid in view, in even light."); return;
       }
       const rows = found.rows || settings.rows, cols = found.cols || settings.cols;
       const selected = settings.rows === rows && settings.cols === cols &&
@@ -160,23 +171,30 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         // The detected grid contradicts the chosen rules (a 9 × 6 board for
         // Sudoku, a 12 × 12 Str8ts). Keep the outline, skip the cell overlay
         // and say why instead of failing every frame.
-        guide = corners; initial = null; session.invalidate();
+        guide = corners; guideFrame = null; session.invalidate();
         say(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
         return;
       }
-      guide = corners; initial = { puzzle };
+      const anchor = anchorOf(image, corners, rows, cols);
+      const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
+        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
+        anchor, content: anchor?.content };
+      const view = isCurrent(frame);
+      if (!view) { session.suspend(); return; }
+      guide = view.corners; guideFrame = { ...frame, image: null };
       if (!settings.enabled) { session.invalidate(); say("Automatic reading is paused (Grid size & settings). Capture to crop and read in the editor."); return; }
       const warning = qualityMessage(found.quality),
         clueSharpness = found.quality?.assessable ? found.quality.score : found.sharpness;
-      if (warning) { session.invalidate(); say(warning); return; }
-      if (!found.quality?.assessable && found.sharpness < 60) { session.invalidate(); say("Move closer and hold still for sharper numbers."); return; }
-      const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
-        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`, sharpness: clueSharpness, quality: found.quality };
-      frame.content = contentOf(image, frame);
+      if (warning) { session.suspend(); say(warning); return; }
+      if (!found.quality?.assessable && found.sharpness < 60) { session.suspend(); say("Move closer and hold still for sharper numbers."); return; }
+      frame.sharpness = clueSharpness; frame.quality = found.quality;
+      job.handedOff = true;
       session.observe(frame);
+      guideFrame = session.anchorFrame ?? guideFrame;
     } catch (error) {
-      if (current()) { guide = initial = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
+      if (current()) { guide = guideFrame = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
+      if (!job.handedOff) image.width = image.height = 0;
       clearTimer(job.deadline);
       if (detection === job) detection = null;
     }
@@ -187,12 +205,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       raw = videoFrame(video, 1600, raw); currentPixels = null; contentCache.clear(); signature = fingerprint(raw);
       const next = getSettings(), key = JSON.stringify([next, raw.width, raw.height]);
       if (key !== settingsKey) {
-        settingsKey = key; setting = next; guide = initial = null;
+        settingsKey = key; setting = next; guide = guideFrame = null;
         cancelDetection(); lastDetect = -Infinity; session.invalidate();
       }
       session.motion(signature);
-      // Never paint a previous board after motion, even between detections.
-      if (displayed?.sample && !sameFrame(displayed.sample.signature, signature)) guide = initial = null;
       render();
       // Detect quickly until something is on screen, then ease off.
       if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300)) void locate(copyCanvas(raw), signature, setting, settingsKey, epoch);
@@ -201,12 +217,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   return {
     start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
-    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); reader.cancel(); raw = guide = initial = displayed = signature = null; settingsKey = ""; setting = currentPixels = null; contentCache.clear(); },
+    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); reader.cancel(); raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = currentPixels = null; contentCache.clear(); },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");
       // Validate the displayed raw frame, not a later camera frame. Never attach
       // stale metadata to a capture even when an async result arrived mid-tick.
-      if (displayed?.sample && !isCurrent(displayed.sample)) { session.invalidate(); render(); }
+      session.validate(); render();
       // Do not grab a different video frame here: preserve precisely the pixels
       // and overlay the user was looking at when pressing the shutter.
       return { photo: copyCanvas(raw), annotated: copyCanvas(canvas),

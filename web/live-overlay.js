@@ -26,7 +26,7 @@ export function overlayCells(found, result = null) {
     // A missed printed clue is not an empty answer slot.
     if (marked.has(cell) || (!Array.isArray(found.markedCells) && cellUncertain.has(cell))) return [{ cell, value: "?", kind: "unknown" }];
     if (Number.isInteger(solution?.[cell])) return [{ cell, value: solution[cell], kind: "solution" }];
-    return [{ cell, value: "?", kind: "unknown" }];
+    return []; // An empty answer slot is not a failed printed clue.
   });
 }
 
