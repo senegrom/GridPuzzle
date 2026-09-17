@@ -202,7 +202,7 @@ every synthetic control and failed on real photographs.
 
 ### Grid detection
 
-`node corpus/detect_benchmark.cjs [--set regex] [--limit N]` runs the
+`node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
 detector alone over every corpus image with corner ground truth, at the live
 and photograph scales, and prints per set how many grids were found with the
 right size and corners within 3% of the diagonal, how many quads the line
