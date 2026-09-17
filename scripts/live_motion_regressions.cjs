@@ -70,6 +70,7 @@ async function beginMotion(cells) {
 }
 async function externalTracking(fixtures) {
   const {gridAnchor,matchGrid}=await import('./live-registration.js');
+  const {validQuad,homography,project}=await import('./geometry.js');
   const output=[];
   for(const f of fixtures){
     const im=new Image();im.src=f.data;await im.decode();
@@ -82,7 +83,16 @@ async function externalTracking(fixtures) {
       const start=performance.now(),match=matchGrid(anchor,t.getContext('2d').getImageData(0,0,w,h));
       checks.push({dx,dy,matched:!!match,milliseconds:performance.now()-start});
     }
-    output.push({name:f.name,sha256:f.sha256,checks});
+    const valid=validQuad(corners,w,h),anchorValid=!!anchor;
+    let occluded=false;
+    if(anchor){
+      const p=project(homography(corners),.5,.5),t=document.createElement('canvas');t.width=w;t.height=h;
+      const q=t.getContext('2d');q.drawImage(c,0,0);q.fillStyle='#ad8061';
+      const size=Math.min(Math.hypot(corners[1].x-corners[0].x,corners[1].y-corners[0].y),Math.hypot(corners[3].x-corners[0].x,corners[3].y-corners[0].y))*.22;
+      q.fillRect(p.x-size/2,p.y-size/2,size,size);
+      occluded=!!matchGrid(anchor,q.getImageData(0,0,w,h));
+    }
+    output.push({name:f.name,sha256:f.sha256,width:w,height:h,corners,validQuad:valid,anchorValid,occlusionMatched:occluded,checks});
   }
   return output;
 }
@@ -127,7 +137,20 @@ async function run(){
       report.corpus={source:corpus.source,revision:corpus.revision,selection:corpus.selection,results:await page.evaluate(externalTracking,corpus.fixtures)};
       // This is coverage/retention measurement, not a claim that every external
       // image is readable. A static valid anchor must always match itself.
-      for(const f of report.corpus.results)assert.equal(f.checks[0].matched,true,`${f.name}: static anchor`);
+      let valid=0,retained=0;
+      for(const f of report.corpus.results){
+        if(!f.validQuad){
+          // Keep out-of-image or malformed source annotations in the report
+          // as rejected controls, never silently crop or repair the labels.
+          assert.equal(f.anchorValid,false);assert.ok(f.checks.every(c=>!c.matched));continue;
+        }
+        valid++;assert.equal(f.anchorValid,true);assert.equal(f.checks[0].matched,true,`${f.name}: valid static anchor`);
+        assert.equal(f.occlusionMatched,false,`${f.name}: covered grid cannot authorize old metadata`);
+        retained+=f.checks.slice(1).filter(c=>c.matched).length;
+      }
+      report.corpus.validAnchors=valid;report.corpus.translatedMatches=retained;report.corpus.translatedChecks=valid*3;
+      assert.ok(valid>=10,'the fixed slice must retain broad usable coverage');
+      assert.ok(retained>=Math.ceil(valid*3*.9),'at least 90% of valid small-motion controls must retain identity');
     }
     assert.deepEqual(report.errors,[]);report.ok=true;
    }catch(e){
