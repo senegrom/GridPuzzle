@@ -93,6 +93,17 @@ async function widePage({ font, candidate, manual = false }) {
   } finally { scanner.cancel(); preview.width = preview.height = 0; }
 }
 
+async function newspaperQuality(fixture) {
+  const { gridQuality } = await import('./scan-quality.js');
+  const image = new Image(); image.src = `data:image/webp;base64,${fixture.imageData}`; await image.decode();
+  const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+  const w = canvas.width, h = canvas.height, quality = gridQuality(ctx.getImageData(0, 0, w, h),
+    [{x:0,y:0},{x:w-1,y:0},{x:w-1,y:h-1},{x:0,y:h-1}],9,9);
+  canvas.width = canvas.height = 0;
+  return { name: fixture.name, quality };
+}
+
 async function alignmentChecks() {
   const { prepareScan } = await import('./scan-analysis.js');
   const source = document.createElement('canvas'); source.width = source.height = 400;
@@ -127,6 +138,12 @@ async function run() {
           const page=pages[version]=await context.newPage();page.on('pageerror',(e)=>report.errors.push(e.message));
           await page.goto(`http://127.0.0.1:8781/${version}/`);await page.waitForSelector('body[data-ready="true"]');
         }
+        report.cameraQuality = [];
+        for (const {fixture,variation} of qualityCases()) if (fixture.imageData && variation.name === 'original') {
+          const check = await pages.candidate.evaluate(newspaperQuality, fixture); report.cameraQuality.push(check);
+          assert.ok(check.quality?.assessable, `${name}/${fixture.name}: identify printed quality evidence`);
+          assert.equal(check.quality.reason, null, `${name}/${fixture.name}: paper texture must not block readable clues`);
+        }
         report.detail=await pages.candidate.evaluate(detailChecks);
         for (const item of report.detail) {assert.ok(item.enhanced);assert.ok(item.error<=8,JSON.stringify(item));assert.ok(Math.max(item.width,item.height)<=1800);}
         report.alignment={before:await pages.baseline.evaluate(alignmentChecks),after:await pages.candidate.evaluate(alignmentChecks)};
@@ -152,6 +169,7 @@ async function run() {
           report.quality.push({before,after});assert.ok(after);
           assert.deepEqual(after.wrong.filter((x)=>!prior.has(x.cell)),[],`${name}/${before.name}/${before.variation}: no previous correct cell lost`);
           assert.deepEqual(after.unsafe,[]);
+          assert.ok(after.flagged.length <= before.flagged.length, `${name}/${before.name}/${before.variation}: no unnecessary review flags`);
         }
         assert.deepEqual(report.errors,[]);report.ok=true;
       } catch(e) {report.failure=e.stack;report.ok=false;throw e;} finally {await browser.close();}

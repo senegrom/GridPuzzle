@@ -1,5 +1,33 @@
 import { gray, warp, validQuad } from './geometry.js';
 const quantile = (values, q) => values[Math.floor((values.length - 1) * q)] ?? 0;
+// Paper grain and shading can have contrast without forming a printed mark.
+// Require a bounded connected stroke inside the sampled cell. Either polarity
+// is allowed; this supplies quality evidence, never an OCR digit or confidence.
+function hasInteriorMark(samples, side, low, high, middle) {
+  const bright = high - middle > middle - low,
+    cutoff = bright ? high - (high - low) * .45 : low + (high - low) * .45,
+    ink = Uint8Array.from(samples, (v) => bright ? v >= cutoff : v <= cutoff),
+    seen = new Uint8Array(ink.length), stack = [];
+  for (let start = 0; start < ink.length; start++) {
+    if (!ink[start] || seen[start]) continue;
+    let area = 0, minx = side, miny = side, maxx = -1, maxy = -1;
+    seen[start] = 1; stack.push(start);
+    while (stack.length) {
+      const at = stack.pop(), x = at % side, y = Math.floor(at / side);
+      area++; minx = Math.min(minx, x); miny = Math.min(miny, y);
+      maxx = Math.max(maxx, x); maxy = Math.max(maxy, y);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy, next = yy * side + xx;
+        if (xx < 0 || yy < 0 || xx >= side || yy >= side || seen[next] || !ink[next]) continue;
+        seen[next] = 1; stack.push(next);
+      }
+    }
+    if (area >= Math.max(4, ink.length * .012) && area <= ink.length * .4 &&
+        maxy - miny + 1 >= side * .25 && minx > 0 && miny > 0 &&
+        maxx < side - 1 && maxy < side - 1) return true;
+  }
+  return false;
+}
 // Spatially equalised measurements exclude the outer 20% of every cell, where
 // the heavy lines live. Scores compare frames; they are not OCR probabilities.
 export function gridQuality(image, corners, rows, cols) {
@@ -21,11 +49,12 @@ export function gridQuality(image, corners, rows, cols) {
           lap = 4 * v - g[i + 1] - g[i - 1] - g[i + w] - g[i - w];
         gradient += dx * dx + dy * dy; laplacian += lap * lap;
       }
-    values.sort((a, b) => a - b);
-    const contrast = quantile(values, .97) - quantile(values, .03);
+    const samples = values.slice(); values.sort((a, b) => a - b);
+    const low = quantile(values, .03), high = quantile(values, .97), contrast = high - low;
     // Nearly uniform black/white cells and texture below the noise floor do
     // not contribute to focus ranking. Both ink polarities use the same test.
-    if (contrast < 16 || gradient / Math.max(1, values.length) < 12) continue;
+    if (contrast < 16 || gradient / Math.max(1, values.length) < 12 ||
+        !hasInteriorMark(samples, side - 2 * pad, low, high, quantile(values, .5))) continue;
     const focus = 100 * laplacian / Math.max(1, gradient),
       score = Math.min(500, focus) * Math.min(1, contrast / 80);
     cells.push({ cell: r * cols + c, score, contrast });

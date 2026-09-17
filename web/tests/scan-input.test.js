@@ -177,3 +177,23 @@ test('a proposed smaller cell never clips an existing glyph', () => {
   assert.equal(entry.refinedCell, undefined);
   assert.deepEqual([entry.x, entry.y, entry.w, entry.h], [78, 30, 8, 42]);
 });
+
+test('textured blank cells cannot dominate the quality of clear printed clues', () => {
+  const image = printed();
+  for (let cell = 3; cell < 16; cell++) {
+    const ox = (cell % 4) * 100, oy = Math.floor(cell / 4) * 100;
+    image.paint(ox, oy, 100, 100, 210);
+    for (let y = oy; y < oy + 100; y++) image.paint(ox, y, 100, 1, 210 + Math.round((y - oy) * .3));
+  }
+  const quality = gridQuality(image, quad(400, 400), 4, 4);
+  assert.equal(quality.assessable, true); assert.equal(quality.reason, null);
+  assert.equal(quality.markedCells, 3);
+});
+
+test('clue-quality ranking is symmetric for white-on-black print', () => {
+  const normal = printed(), inverse = printed();
+  for (let i = 0; i < inverse.data.length; i += 4) for (let k = 0; k < 3; k++) inverse.data[i + k] = 255 - inverse.data[i + k];
+  const a = gridQuality(normal, quad(400, 400), 4, 4), b = gridQuality(inverse, quad(400, 400), 4, 4);
+  assert.equal(a.markedCells, b.markedCells); assert.equal(a.reason, b.reason);
+  assert.ok(Math.abs(a.score - b.score) < 1);
+});

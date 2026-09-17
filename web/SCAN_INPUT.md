@@ -34,7 +34,11 @@ file is not uploaded, persisted in autosave or added to training data.
 The geometry worker measures the detected grid's cell interiors, excluding the
 outer 20% containing heavy grid lines. Spatially equalised samples compare
 Laplacian and gradient energy and ink contrast. Uniform blank and black cells do
-not contribute; both polarities work identically. The lower part of the marked
+not contribute; both polarities work identically. A bounded connected stroke
+inside the cell is required: paper grain, broad gradients and shading should
+not dominate the quality score merely because they have grayscale variation.
+The original newspaper photographs are checked explicitly against false quality
+warnings in both browser engines. The lower part of the marked
 cell score distribution informs frame selection rather than surrounding text.
 The existing stability checks, sharp-frame retries, cancellation and backoff stay
 in place. Older/injected detector results still support the original sharpness
@@ -62,8 +66,7 @@ it finds a previously missing mark or strictly contains the old glyph bounds
 with additional ink. Identical, shifted or smaller crops retain the original
 entry, preserving its padding and avoiding unnecessary review of complete clues.
 Every adopted correction remains review-flagged even when OCR agrees. This
-corrects modest local spacing
-errors; it is not full curved-page dewarping or solver-based clue repair.
+corrects modest local spacing errors; it is not full curved-page dewarping or solver-based clue repair.
 
 ## Verification
 
@@ -79,7 +82,8 @@ A separate small-grid control stays below the existing detector's 7% area
 threshold in both versions. Its explicit manual corner-selection route is tested
 and reported separately; it is not counted as successful automatic detection.
 It also compares every cell in the 66 existing quality cases against the exact
-pre-change master with the same dependencies and browser versions. No expected
+pre-change master with the same dependencies and browser versions, rejecting
+unnecessary increases in review flags as well as newly lost correct cells. No expected
 answers enter either recognizer. The existing fragment and number-quality
 regressions are retained. Raw reports distinguish geometry, pixel mapping and
 transcription: a larger crop alone is not evidence of higher OCR accuracy.
