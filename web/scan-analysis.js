@@ -1,3 +1,4 @@
+import { refineCellBounds } from './cell-boundaries.js';
 import { isGridStroke } from "./ocr-map.js";
 import { isCage } from "./model.js";
 import { gray, thresholdGray, estimateGrid } from "./geometry.js";
@@ -246,11 +247,18 @@ export function prepareScan(image, type, rows, cols) {
     contrast = normalizeScanContrast(gray(image)),
     g = contrast.gray,
     mask = thresholdGray(g, w, h),
+    cellBounds = refineCellBounds(g, w, h, rows, cols),
     black = detectBlackCells(g, w, h, rows, cols),
     anyBlack = black.some(Boolean),
     entries = [], unreadCells = [];
 
-  function region(kind, cell, x, y, rw, rh, invert = false, other = null) {
+  function extractRegion(kind, cell, x, y, rw, rh, invert = false, other = null, bounds = null) {
+    if (bounds) {
+      const ox = (cell % cols) * cw, oy = Math.floor(cell / cols) * ch;
+      x = bounds.x + (x - ox) / cw * bounds.w;
+      y = bounds.y + (y - oy) / ch * bounds.h;
+      rw = rw / cw * bounds.w; rh = rh / ch * bounds.h;
+    }
     x = Math.max(0, Math.round(x));
     y = Math.max(0, Math.round(y));
     rw = Math.max(1, Math.min(w - x, Math.round(rw)));
@@ -304,7 +312,7 @@ export function prepareScan(image, type, rows, cols) {
         if (recovered) {
           part = recovered.part;
           recoveredMark = true;
-          if (!part) unreadCells.push(cell);
+          if (!part) return { unread: true };
         }
       }
       if (!part) return;
@@ -341,7 +349,7 @@ export function prepareScan(image, type, rows, cols) {
       return;
     if (kind === "hsign" && maxx - minx < (maxy - miny) * 0.3) return;
     if (kind === "vsign" && maxy - miny < (maxx - minx) * 0.3) return;
-    entries.push({
+    return { entry: {
       kind,
       cell,
       other,
@@ -352,10 +360,28 @@ export function prepareScan(image, type, rows, cols) {
       invert,
       text: "",
       confidence: 0,
+      ...(bounds ? { cellBounds: bounds, refinedCell: true } : {}),
       ...(recoveredMark ? { recoveredMark: true } : {}),
       ...(glyphCount > 1 ? { glyphCount } : {}),
       ...(segments ? { segments } : {}),
-    });
+    } };
+  }
+  function region(kind, cell, x, y, rw, rh, invert = false, other = null) {
+    const args = [kind, cell, x, y, rw, rh, invert, other],
+      original = extractRegion(...args),
+      bounds = ["value", "blackvalue"].includes(kind) ? cellBounds?.[cell] : null,
+      refined = bounds ? extractRegion(...args, bounds) : null,
+      a = original?.entry, b = refined?.entry;
+    // A better boundary is not a reason to disturb an already complete crop.
+    // Only adopt newly found ink, or a strict superset of the original glyph's
+    // bounding box. Never trade away an existing piece for a shifted/shrunken
+    // crop, and do not add review flags when the printed evidence is identical.
+    const expands = b && (!a || (b.x <= a.x && b.y <= a.y &&
+      b.x + b.w >= a.x + a.w && b.y + b.h >= a.y + a.h &&
+      (b.x < a.x || b.y < a.y || b.w > a.w || b.h > a.h))),
+      chosen = expands ? refined : original;
+    if (chosen?.entry) entries.push(chosen.entry);
+    else if (original?.unread || refined?.unread) unreadCells.push(cell);
   }
 
   for (let r = 0; r < rows; r++)

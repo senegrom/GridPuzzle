@@ -37,8 +37,8 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
     }
     time = end; await flush();
   }
-  function result(job = detections.at(-1)) {
-    job.resolve({ confidence: .99, rows: 2, cols: 2, sharpness: 200,
+  function result(job = detections.at(-1), quality = undefined) {
+    job.resolve({ confidence: .99, rows: 2, cols: 2, sharpness: 200, quality,
       corners: [{ x: 0, y: 0 }, { x: 639, y: 0 }, { x: 639, y: 639 }, { x: 0, y: 639 }] });
     return flush();
   }
@@ -133,3 +133,21 @@ for (const type of ["sudoku", "killersudoku"])
     assert.equal(h.readings.length, 0);
     assert.match(h.$("camera-help").textContent, /does not fit/);
   });
+
+
+test("digit-quality guidance blocks blurry clues despite a crisp global score, then recovers", async (t) => {
+  const h = harness(t); await h.advance(100);
+  await h.result(undefined, { assessable: true, score: 2, reason: "blur" });
+  await h.advance(400); await h.result(undefined, { assessable: true, score: 2, reason: "blur" });
+  assert.equal(h.readings.length, 0); assert.match(h.$("camera-help").textContent, /sharper numbers/);
+  await h.advance(400); await h.result(undefined, { assessable: true, score: 150, reason: null });
+  await h.advance(400); await h.result(undefined, { assessable: true, score: 150, reason: null });
+  assert.equal(h.readings.length, 1, "read after genuinely clearer digits arrive");
+});
+
+test("small-number guidance preserves manual camera capture", async (t) => {
+  const h = harness(t); await h.advance(100);
+  await h.result(undefined, { assessable: false, reason: "small" });
+  assert.match(h.$("camera-help").textContent, /too few pixels/);
+  const capture = h.camera.capture(); assert.ok(capture.photo); assert.equal(capture.found, null);
+});

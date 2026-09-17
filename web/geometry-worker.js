@@ -1,10 +1,13 @@
+import { gridQuality } from './scan-quality.js';
 import { findGrid, warp, estimateGrid, sharpness } from "./geometry.js";
 import { prepareScan } from "./scan-analysis.js";
 self.onmessage = ({ data }) => {
   try {
     let result;
-    if (data.op === "detect")
+    if (data.op === "detect") {
       result = { ...findGrid(data.image, { thorough: data.thorough !== false }), sharpness: sharpness(data.image) };
+      result.quality = gridQuality(data.image, result.corners, result.rows || data.rows, result.cols || data.cols);
+    }
     else if (data.op === "warp" || data.op === "prepare") {
       const image = warp(data.image, data.corners, data.width, data.height);
       result =
