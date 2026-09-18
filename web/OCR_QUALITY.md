@@ -1,40 +1,43 @@
-# OCR quality follow-up — 2026-09-11
+# OCR quality
 
-Baseline: `7df6afc30b7da1c8a5cae6b35c4b34f109558e41`.
-Candidate measurements: GitHub Actions runs `34602544217` and `34603245459`,
-Chromium 153.0.8010.12 and WebKit 26.6 with the repository's pinned runtimes.
+How printed clues are read once the grid is found, what each mechanism was
+measured to do, and the suites that keep it. Grid detection is in
+[GRID_DETECTION.md](GRID_DETECTION.md), the live workflow in
+[LIVE_SCANNING.md](LIVE_SCANNING.md), the suites' method in
+[TESTING.md](TESTING.md).
 
-## Changes and trust boundary
+Every recovery below is a proposal for review: it never draws replacement
+strokes, substitutes numbers, or uses solver answers or fixture truth as OCR
+evidence, and a recovered reading keeps its review flag even when the numeric
+readers agree.
 
-Wide numeric crops are independently re-read as a single text line (PSM 7),
-not excluded from re-reading. Narrow crops retain character mode (PSM 10).
-Binary, grayscale and atlas readings vote on the complete number; disagreement
-still requires review. The 64-pixel sample height and white border are retained.
-Word mode helped but still shortened some `11` readings; line mode performed
-better. A 48-pixel sample height regressed recognition and was rejected.
+## Line mode for wide numbers, contrast normalization
+
+Wide numeric crops are re-read as a single text line (PSM 7) rather than
+excluded from re-reading; narrow crops keep character mode (PSM 10). Binary,
+grayscale and atlas readings vote on the complete number, and disagreement
+requires review. The 64-pixel sample height and white border stay: word mode
+still shortened some `11` readings, and a 48-pixel sample regressed recognition.
 
 Faded images with usable contrast receive black-level normalization before
 ink and structural black-cell detection. The 0.1st percentile estimates the
-black reference; the 99.5th percentile checks that at least 48 intensity levels
-remain. Images with a black reference below 64 and nearly uniform images are
-left untouched. The white endpoint stays fixed at 255 to avoid aggressively
-stretching shaded Sudoku paper. Gain is bounded by these guards. The original
-photo is not modified, and adjusted scans require confirmation even with an
-explicit type. No solver-derived guesses or fixture-specific substitutions
-are used. The native solver, model and package versions are unchanged.
+black reference; the 99.5th percentile checks that at least 48 intensity
+levels remain. Images with a black reference below 64 and nearly uniform
+images are left untouched, and the white endpoint stays at 255 so shaded
+Sudoku paper is not stretched. The photograph itself is not modified, and an
+adjusted scan requires confirmation even with an explicit type.
 
-The extra readings cost time on multi-digit boards; this is not a claimed
-speedup. Grayscale rereads are still limited to scans with at most 150 numeric
-crops, and the existing cancellable workers and deadlines are retained.
+The extra readings cost time on multi-digit boards. Grayscale rereads are
+limited to scans with at most 150 numeric crops, under the cancellable workers
+and deadlines every scan has.
 
-## Before/after measurements
+Measured on the scanner before these two changes, in Chromium 153.0.8010.12
+and WebKit 26.6 with the pinned runtimes. Counts are numeric clues; the common
+34 scans combine two browsers, the two newspaper crops at original and half
+resolution, blur and 35% contrast, and generated numbers in three font families
+at original contrast, blur and 35% contrast.
 
-Counts below are numeric *clues*, not individual characters or independent
-photographs. The common 34 scans combine two browsers, the two retained newspaper
-crops at original/half resolution, blur and 35% contrast, and generated numbers
-in three font families at original contrast, blur and 35% contrast.
-
-| Measurement | Baseline | Line mode + contrast normalization |
+| Measurement | Before | After |
 | --- | ---: | ---: |
 | Correct numeric clues, common cases | 866/892 | 885/892 |
 | Correct generated numeric clues | 532/540 | 540/540 |
@@ -45,79 +48,119 @@ in three font families at original contrast, blur and 35% contrast.
 | 35%-contrast Str8ts, WebKit | 14/20 | 19/20 |
 | Black-cell positions at 35% contrast, each engine | 0/22 | 22/22 |
 
-At 65% contrast the fixed candidate also retained all 22 Str8ts black cells
-and read all 20 clues in each engine. Half-resolution Str8ts still missed three
-numbered black clues in each engine; all were flagged. The remaining faded
-WebKit error was flagged too. Normally exposed newspaper results did not regress.
-Timing samples are in the raw reports, but the runs used different hosted
-machines and are not a controlled performance comparison.
+Half-resolution Str8ts still missed three numbered black clues in each engine,
+all flagged. These are bounded regression measurements, not an accuracy
+estimate for arbitrary photographs, handwriting or publisher layouts.
 
-These are bounded regression measurements, not an estimate of accuracy on
-arbitrary photos, handwriting or publisher layouts. Stronger fading and clipped
-or very small glyphs can remain unreadable. Physical-iPhone focus, motion,
-exposure and memory pressure were not tested.
+## Shaded cells and the automatic type
 
-## Permanent acceptance tests
-
-`newspaper_regressions.cjs` also runs `ocr_quality_regressions.cjs` against the
-production Scanner, Tesseract and browser canvas path. This adds 35%/65% contrast,
-half-resolution and blur cases and generated one-, two- and three-digit clues.
-Two extra font/size/position cases are held out from candidate selection.
-
-The suite requires exact black-cell geometry, zero unflagged discrepancies,
-minimum correct transcription counts, bounded numeric review flags and a
-confirmation warning when contrast is adjusted. Exceptions throw and fail CI;
-raw measurements are retained in `browser-artifacts/ocr-quality.json`.
-Unit tests cover sample routing, the reread budget, full-number voting, bounded
-normalization, gray shading, confirmation and OCR worker mode changes.
-
-Tesseract's segmentation and preprocessing guidance:
-https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
-
-## Publication review: shaded-cell occupancy and automatic type
-
-The recovery review found a blind spot in the candidate-selection tests above:
-an explicitly selected Sudoku discards structural black metadata, so its final
-puzzle alone could hide a shaded cell incorrectly detected as black. This
-occurred on the faded newspaper crop and could change an automatic proposal.
-
-Black-cell detection now requires most interior pixels, as well as the cell
-mean, to fall below the same adaptive darkness threshold. A dark printed digit
-cannot make otherwise lighter shaded paper pass solely by lowering its mean.
-Three unit cases reproduce this failure before correction and preserve a real
-numbered black cell at original, 65% and 35% contrast.
-
-The permanent quality suite now observes the unmodified geometry-worker result
-prior to classification and checks that black mask even for explicit Sudoku.
-It also checks the original and faded newspaper crops in automatic mode, for
-60 scans across the two browser engines. The table above records the earlier
-candidate-selection runs, not a universal accuracy estimate; final integrated
-measurements are retained in each run's `browser-artifacts/ocr-quality.json`.
-
-Publication is based on current master `13975b0`, preserving its immutable
-runtime, photo-read transaction, editor and Play repairs. No reference answers
-are supplied to recognition, and no confidence or confirmation rules are relaxed.
-
-The expanded automatic-mode measurements also found a reviewed `2`/`9`
-misreading in WebKit at 65% contrast (19/20 correct). The new degraded-auto
-cases therefore allow one flagged numeric error, as the existing strong-fade
-cases already do. This does not relax the normal-photo accuracy floor, exact
-black-cell geometry, correct automatic family, or zero-unflagged-discrepancy
-requirements. Actual per-case counts and errors remain in the raw report.
+An explicitly selected Sudoku discards structural black metadata, so its final
+puzzle alone could hide a shaded cell wrongly detected as black, which on the
+faded newspaper crop could change an automatic proposal. Black-cell detection
+therefore requires most interior pixels, as well as the cell mean, to fall
+below the same adaptive darkness threshold: a dark printed digit cannot make
+lighter shaded paper pass by lowering its mean. The quality suite observes the
+unmodified geometry-worker black mask before classification, even for explicit
+Sudoku, and scans the original and faded newspaper crops in automatic mode in
+both engines. A reviewed `2`/`9` misreading in WebKit at 65% contrast is why
+the degraded automatic cases allow one flagged numeric error, as the strong-fade
+cases do; the normal-photo accuracy floor, exact black-cell geometry, correct
+automatic family and zero unflagged discrepancies are still required.
 
 ## Fragmented printed marks
 
-The follow-up recognizer keeps substantial vertically aligned ink fragments
-inside one numeric crop when a narrow print/glare gap splits a glyph below the
-normal component-height threshold. This also preserves a fragmented trailing
-digit beside a connected leading digit. It does not draw replacement strokes,
-substitute numbers or use solver answers as OCR evidence. Every recovered crop
-stays review-flagged, even when the numeric readers agree. Small isolated dots
-and broadly separated fragments are still excluded, and grouping is bounded.
+A narrow print or glare gap can split a glyph into pieces below the component
+height threshold. The recognizer joins nearby, substantially aligned vertical
+fragments inside one numeric crop, smallest gaps first, and keeps the complete
+bounding box, so a short cap or foot beside a taller body and a fragmented
+trailing digit beside a connected leading digit survive. Grouping requires
+substantial ink, horizontal overlap and a short member in each pair, bounds
+the total height and the gap, and considers at most 24 candidate components;
+speckles, remote marks and two intact neighbouring digits stay separate. A
+joined crop is `recoveredMark` and reviewed. When several substantial glyphs
+share one numeric line the crop uses line mode even when narrow, since two
+slim glyphs can pass the aspect test for a single character.
 
-The permanent quality gate adds single-digit, trailing-digit and white-on-black
-fragment fixtures in both engines (66 scans in total). It records actual numeric
-results and requires the damaged clue to remain marked and uncertain. A missed
-reading must remain red in the live preview instead of becoming a blue answer
-slot. All previous newspaper/font accuracy and zero-unflagged-error checks stay
-in force; these extra artificial fixtures are not a phone-camera accuracy claim.
+`web/tests/recognition-fragments.test.js` covers both ink polarities, unequal
+and three-piece glyphs, trailing digits, intact narrow numbers, speckle and
+remote-mark rejection, review flags and sample routing;
+`web/tests/fragmented-clues.test.js` keeps a missed reading red in the live
+preview rather than a blue answer slot. `scripts/recognition_fragments_regressions.cjs`
+runs eight fixtures through the production scanner and real Tesseract in
+Chromium and mobile WebKit, requiring complete crops, intact control clues,
+the black-cell layout and zero unflagged errors: damaged clues must stay
+complete, marked and reviewable, not become perfectly readable.
+
+## Truncated multi-digit readings
+
+Preparation keeps the absolute boxes of two or three separately located,
+non-overlapping glyphs in a numeric crop, left to right. The count is a lower
+bound on the number's length, since touching digits share a component, so a
+longer reading is never shortened to match it. Whole-number recognition runs
+first; only when no isolated whole-crop reading is at least the detected
+length are the glyphs read one at a time, each from a grayscale crop padded to
+the midpoint of the empty gap so a neighbour cannot leak in. At the voting
+boundary a complete existing alternative is preferred to a truncated majority,
+marked `lengthRecovered` with confidence zero; a proposal assembled from
+per-glyph reads requires every glyph to return exactly one numeric character
+and is marked `segmentedRead`, also at confidence zero. Even unanimous
+whole-number readings stay uncertain when shorter than the glyph count.
+
+The per-glyph reads share the 24-extra-read ceiling with the raw-line retries,
+which run first in their original order. Preparation is capped at 72 glyph
+crops per scan and disabled above the 150-clue grayscale limit; exact-image
+caching and cancellation apply. `ocrStats.segmentReads` counts attempted
+per-glyph reads including cache hits.
+
+`web/tests/ocr-segments.test.js` and `ocr-length-floor.test.js` cover the
+geometry, crop pixels in both polarities, malformed input, budgets, evidence
+precedence, review, cache ownership and cancellation.
+
+## Compressed numeric clues
+
+A narrow `7` can read as `1`, and a compressed multi-digit clue can lose parts
+even after the per-glyph fallback. Narrow value and black-value crops with
+intact extraction geometry (not fragment-recovered crops, labels or signs) are
+also read from two horizontal resamplings of the padded grayscale sample, at
+1.5x and 2x, in single-line mode. A correction requires both scales to return
+the same bounded numeric string with a score of at least 75 each, a heuristic
+cutoff. The two readings are correlated, so they take no part in majority
+voting and can never certify each other as confident; they change only an
+already uncertain reading, cannot lengthen or shorten a full-length one, and
+yield to a longer existing alternative. An accepted change is
+`aspectRecovered` with confidence zero.
+
+Width retries use what remains of the same 24-extra-read budget after the
+raw-line and per-glyph retries, both reads of a pair must fit before it starts,
+and cancellation or an error during either read emits nothing. Packing is
+capped at 48 aspect variants (24 pairs) with bounded canvas sizes and PNG
+lengths, and boards above the 150-clue limit pack none. `ocrStats.aspectReads`
+counts attempts including cache hits, `calls` counts engine work.
+
+`web/tests/ocr-aspect.test.js` and `ocr-aspect-host.test.js` cover eligibility,
+unchanged source canvases, evidence precedence, scores, duplicate and malformed
+results, packing limits, retry priority, cache ownership and cancellation.
+
+## Acceptance suites
+
+`scripts/ocr_quality_regressions.cjs`, run by `newspaper_regressions.cjs` and
+by the Scanner quality workflow, scans the newspaper crops and generated one-,
+two- and three-digit clues at 35% and 65% contrast, half resolution and blur,
+with two font, size and position cases held out from candidate selection. It
+requires exact black-cell geometry, zero unflagged discrepancies, minimum
+correct counts, bounded numeric review flags and the confirmation warning when
+contrast is adjusted; raw measurements are kept in
+`browser-artifacts/ocr-quality.json`.
+
+`scripts/recognition_segments_regressions.cjs` compares the production scanner
+with a pinned baseline scanner in the same browsers and fonts: 26 narrow-number
+cases that must be transcribed exactly, twelve held-out FreeSans and FreeSerif
+cases, and every cell of the 66 quality cases, rejecting any newly lost
+correct cell or unflagged discrepancy even where the minimum-accuracy gate
+would allow a flagged error. The fixtures share their variations with the
+quality suite so they cannot drift apart.
+
+These suites use known corners and mostly generated print. They are regression
+controls, not an accuracy estimate for unseen photographs or handwriting, and
+they do not measure grid detection. Tesseract's own guidance on segmentation
+and preprocessing: https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html

@@ -21,8 +21,9 @@ for (const fixture of fixtures)
     }
   });
 test("dimensions are rejected before allocation and box calculation", () => {
-  for (const n of [0, -1, 1e-12, 1e9, Infinity, NaN, "9", null]) {
+  for (const n of [0, -1, 1e-12, 1.5, 26, 1e9, 1e12, Infinity, NaN, "9", null, true]) {
     assert.throws(() => makePuzzle("sudoku", n));
+    assert.throws(() => makePuzzle("sudoku", 9, n));
     assert.throws(() => boxShape(n));
   }
 });

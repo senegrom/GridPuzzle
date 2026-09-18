@@ -5,12 +5,12 @@ import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
-export function imageOf(canvas) {
+function imageOf(canvas) {
   return canvas
     .getContext("2d", { willReadFrequently: true })
     .getImageData(0, 0, canvas.width, canvas.height);
 }
-export function canvasOf(image) {
+function canvasOf(image) {
   const c = document.createElement("canvas");
   c.width = image.width;
   c.height = image.height;
@@ -94,7 +94,7 @@ const SAMPLE_HEIGHT = 64,
   SAMPLE_GRAY_LIMIT = 150;
 // Grayscale counterpart of digitCrop: same bounds, no binarization, dark
 // digit on light ground for black-cell clues too.
-export function grayCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
+function grayCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
   const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
     { minX, maxX, minY, maxY } = numericCropBounds(entry, imageWidth, imageHeight, cellWidth, cellHeight, cols),
     x = Math.max(minX, entry.x - pad),

@@ -12,7 +12,7 @@ export function threshold(image, window = 25, bias = 12) {
 // Whether a grey image is a screen with a light-on-dark theme: mostly dark,
 // and what stands out from the median is bright (lines, digits) rather than
 // dark (ink on a dimly lit page). Sampled, so a warp costs nothing.
-export function lightOnDark(g) {
+function lightOnDark(g) {
   const bins = new Uint32Array(256);
   let n = 0;
   for (let i = 0; i < g.length; i += 5) {
@@ -63,7 +63,7 @@ export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
     }
   return out;
 }
-export function polygonArea(p) {
+function polygonArea(p) {
   return (
     Math.abs(
       p.reduce((s, a, i) => {
@@ -186,7 +186,7 @@ function groups(values, cutoff) {
 // ``shearX`` slants the columns: a vertical line that drifts by shearX
 // pixels from the top row to the bottom row is read as one column.
 // ``shearY`` does the same for rows.
-export function lineProfile(b, w, h, skipRows = null, skipCols = null, visible = null, shearX = 0, shearY = 0) {
+function lineProfile(b, w, h, skipRows = null, skipCols = null, visible = null, shearX = 0, shearY = 0) {
   const x = new Float64Array(w),
     y = new Float64Array(h),
     nx = new Int32Array(w),
@@ -260,7 +260,7 @@ const LINE_CUTOFF = 0.42;
 // the length, read in the sheared frame and tolerating one pixel sideways.
 // A grid line runs the height of the warp; pencil marks, candidates and
 // handwriting break at every cell and never reach the cutoff.
-export function runProfile(b, w, h, shearX = 0, shearY = 0) {
+function runProfile(b, w, h, shearX = 0, shearY = 0) {
   const x = new Float64Array(w),
     y = new Float64Array(h);
   for (let c = 0; c < w; c++) {
@@ -1004,7 +1004,7 @@ function dotGroups(values, length) {
 // points are the quad, the dots re-found in the padded warp give the lattice
 // on each axis, and the outer dots are the corners, mapped back through the
 // homography.
-export function dotGrid(image, b) {
+function dotGrid(image, b) {
   const w = image.width,
     h = image.height,
     side = Math.max(4, Math.round(Math.max(w, h) * 0.02)),

@@ -7,7 +7,8 @@ Not collected by pytest — run as a script:
 Solves each corpus puzzle exactly like the tests do (full enumeration, unique
 solution asserted), printing the power-action statistics per puzzle and a
 grand total. Used to make data-driven decisions about power-list tiering
-(see TODO.md "hit-rate instrumentation").
+(see TODO.md, "Adaptive technique gating by inner hit rate", for why hit rate
+alone does not decide it).
 """
 import sys
 import time
