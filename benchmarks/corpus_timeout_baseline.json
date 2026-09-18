@@ -2,7 +2,7 @@
   "schema_version": 1,
   "case_timeout_seconds": 60,
   "reviewed_on": "2026-09-10",
-  "expires_on": "2027-03-31",
+  "expires_on": "2026-10-10",
   "evidence": "GitHub Actions run 33630723266, commit c40a51d4bd320c0792c4f25419ef47a62e6b112d (2026-09-02). The four new-family-slitherlink shard artifacts were downloaded and reviewed on 2026-09-10. These are historical allowances, not new timing measurements of master. Review resolved_timeouts and remove recovered cases before renewal.",
   "timeouts": [
     {

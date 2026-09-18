@@ -1,7 +1,8 @@
 """Timeouts must not turn a failed corpus run into a green no-op."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -147,6 +148,20 @@ def test_bad_baselines_fail_closed(root, change):
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError):
         corpus.load_timeout_baseline(path, root=root, timeout_seconds=60, today=today)
+
+
+def test_the_shipped_baseline_is_one_the_weekly_job_will_accept():
+    """The weekly job loads benchmarks/corpus_timeout_baseline.json with the
+    same rules as any other baseline, and only that job reads it, so a
+    renewal that breaks them is invisible until Sunday. The exemption is
+    deliberately short-lived: renewing it means reviewing the shard
+    artifacts again and moving both dates, not pushing the expiry out."""
+    path = Path("benchmarks/corpus_timeout_baseline.json")
+    reviewed = date.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["reviewed_on"])
+    allowed = corpus.load_timeout_baseline(
+        path, root=Path.cwd(), timeout_seconds=60, today=reviewed,
+    )
+    assert allowed, "a baseline with no accepted timeout should be deleted, not shipped empty"
 
 
 @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "0", "-1"])
