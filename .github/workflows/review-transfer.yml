@@ -1,0 +1,22 @@
+name: Review source transfer
+on:
+  push:
+    branches: ['fix/app-review-20260918']
+    paths: ['.github/workflows/review-transfer.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          mkdir -p source-artifact
+          git archive HEAD > source-artifact/source.tar
+          git rev-parse HEAD > source-artifact/commit.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: review-source
+          path: source-artifact
+          retention-days: 2
