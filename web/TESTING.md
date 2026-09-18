@@ -211,6 +211,18 @@ stages and records the measurements. `web/tests/grid-lines.test.js` pins each
 rule of the line stage on synthetic warps: thin and light-grey lines, digit
 columns, a dropped line, a stray line, cage walls, and the one-axis fallback.
 
+The benchmark shares the OCR benchmark's checkpointing runner and writes a
+`formatVersion` 1 object rather than a bare array: per-image measurements sit
+in `results`, and `status`, `failure`, `cleanupErrors`, `totalImages`,
+`completedImages` and the per-set, per-scale `summary` describe completion.
+The numeric `error` inside each scale is corner error; a top-level row
+`error` is an input or execution failure, excluded from the success metrics
+and counted as `failed`. The report is saved before start-up, after each
+image and after clean-up, so browser loss, SIGINT or SIGTERM leave a partial
+report with every resource closed. Malformed targets and undecodable images
+are recorded individually and count toward the per-set `--limit`; images
+without corner truth are excluded. `--engine webkit` is available.
+
 ### Unavailable corpus sources
 
 `tests/test_corpus_source_layout.py` checks that a missing registered source

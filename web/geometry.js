@@ -289,34 +289,19 @@ export function runProfile(b, w, h, shearX = 0, shearY = 0) {
   }
   return { x, y };
 }
-// Edge map: a pixel whose neighbours two apart differ by 30 levels or more,
-// in either direction. Every boundary between a black cell and a white one
-// is an edge exactly at the lattice, a grid line on paper is a pair of edges
-// two or three pixels apart, and the inside of a black cell is nothing.
-export function edgeMask(g, w, h) {
-  const e = new Uint8Array(g.length);
-  for (let y = 1; y < h - 1; y++)
-    for (let x = 1; x < w - 1; x++) {
-      const i = y * w + x;
-      if (Math.abs(g[i + 1] - g[i - 1]) >= 30 || Math.abs(g[i + w] - g[i - w]) >= 30) e[i] = 1;
-    }
-  return e;
-}
-// `mode` picks what counts as a line: "ink" the adaptive mask, "edge" the
-// boundaries of black and white, "run" the longest continuous run of ink.
+// `mode` picks what counts as a line: "ink" the adaptive mask, "run" the
+// longest continuous run of ink.
 export function gridLines(image, mask, shear = null, mode = "ink", invert = false) {
   const w = image.width,
     h = image.height,
     // Inverted, a screen with a light-on-dark theme has its light lines as
     // ink and its background as paper.
     g = invert ? inverted(gray(image)) : gray(image),
-    b = mode === "edge" ? edgeMask(g, w, h) : mask ?? thresholdGray(g, w, h, 25, 6, 255);
+    b = mask ?? thresholdGray(g, w, h, 25, 6, 255);
   // The adaptive mask never marks the inside of a black cell, only its edges,
   // so a grid line running past black cells is visible only along white
   // cells and its column reads at half strength. Measure over the pixels that
   // are ink or not absolutely dark, so the line counts where it can be seen.
-  // In edge mode a dark pixel counts only where it is an edge, so the
-  // invisible boundary between two black cells is not held against a line.
   const visible = new Uint8Array(b.length);
   for (let i = 0; i < b.length; i++) visible[i] = b[i] || g[i] >= 50 ? 1 : 0;
   // A quad a few percent off the grid slants every line in the warp and
@@ -565,26 +550,17 @@ function latticeAt(found, length, cells, beyond) {
       quality: present / (cells + 1) - strays / lines.length }
     : { cells: 0, first: 0, last: length - 1, quality: 0 };
 }
-export function estimateGrid(image, mask, shear = null, mode = "ink", aspect = 1, invert = false, thorough = true) {
-  let lines = gridLines(image, mask, shear, mode, invert),
+export function estimateGrid(image, mask, shear = null, aspect = 1, invert = false, thorough = true) {
+  let lines = gridLines(image, mask, shear, "ink", invert),
     across = regular(lines.x, image.width, lines.beyondX),
     down = regular(lines.y, image.height, lines.beyondY);
   if (across.cells && !down.cells) down = latticeAt(lines.y, image.height, across.cells, lines.beyondY);
   else if (down.cells && !across.cells) across = latticeAt(lines.x, image.width, down.cells, lines.beyondX);
-  // Black-heavy grids (Kakuro, a dense Str8ts) defeat the ink profile: a line
-  // between two black cells is invisible and a black cell's marked rim sits
-  // inside the cell. Their black/white boundaries are edges on the lattice.
-  // The edge lattice must account for at least half of the ink profile's
-  // groups, or faint cell lines would leave a coarse lattice of box lines.
-  if (mode === "ink" && !(across.cells && down.cells)) {
-    const edged = estimateGrid(image, undefined, shear, "edge", aspect, invert, thorough);
-    if (edged.rows && edged.cols && edged.rows + 1 >= lines.y.length * 0.5 && edged.cols + 1 >= lines.x.length * 0.5) return edged;
-  }
   // Cells full of pencil marks or handwriting lift columns of small digits
   // over the cutoff and bury the lattice in strays. Lines are continuous
   // where marks are not: the longest-run profile keeps only what runs the
   // length of the warp.
-  if (thorough && mode === "ink" && !(across.cells && down.cells)) {
+  if (thorough && !(across.cells && down.cells)) {
     const runs = gridLines(image, mask, lines.shear, "run", invert),
       runAcross = regular(runs.x, image.width, runs.beyondX),
       runDown = regular(runs.y, image.height, runs.beyondY);
@@ -603,7 +579,7 @@ export function estimateGrid(image, mask, shear = null, mode = "ink", aspect = 1
   // neither does, both are searched for runs of at least five lines whose
   // pitches agree with the quad's aspect (square cells). settle() must then
   // confirm the tightened quad, or the reading is dropped.
-  if (mode === "ink" && !(across.cells && down.cells)) {
+  if (!(across.cells && down.cells)) {
     const tx = trimmed(lines.x, image.width, lines.beyondX),
       ty = trimmed(lines.y, image.height, lines.beyondY);
     if (across.cells && !down.cells) {
@@ -630,10 +606,10 @@ export function estimateGrid(image, mask, shear = null, mode = "ink", aspect = 1
   // than a reflex, since a dimly lit page is mostly dark too. It runs even
   // for a live frame: a dark theme is the commonest thing the line stage
   // cannot read, and one more profile is cheap beside a second outline.
-  if (mode === "ink" && !invert && !(across.cells && down.cells) && lightOnDark(gray(image))) {
+  if (!invert && !(across.cells && down.cells) && lightOnDark(gray(image))) {
     // The skew is a property of the quad, not of the ink's polarity: the
     // inverted pass reuses the shear rather than searching for it again.
-    const flipped = estimateGrid(image, undefined, shear ?? lines.shear, "ink", aspect, true, thorough);
+    const flipped = estimateGrid(image, undefined, shear ?? lines.shear, aspect, true, thorough);
     if (flipped.rows && flipped.cols) return flipped;
   }
   const cols = across.cells,
@@ -677,7 +653,7 @@ function settle(image, corners, thorough = true) {
     // height over its width, which a partial lattice must respect.
     aspect = (Math.hypot(loose[3].x - loose[0].x, loose[3].y - loose[0].y) + Math.hypot(loose[2].x - loose[1].x, loose[2].y - loose[1].y)) /
       Math.max(1, Math.hypot(loose[1].x - loose[0].x, loose[1].y - loose[0].y) + Math.hypot(loose[2].x - loose[3].x, loose[2].y - loose[3].y)),
-    estimated = estimateGrid(warp(image, loose, size, size), undefined, null, "ink", aspect, false, thorough);
+    estimated = estimateGrid(warp(image, loose, size, size), undefined, null, aspect, false, thorough);
   if (!estimated.rows || !estimated.cols || !estimated.extent) return { corners, estimated };
   const [x0, x1] = estimated.extent.x,
     [y0, y1] = estimated.extent.y,
@@ -711,7 +687,7 @@ function settle(image, corners, thorough = true) {
   // to search for.
   if (moved <= diagonal * 0.01 && !estimated.partial) return { corners: tight, estimated };
   const grownTight = padded(tight, image.width, image.height),
-    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 }, "ink", 1, false, thorough);
+    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 }, 1, false, thorough);
   if (again.rows === estimated.rows && again.cols === estimated.cols && !again.partial) return { corners: tight, estimated: again };
   return estimated.partial ? none : { corners, estimated };
 }
@@ -807,8 +783,7 @@ function findIn(image, b, thorough = true) {
       }
       return candidate.wide;
     };
-  const candidates = [],
-    pieces = [];
+  const candidates = [];
   for (let i = 0; i < b.length; i++) {
     if (!b[i] || seen[i]) continue;
     let head = 0,
@@ -860,9 +835,7 @@ function findIn(image, b, thorough = true) {
         }
     }
     const area = (maxx - minx) * (maxy - miny),
-      corners = [tl, tr, br, bl],
-      piece = { corners, area, minx, miny, maxx, maxy, start: i };
-    if (tail > 150) pieces.push(piece);
+      corners = [tl, tr, br, bl];
     if (
       area > w * h * 0.07 &&
       tail > 150 &&
@@ -871,27 +844,7 @@ function findIn(image, b, thorough = true) {
       validQuad(corners, w, h) &&
       polygonArea(corners) > area * 0.5
     )
-      candidates.push(piece);
-  }
-  // A grid whose lines are cut at many intersections by clue diagonals is a
-  // heap of fragments, none a grid-sized quad on its own. When nothing
-  // qualifies, the largest pieces are widened and judged by what they
-  // gather.
-  if (!candidates.length) {
-    pieces.sort((p, q) => q.area - p.area);
-    for (const piece of pieces.slice(0, 3)) {
-      const wide = widen(piece),
-        xs = wide.map((p) => p.x),
-        ys = wide.map((p) => p.y),
-        minx = Math.min(...xs),
-        maxx = Math.max(...xs),
-        miny = Math.min(...ys),
-        maxy = Math.max(...ys),
-        area = (maxx - minx) * (maxy - miny);
-      if (wide !== piece.corners && area > w * h * 0.07 && maxx - minx > w * 0.15 && maxy - miny > h * 0.15 &&
-        validQuad(wide, w, h) && polygonArea(wide) > area * 0.5)
-        candidates.push({ ...piece, corners: wide, wide, area, minx, miny, maxx, maxy });
-    }
+      candidates.push({ corners, area, minx, miny, maxx, maxy, start: i });
   }
   candidates.sort((p, q) => q.area - p.area);
   if (!candidates.length)
@@ -935,43 +888,10 @@ function findIn(image, b, thorough = true) {
           outcome = wider;
       }
       return (candidate.tried = outcome);
-    },
-    inside = (q, x, y) => {
-      for (let i = 0; i < 4; i++) {
-        const a = q[i],
-          c = q[(i + 1) % 4];
-        if ((c.x - a.x) * (y - a.y) - (c.y - a.y) * (x - a.x) < 0) return false;
-      }
-      return true;
-    },
-    // The share of ink in the ring between two settled quads, sampled every
-    // other pixel. The outer quad is inset by three gaps first: along a
-    // paper's edge the dark table is marked as a band that the settled quad
-    // reaches the outside of, and it must not count as the ring's ink; the
-    // inner rim of a black clue band survives the inset.
-    ring = (whole, inner) => {
-      const diagonal = Math.hypot(whole[2].x - whole[0].x, whole[2].y - whole[0].y),
-        outer = padded(whole, w, h, -Math.min(0.2, (gap * 3) / (diagonal / 2))),
-        xs = outer.map((p) => p.x),
-        ys = outer.map((p) => p.y);
-      let ink = 0,
-        total = 0;
-      for (let y = Math.max(0, Math.floor(Math.min(...ys))); y <= Math.min(h - 1, Math.ceil(Math.max(...ys))); y += 2)
-        for (let x = Math.max(0, Math.floor(Math.min(...xs))); x <= Math.min(w - 1, Math.ceil(Math.max(...xs))); x += 2) {
-          if (!inside(outer, x, y) || inside(inner, x, y)) continue;
-          total++;
-          ink += b[y * w + x];
-        }
-      return total ? ink / total : 0;
     };
   // A photograph of a page on a dark table makes the page's edge the largest
   // component, a thin ring around the grid. When a substantial candidate lies
-  // inside the largest one, it is the grid if it carries a lattice, unless
-  // the largest carries a lattice of the same pitch and the ring between
-  // the two settled quads is full of ink: then the inner one is a sub-grid
-  // of a grid whose black clue cells were cut off by their diagonals, and
-  // the whole grid wins. Empty paper between a grid and the page's edge is
-  // not that, even when the edge sits one cell out.
+  // inside the largest one, it is the grid if it carries a lattice.
   if (candidates.length > 1) {
     const outer = candidates[0];
     for (const inner of candidates.slice(1, 3)) {
@@ -980,11 +900,7 @@ function findIn(image, b, thorough = true) {
       const within = tried(inner);
       // A partial reading of a contained candidate is a window of a
       // fragmented grid, not the grid.
-      if (!complete(within)) continue;
-      if (ring(outer.corners, within.corners) < 0.2) return result(within, 0.94);
-      const whole = tried(outer);
-      if (found(whole) && samePitch(whole, within) && ring(whole.corners, within.corners) >= 0.2) return result(whole, 0.94);
-      return result(within, 0.94);
+      if (complete(within)) return result(within, 0.94);
     }
   }
   const settled = tried(candidates[0]);

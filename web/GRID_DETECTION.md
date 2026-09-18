@@ -61,8 +61,8 @@ The largest component may be an app's frame, a browser panel or a shadow
 beside the grid. When it carries no lattice the next two largest are tried,
 and a full reading from any of them beats a partial one. When a quad took in
 a toolbar or a page beside the grid, no axis spans the warp: as a last
-resort, after the edge map and the continuous-run profile, one axis that
-does span it is matched by a regular run of exactly its number of lines
+resort, after the continuous-run profile, one axis that does span it is
+matched by a regular run of exactly its number of lines
 anywhere along the other, and when neither spans it both are searched for
 runs of at least five lines whose pitches agree with the quad's aspect. A
 run must hold seven tenths of the axis's lines (a window of a fragmented
@@ -123,16 +123,7 @@ The stage now works as follows.
   is measured over the pixels that are ink or not absolutely dark, so the line
   counts where it can be seen; a column or row that is mostly hidden cannot
   carry a line.
-- **An edge map as second chance.** With two fifths of the cells black, a
-  line between two black cells is invisible to any relative ink mask and a
-  black cell's marked rim is a band centred inside the cell. When the ink
-  profile yields no lattice, the lines are read again from an edge map (a
-  pixel whose neighbours two apart differ by thirty levels): every black
-  and white boundary is an edge exactly on the lattice, a line on paper is a
-  pair of edges, and the inside of a black cell is nothing. Dark pixels count
-  as visible only where they are edges, so the invisible boundary between two
-  black cells is not held against a line.
-- **The continuous-run profile as third chance.** Cells full of pencil marks
+- **The continuous-run profile as second chance.** Cells full of pencil marks
   or handwriting lift columns of small digits over the cutoff and bury the
   lattice in strays. When neither the ink nor the edge profile yields a
   lattice, each column and row is measured by its longest continuous run of
@@ -165,13 +156,7 @@ boundary was measured first and rejected: on tilted quads a slanted side
 contaminates its neighbour's samples and pulls the fit by about 4%.
 
 When a substantial candidate lies inside the largest one it is tried first,
-since a page on a dark table makes the page's edge the largest component;
-but when the largest also carries a lattice of the same pitch and the ring
-between the two settled quads is at least a fifth ink, the inner one is a
-sub-grid whose black clue band was cut off by its diagonals, and the whole
-grid wins. Empty paper between a grid and a page's edge one cell out is not
-that; the ring is measured inside the outer quad inset by three gaps, so the
-band of dark table marked along the edge does not count.
+since a page on a dark table makes the page's edge the largest component.
 
 ## A live frame and a photograph
 
@@ -179,7 +164,7 @@ The readings above are tried in order and each costs only when the ones
 before it find nothing, but the frames that reach the end are exactly the
 ones the live camera sees most: a page in view, not yet framed, with a quad
 and no grid. `findGrid(image, { thorough })` divides them. A live frame gets
-the outline, the widening, the edge map, the inverted line stage and the
+the outline, the widening, the inverted line stage and the
 partial lattice; a still photograph also gets the extra outline candidates,
 the continuous-run profile, the inverted outline pass and the dot lattice.
 Measured on the app photographs at the live scale, a frame with a quad and
@@ -193,16 +178,16 @@ and the photograph finds 1056.
 Good detections (grid found, right size, corners within 3% of the diagonal)
 at the live scale, per corpus set, before and after the change:
 
-| Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase | + polarity, candidates, runs, dots |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 | 187 / 202 | 191 / 202 | 191 / 202 |
-| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 | 957 / 1398 | 986 / 1398 | 1054 / 1398 |
-| Kakuro renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 106 / 111 | 107 / 111 |
-| Slitherlink renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 85 / 111 |
-| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
-| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 | 238 / 240 | 238 / 240 | 239 / 240 |
-| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
-| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 119–120 / 120 each |
+| Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase | + polarity, candidates, runs, dots | + pitch refinement, three mechanisms removed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| newspaper photographs (wichtounet) | 109 / 202 | 177 / 202 | 178 / 202 | 187 / 202 | 191 / 202 | 191 / 202 | 191 / 202 |
+| book, app and screen photographs (Lexski) | 500 / 1398 | 912 / 1398 | 917 / 1398 | 957 / 1398 | 986 / 1398 | 1054 / 1398 | 1061 / 1398 |
+| Kakuro renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 106 / 111 | 107 / 111 | 105 / 111 |
+| Slitherlink renders (janko) | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 0 / 111 | 85 / 111 | 85 / 111 |
+| KenKen renders (janko) | 1 / 120 | 87 / 120 | 120 / 120 | 120 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
+| Killer renders (janko sum puzzles, generated) | 0 / 240 | 177 / 240 | 238 / 240 | 238 / 240 | 238 / 240 | 239 / 240 | 239 / 240 |
+| Str8ts renders (janko) | 65 / 120 | 74 / 120 | 107 / 120 | 120 / 120 | 120 / 120 | 120 / 120 | 120 / 120 |
+| Sudoku, Latin, Numbrix, Hidato, Futoshiki renders | ~88 / 120 each | ~88 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 116–119 / 120 each | 119–120 / 120 each | 119–120 / 120 each |
 
 The line stage lost fourteen images the original accepted, all with one axis
 found and the other not; the outline stage lost one more; the last step lost
@@ -217,16 +202,43 @@ The polarity pass, the extra candidates, the continuous-run profile and the
 dot lattice all run only when the readings before them find nothing, so a
 frame that carries a grid costs the same as before; a grid that reaches the last of them costs about twice what it did, and one that never resolves about three times, all of it inside the one-shot photograph path.
 
+### Measured and removed
+
+Three mechanisms were taken out after a tagged run of the corpus showed
+which of them decided each result, and a run with each disabled showed what
+it was worth. The whole totals are 3013 images; "wrong" counts grids
+reported with confidence but at the wrong size or place.
+
+| Detector | Good | Wrong |
+| --- | ---: | ---: |
+| with all three | 2627 | 61 |
+| without the whole-grid-over-inner ring rule | 2627 | 61 |
+| without the fragment fallback | 2629 | 57 |
+| without the edge map | 2628 | 47 |
+| without all three | 2630 | 43 |
+
+The edge map (a lattice read from black/white boundaries when the ink
+profile found none) decided 42 results and was wrong in 19 of them; once
+bands met the lattice with their edges and the pitch was refined, the ink
+profile read Kakuro on its own, and the edge map was left inventing sizes on
+app photographs. Two Kakuro renders are lost with it. The fragment fallback
+(widening the largest pieces when no component is a grid-sized quad) fired
+six times and was wrong four. The ring rule (the whole grid winning over a
+contained sub-grid when the ring between them is inky) decided one image,
+which reads the same without it. A frame with a quad and no grid, the case
+the live camera sees most, costs about half of what it did, since the edge
+map was a second full line stage on every failed estimate.
+
 ## Known gaps
 
-- **Kakuro** (black cells everywhere) was not found until the widening, the
-  edge map and the lattice's phase, and **Slitherlink** (dots, no lines) not
+- **Kakuro** (black cells everywhere) was not found until the widening and
+  the lattice's phase and bands, and **Slitherlink** (dots, no lines) not
   until the dot lattice (85 of 111 renders): the adaptive ink mask marks only pixels darker than their
   surroundings, so the inside of a black cell is never ink, and a white clue
   diagonal cuts a black corner cell off its own outline. Adding absolute
   black to the outline mask was tried first and rejected: it gained three
   Kakuro images and lost five elsewhere, because dark regions of real
-  photographs pull the corners. Kakuro now reads 106 of 111 renders; the five
+  photographs pull the corners. Kakuro now reads 105 of 111 renders; the six
   left are photo variants where a shadow or the paper's edge wins the outline
   or a black column is read one cell short.
 - A rendered photograph whose paper margin equals the cell pitch reads as a
@@ -242,36 +254,8 @@ frame that carries a grid costs the same as before; a grid that reaches the last
 - `corpus/detect_benchmark.cjs` reproduces the measurement over every corpus
   image with corner ground truth, at both scales, in a few minutes; it is a
   measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above
-  on synthetic warps.
-
-## Rounding and benchmark regressions (September 16, 2026)
-
-The later outline/phase work already recovered the original 21x21 and 25x25
-full-frame examples from the review, but direct 24/25-cell warps could still
-lose two rows/columns and a thick 23x23 frame could still lose its lattice.
-Global pitch refinement fixes those remaining cases without reverting the
-black-cell, edge-map or widening work. `web/tests/grid-size-range.test.js`
-checks both the 540px lattice stage and complete detection for every size
-3 through 25 at three stroke widths, plus rectangular grids in both
-orientations. Sizes 1 and 2 remain outside automatic lattice inference.
-The photographic corpus was not rerun for this change; the historical table
-above is not a new measurement of the refined implementation.
-
-`corpus/detect_benchmark.cjs` now shares the OCR benchmark's checkpointing and
-cleanup runner. The output is a **formatVersion 1 object**, not the previous
-bare array: per-image measurements are in `results`; run `status`, `failure`,
-`cleanupErrors`, `totalImages`, `completedImages`, and per-set/per-scale
-`summary` fields describe completion. Consumers of the old JSON array must
-read `report.results`. The numeric `error` inside each scale remains corner
-error; a top-level row `error` is an input or execution failure, excluded from
-success metrics and counted separately as `failed`.
-
-The report is saved before startup, after each image, and after cleanup.
-Malformed targets and image decoding failures are recorded individually and
-later images continue. Browser loss, SIGINT or SIGTERM stop the run with a
-partial failed/interrupted report; all allocated resources are closed.
-Images with valid targets but no corner truth remain intentionally excluded;
-invalid targets are included as diagnostic failures and count toward the
-per-set `--limit`. `--engine webkit` is also available. The permanent
-scanner-settings browser gate exercises an actual bad PNG between two valid
-PNGs in both Chromium and WebKit, alongside the hidden-box-control regression.
+  on synthetic warps, and `web/tests/grid-size-range.test.js` checks the
+  lattice stage and complete detection for every size from 3 to 25 at three
+  stroke widths, plus rectangular grids both ways, because pixel-rounded gaps
+  once lost rows from 24- and 25-cell warps. Sizes 1 and 2 stay outside
+  automatic lattice inference.
