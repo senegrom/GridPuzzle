@@ -96,6 +96,7 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
     const browser = await engine.launch({ headless: true });
     const report = { browser: name, version: browser.version(), errors: [] };
     reports.push(report);
+    console.log(`${name} ${report.version}`);
     let page;
     try {
       page = await (await browser.newContext(context)).newPage();

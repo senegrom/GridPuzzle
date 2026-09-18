@@ -100,23 +100,24 @@ async function run(){
  const server=await serve();
  try{
   await engines('live-motion.json',async(page,report,name)=>{
-   report.checks=[];
+   report.checks=[];const log=(message)=>console.log(`${name}: ${message}`);
    try{
-    await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');await page.evaluate(beginMotion,expected);
-    await page.waitForFunction(()=>motionState.reads>0);
+    await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');log('app ready');
+    await page.evaluate(beginMotion,expected);log('camera started on the moving canvas');
+    await page.waitForFunction(()=>motionState.reads>0);log('first read started');
     const first=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,unknown:motionOutput.dataset.unknown}));
     assert.equal(Number(first.unknown),0,'initial grid outline must not cover blank cells in red');
     await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
     const captured=await page.evaluate(()=>{const c=motionState.camera.capture();return {cells:c.found?.puzzle.cells,review:c.found?.needsReview,reads:motionState.reads,cancels:motionState.cancels,ticks:motionState.ticks,unknown:motionOutput.dataset.unknown,refining:!!c.found?.refining};});
     report.reading=captured;
     assert.deepEqual(captured.cells,expected);assert.equal(captured.review,true);assert.equal(captured.refining,false);assert.equal(captured.reads,1);assert.equal(captured.cancels,first.cancels);
-    assert.equal(Number(captured.unknown),0);report.reading=captured;report.checks.push('22/22 real OCR clues finish during continual jitter and changing background; one read, no motion cancellation');
+    assert.equal(Number(captured.unknown),0);report.reading=captured;report.checks.push('22/22 real OCR clues finish during continual jitter and changing background; one read, no motion cancellation');log('22/22 read under jitter');
     await page.evaluate(()=>{motionState.mode='finger';});
     await page.waitForFunction(()=>{const p=motionOutput.getContext('2d').getImageData(10,10,1,1).data;return Math.abs(p[0]-172)<3 && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===0;});
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found),null,'occluded current frame must not carry old readings');
     await page.evaluate(()=>{motionState.mode='grid';});
     await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
-    assert.equal(await page.evaluate(()=>motionState.reads),1,'brief occlusion reuses verified work');report.checks.push('finger immediately hides metadata; same board returns without starting OCR again');
+    assert.equal(await page.evaluate(()=>motionState.reads),1,'brief occlusion reuses verified work');report.checks.push('finger immediately hides metadata; same board returns without starting OCR again');log('occlusion handled');
     await page.evaluate(()=>{motionState.cells[1]=3;});
     await page.waitForFunction(()=>{const p=motionOutput.getContext('2d').getImageData(10,10,1,1).data;return Math.abs(p[1]-60)<3;});
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'first displayed changed frame cannot show the old clue');
@@ -124,11 +125,11 @@ async function run(){
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'changed clue must never retain the old value');
     await page.waitForFunction(()=>!motionState.reading && motionState.camera.capture().found?.puzzle.cells[1]===3);
     report.changed=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,cells:motionState.camera.capture().found.puzzle.cells}));
-    report.checks.push('a changed clue starts a new genuine OCR read, never reusing old clue metadata');
+    report.checks.push('a changed clue starts a new genuine OCR read, never reusing old clue metadata');log('changed clue re-read');
     await page.evaluate(()=>{motionState.camera.stop();clearInterval(motionState.timer);motionState.stream.getTracks().forEach(t=>t.stop());motionState.video.remove();});
     await page.screenshot({path:`browser-artifacts/${name}-motion.png`});
     if(fs.existsSync('live-fixtures/fixtures.json')){
-      const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8'));
+      const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8'));log(`tracking ${corpus.fixtures.length} external pictures`);
       report.corpus={source:corpus.source,revision:corpus.revision,selection:corpus.selection,results:await page.evaluate(externalTracking,corpus.fixtures)};
       // This is coverage/retention measurement, not a claim that every external
       // image is readable. A static valid anchor must always match itself.
@@ -146,6 +147,7 @@ async function run(){
       report.corpus.validAnchors=valid;report.corpus.translatedMatches=retained;report.corpus.translatedChecks=valid*3;
       assert.ok(valid>=10,'the fixed slice must retain broad usable coverage');
       assert.ok(retained>=Math.ceil(valid*3*.9),'at least 90% of valid small-motion controls must retain identity');
+      log(`${retained}/${valid*3} small-motion controls kept their identity`);
     }
    }catch(e){
     report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
