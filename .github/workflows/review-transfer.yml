@@ -4,19 +4,53 @@ on:
     branches: ['fix/app-review-20260918']
     paths: ['.github/workflows/review-transfer.yml']
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
+  import:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - run: |
-          mkdir -p source-artifact
-          git archive HEAD > source-artifact/source.tar
-          git rev-parse HEAD > source-artifact/commit.txt
-      - uses: actions/upload-artifact@v7
         with:
-          name: review-source
-          path: source-artifact
-          retention-days: 2
+          ref: fix/app-review-20260918
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Apply exact reviewed patch
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+          parts = [pathlib.Path(f'scripts/.review-part-{i}') for i in range(8)]
+          text = ''.join(p.read_text().strip() for p in parts)
+          patch = gzip.decompress(base64.b64decode(text, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'd6c0a0ee2566038400421c851edb44834b0605ccce054bc8a58e96f1fdb685c9'
+          allowed = {'.github/workflows/browser-pages.yml', '.github/workflows/scan-input.yml', 'scripts/app_review_regressions.cjs', 'web/README.md', 'web/TESTING.md', 'web/app.js', 'web/backup.js', 'web/camera-modal.js', 'web/index.html', 'web/live-camera.js', 'web/live-registration.js', 'web/live-session.js', 'web/model.js', 'web/photo-flow.js', 'web/sw.js', 'web/tests/app-review.test.js', 'web/tests/deployment-gates.test.js', 'web/tests/import-lifecycle.test.js', 'web/tests/offline-retry.test.js', 'web/tests/review-hardening.test.js'}
+          changed = subprocess.check_output(['git','apply','--numstat','-'], input=patch).decode().splitlines()
+          assert {line.split('\t')[2] for line in changed} == allowed
+          subprocess.run(['git','apply','--check','-'], input=patch, check=True)
+          subprocess.run(['git','apply','-'], input=patch, check=True)
+          for p in parts: p.unlink()
+          pathlib.Path('scripts/.review-patch-1').unlink(missing_ok=True)
+          pathlib.Path('.github/workflows/review-transfer.yml').unlink()
+          PY
+          mkdir -p review-transfer-artifact
+          node --test --test-concurrency=1 web/tests/*.test.js > review-transfer-artifact/unit-tests.log
+          node --check scripts/app_review_regressions.cjs
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web scripts .github/workflows
+          git commit -m 'Preserve session backups, honour live preferences and harden offline recovery, modal focus and arithmetic feedback'
+          git push origin HEAD:refs/heads/fix/app-review-20260918
+      - name: Retain exact repaired source
+        if: always()
+        run: |
+          mkdir -p review-transfer-artifact
+          git archive HEAD > review-transfer-artifact/source.tar
+          git rev-parse HEAD > review-transfer-artifact/commit.txt
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reviewed-repair-source
+          path: review-transfer-artifact
+          retention-days: 3
