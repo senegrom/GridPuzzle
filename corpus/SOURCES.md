@@ -265,11 +265,12 @@ browser and HTTP-server cleanup is attempted independently, including startup
 and output-write failures. Hard process termination or loss of disk access can
 only preserve the last successful checkpoint, not guarantee a final report.
 
-`Corpus tools` CI runs on Linux and Windows with the optional renderer dependencies.
-It exercises full/partial/skipped rebuilds, cache overrides, a real three-variant
-render with the bundled font, bad-font preflight, and benchmark failure/interrupt
-paths. Tests use temporary fixtures, never fetch public datasets or mutate the
-external corpus, and retain the tested source and test reports as artifacts.
+The CI workflow installs the optional renderer dependencies on Linux and
+Windows, so these tests run with the rest of the bounded suite: full, partial
+and skipped rebuilds, cache overrides, a real three-variant render with the
+bundled font, bad-font preflight, and benchmark failure and interrupt paths.
+They use temporary fixtures and never fetch public datasets or mutate the
+external corpus.
 
 ### Detection-only report lifecycle
 

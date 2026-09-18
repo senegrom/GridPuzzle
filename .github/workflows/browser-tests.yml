@@ -1,6 +1,7 @@
 name: Browser branch tests
 on:
   pull_request:
+    paths-ignore: ["**/*.md", "LICENSE"]
 permissions:
   contents: read
 concurrency:
@@ -19,5 +20,6 @@ jobs:
         run: node --test web/tests/*.test.js
       - name: Check every browser module parses
         run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
-      - name: Explain full-browser coverage
-        run: echo 'The master push workflow "Build and deploy phone scanner" is the single full Chromium/WebKit + Python deployment gate; PR CI intentionally avoids duplicating that expensive suite.'
+      # The Playwright suites run once per pull request in "Scanner quality"
+      # when web/ or scripts/ change, and on every master push in "Build and
+      # deploy phone scanner", which is the deployment gate.

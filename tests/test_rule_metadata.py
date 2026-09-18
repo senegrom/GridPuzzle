@@ -57,8 +57,10 @@ def test_uses_guarantees_flag_matches_apply_bodies():
 
 # Per-push CI runs `pytest tests -m "not slow"`, so a slow-marked test runs
 # ONLY where an extended-CI job selects it explicitly. These allowlists mirror
-# .github/workflows/extended.yml: module-marked files run in supported-corpus,
-# and each function-marked node has a dedicated job. Adding a slow marker
+# .github/workflows/extended.yml: module-marked files run in the corpus
+# matrix's first two entries, and each function-marked node is selected by
+# name in its entry ("Slow pandiagonal Latin-square corpus" or "Slow
+# deterministic checks"). Adding a slow marker
 # without wiring an extended job would silently drop the test from all CI —
 # extend the workflow first, then update the expected sets here.
 _EXPECTED_MODULE_SLOW_FILES = {
@@ -71,7 +73,11 @@ _EXPECTED_MODULE_SLOW_FILES = {
 }
 _EXPECTED_FUNCTION_SLOW_NODES = {
     ("test_basic.py", "test_parallel_trials_match_sequential"),
+    ("test_basic.py", "test_sudo1"),
+    ("test_basic.py", "test_sudo_nonsq"),
     ("test_examples_lsq.py", "test_ex_diag_latin_squares"),
+    ("test_stack_safe_search.py", "test_deep_search_preserves_the_first_two_solutions_and_caller"),
+    ("test_stack_safe_search.py", "test_large_slitherlink_search_returns_one_connected_cycle"),
 }
 
 

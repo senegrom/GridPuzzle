@@ -11,6 +11,7 @@ class _BinaryGrid(Grid):
     technique_profile = TechniqueProfile.RULES_ONLY
 
 
+@pytest.mark.slow  # ~30 s: a 1024-decision search; weekly extended CI
 def test_deep_search_preserves_the_first_two_solutions_and_caller():
     grid = _BinaryGrid(1, 1024, max_elem=2)
     recursion_limit = sys.getrecursionlimit()
@@ -26,6 +27,7 @@ def test_deep_search_preserves_the_first_two_solutions_and_caller():
     assert sys.getrecursionlimit() == recursion_limit
 
 
+@pytest.mark.slow  # ~2 min: a blank 32x32 Slitherlink; weekly extended CI
 def test_large_slitherlink_search_returns_one_connected_cycle():
     grid = Slitherlink([[None] * 32 for _ in range(32)])
 
