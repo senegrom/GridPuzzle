@@ -31,15 +31,17 @@ jobs:
           subprocess.run(['git','apply','-'], input=patch, check=True)
           for p in parts: p.unlink()
           pathlib.Path('scripts/.review-patch-1').unlink(missing_ok=True)
-          pathlib.Path('.github/workflows/review-transfer.yml').unlink()
           PY
           mkdir -p review-transfer-artifact
           node --test --test-concurrency=1 web/tests/*.test.js > review-transfer-artifact/unit-tests.log
           node --check scripts/app_review_regressions.cjs
           git diff --check
+          # Workflow changes are applied separately using the authorized connector.
+          # GITHUB_TOKEN is deliberately not granted workflow-write permission.
+          git restore --source=HEAD --staged --worktree .github/workflows
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add web scripts .github/workflows
+          git add web scripts
           git commit -m 'Preserve session backups, honour live preferences and harden offline recovery, modal focus and arithmetic feedback'
           git push origin HEAD:refs/heads/fix/app-review-20260918
       - name: Retain exact repaired source
