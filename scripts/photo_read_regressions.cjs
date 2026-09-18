@@ -1,18 +1,10 @@
 /* Real DOM, photo overlays and Pyodide. OCR completion is controlled explicitly. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8772/GridPuzzle/";
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle")) fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn("python", ["-m", "http.server", "8772", "--bind", "127.0.0.1", "--directory", "_preview"], { stdio: "ignore" });
-const reports = [];
+const { serve, engines, main } = require("./harness.cjs");
 const state = (page) => page.evaluate(() => photoApp.getState());
-async function exercise(page, report) {
-  await page.goto(BASE);
+async function exercise(page, report, base) {
+  report.checks = [];
+  await page.goto(base);
   await page.waitForSelector('body[data-ready="true"]');
   const image = await page.evaluate(async () => {
     window.photoApp = await import("./app.js");
@@ -106,31 +98,16 @@ async function exercise(page, report) {
   await page.waitForFunction(() => photoApp.getState().result?.status === "unique", null, { timeout: 120000 });
   report.checks.push("a valid re-read replaces the board; Undo and the real solver still work");
 }
-(async () => {
+async function run() {
+  const server = await serve({ pages: true });
   try {
-    let available = false;
-    for (let i = 0; i < 60; i++) {
-      try { if ((await fetch(BASE)).ok) { available = true; break; } } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.ok(available, "Static server did not start");
-    for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
-      const browser = await engine.launch({ headless: true });
-      const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true });
-      const page = await context.newPage(), report = { browser: name, version: browser.version(), checks: [], errors: [] };
-      reports.push(report); page.setDefaultTimeout(20000);
-      page.on("pageerror", (error) => report.errors.push(error.message));
-      try {
-        await exercise(page, report); assert.deepEqual(report.errors, []); report.status = "passed";
-        console.log(`${name}: photo Read transaction regressions passed`);
-      } catch (error) {
-        report.status = "failed"; report.failure = error.stack;
-        await page.screenshot({ path: `browser-artifacts/${name}-photo-read-failure.png`, fullPage: true }).catch(() => {});
-        throw error;
-      } finally { await browser.close(); }
-    }
+    await engines("photo-read-transactions.json", async (page, report, name) => {
+      await exercise(page, report, server.base);
+      console.log(`${name}: photo Read transaction regressions passed`);
+    });
   } finally {
-    fs.writeFileSync("browser-artifacts/photo-read-transactions.json", JSON.stringify(reports, null, 2) + "\n");
-    server.kill();
+    server.close();
   }
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+}
+module.exports = { run };
+main(module, run);

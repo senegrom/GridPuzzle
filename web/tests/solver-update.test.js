@@ -1,37 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import vm from "node:vm";
-import { webcrypto, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
+import { activateWorker, memoryCaches, scope } from "./service-worker-fixture.js";
 
-const source = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
-const scope = "https://example.test/GridPuzzle/";
 const prefix = `gridpuzzle:${scope}:`;
 function updates({ identical = false } = {}) {
-  const stores = new Map(), requests = [];
+  const { caches, stores } = memoryCaches(), requests = [];
   let build = null, clients = [], offline = false;
   const body = (version) => identical ? "same solver" : `solver ${version}`;
   const assets = (version) => [{
     path: `solver.${version}.zip`,
     sha256: createHash("sha256").update(body(version)).digest("hex"),
   }];
-  const key = (request) => typeof request === "string" ? request : request.url;
-  const caches = {
-    open: async (name) => {
-      if (!stores.has(name)) {
-        const entries = new Map();
-        stores.set(name, {
-          match: async (request) => entries.get(key(request))?.clone(),
-          put: async (request, response) => { entries.set(key(request), response.clone()); },
-          delete: async (request) => entries.delete(key(request)),
-          keys: async () => [...entries.keys()].map((url) => new Request(url)),
-        });
-      }
-      return stores.get(name);
-    },
-    keys: async () => [...stores.keys()],
-    delete: async (name) => stores.delete(name),
-  };
   const network = async (request) => {
     const path = request.url.slice(scope.length);
     requests.push(path);
@@ -45,29 +25,9 @@ function updates({ identical = false } = {}) {
     offline(value) { offline = value; },
     workers(ids) { clients = ids.map((id) => ({ id, url: scope + "solver-worker.js" })); },
     tabs(ids) { clients = ids.map((id) => ({ id, type: "window", url: scope })); },
-    async activate(version, installed) {
+    activate(version, installed) {
       build = version;
-      const listeners = {};
-      vm.runInNewContext(source.replace("__BUILD_ID__", version), {
-        URL, Request, Response, Uint8Array, crypto: webcrypto, caches, fetch: network,
-        self: {
-          registration: { scope }, location: { origin: new URL(scope).origin },
-          clients: { claim: async () => {}, matchAll: async () => clients },
-          skipWaiting() {}, addEventListener: (type, listener) => { listeners[type] = listener; },
-        },
-      });
-      const fetch = async (path) => {
-        let response;
-        listeners.fetch({ request: new Request(scope + path), respondWith(promise) { response = promise; } });
-        return response;
-      };
-      for (const type of ["install", "activate"]) {
-        if (type === "activate" && installed) await installed(fetch);
-        let done;
-        listeners[type]({ waitUntil(promise) { done = promise; } });
-        await done;
-      }
-      return fetch;
+      return activateWorker({ build, caches, fetch: network, clients: () => clients, beforeActivation: installed });
     },
   };
 }

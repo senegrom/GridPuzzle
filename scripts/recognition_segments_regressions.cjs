@@ -1,11 +1,9 @@
 /* Paired real-OCR measurements. Reference answers score results, never repair them. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs"), path = require("node:path"), os = require("node:os");
-const { spawn, execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const { SMALL_PHONE, serve, baselineSite, engines, main } = require("./harness.cjs");
 const { measure: measureQuality, qualityCases } = require("./ocr_quality_regressions.cjs");
 const BASELINE = "23f7bc9e223410f5f64d749adcbce2b84be769bc";
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function measure(fixture) {
   const { Scanner } = await import("./scanner.js");
@@ -50,94 +48,68 @@ async function measure(fixture) {
 }
 
 async function run() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-segments-")), reports = [];
-  const build = JSON.parse(fs.readFileSync("_site/build-info.json")).build;
-  fs.cpSync("_site", path.join(temp, "baseline"), { recursive: true });
-  fs.symlinkSync(path.resolve("_site"), path.join(temp, "candidate"), "dir");
-  for (const file of ["scanner.js", "scan-analysis.js", "ocr-host-worker.js"]) {
-    const source = execFileSync("git", ["show", `${BASELINE}:web/${file}`], { encoding: "utf8" })
-      .replaceAll("__BUILD_ID__", build).replaceAll("./vendor/", `./vendor/${build}/`);
-    fs.writeFileSync(path.join(temp, "baseline", file), source);
-  }
-  const server = spawn("python", ["-m", "http.server", "8779", "--bind", "127.0.0.1", "--directory", temp], { stdio: "ignore" });
-  let serverError; server.on("error", (e) => { serverError = e; });
+  const site = baselineSite(BASELINE, ["scanner.js", "scan-analysis.js", "ocr-host-worker.js"]);
+  const server = await serve({ directory: site.directory });
+  const fixtures = [{ name: "narrow-bars", bars: true },
+    ...["Arial", "Times New Roman", "Courier New", "DejaVu Sans"].flatMap((font) =>
+      [1, 0.65, 0.5].map((scale) => ({ name: `${font}-${scale}`, font, scale }))),
+    ...["FreeSans", "FreeSerif"].flatMap((font) =>
+      [1, 0.65, 0.5].map((scale) => ({ name: `holdout-${font}-${scale}`, font, scale })))];
   try {
-    let ready = false;
-    for (let i = 0; i < 80; i++) {
-      if (serverError) throw serverError;
-      try { if ((await fetch("http://127.0.0.1:8779/candidate/")).ok) { ready = true; break; } } catch {}
-      await sleep(100);
-    }
-    assert.ok(ready, "Paired recognition server must start");
-    const fixtures = [{ name: "narrow-bars", bars: true },
-      ...["Arial", "Times New Roman", "Courier New", "DejaVu Sans"].flatMap((font) =>
-        [1, 0.65, 0.5].map((scale) => ({ name: `${font}-${scale}`, font, scale }))),
-      ...["FreeSans", "FreeSerif"].flatMap((font) =>
-        [1, 0.65, 0.5].map((scale) => ({ name: `holdout-${font}-${scale}`, font, scale })))];
-    for (const [name, engine] of Object.entries({ chromium, webkit })) {
-      const browser = await engine.launch({ headless: true });
-      const report = { browser: name, version: browser.version(), baseline: BASELINE, pairs: [], qualityPairs: [], errors: [] };
-      reports.push(report);
-      try {
-        const pages = {};
-        for (const version of ["baseline", "candidate"]) {
-          const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-          pages[version] = await context.newPage();
-          pages[version].on("pageerror", (e) => report.errors.push(`${version}: ${e.message}`));
-          await pages[version].goto(`http://127.0.0.1:8779/${version}/`);
-          await pages[version].waitForSelector('body[data-ready="true"]');
-        }
-        for (const [i, fixture] of fixtures.entries()) {
-          const pair = { name: fixture.name };
-          // Alternate which version runs first, after both have identical fonts/assets.
-          for (const version of (i % 2 ? ["candidate", "baseline"] : ["baseline", "candidate"]))
-            pair[version] = await pages[version].evaluate(measure, fixture);
-          report.pairs.push(pair);
-          const { baseline: before, candidate: after } = pair;
-          assert.deepEqual(after.unsafe, [], `${name}/${fixture.name}: no unflagged discrepancy`);
-          assert.ok(after.retryCount <= 24, "the combined extra-recognition budget stays bounded");
-          pair.gained = after.expected.flatMap((v, cell) => Number.isInteger(v) && after.actual[cell] === v && before.actual[cell] !== v ? [cell] : []);
-          pair.lost = after.expected.flatMap((v, cell) => Number.isInteger(v) && before.actual[cell] === v && after.actual[cell] !== v ? [cell] : []);
-          assert.deepEqual(pair.lost, [], `${name}/${fixture.name}: previously correct clues are retained`);
-          if (!fixture.name.startsWith("holdout-")) assert.equal(after.correct, after.printed, "the original narrow-number matrix must now transcribe every clue, not merely flag it");
-          console.log(`${name}/${fixture.name}: ${before.correct} -> ${after.correct}/${after.printed}; +${pair.gained.length}, -${pair.lost.length}`);
-        }
-        for (const page of Object.values(pages)) await page.evaluate(() => window.segmentScanner?.cancel());
-        // Recheck every existing quality case against the preceding scanner.
-        // The old minimum-accuracy gate allowed a previously correct clue to
-        // become a flagged error. Compare individual cells, not just totals.
-        const currentQuality = JSON.parse(fs.readFileSync("browser-artifacts/ocr-quality.json"))
-          .find((r) => r.browser === name);
-        assert.ok(currentQuality?.ok, "run the existing quality suite before the paired suite");
-        assert.equal(currentQuality.version, report.version, "compare the same browser version");
-        const cases = qualityCases();
-        assert.equal(currentQuality.scans.length, cases.length);
-        for (const spec of cases) {
-          const before = await pages.baseline.evaluate(measureQuality, spec);
-          const after = currentQuality.scans.find((scan) =>
-            scan.name === spec.fixture.name && scan.variation === spec.variation.name);
-          assert.ok(after, "every baseline quality case has a candidate result");
-          const priorWrong = new Set(before.wrong.map((item) => item.cell)),
-            currentWrong = new Set(after.wrong.map((item) => item.cell)),
-            lost = after.wrong.filter((item) => !priorWrong.has(item.cell)),
-            gained = before.wrong.filter((item) => !currentWrong.has(item.cell));
-          report.qualityPairs.push({ name: before.name, variation: before.variation,
-            baseline: before, candidate: after, gained, lost });
-          assert.deepEqual(lost, [], `${name}/${before.name}/${before.variation}: no previously correct quality cell lost`);
-          assert.deepEqual(after.unsafe, []);
-          console.log(`${name}/existing/${before.name}/${before.variation}: ${before.correct} -> ${after.correct}/${after.printed}`);
-        }
-
-        assert.deepEqual(report.errors, []); report.ok = true;
-      } catch (error) { report.ok = false; report.failure = error.stack; throw error; }
-      finally { await browser.close(); }
-    }
+    await engines("recognition-segments.json", async (candidate, report, name, browser) => {
+      Object.assign(report, { baseline: BASELINE, pairs: [], qualityPairs: [] });
+      const baseline = await (await browser.newContext(SMALL_PHONE)).newPage();
+      baseline.on("pageerror", (e) => report.errors.push(`baseline: ${e.message}`));
+      const pages = { baseline, candidate };
+      for (const version of ["baseline", "candidate"]) {
+        await pages[version].goto(`${server.origin}/${version}/`);
+        await pages[version].waitForSelector('body[data-ready="true"]');
+      }
+      for (const [i, fixture] of fixtures.entries()) {
+        const pair = { name: fixture.name };
+        // Alternate which version runs first, after both have identical fonts/assets.
+        for (const version of (i % 2 ? ["candidate", "baseline"] : ["baseline", "candidate"]))
+          pair[version] = await pages[version].evaluate(measure, fixture);
+        report.pairs.push(pair);
+        const { baseline: before, candidate: after } = pair;
+        assert.deepEqual(after.unsafe, [], `${name}/${fixture.name}: no unflagged discrepancy`);
+        assert.ok(after.retryCount <= 24, "the combined extra-recognition budget stays bounded");
+        pair.gained = after.expected.flatMap((v, cell) => Number.isInteger(v) && after.actual[cell] === v && before.actual[cell] !== v ? [cell] : []);
+        pair.lost = after.expected.flatMap((v, cell) => Number.isInteger(v) && before.actual[cell] === v && after.actual[cell] !== v ? [cell] : []);
+        assert.deepEqual(pair.lost, [], `${name}/${fixture.name}: previously correct clues are retained`);
+        if (!fixture.name.startsWith("holdout-")) assert.equal(after.correct, after.printed, "the original narrow-number matrix must now transcribe every clue, not merely flag it");
+        console.log(`${name}/${fixture.name}: ${before.correct} -> ${after.correct}/${after.printed}; +${pair.gained.length}, -${pair.lost.length}`);
+      }
+      for (const page of Object.values(pages)) await page.evaluate(() => window.segmentScanner?.cancel());
+      // Recheck every existing quality case against the preceding scanner.
+      // The old minimum-accuracy gate allowed a previously correct clue to
+      // become a flagged error. Compare individual cells, not just totals.
+      const currentQuality = JSON.parse(fs.readFileSync("browser-artifacts/ocr-quality.json"))
+        .find((r) => r.browser === name);
+      assert.equal(currentQuality?.status, "passed", "run the existing quality suite before the paired suite");
+      assert.equal(currentQuality.version, report.version, "compare the same browser version");
+      const cases = qualityCases();
+      assert.equal(currentQuality.scans.length, cases.length);
+      for (const spec of cases) {
+        const before = await pages.baseline.evaluate(measureQuality, spec);
+        const after = currentQuality.scans.find((scan) =>
+          scan.name === spec.fixture.name && scan.variation === spec.variation.name);
+        assert.ok(after, "every baseline quality case has a candidate result");
+        const priorWrong = new Set(before.wrong.map((item) => item.cell)),
+          currentWrong = new Set(after.wrong.map((item) => item.cell)),
+          lost = after.wrong.filter((item) => !priorWrong.has(item.cell)),
+          gained = before.wrong.filter((item) => !currentWrong.has(item.cell));
+        report.qualityPairs.push({ name: before.name, variation: before.variation,
+          baseline: before, candidate: after, gained, lost });
+        assert.deepEqual(lost, [], `${name}/${before.name}/${before.variation}: no previously correct quality cell lost`);
+        assert.deepEqual(after.unsafe, []);
+        console.log(`${name}/existing/${before.name}/${before.variation}: ${before.correct} -> ${after.correct}/${after.printed}`);
+      }
+    }, { context: SMALL_PHONE, timeout: 30000 });
   } finally {
-    server.kill();
-    fs.mkdirSync("browser-artifacts", { recursive: true });
-    fs.writeFileSync("browser-artifacts/recognition-segments.json", JSON.stringify(reports, null, 2) + "\n");
-    fs.rmSync(temp, { recursive: true, force: true });
+    server.close();
+    site.remove();
   }
 }
 module.exports = { run };
-if (require.main === module) run().catch((e) => { console.error(e); process.exitCode = 1; });
+main(module, run);

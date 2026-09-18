@@ -1,12 +1,7 @@
 /* Real canvas-backed MediaStream, production camera/OCR/solver and IndexedDB.
    No physical camera is required. Additional failure cases control OCR replies. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8778/";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const reports = [];
+const { serve, engines, main, sleep } = require("./harness.cjs");
 
 async function fixture(page) {
   await page.evaluate(() => {
@@ -49,8 +44,8 @@ async function fixture(page) {
     document.getElementById("auto-capture").checked=true;
   });
 }
-async function idlePage(page) {
-  await page.goto(BASE);await page.waitForSelector('body[data-ready="true"]');
+async function idlePage(page,base) {
+  await page.goto(base);await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async()=>{window.liveApp=await import("./app.js");});
 }
 async function startLive(page) {
@@ -67,17 +62,12 @@ async function solveLive(page) {
   await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)>0,null,{timeout:150000});
 }
 async function run() {
-  const server=spawn("python",["-m","http.server","8778","--bind","127.0.0.1","--directory","_site"],{stdio:"ignore"});
-  fs.mkdirSync("browser-artifacts",{recursive:true});
+  const server=await serve();
   try {
-    let ready=false;for(let i=0;i<70;i++){try{if((await fetch(BASE)).ok){ready=true;break;}}catch{}await sleep(100);}assert.ok(ready);
-    for(const [name,engine] of [["chromium",chromium],["webkit",webkit]]) {
-      const browser=await engine.launch({headless:true});
-      const context=await browser.newContext({serviceWorkers:"block",viewport:{width:430,height:932},isMobile:true,hasTouch:true});
-      const page=await context.newPage(),report={browser:name,version:browser.version(),checks:[],errors:[]};reports.push(report);
-      page.setDefaultTimeout(20000);page.on("pageerror",e=>report.errors.push(e.message));
+    await engines("live-camera.json",async(page,report,name)=>{
+      report.checks=[];
       try {
-        await idlePage(page);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);await solveLive(page);
+        await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);await solveLive(page);
         assert.equal(await page.locator("#camera-panel").isVisible(),true);
         assert.equal(await page.evaluate(()=>document.getElementById("video").srcObject.getTracks()[0].readyState),"live");
         assert.deepEqual(await page.evaluate(()=>liveApp.getState().puzzle),accepted.puzzle);
@@ -171,18 +161,19 @@ async function run() {
         report.checks.push("settings changes and detection deadlines recover from a stalled detector without stopping video or accepting its late error");
         report.reviewSafety=await require("./review_safety_regressions.cjs")(page);
         report.checks.push("single-clue changes retire pending and solved overlays; faint clues retain ink evidence; deleted PNGs stay deleted after reload");
-        assert.deepEqual(report.errors,[]);report.ok=true;console.log(`${name}: live camera and capture regressions passed`);
-      } catch(error){report.ok=false;report.failure=error.stack;
+        console.log(`${name}: live camera and capture regressions passed`);
+      } catch(error){
         report.storageStatus=await page.textContent("#capture-storage-status").catch(()=>"");
         report.paintCount=await page.evaluate(()=>window.livePaintCount).catch(()=>null);
         report.visibility=await page.evaluate(()=>document.visibilityState).catch(()=>null);
         report.cameraCalls=await page.evaluate(()=>window.liveGetUserMediaCalls).catch(()=>null);
         report.video=await page.locator("#video").evaluate(v=>({muted:v.muted,paused:v.paused,width:v.videoWidth,ready:v.readyState,inline:v.playsInline,tracks:v.srcObject?.getTracks().map(t=>({kind:t.kind,ready:t.readyState}))})).catch(()=>null);
-        report.status=await page.textContent("#status-detail").catch(()=>"");
+        report.statusDetail=await page.textContent("#status-detail").catch(()=>"");
         report.cameraHelp=await page.textContent("#camera-help").catch(()=>"");
-        await page.screenshot({path:`browser-artifacts/${name}-live-failure.png`,fullPage:true}).catch(()=>{});throw error;
-      } finally{await browser.close();}
-    }
-  } finally{fs.writeFileSync("browser-artifacts/live-camera.json",JSON.stringify(reports,null,2)+"\n");server.kill();}
+        throw error;
+      }
+    });
+  } finally{server.close();}
 }
-run().catch(error=>{console.error(error);process.exitCode=1;});
+module.exports = { run };
+main(module,run);

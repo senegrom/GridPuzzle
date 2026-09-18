@@ -1,13 +1,10 @@
 /* Quality measurements before correction; fixture values never enter the recognizer. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
 
-const BASE = "http://127.0.0.1:8775/";
 const ROOT = "Examples/BrowserScanner/Newspaper";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // This runs in the browser against the production Scanner and its real workers.
 async function measure({ fixture, variation }) {
@@ -148,66 +145,40 @@ function qualityCases() {
 }
 
 async function run() {
-  const server = spawn("python", ["-m", "http.server", "8775", "--bind", "127.0.0.1", "--directory", "_site"], { stdio: "ignore" });
-  const reports = [];
-  fs.mkdirSync("browser-artifacts", { recursive: true });
+  const server = await serve(), cases = qualityCases();
   try {
-    let available = false;
-    for (let i = 0; i < 80; i++) {
-      try { if ((await fetch(BASE)).ok) { available = true; break; } } catch {}
-      await sleep(100);
-    }
-    assert.ok(available, "OCR quality test server did not start");
-    const cases = qualityCases();
-    for (const [name, engine] of Object.entries({ chromium, webkit })) {
-      const browser = await engine.launch({ headless: true });
-      const report = { browser: name, version: browser.version(), scans: [], errors: [] };
-      reports.push(report);
-      try {
-        const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-        const page = await context.newPage();
-        page.setDefaultTimeout(30000);
-        page.on("pageerror", (error) => report.errors.push(error.message));
-        await page.goto(BASE);
-        await page.waitForSelector('body[data-ready="true"]');
-        for (const { fixture, variation } of cases) {
-            const scan = await page.evaluate(measure, { fixture, variation });
-            report.scans.push(scan);
-            const label = `${name}/${fixture.name}/${variation.name}`;
-            assert.deepEqual(scan.unsafe, [], `${label}: every wrong, missed or invented clue must be flagged`);
-            assert.deepEqual(scan.black, fixture.black || [], `${label}: structural black-cell geometry`);
-            assert.deepEqual(scan.detectedBlack, fixture.black || [], `${label}: pre-classification black-cell geometry`);
-            if (fixture.imageData)
-              assert.equal(scan.type, fixture.type, `${label}: automatic family classification`);
-            const minimum = fixture.fragmented ? 1 : fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.contrast && (variation.auto || variation.contrast === 0.35) ? 19 : 20) : fixture.holdout ? 27 : 29;
-            assert.ok(scan.correct >= minimum, `${label}: ${scan.correct}/${scan.printed} (minimum ${minimum})`);
-            if (!fixture.imageData)
-              assert.ok(scan.flagged.length <= (fixture.holdout ? 8 : 5), `${label}: excessive manual review burden`);
-            if (fixture.fragmented) {
-              assert.ok(scan.marked.includes(0), `${label}: broken ink must remain a printed clue`);
-              assert.ok(scan.recovered.includes(0), `${label}: preserve the complete fragmented crop`);
-              assert.ok(scan.flagged.includes(0), `${label}: recovered geometry must remain uncertain even if OCR agrees`);
-            }
-            if (variation.contrast) {
-              assert.ok(scan.needsReview, `${label}: low-contrast adjustments require confirmation`);
-              assert.ok(scan.notes.some((note) => /Low-contrast/.test(note)), `${label}: missing contrast warning`);
-            }
-            console.log(`${label}: ${scan.correct}/${scan.printed}, ${scan.flagged.length} flagged, ${scan.milliseconds}ms`);
-          }
-        assert.deepEqual(report.errors, []);
-        report.ok = true;
-      } catch (error) {
-        report.ok = false;
-        report.failure = error.stack;
-        throw error;
-      } finally {
-        await browser.close();
+    await engines("ocr-quality.json", async (page, report, name) => {
+      report.scans = [];
+      await page.goto(server.base);
+      await page.waitForSelector('body[data-ready="true"]');
+      for (const { fixture, variation } of cases) {
+        const scan = await page.evaluate(measure, { fixture, variation });
+        report.scans.push(scan);
+        const label = `${name}/${fixture.name}/${variation.name}`;
+        assert.deepEqual(scan.unsafe, [], `${label}: every wrong, missed or invented clue must be flagged`);
+        assert.deepEqual(scan.black, fixture.black || [], `${label}: structural black-cell geometry`);
+        assert.deepEqual(scan.detectedBlack, fixture.black || [], `${label}: pre-classification black-cell geometry`);
+        if (fixture.imageData)
+          assert.equal(scan.type, fixture.type, `${label}: automatic family classification`);
+        const minimum = fixture.fragmented ? 1 : fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.contrast && (variation.auto || variation.contrast === 0.35) ? 19 : 20) : fixture.holdout ? 27 : 29;
+        assert.ok(scan.correct >= minimum, `${label}: ${scan.correct}/${scan.printed} (minimum ${minimum})`);
+        if (!fixture.imageData)
+          assert.ok(scan.flagged.length <= (fixture.holdout ? 8 : 5), `${label}: excessive manual review burden`);
+        if (fixture.fragmented) {
+          assert.ok(scan.marked.includes(0), `${label}: broken ink must remain a printed clue`);
+          assert.ok(scan.recovered.includes(0), `${label}: preserve the complete fragmented crop`);
+          assert.ok(scan.flagged.includes(0), `${label}: recovered geometry must remain uncertain even if OCR agrees`);
+        }
+        if (variation.contrast) {
+          assert.ok(scan.needsReview, `${label}: low-contrast adjustments require confirmation`);
+          assert.ok(scan.notes.some((note) => /Low-contrast/.test(note)), `${label}: missing contrast warning`);
+        }
+        console.log(`${label}: ${scan.correct}/${scan.printed}, ${scan.flagged.length} flagged, ${scan.milliseconds}ms`);
       }
-    }
+    }, { context: SMALL_PHONE, timeout: 30000 });
   } finally {
-    fs.writeFileSync("browser-artifacts/ocr-quality.json", JSON.stringify(reports, null, 2) + "\n");
-    server.kill();
+    server.close();
   }
 }
 module.exports = { run, measure, qualityCases };
-if (require.main === module) run().catch((error) => { console.error(error); process.exitCode = 1; });
+main(module, run);

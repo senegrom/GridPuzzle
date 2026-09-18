@@ -7,7 +7,8 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { items, parseOptions, runDetectionBenchmark } = require("../corpus/detect_benchmark.cjs");
 const { writeReport } = require("../corpus/benchmark-runner.cjs");
-module.exports = async function detectionFailure(engineName, engine, png) {
+module.exports = async function detectionFailure(engineName, png) {
+  const engine = require("playwright")[engineName];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-real-detection-"));
   let browser, server;
   try {

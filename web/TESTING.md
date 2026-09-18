@@ -21,6 +21,22 @@ That historical run's generated suite read all baseline, serif, shifted and 4×4
 
 Automatic classification is treated as a trust boundary: automatically identified puzzles remain `needsReview` until their rules are confirmed. Str8ts black cells are structural data and remain review-gated even when OCR is otherwise clean.
 
+## How the browser suites run
+
+Every `scripts/*_regressions.cjs` suite is built on `scripts/harness.cjs`:
+`serve()` starts Python's `http.server` for the built site on a port the
+system picks (under `/GridPuzzle/` through the `_preview` link when a suite
+needs the Pages path), `engines()` runs the suite in Chromium and WebKit on a
+fresh phone-sized context with the service worker blocked, collects page
+errors, screenshots a failing engine and writes one report per engine under
+`browser-artifacts/`, and `baselineSite()` builds the two-root directory the
+paired suites use to compare the scanner with a pinned earlier one. The
+offline smoke suite alone asks for a fixed port, since it stops and restarts
+its origin and the service worker's cache must still belong to it. The
+service-worker unit tests share `web/tests/service-worker-fixture.js`, an
+in-memory CacheStorage with the install, activate and fetch events driven by
+hand.
+
 ## Offline test method
 
 The preview is served under `/GridPuzzle/`, matching Pages. After hash-verified offline preparation, the test stops the HTTP server and verifies that the origin is unreachable. The page then reloads, starts a fresh Python worker, solves, imports a photo and performs fresh OCR while the origin remains unavailable.

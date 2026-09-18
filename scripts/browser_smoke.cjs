@@ -2,49 +2,23 @@
 const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const { serve, sleep } = require("./harness.cjs");
+// The offline checks stop the origin and start it again: the port is fixed so
+// the service worker's cache still belongs to the same origin.
 const BASE = "http://127.0.0.1:8765/GridPuzzle/",
   SOLUTION =
     "534678912672195348198342567859761423426853791713924856961537284287419635345286179";
 const reports = [];
 fs.mkdirSync("browser-artifacts", { recursive: true });
-fs.mkdirSync("_preview", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle"))
-  fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
 let server;
 async function startServer() {
-  server = spawn(
-    "python",
-    [
-      "-m",
-      "http.server",
-      "8765",
-      "--bind",
-      "127.0.0.1",
-      "--directory",
-      "_preview",
-    ],
-    { stdio: "ignore" },
-  );
-  for (let i = 0; i < 60; i++) {
-    try {
-      if ((await fetch(BASE, { signal: AbortSignal.timeout(2000) })).ok) return;
-    } catch {}
-    await sleep(200);
-  }
-  throw Error("The preview server did not start.");
+  server = await serve({ pages: true, port: 8765 });
 }
 async function stopServer() {
   if (server) {
-    const child = server;
+    const running = server;
     server = null;
-    await new Promise((resolve) => {
-      if (child.exitCode !== null) return resolve();
-      child.once("exit", resolve);
-      child.kill();
-    });
+    await running.close();
   }
   await assert.rejects(
     fetch(BASE, { signal: AbortSignal.timeout(2000) }),
@@ -694,5 +668,5 @@ async function checkStartupCancellation(browser, image, report) {
     process.exitCode = 1;
   })
   .finally(() => {
-    if (server) server.kill();
+    if (server) server.close();
   });

@@ -1,15 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import vm from "node:vm";
-import { webcrypto, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
+import { activateWorker, memoryCaches, scope } from "./service-worker-fixture.js";
 
-const source = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
-const scope = "https://example.test/GridPuzzle/", prefix = `gridpuzzle:${scope}:`;
+const prefix = `gridpuzzle:${scope}:`;
 const first = "111111111111", second = "222222222222", third = "333333333333", fourth = "444444444444";
 const hash = (body) => createHash("sha256").update(body).digest("hex");
 function runtimeUpdates({ legacy = false, changed = true, legacyBuilds = legacy ? [first] : [] } = {}) {
-  const stores = new Map(), requests = [];
+  const { caches, stores } = memoryCaches(), requests = [];
   let build, clients = [], offline = false;
   const root = (version) => legacyBuilds.includes(version) ? "vendor/pyodide/" : `vendor/${version}/pyodide/`;
   const files = (version) => ({
@@ -23,22 +21,6 @@ function runtimeUpdates({ legacy = false, changed = true, legacyBuilds = legacy 
     [root(version) + "pyodide-lock.json"]: `lock ${version}`,
   });
   const assets = (version) => Object.entries(files(version)).map(([path, data]) => ({ path, sha256: hash(data) }));
-  const key = (r) => typeof r === "string" ? r : r.url;
-  const caches = {
-    async open(name) {
-      if (!stores.has(name)) {
-        const entries = new Map();
-        stores.set(name, {
-          async match(r) { return entries.get(key(r))?.clone(); },
-          async put(r, response) { entries.set(key(r), response.clone()); },
-          async delete(r) { return entries.delete(key(r)); },
-          async keys() { return [...entries.keys()].map((u) => new Request(u)); },
-        });
-      }
-      return stores.get(name);
-    },
-    async keys() { return [...stores.keys()]; }, async delete(name) { return stores.delete(name); },
-  };
   return {
     files, root, requests, stores,
     clients(ids) { clients = ids.map((id) => ({ id, type: "window", url: scope })); },
@@ -46,36 +28,18 @@ function runtimeUpdates({ legacy = false, changed = true, legacyBuilds = legacy 
     async cached(version, file) {
       return Boolean(await (await caches.open(prefix + "content-v1")).match(scope + ".gridpuzzle-cache/" + hash(files(version)[file])));
     },
-    async activate(version, beforeActivation) {
+    activate(version, beforeActivation) {
       build = version;
-      const listeners = {};
-      vm.runInNewContext(source.replace("__BUILD_ID__", version), {
-        URL, Request, Response, Uint8Array, crypto: webcrypto, caches,
+      return activateWorker({
+        build, caches, clients: () => clients, beforeActivation,
         fetch: async (request) => {
-          const path = key(request).slice(scope.length); requests.push(path);
+          const path = request.url.slice(scope.length); requests.push(path);
           if (offline) throw TypeError("Network offline");
           if (path === "assets.json") return new Response(JSON.stringify({ build, assets: assets(build) }));
           const body = files(build)[path];
           return new Response(body ?? "Not found", { status: body === undefined ? 404 : 200 });
         },
-        self: {
-          registration: { scope }, location: { origin: new URL(scope).origin },
-          clients: { claim: async () => {}, matchAll: async () => clients },
-          skipWaiting() {}, addEventListener(type, fn) { listeners[type] = fn; },
-        },
       });
-      const read = async (path, clientId = "", navigation = false) => {
-        let response;
-        const request = new Request(scope + path);
-        if (navigation) Object.defineProperty(request, "mode", { value: "navigate" });
-        listeners.fetch({ request, clientId, respondWith(promise) { response = promise; } });
-        return response;
-      };
-      for (const type of ["install", "activate"]) {
-        if (type === "activate" && beforeActivation) await beforeActivation(read);
-        let done; listeners[type]({ waitUntil(promise) { done = promise; } }); await done;
-      }
-      return read;
     },
   };
 }

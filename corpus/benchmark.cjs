@@ -10,9 +10,7 @@
      node corpus/benchmark.cjs --family kakuro --true-corners
 
    Writes browser-artifacts/corpus-benchmark.json and prints a summary.        */
-const { runBenchmark } = require("./benchmark-runner.cjs");
-const fs = require("node:fs");
-const path = require("node:path");
+const { corpusImages, runBenchmark } = require("./benchmark-runner.cjs");
 
 const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
   family: null, set: null, variant: null, limit: 0, engine: "chromium", trueCorners: false };
@@ -22,28 +20,14 @@ for (let i = 2; i < process.argv.length; i++) {
   else if (flag in options) options[flag] = /^(limit)$/.test(flag) ? Number(process.argv[++i]) : process.argv[++i];
 }
 const BASE = "http://127.0.0.1:8780/";
-const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 function entries() {
   const found = [];
-  const root = path.resolve(options.corpus);
-  for (const family of fs.readdirSync(root)) {
-    if (options.family && family !== options.family) continue;
-    const familyDir = path.join(root, family);
-    if (!fs.statSync(familyDir).isDirectory()) continue;
-    for (const set of fs.readdirSync(familyDir)) {
-      if (options.set && set !== options.set) continue;
-      const setDir = path.join(familyDir, set);
-      if (!fs.statSync(setDir).isDirectory()) continue;
-      for (const name of fs.readdirSync(setDir).sort()) {
-        const ext = path.extname(name).toLowerCase();
-        if (!MIME[ext]) continue;
-        if (options.variant && !name.includes(`-${options.variant}.`)) continue;
-        const target = path.join(setDir, name.slice(0, -ext.length) + ".json");
-        if (!fs.existsSync(target)) continue;
-        found.push({ family, set, name, file: path.join(setDir, name), target, mime: MIME[ext] });
-      }
-    }
+  for (const item of corpusImages(options.corpus)) {
+    if (options.family && item.family !== options.family) continue;
+    if (options.set && item.set !== options.set) continue;
+    if (options.variant && !item.name.includes(`-${options.variant}.`)) continue;
+    found.push(item);
   }
   return options.limit ? found.slice(0, options.limit) : found;
 }
