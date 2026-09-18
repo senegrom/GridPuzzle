@@ -1,11 +1,8 @@
 /* Real MediaStream, detector, production camera/session and Tesseract.
    Only solving is stubbed: this suite measures scanning, not a 9x9 search. */
-const { chromium, webkit } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { spawn } = require('node:child_process');
-const BASE='http://127.0.0.1:8781/';
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const { serve, engines, main } = require('./harness.cjs');
 const expected = [
   [null,8,null,null,null,null,9,null,null],
   [null,null,null,7,null,null,1,null,null],
@@ -49,8 +46,11 @@ async function beginMotion(cells) {
     ctx.fillStyle=`rgb(${state.mode==='finger'?172:36},${state.cells[1]*20},80)`;ctx.fillRect(0,0,25,25);
     state.stream?.getVideoTracks().forEach(t=>t.requestFrame?.());
   }
-  paint();state.stream=source.captureStream(12);video.srcObject=state.stream;await video.play();
+  paint();state.stream=source.captureStream(12);video.srcObject=state.stream;
+  // Frames must flow while play() is pending: a captured canvas that is not
+  // repainted delivers nothing, and play() then never settles.
   state.timer=setInterval(paint,80);
+  await video.play();
   let readerEpoch=0,finishSolve=null;
   const cancelSolve=()=>{finishSolve?.({status:'cancelled'});finishSolve=null;};
   state.camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,
@@ -97,17 +97,12 @@ async function externalTracking(fixtures) {
   return output;
 }
 async function run(){
- const server=spawn('python',['-m','http.server','8781','--bind','127.0.0.1','--directory','_site'],{stdio:'ignore'}),reports=[];
- fs.mkdirSync('browser-artifacts',{recursive:true});
+ const server=await serve();
  try{
-  let ready=false;for(let i=0;i<80;i++){try{if((await fetch(BASE)).ok){ready=true;break;}}catch{}await sleep(100);}assert.ok(ready);
-  for(const [name,engine]of Object.entries({chromium,webkit})){
-   const browser=await engine.launch({headless:true}),report={browser:name,version:browser.version(),errors:[],checks:[]};reports.push(report);
-   let page;
+  await engines('live-motion.json',async(page,report,name)=>{
+   report.checks=[];
    try{
-    const context=await browser.newContext({serviceWorkers:'block',viewport:{width:430,height:932},isMobile:true,hasTouch:true});page=await context.newPage();
-    page.on('pageerror',e=>report.errors.push(e.message));page.setDefaultTimeout(60000);
-    await page.goto(BASE);await page.waitForSelector('body[data-ready="true"]');await page.evaluate(beginMotion,expected);
+    await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');await page.evaluate(beginMotion,expected);
     await page.waitForFunction(()=>motionState.reads>0);
     const first=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,unknown:motionOutput.dataset.unknown}));
     assert.equal(Number(first.unknown),0,'initial grid outline must not cover blank cells in red');
@@ -152,16 +147,13 @@ async function run(){
       assert.ok(valid>=10,'the fixed slice must retain broad usable coverage');
       assert.ok(retained>=Math.ceil(valid*3*.9),'at least 90% of valid small-motion controls must retain identity');
     }
-    assert.deepEqual(report.errors,[]);report.ok=true;
    }catch(e){
-    report.ok=false;report.failure=e.stack;
-    report.state=await page?.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
+    report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
       ticks:window.motionState?.ticks,reading:window.motionState?.reading,witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
-    await page?.screenshot({path:`browser-artifacts/${name}-failure.png`}).catch(()=>{});
     throw e;
-   }finally{await browser.close();}
-  }
- }finally{server.kill();fs.writeFileSync('browser-artifacts/live-motion.json',JSON.stringify(reports,null,2)+'\n');}
+   }
+  },{timeout:60000});
+ }finally{server.close();}
 }
-if(require.main===module)run().catch(e=>{console.error(e);process.exitCode=1;});
+main(module,run);
 module.exports={run,beginMotion,externalTracking};

@@ -1,11 +1,9 @@
 /* Same-run production scanner and actual browser image decoding, never answer injection. */
-const { chromium, webkit } = require('playwright');
 const assert = require('node:assert/strict');
-const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
-const { spawn, execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const { SMALL_PHONE, serve, baselineSite, engines, main } = require('./harness.cjs');
 const { measure, qualityCases } = require('./ocr_quality_regressions.cjs');
 const BASELINE = 'cecdd9c34b2cc049fe969efede6d177aba700d4e';
-const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function detailChecks() {
   const { retainPhotoSource, photoDetail, rotatePhotoSource } = await import('./photo-detail.js');
@@ -117,66 +115,55 @@ async function alignmentChecks() {
 }
 
 async function run() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-input-')), reports = [],
-    build = JSON.parse(fs.readFileSync('_site/build-info.json')).build;
-  fs.cpSync('_site', path.join(temp,'baseline'), { recursive: true });
-  fs.symlinkSync(path.resolve('_site'), path.join(temp,'candidate'), 'dir');
-  for (const file of ['scanner.js','scan-analysis.js','geometry-worker.js','live-camera.js','photo-flow.js'])
-    fs.writeFileSync(path.join(temp,'baseline',file), execFileSync('git',['show',`${BASELINE}:web/${file}`],{encoding:'utf8'})
-      .replaceAll('__BUILD_ID__',build).replaceAll('./vendor/',`./vendor/${build}/`));
-  const server = spawn('python',['-m','http.server','8781','--bind','127.0.0.1','--directory',temp],{stdio:'ignore'});
+  const site = baselineSite(BASELINE, ['scanner.js','scan-analysis.js','geometry-worker.js','live-camera.js','photo-flow.js']);
+  const server = await serve({ directory: site.directory });
   try {
-    let ready = false;
-    for (let i=0;i<80;i++) { try { if ((await fetch('http://127.0.0.1:8781/')).ok) { ready=true; break; } } catch {} await pause(100); }
-    assert.ok(ready);
-    for (const [name,engine] of Object.entries({chromium,webkit})) {
-      const browser = await engine.launch({headless:true}); const report = {browser:name,version:browser.version(), baseline:BASELINE,quality:[],wide:[],errors:[]};reports.push(report);
-      try {
-        const pages={};
-        for (const version of ['baseline','candidate']) {
-          const context=await browser.newContext({serviceWorkers:'block',viewport:{width:390,height:844},isMobile:true,hasTouch:true});
-          const page=pages[version]=await context.newPage();page.on('pageerror',(e)=>report.errors.push(e.message));
-          await page.goto(`http://127.0.0.1:8781/${version}/`);await page.waitForSelector('body[data-ready="true"]');
-        }
-        report.cameraQuality = [];
-        for (const {fixture,variation} of qualityCases()) if (fixture.imageData && variation.name === 'original') {
-          const check = await pages.candidate.evaluate(newspaperQuality, fixture); report.cameraQuality.push(check);
-          assert.ok(check.quality?.assessable, `${name}/${fixture.name}: identify printed quality evidence`);
-          assert.equal(check.quality.reason, null, `${name}/${fixture.name}: paper texture must not block readable clues`);
-        }
-        report.detail=await pages.candidate.evaluate(detailChecks);
-        for (const item of report.detail) {assert.ok(item.enhanced);assert.ok(item.error<=8,JSON.stringify(item));assert.ok(Math.max(item.width,item.height)<=1800);}
-        report.alignment={before:await pages.baseline.evaluate(alignmentChecks),after:await pages.candidate.evaluate(alignmentChecks)};
-        assert.ok(report.alignment.after.some((e)=>e.cell===0&&e.refinedCell));
-        const b=report.alignment.before.find((e)=>e.cell===0),a=report.alignment.after.find((e)=>e.cell===0);
-        assert.ok(a.w>(b?.w||0),'retain more of the previously clipped glyph');
-        for (const manual of [false,true]) for (const font of ['Arial','Times New Roman','Courier New']) {
-          const pair={font,mode:manual?'manual-crop':'automatic',before:await pages.baseline.evaluate(widePage,{font,candidate:false,manual}),after:await pages.candidate.evaluate(widePage,{font,candidate:true,manual})};report.wide.push(pair);
-          if (manual) {
-            assert.equal(pair.before.detection,false,'small-grid control remains below the original detection threshold');
-            assert.equal(pair.after.detection,false,'do not claim the manual crop as a detected grid');
-          } else assert.ok(pair.before.detection&&pair.after.detection,`${name}/${font}: real grid detection`);
-          assert.equal(pair.after.rows,9);assert.equal(pair.after.cols,9);assert.ok(pair.after.enhanced);
-          const beforeWrong=new Set(pair.before.wrong.map((x)=>x.cell));
-          assert.deepEqual(pair.after.wrong.filter((x)=>!beforeWrong.has(x.cell)),[],`${name}/${font}: no previously correct cell lost`);
-          assert.deepEqual(pair.after.unsafe,[]);
-          console.log(`${name}/${pair.mode}/${font}: ${pair.before.correct} -> ${pair.after.correct}/27`);
-        }
-        const candidates=JSON.parse(fs.readFileSync('browser-artifacts/ocr-quality.json')).find((r)=>r.browser===name);
-        assert.ok(candidates?.ok);assert.equal(candidates.version,report.version);
-        for (const spec of qualityCases()) {
-          const before=await pages.baseline.evaluate(measure,spec),after=candidates.scans.find((r)=>r.name===before.name&&r.variation===before.variation),prior=new Set(before.wrong.map((x)=>x.cell));
-          report.quality.push({before,after});assert.ok(after);
-          assert.deepEqual(after.wrong.filter((x)=>!prior.has(x.cell)),[],`${name}/${before.name}/${before.variation}: no previous correct cell lost`);
-          assert.deepEqual(after.unsafe,[]);
-          assert.ok(after.flagged.length <= before.flagged.length, `${name}/${before.name}/${before.variation}: no unnecessary review flags`);
-        }
-        assert.deepEqual(report.errors,[]);report.ok=true;
-      } catch(e) {report.failure=e.stack;report.ok=false;throw e;} finally {await browser.close();}
-    }
+    await engines('scan-input-artifacts/scan-input.json', async (candidate, report, name, browser) => {
+      Object.assign(report, { baseline: BASELINE, quality: [], wide: [] });
+      const baseline = await (await browser.newContext(SMALL_PHONE)).newPage();
+      baseline.on('pageerror', (e) => report.errors.push(e.message));
+      const pages = { baseline, candidate };
+      for (const version of ['baseline','candidate']) {
+        await pages[version].goto(`${server.origin}/${version}/`);await pages[version].waitForSelector('body[data-ready="true"]');
+      }
+      report.cameraQuality = [];
+      for (const {fixture,variation} of qualityCases()) if (fixture.imageData && variation.name === 'original') {
+        const check = await pages.candidate.evaluate(newspaperQuality, fixture); report.cameraQuality.push(check);
+        assert.ok(check.quality?.assessable, `${name}/${fixture.name}: identify printed quality evidence`);
+        assert.equal(check.quality.reason, null, `${name}/${fixture.name}: paper texture must not block readable clues`);
+      }
+      report.detail=await pages.candidate.evaluate(detailChecks);
+      for (const item of report.detail) {assert.ok(item.enhanced);assert.ok(item.error<=8,JSON.stringify(item));assert.ok(Math.max(item.width,item.height)<=1800);}
+      report.alignment={before:await pages.baseline.evaluate(alignmentChecks),after:await pages.candidate.evaluate(alignmentChecks)};
+      assert.ok(report.alignment.after.some((e)=>e.cell===0&&e.refinedCell));
+      const b=report.alignment.before.find((e)=>e.cell===0),a=report.alignment.after.find((e)=>e.cell===0);
+      assert.ok(a.w>(b?.w||0),'retain more of the previously clipped glyph');
+      for (const manual of [false,true]) for (const font of ['Arial','Times New Roman','Courier New']) {
+        const pair={font,mode:manual?'manual-crop':'automatic',before:await pages.baseline.evaluate(widePage,{font,candidate:false,manual}),after:await pages.candidate.evaluate(widePage,{font,candidate:true,manual})};report.wide.push(pair);
+        if (manual) {
+          assert.equal(pair.before.detection,false,'small-grid control remains below the original detection threshold');
+          assert.equal(pair.after.detection,false,'do not claim the manual crop as a detected grid');
+        } else assert.ok(pair.before.detection&&pair.after.detection,`${name}/${font}: real grid detection`);
+        assert.equal(pair.after.rows,9);assert.equal(pair.after.cols,9);assert.ok(pair.after.enhanced);
+        const beforeWrong=new Set(pair.before.wrong.map((x)=>x.cell));
+        assert.deepEqual(pair.after.wrong.filter((x)=>!beforeWrong.has(x.cell)),[],`${name}/${font}: no previously correct cell lost`);
+        assert.deepEqual(pair.after.unsafe,[]);
+        console.log(`${name}/${pair.mode}/${font}: ${pair.before.correct} -> ${pair.after.correct}/27`);
+      }
+      const candidates=JSON.parse(fs.readFileSync('browser-artifacts/ocr-quality.json')).find((r)=>r.browser===name);
+      assert.equal(candidates?.status,'passed');assert.equal(candidates.version,report.version);
+      for (const spec of qualityCases()) {
+        const before=await pages.baseline.evaluate(measure,spec),after=candidates.scans.find((r)=>r.name===before.name&&r.variation===before.variation),prior=new Set(before.wrong.map((x)=>x.cell));
+        report.quality.push({before,after});assert.ok(after);
+        assert.deepEqual(after.wrong.filter((x)=>!prior.has(x.cell)),[],`${name}/${before.name}/${before.variation}: no previous correct cell lost`);
+        assert.deepEqual(after.unsafe,[]);
+        assert.ok(after.flagged.length <= before.flagged.length, `${name}/${before.name}/${before.variation}: no unnecessary review flags`);
+      }
+    }, { context: SMALL_PHONE, timeout: 30000 });
   } finally {
-    server.kill();fs.mkdirSync('scan-input-artifacts',{recursive:true});fs.writeFileSync('scan-input-artifacts/scan-input.json',JSON.stringify(reports,null,2)+'\n');
-    fs.rmSync(temp,{recursive:true,force:true});
+    server.close();
+    site.remove();
   }
 }
-module.exports={run};if(require.main===module)run().catch((e)=>{console.error(e);process.exitCode=1;});
+module.exports={run};
+main(module, run);

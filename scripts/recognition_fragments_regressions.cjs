@@ -1,10 +1,6 @@
 /* Real browser/OCR checks: complete damaged crops, never solver-derived clues. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8778/";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
 
 async function measure({ pieces, black, leading, narrow }) {
   const { Scanner } = await import("./scanner.js");
@@ -59,68 +55,40 @@ async function run() {
     pieces: [[49, 28, 8, 9], [49, 41, 8, 31]] });
   fixtures.push({ name: "narrow-number", narrow: true,
     pieces: [[46, 28, 4, 44], [56, 28, 4, 44]] });
-  const reports = [];
-  const server = spawn("python", ["-m", "http.server", "8778", "--bind", "127.0.0.1", "--directory", "_site"], { stdio: "ignore" });
-  let serverError;
-  server.on("error", (error) => { serverError = error; });
+  const server = await serve();
   try {
-    let ready = false;
-    for (let i = 0; i < 80; i++) {
-      if (serverError) throw serverError;
-      try { if ((await fetch(BASE)).ok) { ready = true; break; } } catch {}
-      await sleep(100);
-    }
-    assert.ok(ready, "Recognition regression server did not start");
-    for (const [name, engine] of Object.entries({ chromium, webkit })) {
-      const browser = await engine.launch({ headless: true });
-      const report = { browser: name, version: browser.version(), scans: [], errors: [] };
-      reports.push(report);
-      try {
-        const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-        const page = await context.newPage();
-        page.setDefaultTimeout(30000);
-        page.on("pageerror", (error) => report.errors.push(error.message));
-        await page.goto(BASE);
-        await page.waitForSelector('body[data-ready="true"]');
-        for (const fixture of fixtures) {
-          const scan = await page.evaluate(measure, fixture);
-          report.scans.push({ name: fixture.name, ...scan });
-          const label = `${name}/${fixture.name}`;
-          assert.deepEqual(scan.unsafe, [], `${label}: no unflagged errors`);
-          assert.deepEqual(scan.black, fixture.black ? [0] : [], `${label}: unchanged black layout`);
-          assert.equal(scan.actual[15], 2, `${label}: intact control clue`);
-          assert.ok(scan.marked.includes(0), `${label}: printed evidence cannot disappear`);
-          assert.equal(scan.entry?.y, 28, `${label}: complete crop top`);
-          assert.equal(scan.entry?.h, 44, `${label}: complete crop height`);
-          if (fixture.narrow) {
-            assert.equal(scan.entry.glyphCount, 2, `${label}: retain both narrow glyphs`);
-            assert.equal(scan.entry.recoveredMark, undefined, `${label}: intact glyphs are not damaged`);
-          } else {
-            assert.equal(scan.entry.recoveredMark, true, `${label}: repaired crop stays reviewable`);
-            assert.ok(scan.uncertain.includes(0), `${label}: damaged clue always requires review`);
-          }
-          if (fixture.leading) {
-            assert.equal(scan.entry.x, 27);
-            assert.equal(scan.entry.w, 30);
-            assert.equal(scan.entry.glyphCount, 2);
-          }
-          console.log(`${label}: ${scan.actual[0]}, ${scan.wrong.length} discrepancies, all flagged`);
+    await engines("recognition-fragments.json", async (page, report, name) => {
+      report.scans = [];
+      await page.goto(server.base);
+      await page.waitForSelector('body[data-ready="true"]');
+      for (const fixture of fixtures) {
+        const scan = await page.evaluate(measure, fixture);
+        report.scans.push({ name: fixture.name, ...scan });
+        const label = `${name}/${fixture.name}`;
+        assert.deepEqual(scan.unsafe, [], `${label}: no unflagged errors`);
+        assert.deepEqual(scan.black, fixture.black ? [0] : [], `${label}: unchanged black layout`);
+        assert.equal(scan.actual[15], 2, `${label}: intact control clue`);
+        assert.ok(scan.marked.includes(0), `${label}: printed evidence cannot disappear`);
+        assert.equal(scan.entry?.y, 28, `${label}: complete crop top`);
+        assert.equal(scan.entry?.h, 44, `${label}: complete crop height`);
+        if (fixture.narrow) {
+          assert.equal(scan.entry.glyphCount, 2, `${label}: retain both narrow glyphs`);
+          assert.equal(scan.entry.recoveredMark, undefined, `${label}: intact glyphs are not damaged`);
+        } else {
+          assert.equal(scan.entry.recoveredMark, true, `${label}: repaired crop stays reviewable`);
+          assert.ok(scan.uncertain.includes(0), `${label}: damaged clue always requires review`);
         }
-        assert.deepEqual(report.errors, []);
-        report.ok = true;
-      } catch (error) {
-        report.ok = false;
-        report.failure = error.stack;
-        throw error;
-      } finally {
-        await browser.close();
+        if (fixture.leading) {
+          assert.equal(scan.entry.x, 27);
+          assert.equal(scan.entry.w, 30);
+          assert.equal(scan.entry.glyphCount, 2);
+        }
+        console.log(`${label}: ${scan.actual[0]}, ${scan.wrong.length} discrepancies, all flagged`);
       }
-    }
+    }, { context: SMALL_PHONE, timeout: 30000 });
   } finally {
-    server.kill();
-    fs.mkdirSync("browser-artifacts", { recursive: true });
-    fs.writeFileSync("browser-artifacts/recognition-fragments.json", JSON.stringify(reports, null, 2) + "\n");
+    server.close();
   }
 }
 module.exports = { run };
-if (require.main === module) run().catch((error) => { console.error(error); process.exitCode = 1; });
+main(module, run);

@@ -1,21 +1,6 @@
 /* Play mode against the real solver: answers, conflicts, checking, hints, completion, reload. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8769/GridPuzzle/";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle"))
-  fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn(
-  "python",
-  ["-m", "http.server", "8769", "--bind", "127.0.0.1", "--directory", "_preview"],
-  { stdio: "ignore" },
-);
-const reports = [];
+const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
 
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
@@ -33,27 +18,12 @@ async function enter(page, cell, value) {
   await page.waitForFunction(() => !document.querySelector("#cell-dialog").open);
 }
 
-(async () => {
-  for (let i = 0; i < 60; i++) {
-    try {
-      if ((await fetch(BASE)).ok) break;
-    } catch {}
-    await sleep(100);
-  }
-  for (const [name, engine] of Object.entries({ chromium, webkit })) {
-    const browser = await engine.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-    });
-    const page = await context.newPage();
-    page.setDefaultTimeout(30000);
-    const report = { browser: name, version: browser.version(), checks: [], errors: [] };
-    reports.push(report);
-    page.on("pageerror", (e) => report.errors.push(e.message));
-    try {
-      await page.goto(BASE);
+async function run() {
+  const server = await serve({ pages: true });
+  try {
+    await engines("play-regressions.json", async (page, report) => {
+      report.checks = [];
+      await page.goto(server.base);
       await ready(page);
       await page.click("#example");
       // Loading a puzzle warms the Python runtime before Solve is pressed.
@@ -154,26 +124,10 @@ async function enter(page, cell, value) {
         [true, "value", true],
       );
       report.checks.push("families without cell answers disable play mode");
-
-      assert.deepEqual(report.errors, []);
-      report.ok = true;
-    } catch (error) {
-      report.ok = false;
-      report.failure = error.stack;
-      console.error(name, error);
-      try {
-        report.status = await page.locator("#status").innerText();
-        await page.screenshot({ path: `browser-artifacts/${name}-play-failure.png`, fullPage: true });
-      } catch {}
-    } finally {
-      await browser.close();
-      fs.writeFileSync("browser-artifacts/play-regressions.json", JSON.stringify(reports, null, 2));
-    }
+    }, { context: SMALL_PHONE, timeout: 30000 });
+  } finally {
+    server.close();
   }
-  if (reports.some((r) => !r.ok)) process.exitCode = 1;
-})()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => server.kill());
+}
+module.exports = { run };
+main(module, run);

@@ -1,29 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import vm from "node:vm";
 import { webcrypto, createHash } from "node:crypto";
+import { memoryCache, memoryCaches, source } from "./service-worker-fixture.js";
 // Contract of the content-addressed store: ordinary reads trust bytes that
 // were digest-verified before being written; readiness checks and offline
 // preparation re-hash, evict wrong bytes and refetch; failed network
 // verification is never cached; storage failure never blocks a verified
 // online response.
-function makeCache() {
-  const entries = new Map();
-  return {
-    entries,
-    match: async (key) => entries.get(String(key))?.clone(),
-    put: async (key, value) => entries.set(String(key), value.clone()),
-    delete: async (key) => entries.delete(String(key)),
-  };
-}
 function harness() {
   const calls = [],
     hooks = { respond: null },
-    stores = new Map();
-  const cache = makeCache(),
+    { caches, stores } = memoryCaches();
+  const cache = memoryCache(),
     entries = cache.entries;
-  const source = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
   const context = vm.createContext({
     URL,
     Request,
@@ -35,14 +25,7 @@ function harness() {
       location: { origin: "https://example.test" },
       addEventListener() {},
     },
-    caches: {
-      open: async (name) => {
-        if (!stores.has(name)) stores.set(name, makeCache());
-        return stores.get(name);
-      },
-      keys: async () => [...stores.keys()],
-      delete: async (name) => stores.delete(name),
-    },
+    caches,
     fetch: async (request) => {
       calls.push(request.url);
       return hooks.respond?.(request) ?? new Response("correct");

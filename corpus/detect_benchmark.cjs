@@ -5,11 +5,9 @@
    "family/set" key contains it, for example --set lexski,newspaper
    Reports use the versioned envelope documented in web/GRID_DETECTION.md. */
 const fs = require("node:fs");
-const path = require("node:path");
-const { runBenchmark } = require("./benchmark-runner.cjs");
+const { corpusImages, runBenchmark } = require("./benchmark-runner.cjs");
 const BASE = "http://127.0.0.1:8782/";
 const SCALES = [640, 1600];
-const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 function parseOptions(args) {
   const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
@@ -30,29 +28,18 @@ function items(options) {
   // Names, not a pattern: the filter is a comma-separated list and each part
   // matches a set whose "family/set" key contains it. A regular expression
   // built from the command line buys nothing here and can be made to run for
-  // a very long time on a long key.
-  const out = [], root = path.resolve(options.corpus),
+  // a very long time on a long key. The limit is per set.
+  const out = [], taken = new Map(),
     wanted = options.set ? options.set.split(",").map((part) => part.trim()).filter(Boolean) : null;
-  for (const family of fs.readdirSync(root).sort()) {
-    const familyDir = path.join(root, family);
-    if (!fs.statSync(familyDir).isDirectory()) continue;
-    for (const set of fs.readdirSync(familyDir).sort()) {
-      const setDir = path.join(familyDir, set), key = `${family}/${set}`;
-      if (!fs.statSync(setDir).isDirectory() || (wanted && !wanted.some((part) => key.includes(part)))) continue;
-      let n = 0;
-      for (const name of fs.readdirSync(setDir).sort()) {
-        const ext = path.extname(name).toLowerCase();
-        if (!MIME[ext]) continue;
-        const target = path.join(setDir, name.slice(0, -ext.length) + ".json");
-        if (!fs.existsSync(target)) continue;
-        if (options.limit && n >= options.limit) break;
-        // No corner truth is an intentional exclusion. Malformed/unreadable
-        // targets instead enter the run and produce diagnostic error rows.
-        try { if (!JSON.parse(fs.readFileSync(target, "utf8"))?.corners) continue; } catch {}
-        n++;
-        out.push({ family, set, name, file: path.join(setDir, name), target, mime: MIME[ext] });
-      }
-    }
+  for (const item of corpusImages(options.corpus)) {
+    const key = `${item.family}/${item.set}`;
+    if (wanted && !wanted.some((part) => key.includes(part))) continue;
+    if (options.limit && (taken.get(key) || 0) >= options.limit) continue;
+    // No corner truth is an intentional exclusion. Malformed/unreadable
+    // targets instead enter the run and produce diagnostic error rows.
+    try { if (!JSON.parse(fs.readFileSync(item.target, "utf8"))?.corners) continue; } catch {}
+    taken.set(key, (taken.get(key) || 0) + 1);
+    out.push(item);
   }
   return out;
 }

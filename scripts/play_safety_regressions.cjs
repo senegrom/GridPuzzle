@@ -1,15 +1,6 @@
 /* Real Play dialogs and Pyodide; delayed callbacks are controlled explicitly. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8771/GridPuzzle/";
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle")) fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn("python", ["-m", "http.server", "8771", "--bind", "127.0.0.1", "--directory", "_preview"], { stdio: "ignore" });
-const reports = [];
+const { serve, engines, main } = require("./harness.cjs");
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async () => { window.playApp = await import("./app.js"); });
@@ -35,7 +26,7 @@ async function enter(page, index, value) {
   await page.fill("#cell-value", String(value)); await page.click("#save-cell");
   await page.waitForFunction(() => !document.getElementById("cell-dialog").open);
 }
-async function exercise(page, report) {
+async function exercise(page, report, base) {
   await page.addInitScript(() => {
     window.playRequests = 0; window.heldPlay = [];
     const post = Worker.prototype.postMessage;
@@ -50,7 +41,8 @@ async function exercise(page, report) {
       return post.call(this, message, ...rest);
     };
   });
-  await page.goto(BASE); await ready(page); await seed(page);
+  report.checks = [];
+  await page.goto(base); await ready(page); await seed(page);
   const before = await state(page);
   await page.click("#check-play");
   assert.equal(await page.locator("#confirm-dialog").isVisible(), true);
@@ -196,31 +188,16 @@ async function exercise(page, report) {
   await page.click("#solve"); await done(page, "Solved · unique");
   report.checks.push("accepted correction invalidates once, Undo restores the original cages, and the real solver still succeeds");
 }
-(async () => {
+async function run() {
+  const server = await serve({ pages: true });
   try {
-    let available = false;
-    for (let i = 0; i < 60; i++) {
-      try { if ((await fetch(BASE)).ok) { available = true; break; } } catch {}
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    assert.ok(available, "Static server did not start");
-    for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
-      const browser = await engine.launch({ headless: true });
-      const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true });
-      const page = await context.newPage(), report = { browser: name, version: browser.version(), checks: [], errors: [] };
-      reports.push(report); page.setDefaultTimeout(30000);
-      page.on("pageerror", (e) => report.errors.push(e.message));
-      try {
-        await exercise(page, report); assert.deepEqual(report.errors, []); report.status = "passed";
-        console.log(`${name}: Play safety regressions passed`);
-      } catch (e) {
-        report.status = "failed"; report.failure = e.stack;
-        await page.screenshot({ path: `browser-artifacts/${name}-play-safety-failure.png`, fullPage: true }).catch(() => {});
-        throw e;
-      } finally { await browser.close(); }
-    }
+    await engines("play-safety.json", async (page, report, name) => {
+      await exercise(page, report, server.base);
+      console.log(`${name}: Play safety regressions passed`);
+    }, { timeout: 30000 });
   } finally {
-    fs.writeFileSync("browser-artifacts/play-safety.json", JSON.stringify(reports, null, 2) + "\n");
-    server.kill();
+    server.close();
   }
-})().catch((e) => { console.error(e); process.exitCode = 1; });
+}
+module.exports = { run };
+main(module, run);

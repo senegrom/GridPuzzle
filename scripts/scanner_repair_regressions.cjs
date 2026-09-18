@@ -1,15 +1,6 @@
 /* Real DOM, session and Pyodide regressions. Scanner outputs are deterministic. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8770/GridPuzzle/";
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle")) fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn("python", ["-m", "http.server", "8770", "--bind", "127.0.0.1", "--directory", "_preview"], { stdio: "ignore" });
-const reports = [];
+const { serve, engines, main } = require("./harness.cjs");
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async () => { window.repairApp = await import("./app.js"); });
@@ -115,8 +106,8 @@ async function cell(page, index, value) {
   await page.click("#save-cell");
   await page.waitForFunction(() => !document.getElementById("cell-dialog").open);
 }
-async function exercise(page) {
-  await page.goto(BASE); await ready(page); await scan(page);
+async function exercise(page, base) {
+  await page.goto(base); await ready(page); await scan(page);
   const pending = await page.evaluate(() => repairApp.getState());
   assert.deepEqual(pending.blackReadings, [{ cell: 4, value: 3 }]);
   assert.ok(pending.cellUncertain.includes(4));
@@ -194,30 +185,15 @@ async function playPhotoRegressions(page) {
   assert.equal(await page.locator("#solution-photo").isVisible(), true);
   assert.deepEqual(await page.evaluate(() => repairApp.getState().result), solved.result);
 }
-(async () => {
+async function run() {
+  const server = await serve({ pages: true });
   try {
-    let available = false;
-    for (let i = 0; i < 50; i++) {
-      try { if ((await fetch(BASE)).ok) { available = true; break; } } catch {}
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    assert.ok(available, "Static test server did not start");
-    for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
-      const browser = await engine.launch({ headless: true });
-      const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true });
-      const page = await context.newPage(), errors = []; page.setDefaultTimeout(20000);
-      page.on("pageerror", (e) => errors.push(e.message));
-      try {
-        await exercise(page); await playPhotoRegressions(page); await importRegressions(page); assert.deepEqual(errors, []);
-        reports.push({ browser: name, version: browser.version(), status: "passed" });
-      } catch (e) {
-        reports.push({ browser: name, status: "failed", message: e.message, errors });
-        await page.screenshot({ path: `browser-artifacts/${name}-repair-failure.png`, fullPage: true }).catch(() => {});
-        throw e;
-      } finally { await browser.close(); }
-    }
+    await engines("scanner-repairs.json", async (page) => {
+      await exercise(page, server.base); await playPhotoRegressions(page); await importRegressions(page);
+    });
   } finally {
-    fs.writeFileSync("browser-artifacts/scanner-repairs.json", JSON.stringify(reports, null, 2) + "\n");
-    server.kill();
+    server.close();
   }
-})().catch((e) => { console.error(e); process.exitCode = 1; });
+}
+module.exports = { run };
+main(module, run);

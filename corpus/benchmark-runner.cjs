@@ -6,6 +6,27 @@ const { spawn } = require("node:child_process");
 const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+
+/* Every image with a target file under a corpus root, families, sets and
+   names in sorted order: { family, set, name, file, target, mime }. */
+function* corpusImages(root) {
+  root = path.resolve(root);
+  for (const family of fs.readdirSync(root).sort()) {
+    const familyDir = path.join(root, family);
+    if (!fs.statSync(familyDir).isDirectory()) continue;
+    for (const set of fs.readdirSync(familyDir).sort()) {
+      const setDir = path.join(familyDir, set);
+      if (!fs.statSync(setDir).isDirectory()) continue;
+      for (const name of fs.readdirSync(setDir).sort()) {
+        const ext = path.extname(name).toLowerCase();
+        if (!MIME[ext]) continue;
+        const target = path.join(setDir, name.slice(0, -ext.length) + ".json");
+        if (fs.existsSync(target)) yield { family, set, name, file: path.join(setDir, name), target, mime: MIME[ext] };
+      }
+    }
+  }
+}
 
 function summarize(results) {
   const groups = new Map();
@@ -145,4 +166,4 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   }
   return report();
 }
-module.exports = { runBenchmark, summarize, writeReport };
+module.exports = { corpusImages, runBenchmark, summarize, writeReport };
