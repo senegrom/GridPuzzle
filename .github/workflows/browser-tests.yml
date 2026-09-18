@@ -20,6 +20,6 @@ jobs:
         run: node --test web/tests/*.test.js
       - name: Check every browser module parses
         run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
-      # The Playwright suites run once per pull request in "Scanner quality"
-      # when web/ or scripts/ change, and on every master push in "Build and
-      # deploy phone scanner", which is the deployment gate.
+      # Scanner quality covers recognition and tracking on pull requests.
+      # Relevant application changes also run the complete deployment
+      # acceptance workflow without publishing; master is the only publisher.

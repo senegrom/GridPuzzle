@@ -31,6 +31,7 @@ import {
 import { Scanner } from "./scanner.js";
 import { homography, project } from "./geometry.js";
 import { saveSession, restoreSession } from "./session.js";
+import { createBackup, parsePuzzleFile, puzzleDefinition } from "./backup.js";
 
 const $ = (id) => document.getElementById(id),
   NS = "http://www.w3.org/2000/svg",
@@ -90,7 +91,7 @@ const storage = {
       storageWarned = true;
       queueMicrotask(() => status(
         "Your puzzle is not being saved in this browser.",
-        "Private browsing or full storage blocks autosave. Export the puzzle as JSON to keep it.",
+        "Private browsing or full storage blocks autosave. Export a session backup to keep your progress and review warnings.",
         "warning",
       ));
     }
@@ -229,18 +230,18 @@ function mutate(fn) {
   persist();
   render();
 }
-export function loadPuzzle(payload) {
+export function loadPuzzle(payload, session = null) {
   const p = normalizePuzzle(payload);
   remember();
   invalidate();
   stopCamera();
   state.puzzle = p;
   setLayout(p);
-  state.uncertain.clear();
-  state.blackReadings = [];
-  state.cageUncertain.clear();
-  state.needsReview = false;
-  state.notes = [];
+  state.uncertain = new Set(session?.uncertain ?? []);
+  state.blackReadings = session?.blackReadings ?? [];
+  state.cageUncertain = new Set(session?.cageUncertain ?? []);
+  state.needsReview = session?.needsReview ?? false;
+  state.notes = session?.notes ?? [];
   state.photo =
     state.rectified =
     state.puzzleSource =
@@ -249,13 +250,14 @@ export function loadPuzzle(payload) {
       null;
   $("photo-panel").hidden = true;
   state.selected = [];
-  state.play = fitPlay(p, []);
-  state.hints = new Set();
+  state.play = fitPlay(p, session?.play ?? []);
+  state.hints = new Set(session?.hints ?? []);
+  if (session) { $("edit-tool").value = session.editing; savePrefs(); }
   focused = 0;
   persist();
   render({ replaceDraft: true });
   status(
-    "Puzzle loaded.",
+    session ? "Backup or puzzle imported." : "Puzzle loaded.",
     playable(p)
       ? `${TYPES[p.type]} · Tap a cell to edit its printed clue, or choose Play under Editing to solve it yourself.`
       : `${TYPES[p.type]} · Tap any cell to edit its printed clue.`,
@@ -1417,13 +1419,21 @@ function download(blob, name) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
-$("export-json").onclick = () =>
-  download(
-    new Blob([JSON.stringify(state.puzzle, null, 2)], {
-      type: "application/json",
-    }),
-    `gridpuzzle-${state.puzzle.type}.json`,
-  );
+function exportFile(value, name) {
+  download(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }), name);
+}
+$("export-json").onclick = () => {
+  try { exportFile(createBackup(state, $("edit-tool").value), `gridpuzzle-${state.puzzle.type}-backup.json`); }
+  catch (error) { fail(error); }
+};
+$("export-definition").onclick = () => {
+  try { exportFile(puzzleDefinition(state), `gridpuzzle-${state.puzzle.type}.json`); }
+  catch (error) { fail(error); }
+};
+function importPuzzleFile(payload) {
+  const session = parsePuzzleFile(payload);
+  loadPuzzle(session.puzzle, session);
+}
 $("save-photo").onclick = () => {
   if (!canOverlay()) {
     status("Read the adjusted crop before exporting an overlay.");
@@ -1447,7 +1457,7 @@ $("json-file").onchange = async (e) => {
     if (file.size > 200000)
       throw Error("Puzzle files must be smaller than 200 KB.");
     const parsed = JSON.parse(await file.text());
-    if (id === tasks.id) loadPuzzle(parsed);
+    if (id === tasks.id) importPuzzleFile(parsed);
   } catch (error) {
     if (id === tasks.id) fail(error);
   } finally {
@@ -1460,7 +1470,7 @@ $("apply-json").onclick = () => {
   try {
     if ($("json-data").value.length > 200000)
       throw Error("Puzzle data is too large.");
-    loadPuzzle(JSON.parse($("json-data").value));
+    importPuzzleFile(JSON.parse($("json-data").value));
   } catch (e) {
     fail(e);
   }

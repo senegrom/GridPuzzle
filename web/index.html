@@ -51,7 +51,8 @@
           </details>
           <details>
             <summary>Save, import & install</summary>
-            <div class="inline-buttons"><button id="import-json">Import puzzle</button><button id="export-json">Export puzzle</button></div>
+            <div class="inline-buttons"><button id="import-json">Import puzzle or backup</button><button id="export-json">Export session backup</button><button id="export-definition">Export puzzle definition only</button></div>
+            <p class="muted">Session backups preserve review warnings, notes and Play progress, but not photos or computed solutions. Puzzle definitions contain only the clues and rules; review a scan before exporting one.</p>
             <input id="json-file" type="file" accept=".json,application/json" hidden />
             <button id="prepare-offline" disabled>Download for offline use</button>
             <p id="offline-state" class="muted">First use needs an internet connection.</p>
@@ -62,7 +63,7 @@
         <section class="solve card" aria-labelledby="board-title">
           <div class="section-heading"><span class="step">02</span><div><h2 id="board-title">Your puzzle</h2><p id="board-meta" class="muted"></p></div><button id="undo" class="compact" disabled>Undo</button></div>
           <div id="status" class="status" role="status" aria-live="polite"><strong id="status-text">Ready when you are.</strong><span id="status-detail">Scan a puzzle, load an example, or tap a cell to enter clues.</span><progress id="progress" max="1" aria-labelledby="status-text" hidden></progress></div>
-          <section id="camera-panel" aria-label="Live puzzle scanner" hidden>
+          <section id="camera-panel" role="dialog" aria-label="Live puzzle scanner" tabindex="-1" hidden>
             <div class="camera-heading"><h2>Live scan & solve</h2><button id="close-camera" type="button" aria-label="Close camera">✕</button></div>
             <div class="viewfinder"><video id="video" autoplay muted playsinline aria-hidden="true"></video><canvas id="live-preview" role="img" aria-label="Live camera preview"></canvas></div>
             <div class="live-legend" role="group" aria-label="Scan colours"><span class="live-green">Green · recognised</span><span class="live-yellow">Yellow · uncertain ?</span><span class="live-red">Red · unread clue ?</span><span class="live-blue">Blue · solution</span></div>

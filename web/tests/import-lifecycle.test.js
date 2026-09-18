@@ -4,7 +4,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { makePuzzle, normalizePuzzle } from "../model.js";
+import { makePuzzle } from "../model.js";
+import { parsePuzzleFile } from "../backup.js";
 
 const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const first = source.indexOf('$("json-file").onchange =');
@@ -24,8 +25,8 @@ function harness() {
   const stopTask = () => { tasks.id++; };
   vm.runInNewContext(source.slice(first, last), {
     $, tasks, stopTask,
-    loadPuzzle(payload) {
-      const p = normalizePuzzle(payload);
+    importPuzzleFile(payload) {
+      const { puzzle: p } = parsePuzzleFile(payload);
       stopTask(); loaded.push(p);
     },
     fail: (error) => errors.push(error.message),

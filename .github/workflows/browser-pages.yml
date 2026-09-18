@@ -6,11 +6,13 @@ on:
     paths-ignore:
       - "**/*.md"
       - "benchmarks/**"
+  pull_request:
+    paths: ["web/**", "scripts/**", ".github/workflows/browser-pages.yml", "gridsolver/**", "pyproject.toml"]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: gridpuzzle-browser-pages
+  group: gridpuzzle-browser-pages-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   build:
@@ -74,6 +76,40 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+  live-acceptance:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v8
+        with:
+          name: scanner-static-build
+          path: _site
+      - name: Install browser test runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium webkit
+      - name: Verify exact deployment build
+        run: node -e "const fs=require('node:fs');if(JSON.parse(fs.readFileSync('_site/build-info.json')).build!==process.env.GITHUB_SHA.slice(0,12))process.exit(1)"
+      - name: Fetch bounded external picture tests
+        run: python scripts/fetch_live_fixtures.py
+      - name: Moving-video acceptance before deployment
+        run: node scripts/live_motion_regressions.cjs
+      - name: Integrated backup, preferences and modal regressions
+        run: node scripts/app_review_regressions.cjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: deployed-live-acceptance
+          path: browser-artifacts
+          retention-days: 7
   configure:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
@@ -90,7 +126,7 @@ jobs:
           echo '::error::Pages is not enabled for Actions. A repository owner must set Settings > Pages > Source to GitHub Actions, then re-run this job. The workflow token cannot grant itself repository administration permission.'
   deploy:
     if: github.ref == 'refs/heads/master'
-    needs: [build, configure]
+    needs: [build, configure, live-acceptance]
     runs-on: ubuntu-latest
     permissions:
       pages: write

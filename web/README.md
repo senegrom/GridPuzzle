@@ -38,6 +38,24 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - Local puzzle/settings persistence. Recognition uncertainty is persisted atomically. Only an explicit live-camera shutter press saves a photograph: one annotated PNG is retained locally, with download and delete controls. Imported photos, uncaptured frames and editor solver results are not stored.
 - Installable PWA icons, hash-verified offline preparation and a request for persistent browser storage. A banner at the top of the page announces a ready update; nothing reloads until the user chooses to.
 
+## Camera preferences and accessibility
+
+**Solve clear, unambiguous scans automatically** applies to both still-photo
+recognition and live previews. Switching it off preserves OCR but cancels any
+pending live solve and hides blue answers. Switching it on can use the same
+verified reading; a late response from an earlier solve cannot reappear.
+
+The full-screen camera is modal: background controls are inert, Tab and
+Shift+Tab remain inside it, and closing it restores the previous focus and
+background state. Native VoiceOver and physical-device usability still need
+manual testing.
+
+Kakuro Play feedback checks run duplicates and reachable sum bounds. Killer
+cages enforce distinct values and sum bounds; KenKen checks sum/product bounds
+and two-cell subtraction/division compatibility. These are necessary local
+conditions, not proof of correctness. The native solver remains responsible
+for full checking and unique solutions.
+
 ## Recognition trust model
 
 Automatic recognition is a proposal, not proof. A faint or cropped clue can look like an intentionally blank cell, so an **automatically identified puzzle type always requires one rules confirmation**, including boxed Sudoku. Structural families such as Str8ts remain review-gated. An explicitly selected type represents a separate user decision, but uncertainty flags still block silent trust of suspect readings.
@@ -83,6 +101,21 @@ failed/cancelled reads of an unchanged crop preserve the accepted solution,
 photo mapping, Play cache and undo history. A new Read click cancels earlier
 work even when the new dimensions, boxes or crop fail validation. Actual crop
 or photograph changes still invalidate incompatible mappings.
+
+## Session backups and imported definitions
+
+**Export session backup** writes a versioned `gridpuzzle-backup` envelope around
+our strict puzzle definition and saved review/Play state. It includes separate
+cell and cage warnings, pending black-cell evidence, notes, answers, hint marks
+and the editing mode. Photographs, computed solutions and undo history are not
+included. The importer validates the complete envelope before replacing the
+current session; an unsupported version or invalid metadata changes nothing.
+
+**Export puzzle definition only** is for interchange, not an unfinished-session
+backup. It is unavailable while scan review is outstanding. Older puzzle-only
+files remain importable, but explicitly require clue/rule confirmation because
+they carry no record of review or Play progress. The underlying solver schema
+is unchanged.
 
 ## Data contract
 
@@ -157,3 +190,14 @@ The page declares a same-origin Content Security Policy and a no-referrer policy
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
 The live camera detects a stable grid, processes it off the interface thread and projects coloured readings and solution entries onto the same view. Moving away clears stale answers. This is not a physical-device autofocus or motion-tracking certification; step-by-step deduction explanations are not included.
+
+### Offline download recovery
+
+Offline preparation is one shared job per service-worker build, with a bounded
+listener set. Retrying reconnects to a healthy job rather than duplicating or
+cancelling another tab's download. Each manifest/asset verification/storage
+phase has a worker-owned four-minute deadline, shorter than the page's
+five-minute inactivity timeout. A stalled phase aborts its network request,
+releases job ownership and reports an error; a subsequent retry can start a
+new job. Late retired work cannot publish success for a newer job. Only
+read-back, hash-verified stored assets authorize offline readiness.

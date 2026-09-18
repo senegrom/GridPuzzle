@@ -31,15 +31,17 @@ async function digest(response){
 async function matchesAsset(response,asset){return !!response?.ok&&(await digest(response))===asset.sha256;}
 async function contentCache(){return caches.open(CONTENT);}
 function injectedCache(value){return !!value&&typeof value.match==="function"&&typeof value.put==="function";}
-async function manifest({network=false}={}){
+async function manifest({network=false,signal}={}){
+  signal?.throwIfAborted();
   const cache=await caches.open(META),key=url("assets.json");
   let response=await cache.match(key);
   if(!response&&network){
     // Browsers may evict this cache under storage pressure. Restore the list
     // for this exact build rather than failing every request until a reinstall.
-    response=await fetch(new Request(key,{cache:"reload"}));
+    response=await fetch(new Request(key,{cache:"reload",signal}));
     if(!response.ok)throw diagnostic("Could not load the offline manifest.");
     const assets=validateManifest(await response.clone().json());
+    signal?.throwIfAborted();
     try{await cache.put(key,response.clone());}catch{}
     return assets;
   }
@@ -51,15 +53,17 @@ async function verifiedAsset(cacheOrAsset,assetOrOptions={},maybeOptions={}){
   const cache=injected?cacheOrAsset:await contentCache();
   const asset=injected?assetOrOptions:cacheOrAsset;
   const options=injected?maybeOptions:assetOrOptions;
-  const {network=true,requireStorage=true,verifyStored=false,trustStored=false}=options||{};
+  const {network=true,requireStorage=true,verifyStored=false,trustStored=false,signal}=options||{};
+  signal?.throwIfAborted();
   const key=assetKey(asset);
   let response=await cache.match(key);
-  if(response&&verifyStored&&!trustStored&&!(await matchesAsset(response,asset))){await cache.delete(key);response=null;}
+  if(response&&verifyStored&&!trustStored&&!(await matchesAsset(response,asset))){signal?.throwIfAborted();await cache.delete(key);response=null;}
   if(response)return response;
   if(!network)return null;
-  response=await fetch(new Request(url(asset.path),{cache:"reload"}));
+  response=await fetch(new Request(url(asset.path),{cache:"reload",signal}));
   if(!response.ok)throw diagnostic(`Could not download ${asset.path}. Stay online and retry.`);
   if(!(await matchesAsset(response,asset)))throw diagnostic(`Asset changed during download: ${asset.path}. Update the app and retry.`);
+  signal?.throwIfAborted();
   try{await cache.put(key,response.clone());}catch(error){if(requireStorage)throw error;}
   return response;
 }
@@ -233,28 +237,82 @@ self.addEventListener("fetch",event=>{
     }
   })());
 });
-let downloading=false;
-self.addEventListener("message",event=>{
-  if(event.data?.type==="ACTIVATE"){self.skipWaiting();return;}
-  const port=event.ports[0];if(!port)return;
-  event.waitUntil((async()=>{
-    try{
-      const assets=await manifest({network:event.data?.type==="PREPARE_OFFLINE"});
-      if(event.data?.type==="OFFLINE_STATUS"){
-        port.postMessage({done:true,ready:await offlineReadyFast(assets)});return;
-      }
-      if(event.data?.type!=="PREPARE_OFFLINE")throw diagnostic("Unknown offline task");
-      if(downloading)throw diagnostic("Offline preparation is already running. Wait for it to finish, then check the status again.");
-      downloading=true;
-      try{
-        const cache=await contentCache();
-        for(let i=0;i<assets.length;i++){
-          await verifiedAsset(cache,assets[i],{verifyStored:true,requireStorage:true});
-          port.postMessage({progress:i+1,total:assets.length});
+// One build-scoped job, shared by tabs. A page timing out never cancels another
+// tab's healthy download. Each phase has its own worker-owned deadline covering
+// fetch, body verification and storage, and retries can join current progress.
+let offlineJob = null, offlineSerial = 0;
+const OFFLINE_PHASE_MS = 240000;
+function offlinePhase(job, work) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = diagnostic("Offline download stalled. Stay online and retry.");
+      job.controller.abort(error); reject(error);
+    }, OFFLINE_PHASE_MS);
+  });
+  return Promise.race([Promise.resolve().then(work), deadline]).finally(() => clearTimeout(timer));
+}
+function offlineNotify(job, message) {
+  job.last = { ...message, jobId: job.id };
+  for (const [key, port] of job.ports) {
+    try { port.postMessage(job.last); } catch { job.ports.delete(key); }
+    if (message.done || message.error) { try { port.close?.(); } catch {} }
+  }
+}
+function prepareOffline(port, clientId) {
+  let job = offlineJob;
+  if (!job) {
+    job = { id: ++offlineSerial, controller: new AbortController(), ports: new Map(),
+      last: { progress: 0, total: 1 }, promise: null };
+    offlineJob = job;
+    job.promise = Promise.resolve().then(async () => {
+      try {
+        const signal = job.controller.signal;
+        const assets = await offlinePhase(job, () => manifest({ network: true, signal }));
+        const cache = await offlinePhase(job, () => contentCache());
+        for (let i = 0; i < assets.length; i++) {
+          await offlinePhase(job, () => verifiedAsset(cache, assets[i], { verifyStored: true, requireStorage: true, signal }));
+          signal.throwIfAborted();
+          offlineNotify(job, { progress: i + 1, total: assets.length });
         }
-        if(!(await offlineReadyVerified(cache,assets)))throw diagnostic("Offline verification failed. Retry while online.");
-        port.postMessage({done:true,ready:true});
-      }finally{downloading=false;}
-    }catch(error){port.postMessage({error:error?.message||String(error)});}
+        // Read back stored bytes rather than certifying an attempted cache put.
+        for (const asset of assets) {
+          const stored = await offlinePhase(job, () => verifiedAsset(cache, asset, { network: false, verifyStored: true, signal }));
+          if (!stored) throw diagnostic("Offline verification failed. Retry while online.");
+        }
+        signal.throwIfAborted();
+        offlineNotify(job, { done: true, ready: true });
+      } catch (error) {
+        job.controller.abort(error);
+        offlineNotify(job, { error: error?.message || String(error) });
+      } finally {
+        if (offlineJob === job) offlineJob = null;
+        job.ports.clear();
+      }
+    });
+  }
+  // A new request from the same tab replaces only its obsolete message port.
+  const key = clientId || port;
+  if (!job.ports.has(key) && job.ports.size >= 16) {
+    port.postMessage({ error: "Too many offline download listeners. Retry shortly." });
+    port.close?.(); return Promise.resolve();
+  }
+  try { job.ports.get(key)?.close?.(); } catch {}
+  job.ports.set(key, port);
+  try { port.postMessage({ ...job.last, jobId: job.id }); } catch { job.ports.delete(key); }
+  return job.promise;
+}
+self.addEventListener("message", event => {
+  if (event.data?.type === "ACTIVATE") { self.skipWaiting(); return; }
+  const port = event.ports[0]; if (!port) return;
+  if (event.data?.type === "PREPARE_OFFLINE") {
+    event.waitUntil(prepareOffline(port, event.source?.id)); return;
+  }
+  event.waitUntil((async () => {
+    try {
+      if (event.data?.type !== "OFFLINE_STATUS") throw diagnostic("Unknown offline task");
+      port.postMessage({ done: true, ready: await offlineReadyFast(await manifest()) });
+    } catch (error) { port.postMessage({ error: error?.message || String(error) }); }
+    finally { port.close?.(); }
   })());
 });

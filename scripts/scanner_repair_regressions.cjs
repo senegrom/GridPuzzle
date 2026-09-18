@@ -62,7 +62,9 @@ async function importRegressions(page) {
     await page.fill("#json-data", JSON.stringify({ ...latin, type, cells: ["#", "#", "#", "#"],
       ...(type === "str8ts" ? { black: [0, 1, 2, 3] } : {}) }));
     await page.click("#apply-json");
-    assert.match(await page.textContent("#status-text"), /Puzzle loaded/);
+    assert.equal(await page.textContent("#status-text"), "Backup or puzzle imported.");
+    assert.equal(await page.evaluate(() => repairApp.getState().needsReview), true,
+      "a legacy definition import must not silently confirm its clues");
     await page.click("#solve");
     assert.match(await page.textContent("#status-text"), /at least one/);
     assert.equal(await page.evaluate(() => repairApp.getState().busy), false);
@@ -71,7 +73,9 @@ async function importRegressions(page) {
   for (const type of ["hidato", "numbrix"]) {
     await page.fill("#json-data", JSON.stringify({ ...latin, type, cells: [1, 1, null, null] }));
     await page.click("#apply-json");
-    assert.match(await page.textContent("#status-text"), /Puzzle loaded/);
+    assert.equal(await page.textContent("#status-text"), "Backup or puzzle imported.");
+    assert.equal(await page.evaluate(() => repairApp.getState().needsReview), true,
+      "a legacy definition import must not silently confirm its clues");
     await page.click("#solve");
     assert.match(await page.textContent("#status-text"), /must not repeat/);
     assert.equal(await page.evaluate(() => repairApp.getState().busy), false);

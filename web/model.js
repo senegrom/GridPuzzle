@@ -426,6 +426,50 @@ export function conflicts(p) {
       }
     }
   }
+  // Local arithmetic feedback only: these necessary conditions do not solve
+  // the board, guess a clue, or change the native solver's interpretation.
+  const sumImpossible = (cells, target, distinct, limit) => {
+    const values = cells.map(i => p.cells[i]).filter(Number.isInteger);
+    const remaining = cells.length - values.length;
+    const available = Array.from({ length: limit }, (_, i) => i + 1).filter(v => !distinct || !values.includes(v));
+    if (distinct && available.length < remaining) return true;
+    const total = values.reduce((a, b) => a + b, 0);
+    const min = distinct ? available.slice(0, remaining).reduce((a, b) => a + b, 0) : remaining;
+    const max = distinct ? (remaining ? available.slice(-remaining).reduce((a, b) => a + b, 0) : 0) : remaining * limit;
+    return total + min > target || total + max < target;
+  };
+  if (p.type === "kakuro") for (const clue of p.clues || []) {
+    const row = Math.floor(clue.cell / p.cols), col = clue.cell % p.cols;
+    for (const [direction, dr, dc] of [["across", 0, 1], ["down", 1, 0]]) {
+      if (clue[direction] == null) continue;
+      const cells = [];
+      for (let r = row + dr, c = col + dc; r < p.rows && c < p.cols && p.cells[r * p.cols + c] !== "#"; r += dr, c += dc)
+        cells.push(r * p.cols + c);
+      if (!cells.length) continue; // Incomplete structures remain editable.
+      unique(cells);
+      if (sumImpossible(cells, clue[direction], true, 9)) cells.forEach(i => bad.add(i));
+    }
+  }
+  if (isCage(p.type)) for (const cage of p.cages || []) {
+    const cells = cage.cells, values = cells.map(i => p.cells[i]).filter(Number.isInteger);
+    const distinct = p.type === "killersudoku", op = distinct ? "+" : cage.op || "+";
+    if (distinct) unique(cells);
+    if (cage.target == null) continue;
+    let impossible = false;
+    if (op === "+") impossible = sumImpossible(cells, cage.target, distinct, p.rows);
+    else if (op === "*") {
+      const product = values.reduce((n, v) => n * BigInt(v), 1n), target = BigInt(cage.target);
+      impossible = product > target || target % product !== 0n ||
+        product * BigInt(p.rows) ** BigInt(cells.length - values.length) < target;
+      if (values.length === cells.length) impossible ||= product !== target;
+    } else if (["-", "/"].includes(op) && values.length) {
+      const compatible = (a, b) => op === "-" ? Math.abs(a - b) === cage.target :
+        Math.max(a, b) === cage.target * Math.min(a, b);
+      impossible = values.length === 2 ? !compatible(values[0], values[1]) :
+        !Array.from({ length: p.rows }, (_, i) => i + 1).some(v => compatible(v, values[0]));
+    } else if (op === "=" && values.length) impossible = values[0] !== cage.target;
+    if (impossible) cells.forEach(i => bad.add(i));
+  }
   for (const q of p.inequalities || [])
     if (Number.isInteger(p.cells[q.less]) && Number.isInteger(p.cells[q.greater]) && p.cells[q.less] >= p.cells[q.greater]) { bad.add(q.less); bad.add(q.greater); }
   return bad;
