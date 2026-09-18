@@ -29,3 +29,8 @@ https://www.puzzle-loop.com
 http://www.kakuro-online.com/slitherlink/
 https://www.chiark.greenend.org.uk/~sgtatham/puzzles/js/loopy.html
 https://mellowmelon.files.wordpress.com/2012/01/pack01slitherlinkv3.pdf
+
+The CSP-Rules resolution paths these remarks refer to (the step-by-step
+solutions, their ratings and the runs that produced them) were removed from
+the puzzle files: the loaders read only the puzzle. They remain in this
+repository's history, before the commit that trimmed them.
