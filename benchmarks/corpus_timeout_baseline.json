@@ -1,14 +1,10 @@
 {
   "schema_version": 1,
   "case_timeout_seconds": 60,
-  "reviewed_on": "2026-09-10",
-  "expires_on": "2026-10-10",
-  "evidence": "GitHub Actions run 33630723266, commit c40a51d4bd320c0792c4f25419ef47a62e6b112d (2026-09-02). The four new-family-slitherlink shard artifacts were downloaded and reviewed on 2026-09-10. These are historical allowances, not new timing measurements of master. Review resolved_timeouts and remove recovered cases before renewal.",
+  "reviewed_on": "2026-09-18",
+  "expires_on": "2026-10-19",
+  "evidence": "GitHub Actions run 35374583226, commit 1b4decb203e1193d3399accd476c961e70c16bdf (2026-09-18). The four new-family-slitherlink shard artifacts were downloaded and reviewed on 2026-09-18: 75 cases, 70 uniquely solved, 5 timed out, 0 unexpected. Both cases the previous baseline allowed that now finish were examined by their margin: Kakuro-online/15x15-Gen-M#1-L208.clp solves in 36.2 s (36.6 s locally) and was removed; Puzzle-loop/H15x15/4,407,009-L240.clp solves in 48.6 s (45.9 s locally) and was kept, since a fifth of the limit is not enough margin to drop its allowance. These are allowances for searches at or beyond the limit, not timing measurements of master. Review resolved_timeouts and remove recovered cases before renewal.",
   "timeouts": [
-    {
-      "path": "Examples/Slitherlink/Kakuro-online/15x15-Gen-M#1-L208.clp",
-      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 1 of the cited run."
-    },
     {
       "path": "Examples/Slitherlink/Kakuro-online/15x15-Gen-M#2-L206.clp",
       "reason": "Retained 15x15 search exceeded the 60-second limit in shard 2 of the cited run."
@@ -27,7 +23,7 @@
     },
     {
       "path": "Examples/Slitherlink/Puzzle-loop/H15x15/4,407,009-L240.clp",
-      "reason": "Retained 15x15 search exceeded the 60-second limit in shard 3 of the cited run."
+      "reason": "Solved in 48.6 s in the cited run and 45.9 s locally, inside the 60-second limit but with only a fifth of it to spare on a shared runner. Retained as an allowance, not as a claim that it times out; remove it once the margin is comfortable."
     },
     {
       "path": "Examples/Slitherlink/Puzzle-loop/H15x15/9,050,649-L242.clp",
