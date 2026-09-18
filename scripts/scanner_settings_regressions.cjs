@@ -1,20 +1,9 @@
 /* Real UI/solver regressions with deterministic scanner results, not OCR tests. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8769/GridPuzzle/";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle"))
-  fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn("python", ["-m", "http.server", "8769", "--bind", "127.0.0.1", "--directory", "_preview"], { stdio: "ignore" });
-const reports = [];
+const { serve, engines, main } = require("./harness.cjs");
 
-async function setup(page) {
-  await page.goto(BASE);
+async function setup(page, base) {
+  await page.goto(base);
   await page.waitForSelector('body[data-ready="true"]');
   return page.evaluate(async () => {
     window.settingsApp = await import("./app.js");
@@ -72,8 +61,8 @@ async function solved(page) {
   assert.equal(state.result.status, "unique", JSON.stringify(state.result));
   return state;
 }
-async function exercise(page) {
-  const image = await setup(page);
+async function exercise(page, base) {
+  const image = await setup(page, base);
   await page.selectOption("#puzzle-type", "sudoku");
   await photograph(page, image, "chosen-boxes");
   assert.equal(await page.inputValue("#box-rows"), "3");
@@ -174,38 +163,18 @@ async function exercise(page) {
   assert.equal(await page.evaluate(() => settingsReads), 8, "boxed-family preflight must still reject invalid settings");
   return image;
 }
-(async () => {
+async function run() {
+  const server = await serve({ pages: true });
   try {
-    let available = false;
-    for (let i = 0; i < 50; i++) {
-      try { if ((await fetch(BASE)).ok) { available = true; break; } } catch {}
-      await sleep(100);
-    }
-    assert.ok(available, "Local static server did not start");
-    for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
-      const browser = await engine.launch({ headless: true });
-      const context = await browser.newContext({
-        serviceWorkers: "block", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true,
-      });
-      const page = await context.newPage(), errors = [];
-      page.setDefaultTimeout(20000);
-      page.on("pageerror", (error) => errors.push(error.message));
-      try {
-        const image = await exercise(page);
-        const detection = await require("./detect_benchmark_regressions.cjs")(name, engine, image);
-        assert.deepEqual(errors, [], "Uncaught page errors");
-        reports.push({ browser: name, version: browser.version(), status: "passed", hiddenBoxes: "passed", detection });
-        console.log(`${name}: scanner settings, correction, undo and solver regressions passed`);
-      } catch (error) {
-        reports.push({ browser: name, status: "failed", message: error.message, errors });
-        await page.screenshot({ path: `browser-artifacts/${name}-scanner-settings-failure.png`, fullPage: true }).catch(() => {});
-        throw error;
-      } finally {
-        await browser.close();
-      }
-    }
+    await engines("scanner-settings.json", async (page, report, name) => {
+      const image = await exercise(page, server.base);
+      report.detection = await require("./detect_benchmark_regressions.cjs")(name, image);
+      report.hiddenBoxes = "passed";
+      console.log(`${name}: scanner settings, correction, undo and solver regressions passed`);
+    });
   } finally {
-    fs.writeFileSync("browser-artifacts/scanner-settings.json", JSON.stringify(reports, null, 2) + "\n");
-    server.kill();
+    server.close();
   }
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+}
+module.exports = { run };
+main(module, run);

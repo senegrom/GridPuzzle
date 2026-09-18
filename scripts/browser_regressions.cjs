@@ -1,29 +1,6 @@
 /* Additional real-browser scanner and input-boundary regressions. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
-const BASE = "http://127.0.0.1:8766/GridPuzzle/";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle"))
-  fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn(
-  "python",
-  [
-    "-m",
-    "http.server",
-    "8766",
-    "--bind",
-    "127.0.0.1",
-    "--directory",
-    "_preview",
-  ],
-  { stdio: "ignore" },
-);
-const reports = [];
+const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
 
 // Draw known clues without reading any production OCR output. The perspective
 // fixture is a projective transform of the entire image, not just a CSS tilt.
@@ -607,33 +584,12 @@ async function confirmationRegressions(page, report) {
   await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
   report.checks.push("confirmation stops capture, preserves unchecked clues on dismissal, and rejects a replaced puzzle");
 }
-(async () => {
-  for (let i = 0; i < 60; i++) {
-    try {
-      if ((await fetch(BASE)).ok) break;
-    } catch {}
-    await sleep(100);
-  }
-  for (const [name, engine] of Object.entries({ chromium, webkit })) {
-    const browser = await engine.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-    });
-    const page = await context.newPage();
-    page.setDefaultTimeout(20000);
-    const report = {
-      browser: name,
-      version: browser.version(),
-      scans: [],
-      checks: [],
-      errors: [],
-    };
-    reports.push(report);
-    page.on("pageerror", (e) => report.errors.push(e.message));
-    try {
-      await page.goto(BASE);
+async function run() {
+  const server = await serve({ pages: true });
+  try {
+    await engines("recognition-regressions.json", async (page, report, name) => {
+      Object.assign(report, { scans: [], checks: [] });
+      await page.goto(server.base);
       await ready(page);
       // Exercise the real import handler, not just the pure validator. A tiny
       // positive box increment used to hang render/conflict loops.
@@ -760,31 +716,10 @@ async function confirmationRegressions(page, report) {
         path: `browser-artifacts/${name}-scanner-improved.png`,
         fullPage: true,
       });
-      assert.deepEqual(report.errors, []);
-      report.ok = true;
-    } catch (error) {
-      report.ok = false;
-      report.failure = error.stack;
-      console.error(name, error);
-      try {
-        report.status = await page.locator("#status").innerText();
-        await page.screenshot({
-          path: `browser-artifacts/${name}-regression-failure.png`,
-          fullPage: true,
-        });
-      } catch {}
-    } finally {
-      await browser.close();
-      fs.writeFileSync(
-        "browser-artifacts/recognition-regressions.json",
-        JSON.stringify(reports, null, 2),
-      );
-    }
+    }, { context: SMALL_PHONE });
+  } finally {
+    server.close();
   }
-  if (reports.some((r) => !r.ok)) process.exitCode = 1;
-})()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => server.kill());
+}
+module.exports = { run };
+main(module, run);

@@ -1,24 +1,11 @@
 /* Real user-supplied newspaper photographs: OCR/structure safety regression. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
 
-const BASE = "http://127.0.0.1:8768/GridPuzzle/";
 const ROOT = path.resolve("Examples/BrowserScanner/Newspaper");
 const TRUTH = JSON.parse(fs.readFileSync(path.join(ROOT, "ground-truth.json"), "utf8"));
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-fs.mkdirSync("_preview", { recursive: true });
-fs.mkdirSync("browser-artifacts", { recursive: true });
-if (!fs.existsSync("_preview/GridPuzzle"))
-  fs.symlinkSync(path.resolve("_site"), "_preview/GridPuzzle", "dir");
-const server = spawn(
-  "python",
-  ["-m", "http.server", "8768", "--bind", "127.0.0.1", "--directory", "_preview"],
-  { stdio: "ignore" },
-);
-const reports = [];
 
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
@@ -87,55 +74,20 @@ function assess(fixture, scanResult) {
   };
 }
 
-(async () => {
-  for (let i = 0; i < 60; i++) {
-    try {
-      if ((await fetch(BASE)).ok) break;
-    } catch {}
-    await sleep(100);
-  }
-  for (const [name, engine] of Object.entries({ chromium, webkit })) {
-    const browser = await engine.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-    });
-    const page = await context.newPage();
-    page.setDefaultTimeout(20000);
-    const report = { browser: name, version: browser.version(), scans: [], errors: [] };
-    reports.push(report);
-    page.on("pageerror", (error) => report.errors.push(error.message));
-    try {
-      await page.goto(BASE);
+async function run() {
+  const server = await serve({ pages: true });
+  try {
+    await engines("newspaper-regressions.json", async (page, report) => {
+      report.scans = [];
+      await page.goto(server.base);
       await ready(page);
       for (const fixture of TRUTH.fixtures)
         report.scans.push(assess(fixture, await scan(page, fixture)));
-      assert.deepEqual(report.errors, []);
-      report.ok = true;
-    } catch (error) {
-      report.ok = false;
-      report.failure = error.stack;
-      console.error(name, error);
-    } finally {
-      await browser.close();
-      fs.writeFileSync(
-        "browser-artifacts/newspaper-regressions.json",
-        JSON.stringify(reports, null, 2),
-      );
-    }
+    }, { context: SMALL_PHONE });
+  } finally {
+    server.close();
   }
-  if (reports.some((report) => !report.ok)) process.exitCode = 1;
-})()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => server.kill())
-  .then(() => {
-    if (!process.exitCode) return require("./ocr_quality_regressions.cjs").run();
-  })
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+  await require("./ocr_quality_regressions.cjs").run();
+}
+module.exports = { run };
+main(module, run);
