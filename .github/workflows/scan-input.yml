@@ -20,6 +20,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          # the segments and scan-input scripts read their baseline scanner
+          # from a pinned commit with git show
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
