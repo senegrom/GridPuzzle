@@ -25,10 +25,6 @@ export function boxShape(n) {
   while (n % r) r--;
   return [r, n / r];
 }
-export function checkDimensions(rows, cols = rows) {
-  dimension(rows);
-  dimension(cols);
-}
 export function makePuzzle(type = "sudoku", rows = 9, cols = rows) {
   dimension(rows);
   dimension(cols);
@@ -294,7 +290,7 @@ export function fitPlay(p, play) {
       : null,
   );
 }
-export function mergePlay(p, play) {
+function mergePlay(p, play) {
   const merged = clone(p);
   merged.cells = p.cells.map((v, i) =>
     v === null && Number.isInteger(play[i]) ? play[i] : v,

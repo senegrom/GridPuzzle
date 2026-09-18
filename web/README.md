@@ -52,7 +52,15 @@ Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identif
 
 Digit cleanup retains neighbouring glyphs in multi-digit numbers and preserves ink in pure black-and-white scans. Invalid Str8ts values and Kakuro targets become highlighted blanks for correction. An incompatible cage reading leaves its cells uncovered; missing or ambiguous targets remain unset. These incomplete structures are editable, and Solve requires their correction rather than accepting an invented operator or target.
 
-See [LIVE_SCANNING.md](LIVE_SCANNING.md) for the live workflow, colour semantics, storage policy, bounded OCR retries and dim white-on-black glyph recovery.
+The documents beside this one:
+
+- [LIVE_SCANNING.md](LIVE_SCANNING.md): the live workflow, colour semantics, storage policy, bounded OCR retries and dim white-on-black glyph recovery.
+- [LIVE_TRACKING.md](LIVE_TRACKING.md): how a handheld frame keeps its identity through motion, and who owns a pending read.
+- [GRID_DETECTION.md](GRID_DETECTION.md): how the grid is found in a frame, measured on the puzzle corpus.
+- [OCR_QUALITY.md](OCR_QUALITY.md): how printed clues are read and recovered, with the measured improvements and acceptance suites.
+- [SCAN_INPUT.md](SCAN_INPUT.md): original-detail crops of still photographs, the clue-focused frame quality score and local cell-boundary refinement.
+- [STRUCTURAL_CAPTURE_SAFETY.md](STRUCTURAL_CAPTURE_SAFETY.md): how the live view notices changed print, and how saved pictures are owned across tabs.
+- [TESTING.md](TESTING.md): the test method and every suite.
 
 ## Photo imports and retained readings
 
@@ -149,9 +157,3 @@ The page declares a same-origin Content Security Policy and a no-referrer policy
 Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
 
 The live camera detects a stable grid, processes it off the interface thread and projects coloured readings and solution entries onto the same view. Moving away clears stale answers. This is not a physical-device autofocus or motion-tracking certification; step-by-step deduction explanations are not included.
-
-## OCR quality follow-up
-
-See [OCR_QUALITY.md](OCR_QUALITY.md) for the measured multi-digit and faded-photo
-improvements, confirmation policy, extra recognition cost and remaining limits.
-The existing newspaper gate also runs the new production OCR quality suite.

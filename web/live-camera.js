@@ -7,7 +7,7 @@ import { createLiveSession } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, SCAN_COLOURS } from "./live-overlay.js";
 
-export function videoFrame(video, maxSide = 1600, target = null) {
+function videoFrame(video, maxSide = 1600, target = null) {
   if (!video.videoWidth || !video.videoHeight) throw Error("The camera is not ready yet.");
   const canvas = target ?? document.createElement("canvas"), scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
   const width = Math.max(1, Math.round(video.videoWidth * scale)), height = Math.max(1, Math.round(video.videoHeight * scale));

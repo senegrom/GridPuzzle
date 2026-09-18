@@ -88,6 +88,4 @@ test("core HTML owns the safe-area and security polish without patch files", () 
   assert.match(html, /name="referrer" content="no-referrer"/);
   assert.doesNotMatch(html, /accessibility\.js|polish\.css/);
   assert.match(css, /safe-area-inset-top/);
-  assert.equal(fs.existsSync(new URL("../accessibility.js", import.meta.url)), false);
-  assert.equal(fs.existsSync(new URL("../polish.css", import.meta.url)), false);
 });

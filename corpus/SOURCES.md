@@ -174,7 +174,7 @@ at all. Internet Archive scans of puzzle books are lending-library only.
 mathinenglish.com has about 62 puzzles as four-per-sheet GIFs with answer PDFs
 and no stated licence.
 
-## Correctness and scoring version 2
+## Target correctness and scoring
 
 The contents table above records the September 14, 2026 rebuild, in which every
 rendered target passed `corpus/validate_target.py`. Killer cages now grow only
@@ -220,12 +220,18 @@ runs); otherwise it remains `corpus/index.json` in the checkout. Set these
 variables before starting a command.
 
 A rebuild collects and validates the selected sources before touching their
-outputs. Missing caches or required source assets are **skipped**, not treated
-as empty datasets: their existing images, targets and inventory/provenance remain. A run with a skipped
-source returns exit status 1 to avoid claiming a complete rebuild. A source
-that successfully yields no accepted images is a completed empty rebuild and
-its old managed images/targets are removed. Collector errors abort before any
-output changes. Do not run multiple builders concurrently on one corpus/index.
+outputs. A missing cache or required source asset makes the source
+**unavailable**, not empty: the collector enumerates its required image folders
+(both folders of a combined source, the originals' sibling annotation folder)
+and metadata (newspaper corner CSV headers, each Lexski split's metadata and
+referenced images, KU Leuven's data and label arrays, the standalone Futoshiki
+photograph), discards anything collected for that source, keeps its existing
+images, targets and inventory, and the run exits nonzero rather than claim a
+complete rebuild; other sources still rebuild. Optional handwritten labels and
+per-image annotations stay optional. An existing, readable, intentionally empty
+image directory is a completed empty rebuild, and its old managed images and
+targets are removed. Collector errors abort before any output changes. Do not
+run multiple builders concurrently on one corpus/index.
 
 Deduplication considers actual bytes of retained, indexed images, including
 skipped sources, together with the selected rebuild candidates. The first
@@ -272,36 +278,8 @@ bundled font, bad-font preflight, and benchmark failure and interrupt paths.
 They use temporary fixtures and never fetch public datasets or mutate the
 external corpus.
 
-### Detection-only report lifecycle
-
-The detection-only benchmark now uses the same checkpoint and cleanup runner
-as the OCR benchmark. Run `node corpus/detect_benchmark.cjs --set names` as
-before; `--limit` remains per set. Its JSON output is now a formatVersion 1
-envelope: use `report.results` in place of the previous bare array. It also
-contains per-scale summaries, completion status, input errors and cleanup
-diagnostics. A later corrupt image cannot discard earlier measurements.
-See `web/GRID_DETECTION.md` for the format and validation tests. No new full
-photographic-corpus measurements are asserted by this tooling change.
-
-### Missing source assets are not empty datasets
-
-The shared cache root alone is not proof that a selected source is available.
-Directory collectors explicitly enumerate their required image folders (including
-both folders of a combined source and the originals' sibling annotation folder).
-A missing, unreadable, or non-directory path raises a source-unavailable result.
-The builder discards any items collected for that source before the failure,
-preserves the prior source inventory and outputs, and exits nonzero. Other
-available sources can still rebuild. An existing, readable, intentionally empty
-image directory remains a valid empty rebuild.
-
-Required metadata is checked too: newspaper corner CSV headers, each Lexski split's
-metadata and referenced images, KU Leuven's data/label arrays, and the standalone
-Futoshiki photograph. Optional handwritten labels and per-image annotations for
-unlabelled photographs remain optional; these are not used as a blanket reason
-to reject otherwise valid datasets. Corrupt input that raises an unexpected
-collector error still aborts collection before corpus outputs are changed.
-
-`tests/test_corpus_source_layout.py` exercises registered collectors, real files,
-byte-for-byte output and index preservation, late failures in combined sources,
-and the valid-empty control. The tests use temporary cache/corpus directories;
-no external dataset rebuild is implied by these checks.
+`tests/test_corpus_source_layout.py` exercises the registered collectors on
+temporary cache and corpus directories: real files, byte-for-byte output and
+index preservation, late failures in combined sources, and the valid-empty
+control. The detection-only benchmark's report format is described in
+`web/TESTING.md`.

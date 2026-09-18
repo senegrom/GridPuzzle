@@ -1,6 +1,6 @@
 // Two bounded horizontal resamplings provide a review-only fallback for narrow
 // printed numbers. They are correlated measurements, not extra majority votes.
-export const ASPECT_FACTORS = Object.freeze([1.5, 2]);
+const ASPECT_FACTORS = Object.freeze([1.5, 2]);
 export function aspectEligible(entry) {
   if (!entry || entry.recoveredMark) return false;
   const count = entry.glyphCount ?? 1;

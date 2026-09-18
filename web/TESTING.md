@@ -109,12 +109,12 @@ relative dependencies specifically guards against cached Response URL leakage.
 `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest
 coverage without downloading dependencies.
 
-## OCR quality follow-up
+## OCR quality
 
-See [OCR_QUALITY.md](OCR_QUALITY.md) for the measured multi-digit and faded-photo
-improvements, confirmation policy, extra recognition cost and remaining limits.
-The existing newspaper gate also runs the production OCR quality suite in
-Chromium and mobile WebKit, using real Tesseract and fixed reference clues.
+[OCR_QUALITY.md](OCR_QUALITY.md) describes each recognition mechanism with its
+measurements and the acceptance suites. The newspaper gate runs the production
+OCR quality suite in Chromium and mobile WebKit, using real Tesseract and fixed
+reference clues.
 
 ## Live detector recovery
 
@@ -130,7 +130,7 @@ and deadline recovery, keeping exact displayed-PNG capture and colour checks.
 polarities and trailing digits, rejected speckles, unchanged connected glyphs,
 and mandatory review/red unknown status before any solver-backed blue entries.
 
-## Review hardening (2026-09-13)
+## Review hardening
 
 `web/tests/review-hardening.test.js` covers the fixes from the webapp code review:
 a captured still survives the page being hidden while a live camera is released,

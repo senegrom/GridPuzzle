@@ -1,8 +1,10 @@
-# Preserve detail, measure clue quality, refine local cell boundaries
+# Photo detail, clue quality and local cell boundaries
 
-These changes build on master `cecdd9c34b2cc049fe969efede6d177aba700d4e`.
-They leave Tesseract, puzzle classification, the native solver and the experimental
-neural network unchanged. The neural network remains disconnected from the app.
+Three parts of the path from a picture to OCR: the original-detail crop a
+still photograph gets, the clue-focused quality score the live camera picks
+frames by, and the local refinement of numeric cell boundaries after
+perspective correction. None of them involves Tesseract's configuration,
+puzzle classification or the native solver.
 
 ## Original-detail still-photo recognition
 
@@ -81,14 +83,14 @@ crop checks, a clipped-glyph geometry case and full-page detector-to-OCR cases.
 A separate small-grid control stays below the existing detector's 7% area
 threshold in both versions. Its explicit manual corner-selection route is tested
 and reported separately; it is not counted as successful automatic detection.
-It also compares every cell in the 66 existing quality cases against the exact
-pre-change master with the same dependencies and browser versions, rejecting
-unnecessary increases in review flags as well as newly lost correct cells. No expected
-answers enter either recognizer. The existing fragment and number-quality
-regressions are retained. Raw reports distinguish geometry, pixel mapping and
-transcription: a larger crop alone is not evidence of higher OCR accuracy.
+It also compares every cell in the 66 quality cases against a pinned baseline
+scanner with the same dependencies and browser versions, rejecting unnecessary
+increases in review flags as well as newly lost correct cells. No expected
+answers enter either recognizer. Raw reports distinguish geometry, pixel
+mapping and transcription: a larger crop alone is not evidence of higher OCR
+accuracy.
 
 The small generated-page set and two repository photographs are regression
 controls, not an independent representative estimate of phone scanning accuracy.
 No physical iPhone speed, memory or real camera-quality improvement is claimed
-without device testing. The workflow retains source and raw reports.
+without device testing. The Scanner quality workflow keeps the raw reports.

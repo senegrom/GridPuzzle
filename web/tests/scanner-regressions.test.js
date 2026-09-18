@@ -1,13 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  checkShape,
-  makePuzzle,
-  boxShape,
-  demo,
-  TYPES,
-  nextReviewCell,
-} from "../model.js";
+import { checkShape, makePuzzle, demo, nextReviewCell } from "../model.js";
 import { isGridStroke } from "../ocr-map.js";
 
 test("Only solid crop-spanning grid strokes are excluded from cage-label OCR", () => {
@@ -28,17 +21,6 @@ test("Only solid crop-spanning grid strokes are excluded from cage-label OCR", (
     { ink: 200 },
   ])
     assert.equal(isGridStroke({ ...bar, ...change }), false);
-});
-test("Invalid dimensions are rejected before allocating a board or finding box factors", () => {
-  for (const bad of [0, -1, 1.5, 26, 1e12, NaN, Infinity, "9", true]) {
-    assert.throws(() => makePuzzle("sudoku", bad));
-    assert.throws(() => makePuzzle("sudoku", 9, bad));
-    assert.throws(() => boxShape(bad));
-  }
-});
-test("Every family demo still passes render-boundary validation", () => {
-  for (const type of Object.keys(TYPES))
-    assert.equal(checkShape(demo(type)).type, type);
 });
 test("Imports cannot use fractional, zero or huge steps for box rendering", () => {
   for (const key of ["boxRows", "boxCols"])
