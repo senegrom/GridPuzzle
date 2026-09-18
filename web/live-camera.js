@@ -93,6 +93,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       return found;
     },
     solve: (puzzle) => solver.solve(puzzle),
+    autoSolve: () => getSettings()?.autoSolve !== false,
     // Realignment retires the pending read, not the warm OCR engine.
     cancelRead: () => reader.cancel({ keepEngine: true }),
     // Realignment retires answers, not an idle interpreter. Closing the camera
@@ -203,7 +204,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (!active) return;
     try {
       raw = videoFrame(video, 1600, raw); currentPixels = null; contentCache.clear(); signature = fingerprint(raw);
-      const next = getSettings(), key = JSON.stringify([next, raw.width, raw.height]);
+      const next = getSettings(), identitySettings = { ...next };
+      delete identitySettings.autoSolve;
+      const key = JSON.stringify([identitySettings, raw.width, raw.height]);
       if (key !== settingsKey) {
         settingsKey = key; setting = next; guide = guideFrame = null;
         cancelDetection(); lastDetect = -Infinity; session.invalidate();

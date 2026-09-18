@@ -63,11 +63,15 @@ export function gridAnchor(image, corners, rows, cols) {
 function locate(point, g, w, h, predicted) {
   let best = null, bestError = Infinity;
   function score(x, y) {
-    const b = patch(g, w, h, x, y);
-    if (!b || b.energy < point.energy * .35 || b.energy > point.energy * 2.8) return;
-    let product = 0;
-    for (let i = 0; i < PATCH; i++) product += point.values[i] * b.values[i];
-    const error = 1 - product / Math.sqrt(point.energy * b.energy);
+    if (x < R + 1 || y < R + 1 || x >= w - R - 2 || y >= h - R - 2) return;
+    let sum = 0, squared = 0, product = 0, anchorSum = 0, n = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const value = at(g, w, x + dx, y + dy), a = point.values[n++];
+      sum += value; squared += value * value; product += a * value; anchorSum += a;
+    }
+    const energy = Math.max(0, squared - sum * sum / PATCH);
+    if (energy < point.energy * .35 || energy > point.energy * 2.8) return;
+    const error = 1 - (product - anchorSum * sum / PATCH) / Math.sqrt(point.energy * energy);
     if (error < bestError) { bestError = error; best = { ...point, tx: x, ty: y, error }; }
   }
   for (let dy = -SEARCH; dy <= SEARCH; dy += 2)

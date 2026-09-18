@@ -3,6 +3,7 @@ import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./mode
 import { validQuad } from "./geometry.js";
 import { sniffDimensions } from "./image-dimensions.js";
 import { createLiveCamera } from "./live-camera.js";
+import { cameraModal } from "./camera-modal.js";
 
 export function setupPhotoFlow({
   $,
@@ -38,6 +39,7 @@ export function setupPhotoFlow({
     playbackTimer = null,
     captured = null,
     saving = false;
+  const modal = cameraModal($("camera-panel"), $("camera"));
   function stopCamera() {
     cameraEpoch++;
     live?.stop();
@@ -50,6 +52,7 @@ export function setupPhotoFlow({
     stream = null;
     $("video").srcObject = null;
     $("camera-panel").hidden = true;
+    modal.close();
     captured = null;
   }
   async function openCamera() {
@@ -88,6 +91,7 @@ export function setupPhotoFlow({
           if (epoch === cameraEpoch) { stopCamera(); status("Camera disconnected.", "Your saved pictures and puzzle are unchanged.", "warning"); }
         }, { once: true });
       $("camera-panel").hidden = false;
+      modal.open();
       $("close-camera").focus?.();
       // Set the properties as well as the HTML attributes before assigning a
       // MediaStream. WebKit can require explicit muted inline playback.
@@ -121,6 +125,7 @@ export function setupPhotoFlow({
               rows: Number($("rows").value), cols: Number($("cols").value),
               boxRows: Number($("box-rows").value), boxCols: Number($("box-cols").value),
               enabled: $("auto-capture").checked,
+              autoSolve: $("auto-solve").checked,
             }),
           });
           live.start();
@@ -160,7 +165,6 @@ export function setupPhotoFlow({
   const closeCamera = () => {
     stopCamera();
     status("Camera closed.", "Your puzzle and saved pictures are unchanged.");
-    $("camera").focus?.();
   };
   $("close-camera").onclick = closeCamera;
   document.addEventListener("keydown", (event) => {
@@ -182,6 +186,7 @@ export function setupPhotoFlow({
       stopCamera();
       captured = picture;
       $("camera-panel").hidden = false;
+      modal.open();
       document.body?.classList.add("camera-open");
       $("close-camera").focus?.();
       $("take-photo").hidden = true;

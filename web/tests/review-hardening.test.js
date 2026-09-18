@@ -28,7 +28,15 @@ async function cameraHarness(t, { capture = null, play = async () => {} } = {}) 
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     t.after(() => previous ? Object.defineProperty(globalThis, key, previous) : delete globalThis[key]);
   }
-  globalThis.document = { hidden: false, body: { classList: { add() {}, remove() {} } }, addEventListener(type, fn) { listeners[type] = fn; } };
+  const handlers = new Map();
+  globalThis.document = { hidden: false, body: { classList: { add() {}, remove() {} } },
+    addEventListener(type, fn) {
+      if (!handlers.has(type)) handlers.set(type, new Set());
+      handlers.get(type).add(fn);
+      listeners[type] = event => { for (const cb of [...handlers.get(type)]) cb(event); };
+    },
+    removeEventListener(type, fn) { handlers.get(type)?.delete(fn); },
+  };
   const track = { stopped: 0, events: {}, stop() { this.stopped++; }, addEventListener(type, fn) { this.events[type] = fn; } };
   tracks.push(track);
   const stream = { getTracks: () => tracks };

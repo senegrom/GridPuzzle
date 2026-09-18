@@ -5,8 +5,9 @@ import { clone, checkShape } from "./model.js";
 // OCR ownership and overlay visibility are deliberately separate. Motion may
 // hide a result, but only changed rules/content, a timeout or Stop retires work.
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus,
-  isCurrent = null, sameScene = null, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  isCurrent = null, sameScene = null, autoSolve = () => true, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   let active = false, generation = 0, pending = false, preview = null, stored = null;
+  let solveGeneration = 0, solving = false;
   let reference = null, best = null, challenger = null, stable = 0, attempts = 0;
   let lastRead = -Infinity, lastSharpness = 0, deadline = null, lostAt = null, signature = null;
   let status = "Reading printed clues… Keep the grid in view.", lastStatus = "";
@@ -20,7 +21,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   };
   const publish = value => { if (preview !== value) { preview = value; onChange(value); } };
   function reset() {
-    generation++; clearDeadline(); pending = false; stable = 0; attempts = 0;
+    generation++; solveGeneration++; solving = false; clearDeadline(); pending = false; stable = 0; attempts = 0;
     release(best); best = reference = challenger = stored = null;
     lastRead = -Infinity; lastSharpness = 0; lostAt = null;
     cancelRead(); cancelSolve(); publish(null);
@@ -49,6 +50,11 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   }
   function validate() {
     if (!active) return false;
+    if (!autoSolve()) {
+      if (solving) { solveGeneration++; solving = false; pending = false; cancelSolve(); }
+      if (stored) { stored.result = null; stored.solveFinished = false; }
+      if (stored?.readComplete) status = "Clues read. Automatic solving is off; capture to review or play.";
+    }
     const target = stored?.sample ?? reference;
     if (!target) return false;
     const view = proof(target);
@@ -60,17 +66,17 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     return true;
   }
   function startSolve() {
-    if (pending || !stored?.readComplete || stored.solveFinished || previewBlocker(stored.found)) return;
-    const target = stored, id = generation;
+    if (!autoSolve() || pending || !stored?.readComplete || stored.solveFinished || previewBlocker(stored.found)) return;
+    const target = stored, id = generation, solveId = ++solveGeneration;
     // Only a freshly verified reading can start a solve. A result arriving
     // during movement remains queued until the grid reappears unchanged.
     if (!proof(target.sample)) return;
-    target.solveFinished = true; pending = true;
+    target.solveFinished = true; pending = true; solving = true;
     status = "Finding a solution on this device…"; say(status);
     void (async () => {
       try {
         const result = await solve(clone(target.found.puzzle));
-        if (!active || id !== generation || stored !== target) return;
+        if (!active || id !== generation || solveId !== solveGeneration || !autoSolve() || stored !== target) return;
         if (result?.status === "unique" && result.complete === true) {
           target.result = result;
           status = "Solution preview — check the clues and rules. Tap the shutter to save this picture.";
@@ -78,9 +84,9 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
           : result?.status === "no-solution" ? "No solution to these readings — move closer or review the clues."
           : "Preview search paused. Keep the grid in view to retry, or capture and use the full editor.";
       } catch (error) {
-        if (active && id === generation) status = error.message || "Preview search failed. Capture to review the clues.";
+        if (active && id === generation && solveId === solveGeneration && autoSolve()) status = error.message || "Preview search failed. Capture to review the clues.";
       } finally {
-        if (active && id === generation) { pending = false; validate(); }
+        if (active && id === generation && solveId === solveGeneration) { pending = false; solving = false; validate(); }
       }
     })();
   }
@@ -111,7 +117,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       best.sharpness >= Math.max(lastSharpness * 1.3, lastSharpness + 40);
     if (sharper) { if (elapsed < 1000) return; }
     else {
-      if (stored?.result?.status === "unique") return;
+      if (stored?.result?.status === "unique" || (!autoSolve() && stored?.readComplete)) return;
       if (elapsed < Math.min(24000, 3000 * 2 ** Math.max(0, attempts - 1))) return;
     }
     const id = ++generation, sample = best;

@@ -250,3 +250,23 @@ they do not claim new photographic OCR accuracy.
 The detection benchmark report is now a versioned envelope with a `results`
 array and explicit run/failure metadata; see `GRID_DETECTION.md` before
 updating any external consumers of its previous bare-array output.
+
+## Cross-feature reliability
+
+`node scripts/app_review_regressions.cjs` exercises actual file download/import,
+scan review and Play metadata, legacy definitions, malformed-backup rejection,
+Kakuro conflict feedback, camera focus trapping and the live auto-solve setting
+in Chromium and WebKit. The preference race checks control OCR and solver
+replies to release obsolete jobs deliberately; they do not measure OCR accuracy.
+The separate moving-feed and real camera/solver suites retain that coverage.
+
+`web/tests/offline-retry.test.js` runs the production service worker with
+controlled network failures and its own deadline clock. It covers stalled
+manifests, assets and bodies, integrity/quota failures, shared downloads across
+tabs, reconnection, and late retired requests. No five-minute real-time waits
+or relaxed verification checks are required.
+
+Every master deployment waits for `live-acceptance` on a separate runner. It
+downloads `scanner-static-build` from that run, checks its build identifier,
+and runs the moving-feed and cross-feature suites before Pages can publish.
+This is the exact deployment artifact, not an independently rebuilt site.
