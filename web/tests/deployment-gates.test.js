@@ -5,6 +5,7 @@ import fs from 'node:fs';
 test('master deployment waits for moving-camera acceptance of the exact built artifact',()=>{
  const source=fs.readFileSync(new URL('../../.github/workflows/browser-pages.yml',import.meta.url),'utf8');
  const gate=source.slice(source.indexOf('  live-acceptance:'),source.indexOf('  configure:'));
+ assert.match(source,/"gridsolver\/\*\*"/,'native solver changes also run pre-merge acceptance');
  assert.match(gate,/needs: build/);
  assert.match(gate,/actions\/download-artifact@v8/);
  assert.match(gate,/name: scanner-static-build/);

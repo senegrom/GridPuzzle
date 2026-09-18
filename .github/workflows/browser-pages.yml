@@ -7,7 +7,7 @@ on:
       - "**/*.md"
       - "benchmarks/**"
   pull_request:
-    paths: ["web/**", "scripts/**", ".github/workflows/browser-pages.yml", "gridpuzzle/**", "pyproject.toml"]
+    paths: ["web/**", "scripts/**", ".github/workflows/browser-pages.yml", "gridsolver/**", "pyproject.toml"]
   workflow_dispatch:
 permissions:
   contents: read
