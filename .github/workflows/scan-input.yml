@@ -1,9 +1,15 @@
-name: Scan input quality
+name: Scanner quality
 on:
-  push:
-    branches: ['improve/scan-input-*']
   pull_request:
-    paths: ['web/**', 'scripts/scan_input_regressions.cjs', '.github/workflows/scan-input.yml']
+    paths:
+      - 'web/**'
+      - 'scripts/*regressions.cjs'
+      - 'scripts/harness.cjs'
+      - 'scripts/build_web.py'
+      - 'scripts/fetch_live_fixtures.py'
+      - 'Examples/BrowserScanner/**'
+      - '.github/workflows/scan-input.yml'
+      - '.github/actions/setup-scanner/action.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,48 +17,59 @@ concurrency:
   group: scan-input-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  scan-input:
+  # The two jobs are separate on purpose: after the four recognition suites
+  # have run on a runner, WebKit no longer starts playback of a canvas stream
+  # and the live-motion suite waits forever (measured 2026-09-18), while on
+  # a runner of its own it finishes in half a minute.
+  recognition:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
+          # the segments and scan-input scripts read their baseline scanner
+          # from a pinned commit with git show
           fetch-depth: 0
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - name: Retain exact tested source
+      - uses: ./.github/actions/setup-scanner
+      - name: Record the tested commit
         run: |
           mkdir -p scan-input-artifacts
-          git archive HEAD > scan-input-artifacts/source.tar
           git rev-parse HEAD > scan-input-artifacts/commit.txt
       - name: Unit regressions and syntax checks
         run: |
-          node --test --test-concurrency=1 web/tests/*.test.js > scan-input-artifacts/unit-tests.log
+          node --test web/tests/*.test.js | tee scan-input-artifacts/unit-tests.log
           find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
-          node --check scripts/scan_input_regressions.cjs
-      - name: Build pinned self-hosted runtime
-        run: python scripts/build_web.py
-      - name: Install repository browser test versions
-        run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-          npx playwright install --with-deps chromium webkit
-      - name: Existing newspaper, font and degraded-image quality checks
+      - name: Newspaper, font and degraded-image quality checks
         run: node scripts/ocr_quality_regressions.cjs
-      - name: Existing damaged-clue checks
+      - name: Damaged-clue checks
         run: node scripts/recognition_fragments_regressions.cjs
-      - name: Existing multi-digit paired recognition checks
+      - name: Multi-digit paired recognition checks
         run: node scripts/recognition_segments_regressions.cjs
       - name: Original-detail decoding, cell alignment and end-to-end photo scans
         run: node scripts/scan_input_regressions.cjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: scan-input-report
+          name: recognition-report
           path: |
             scan-input-artifacts
             browser-artifacts
+          retention-days: 7
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-scanner
+      - name: Fetch bounded external picture tests
+        run: python scripts/fetch_live_fixtures.py
+      - name: Real moving-video scanning and external picture tracking
+        run: node scripts/live_motion_regressions.cjs
+      - name: Camera capture and solver integration
+        run: node scripts/live_camera_regressions.cjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: live-report
+          path: browser-artifacts
           retention-days: 7

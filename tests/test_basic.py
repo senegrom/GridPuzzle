@@ -19,6 +19,8 @@ def test_sudo0():
     assert len(sol) == 1
 
 
+@pytest.mark.slow  # ~35 s: the full 288 enumeration; the differential
+# oracle checks the count cheaply on every push, weekly extended CI runs this
 def test_sudo1():
     g = Sudoku(2, 2, 2, 2)
     sol = solver.solve(g, log_level=0)
@@ -79,6 +81,7 @@ def test_sudo_none():
     assert len(sol) == 0
 
 
+@pytest.mark.slow  # ~12 s; test_sudo_nonsq_box_tiling checks the tiling on every push
 def test_sudo_nonsq():
     g = Sudoku(3, 2, 2, 3)
     g.load("123456654321........................", row_wise=False)
