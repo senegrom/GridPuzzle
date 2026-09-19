@@ -63,20 +63,33 @@ async function begin({ font, race = false }) {
     let capture = null;
     try { const c = camera.capture(); capture = c.found ? pack(c.found) : null; c.photo.width = c.photo.height = c.annotated.width = c.annotated.height = 0; } catch { /* no frame yet */ }
     return { font, race, full: state.full, retries: state.retries, events: state.events, scheduling: state.scheduling,
-      worker: state.worker, corners: state.corners, capture, expected: cells, status: document.getElementById('camera-help').textContent };
+      worker: state.worker, corners: state.corners, capture, expected: cells,
+      playback: { started: !!state.started, error: state.startError ?? null, readyState: video.readyState, paused: video.paused,
+        width: video.videoWidth, height: video.videoHeight, ticks: state.ticks, currentTime: video.currentTime }, status: document.getElementById('camera-help').textContent };
   };
   state.changedPresented = () => out.getContext('2d').getImageData(30, 5, 1, 1).data[1] > 200;
   state.clear = () => { state.sharp = true; paint(); };
   state.change = () => { state.changed = true; paint(); };
   state.pause = () => video.pause(); state.resume = () => play();
-  state.stop = () => { state.releaseRetry?.(); camera.stop(); clearInterval(clock); stream.getTracks().forEach(t => t.stop()); video.srcObject = null; video.remove(); out.remove(); source.width = source.height = tiny.width = tiny.height = 0; };
+  state.stop = () => { state.releaseRetry?.(); camera.stop(); startButton.remove(); clearInterval(clock); stream.getTracks().forEach(t => t.stop()); video.srcObject = null; video.remove(); out.remove(); source.width = source.height = tiny.width = tiny.height = 0; };
   async function play() {
     let deadline;
     try { await Promise.race([video.play(), new Promise((_, reject) => { deadline = setTimeout(() => reject(Error('Recovery fixture playback did not start')), 20000); })]); }
     finally { clearTimeout(deadline); }
   }
   state.visible = () => Number(out.dataset.recognised || 0) + Number(out.dataset.uncertain || 0) + Number(out.dataset.unknown || 0) > 0;
-  await play(); camera.start();
+  // The production camera is opened by a user's click. Do not make this
+  // regression depend on a cold WebKit canvas stream accepting autoplay.
+  // This starts actual playback; it never supplies frames/identity to the app.
+  const startButton = document.createElement('button'); startButton.id = 'recovery-start';
+  startButton.textContent = 'Start test video';
+  startButton.style.cssText = 'position:fixed;left:0;top:265px;z-index:10000';
+  document.body.append(startButton);
+  startButton.onclick = async () => {
+    startButton.disabled = true;
+    try { await play(); camera.start(); state.started = true; }
+    catch (error) { state.startError = error.message; }
+  };
 }
 async function run() {
   const server = await serve(), reports = [], failures = [];
@@ -92,6 +105,9 @@ async function run() {
           const record = { ...config }; report.cases.push(record);
           try {
             await page.evaluate(begin, config);
+            await page.click('#recovery-start');
+            await page.waitForFunction(() => recoveryState.started || recoveryState.startError, null, { timeout: 25000 });
+            assert.equal(await page.evaluate(() => recoveryState.startError ?? null), null, 'test video must actually start before camera acceptance');
             const beforeHandle = await page.waitForFunction(() => {
               if (!recoveryState.full.length || !recoveryState.visible()) return false;
               const value = recoveryState.snapshot(); return value.capture ? value : false;
