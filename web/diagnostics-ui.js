@@ -22,6 +22,9 @@ export function setupDiagnosticsUI({ $, diagnostics, getSource }) {
     let frozen = null;
     function update() {
       const snapshot = diagnostics.snapshot();
+      // A new scan or closing the camera retires any prepared attachment too.
+      // Reopening never carries an earlier image opt-in into another session.
+      if (!snapshot.events.length || snapshot.reason === 'stopped') clear();
       summary.textContent = STAGE_LABELS[snapshot.stage];
       reason.textContent = REASON_LABELS[snapshot.reason] ?? 'The report below records stage timings, settings, geometry and review flags. No image is included by default.';
     }
