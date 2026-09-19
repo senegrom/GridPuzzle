@@ -2,7 +2,7 @@ name: Live refinement source snapshot
 on:
   push:
     branches: [improve/live-worker-recovery-diagnostics-20260919]
-    paths: [.github/workflows/live-refinement-source.yml]
+    paths: [.github/workflows/live-refinement-source.yml, scripts/live_refinement_probe.cjs]
 permissions:
   contents: read
 jobs:
