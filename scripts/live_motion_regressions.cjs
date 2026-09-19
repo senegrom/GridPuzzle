@@ -50,10 +50,13 @@ async function beginMotion(cells) {
   // Frames must flow while play() is pending: a captured canvas that is not
   // repainted delivers nothing, and play() then never settles.
   state.timer=setInterval(paint,80);
-  await video.play();
+  let playTimer;
+  try { await Promise.race([video.play(),new Promise((_,reject)=>{playTimer=setTimeout(()=>reject(Error('Motion fixture video playback did not start')),20000);})]); }
+  finally { clearTimeout(playTimer); }
   let readerEpoch=0,finishSolve=null;
   const cancelSolve=()=>{finishSolve?.({status:'cancelled'});finishSolve=null;};
-  state.camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,
+  const {createScanDiagnostics}=await import('./scan-diagnostics.js');state.diagnostics=createScanDiagnostics();state.diagnostics.begin('live',{});
+  state.camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,diagnostics:state.diagnostics,
     getSettings:()=>({type:'sudoku',rows:9,cols:9,boxRows:3,boxCols:3,enabled:true}),
     reader:{prepare:()=>reader.prepare(),cancel(options){readerEpoch++;state.cancels++;reader.cancel(options);},
       async read(...args){const owner=readerEpoch;state.reads++;state.reading=true;
@@ -151,7 +154,7 @@ async function run(){
     }
    }catch(e){
     report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
-      ticks:window.motionState?.ticks,reading:window.motionState?.reading,witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
+      ticks:window.motionState?.ticks,reading:window.motionState?.reading,witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
     throw e;
    }
   },{timeout:60000});

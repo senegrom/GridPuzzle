@@ -40,3 +40,12 @@ test('background detections cannot replace the foreground OCR stage or stale set
  assert.equal(d.snapshot().events.at(-1).stage,'detecting');assert.equal(d.snapshot().events.at(-1).background,true);
  d.configure({type:'sudoku',rows:4,cols:4});assert.equal(d.snapshot().settings.rows,4);assert.equal(d.snapshot().lastReading,null);
 });
+
+test('diagnostic geometry declares its pixel coordinate space and bounds metadata',()=>{
+ const d=createScanDiagnostics();d.begin('photo',{});
+ d.geometry({rows:9,cols:9,width:600,height:800,coordinateSpace:'source-preview',corners:[{x:1,y:2},{x:599,y:2},{x:599,y:799},{x:1,y:799}],filename:'PRIVATE'});
+ const g=d.snapshot().geometry;assert.equal(g.width,600);assert.equal(g.height,800);assert.equal(g.coordinateSpace,'source-preview');
+ assert.deepEqual(g.corners[2],{x:599,y:799});assert.doesNotMatch(JSON.stringify(g),/PRIVATE/);
+ d.geometry({width:NaN,height:Infinity,coordinateSpace:'PRIVATE'});
+ assert.equal(d.snapshot().geometry.coordinateSpace,null);assert.equal(d.snapshot().geometry.width,null);
+});

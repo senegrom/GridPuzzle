@@ -58,6 +58,8 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
     configure(value) { settings = settingsOf(value); reading = geometry = null; notify(); },
     geometry(found) {
       geometry = { rows: number(found.rows), cols: number(found.cols), confidence: number(found.confidence),
+        width: number(found.width), height: number(found.height),
+        coordinateSpace: ['source-preview', 'detector-input'].includes(found.coordinateSpace) ? found.coordinateSpace : null,
         corners: Array.isArray(found.corners) && found.corners.length === 4 ? found.corners.map(p => ({x:number(p.x),y:number(p.y)})) : null,
         quality: found.quality ? { score: number(found.quality.score), contrast: number(found.quality.contrast),
           cellPixels: number(found.quality.cellPixels), weakCells: indices(found.quality.weakCells),

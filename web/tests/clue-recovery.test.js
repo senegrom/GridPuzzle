@@ -61,6 +61,7 @@ function session(t) {
 test('a clearer live frame retries only the unresolved cell and does not repeat full OCR',async t=>{
  const h=session(t);await flush();h.setTime(1600);h.observe(60);assert.equal(h.reads,1);assert.equal(h.retries.length,1);assert.deepEqual(h.retries[0].cells,[1]);
  h.retries[0].resolve(retry());await flush();assert.deepEqual(h.s.preview.found.puzzle.cells,[1,2,null,null]);assert.ok(h.s.preview.found.cellUncertain.includes(1));
+ assert.deepEqual(h.events.find(e=>e.reason==='targeted-complete').found.puzzle.cells,[1,2,null,null],'diagnostics receive the applied reading, not just the original full scan');
  h.setTime(4000);h.observe(60);assert.equal(h.retries.length,1,'identical frame quality must not become another vote');assert.equal(h.reads,1);
 });
 test('retired targeted replies cannot replace a new scene',async t=>{

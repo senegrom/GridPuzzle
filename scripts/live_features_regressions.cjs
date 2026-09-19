@@ -64,6 +64,7 @@ async function diagnosticCheck(page, report) {
     const file=await pending;return JSON.parse(fs.readFileSync(await file.path(),'utf8'));
   }
   const clean=await download();assert.equal(clean.format,'gridpuzzle-diagnostic');assert.equal(clean.source,'photo');
+  assert.equal(clean.geometry.coordinateSpace,'source-preview');assert.equal(clean.geometry.width,500);assert.equal(clean.geometry.height,500);
   assert.equal(clean.privacy.includesImage,false);assert.equal(clean.image,undefined);assert.ok(clean.lastReading.cells.some(Number.isInteger));
   assert.doesNotMatch(JSON.stringify(clean),/PRIVATE-FILENAME|data:image|solutions|file:\/\//);
   await panel.locator('[data-diagnostic="image-toggle"]').check();assert.equal(await panel.locator('[data-diagnostic="image"]').isVisible(),true);

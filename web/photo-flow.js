@@ -419,7 +419,7 @@ export function setupPhotoFlow({
       if (id !== getJobId()) return;
       clearPhotoMapping();
       state.corners = found.corners;
-      diagnostics.geometry(found);
+      diagnostics.geometry({ ...found, width: canvas.width, height: canvas.height, coordinateSpace: "source-preview" });
       diagnostics.event({stage:"detecting",reason:found.confidence > .8 ? "found" : "manual-corners"});
       finish();
       if (found.rows && found.cols) {
@@ -594,6 +594,7 @@ export function setupPhotoFlow({
       return;
     }
     diagnostics.configure({ type, rows, cols, boxRows, boxCols, autoSolve: $("auto-solve").checked });
+    diagnostics.geometry({ rows, cols, corners: state.corners, width: state.photo.width, height: state.photo.height, coordinateSpace: "source-preview" });
     // Keep the accepted board, solution and still-valid photo mapping until
     // a complete replacement is ready. Crop edits already invalidate mapping.
     const id = begin();

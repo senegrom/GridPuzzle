@@ -164,7 +164,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       diagnostics?.event({stage:"detecting",reason:"started",background:session.busy || !!session.preview});
       const found = await detector.detect(small, { thorough: false, rows: settings.rows, cols: settings.cols });
       if (!current()) return;
-      diagnostics?.geometry(found);
+      diagnostics?.geometry({ ...found, width: small.width, height: small.height, coordinateSpace: "detector-input" });
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
         diagnostics?.event({stage:"detecting",reason:"no-grid"});

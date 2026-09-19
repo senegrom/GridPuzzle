@@ -88,7 +88,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         solveFinished: !autoSolve() || found.recovery.changed.length ? false : job.oldSolveFinished };
       status = previewBlocker(found) ?? `${recoveryCells(found).length} clues still need review. Re-read proposals remain unconfirmed.`;
       onEvent({ stage: 'checking', reason: 'targeted-complete', targets: job.cells,
-        changed: found.recovery.changed.length, calls: job.result.ocrStats?.calls ?? 0 });
+        changed: found.recovery.changed.length, calls: job.result.ocrStats?.calls ?? 0, found });
     } catch (error) {
       stored.result = autoSolve() ? job.oldResult : null; stored.solveFinished = autoSolve() && job.oldSolveFinished;
       status = error.message || 'The retry could not be applied. Capture for review.';
