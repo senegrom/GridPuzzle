@@ -8,14 +8,14 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
-      - run: |
-          git archive HEAD -o /tmp/live-refinement-source.tar
-          git rev-parse HEAD > /tmp/live-refinement-commit.txt
+      - uses: ./.github/actions/setup-scanner
+      - run: node scripts/live_refinement_probe.cjs
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: live-refinement-source
-          path: /tmp/live-refinement-*
+          name: live-refinement-probe
+          path: browser-artifacts
           retention-days: 1
