@@ -21,10 +21,11 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   globalThis.document = { createElement: canvas };
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
   const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true };
-  let core = createTrackingCore();
+  let core = createTrackingCore(), hold = false;
+  const held = [];
   const tracker = {
     anchor: async task => core.run({ ...task, op: 'anchor' }),
-    verify: async task => core.run({ ...task, op: 'verify' }),
+    verify: task => hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
   const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700 }, canvas: canvas(),
@@ -51,7 +52,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, get cancellations() { return cancellations; } };
+  return { camera, timers, detections, readings, settings, advance, result, $, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -157,4 +158,18 @@ test("small-number guidance preserves manual camera capture", async (t) => {
   await h.result(undefined, { assessable: false, reason: "small" });
   assert.match(h.$("camera-help").textContent, /too few pixels/);
   const capture = h.camera.capture(); assert.ok(capture.photo); assert.equal(capture.found, null);
+});
+
+
+test("a fresh unverified frame does not permanently fence out delayed tracking replies", async t => {
+ const h=harness(t);await h.advance(100);await h.result();
+ assert.equal(h.camera.diagnosticSource().verified,true);
+ h.holdTracking(true);await h.advance(900);
+ assert.equal(h.camera.diagnosticSource().verified,false,'fallback pixels carry no proof');
+ const delayed=h.held.at(-3);assert.ok(delayed,'a realistic two-tick worker delay');
+ delayed.resolve(delayed.result());await flush();
+ assert.equal(h.camera.diagnosticSource().verified,true,'a fresh reply after the fallback can recover tracking');
+ h.camera.stop();
+ for(const job of h.held)job.resolve({proofs:{}});
+ await flush();assert.equal(h.camera.diagnosticSource().verified,false,'closing still rejects every queued reply');
 });

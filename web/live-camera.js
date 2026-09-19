@@ -228,6 +228,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     let adopted = false;
     try {
       const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
+      if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
       if (!active || owner !== epoch || key !== settingsKey || id < displayedSerial || now() - at > MAX_TRACK_AGE) return;
       // Display this operation's actual source snapshot, never project a late
       // result onto a newer frame. The pending slot always holds the latest
@@ -275,7 +276,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // On a stalled/unsupported worker the UI and manual shutter still work,
       // but no old proof or captured clue metadata survives the age deadline.
       if (!raw || now() - sampledAt > MAX_TRACK_AGE) {
-        release(raw); raw = copyCanvas(image); proofs = {}; displayedSerial = frameSerial + 1;
+        release(raw); raw = copyCanvas(image); proofs = {}; sampledAt = now(); displayedSerial = frameSerial + 1;
+        // This unverified picture is fresh, not a tracking proof. Clearing
+        // proofs keeps it untrusted; advancing its display timestamp prevents
+        // each tick moving the serial fence ahead of every worker reply.
         session.suspend(); render();
       } else { session.validate(); render(); }
       if (now() >= retryTrackingAt) {
