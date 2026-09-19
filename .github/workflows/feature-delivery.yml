@@ -26,8 +26,6 @@ jobs:
           assert set(names)<=allowed, 'Branch changed during transfer; do not overwrite it'
           parts=[pathlib.Path(f'scripts/.feature-delivery-{i}') for i in range(1,5)]
           text=''.join(p.read_text().strip() for p in parts)
-          # Correct two known transcription slips in encoded transport only.
-          # The independent whole-patch SHA and final Git tree must both match.
           text=text.replace('/3jSJ4x7/','/3j3jSJ4x7/').replace('wdHuxYYrq','wdHuxYrq')
           patch=gzip.decompress(base64.b64decode(text,validate=True))
           assert hashlib.sha256(patch).hexdigest()=='af2fb3f80e2fbdf12d7061615a3d764469d89584f64f8795d4d725b8d33c2d20', 'Transfer checksum mismatch'
@@ -46,14 +44,18 @@ jobs:
           git diff --cached --check
           find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
           node --check scripts/live_features_regressions.cjs
-      - name: Commit only to the requested feature branch
+      - name: Commit application files within this token's scope
         run: |
+          # Workflow edits require the authorized connector, not this job token.
+          # Leave every workflow byte unchanged in this content-only push.
+          git restore --source=HEAD --staged --worktree .github
+          if git diff --cached --name-only | grep -q '^.github/'; then exit 1; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Move live registration off-thread, add targeted clue recovery and private diagnostic export'
-          git push origin HEAD:refs/heads/improve/live-worker-recovery-diagnostics-20260919
           git rev-parse HEAD > delivery-results/commit.txt
           git rev-parse HEAD^{tree} > delivery-results/tree.txt
+          git push origin HEAD:refs/heads/improve/live-worker-recovery-diagnostics-20260919
       - uses: actions/upload-artifact@v7
         if: always()
         with:
