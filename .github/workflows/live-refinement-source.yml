@@ -1,21 +1,21 @@
-name: Live refinement source snapshot
+name: Live recovery acceptance preview
 on:
   push:
     branches: [improve/live-worker-recovery-diagnostics-20260919]
-    paths: [.github/workflows/live-refinement-source.yml, scripts/live_refinement_probe.cjs]
+    paths: [.github/workflows/live-refinement-source.yml, scripts/live_recovery_regressions.cjs]
 permissions:
   contents: read
 jobs:
-  source:
+  live:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-scanner
-      - run: node scripts/live_refinement_probe.cjs
+      - run: node scripts/live_recovery_regressions.cjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: live-refinement-probe
+          name: live-recovery-preview
           path: browser-artifacts
-          retention-days: 1
+          retention-days: 2
