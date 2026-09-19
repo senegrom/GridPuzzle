@@ -60,6 +60,9 @@ export function mergeRecoveredClues(base, retry, requested, confirmed = []) {
   const cellUncertain = [...new Set([...(base.cellUncertain ?? base.uncertain ?? []), ...conflicts(puzzle)])];
   // Never promote a repeated-frame vote or a correction to confirmed input.
   const found = { ...base, puzzle, needsReview: true, cellUncertain,
+    // Both sources were verified against the original grid before merging.
+    // Review the sharper source that actually supplied the new proposals.
+    rectified: replacements.size ? retry.rectified ?? base.rectified : base.rectified,
     uncertain: [...new Set([...cellUncertain, ...(base.cageUncertain ?? [])])],
     entries: (base.entries ?? []).map(e => replacements.get(e.cell) ?? e),
     recovery: { requested: selected, changed, repeated, proposals: replacements.size },

@@ -44,7 +44,11 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       Math.hypot(p.x - b.corners[i].x, p.y - b.corners[i].y) <= b.width * .012);
   }
   function hide() {
-    publish(null); stable = 0; release(best); best = null;
+    publish(null); release(best); best = null;
+    // A missing asynchronous proof hides the view, not the two already
+    // verified observations of this original anchor. Resetting acquisition
+    // here can starve OCR whenever worker replies span multiple camera ticks.
+    // Changed content, settings and prolonged loss still reset ownership.
     if (lostAt === null) lostAt = now();
     // Bounded retention prevents a camera pointed elsewhere keeping old
     // images/work indefinitely. Brief motion never restarts this clock.
@@ -173,8 +177,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     const targets = readCells && stored?.readComplete ? recoveryCells(stored.found) : [];
     if (!pending && (targets.length || !best || frame.sharpness >= best.sharpness)) { if (best !== frame) release(best); best = frame; }
     else if (frame !== best) release(frame);
-    validate();
-    if (pending || pendingRecovery || stable < 2) return;
+    if (!validate() || pending || pendingRecovery || stable < 2) return;
     if (targets.length) {
       const cells = clearerCells(stored.found, recoveryQuality, best?.quality, recoveryAttempts);
       if (!cells.length || now() - lastRecovery < 1500) {

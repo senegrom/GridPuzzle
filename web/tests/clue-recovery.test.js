@@ -74,3 +74,10 @@ test('targeted results finish while hidden and require re-verification before ap
 test('a cell explicitly confirmed before retry merge remains untouched',()=>{
  const f=found();f.confirmedCells=[1];assert.equal(mergeRecoveredClues(f,retry(),[1]).puzzle.cells[1],null);
 });
+
+test('accepted retry evidence refreshes the review picture without changing protected clues',()=>{
+ const f=found(),r=retry();f.rectified={source:'original'};r.rectified={source:'clearer'};
+ const updated=mergeRecoveredClues(f,r,[1]);
+ assert.equal(updated.rectified,r.rectified);assert.equal(updated.puzzle.cells[0],f.puzzle.cells[0]);
+ r.entries=[];const empty=mergeRecoveredClues(f,r,[1]);assert.equal(empty.rectified,f.rectified,'empty retries do not discard the original review evidence');
+});
