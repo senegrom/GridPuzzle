@@ -11,7 +11,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function harness(t, solver = { solve: async () => null, cancel() {} }) {
-  let time = 0, serial = 0, cancellations = 0;
+  let time = 0, serial = 0, cancellations = 0, frozenTime = null;
   const timers = new Map(), detections = [], readings = [], nodes = new Map();
   const previous = globalThis.document;
   const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
@@ -28,7 +28,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
     verify: task => hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
-  const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700 }, canvas: canvas(),
+  const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: canvas(),
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },
@@ -45,14 +45,15 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
     }
     time = end; await flush();
   }
-  function result(job = detections.at(-1), quality = undefined) {
+  async function result(job = detections.at(-1), quality = undefined) {
     job.resolve({ confidence: .99, rows: 2, cols: 2, sharpness: 200, quality,
       corners: [{ x: 0, y: 0 }, { x: 639, y: 0 }, { x: 639, y: 639 }, { x: 0, y: 639 }] });
-    return flush();
+    await flush();
+    await advance(100); // A detector reply cannot manufacture a new video frame.
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { camera, timers, detections, readings, settings, advance, result, $, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -172,4 +173,25 @@ test("a fresh unverified frame does not permanently fence out delayed tracking r
  h.camera.stop();
  for(const job of h.held)job.resolve({proofs:{}});
  await flush();assert.equal(h.camera.diagnosticSource().verified,false,'closing still rejects every queued reply');
+});
+
+
+test("stalled video loses overlays on the heartbeat without a new processing tick", async t => {
+ const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();
+ assert.equal(h.readings.length,1);
+ const {makePuzzle}=await import('../model.js');const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,null,null,1];
+ h.readings[0].resolve({puzzle,cellUncertain:[],uncertain:[],markedCells:[0,3],needsReview:true,notes:[]});await flush();
+ assert.ok(h.camera.capture().found);
+ h.stall();const detections=h.detections.length;await h.advance(600);
+ assert.equal(h.camera.capture().found,null);assert.equal(h.camera.diagnosticSource().verified,false);
+ assert.equal(h.detections.length,detections,'heartbeat must not detect again from old video pixels');
+ assert.match(h.$('camera-help').textContent,/new camera frame/);
+ h.resume();await h.advance(100);assert.ok(h.camera.capture().found,'unchanged source can be reverified');
+ assert.equal(h.readings.length,1,'brief stalled delivery does not destroy OCR');
+});
+
+test("a detector finishing on a stalled feed cannot manufacture fresh evidence", async t => {
+ const h=harness(t);await h.advance(100);h.stall();await h.advance(600);await h.result();
+ assert.equal(h.readings.length,0);assert.equal(h.camera.diagnosticSource().verified,false);
+ assert.equal(h.camera.capture().found,null);
 });

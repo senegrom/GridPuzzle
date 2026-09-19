@@ -1,7 +1,7 @@
 const STAGES = new Set(['idle','detecting','quality','tracking','preparing','reading','checking','solving','complete','error']);
 const REASONS = new Set(['ready','started','stopped','reset','settings-or-detection','grid-lost','content-changed',
   'found','no-grid','small','blur','contrast','full-read','targeted','identical-crops','ocr-complete','read-complete',
-  'clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
+  'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
   'worker-error','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
   'manual-corners','review-required','auto-solve-off']);
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
@@ -27,7 +27,7 @@ function readingOf(found) {
 // URLs, stack traces, user notes, Play answers or solver solutions enter here.
 export function createScanDiagnostics({ now = () => performance.now(), build = '__BUILD_ID__' } = {}) {
   let started = now(), source = 'none', settings = {}, stage = 'idle', reason = 'ready', reading = null, geometry = null;
-  let events = [], timings = {}, stageAt = started, counters = {}, tracking = {};
+  let events = [], timings = {}, stageAt = started, counters = {}, tracking = {}, scheduling = {};
   const listeners = new Set();
   function notify() { for (const listener of listeners) { try { listener(); } catch { /* Diagnostics cannot interrupt scanning. */ } } }
   function event(value) {
@@ -52,7 +52,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
   return {
     begin(kind, value) {
       started = stageAt = now(); source = ['live','photo'].includes(kind) ? kind : 'none'; settings = settingsOf(value);
-      stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; notify();
+      stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {}; notify();
     },
     event,
     configure(value) { settings = settingsOf(value); reading = geometry = null; notify(); },
@@ -71,11 +71,15 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       for (const key of ['submitted','completed','dropped','failures','milliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
     },
+    scheduling(stats) {
+      scheduling = { mode: stats.mode === 'video-frame' ? 'video-frame' : 'fallback', fresh: !!stats.fresh };
+      for (const key of ['observed','processed','skipped','duplicates','intervalMilliseconds']) scheduling[key] = number(stats[key]);
+    },
     snapshot() {
       return structuredClone({ format: 'gridpuzzle-diagnostic', version: 1, build, source, settings, stage, reason,
         elapsedMilliseconds: number(now() - started),
         stageMilliseconds: Object.fromEntries(Object.entries({...timings, [stage]: (timings[stage] ?? 0) + now() - stageAt}).map(([k,v]) => [k, number(v)])),
-        counters, tracking, geometry, lastReading: reading, events,
+        counters, tracking, scheduling, geometry, lastReading: reading, events,
         privacy: { includesImage: false, automaticUpload: false, includesSolutions: false } });
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -97,6 +101,11 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   multiple: 'These clues allow more than one solution. Check for a missing clue or rule.',
   unfinished: 'Search ended before a definitive result.', 'review-required': 'Check highlighted clues and confirm the rules.',
   'auto-solve-off': 'Clues can be read without revealing a solution.',
+  'retry-skipped': 'No new crop evidence was read. The OCR retry allowance is unchanged; waiting for a clearer frame.',
+  'retry-exhausted': 'Automatic retries finished. Capture to review the remaining clues manually.',
+  'retry-timeout': 'The clue retry timed out. The previous reading is retained and only shown while verified.',
+  'retry-failed': 'The clue retry failed. The previous reading is retained; capture to review.',
+  'video-stalled': 'The camera has stopped presenting new frames. Old overlays are hidden; resume the camera or capture for review.',
   'retry-rejected': 'The retry did not match the original puzzle; its readings were not applied.',
   'targeted-complete': 'The selected clue proposals were refreshed. They still require review.',
 });

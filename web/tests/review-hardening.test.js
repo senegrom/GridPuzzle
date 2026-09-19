@@ -133,7 +133,7 @@ test("a detected grid that does not fit the selected rules shows the reason inst
   globalThis.document = { createElement: () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} }) };
   t.after(() => { globalThis.document = previous; });
   const detections = [], invalidations = [];
-  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700 }, canvas: { width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} },
+  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: { width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} },
     getSettings: () => ({ type: "sudoku", rows: 9, cols: 9, boxRows: 3, boxCols: 3, enabled: true }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() {} },
     reader: { read() { return new Promise(() => {}); }, cancel() {} },

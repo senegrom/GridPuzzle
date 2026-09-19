@@ -61,8 +61,11 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!active) return false;
     if (!autoSolve()) {
       if (solving) { solveGeneration++; solving = false; pending = false; cancelSolve(); }
-      if (stored) { stored.result = null; stored.solveFinished = false; }
-      if (stored?.readComplete) status = "Clues read. Automatic solving is off; capture to review or play.";
+      if (stored) {
+        if (stored.result || stored.solveFinished)
+          status = "Clues read. Automatic solving is off; capture to review or play.";
+        stored.result = null; stored.solveFinished = false;
+      }
     }
     const target = stored?.sample ?? reference;
     if (!target) return false;
@@ -108,20 +111,42 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     for (const item of sample.quality?.cells ?? []) if (cells.includes(item.cell)) previous.set(item.cell, item);
     recoveryQuality = { ...sample.quality, cells: [...previous.values()] };
     const owns = () => active && id === generation && stored === base;
+    // A failed refinement must not retire a valid full reading. Retire only
+    // this request; late replies cannot mutate the retained board or a retry.
+    const failed = reason => {
+      if (!owns()) return;
+      generation++; pending = false; pendingRecovery = activeSample = null;
+      clearDeadline(); cancelRead(); release(sample);
+      base.result = autoSolve() ? oldResult : null;
+      base.solveFinished = autoSolve() && oldSolveFinished;
+      status = reason === 'retry-timeout'
+        ? 'Clue retry timed out. Keeping the previous reading; capture to review.'
+        : 'Could not re-read those clues. Keeping the previous reading; capture to review.';
+      onEvent({ stage: 'checking', reason, cancelledRead: reason === 'retry-timeout' });
+      validate();
+    };
     status = `Re-reading ${cells.length} unclear clues from a clearer frame…`; say(status);
     onEvent({ stage: 'reading', reason: 'targeted', targets: cells });
-    deadline = setTimer(() => { if (owns()) reset('retry-timeout'); }, 90000);
+    deadline = setTimer(() => failed('retry-timeout'), 90000);
     void (async () => {
       try {
         const result = await readCells(sample, base.found, cells);
         if (!owns()) return;
+        // Reserve budget before starting, but refund work explicitly skipped
+        // before OCR. Keep the inspected quality and cooldown to avoid a loop
+        // on identical pixels; a later genuinely clearer frame is still eligible.
+        if (result.identicalCrops === true || result.ocrStats?.calls === 0) {
+          for (const cell of cells) recoveryAttempts.set(cell, Math.max(0, (recoveryAttempts.get(cell) ?? 1) - 1));
+          activeSample = null;
+          base.result = autoSolve() ? oldResult : null;
+          base.solveFinished = autoSolve() && oldSolveFinished;
+          status = 'No new clue evidence. Keeping the previous reading; waiting for a clearer frame.';
+          onEvent({ stage: 'checking', reason: 'retry-skipped', targets: cells, calls: 0 });
+          return;
+        }
         pendingRecovery = { base, result, cells, sample, oldResult, oldSolveFinished, finishedAt: now() };
       } catch (error) {
-        if (owns()) {
-          activeSample = null; base.result = autoSolve() ? oldResult : null; base.solveFinished = autoSolve() && oldSolveFinished;
-          status = error.message || 'Could not re-read those clues. Capture to review.';
-          onEvent({ stage: 'reading', reason: 'retry-failed' });
-        }
+        failed('retry-failed');
       } finally {
         release(sample);
         if (owns()) { pending = false; clearDeadline(); validate(); }
@@ -179,9 +204,15 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     else if (frame !== best) release(frame);
     if (!validate() || pending || pendingRecovery || stable < 2) return;
     if (targets.length) {
+      if (targets.every(cell => (recoveryAttempts.get(cell) ?? 0) >= 2)) {
+        status = 'Automatic retries finished — capture to review the remaining clues.';
+        say(status); onEvent({ stage: 'checking', reason: 'retry-exhausted', targets });
+        return;
+      }
       const cells = clearerCells(stored.found, recoveryQuality, best?.quality, recoveryAttempts);
       if (!cells.length || now() - lastRecovery < 1500) {
-        onEvent({ stage: 'checking', reason: 'clearer-frame-needed', targets }); return;
+        status = 'Waiting for a clearer frame of the unclear clues. Capture to review them manually.';
+        say(status); onEvent({ stage: 'checking', reason: 'clearer-frame-needed', targets }); return;
       }
       if (best && proof(stored.sample) && matches(stored.sample, best)) startRecovery(best, cells);
       return;
@@ -224,7 +255,8 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         recoveryQuality = sample.quality; recoveryAttempts.clear();
         onEvent({ stage: 'checking', reason: 'read-complete', found });
         const blocker = previewBlocker(found);
-        status = blocker ?? "Clues read — checking the current grid…";
+        status = blocker ?? (autoSolve() ? "Clues read — checking the current grid…"
+          : "Clues read. Automatic solving is off; capture to review or play.");
         validate();
         if (blocker) return;
 
@@ -240,6 +272,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     suspend: hide, motion, observe, validate,
     get preview() { return preview; },
     get busy() { return pending; },
+    get settled() { return !!stored?.readComplete && !pending && !pendingRecovery; },
     get trackingFrames() { return [stored?.sample, reference, challenger, best, activeSample].filter(Boolean); },
     get anchorFrame() { return stored?.sample ?? reference; },
   };

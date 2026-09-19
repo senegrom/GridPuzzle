@@ -1,3 +1,4 @@
+import { createFrameScheduler } from "./live-frame-scheduler.js";
 import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
@@ -43,7 +44,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
   diagnostics = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
-  let active = false, timer = null, detection = null, epoch = 0, lastDetect = -Infinity;
+  let active = false, detection = null, epoch = 0, lastDetect = -Infinity;
   let raw = null, guide = null, guideFrame = null, displayed = null, signature = null;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, displayedSerial = 0, sampledAt = -Infinity, retryTrackingAt = 0;
@@ -72,7 +73,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     return (await tracker.anchor({ image: pixels, corners: points, rows, cols, anchors: anchorIds() })).anchor;
   }
   function isCurrent(frame) {
-    if (!raw || !frame?.anchor || now() - sampledAt > MAX_TRACK_AGE) return false;
+    if (!raw || !frame?.anchor || !scheduler.fresh || now() - sampledAt > MAX_TRACK_AGE) return false;
     const view = proofs[frame.anchor.id];
     return view ? { corners: view.corners.map(p => ({
       x: p.x * (raw.width - 1) / (view.width - 1), y: p.y * (raw.height - 1) / (view.height - 1),
@@ -203,7 +204,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // The detection's source is not necessarily the currently displayed
       // frame. Wait for an asynchronous proof before giving it to the session.
       discardCandidate(); pendingCandidate = frame; job.handedOff = true;
-      void track(videoFrame(video), key, owner);
+      // The next newly presented frame verifies this candidate. Do not sample
+      // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
       if (job.anchoring && current()) { trackingFailed(error, owner); return; }
       if (current()) { guide = guideFrame = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
@@ -260,19 +262,46 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     } catch (error) { trackingFailed(error, owner); }
     finally { if (!adopted) release(image); }
   }
+  function syncSettings(width, height) {
+    const next = getSettings(), identitySettings = { ...next };
+    delete identitySettings.autoSolve;
+    const key = JSON.stringify([identitySettings, width, height]);
+    if (key !== settingsKey) {
+      epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
+      tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0;
+      cancelDetection(); lastDetect = -Infinity; session.invalidate();
+    }
+  }
+  function heartbeat() {
+    if (!active) return;
+    if (video.videoWidth && video.videoHeight) {
+      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+      syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
+    }
+    if (!scheduler.fresh || now() - sampledAt > MAX_TRACK_AGE) {
+      proofs = {}; guide = null;
+      session.suspend();
+      if (!scheduler.fresh && raw) {
+        diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
+      }
+    }
+    render();
+    if (!scheduler.fresh && raw) say('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    diagnostics?.scheduling?.(scheduler.stats);
+  }
+  const scheduler = createFrameScheduler({ video, now, setTimer, clearTimer,
+    onFrame: tick, onHeartbeat: heartbeat, onError: error => say(error.message || 'Waiting for the camera…'),
+    // Back off expensive snapshots when tracking is slow or a reading is
+    // settled, but stay below the 500ms evidence deadline. Never queue history.
+    interval: () => Math.max(session.settled ? 250 : 100,
+      Math.min(300, (tracker.stats?.milliseconds ?? 0) * 1.5)),
+  });
   function tick() {
     if (!active) return;
     let image;
     try {
       image = videoFrame(video);
-      const next = getSettings(), identitySettings = { ...next };
-      delete identitySettings.autoSolve;
-      const key = JSON.stringify([identitySettings, image.width, image.height]);
-      if (key !== settingsKey) {
-        epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
-        tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0;
-        cancelDetection(); lastDetect = -Infinity; session.invalidate();
-      }
+      syncSettings(image.width, image.height);
       // On a stalled/unsupported worker the UI and manual shutter still work,
       // but no old proof or captured clue metadata survives the age deadline.
       if (!raw || now() - sampledAt > MAX_TRACK_AGE) {
@@ -289,11 +318,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       }
     } catch (error) { say(error.message || "Waiting for the camera…"); }
     finally { release(image); }
-    timer = setTimer(tick, 100);
   }
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
-    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); release(raw); raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; },
+    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
+    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); release(raw); raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; },
     diagnosticSource() { return { image: raw, verified: !!isCurrent(session.anchorFrame) }; },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");

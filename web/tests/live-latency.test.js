@@ -42,7 +42,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
     verify: async task => core.run({ ...task, op: 'verify' }),
     reset() { core = createTrackingCore(); },
   };
-  const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700 }, canvas: canvas(),
+  const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: canvas(),
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },
@@ -59,10 +59,11 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
     }
     time = end; await flush();
   }
-  function result(job = detections.at(-1)) {
+  async function result(job = detections.at(-1)) {
     job.resolve({ confidence: .99, rows: 2, cols: 2, sharpness: 200,
       corners: [{ x: 0, y: 0 }, { x: 639, y: 0 }, { x: 639, y: 639 }, { x: 0, y: 639 }] });
-    return flush();
+    await flush();
+    await advance(100); // A detector reply cannot manufacture a new video frame.
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
