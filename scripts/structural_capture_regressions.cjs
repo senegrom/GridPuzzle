@@ -54,6 +54,9 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
     let clock=0,serial=0,reads=0,solves=0,changed=false,release=null;
     const timers=new Map(),nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,document.createElement("div"));return nodes.get(id);};
     const video=board(cameraKind);video.videoWidth=video.videoHeight=size;const overlay=document.createElement("canvas");
+    // This race probe uses a canvas as its controlled video source. Supply
+    // its advancing presentation clock; absent metadata must stay untrusted.
+    Object.defineProperty(video, 'currentTime', { get: () => clock / 1000 });
     const tracker=createLiveTracker();
     const camera=createLiveCamera({tracker,$,video,canvas:overlay,getSettings:()=>({type:"futoshiki",rows:4,cols:4,enabled:true}),
       detector:{async detect(){return {confidence:.99,sharpness:200,rows:4,cols:4,corners:corners.map(p=>({x:p.x*639/899,y:p.y*639/899}))};},cancel(){}},
@@ -76,8 +79,8 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
     }clock=end;}
     try {
       camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
-      if(phase==="solved"){await advance(hold);if(reads!==1)throw Error("unchanged structural board was reread");}
-      changed=true;video.getContext("2d").drawImage(board(cameraKind,true),0,0);await advance(100);
+      if(phase==="solved"){await advance(hold);if(reads!==1)throw Error(`Expected one retained read for an unchanged structural board, got ${reads}`);}
+      changed=true;video.getContext("2d").drawImage(board(cameraKind,true),0,0);await advance(300);
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
       const capture=camera.capture();
       const row={phase,before,after:Number(overlay.dataset.solution),metadata:capture.found,rawMatches:capture.photo.toDataURL()===video.toDataURL(),solvesBeforeReread:solves};

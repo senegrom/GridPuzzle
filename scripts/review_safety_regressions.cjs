@@ -46,6 +46,9 @@ async function cameraContentProbe() {
     let clock=0,serial=0,reads=0,first=5,release=null;
     const timers=new Map(), nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,document.createElement("div"));return nodes.get(id);};
     const video=board();video.videoWidth=video.videoHeight=900;const overlay=document.createElement("canvas");
+    // This race probe uses a canvas as its controlled video source. Supply
+    // its advancing presentation clock; absent metadata must stay untrusted.
+    Object.defineProperty(video, 'currentTime', { get: () => clock / 1000 });
     const tracker=createLiveTracker();
     const camera=createLiveCamera({tracker,$,video,canvas:overlay,
       getSettings:()=>({type:"sudoku",rows:9,cols:9,boxRows:3,boxCols:3,enabled:true}),
@@ -68,8 +71,8 @@ async function cameraContentProbe() {
     }clock=end;}
     try {
       camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
-      if(phase==="solved") {await advance(12000); if(reads!==1)throw Error("unchanged solved board was reread");}
-      first=phase==="erased"?null:6;video.getContext("2d").drawImage(board(first),0,0);await advance(100);
+      if(phase==="solved") {await advance(12000); if(reads!==1)throw Error(`Expected one retained read for an unchanged solved board, got ${reads}`);}
+      first=phase==="erased"?null:6;video.getContext("2d").drawImage(board(first),0,0);await advance(300);
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
       const shot=camera.capture();outcomes.push({phase,before,after:Number(overlay.dataset.solution),
         capturedClue:shot.found?.puzzle.cells[0]??null,rawMatches:shot.photo.toDataURL()===video.toDataURL()});

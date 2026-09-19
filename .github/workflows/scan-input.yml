@@ -61,6 +61,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-scanner
+      - name: Real degraded-to-clear live recovery and stalled-frame safety
+        run: node scripts/live_recovery_regressions.cjs
       - name: Fetch bounded external picture tests
         run: python scripts/fetch_live_fixtures.py
       - name: Real moving-video scanning and external picture tracking
@@ -71,8 +73,6 @@ jobs:
         run: node scripts/app_review_regressions.cjs
       - name: Background tracking, targeted reads and diagnostic privacy
         run: node scripts/live_features_regressions.cjs
-      - name: Real degraded-to-clear live recovery and stalled-frame safety
-        run: node scripts/live_recovery_regressions.cjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:

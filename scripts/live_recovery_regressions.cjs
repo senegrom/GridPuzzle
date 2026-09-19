@@ -35,6 +35,7 @@ async function begin({ font, race = false }) {
       tiny.getContext('2d').drawImage(source, x, y, 50, 50, 0, 0, 20, 20);
       ctx.drawImage(tiny, 0, 0, 20, 20, x, y, 50, 50);
     }
+    ctx.fillStyle = state.changed ? '#00ff00' : '#ff00ff'; ctx.fillRect(25, 0, 20, 20);
     state.stream?.getVideoTracks().forEach(track => track.requestFrame?.());
   }
   paint(); const stream = source.captureStream(12); video.srcObject = stream; state.stream = stream;
@@ -64,6 +65,7 @@ async function begin({ font, race = false }) {
     return { font, race, full: state.full, retries: state.retries, events: state.events, scheduling: state.scheduling,
       worker: state.worker, corners: state.corners, capture, expected: cells, status: document.getElementById('camera-help').textContent };
   };
+  state.changedPresented = () => out.getContext('2d').getImageData(30, 5, 1, 1).data[1] > 200;
   state.clear = () => { state.sharp = true; paint(); };
   state.change = () => { state.changed = true; paint(); };
   state.pause = () => video.pause(); state.resume = () => play();
@@ -86,52 +88,55 @@ async function run() {
       try {
         await engines(file, async (page, report) => {
           report.cases = [];
-        await page.goto(server.base); await page.waitForSelector('body[data-ready="true"]');
-        const record = { ...config }; report.cases.push(record);
-        try {
-          await page.evaluate(begin, config);
-          await page.waitForFunction(() => window.recoveryState.full.length && window.recoveryState.visible(), null, { timeout: 60000 });
-          record.before = await page.evaluate(() => recoveryState.snapshot());
-          assert.ok(record.before.full[0].uncertain.includes(52), 'real initial OCR must flag the degraded clue, without injected uncertainty');
-          assert.equal(record.before.full.length, 1);
-          await page.waitForTimeout(1200);
-          assert.equal(await page.evaluate(() => recoveryState.retries.length), 0, 'unchanged evidence must not start an automatic retry');
-          await page.evaluate(() => recoveryState.clear());
-          if (config.race) {
-            await page.waitForFunction(() => !!recoveryState.releaseRetry, null, { timeout: 30000 });
-            await page.evaluate(() => recoveryState.change());
-            await page.waitForFunction(() => !recoveryState.visible(), null, { timeout: 10000 });
-            await page.evaluate(() => recoveryState.releaseRetry());
-            await page.waitForFunction(() => recoveryState.full.length >= 2 && recoveryState.snapshot().capture?.cells[13] === 9, null, { timeout: 60000 });
-            record.after = await page.evaluate(() => recoveryState.snapshot());
-            assert.equal(record.after.capture.cells[13], 9, 'late old-grid retry cannot restore the prior printed clue');
-            assert.ok(record.after.events.some(e => e.reason === 'content-changed'));
-          } else {
-            await page.waitForFunction(() => recoveryState.events.some(e => e.reason === 'targeted-complete') && recoveryState.visible(), null, { timeout: 30000 });
-            record.after = await page.evaluate(() => recoveryState.snapshot());
-            assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
-            assert.equal(record.after.retries.length, 1);
-            assert.ok(record.after.capture.recovery.proposals > 0);
-            assert.deepEqual(record.after.retries[0].cells, [52]);
-            assert.deepEqual(record.after.capture.cells, record.after.expected);
-            assert.ok(record.after.capture.uncertain.includes(52)); assert.equal(record.after.capture.needsReview, true);
-            record.before.full[0].cells.forEach((v, i) => { if (i !== 52) assert.equal(record.after.capture.cells[i], v, `protected cell ${i}`); });
-            assert.ok(record.after.retries[0].result.stats.calls < record.before.full[0].stats.calls);
-            await page.evaluate(() => recoveryState.pause()); await page.waitForTimeout(850);
-            record.stalled = await page.evaluate(() => recoveryState.snapshot());
-            assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
-            await page.evaluate(() => recoveryState.resume());
-            await page.waitForFunction(() => !!recoveryState.visible(), null, { timeout: 10000 });
-            record.resumed = await page.evaluate(() => recoveryState.snapshot());
-            assert.equal(record.resumed.full.length, 1, 'brief stalled playback must retain the completed reading');
+          await page.goto(server.base); await page.waitForSelector('body[data-ready="true"]');
+          const record = { ...config }; report.cases.push(record);
+          try {
+            await page.evaluate(begin, config);
+            await page.waitForFunction(() => window.recoveryState.full.length && window.recoveryState.visible(), null, { timeout: 60000 });
+            record.before = await page.evaluate(() => recoveryState.snapshot());
+            assert.ok(record.before.full[0].uncertain.includes(52), 'real initial OCR must flag the degraded clue, without injected uncertainty');
+            assert.equal(record.before.full.length, 1);
+            assert.ok(record.before.full[0].marked.includes(52));
+            await page.waitForTimeout(1200);
+            assert.equal(await page.evaluate(() => recoveryState.retries.length), 0, 'unchanged evidence must not start an automatic retry');
+            await page.evaluate(() => recoveryState.clear());
+            if (config.race) {
+              await page.waitForFunction(() => !!recoveryState.releaseRetry, null, { timeout: 30000 });
+              await page.evaluate(() => recoveryState.change());
+              await page.waitForFunction(() => recoveryState.changedPresented() && !recoveryState.visible() && recoveryState.events.some(e => e.reason === 'content-changed'), null, { timeout: 10000 });
+              await page.evaluate(() => recoveryState.releaseRetry());
+              await page.waitForFunction(() => recoveryState.full.length >= 2 && recoveryState.snapshot().capture?.cells[13] === 9, null, { timeout: 60000 });
+              record.after = await page.evaluate(() => recoveryState.snapshot());
+              assert.equal(record.after.full.length, 2, 'exactly one new full reading for the changed puzzle');
+              assert.equal(record.after.capture.cells[13], 9, 'late old-grid retry cannot restore the prior printed clue');
+              assert.ok(record.after.events.some(e => e.reason === 'content-changed'));
+              assert.ok(!record.after.events.some(e => e.reason === 'targeted-complete'), 'the retired targeted reply must never commit');
+            } else {
+              await page.waitForFunction(() => recoveryState.events.some(e => e.reason === 'targeted-complete') && recoveryState.visible(), null, { timeout: 30000 });
+              record.after = await page.evaluate(() => recoveryState.snapshot());
+              assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
+              assert.equal(record.after.retries.length, 1);
+              assert.ok(record.after.capture.recovery.proposals > 0);
+              assert.deepEqual(record.after.retries[0].cells, [52]);
+              assert.deepEqual(record.after.capture.cells, record.after.expected);
+              assert.ok(record.after.capture.uncertain.includes(52)); assert.equal(record.after.capture.needsReview, true);
+              record.before.full[0].cells.forEach((v, i) => { if (i !== 52) assert.equal(record.after.capture.cells[i], v, `protected cell ${i}`); });
+              assert.ok(record.after.retries[0].result.stats.calls < record.before.full[0].stats.calls);
+              await page.evaluate(() => recoveryState.pause()); await page.waitForTimeout(850);
+              record.stalled = await page.evaluate(() => recoveryState.snapshot());
+              assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
+              await page.evaluate(() => recoveryState.resume());
+              await page.waitForFunction(() => !!recoveryState.visible(), null, { timeout: 10000 });
+              record.resumed = await page.evaluate(() => recoveryState.snapshot());
+              assert.equal(record.resumed.full.length, 1, 'brief stalled playback must retain the completed reading');
+            }
+            record.ok = true;
+          } catch (error) {
+            record.failure = error.stack; throw error;
+          } finally {
+            record.final = await page.evaluate(() => window.recoveryState?.snapshot()).catch(() => null);
+            await page.evaluate(() => window.recoveryState?.stop()).catch(() => {});
           }
-          record.ok = true;
-        } catch (error) {
-          record.failure = error.stack; throw error;
-        } finally {
-          record.final = await page.evaluate(() => window.recoveryState?.snapshot()).catch(() => null);
-          await page.evaluate(() => window.recoveryState?.stop()).catch(() => {});
-        }
         }, { timeout: 60000 });
       } catch (error) { failures.push(error); }
       finally {
