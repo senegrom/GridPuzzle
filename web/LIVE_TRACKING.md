@@ -98,3 +98,43 @@ separately from static digit accuracy. No neural network or solver-derived
 recognition is enabled by this change. Physical-device speed/memory remains a
 separate validation task; there is no claim that the higher-detail checks are a
 speedup.
+
+## Background tracking and targeted retries
+
+The live camera sends transferable pixels to `live-tracking-worker.js`. Feature
+extraction, registration and content verification do not run on the interface
+thread. There is one active operation, one replaceable latest video frame and
+one pending detector-anchor request. Up to eight worker-owned anchors are
+retained, with current reading/reference anchors protected from eviction. The
+worker keeps grayscale evidence, not extra RGBA source copies. Stop, settings
+changes and errors terminate the worker and fence its replies. A two-second
+worker deadline fails closed; manual capture remains available without a
+synchronous registration fallback.
+
+A verification result is drawn only with its own source snapshot, not with a
+newer video frame. Frames more than 500 milliseconds old cannot authorize an
+overlay or capture metadata; the camera shows an unverified fresh frame instead.
+This may reduce the processed preview frame rate on slow devices. It is not a
+measured phone speedup or a promise that image copying/rendering is off-thread.
+
+After a complete numeric reading, a substantially clearer cell interior can
+trigger a targeted retry through `Scanner.readCells`. At most 12 uncertain,
+marked numeric cells are sent to OCR, twice per cell at most, with a 1.5-second
+minimum interval. Identical quality does not retrigger work; identical encoded
+crops can skip OCR, and repeated evidence cannot vote. Warp/preparation still
+runs for the complete grid so the crop geometry is consistent, but the atlas
+and independent numeric samples contain only selected cells. Structural cage
+and Kakuro targets retain the full-read/manual-review path.
+
+The original reading anchor is never replaced by a chain of retries. A retry
+must match the same rules and original content, and both original and retry
+samples must be reverified before its results can apply. Confident or explicitly
+confirmed clues are not replaced; absent marks cannot delete earlier clues.
+Changed proposals remain uncertain and require review. Solver answers do not
+participate. These controls do not constitute an accuracy gain on unseen photos.
+
+`live_features_regressions.cjs` tests the real worker, transfer/queue behaviour,
+selected-cell Tesseract calls, identical-crop skipping and diagnostic download
+privacy in Chromium and WebKit. The moving-video and real-solver integration
+suites still run separately. Unit tests additionally cover stopped workers,
+late results, failures, changed sources and manually protected cells.
