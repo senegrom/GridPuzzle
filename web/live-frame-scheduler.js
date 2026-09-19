@@ -22,7 +22,7 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
     return Number.isFinite(video.currentTime) ? `time:${video.currentTime}` : null;
   }
   function observe(value) {
-    if (!video.videoWidth || !video.videoHeight || video.readyState === 0 || value === null) return;
+    if (!video.videoWidth || !video.videoHeight || video.readyState === 0 || video.paused === true || video.ended === true || value === null) return;
     const [kind, count] = value.split(':'), [previousKind, previous] = (token ?? '').split(':');
     if (kind === previousKind && Number(count) <= Number(previous)) { duplicates++; return; }
     token = value; lastSeen = now(); observed++;

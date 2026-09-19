@@ -54,3 +54,11 @@ test('an unusable native callback API falls back without stopping the watchdog',
 test('repeated starts maintain one heartbeat and one native request',()=>{
  const h=harness();h.scheduler.start();h.scheduler.start();assert.equal(h.timers.size,1);assert.equal(h.callbacks.size,1);h.scheduler.stop();
 });
+
+for (const native of [true, false]) test(`paused video cannot be refreshed by an advancing frame counter, native ${native}`, () => {
+ const h=harness(native);h.scheduler.start();if(native)h.present(1);else h.advance(100);
+ h.video.paused=true;h.video.currentTime=10;h.advance(400);if(native)h.present(2);h.advance(200);
+ assert.equal(h.frames.length,1);assert.equal(h.scheduler.fresh,false);
+ h.video.paused=false;h.video.currentTime=11;if(native)h.present(3);else h.advance(100);
+ assert.equal(h.frames.length,2);h.scheduler.stop();
+});

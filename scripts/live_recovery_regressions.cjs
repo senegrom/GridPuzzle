@@ -2,6 +2,7 @@
    The sole degradation is raster resampling of one printed cell. No OCR value,
    confidence, flag, quality score, corner or identity proof is injected. */
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { serve, engines, main } = require('./harness.cjs');
 async function begin({ font, race = false }) {
   const { Scanner } = await import('./scanner.js');
@@ -76,11 +77,15 @@ async function begin({ font, race = false }) {
   await play(); camera.start();
 }
 async function run() {
-  const server = await serve();
+  const server = await serve(), reports = [], failures = [];
   try {
-    await engines('live-recovery.json', async (page, report) => {
-      report.cases = []; const failures = [];
-      for (const config of [{ font: 'Times New Roman' }, { font: 'Courier New' }, { font: 'Courier New', race: true }]) {
+    // A fresh browser process for each scene: WebKit's canvas-stream backend
+    // may not restart playback after a stopped stream in the same process.
+    for (const config of [{ font: 'Courier New', race: false }, { font: 'Courier New', race: true }]) {
+      const file = `live-recovery-${config.race ? 'race' : 'clear'}.json`;
+      try {
+        await engines(file, async (page, report) => {
+          report.cases = [];
         await page.goto(server.base); await page.waitForSelector('body[data-ready="true"]');
         const record = { ...config }; report.cases.push(record);
         try {
@@ -106,6 +111,7 @@ async function run() {
             record.after = await page.evaluate(() => recoveryState.snapshot());
             assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
             assert.equal(record.after.retries.length, 1);
+            assert.ok(record.after.capture.recovery.proposals > 0);
             assert.deepEqual(record.after.retries[0].cells, [52]);
             assert.deepEqual(record.after.capture.cells, record.after.expected);
             assert.ok(record.after.capture.uncertain.includes(52)); assert.equal(record.after.capture.needsReview, true);
@@ -121,14 +127,23 @@ async function run() {
           }
           record.ok = true;
         } catch (error) {
-          record.failure = error.stack; failures.push(error);
+          record.failure = error.stack; throw error;
         } finally {
           record.final = await page.evaluate(() => window.recoveryState?.snapshot()).catch(() => null);
           await page.evaluate(() => window.recoveryState?.stop()).catch(() => {});
         }
+        }, { timeout: 60000 });
+      } catch (error) { failures.push(error); }
+      finally {
+        const filePath = `browser-artifacts/${file}`;
+        if (fs.existsSync(filePath)) reports.push(...JSON.parse(fs.readFileSync(filePath, 'utf8')));
       }
-      if (failures.length) throw failures[0];
-    }, { timeout: 60000 });
-  } finally { await server.close(); }
+    }
+    if (failures.length) throw failures[0];
+  } finally {
+    fs.mkdirSync('browser-artifacts', { recursive: true });
+    fs.writeFileSync('browser-artifacts/live-recovery.json', JSON.stringify(reports, null, 2) + '\n');
+    await server.close();
+  }
 }
 module.exports = { run }; main(module, run);

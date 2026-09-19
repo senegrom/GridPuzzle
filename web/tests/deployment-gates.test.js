@@ -12,6 +12,9 @@ test('master deployment waits for moving-camera acceptance of the exact built ar
  assert.match(gate,/GITHUB_SHA\.slice\(0,12\)/);
  assert.match(gate,/node scripts\/live_motion_regressions\.cjs/);
  assert.match(gate,/node scripts\/app_review_regressions\.cjs/);
+ assert.match(gate,/node scripts\/live_recovery_regressions\.cjs/);
+ const quality=fs.readFileSync(new URL('../../.github/workflows/scan-input.yml',import.meta.url),'utf8');
+ assert.match(quality,/node scripts\/live_recovery_regressions\.cjs/);
  assert.doesNotMatch(gate,/build_web\.py/,'test the artifact rather than a separate rebuild');
  assert.match(source.slice(source.indexOf('  deploy:')),/needs: \[build, configure, live-acceptance\]/);
 });
