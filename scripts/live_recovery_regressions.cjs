@@ -34,8 +34,9 @@ async function begin({ font, race = false }) {
       tiny.getContext('2d').drawImage(source, x, y, 50, 50, 0, 0, 20, 20);
       ctx.drawImage(tiny, 0, 0, 20, 20, x, y, 50, 50);
     }
+    state.stream?.getVideoTracks().forEach(track => track.requestFrame?.());
   }
-  paint(); const stream = source.captureStream(12); video.srcObject = stream;
+  paint(); const stream = source.captureStream(12); video.srcObject = stream; state.stream = stream;
   const clock = setInterval(paint, 80);
   const reader = new Scanner(), detector = new Scanner();
   const diagnostics = {
@@ -64,21 +65,27 @@ async function begin({ font, race = false }) {
   };
   state.clear = () => { state.sharp = true; paint(); };
   state.change = () => { state.changed = true; paint(); };
-  state.pause = () => video.pause(); state.resume = () => video.play();
+  state.pause = () => video.pause(); state.resume = () => play();
   state.stop = () => { state.releaseRetry?.(); camera.stop(); clearInterval(clock); stream.getTracks().forEach(t => t.stop()); video.srcObject = null; video.remove(); out.remove(); source.width = source.height = tiny.width = tiny.height = 0; };
-  await video.play(); camera.start();
+  async function play() {
+    let deadline;
+    try { await Promise.race([video.play(), new Promise((_, reject) => { deadline = setTimeout(() => reject(Error('Recovery fixture playback did not start')), 20000); })]); }
+    finally { clearTimeout(deadline); }
+  }
+  state.visible = () => Number(out.dataset.recognised || 0) + Number(out.dataset.uncertain || 0) + Number(out.dataset.unknown || 0) > 0;
+  await play(); camera.start();
 }
 async function run() {
   const server = await serve();
   try {
     await engines('live-recovery.json', async (page, report) => {
-      report.cases = [];
+      report.cases = []; const failures = [];
       for (const config of [{ font: 'Times New Roman' }, { font: 'Courier New' }, { font: 'Courier New', race: true }]) {
         await page.goto(server.base); await page.waitForSelector('body[data-ready="true"]');
         const record = { ...config }; report.cases.push(record);
         try {
           await page.evaluate(begin, config);
-          await page.waitForFunction(() => window.recoveryState.full.length && window.recoveryState.snapshot().capture, null, { timeout: 60000 });
+          await page.waitForFunction(() => window.recoveryState.full.length && window.recoveryState.visible(), null, { timeout: 60000 });
           record.before = await page.evaluate(() => recoveryState.snapshot());
           assert.ok(record.before.full[0].uncertain.includes(52), 'real initial OCR must flag the degraded clue, without injected uncertainty');
           assert.equal(record.before.full.length, 1);
@@ -88,14 +95,14 @@ async function run() {
           if (config.race) {
             await page.waitForFunction(() => !!recoveryState.releaseRetry, null, { timeout: 30000 });
             await page.evaluate(() => recoveryState.change());
-            await page.waitForFunction(() => !recoveryState.snapshot().capture, null, { timeout: 10000 });
+            await page.waitForFunction(() => !recoveryState.visible(), null, { timeout: 10000 });
             await page.evaluate(() => recoveryState.releaseRetry());
             await page.waitForFunction(() => recoveryState.full.length >= 2 && recoveryState.snapshot().capture?.cells[13] === 9, null, { timeout: 60000 });
             record.after = await page.evaluate(() => recoveryState.snapshot());
             assert.equal(record.after.capture.cells[13], 9, 'late old-grid retry cannot restore the prior printed clue');
             assert.ok(record.after.events.some(e => e.reason === 'content-changed'));
           } else {
-            await page.waitForFunction(() => recoveryState.snapshot().capture?.recovery?.proposals > 0, null, { timeout: 30000 });
+            await page.waitForFunction(() => recoveryState.events.some(e => e.reason === 'targeted-complete') && recoveryState.visible(), null, { timeout: 30000 });
             record.after = await page.evaluate(() => recoveryState.snapshot());
             assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
             assert.equal(record.after.retries.length, 1);
@@ -108,16 +115,19 @@ async function run() {
             record.stalled = await page.evaluate(() => recoveryState.snapshot());
             assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
             await page.evaluate(() => recoveryState.resume());
-            await page.waitForFunction(() => !!recoveryState.snapshot().capture, null, { timeout: 10000 });
+            await page.waitForFunction(() => !!recoveryState.visible(), null, { timeout: 10000 });
             record.resumed = await page.evaluate(() => recoveryState.snapshot());
             assert.equal(record.resumed.full.length, 1, 'brief stalled playback must retain the completed reading');
           }
           record.ok = true;
+        } catch (error) {
+          record.failure = error.stack; failures.push(error);
         } finally {
           record.final = await page.evaluate(() => window.recoveryState?.snapshot()).catch(() => null);
           await page.evaluate(() => window.recoveryState?.stop()).catch(() => {});
         }
       }
+      if (failures.length) throw failures[0];
     }, { timeout: 60000 });
   } finally { await server.close(); }
 }
