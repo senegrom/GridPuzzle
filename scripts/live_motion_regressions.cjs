@@ -69,6 +69,15 @@ async function beginMotion(cells) {
     },// Keep the solver pending to isolate OCR retention from the normal
     // multiple-solution retry backoff. No answers are injected.
     solver:{prepare(){},cancel:cancelSolve,invalidate:cancelSolve,solve:()=>new Promise(resolve=>{finishSolve=resolve;})}});
+  // A verified view is transient. Capture and copy its result in one browser
+  // task; a later Playwright call may legitimately find the next frame hidden.
+  state.snapshot = () => {
+    const shot = state.camera.capture();
+    try { return { cells: shot.found?.puzzle.cells, review: shot.found?.needsReview,
+      reads: state.reads, cancels: state.cancels, ticks: state.ticks,
+      unknown: out.dataset.unknown, refining: !!shot.found?.refining }; }
+    finally { shot.photo.width = shot.photo.height = shot.annotated.width = shot.annotated.height = 0; }
+  };
   state.camera.start();
 }
 async function externalTracking(fixtures) {
@@ -110,8 +119,11 @@ async function run(){
     await page.waitForFunction(()=>motionState.reads>0);log('first read started');
     const first=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,unknown:motionOutput.dataset.unknown}));
     assert.equal(Number(first.unknown),0,'initial grid outline must not cover blank cells in red');
-    await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
-    const captured=await page.evaluate(()=>{const c=motionState.camera.capture();return {cells:c.found?.puzzle.cells,review:c.found?.needsReview,reads:motionState.reads,cancels:motionState.cancels,ticks:motionState.ticks,unknown:motionOutput.dataset.unknown,refining:!!c.found?.refining};});
+    const readingHandle = await page.waitForFunction(() => {
+      if (motionState.reading || Number(motionOutput.dataset.recognised) + Number(motionOutput.dataset.uncertain) !== 22) return false;
+      const value = motionState.snapshot(); return value.cells ? value : false;
+    });
+    const captured = await readingHandle.jsonValue(); await readingHandle.dispose();
     report.reading=captured;
     assert.deepEqual(captured.cells,expected);assert.equal(captured.review,true);assert.equal(captured.refining,false);assert.equal(captured.reads,1);assert.equal(captured.cancels,first.cancels);
     assert.equal(Number(captured.unknown),0);report.reading=captured;report.checks.push('22/22 real OCR clues finish during continual jitter and changing background; one read, no motion cancellation');log('22/22 read under jitter');
@@ -126,8 +138,11 @@ async function run(){
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'first displayed changed frame cannot show the old clue');
     await page.waitForFunction(()=>motionState.reads>1);
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'changed clue must never retain the old value');
-    await page.waitForFunction(()=>!motionState.reading && motionState.camera.capture().found?.puzzle.cells[1]===3);
-    report.changed=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,cells:motionState.camera.capture().found.puzzle.cells}));
+    const changedHandle = await page.waitForFunction(() => {
+      if (motionState.reading) return false;
+      const value = motionState.snapshot(); return value.cells?.[1] === 3 ? value : false;
+    });
+    report.changed = await changedHandle.jsonValue(); await changedHandle.dispose();
     report.checks.push('a changed clue starts a new genuine OCR read, never reusing old clue metadata');log('changed clue re-read');
     await page.evaluate(()=>{motionState.camera.stop();clearInterval(motionState.timer);motionState.stream.getTracks().forEach(t=>t.stop());motionState.video.remove();});
     await page.screenshot({path:`browser-artifacts/${name}-motion.png`});

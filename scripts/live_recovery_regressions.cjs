@@ -92,8 +92,11 @@ async function run() {
           const record = { ...config }; report.cases.push(record);
           try {
             await page.evaluate(begin, config);
-            await page.waitForFunction(() => window.recoveryState.full.length && window.recoveryState.visible(), null, { timeout: 60000 });
-            record.before = await page.evaluate(() => recoveryState.snapshot());
+            const beforeHandle = await page.waitForFunction(() => {
+              if (!recoveryState.full.length || !recoveryState.visible()) return false;
+              const value = recoveryState.snapshot(); return value.capture ? value : false;
+            }, null, { timeout: 60000 });
+            record.before = await beforeHandle.jsonValue(); await beforeHandle.dispose();
             assert.ok(record.before.full[0].uncertain.includes(52), 'real initial OCR must flag the degraded clue, without injected uncertainty');
             assert.equal(record.before.full.length, 1);
             assert.ok(record.before.full[0].marked.includes(52));
@@ -105,15 +108,21 @@ async function run() {
               await page.evaluate(() => recoveryState.change());
               await page.waitForFunction(() => recoveryState.changedPresented() && !recoveryState.visible() && recoveryState.events.some(e => e.reason === 'content-changed'), null, { timeout: 10000 });
               await page.evaluate(() => recoveryState.releaseRetry());
-              await page.waitForFunction(() => recoveryState.full.length >= 2 && recoveryState.snapshot().capture?.cells[13] === 9, null, { timeout: 60000 });
-              record.after = await page.evaluate(() => recoveryState.snapshot());
+              const changedHandle = await page.waitForFunction(() => {
+                if (recoveryState.full.length < 2) return false;
+                const value = recoveryState.snapshot(); return value.capture?.cells[13] === 9 ? value : false;
+              }, null, { timeout: 60000 });
+              record.after = await changedHandle.jsonValue(); await changedHandle.dispose();
               assert.equal(record.after.full.length, 2, 'exactly one new full reading for the changed puzzle');
               assert.equal(record.after.capture.cells[13], 9, 'late old-grid retry cannot restore the prior printed clue');
               assert.ok(record.after.events.some(e => e.reason === 'content-changed'));
               assert.ok(!record.after.events.some(e => e.reason === 'targeted-complete'), 'the retired targeted reply must never commit');
             } else {
-              await page.waitForFunction(() => recoveryState.events.some(e => e.reason === 'targeted-complete') && recoveryState.visible(), null, { timeout: 30000 });
-              record.after = await page.evaluate(() => recoveryState.snapshot());
+              const afterHandle = await page.waitForFunction(() => {
+                if (!recoveryState.events.some(e => e.reason === 'targeted-complete') || !recoveryState.visible()) return false;
+                const value = recoveryState.snapshot(); return value.capture?.recovery?.proposals > 0 ? value : false;
+              }, null, { timeout: 30000 });
+              record.after = await afterHandle.jsonValue(); await afterHandle.dispose();
               assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
               assert.equal(record.after.retries.length, 1);
               assert.ok(record.after.capture.recovery.proposals > 0);
@@ -126,8 +135,11 @@ async function run() {
               record.stalled = await page.evaluate(() => recoveryState.snapshot());
               assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
               await page.evaluate(() => recoveryState.resume());
-              await page.waitForFunction(() => !!recoveryState.visible(), null, { timeout: 10000 });
-              record.resumed = await page.evaluate(() => recoveryState.snapshot());
+              const resumedHandle = await page.waitForFunction(() => {
+                if (!recoveryState.visible()) return false;
+                const value = recoveryState.snapshot(); return value.capture ? value : false;
+              }, null, { timeout: 10000 });
+              record.resumed = await resumedHandle.jsonValue(); await resumedHandle.dispose();
               assert.equal(record.resumed.full.length, 1, 'brief stalled playback must retain the completed reading');
             }
             record.ok = true;
