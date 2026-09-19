@@ -1,0 +1,34 @@
+name: Apply verified live refinement
+on:
+  push:
+    branches: [improve/live-worker-recovery-diagnostics-20260919]
+    paths: [.github/workflows/apply-live-refinement.yml]
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/improve/live-worker-recovery-diagnostics-20260919'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Apply exact locally tested sources
+        run: python scripts/apply_live_refinement.py
+      - name: Validate before committing
+        run: |
+          node --test web/tests/*.test.js
+          find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+          git diff --check
+      - name: Commit only requested feature changes to this branch
+        run: |
+          test "$GITHUB_REF" = refs/heads/improve/live-worker-recovery-diagnostics-20260919
+          git config user.name 'senegrom'
+          git config user.email '6349874+senegrom@users.noreply.github.com'
+          git add web/live-camera.js web/live-session.js web/scan-diagnostics.js web/tests/live-camera-recovery.test.js web/tests/live-latency.test.js web/tests/review-hardening.test.js
+          git commit -m 'Keep prior readings on retry failure and schedule only fresh camera frames'
+          git push origin HEAD:refs/heads/improve/live-worker-recovery-diagnostics-20260919
