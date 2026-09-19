@@ -6,6 +6,7 @@ async function cameraContentProbe() {
   const { demo } = await import("./model.js");
   const { gridContent, sameGridContent } = await import("./live-content.js");
   const { createLiveCamera, fingerprint } = await import("./live-camera.js");
+  const { createLiveTracker } = await import("./live-tracker.js");
   const { sameFrame } = await import("./live-overlay.js");
   const puzzle = demo(), marks = puzzle.cells.flatMap((v,i)=>v === null ? [] : [i]);
   const solution = { status:"unique", complete:true, solutions:[{cells:[
@@ -45,7 +46,8 @@ async function cameraContentProbe() {
     let clock=0,serial=0,reads=0,first=5,release=null;
     const timers=new Map(), nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,document.createElement("div"));return nodes.get(id);};
     const video=board();video.videoWidth=video.videoHeight=900;const overlay=document.createElement("canvas");
-    const camera=createLiveCamera({$,video,canvas:overlay,
+    const tracker=createLiveTracker();
+    const camera=createLiveCamera({tracker,$,video,canvas:overlay,
       getSettings:()=>({type:"sudoku",rows:9,cols:9,boxRows:3,boxCols:3,enabled:true}),
       detector:{async detect(){return {confidence:.99,sharpness:200,rows:9,cols:9,corners:[{x:0,y:0},{x:639,y:0},{x:639,y:639},{x:0,y:639}]};},cancel(){}},
       reader:{async read(){reads++;const p=structuredClone(puzzle);p.cells[0]=first;const found={puzzle:p,markedCells:marks,cellUncertain:[],notes:[]};
@@ -54,7 +56,16 @@ async function cameraContentProbe() {
         return phase==="solving"&&reads===1 ? new Promise(resolve=>{release=()=>resolve(r);}):r;},cancel(){}},now:()=>clock,
       setTimer(fn,ms){timers.set(++serial,{fn,at:clock+ms});return serial;},clearTimer(id){timers.delete(id);}});
     async function advance(ms){const end=clock+ms;for(;;){const next=[...timers].filter(([,v])=>v.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;
-      const [id,v]=next;clock=v.at;timers.delete(id);v.fn();await new Promise(resolve=>setTimeout(resolve,0));}clock=end;}
+      const [id,v]=next;clock=v.at;timers.delete(id);v.fn();
+      // This probe accelerates the camera clock, not the real worker clock.
+      // Drain actual off-thread work before the next synthetic 100ms tick;
+      // otherwise a few milliseconds of computation falsely become 5s loss.
+      const until=performance.now()+10000;let idle=0;
+      while(idle<2){await new Promise(resolve=>setTimeout(resolve,0));
+        const state=tracker.stats;idle=state.active+state.queuedFrames+state.queuedAnchors?0:idle+1;
+        if(performance.now()>until)throw Error('Background tracking failed to settle in the controlled clock probe');
+      }
+    }clock=end;}
     try {
       camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
       if(phase==="solved") {await advance(12000); if(reads!==1)throw Error("unchanged solved board was reread");}

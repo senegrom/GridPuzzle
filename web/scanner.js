@@ -1,3 +1,4 @@
+import { validateRetryCells, evidenceKey } from "./clue-recovery.js";
 import { numericCropBounds } from './cell-boundaries.js';
 import { createOCRRuntime } from "./ocr-runtime.js";
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
@@ -494,15 +495,24 @@ export class Scanner {
   detect(canvas, { thorough = true, rows = null, cols = null } = {}) {
     return this.geometry("detect", { image: imageOf(canvas), thorough, rows, cols });
   }
-  async read(canvas, corners, type, rows, cols, onProgress = () => {}, { onPreview = () => {} } = {}) {
+  readCells(canvas, corners, found, cells, onProgress = () => {}, options = {}) {
+    const { type, rows, cols } = found.puzzle;
+    const skipEvidence = Object.fromEntries((found.entries ?? []).filter(e => ["value", "blackvalue"].includes(e.kind)).map(e => [e.cell, e.evidence]));
+    return this.read(canvas, corners, type, rows, cols, onProgress, { ...options, cells, skipEvidence });
+  }
+  async read(canvas, corners, type, rows, cols, onProgress = () => {}, { onPreview = () => {}, cells = null, skipEvidence = {}, onDiagnostic = () => {} } = {}) {
+    const targetCells = cells === null ? null : validateRetryCells(cells, rows, cols);
+    if (targetCells && ['auto', 'kakuro', 'kenken', 'killersudoku'].includes(type))
+      throw Error('Structural clues need a full scan and review.');
     this.cancel({ keepEngine: true });
     const started = performance.now();
     const epoch = this.epoch,
       check = () => {
         if (epoch !== this.epoch) throw aborted();
       };
+    onDiagnostic({ stage: "preparing", reason: targetCells ? "targeted" : "full-read", targets: targetCells ?? [] });
     onProgress("Straightening the photograph…", null);
-    const { image, meta, mask, g, black, entries, contrastAdjusted, unreadCells } = await this.geometry(
+    const { image, meta, mask, g, black, entries: regions, contrastAdjusted, unreadCells } = await this.geometry(
       "prepare",
       {
         image: imageOf(canvas),
@@ -515,12 +525,20 @@ export class Scanner {
       },
     );
     check();
+    const entries = targetCells ? regions.filter(e => targetCells.includes(e.cell) && ['value', 'blackvalue'].includes(e.kind)) : regions;
     const prepared = performance.now();
     const w = image.width,
       h = image.height,
       cw = w / cols,
       ch = h / rows,
       rectified = canvasOf(image);
+    const emptyRetry = () => ({
+      ...puzzleFromReadings({ entries: [], black, meta, mask, width: w, height: h, contrastAdjusted,
+        unreadCells: targetCells }, type, rows, cols),
+      entries: [], targetCells, blackLayout: black.flatMap((v,i) => v ? [i] : []), rectified,
+      ocrStats: { calls: 0, samples: 0 }, timings: { prepare: prepared - started, total: performance.now() - started },
+    });
+    if (targetCells && !entries.length) return emptyRetry();
     if (!entries.length)
       throw Error(
         "No printed clues found. Adjust the crop, dimensions or lighting.",
@@ -572,6 +590,17 @@ export class Scanner {
       if (isDigit) crops.set(i, source);
     });
     const singles = digitSamples(entries, crops, g, w, h, cw, ch, cols);
+    const evidence = new Map();
+    for (const single of singles) {
+      if (!evidence.has(single.index)) evidence.set(single.index, []);
+      evidence.get(single.index).push(single.png);
+    }
+    for (const [index, samples] of evidence) entries[index].evidence = evidenceKey(samples);
+    if (targetCells && entries.every(e => e.evidence && e.evidence === skipEvidence[e.cell])) {
+      onDiagnostic({ stage: 'checking', reason: 'identical-crops', targets: targetCells });
+      return { ...emptyRetry(), identicalCrops: true };
+    }
+    onDiagnostic({ stage: 'reading', reason: targetCells ? 'targeted' : 'full-read', regions: entries.length, targets: targetCells ?? [] });
     check();
     onProgress("Loading printed-clue recognition…", null);
     const blob = await new Promise((resolve, reject) =>
@@ -606,10 +635,12 @@ export class Scanner {
       e.confidence = readings[i].confidence;
     });
     applyDigitVotes(entries, data.singles);
+    onDiagnostic({ stage: "checking", reason: "ocr-complete", regions: entries.length, calls: data.ocrStats?.calls ?? 0 });
     return {
       ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells }, type, rows, cols),
       rectified,
       entries,
+      ...(targetCells ? { targetCells, blackLayout: black.flatMap((v,i) => v ? [i] : []) } : {}),
       retryCount: data.retryCount || 0,
       ocrStats: data.ocrStats,
       timings: { prepare: prepared - started, pack: packed - prepared, ocr: performance.now() - packed, total: performance.now() - started },

@@ -1,3 +1,4 @@
+import { recoveryCells, clearerCells, mergeRecoveredClues } from "./clue-recovery.js";
 import { sameFrame, previewBlocker } from "./live-overlay.js";
 import { sameGridContent } from "./live-content.js";
 import { clone, checkShape } from "./model.js";
@@ -5,9 +6,11 @@ import { clone, checkShape } from "./model.js";
 // OCR ownership and overlay visibility are deliberately separate. Motion may
 // hide a result, but only changed rules/content, a timeout or Stop retires work.
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus,
-  isCurrent = null, sameScene = null, autoSolve = () => true, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  isCurrent = null, sameScene = null, autoSolve = () => true, readCells = null, onEvent = () => {}, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   let active = false, generation = 0, pending = false, preview = null, stored = null;
-  let solveGeneration = 0, solving = false;
+  let solveGeneration = 0, solving = false, activeSample = null;
+  let pendingRecovery = null, recoveryQuality = null, lastRecovery = -Infinity;
+  const recoveryAttempts = new Map();
   let reference = null, best = null, challenger = null, stable = 0, attempts = 0;
   let lastRead = -Infinity, lastSharpness = 0, deadline = null, lostAt = null, signature = null;
   let status = "Reading printed clues… Keep the grid in view.", lastStatus = "";
@@ -20,10 +23,12 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (typeof image.width === "number") { try { image.width = image.height = 0; } catch { /* plain test data */ } }
   };
   const publish = value => { if (preview !== value) { preview = value; onChange(value); } };
-  function reset() {
+  function reset(reason = "reset") {
+    onEvent({ stage: "tracking", reason, cancelledRead: pending && !solving, cancelledSolve: solving });
     generation++; solveGeneration++; solving = false; clearDeadline(); pending = false; stable = 0; attempts = 0;
-    release(best); best = reference = challenger = stored = null;
+    release(best); best = reference = challenger = stored = activeSample = null;
     lastRead = -Infinity; lastSharpness = 0; lostAt = null;
+    pendingRecovery = recoveryQuality = null; lastRecovery = -Infinity; recoveryAttempts.clear();
     cancelRead(); cancelSolve(); publish(null);
   }
   function proof(frame) {
@@ -39,12 +44,16 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       Math.hypot(p.x - b.corners[i].x, p.y - b.corners[i].y) <= b.width * .012);
   }
   function hide() {
-    publish(null); stable = 0; release(best); best = null;
+    publish(null); release(best); best = null;
+    // A missing asynchronous proof hides the view, not the two already
+    // verified observations of this original anchor. Resetting acquisition
+    // here can starve OCR whenever worker replies span multiple camera ticks.
+    // Changed content, settings and prolonged loss still reset ownership.
     if (lostAt === null) lostAt = now();
     // Bounded retention prevents a camera pointed elsewhere keeping old
     // images/work indefinitely. Brief motion never restarts this clock.
     if (now() - lostAt >= 5000) {
-      reset(); say("Grid lost. Keep the whole puzzle in view to read again.");
+      reset("grid-lost"); say("Grid lost. Keep the whole puzzle in view to read again.");
     } else say(pending ? "Aligning the grid — keeping the current read…" : "Aligning the grid — checking the printed clues…");
     return false;
   }
@@ -60,23 +69,79 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     const view = proof(target);
     if (!view) return hide();
     lostAt = null;
+    commitRecovery();
     if (stored) publish({ ...stored, corners: view.corners });
     if (stored || pending) say(status);
     startSolve();
     return true;
   }
+  function commitRecovery() {
+    const job = pendingRecovery;
+    if (!job) return;
+    if (stored !== job.base || now() - job.finishedAt > 5000) {
+      pendingRecovery = activeSample = null;
+      if (stored === job.base) { stored.result = autoSolve() ? job.oldResult : null; stored.solveFinished = autoSolve() && job.oldSolveFinished; }
+      onEvent({ stage: 'checking', reason: 'retry-expired' }); return;
+    }
+    if (!proof(job.base.sample) || !proof(job.sample)) return;
+    pendingRecovery = activeSample = null;
+    try {
+      const found = mergeRecoveredClues(job.base.found, job.result, job.cells);
+      stored = { ...job.base, found,
+        result: !autoSolve() || found.recovery.changed.length ? null : job.oldResult,
+        solveFinished: !autoSolve() || found.recovery.changed.length ? false : job.oldSolveFinished };
+      status = previewBlocker(found) ?? `${recoveryCells(found).length} clues still need review. Re-read proposals remain unconfirmed.`;
+      onEvent({ stage: 'checking', reason: 'targeted-complete', targets: job.cells,
+        changed: found.recovery.changed.length, calls: job.result.ocrStats?.calls ?? 0, found });
+    } catch (error) {
+      stored.result = autoSolve() ? job.oldResult : null; stored.solveFinished = autoSolve() && job.oldSolveFinished;
+      status = error.message || 'The retry could not be applied. Capture for review.';
+      onEvent({ stage: 'checking', reason: 'retry-rejected' });
+    }
+  }
+  function startRecovery(sample, cells) {
+    const base = stored, id = ++generation, oldResult = base.result, oldSolveFinished = base.solveFinished;
+    activeSample = sample; best = null; pending = true; lastRecovery = now();
+    solveGeneration++; solving = false; cancelSolve(); base.result = null; base.solveFinished = false;
+    for (const cell of cells) recoveryAttempts.set(cell, (recoveryAttempts.get(cell) ?? 0) + 1);
+    const previous = new Map(recoveryQuality?.cells?.map(c => [c.cell, c]) ?? []);
+    for (const item of sample.quality?.cells ?? []) if (cells.includes(item.cell)) previous.set(item.cell, item);
+    recoveryQuality = { ...sample.quality, cells: [...previous.values()] };
+    const owns = () => active && id === generation && stored === base;
+    status = `Re-reading ${cells.length} unclear clues from a clearer frame…`; say(status);
+    onEvent({ stage: 'reading', reason: 'targeted', targets: cells });
+    deadline = setTimer(() => { if (owns()) reset('retry-timeout'); }, 90000);
+    void (async () => {
+      try {
+        const result = await readCells(sample, base.found, cells);
+        if (!owns()) return;
+        pendingRecovery = { base, result, cells, sample, oldResult, oldSolveFinished, finishedAt: now() };
+      } catch (error) {
+        if (owns()) {
+          activeSample = null; base.result = autoSolve() ? oldResult : null; base.solveFinished = autoSolve() && oldSolveFinished;
+          status = error.message || 'Could not re-read those clues. Capture to review.';
+          onEvent({ stage: 'reading', reason: 'retry-failed' });
+        }
+      } finally {
+        release(sample);
+        if (owns()) { pending = false; clearDeadline(); validate(); }
+      }
+    })();
+  }
   function startSolve() {
-    if (!autoSolve() || pending || !stored?.readComplete || stored.solveFinished || previewBlocker(stored.found)) return;
+    if (!autoSolve() || pending || pendingRecovery || !stored?.readComplete || stored.solveFinished || previewBlocker(stored.found)) return;
     const target = stored, id = generation, solveId = ++solveGeneration;
     // Only a freshly verified reading can start a solve. A result arriving
     // during movement remains queued until the grid reappears unchanged.
     if (!proof(target.sample)) return;
     target.solveFinished = true; pending = true; solving = true;
     status = "Finding a solution on this device…"; say(status);
+    onEvent({ stage: "solving", reason: "started" });
     void (async () => {
       try {
         const result = await solve(clone(target.found.puzzle));
         if (!active || id !== generation || solveId !== solveGeneration || !autoSolve() || stored !== target) return;
+        onEvent({ stage: "solving", reason: result?.status || "unfinished" });
         if (result?.status === "unique" && result.complete === true) {
           target.result = result;
           status = "Solution preview — check the clues and rules. Tap the shutter to save this picture.";
@@ -104,15 +169,23 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       if (!challenger || !matches(challenger, frame)) {
         challenger = { ...frame, image: null }; release(frame); hide(); return;
       }
-      reset(); say("Printed content changed — reading the new clues…");
+      reset("content-changed"); say("Printed content changed — reading the new clues…");
     }
     challenger = null; lostAt = null;
     if (!reference) reference = { ...frame, image: null };
     stable++;
-    if (!pending && (!best || frame.sharpness >= best.sharpness)) { if (best !== frame) release(best); best = frame; }
+    const targets = readCells && stored?.readComplete ? recoveryCells(stored.found) : [];
+    if (!pending && (targets.length || !best || frame.sharpness >= best.sharpness)) { if (best !== frame) release(best); best = frame; }
     else if (frame !== best) release(frame);
-    validate();
-    if (pending || stable < 2) return;
+    if (!validate() || pending || pendingRecovery || stable < 2) return;
+    if (targets.length) {
+      const cells = clearerCells(stored.found, recoveryQuality, best?.quality, recoveryAttempts);
+      if (!cells.length || now() - lastRecovery < 1500) {
+        onEvent({ stage: 'checking', reason: 'clearer-frame-needed', targets }); return;
+      }
+      if (best && proof(stored.sample) && matches(stored.sample, best)) startRecovery(best, cells);
+      return;
+    }
     const elapsed = now() - lastRead, sharper = attempts > 0 && Number.isFinite(best?.sharpness) &&
       best.sharpness >= Math.max(lastSharpness * 1.3, lastSharpness + 40);
     if (sharper) { if (elapsed < 1000) return; }
@@ -122,10 +195,11 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     }
     const id = ++generation, sample = best;
     if (!sample) return;
-    best = null; pending = true; attempts = sharper ? 1 : attempts + 1;
+    best = null; activeSample = sample; pending = true; attempts = sharper ? 1 : attempts + 1;
     lastRead = now(); lastSharpness = Number.isFinite(sample.sharpness) ? sample.sharpness : 0;
     const owns = () => active && id === generation;
     status = "Reading printed clues… Keep the grid in view."; say(status);
+    onEvent({ stage: "reading", reason: "full-read" });
     deadline = setTimer(() => {
       if (!owns()) return;
       reset(); say("Recognition timed out. Keep the grid in view to retry, or capture for manual review.");
@@ -143,10 +217,12 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
             stored = { found: partial, result: null, corners: sample.corners, sample };
             validate();
           });
-        } finally { release(sample); }
+        } finally { release(sample); if (activeSample === sample) activeSample = null; }
         if (!owns()) return;
         clearDeadline(); checkShape(found.puzzle);
         stored = { found, result: null, corners: sample.corners, sample, readComplete: true };
+        recoveryQuality = sample.quality; recoveryAttempts.clear();
+        onEvent({ stage: 'checking', reason: 'read-complete', found });
         const blocker = previewBlocker(found);
         status = blocker ?? "Clues read — checking the current grid…";
         validate();
@@ -158,12 +234,13 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     })();
   }
   return {
-    start() { if (active) return; active = true; reset(); },
-    stop() { active = false; reset(); signature = null; lastStatus = ""; },
-    invalidate() { reset(); },
+    start() { if (active) return; active = true; reset("started"); },
+    stop() { active = false; reset("stopped"); signature = null; lastStatus = ""; },
+    invalidate() { reset("settings-or-detection"); },
     suspend: hide, motion, observe, validate,
     get preview() { return preview; },
     get busy() { return pending; },
+    get trackingFrames() { return [stored?.sample, reference, challenger, best, activeSample].filter(Boolean); },
     get anchorFrame() { return stored?.sample ?? reference; },
   };
 }

@@ -42,7 +42,7 @@ function harness(t) {
   let epoch = 0, busy = false, deadline = null, currentStatus = "Solved", saves = 0, clears = 0, solves = 0;
   const stopTask = (message) => { epoch++; busy = false; deadline = null; if (message) currentStatus = message; };
   setupPhotoFlow({
-    $, state, scanner: { read: (...args) => { const job = deferred(); requests.push({ ...job, progress: args.at(-1) }); return job.promise; } },
+    $, state, scanner: { read: (...args) => { const job = deferred(); requests.push({ ...job, progress: args[5] }); return job.promise; } },
     stopTask, invalidate: stopTask,
     begin: () => { stopTask(); busy = true; return epoch; },
     finish: () => { busy = false; deadline = null; },

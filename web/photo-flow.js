@@ -1,3 +1,5 @@
+import { createScanDiagnostics } from "./scan-diagnostics.js";
+import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { retainPhotoSource, rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
 import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { validQuad } from "./geometry.js";
@@ -39,6 +41,10 @@ export function setupPhotoFlow({
     playbackTimer = null,
     captured = null,
     saving = false;
+  const diagnostics = createScanDiagnostics();
+  setupDiagnosticsUI({ $, diagnostics, getSource: () => diagnostics.snapshot().source === "live"
+    ? (live?.diagnosticSource?.() ?? { image: null, verified: false })
+    : { image: state.photo, verified: !!state.photoSource && state.photoSource === state.puzzleSource } });
   const modal = cameraModal($("camera-panel"), $("camera"));
   function stopCamera() {
     cameraEpoch++;
@@ -119,7 +125,8 @@ export function setupPhotoFlow({
           pendingPlayback = null;
           $("start-camera").hidden = true;
           status("Camera ready.", "Hold a clear grid steady; the shutter saves the view.");
-          live = liveFactory({ $, video, canvas: $("live-preview"),
+          diagnostics.begin("live", { type: $("puzzle-type").value, rows: Number($("rows").value), cols: Number($("cols").value), autoSolve: $("auto-solve").checked });
+          live = liveFactory({ $, video, canvas: $("live-preview"), diagnostics,
             getSettings: () => ({
               type: $("puzzle-type").value,
               rows: Number($("rows").value), cols: Number($("cols").value),
@@ -239,6 +246,7 @@ export function setupPhotoFlow({
       };
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
+      diagnostics.event({stage:"checking",reason:"read-complete",found});
       // The crop editor may still show an earlier import; this capture is
       // reviewed on the board.
       $("photo-panel").hidden = true;
@@ -388,6 +396,7 @@ export function setupPhotoFlow({
     return { rows: cols, cols: rows, boxRows: boxCols, boxCols: boxRows };
   }
   async function acceptPhoto(canvas, auto = false) {
+    diagnostics.begin("photo", { ...currentLayout(), type: $("puzzle-type").value, autoSolve: $("auto-solve").checked });
     invalidate();
     state.history = [];
     state.puzzleSource = null;
@@ -403,12 +412,15 @@ export function setupPhotoFlow({
   // undo history and the old crop/mapping intact until a current result exists.
   async function detectPhoto(canvas, auto = false) {
     const id = begin();
+    diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", "Photo processing stays on this device.");
     try {
       const found = await scanner.detect(canvas);
       if (id !== getJobId()) return;
       clearPhotoMapping();
       state.corners = found.corners;
+      diagnostics.geometry({ ...found, width: canvas.width, height: canvas.height, coordinateSpace: "source-preview" });
+      diagnostics.event({stage:"detecting",reason:found.confidence > .8 ? "found" : "manual-corners"});
       finish();
       if (found.rows && found.cols) {
         const layout = currentLayout(),
@@ -440,6 +452,7 @@ export function setupPhotoFlow({
     } catch (e) {
       if (id === getJobId()) {
         finish();
+        diagnostics.event({stage:"error",reason:"failed"});
         fail(e);
       }
     }
@@ -580,6 +593,8 @@ export function setupPhotoFlow({
       fail(error);
       return;
     }
+    diagnostics.configure({ type, rows, cols, boxRows, boxCols, autoSolve: $("auto-solve").checked });
+    diagnostics.geometry({ rows, cols, corners: state.corners, width: state.photo.width, height: state.photo.height, coordinateSpace: "source-preview" });
     // Keep the accepted board, solution and still-valid photo mapping until
     // a complete replacement is ready. Crop edits already invalidate mapping.
     const id = begin();
@@ -598,7 +613,8 @@ export function setupPhotoFlow({
       try {
         if (id !== getJobId()) return;
         found = await scanner.read(detail.image, detail.corners, type, rows, cols,
-          (text, p) => { if (id === getJobId()) status(text, "", "info", p); });
+          (text, p) => { if (id === getJobId()) status(text, "", "info", p); },
+          {onDiagnostic:event => { if (id === getJobId()) diagnostics.event(event); }});
         if (detail.note) found.notes = [...found.notes, detail.note];
       } finally { detail.release(); }
       if (id !== getJobId()) return;
@@ -646,6 +662,7 @@ export function setupPhotoFlow({
       remember();
       clearPhotoMapping();
       Object.assign(state, next);
+      diagnostics.event({stage:"checking",reason:"read-complete",found});
       persist();
       render({ replaceDraft: true });
       $("photo-panel").hidden = true;
@@ -666,6 +683,7 @@ export function setupPhotoFlow({
     } catch (e) {
       if (id === getJobId()) {
         finish();
+        diagnostics.event({stage:"error",reason:"failed"});
         fail(e);
       }
     }

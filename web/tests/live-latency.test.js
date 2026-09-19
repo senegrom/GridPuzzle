@@ -1,3 +1,4 @@
+import { createTrackingCore } from "../live-tracking-core.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makePuzzle } from "../model.js";
@@ -35,7 +36,13 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   globalThis.document = { createElement: canvas };
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
   const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true };
-  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700 }, canvas: canvas(),
+  let core = createTrackingCore();
+  const tracker = {
+    anchor: async task => core.run({ ...task, op: 'anchor' }),
+    verify: async task => core.run({ ...task, op: 'verify' }),
+    reset() { core = createTrackingCore(); },
+  };
+  const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700 }, canvas: canvas(),
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },

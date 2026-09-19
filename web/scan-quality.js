@@ -64,7 +64,7 @@ export function gridQuality(image, corners, rows, cols) {
   const assessable = cells.length >= 2, score = quantile(scores, .35), contrast = quantile(contrasts, .35),
     weakCells = cells.filter((cell) => cell.contrast < 35 || cell.score < 12).map((cell) => cell.cell),
     reason = cellPixels < 12 ? 'small' : !assessable ? null : contrast < 35 ? 'contrast' : score < 12 ? 'blur' : null;
-  return { score, contrast, cellPixels, assessable, markedCells: cells.length, weakCells, reason };
+  return { score, contrast, cellPixels, assessable, markedCells: cells.length, weakCells, reason, cells };
 }
 export function qualityMessage(quality) {
   if (quality?.reason === 'small') return 'Move closer: the numbers occupy too few pixels.';

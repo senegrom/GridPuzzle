@@ -81,3 +81,18 @@ test("outline-only initial boards and genuine blank cells have no red placeholde
  f.markedCells.push(1);assert.equal(overlayCells(f).find(i=>i.cell===1).kind,"unknown");
  assert.equal(overlayCells(f,solution).find(i=>i.cell===1).kind,"unknown");
 });
+
+test('two verified same-anchor observations survive a brief missing async proof', async t => {
+ const h=harness(t);h.observe();assert.equal(h.reads.length,0);
+ h.move(false);assert.equal(h.session.preview,null);h.advance(300);
+ h.move(true);h.observe();assert.equal(h.reads.length,1,'pending verification is not evidence of a different puzzle');
+ h.reads[0].resolve(reading());await flush();assert.equal(h.session.preview.found.puzzle.cells[0],1);
+});
+
+test('missing current proof cannot accumulate observations into an OCR job', t => {
+ const h=harness(t);h.observe();h.move(false);
+ for(let i=0;i<10;i++)h.observe();
+ assert.equal(h.reads.length,0);assert.equal(h.session.preview,null);
+ h.advance(5000);h.move(true);h.observe();assert.equal(h.reads.length,0,'long loss resets the original acquisition');
+ h.observe();assert.equal(h.reads.length,1);
+});

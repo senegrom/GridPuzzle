@@ -777,3 +777,11 @@ body.camera-open { overflow: hidden; }
   #camera-help { min-height: 1.3em; font-size: .8rem; }
   .camera-actions .shutter { min-height: 44px; }
 }
+
+/* Diagnostics stay out of the way until opened, including in the camera modal. */
+.scan-diagnostics { flex: 0 0 auto; max-width: 100%; }
+.scan-diagnostics pre { max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }
+.scan-diagnostics img { width: 100%; max-height: 240px; object-fit: contain; }
+#camera-panel .scan-diagnostics { margin: 0; background: #172531; color: #fff; border-radius: .5rem; padding: .3rem .6rem; }
+#camera-panel .scan-diagnostics[open] { max-height: 45vh; overflow: auto; }
+#camera-panel .scan-diagnostics .muted, #camera-panel .scan-diagnostics .small-note { color: #cbd5e1; }
