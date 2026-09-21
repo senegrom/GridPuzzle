@@ -56,6 +56,10 @@ frozen equivalence reference for any future attempt.
   regressed 4.22%, full blank-4x4 enumeration 4.83% and non-square 6x6 cap-20
   4.32%. Keep the process pool; a new thread executor must beat these numbers
   on the same cases (`benchmarks/free_threaded_threads_rejected_2026-08-09.md`).
+  The opt-in `parallel_backend="thread"` executor of 2026-08-12 did
+  (`benchmarks/free_threaded_executor_2026-08-12.md`): 0.82x geometric mean
+  against the process pool on 3.14t, worst 1.01x, default path within 0.1%.
+  It stays opt-in and process remains the default; see `FREE_THREADED.md`.
 - **Full AIC peer-edge rebuild**, **lazy chain logging**, **whole-object size
   guard**: see the rejected rows of `benchmarks/README.md`.
 
