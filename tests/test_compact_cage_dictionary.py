@@ -1,14 +1,16 @@
 import subprocess
 import sys
+from itertools import permutations, product
 from pathlib import Path
 
 import pytest
 
-from gridsolver.abstract_grids.grid_loading import create_from_file
+from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str
 from gridsolver.grid_classes.cage_loading import _parse_compact_dictionary
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce, SumRule
+from gridsolver.solver.solver import solve
 
 
 def test_killer_compact_dictionary_supports_numeric_labels():
@@ -117,3 +119,56 @@ def test_cage_entry_factory_runs_once_per_distinct_label(monkeypatch):
     )
 
     assert calls == [("+", 3), ("+", 3)]
+
+
+@pytest.mark.parametrize("family,side", [("Kenken", 32), ("KillerSudoku", 36)])
+def test_large_compact_dictionary_loads_and_solves_without_recursion(family, side):
+    # Distinct non-numeric single-character labels keep this long dictionary
+    # unambiguous. Every singleton cage fixes one value of a valid Latin square
+    # or 6x6-box Sudoku, so solving is small even though parsing has >1000 cages.
+    labels = tuple(chr(0x4E00 + cell) for cell in range(side * side))
+    expected = [
+        ((row if family == "Kenken" else row * 6 + row // 6) + col) % side + 1
+        for row in range(side)
+        for col in range(side)
+    ]
+    operator = "+" if family == "Kenken" else ""
+    dictionary = "".join(
+        f"{label}{operator}{value}"
+        for label, value in zip(labels, expected, strict=True)
+    )
+
+    grid = create_from_str(f"{family}::{''.join(labels)}:{dictionary}")
+    solutions = solve(grid, max_sols=2, log_level=-1)
+
+    assert len(solutions) == 1
+    solution = next(iter(solutions))
+    assert [solution[row, col] for row in range(side) for col in range(side)] == expected
+
+
+@pytest.mark.parametrize("labels", [("a", "1"), ("1", "2"), ("a", "1", "2")])
+def test_numeric_dictionary_parses_match_independent_serialization_oracle(labels):
+    targets = (1, 2, 11, 12, 21, 22)
+    encodings = {}
+    # Enumerate complete definitions and serialize them, independently of the
+    # parser's boundary search. Colliding strings must be rejected as ambiguous.
+    for order in permutations(labels):
+        for values in product(targets, repeat=len(labels)):
+            definitions = tuple(zip(order, values, strict=True))
+            text = "".join(f"{label}{value}" for label, value in definitions)
+            encodings.setdefault(text, set()).add(definitions)
+
+    options = {
+        "description": "Oracle",
+        "parse_header": lambda source, position: (position + 1, None),
+        "make_definition": lambda label, metadata, target: target if target in targets else None,
+    }
+    ambiguous = 0
+    for text, definitions in encodings.items():
+        if len(definitions) > 1:
+            ambiguous += 1
+            with pytest.raises(ValueError, match="dictionary is ambiguous"):
+                _parse_compact_dictionary(text, labels, **options)
+        else:
+            assert _parse_compact_dictionary(text, labels, **options) == dict(next(iter(definitions)))
+    assert ambiguous > 0

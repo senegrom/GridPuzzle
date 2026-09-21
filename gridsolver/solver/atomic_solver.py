@@ -130,7 +130,9 @@ class AtomicSolver:
         steps = 0
         invalid = False
 
-        while self.grid.is_valid:
+        # _update_step checks given/candidate agreement in its singles pass.
+        # Empty domains remain the cheap guard between propagation iterations.
+        while all(self.grid._candidates):
             before = self._state_snapshot()
             try:
                 if self.stats is not None:

@@ -1,0 +1,21 @@
+name: Set up the scanner suites
+description: >-
+  Python 3.14, Node 22, the pinned self-hosted runtime built into _site and
+  the repository's Playwright version with Chromium and WebKit.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.14"
+    - uses: actions/setup-node@v7
+      with:
+        node-version: "22"
+    - name: Build pinned self-hosted runtime
+      shell: bash
+      run: python scripts/build_web.py
+    - name: Install repository browser test versions
+      shell: bash
+      run: |
+        npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+        npx playwright install --with-deps chromium webkit

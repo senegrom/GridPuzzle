@@ -66,9 +66,11 @@ def test_public_log_levels_reject_coercive_values(bad_level):
     logger = GridLogger(raw, 0)
     with pytest.raises(TypeError, match="log level must be an integer"):
         logger.set_lvl(bad_level)
-    with pytest.raises(TypeError, match="log level must be an integer"):
-        with logger.solve_context(bad_level):
-            pass
+    with (
+        pytest.raises(TypeError, match="log level must be an integer"),
+        logger.solve_context(bad_level),
+    ):
+        pass
     with pytest.raises(TypeError, match="log level must be an integer"):
         solver.solve(Sudoku(1, 1, 1, 1), log_level=bad_level)
 

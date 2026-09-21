@@ -61,9 +61,9 @@ def child(root, case):
     start = time.perf_counter()
     solutions = solver.solve(grid)
     elapsed = time.perf_counter() - start
-    print(json.dumps(dict(seconds=elapsed, solutions=len(solutions),
-                         solution_sha256=fingerprint(sorted(tuple(s) for s in solutions)),
-                         root_sha256=fingerprint(root_signature), branch_nodes=calls)))
+    print(json.dumps({'seconds': elapsed, 'solutions': len(solutions),
+                      'solution_sha256': fingerprint(sorted(tuple(s) for s in solutions)),
+                      'root_sha256': fingerprint(root_signature), 'branch_nodes': calls}))
 
 
 def loop_differential(root, baseline):
@@ -112,12 +112,12 @@ def micro(root):
             start = time.perf_counter()
             assert rule.sum_candidates == (frozenset(range(1, n+1)),)
             samples.append(time.perf_counter()-start)
-        result[f'full-domain-{n}'] = dict(seconds=samples, median_seconds=statistics.median(samples), partitions=1)
+        result[f'full-domain-{n}'] = {'seconds': samples, 'median_seconds': statistics.median(samples), 'partitions': 1}
     for n in (20, 25):
         _product_target_is_possible.cache_clear()
         start = time.perf_counter()
         assert _product_target_is_possible(n*n, n, factorial(n)**n)
-        result[f'product-{n}'] = dict(seconds=time.perf_counter()-start)
+        result[f'product-{n}'] = {'seconds': time.perf_counter()-start}
     return result
 
 
@@ -136,9 +136,9 @@ def main():
     if args.baseline_root is None or args.samples < 1:
         parser.error('--baseline-root and a positive --samples are required')
     baseline = args.baseline_root.resolve()
-    report = dict(python=sys.version, baseline=BASELINE, samples=args.samples,
-                  timing_note='Three fresh-interpreter samples per mode; compare medians, not a claim of universal speedup.',
-                  cases={}, micro=micro(root))
+    report = {'python': sys.version, 'baseline': BASELINE, 'samples': args.samples,
+              'timing_note': 'Three fresh-interpreter samples per mode; compare medians, not a claim of universal speedup.',
+              'cases': {}, 'micro': micro(root)}
     report['loop_states_equivalent'] = loop_differential(root, baseline)
     print('Identical complete loop-rule outcomes on', report['loop_states_equivalent'], 'states.', flush=True)
     script = Path(__file__).resolve()
@@ -159,8 +159,8 @@ def main():
         assert all(tuple(result[k] for k in identity) == expected
                    for samples in results.values() for result in samples), (case, results)
         for mode in results:
-            results[mode] = dict(samples=results[mode],
-                                 median_seconds=statistics.median(r['seconds'] for r in results[mode]))
+            results[mode] = {'samples': results[mode],
+                             'median_seconds': statistics.median(r['seconds'] for r in results[mode])}
         report['cases'][case] = results
         print(case, json.dumps(results), flush=True)
     args.output.parent.mkdir(parents=True, exist_ok=True)

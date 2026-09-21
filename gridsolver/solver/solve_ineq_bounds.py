@@ -28,8 +28,9 @@ def ineq_bounds(grid: Grid) -> None:
     succ: Dict[int, Set[int]] = {}
     pred: Dict[int, Set[int]] = {}
     for r in ineqs:
-        succ.setdefault(r.lt_cell, set()).add(r.gt_cell)
-        pred.setdefault(r.gt_cell, set()).add(r.lt_cell)
+        lower, greater = grid._read_rule_metadata(r, lambda item: (item.lt_cell, item.gt_cell))
+        succ.setdefault(lower, set()).add(greater)
+        pred.setdefault(greater, set()).add(lower)
     nodes = set(succ) | set(pred)
 
     def closure(edges: Dict[int, Set[int]]) -> Dict[int, FrozenSet[int]]:

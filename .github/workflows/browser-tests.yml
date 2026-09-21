@@ -1,0 +1,25 @@
+name: Browser branch tests
+on:
+  pull_request:
+    paths-ignore: ["**/*.md", "LICENSE"]
+permissions:
+  contents: read
+concurrency:
+  group: browser-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Browser model, lifecycle and safety unit tests
+        run: node --test web/tests/*.test.js
+      - name: Check every browser module parses
+        run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+      # Scanner quality covers recognition and tracking on pull requests.
+      # Relevant application changes also run the complete deployment
+      # acceptance workflow without publishing; master is the only publisher.

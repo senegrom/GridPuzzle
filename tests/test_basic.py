@@ -19,6 +19,8 @@ def test_sudo0():
     assert len(sol) == 1
 
 
+@pytest.mark.slow  # ~35 s: the full 288 enumeration; the differential
+# oracle checks the count cheaply on every push, weekly extended CI runs this
 def test_sudo1():
     g = Sudoku(2, 2, 2, 2)
     sol = solver.solve(g, log_level=0)
@@ -79,6 +81,7 @@ def test_sudo_none():
     assert len(sol) == 0
 
 
+@pytest.mark.slow  # ~12 s; test_sudo_nonsq_box_tiling checks the tiling on every push
 def test_sudo_nonsq():
     g = Sudoku(3, 2, 2, 3)
     g.load("123456654321........................", row_wise=False)
@@ -241,7 +244,7 @@ def test_killer_cages_row_major():
         ccdd
         eeff
         gghh
-        """, {ch: 5 for ch in "abcdefgh"})
+        """, dict.fromkeys("abcdefgh", 5))
     cages = {frozenset(rule.cells) for rule in g.get_rules_of_type(SumAndElementsAtMostOnce)}
     idx = {(r, c): r + c * 4 for r in range(4) for c in range(4)}
     assert frozenset({idx[0, 0], idx[0, 1]}) in cages  # cage 'a' spans row 0

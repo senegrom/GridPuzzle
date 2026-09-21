@@ -46,3 +46,8 @@ used for each accepted or rejected optimization.
 | 09-06 | size_guard_rejected | rejected | whole-object __setattr__ size guard, blank-4x4 +4.45%; replaced by four write-once descriptors |
 | 09-06 | exact_cages (.json) | accepted as correctness repair | staircase cage partitions + write-once sizes; record shows blank-4x4 +2.53%, a local interleaved CPU-time re-measure on 09-07 showed −5.7% (neutral); Slitherlink 2x2/3x3 −21/−17% |
 | 09-06 | review3_native (.md/.json) | measured | iterative partition DFS + uncapped parallel failure observer; five baseline cases match 5010564 |
+| 09-06 | review3_browser (.md/.json), review3_recognition (.json) | measured | browser safety and lifecycle fixes; generated OCR scans 30/30 in both engines |
+| 09-10 | four_review_fixes (.md/.json) | accepted as correctness repair | given-excluding candidates rejected, hook isolation, atomic replacement, recursion-free deep validation; noise-level timing |
+| 09-10 | stack_safe_search | accepted | explicit DFS stack and side-effect-free guarantee normalization; identical fingerprints, blank-4x4 21.5 s to 20.0 s |
+| 09-10 | extension_boundaries | accepted as correctness repair | twelve regressions fail on the baseline; native timing within +2.24% on three smoke cases |
+| 09-11 | extension_workers | accepted as correctness repair | seven of nine worker/metadata regressions fail on the baseline; no timing claim |

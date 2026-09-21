@@ -1,0 +1,184 @@
+/* Quality measurements before correction; fixture values never enter the recognizer. */
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
+
+const ROOT = "Examples/BrowserScanner/Newspaper";
+
+// This runs in the browser against the production Scanner and its real workers.
+async function measure({ fixture, variation }) {
+  const { Scanner } = await import("./scanner.js");
+  const canvas = document.createElement("canvas");
+  let expected, rows, cols, type;
+  if (fixture.fragmented) {
+    rows = cols = fixture.fragmented === "number" ? 4 : 3;
+    type = fixture.fragmented === "number" ? "numbrix" : fixture.fragmented === "black" ? "str8ts" : "latinsquare";
+    canvas.width = canvas.height = rows * 100;
+    expected = Array(rows * cols).fill(null);
+    expected[0] = fixture.fragmented === "number" ? 11 : 1;
+    expected[rows * cols - 1] = 2;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#f5f5f5"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#101010"; ctx.lineWidth = 2;
+    for (let i = 0; i <= rows; i++) {
+      ctx.beginPath(); ctx.moveTo(i * 100, 0); ctx.lineTo(i * 100, canvas.height);
+      ctx.moveTo(0, i * 100); ctx.lineTo(canvas.width, i * 100); ctx.stroke();
+    }
+    if (fixture.fragmented === "black") { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, 100, 100); }
+    ctx.fillStyle = fixture.fragmented === "black" ? "#f5f5f5" : "#0a0a0a";
+    // A printed 1 with a horizontal ink gap; the number case has a connected
+    // leading 1 and a fragmented trailing 1 that must not be silently cropped.
+    if (fixture.fragmented === "number") ctx.fillRect(27, 30, 5, 38);
+    ctx.fillRect(49, 30, 5, 14); ctx.fillRect(49, 54, 5, 14);
+    ctx.fillStyle = "#101010"; ctx.font = "38px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("2", canvas.width - 50, canvas.height - 50);
+  } else if (fixture.imageData) {
+    const image = new Image();
+    image.src = `data:image/webp;base64,${fixture.imageData}`;
+    await image.decode();
+    const scale = variation.small ? 0.5 : 1;
+    canvas.width = Math.round(image.naturalWidth * scale);
+    canvas.height = Math.round(image.naturalHeight * scale);
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    expected = fixture.cells;
+    rows = cols = 9;
+    type = variation.auto ? "auto" : fixture.type;
+  } else {
+    rows = cols = 12;
+    type = "numbrix";
+    canvas.width = canvas.height = 900;
+    expected = Array(144).fill(null);
+    const values = [1, 7, 11, 12, 16, 18, 20, 21, 25, 28, 33, 38, 44, 48, 55,
+      66, 77, 88, 99, 100, 101, 108, 111, 117, 121, 128, 132, 138, 141, 144];
+    const context = canvas.getContext("2d");
+    context.fillStyle = "white";
+    context.fillRect(0, 0, 900, 900);
+    context.strokeStyle = "black";
+    context.lineWidth = 2;
+    for (let i = 0; i <= 12; i++) {
+      context.beginPath();
+      context.moveTo(i * 75, 0); context.lineTo(i * 75, 900);
+      context.moveTo(0, i * 75); context.lineTo(900, i * 75);
+      context.stroke();
+    }
+    context.fillStyle = "black";
+    context.font = `${fixture.holdout ? 28 : 30}px ${fixture.font}`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    values.forEach((value, j) => {
+      const i = (j * 37 + 13) % 144;
+      expected[i] = value;
+      context.fillText(String(value), (i % 12 + 0.5) * 75 + (fixture.holdout ? 2 : 0),
+        (Math.floor(i / 12) + 0.5) * 75 - (fixture.holdout ? 1 : 0));
+    });
+  }
+  if (variation.blur) {
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width; copy.height = canvas.height;
+    copy.getContext("2d").drawImage(canvas, 0, 0);
+    const context = canvas.getContext("2d");
+    context.filter = `blur(${variation.blur}px)`;
+    context.drawImage(copy, 0, 0);
+    context.filter = "none";
+  }
+  if (variation.contrast) {
+    const context = canvas.getContext("2d"), pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < pixels.data.length; i += 4)
+      for (let k = 0; k < 3; k++)
+        pixels.data[i + k] = Math.round(255 - (255 - pixels.data[i + k]) * variation.contrast);
+    context.putImageData(pixels, 0, 0);
+  }
+  const scanner = new Scanner(), start = performance.now();
+  const geometry = scanner.geometry.bind(scanner);
+  let detectedBlack = [];
+  // Observe the real preparation result, including structure which an explicit
+  // puzzle type might discard. No pixels or recognition results are mocked.
+  scanner.geometry = async (...args) => {
+    const result = await geometry(...args);
+    if (args[0] === "prepare")
+      detectedBlack = result.black.flatMap((value, i) => value ? [i] : []);
+    return result;
+  };
+  try {
+    const result = await scanner.read(canvas, [
+      { x: 0, y: 0 }, { x: canvas.width - 1, y: 0 },
+      { x: canvas.width - 1, y: canvas.height - 1 }, { x: 0, y: canvas.height - 1 },
+    ], type, rows, cols);
+    const actual = result.puzzle.cells, flagged = new Set(result.uncertain),
+      wrong = expected.flatMap((value, cell) => value === actual[cell] ? [] : [{ cell, expected: value, actual: actual[cell] }]);
+    return {
+      name: fixture.name, variation: variation.name, type: result.puzzle.type, detectedBlack,
+      printed: expected.filter(Number.isInteger).length,
+      correct: expected.filter((value, i) => Number.isInteger(value) && actual[i] === value).length,
+      wrong, unsafe: wrong.filter(({ cell }) => !flagged.has(cell)),
+      flagged: result.uncertain, black: result.puzzle.black || [],
+      marked: result.markedCells, recovered: result.entries.filter((entry) => entry.recoveredMark).map((entry) => entry.cell),
+      needsReview: result.needsReview, notes: result.notes,
+      milliseconds: Math.round(performance.now() - start), retryCount: result.retryCount || 0,
+    };
+  } finally {
+    scanner.cancel();
+  }
+}
+
+function qualityCases() {
+  const photographs = JSON.parse(fs.readFileSync(path.join(ROOT, "ground-truth.json"))).fixtures;
+  const fixtures = [
+    ...photographs.map((f) => ({ ...f, imageData: fs.readFileSync(path.join(ROOT, f.image)).toString("base64") })),
+    ...["Arial", "Times New Roman", "Courier New"].map((font) => ({ name: `numbers-${font}`, font })),
+    ...["DejaVu Sans", "DejaVu Serif"].map((font) => ({ name: `holdout-${font}`, font, holdout: true })),
+    ...["single", "number", "black"].map((fragmented) => ({ name: `fragmented-${fragmented}`, fragmented, black: fragmented === "black" ? [0] : [] })),
+  ];
+  const variations = [
+    { name: "original" }, { name: "small", small: true },
+    { name: "faded", contrast: 0.35 }, { name: "mild-fade", contrast: 0.65 },
+    { name: "blur", blur: 0.6 },
+    { name: "auto-original", auto: true },
+    { name: "auto-faded", auto: true, contrast: 0.35 },
+    { name: "auto-mild-fade", auto: true, contrast: 0.65 },
+  ];
+  return fixtures.flatMap((fixture) => variations
+    .filter((v) => fixture.imageData || ((fixture.holdout || fixture.fragmented)
+      ? v.name === "original" : v.name !== "small" && !v.auto))
+    .map((variation) => ({ fixture, variation })));
+}
+
+async function run() {
+  const server = await serve(), cases = qualityCases();
+  try {
+    await engines("ocr-quality.json", async (page, report, name) => {
+      report.scans = [];
+      await page.goto(server.base);
+      await page.waitForSelector('body[data-ready="true"]');
+      for (const { fixture, variation } of cases) {
+        const scan = await page.evaluate(measure, { fixture, variation });
+        report.scans.push(scan);
+        const label = `${name}/${fixture.name}/${variation.name}`;
+        assert.deepEqual(scan.unsafe, [], `${label}: every wrong, missed or invented clue must be flagged`);
+        assert.deepEqual(scan.black, fixture.black || [], `${label}: structural black-cell geometry`);
+        assert.deepEqual(scan.detectedBlack, fixture.black || [], `${label}: pre-classification black-cell geometry`);
+        if (fixture.imageData)
+          assert.equal(scan.type, fixture.type, `${label}: automatic family classification`);
+        const minimum = fixture.fragmented ? 1 : fixture.imageData ? (fixture.type === "sudoku" ? 24 : variation.small ? 17 : variation.contrast && (variation.auto || variation.contrast === 0.35) ? 19 : 20) : fixture.holdout ? 27 : 29;
+        assert.ok(scan.correct >= minimum, `${label}: ${scan.correct}/${scan.printed} (minimum ${minimum})`);
+        if (!fixture.imageData)
+          assert.ok(scan.flagged.length <= (fixture.holdout ? 8 : 5), `${label}: excessive manual review burden`);
+        if (fixture.fragmented) {
+          assert.ok(scan.marked.includes(0), `${label}: broken ink must remain a printed clue`);
+          assert.ok(scan.recovered.includes(0), `${label}: preserve the complete fragmented crop`);
+          assert.ok(scan.flagged.includes(0), `${label}: recovered geometry must remain uncertain even if OCR agrees`);
+        }
+        if (variation.contrast) {
+          assert.ok(scan.needsReview, `${label}: low-contrast adjustments require confirmation`);
+          assert.ok(scan.notes.some((note) => /Low-contrast/.test(note)), `${label}: missing contrast warning`);
+        }
+        console.log(`${label}: ${scan.correct}/${scan.printed}, ${scan.flagged.length} flagged, ${scan.milliseconds}ms`);
+      }
+    }, { context: SMALL_PHONE, timeout: 30000 });
+  } finally {
+    server.close();
+  }
+}
+module.exports = { run, measure, qualityCases };
+main(module, run);

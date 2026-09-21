@@ -1,6 +1,7 @@
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import Guarantee, Rule
 from gridsolver.rules.unique import ElementsAtMostOnce
@@ -8,6 +9,7 @@ from gridsolver.solver.validation import (
     InvalidSolutionError,
     validate_solution,
 )
+from gridsolver.solver.solver import solve
 
 
 class _ReplaceSelectedCandidate(Rule):
@@ -211,3 +213,96 @@ def test_source_rule_metadata_is_wrapped_as_invalid_solution():
 
     with pytest.raises(InvalidSolutionError, match="Malformed rule"):
         validate_solution(grid, _solution((1, 2)))
+
+
+class _DeepEmission(Rule):
+    def __init__(self, grid, depth, reject=False):
+        super().__init__(grid, cells=(0,))
+        self.depth = depth
+        self.reject = reject
+
+    def __hash__(self):
+        return hash((super().__hash__(), self.depth, self.reject))
+
+    def __eq__(self, other):
+        return super().__eq__(other) and (
+            self.depth, self.reject
+        ) == (other.depth, other.reject)
+
+    def apply(self, known, candidates, guarantees=None):
+        if not self.depth:
+            if self.reject:
+                candidates[0].clear()
+            return False, None, None
+        size = GridSizeContainer(self._rows, self._cols, self._max_elem)
+        return False, (_DeepEmission(size, self.depth - 1, self.reject),), None
+
+
+def test_deep_extension_validation_fits_the_output_budget_without_recursion():
+    grid = Grid(1, 1, max_elem=1)
+    grid[0] = 1
+    grid.add_rule_checked(_DeepEmission(grid, 1100))
+
+    assert {tuple(solution) for solution in solve(grid, log_level=-1)} == {(1,)}
+
+
+@pytest.mark.parametrize("reject, depth, message", (
+    (True, 1100, "violates"),
+    (False, 2200, "budget|4096-item"),
+))
+def test_deep_extension_failures_reach_the_leaf_or_budget(reject, depth, message):
+    grid = Grid(1, 1, max_elem=1)
+    grid.add_rule_checked(_DeepEmission(grid, depth, reject))
+    with pytest.raises(InvalidSolutionError, match=message):
+        validate_solution(grid, ImmutableGrid((1,), 1, 1, 1))
+
+
+def test_shared_child_is_rechecked_with_each_siblings_guarantees():
+    grid = Grid(1, 2, max_elem=2)
+    first_guarantee = Guarantee(1, frozenset({0}), 1, 2)
+    second_guarantee = Guarantee(2, frozenset({1}), 1, 2)
+    seen = []
+
+    class Child(Rule):
+        uses_guarantees = True
+
+        def apply(self, known, candidates, guarantees=None):
+            seen.append(tuple(guarantees))
+            return False, None, None
+
+    child = Child(grid, cells=(0, 1))
+
+    class Sibling(Rule):
+        def __init__(self, guarantee):
+            super().__init__(grid, cells=(0, 1))
+            self.guarantee = guarantee
+
+        def apply(self, known, candidates, guarantees=None):
+            return False, (child,), (self.guarantee,)
+
+    class Root(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            return False, (Sibling(first_guarantee), Sibling(second_guarantee)), None
+
+    grid.add_rule_checked(Root(grid, cells=(0, 1)))
+    validate_solution(grid, _solution((1, 2)))
+    assert seen == [(first_guarantee,), (second_guarantee,)]
+
+
+def test_invalid_first_child_short_circuits_later_siblings():
+    grid = Grid(1, 2, max_elem=2)
+
+    class Unreachable(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            raise RuntimeError("later sibling should not run")
+
+    class Root(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            return False, (
+                ElementsAtMostOnce(grid, cells=(0, 1)),
+                Unreachable(grid, cells=(0,)),
+            ), None
+
+    grid.add_rule_checked(Root(grid, cells=(0, 1)))
+    with pytest.raises(InvalidSolutionError, match="violates"):
+        validate_solution(grid, _solution((1, 1)))
