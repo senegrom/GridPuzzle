@@ -103,7 +103,7 @@ def test_sudo_nonsq_box_tiling():
         assert sum(1 for h in houses if cell in h) == 3
 
 
-@pytest.mark.slow  # ~2 min: the full 288 enumeration twice; weekly extended CI
+@pytest.mark.slow  # ~1 min: the full 288 enumeration twice; weekly extended CI
 def test_parallel_trials_match_sequential():
     # cross-process solution sets must merge correctly (also guards the
     # process-stable ImmutableGrid hash: hash(bytes) is salted per process)

@@ -1,18 +1,18 @@
 /* Cross-feature browser regressions: real UI, JSON files and camera stream.
    OCR/solver replies are controlled ONLY in the preference race checks; real
    moving OCR and solver integration have their own mandatory suites. */
-const { chromium, webkit } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { spawn } = require('node:child_process');
-const BASE='http://127.0.0.1:8784/';
-const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const { PHONE, serve, engines, main } = require('./harness.cjs');
+// The page has handled everything already dispatched to it once a frame has
+// been painted and a following task has run.
+const settled=page=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0))));
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async()=>{window.reviewApp=await import('./app.js');});
 }
-async function backupChecks(page, report) {
-  await page.goto(BASE); await ready(page);
+async function backupChecks(page, report, base) {
+  await page.goto(base); await ready(page);
   await page.evaluate(async()=>{
     const {makePuzzle}=await import('./model.js'); const puzzle=makePuzzle('latinsquare',2);puzzle.cells[0]=1;
     localStorage.setItem('gridpuzzle-session-v1',JSON.stringify({puzzle,cellUncertain:[0],cageUncertain:[],needsReview:true,
@@ -105,7 +105,7 @@ async function preferenceChecks(page, report) {
   await toggle(true);await page.waitForFunction(()=>reviewSolves.length===2);
   const reply=index=>page.evaluate(index=>{const p=reviewSolves[index];p.handler({data:{type:'result',id:p.id,
     result:{status:'unique',complete:true,solutions:[{cells:[1,2,3,4,3,4,1,2,2,1,4,3,4,3,2,1]}]}}});},index);
-  await reply(0);await pause(250);assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),0);
+  await reply(0);await settled(page);assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),0,'a solve reply for a retired request is ignored');
   await reply(1);await page.waitForFunction(()=>Number(document.getElementById('live-preview').dataset.solution)===2);
   await toggle(false);await page.waitForFunction(()=>Number(document.getElementById('live-preview').dataset.solution)===0);
   assert.equal(await page.evaluate(()=>reviewReads),1);
@@ -118,18 +118,21 @@ async function preferenceChecks(page, report) {
   report.checks.push('real camera UI honours auto-solve off, keeps one OCR reading when toggled, cancels/hides pending and complete solutions, rejects late replies; modal traps focus and restores background/opener on Escape');
 }
 async function run() {
- const server=spawn('python',['-m','http.server','8784','--bind','127.0.0.1','--directory','_site'],{stdio:'ignore'}),reports=[];
- fs.mkdirSync('browser-artifacts',{recursive:true});let error;server.on('error',e=>{error=e;});
- try {
-  let available=false;for(let i=0;i<80;i++){if(error)throw error;try{if((await fetch(BASE)).ok){available=true;break;}}catch{}await pause(100);}assert.ok(available,'server starts');
-  for(const [name,engine] of Object.entries({chromium,webkit})) {
-   const browser=await engine.launch({headless:true}),report={browser:name,version:browser.version(),checks:[],errors:[]};reports.push(report);
-   const context=await browser.newContext({serviceWorkers:'block',viewport:{width:430,height:932},isMobile:true,hasTouch:true,acceptDownloads:true});const page=await context.newPage();page.setDefaultTimeout(30000);
-   page.on('pageerror',e=>report.errors.push(e.message));
-   try {await backupChecks(page,report);await arithmeticChecks(page,report);await preferenceChecks(page,report);assert.deepEqual(report.errors,[]);report.ok=true;}
-   catch(e){report.ok=false;report.failure=e.stack;report.status=await page.textContent('#status-text').catch(()=>null);report.camera=await page.textContent('#camera-help').catch(()=>null);await page.screenshot({path:`browser-artifacts/${name}-review-failure.png`}).catch(()=>{});throw e;}
-   finally {await browser.close();}
+  const server = await serve();
+  try {
+    await engines('app-review.json', async (page, report) => {
+      report.checks = [];
+      try {
+        await backupChecks(page, report, server.base); await arithmeticChecks(page, report); await preferenceChecks(page, report);
+      } catch (error) {
+        report.statusText = await page.textContent('#status-text').catch(() => null);
+        report.camera = await page.textContent('#camera-help').catch(() => null);
+        throw error;
+      }
+    }, { context: { ...PHONE, acceptDownloads: true }, timeout: 30000 });
+  } finally {
+    await server.close();
   }
- } finally {server.kill();fs.writeFileSync('browser-artifacts/app-review.json',JSON.stringify(reports,null,2)+'\n');}
 }
-module.exports={run};if(require.main===module)run().catch(e=>{console.error(e);process.exitCode=1;});
+module.exports = { run };
+main(module, run);

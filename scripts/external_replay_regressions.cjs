@@ -49,7 +49,9 @@ async function run(){
      if(r.result.reads.length){const read=r.result.reads.at(-1);r.score={correct:0,wrong:[],unflagged:[]};
       truth.forEach((label,cell)=>{if(label.ambiguous)return;if(label.value===read.cells[cell]){if(Number.isInteger(label.value))r.score.correct++;}else{const e={cell,expected:label.value,actual:read.cells[cell]};r.score.wrong.push(e);if(!read.uncertain.includes(cell))r.score.unflagged.push(e);}});
      }
-     await page.evaluate(()=>externalReplay.pause());await page.waitForTimeout(850);assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
+     await page.evaluate(()=>externalReplay.pause());
+     await page.waitForFunction(()=>externalReplay.capture()===false,null,{polling:200,timeout:5000});
+     assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
     }finally{
      r.closed=await page.evaluate(()=>window.externalReplay?.stop()).catch(()=>null);
      if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}
