@@ -85,6 +85,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       tracking = {};
       for (const key of ['submitted','completed','dropped','failures','milliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
+      tracking.tier = frame.stale ? 'delayed' : 'live';
     },
     scheduling(stats) {
       scheduling = { mode: stats.mode === 'video-frame' ? 'video-frame' : 'fallback', fresh: !!stats.fresh, callbackStalled: !!stats.callbackStalled };

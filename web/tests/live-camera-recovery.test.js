@@ -12,13 +12,14 @@ function deferred() {
 }
 function harness(t, solver = { solve: async () => null, cancel() {} }, initial = {}) {
   let time = 0, serial = 0, cancellations = 0, frozenTime = null;
-  const timers = new Map(), detections = [], readings = [], nodes = new Map(), renders = [];
+  const timers = new Map(), detections = [], readings = [], nodes = new Map(), renders = [], texts = [];
   const previous = globalThis.document;
   const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
-    fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
+    fillRect() {}, fillText(text) { texts.push(text); }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
-  const canvas = () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} });
+  const canvas = () => ({ width: 700, height: 700, dataset: {}, attributes: {}, getContext: () => context, setAttribute(name, value) { this.attributes[name] = value; } });
   globalThis.document = { createElement: canvas };
+  const view = canvas();
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
   const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true, ...initial };
   let core = createTrackingCore(), hold = false, trackingError = false;
@@ -28,7 +29,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
     verify: task => hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
-  const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: canvas(),
+  const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: view,
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },
@@ -53,7 +54,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, renders, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -162,17 +163,55 @@ test("small-number guidance preserves manual camera capture", async (t) => {
 });
 
 
-test("a fresh unverified frame does not permanently fence out delayed tracking replies", async t => {
+test("a worker reply up to two seconds late is adopted as a delayed overlay", async t => {
  const h=harness(t);await h.advance(100);await h.result();
- assert.equal(h.camera.diagnosticSource().verified,true);
+ assert.equal(h.camera.diagnosticSource().verified,true);assert.equal(h.view.dataset.delayed,"0");
+ assert.equal(h.texts.includes("DELAYED"),false,'a prompt worker draws a live overlay');
  h.holdTracking(true);await h.advance(900);
- assert.equal(h.camera.diagnosticSource().verified,false,'fallback pixels carry no proof');
- const delayed=h.held.at(-3);assert.ok(delayed,'a realistic two-tick worker delay');
- delayed.resolve(delayed.result());await flush();
- assert.equal(h.camera.diagnosticSource().verified,true,'a fresh reply after the fallback can recover tracking');
+ assert.equal(h.camera.diagnosticSource().verified,true,'a verified view survives a slow worker inside the stale limit');
+ assert.equal(h.view.dataset.delayed,"1");assert.ok(h.texts.includes("DELAYED"));
+ assert.match(h.view.attributes["aria-label"],/delayed/);
+ const early=h.held[0];assert.ok(early,'a verify submitted while the worker was slow');
+ early.resolve(early.result());await flush();
+ assert.equal(h.camera.diagnosticSource().verified,true,'a reply inside the limit is adopted');
+ assert.equal(h.view.dataset.delayed,"1",'its snapshot is older than the live tier');
+ h.holdTracking(false);await h.advance(300);
+ assert.equal(h.view.dataset.delayed,"0",'prompt replies return the view to the live tier');
  h.camera.stop();
  for(const job of h.held)job.resolve({proofs:{}});
  await flush();assert.equal(h.camera.diagnosticSource().verified,false,'closing still rejects every queued reply');
+});
+test("a worker reply older than the stale limit is dropped and the view falls back unverified", async t => {
+ const h=harness(t);await h.advance(100);await h.result();
+ h.holdTracking(true);await h.advance(2100);
+ assert.equal(h.camera.diagnosticSource().verified,false,'past the stale limit the display is an unverified fresh frame');
+ assert.equal(h.view.dataset.delayed,"0");assert.equal(h.camera.capture().found,null);
+ const late=h.held[0];late.resolve(late.result());await flush();
+ assert.equal(h.camera.diagnosticSource().verified,false,'a reply older than the stale limit cannot restore the view');
+ const recent=h.held.at(-1);assert.notEqual(recent,late);recent.resolve(recent.result());await flush();
+ assert.equal(h.camera.diagnosticSource().verified,true,'a reply submitted after the fallback recovers tracking');
+});
+test("crossing into the delayed tier repaints once without a new frame", async t => {
+ const h=harness(t);await h.advance(100);await h.result();
+ h.holdTracking(true);
+ const before=h.renders.length;await h.advance(300);
+ assert.ok(h.renders.length>before);
+ assert.ok(h.renders.slice(before).every(r=>!r.painted),'an unchanged live view is not repainted');
+ const mid=h.renders.length;await h.advance(300);
+ assert.ok(h.renders.slice(mid).some(r=>r.painted),'entering the delayed tier repaints');
+ assert.equal(h.view.dataset.delayed,"1");
+});
+test("capturing in the delayed tier keeps the verified frame and its reading", async t => {
+ const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();
+ assert.equal(h.readings.length,1);
+ const {makePuzzle}=await import('../model.js');const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,null,null,1];
+ h.readings[0].resolve({puzzle,cellUncertain:[],uncertain:[],markedCells:[0,3],needsReview:true,notes:[]});await flush();
+ assert.ok(h.camera.capture().found);
+ h.holdTracking(true);await h.advance(900);
+ assert.equal(h.view.dataset.delayed,"1");
+ const capture=h.camera.capture();
+ assert.ok(capture.found,'a delayed but verified view still carries its reading');assert.ok(capture.corners);assert.ok(capture.photo);
+ assert.equal(h.camera.diagnosticSource().verified,true);
 });
 
 
@@ -188,6 +227,7 @@ test("stalled video loses overlays on the heartbeat without a new processing tic
  assert.match(h.$('camera-help').textContent,/new camera frame/);
  h.resume();await h.advance(100);assert.ok(h.camera.capture().found,'unchanged source can be reverified');
  assert.equal(h.readings.length,1,'brief stalled delivery does not destroy OCR');
+ assert.doesNotMatch(h.$('camera-help').textContent,/new camera frame/,'the stall message gives way to the status once frames resume');
 });
 
 test("a detector finishing on a stalled feed cannot manufacture fresh evidence", async t => {

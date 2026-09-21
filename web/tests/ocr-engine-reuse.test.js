@@ -7,6 +7,7 @@ import vm from "node:vm";
 import { createOCRRuntime } from "../ocr-runtime.js";
 import { Scanner } from "../scanner.js";
 import { createLiveSession } from "../live-session.js";
+import { signatureIdentity } from "./frame-identity.js";
 import { makePuzzle } from "../model.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -141,8 +142,10 @@ test("partial OCR displays readings but never launches the solver before refinem
   const request = deferred(), reads = [], solves = [];
   const puzzle = makePuzzle("latinsquare", 2); puzzle.cells[0] = 1;
   const found = { puzzle, markedCells: [0], cellUncertain: [], notes: [] };
-  const session = createLiveSession({ read(frame, progress, partial) { reads.push(partial); return request.promise; },
-    solve(p) { solves.push(p); return Promise.resolve(null); }, cancelRead() {}, cancelSolve() {}, onChange() {}, onStatus() {} });
+  const identity = signatureIdentity();
+  const session = identity.track(createLiveSession({ read(frame, progress, partial) { reads.push(partial); return request.promise; },
+    solve(p) { solves.push(p); return Promise.resolve(null); }, cancelRead() {}, cancelSolve() {}, onChange() {}, onStatus() {},
+    isCurrent: identity.isCurrent, sameScene: identity.sameScene }));
   const frame = { signature: new Uint8Array(4096), key: "2", corners: [{ x: 0, y: 0 }], width: 200, sharpness: 100 };
   session.start(); session.observe(frame); session.observe(frame);
   reads[0]({ ...found, refining: true }); assert.equal(session.preview.found.refining, true); assert.equal(solves.length, 0);
@@ -150,8 +153,9 @@ test("partial OCR displays readings but never launches the solver before refinem
 });
 test("a late partial is ignored after the scene changed", async () => {
   const request = deferred(); let partial;
-  const session = createLiveSession({ read(frame, progress, callback) { partial = callback; return request.promise; }, solve: async () => null,
-    cancelRead() {}, cancelSolve() {}, onChange() {}, onStatus() {} });
+  const identity = signatureIdentity();
+  const session = identity.track(createLiveSession({ read(frame, progress, callback) { partial = callback; return request.promise; }, solve: async () => null,
+    cancelRead() {}, cancelSolve() {}, onChange() {}, onStatus() {}, isCurrent: identity.isCurrent, sameScene: identity.sameScene }));
   const frame = { signature: new Uint8Array(4096), key: "2", corners: [{ x: 0, y: 0 }], width: 200, sharpness: 100 };
   session.start(); session.observe(frame); session.observe(frame); session.motion(new Uint8Array(4096).fill(200));
   const found = { puzzle: makePuzzle("latinsquare", 2), cellUncertain: [], notes: [] };

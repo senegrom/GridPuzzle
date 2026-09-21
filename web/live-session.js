@@ -1,26 +1,40 @@
 import { recoveryCells, clearerCells, mergeRecoveredClues } from "./clue-recovery.js";
-import { sameFrame, previewBlocker } from "./live-overlay.js";
-import { sameGridContent } from "./live-content.js";
+import { previewBlocker } from "./live-overlay.js";
 import { clone, checkShape } from "./model.js";
+
+// Drops a canvas's pixels without waiting for the collector. Plain test
+// objects without numeric dimensions are left alone.
+export function releaseImage(image) {
+  if (!image || typeof image.width !== "number") return;
+  try { image.width = image.height = 0; } catch { /* plain test data */ }
+}
 
 // OCR ownership and overlay visibility are deliberately separate. Motion may
 // hide a result, but only changed rules/content, a timeout or Stop retires work.
+// Frame identity belongs to the camera: `isCurrent(frame)` says whether the
+// frame is verified against the pixels on screen (falsy, or { corners, stale })
+// and `sameScene(a, b)` whether two frames show the same printed puzzle.
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus,
-  isCurrent = null, sameScene = null, autoSolve = () => true, readCells = null, onEvent = () => {}, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  isCurrent, sameScene, autoSolve = () => true, readCells = null, onEvent = () => {}, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  if (typeof isCurrent !== "function") throw new TypeError("createLiveSession requires isCurrent(frame)");
+  if (typeof sameScene !== "function") throw new TypeError("createLiveSession requires sameScene(a, b)");
   let active = false, generation = 0, pending = false, preview = null, stored = null;
   let solveGeneration = 0, solving = false, activeSample = null;
   let pendingRecovery = null, recoveryQuality = null, lastRecovery = -Infinity;
   const recoveryAttempts = new Map();
   let reference = null, best = null, challenger = null, stable = 0, attempts = 0;
-  let lastRead = -Infinity, lastSharpness = 0, deadline = null, lostAt = null, signature = null;
-  let status = "Reading printed clues… Keep the grid in view.", lastStatus = "";
-  const say = message => { if (active && message !== lastStatus) { lastStatus = message; onStatus(message); } };
+  let lastRead = -Infinity, lastSharpness = 0, deadline = null, lostAt = null;
+  let status = "Reading printed clues… Keep the grid in view.", lastStatus = "", held = null;
+  // While the camera holds a message (a stalled feed, a paused worker), the
+  // session's own status stays off the help line; releasing the hold shows
+  // the status again even if it is the one that was last written.
+  const say = message => { if (!active || held !== null || message === lastStatus) return; lastStatus = message; onStatus(message); };
   const clearDeadline = () => { clearTimer(deadline); deadline = null; };
   const release = frame => {
     const image = frame?.image;
     if (!image) return;
     frame.image = null;
-    if (typeof image.width === "number") { try { image.width = image.height = 0; } catch { /* plain test data */ } }
+    releaseImage(image);
   };
   const publish = value => { if (preview !== value) { preview = value; onChange(value); } };
   function reset(reason = "reset") {
@@ -31,17 +45,15 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     pendingRecovery = recoveryQuality = null; lastRecovery = -Infinity; recoveryAttempts.clear();
     cancelRead(); cancelSolve(); publish(null);
   }
+  // The proof is passed on as the camera made it, so a delayed tier
+  // (`stale: true`) reaches the published preview unchanged.
   function proof(frame) {
     if (!frame) return null;
-    const match = isCurrent ? isCurrent(frame) : sameFrame(frame.signature, signature ?? frame.signature);
+    const match = isCurrent(frame);
     return match === true ? { corners: frame.corners } : match?.corners ? match : null;
   }
   function matches(a, b) {
-    if (a.key !== b.key) return false;
-    if (sameScene) return sameScene(a, b);
-    if (a.content || b.content) return sameGridContent(a.content, b.content);
-    return sameFrame(a.signature, b.signature) && a.corners.every((p,i) =>
-      Math.hypot(p.x - b.corners[i].x, p.y - b.corners[i].y) <= b.width * .012);
+    return a.key === b.key && sameScene(a, b);
   }
   function hide() {
     publish(null); release(best); best = null;
@@ -73,7 +85,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!view) return hide();
     lostAt = null;
     commitRecovery();
-    if (stored) publish({ ...stored, corners: view.corners });
+    if (stored) publish({ ...stored, corners: view.corners, stale: view.stale === true });
     if (stored || pending) say(status);
     startSolve();
     return true;
@@ -180,10 +192,10 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       }
     })();
   }
-  function motion(next) { signature = next; validate(); }
+  // A newly verified camera frame: re-check what is displayed against it.
+  function motion() { validate(); }
   function observe(frame) {
     if (!active) { release(frame); return; }
-    signature = frame.signature;
     // A detection can finish after the camera has moved. Verify that captured
     // frame against the current pixels, rather than rejecting its background.
     if (!proof(frame)) { release(frame); hide(); return; }
@@ -267,8 +279,18 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   }
   return {
     start() { if (active) return; active = true; reset("started"); },
-    stop() { active = false; reset("stopped"); signature = null; lastStatus = ""; },
+    stop() { active = false; reset("stopped"); lastStatus = ""; held = null; },
     invalidate() { reset("settings-or-detection"); },
+    // One-off guidance from the camera through the same writer, so the next
+    // status is not skipped as a repeat of a line that was overwritten.
+    notify(message) { lastStatus = message; onStatus(message); },
+    // A message the camera keeps asserting while its condition lasts, in place
+    // of the status; hold(null) releases it and the status is shown again.
+    hold(message) {
+      held = message;
+      if (message === null) { lastStatus = ""; return; }
+      if (lastStatus !== message) { lastStatus = message; onStatus(message); }
+    },
     suspend: hide, motion, observe, validate,
     get preview() { return preview; },
     get busy() { return pending; },

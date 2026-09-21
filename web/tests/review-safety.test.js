@@ -72,7 +72,7 @@ test("missing or incompatible cell signatures cannot certify content", () => {
 for (const phase of ["reading", "solving", "solved"]) test(`new pixels retire ${phase} results even when coarse motion misses the change`, async (t) => {
   const read = deferred(), solve = deferred(); let valid = true, solveCalls = 0;
   const s = createLiveSession({ read:()=>read.promise, solve:()=>{solveCalls++;return solve.promise;}, cancelRead(){}, cancelSolve(){},
-    onChange(){},onStatus(){},isCurrent:()=>valid });
+    onChange(){},onStatus(){},isCurrent:()=>valid,sameScene:()=>true });
   t.after(()=>s.stop()); s.start();
   const frame = { key:"2x2",width:300,corners,signature:new Uint8Array(4096).fill(180),sharpness:200 };
   const puzzle = makePuzzle("latinsquare",2);puzzle.cells[0]=1;
