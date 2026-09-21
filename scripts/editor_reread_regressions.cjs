@@ -37,7 +37,8 @@ async function exercise(page,report,base) {
   await page.click('#review-clues');await page.fill('#cell-value','9');
   await page.click('#reread-clue'); // may be cached; neither path writes into the field
   assert.equal(await page.inputValue('#cell-value'),'9');await page.click('#close-cell');
-  await page.evaluate(()=>editorJobs.at(-1).resolve(editorReply()));await page.waitForTimeout(100);
+  // Resolving the job settles the app's continuation in microtasks; one task later it has run.
+  await page.evaluate(async()=>{editorJobs.at(-1).resolve(editorReply());await new Promise(r=>setTimeout(r,0));});
   assert.equal(await page.locator('#cell-dialog').isVisible(),false);assert.equal((await page.evaluate(()=>editorApp.getState())).puzzle.cells[0],1);
   report.checks=['one selected cell; no automatic field or puzzle mutation','identical pixels reuse cached proposal','explicit Use then Save; confirmed cells protected; Undo restores review','dismissed editor and edited draft survive late completion'];
   await page.screenshot({path:`browser-artifacts/${report.browser}-clue-reread.png`});

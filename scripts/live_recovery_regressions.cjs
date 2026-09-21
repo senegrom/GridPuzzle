@@ -116,7 +116,8 @@ async function run() {
             assert.ok(record.before.full[0].uncertain.includes(52), 'real initial OCR must flag the degraded clue, without injected uncertainty');
             assert.equal(record.before.full.length, 1);
             assert.ok(record.before.full[0].marked.includes(52));
-            await page.waitForTimeout(1200);
+            // The session reports each declined retry; wait for the decision itself rather than a guess at when it happens.
+            await page.waitForFunction(() => recoveryState.events.some(e => e.reason === 'clearer-frame-needed'), null, { timeout: 15000 });
             assert.equal(await page.evaluate(() => recoveryState.retries.length), 0, 'unchanged evidence must not start an automatic retry');
             await page.evaluate(() => recoveryState.clear());
             if (config.race) {
@@ -147,7 +148,8 @@ async function run() {
               assert.ok(record.after.capture.uncertain.includes(52)); assert.equal(record.after.capture.needsReview, true);
               record.before.full[0].cells.forEach((v, i) => { if (i !== 52) assert.equal(record.after.capture.cells[i], v, `protected cell ${i}`); });
               assert.ok(record.after.retries[0].result.stats.calls < record.before.full[0].stats.calls);
-              await page.evaluate(() => recoveryState.pause()); await page.waitForTimeout(850);
+              await page.evaluate(() => recoveryState.pause());
+              await page.waitForFunction(() => recoveryState.snapshot().capture === null, null, { polling: 100, timeout: 5000 });
               record.stalled = await page.evaluate(() => recoveryState.snapshot());
               assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
               await page.evaluate(() => recoveryState.resume());

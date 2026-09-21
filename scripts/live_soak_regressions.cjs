@@ -26,7 +26,8 @@ async function soak(){
       source.width=source.height=i%2?440:400;paint();camera.start();
       await new Promise(r=>setTimeout(r,620));
       if(i%4===0){source.width=source.height=480;paint();await new Promise(r=>setTimeout(r,160));}
-      camera.stop();await new Promise(r=>setTimeout(r,80));
+      // 620 ms and 160 ms above shape the session; the wait after stop is for the state the assertions read.
+      camera.stop();for(let waited=0;(workers.size||timers.size)&&waited<2000;waited+=10)await new Promise(r=>setTimeout(r,10));
       history.push({cycle:i,...camera.stats,workers:workers.size,timers:timers.size});
     }
     ended=true;return{history,made,peak,warm,performance:diagnostics.snapshot().performance};

@@ -74,7 +74,7 @@ jobs:
               tests/test_stack_safe_search.py
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-project
       - name: Run ${{ matrix.name }}
         run: python ${{ matrix.flags }} -m pytest -q ${{ matrix.selection }} --durations=20
@@ -91,7 +91,7 @@ jobs:
         shard: [0, 1, 2, 3]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-project
       - name: Solve isolated corpus shard
         run: >-
@@ -104,7 +104,7 @@ jobs:
           --output "artifacts/${{ matrix.family }}-${{ matrix.shard }}.json"
       - name: Upload corpus timing and status report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: new-family-${{ matrix.family }}-${{ matrix.shard }}
           path: artifacts/${{ matrix.family }}-${{ matrix.shard }}.json

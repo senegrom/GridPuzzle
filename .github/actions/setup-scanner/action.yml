@@ -1,19 +1,26 @@
 name: Set up the scanner suites
 description: >-
-  Python 3.14, Node 22, the pinned self-hosted runtime built into _site and
-  the repository's Playwright version with Chromium and WebKit.
+  Python 3.14, Node 22, the pinned self-hosted runtime built into _site (or
+  one already downloaded, with build set to "false") and the repository's
+  Playwright version with Chromium and WebKit. The Playwright version lives
+  here and nowhere else.
+inputs:
+  build:
+    description: Build _site with scripts/build_web.py ("true"), or expect it to be present already
+    default: "true"
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v7
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
       with:
         python-version: "3.14"
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
       with:
         node-version: "22"
     - name: Build pinned self-hosted runtime
       shell: bash
-      run: python scripts/build_web.py
+      run: |
+        if [ "${{ inputs.build }}" = "true" ]; then python scripts/build_web.py; else echo "using the _site already present"; fi
     - name: Install repository browser test versions
       shell: bash
       run: |

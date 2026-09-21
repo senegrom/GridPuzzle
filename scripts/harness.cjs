@@ -54,16 +54,24 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
     server.on("error", reject);
     server.on("exit", (code) => reject(Error(`The static server exited with ${code} before it served anything`)));
   });
-  const base = origin + prefix;
-  for (let i = 0; i < 100; i++) {
+  const base = origin + prefix, deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
     try {
       if ((await fetch(base, { signal: AbortSignal.timeout(2000) })).ok) return { origin, base, close };
     } catch {}
     await sleep(100);
   }
   await close();
-  throw Error(`${base} did not answer`);
+  throw Error(`${base} did not answer within a minute`);
 }
+
+// Temporary directories to remove however the process ends; a suite killed
+// mid-run must not leave a copy of the built site in the system temp.
+const temporary = new Set();
+const removeTemporary = () => { for (const d of temporary) { fs.rmSync(d, { recursive: true, force: true }); temporary.delete(d); } };
+process.once("exit", removeTemporary);
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]])
+  process.once(signal, () => { removeTemporary(); process.exit(code); });
 
 /* A temporary directory holding the built site twice: `candidate` is the
    site as built, `baseline` a copy in which `files` (under web/) come from
@@ -72,13 +80,14 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
 function baselineSite(commit, files) {
   const build = JSON.parse(fs.readFileSync("_site/build-info.json")).build,
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-baseline-"));
+  temporary.add(directory);
   fs.cpSync("_site", path.join(directory, "baseline"), { recursive: true });
   link("_site", path.join(directory, "candidate"));
   for (const file of files)
     fs.writeFileSync(path.join(directory, "baseline", file),
       execFileSync("git", ["show", `${commit}:web/${file}`], { encoding: "utf8" })
         .replaceAll("__BUILD_ID__", build).replaceAll("./vendor/", `./vendor/${build}/`));
-  return { directory, remove: () => fs.rmSync(directory, { recursive: true, force: true }) };
+  return { directory, remove: () => { fs.rmSync(directory, { recursive: true, force: true }); temporary.delete(directory); } };
 }
 
 /* Runs `suite(page, report, name, browser)` in Chromium and WebKit, each on

@@ -19,30 +19,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-scanner
       - run: python -m pip install -e '.[dev]'
-      - name: Native adapter and full solver regressions
-        run: python -m pytest -q tests -m 'not slow'
+      # The bounded Python suite runs in CI on every push and pull request, and
+      # the browser unit tests run in "Browser branch tests" on every pull
+      # request; on a master push this is the only place the latter run.
       - name: Geometry and model tests
+        if: github.event_name == 'push'
         run: node --test web/tests/*.test.js
-      - name: Build self-hosted application
-        run: python scripts/build_web.py
       - name: Retain build for independent testing
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: scanner-static-build
           path: _site
           retention-days: 2
-      - name: Install browser test runtime
-        run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-          npx playwright install --with-deps chromium webkit
       - name: Live camera overlays and saved-picture regressions
         run: node scripts/live_camera_regressions.cjs
       - name: OCR latency and engine reuse regressions
@@ -67,13 +58,13 @@ jobs:
           node scripts/newspaper_regressions.cjs
       - name: Upload screenshots and test report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: browser-test-report
           path: browser-artifacts
           if-no-files-found: ignore
       - name: Upload static Pages site
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: _site
   live-acceptance:
@@ -81,21 +72,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: scanner-static-build
           path: _site
-      - name: Install browser test runtime
-        run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-          npx playwright install --with-deps chromium webkit
+      - uses: ./.github/actions/setup-scanner
+        with:
+          build: "false"
       - name: Verify exact deployment build
         run: node -e "const fs=require('node:fs');if(JSON.parse(fs.readFileSync('_site/build-info.json')).build!==process.env.GITHUB_SHA.slice(0,12))process.exit(1)"
       - name: Fetch bounded external picture tests
@@ -113,7 +97,7 @@ jobs:
       - name: Repeated-session worker and image ownership soak
         run: node scripts/live_soak_regressions.cjs
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: deployed-live-acceptance
@@ -128,7 +112,7 @@ jobs:
     steps:
       - name: Check Pages configuration
         id: pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
       - name: Explain the one-time repository setting
         if: failure()
         run: |
@@ -147,4 +131,4 @@ jobs:
     steps:
       - name: Publish the tested branch artifact
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

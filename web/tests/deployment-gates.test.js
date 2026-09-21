@@ -7,7 +7,7 @@ test('master deployment waits for moving-camera acceptance of the exact built ar
  const gate=source.slice(source.indexOf('  live-acceptance:'),source.indexOf('  configure:'));
  assert.match(source,/"gridsolver\/\*\*"/,'native solver changes also run pre-merge acceptance');
  assert.match(gate,/needs: build/);
- assert.match(gate,/actions\/download-artifact@v8/);
+ assert.match(gate,/actions\/download-artifact@[0-9a-f]{40} # v8/,'the artifact download is SHA-pinned');
  assert.match(gate,/name: scanner-static-build/);
  assert.match(gate,/GITHUB_SHA\.slice\(0,12\)/);
  assert.match(gate,/node scripts\/live_motion_regressions\.cjs/);

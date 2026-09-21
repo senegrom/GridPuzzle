@@ -123,8 +123,14 @@ async function stopServer() {
       await page.click("#prepare-offline");
       await page.evaluate(() => offlineReplies[1].port.postMessage({ error: "Verification failed" }));
       await page.waitForFunction(() => document.getElementById("offline-state").textContent === "Verification failed");
-      await page.evaluate(() => offlineReplies[0].port.postMessage({ done: true, ready: true }));
-      await page.waitForTimeout(100);
+      // Port messages are one task source and arrive in order: a sentinel on a
+      // fresh channel is delivered only after the late reply has been handled.
+      await page.evaluate(() => new Promise((resolve) => {
+        offlineReplies[0].port.postMessage({ done: true, ready: true });
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => resolve();
+        channel.port2.postMessage("delivered");
+      }));
       assert.equal(await page.textContent("#offline-state"), "Verification failed", "late startup status cannot replace verification failure");
       await page.click("#prepare-offline");
       await page.evaluate(() => offlineReplies[2].port.postMessage({ done: true, ready: false }));
@@ -176,7 +182,7 @@ async function stopServer() {
         offlineReplies[3].port.postMessage({ progress: 3, total: 3 });
         offlineReplies[3].port.postMessage({ done: true, ready: true });
       });
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => /Reload the updated app/.test(document.getElementById("offline-state").textContent));
       assert.match(await page.textContent("#offline-state"), /Reload the updated app/);
       assert.equal(await page.locator("#prepare-offline").isEnabled(), true);
       await page.click("#prepare-offline");
