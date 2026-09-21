@@ -57,7 +57,9 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
   const base = origin + prefix, deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(base, { signal: AbortSignal.timeout(2000) })).ok) return { origin, base, close };
+      // HEAD: a response body left unread makes Node 24 assert when the
+      // timeout signal fires, and the check only needs the status.
+      if ((await fetch(base, { method: "HEAD", signal: AbortSignal.timeout(2000) })).ok) return { origin, base, close };
     } catch {}
     await sleep(100);
   }
