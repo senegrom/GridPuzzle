@@ -26,13 +26,11 @@ jobs:
           encoded = ''.join(Path(f'scripts/.branch-patch/{i}').read_text() for i in range(5))
           patch = lzma.decompress(base64.b64decode(encoded, validate=True))
           assert hashlib.sha256(patch).hexdigest() == '2eac0f43199aca0e5d286eb05a83054b2f19096d6deda818d85b0b91e5af91d7'
-          # The previous PR was merged concurrently and its source snapshot
-          # helper removed. Its production tree is our exact tested baseline.
           subprocess.run(['git','apply','--index','--exclude=.github/workflows/branch-review-source.yml','-'], input=patch, check=True)
           PY
           git rm -r scripts/.branch-patch .github/workflows/apply-branch-hardening.yml
           test "$(git write-tree)" = 86e86be31192591c207b17843a37c3998e4b62ea
-      - name: Validate before publishing the branch commit
+      - name: Validate the complete final candidate
         run: |
           node --test --test-concurrency=1 web/tests/*.test.js
           find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
@@ -40,9 +38,11 @@ jobs:
           node --check scripts/live_soak_regressions.cjs
           node --check scripts/external_replay_regressions.cjs
           git diff --cached --check
-      - name: Push only to the requested follow-up branch
+      - name: Publish contents only; workflow changes use the authorized connector
         run: |
           test "$GITHUB_REF" = refs/heads/improve/scanner-hardening-20260921
+          git restore --source=HEAD --staged --worktree .github/workflows
+          if git diff --cached --name-only | grep '^.github/workflows/'; then exit 1; fi
           git config user.name 'senegrom'
           git config user.email '6349874+senegrom@users.noreply.github.com'
           git commit -m 'Reduce preview overhead, bound camera recovery, add clue rereading and replay coverage'
