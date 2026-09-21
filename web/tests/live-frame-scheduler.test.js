@@ -62,3 +62,31 @@ for (const native of [true, false]) test(`paused video cannot be refreshed by an
  h.video.paused=false;h.video.currentTime=11;if(native)h.present(3);else h.advance(100);
  assert.equal(h.frames.length,2);h.scheduler.stop();
 });
+
+test('silent native callbacks recover only after independent presented counters advance',()=>{
+ const h=harness();let count=1;h.video.getVideoPlaybackQuality=()=>({totalVideoFrames:count,droppedVideoFrames:0});
+ h.scheduler.start();h.present(1);const late=[...h.callbacks.values()][0];
+ for(let i=0;i<12;i++){count++;h.advance(100);}
+ assert.equal(h.scheduler.stats.mode,'fallback');assert.equal(h.scheduler.stats.fallbacks,1);
+ const frames=h.frames.length;late(0,{presentedFrames:999});assert.equal(h.frames.length,frames);
+ assert.equal(h.callbacks.size,0);h.scheduler.stop();
+});
+test('silent native API is not bypassed using only elapsed media time or dropped frames',()=>{
+ for(const dropped of [false,true]){
+  const h=harness();let count=1;if(dropped)h.video.getVideoPlaybackQuality=()=>({totalVideoFrames:count,droppedVideoFrames:count-1});
+  h.scheduler.start();h.present(1);
+  for(let i=0;i<20;i++){h.video.currentTime++;count++;h.advance(100);}
+  assert.equal(h.scheduler.stats.mode,'video-frame');assert.equal(h.scheduler.fresh,false);h.scheduler.stop();
+ }
+});
+test('a frozen independent counter cannot switch a silent native source to fallback',()=>{
+ const h=harness();h.video.getVideoPlaybackQuality=()=>({totalVideoFrames:10,droppedVideoFrames:0});
+ h.scheduler.start();h.present(1);h.advance(5000);assert.equal(h.scheduler.stats.fallbacks,0);assert.equal(h.frames.length,1);h.scheduler.stop();
+});
+
+test('old independent advances cannot manufacture freshness later at the fallback deadline',()=>{
+ const h=harness();let count=1;h.video.getVideoPlaybackQuality=()=>({totalVideoFrames:count});
+ h.scheduler.start();h.present(1);h.advance(500);count++;h.advance(100);count++;h.advance(100);h.advance(500);
+ assert.equal(h.scheduler.stats.fallbacks,0);assert.equal(h.scheduler.fresh,false);
+ count++;h.advance(100);assert.equal(h.scheduler.stats.fallbacks,1);h.scheduler.stop();
+});

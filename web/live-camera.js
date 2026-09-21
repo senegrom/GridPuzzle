@@ -1,3 +1,4 @@
+import { createTrackingRecovery } from "./tracking-recovery.js";
 import { createFrameScheduler } from "./live-frame-scheduler.js";
 import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
@@ -49,6 +50,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, displayedSerial = 0, sampledAt = -Infinity, retryTrackingAt = 0;
   const MAX_TRACK_AGE = 500;
+  const recovery = createTrackingRecovery({ now });
+  let lastPaint = null, solverPrepared = false;
+  function prepareSolver() {
+    if (getSettings()?.autoSolve !== false && !solverPrepared) {
+      solverPrepared = true; solver.prepare?.();
+    }
+  }
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = image => { if (image) image.width = image.height = 0; };
   function discardCandidate() { release(pendingCandidate?.image); pendingCandidate = null; }
@@ -102,7 +110,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       reader.readCells(frame.image, frame.corners, found, cells, say,
         { onDiagnostic: event => diagnostics?.event(event) }) : null,
     onEvent: event => diagnostics?.event(event),
-    solve: (puzzle) => solver.solve(puzzle),
+    solve: (puzzle) => { prepareSolver(); return solver.solve(puzzle); },
     autoSolve: () => getSettings()?.autoSolve !== false,
     // Realignment retires the pending read, not the warm OCR engine.
     cancelRead: () => reader.cancel({ keepEngine: true }),
@@ -115,11 +123,18 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (!raw) return;
     if (canvas.width !== raw.width) canvas.width = raw.width;
     if (canvas.height !== raw.height) canvas.height = raw.height;
-    const ctx = canvas.getContext("2d"); ctx.drawImage(raw, 0, 0);
     session.validate();
     const preview = session.preview;
     displayed = preview;
     guide = (guideFrame && isCurrent(guideFrame)?.corners) || preview?.corners || null;
+    // Validation still runs on every heartbeat. Only painting is deduplicated:
+    // a freshness loss, solve toggle or new proposal repaints immediately.
+    const visual = { raw, found: displayed?.found, result: displayed?.result,
+      geometry: JSON.stringify([guide, displayed?.corners]) };
+    if (lastPaint && Object.keys(visual).every(key => lastPaint[key] === visual[key])) {
+      diagnostics?.rendering?.({ painted: false }); return;
+    }
+    const paintStarted = now(), ctx = canvas.getContext("2d"); ctx.drawImage(raw, 0, 0);
     if (displayed) drawLiveOverlay(ctx, raw.width, raw.height, displayed.corners, displayed.found, displayed.result);
     if (guide) {
       ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, raw.width / 500);
@@ -136,6 +151,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     for (const cell of displayed ? overlayCells(displayed.found, displayed.result) : []) counts[cell.kind]++;
     for (const [key, count] of Object.entries(counts)) canvas.dataset[key] = String(count);
     canvas.setAttribute("aria-label", `Camera preview: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unknown, ${counts.solution} solution entries. Live results are not confirmed.`);
+    lastPaint = visual;
+    diagnostics?.rendering?.({ painted: true, milliseconds: now() - paintStarted });
   }
   function cancelDetection() {
     const job = detection;
@@ -217,11 +234,15 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function trackingFailed(error, owner) {
     if (!active || owner !== epoch || error?.name === "AbortError") return;
-    epoch++; retryTrackingAt = now() + 2000; proofs = {};
+    epoch++; recovery.fail(); retryTrackingAt = recovery.nextAttempt; proofs = {};
     tracker.reset(); discardCandidate(); cancelDetection();
     guide = guideFrame = null; session.invalidate(); lastDetect = -Infinity;
     diagnostics?.event({ stage: 'tracking', reason: 'worker-error', message: error.message });
-    say("Background tracking is unavailable. Save a picture to read in the editor; retrying…");
+    say(recovery.blocked
+      ? "Background tracking repeatedly failed. Tap Restart live scanning, or save a picture to read in the editor."
+      : "Background tracking is unavailable. Save a picture to read in the editor; retrying shortly…");
+    diagnostics?.event({ stage: 'tracking', reason: recovery.blocked ? 'worker-paused' : 'worker-backoff' });
+    updateRestartControl();
     render();
   }
   async function track(image, key, owner) {
@@ -240,6 +261,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
         [anchor, view ? { ...view, width, height } : null]));
       signature = fingerprint(raw);
+      if (Object.values(proofs).some(Boolean)) recovery.succeeded();
       session.motion(signature);
       const candidate = pendingCandidate;
       if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
@@ -268,9 +290,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     const key = JSON.stringify([identitySettings, width, height]);
     if (key !== settingsKey) {
       epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
-      tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0;
+      tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0; recovery.reset();
       cancelDetection(); lastDetect = -Infinity; session.invalidate();
     }
+  }
+  function updateRestartControl() {
+    const button = $("restart-live");
+    if (button) button.hidden = !active || (!recovery.blocked && (scheduler.fresh || !raw));
   }
   function heartbeat() {
     if (!active) return;
@@ -285,8 +311,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
       }
     }
-    render();
-    if (!scheduler.fresh && raw) say('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    prepareSolver();
+    render(); updateRestartControl();
+    if (recovery.blocked) say('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
+    else if (!scheduler.fresh && raw) say('Waiting for a new camera frame. Old readings are hidden; capture to review.');
     diagnostics?.scheduling?.(scheduler.stats);
   }
   const scheduler = createFrameScheduler({ video, now, setTimer, clearTimer,
@@ -311,7 +339,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         // each tick moving the serial fence ahead of every worker reply.
         session.suspend(); render();
       } else { session.validate(); render(); }
-      if (now() >= retryTrackingAt) {
+      if (!recovery.blocked && now() >= retryTrackingAt) {
         if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300))
           void locate(copyCanvas(image), fingerprint(image), setting, settingsKey, epoch);
         void track(image, settingsKey, epoch); image = null;
@@ -320,8 +348,22 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     finally { release(image); }
   }
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
-    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); release(raw); raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; },
+    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
+    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; updateRestartControl(); },
+    restart() {
+      if (!active) return;
+      epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();
+      session.invalidate(); proofs = {}; guide = guideFrame = null; lastDetect = -Infinity;
+      recovery.reset(); retryTrackingAt = 0; sampledAt = -Infinity;
+      render(); scheduler.start(); updateRestartControl();
+      diagnostics?.event({ stage: 'tracking', reason: 'worker-restarted' });
+      say('Restarting live scanning. Waiting for a fresh verified frame…');
+    },
+    // Numeric lifecycle counters only; no image or retained puzzle data.
+    get stats() { return { active, detection: detection ? 1 : 0, candidate: pendingCandidate ? 1 : 0,
+      retainedSources: Number(!!raw) + Number(!!pendingCandidate?.image),
+      scratchPixels: contentCanvas.width * contentCanvas.height + detectCanvas.width * detectCanvas.height,
+      tracking: tracker.stats, scheduling: scheduler.stats, recovery: recovery.stats }; },
     diagnosticSource() { return { image: raw, verified: !!isCurrent(session.anchorFrame) }; },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");

@@ -26,7 +26,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   function reset(reason = "reset") {
     onEvent({ stage: "tracking", reason, cancelledRead: pending && !solving, cancelledSolve: solving });
     generation++; solveGeneration++; solving = false; clearDeadline(); pending = false; stable = 0; attempts = 0;
-    release(best); best = reference = challenger = stored = activeSample = null;
+    release(best); release(activeSample); release(pendingRecovery?.sample); best = reference = challenger = stored = activeSample = null;
     lastRead = -Infinity; lastSharpness = 0; lostAt = null;
     pendingRecovery = recoveryQuality = null; lastRecovery = -Infinity; recoveryAttempts.clear();
     cancelRead(); cancelSolve(); publish(null);

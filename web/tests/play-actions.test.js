@@ -44,7 +44,7 @@ function harness(t, failure = "") {
     }
   }
   const context = vm.createContext({
-    ...model, $, Worker, URL, console, performance,
+    ...model, $, Worker, URL, console, performance, clueReread: { cancel() {}, open() {} },
     captureEdit, restoreEdit, prepareEdit, scanner: { cancel() {} }, stopCamera() {},
     render() { events.push("render"); }, persist() { events.push("persist"); }, setLayout() {}, savePrefs() {}, remember: () => rememberEdit(context.api.state),
     setInterval: () => 0, clearInterval() {},
