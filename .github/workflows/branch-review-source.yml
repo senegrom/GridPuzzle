@@ -1,0 +1,23 @@
+name: Branch review source
+on:
+  push:
+    branches: [improve/live-worker-recovery-diagnostics-20260919]
+    paths: [.github/workflows/branch-review-source.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          git rev-parse HEAD > source-commit.txt
+          git archive --format=tar HEAD > source.tar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: branch-review-source
+          path: |
+            source.tar
+            source-commit.txt
+          retention-days: 2
