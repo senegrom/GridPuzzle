@@ -1,18 +1,27 @@
 """Opt-in top-level search over a free-threaded Python thread pool.
 
 The process executor remains the default. Each thread owns a private root
-object graph and creates detached branch grids from it. Running branches stop
-cooperatively when a deterministic positive solution cap has been satisfied.
+object graph and creates detached branch grids from it, inside the same
+source-protection and sandbox scopes the process executor applies. Running
+branches stop cooperatively when a deterministic positive solution cap has
+been satisfied.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import pickle
 import threading
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass
 
+from gridsolver.abstract_grids.extension_scope import (
+    protect_source,
+    sandbox_sources,
+    worker_serialization,
+)
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import Guarantee
@@ -21,31 +30,56 @@ from gridsolver.solver.atomic_solver import (
     collect_power_stats,
     current_power_stats,
 )
+from gridsolver.solver.solve_parallel import _wait_for_uncapped_result
 from gridsolver.solver.solver import (
-    _atomic_pass_or_branches,
     _cap_solutions,
+    _solve_branch,
 )
 from gridsolver.solver.solver_log import lg as _lg
+from gridsolver.solver.validation import _requires_source_isolation
 
 
 _THREAD_STATE = threading.local()
 
 
+def _fresh_context(function, *args):
+    """Run worker code in a new context, as a worker process would.
+
+    A free-threaded build starts each new thread with a copy of the creating
+    thread's context (``sys.flags.thread_inherit_context``), so a pool thread
+    would otherwise carry the caller's ``protect_source`` scope into every
+    task and all workers would sandbox the caller's grid at once; the 3.14t
+    CI job failed on exactly that. A GIL build starts threads with an empty
+    context, which this makes the rule on both.
+    """
+    return contextvars.Context().run(function, *args)
+
+
 def _init_thread_worker(worker_payload: bytes) -> None:
     """Unpickle one private root object graph for the current worker."""
+    _fresh_context(_load_thread_root, worker_payload)
+
+
+def _load_thread_root(worker_payload: bytes) -> None:
     root = pickle.loads(worker_payload)
     if not isinstance(root, Grid):
         raise TypeError("Thread worker payload did not contain a Grid")
     _THREAD_STATE.root = root
 
 
-def _fresh_thread_grid() -> Grid:
+def _thread_root() -> Grid:
     root = getattr(_THREAD_STATE, "root", None)
     if root is None:
         raise RuntimeError("Thread worker root grid was not initialised")
+    return root
+
+
+def _fresh_thread_grid() -> Grid:
     # The private root keeps rule and guarantee objects local to this thread;
-    # the purpose-built clone detaches all mutable puzzle state per task.
-    return root.deepcopy()
+    # the purpose-built clone detaches all mutable puzzle state per task. The
+    # sandbox keeps a subclass copy hook from editing captured sources.
+    with sandbox_sources():
+        return _thread_root().deepcopy()
 
 
 def _strip_solver_caches(grid: Grid) -> None:
@@ -69,78 +103,43 @@ def _solve_full_cancellable(
     *,
     cancel_event: threading.Event,
 ) -> set[ImmutableGrid]:
-    """Mirror the recursive solver with cooperative thread cancellation.
+    """Drive suspended DFS frames like ``solver._solve_full``, stopping on request.
 
-    The ordinary ``solver._solve_full`` is intentionally left byte-for-byte
-    unchanged: even a cheap optional-event check at every search node showed
-    up in default-path benchmarks.  Thread mode is opt-in, so its cancellation
-    checks live entirely in this module instead.
+    The frames are the same ``_solve_branch`` generators the default driver
+    runs, so thread mode is as stack-safe as the sequential search: a deep
+    decision chain costs suspended generators, not Python call frames. The
+    ordinary driver is intentionally left untouched; polling an optional event
+    at every search node measurably regressed the default path when it was
+    tried, so the check lives here and runs once per frame push or pop.
+
+    Cancellation closes every suspended frame from the deepest out, which
+    runs the same ``finally`` blocks as normal completion (each trail mark is
+    undone and ``steps`` is restored), then reports no solutions. The parent
+    has already met its cap by then and ignores the result.
     """
     if cancel_event.is_set():
         return set()
-    steps.append(0)
+    pending = [_solve_branch(grid, steps, max_sols, hidden_pair_checked_gts)]
+    solutions = None
     try:
-        settled, branches, from_guarantee = _atomic_pass_or_branches(
-            grid,
-            steps,
-            hidden_pair_checked_gts,
-            allow_overlapping_guarantee_branches=max_sols == -1,
-        )
-        if cancel_event.is_set():
-            return set()
-        if settled is not None:
-            return settled
-
-        solutions: set[ImmutableGrid] = set()
-        checked_guarantees = set(grid.guarantees)
-
-        for cell, value in branches:
+        while True:
             if cancel_event.is_set():
                 return set()
-            depth = len(steps)
-            if _lg.is_enabled(depth):
-                _lg.logstep(
-                    depth,
-                    steps,
-                    f"Trial{' (guarantee)' if from_guarantee else ''} "
-                    f"[{cell % grid.rows},{cell // grid.rows}] "
-                    f"== {value} with "
-                    f"{len(solutions)} previous solutions",
-                )
-
-            mark = grid.trail_mark()
             try:
-                grid[cell] = value
-                remaining = (
-                    -1
-                    if max_sols == -1
-                    else max_sols - len(solutions)
+                remaining, checked_guarantees = pending[-1].send(solutions)
+            except StopIteration as completed:
+                pending.pop()
+                if not pending:
+                    return completed.value
+                solutions = completed.value
+            else:
+                pending.append(
+                    _solve_branch(grid, steps, remaining, checked_guarantees)
                 )
-                branch_solutions = _solve_full_cancellable(
-                    grid,
-                    steps,
-                    remaining,
-                    checked_guarantees,
-                    cancel_event=cancel_event,
-                )
-            finally:
-                grid.trail_undo(mark)
-
-            if cancel_event.is_set():
-                return set()
-            steps[depth - 1] += 1
-            solutions.update(branch_solutions)
-
-            if 0 < max_sols <= len(solutions):
-                _lg.logs(
-                    0,
-                    f"Step {steps} - Reached max_sols == {max_sols}",
-                )
-                return _cap_solutions(solutions, max_sols)
-
-        return solutions
+                solutions = None
     finally:
-        steps.pop()
+        while pending:
+            pending.pop().close()
 
 
 @dataclass(slots=True)
@@ -154,36 +153,62 @@ class _ThreadBranchRunner:
         self,
         payload: tuple[int, int, int],
     ) -> set[ImmutableGrid] | tuple[set[ImmutableGrid], PowerStats]:
+        return _fresh_context(self._run, payload)
+
+    def _run(
+        self,
+        payload: tuple[int, int, int],
+    ) -> set[ImmutableGrid] | tuple[set[ImmutableGrid], PowerStats]:
         if self.cancel_event.is_set():
             if self.collect_stats:
                 return set(), PowerStats()
             return set()
 
         cell, value, max_sols = payload
-        # A fresh clone avoids a whole-branch outer trail frame. That frame
-        # journals every root-branch mutation and regressed long enumeration
-        # branches under Python 3.14t.
-        grid = _fresh_thread_grid()
-        grid[cell] = value
-        with _lg.muted_context():
-            if self.collect_stats:
-                with collect_power_stats() as stats:
-                    solutions = _solve_full_cancellable(
-                        grid,
-                        [0],
-                        max_sols,
-                        set(),
-                        cancel_event=self.cancel_event,
-                    )
-                return solutions, stats
+        root = _thread_root()
+        # As in the process executor: an extension's search hooks must finish
+        # rolling back captured caller state before the next task runs.
+        scope = (
+            protect_source(root)
+            if _requires_source_isolation(root)
+            else nullcontext()
+        )
+        with scope:
+            # A fresh clone avoids a whole-branch outer trail frame. That frame
+            # journals every root-branch mutation and regressed long
+            # enumeration branches under Python 3.14t.
+            grid = _fresh_thread_grid()
+            grid[cell] = value
+            with _lg.muted_context():
+                if self.collect_stats:
+                    with collect_power_stats() as stats:
+                        solutions = _solve_full_cancellable(
+                            grid,
+                            [0],
+                            max_sols,
+                            set(),
+                            cancel_event=self.cancel_event,
+                        )
+                    return solutions, stats
 
-            return _solve_full_cancellable(
-                grid,
-                [0],
-                max_sols,
-                set(),
-                cancel_event=self.cancel_event,
-            )
+                return _solve_full_cancellable(
+                    grid,
+                    [0],
+                    max_sols,
+                    set(),
+                    cancel_event=self.cancel_event,
+                )
+
+
+def _serialize_thread_root(grid: Grid) -> bytes:
+    """Serialize the source-owner graph the way the process executor does."""
+    scope = (
+        grid._extension_sandbox()
+        if _requires_source_isolation(grid)
+        else nullcontext()
+    )
+    with scope, worker_serialization():
+        return pickle.dumps(grid, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def solve_thread_trials(
@@ -195,9 +220,11 @@ def solve_thread_trials(
     """Solve top-level branches concurrently and consume them in order.
 
     Submission is bounded to one outstanding branch per worker. Results are
-    consumed in deterministic branch order, matching the process executor.
-    Once a positive solution cap is reached, queued work is cancelled and
-    running siblings observe ``cancel_event`` at recursive search boundaries.
+    consumed in deterministic branch order, matching the process executor,
+    and an unlimited solve observes a later sibling's failure as soon as it
+    happens rather than after the first branch finishes. Once a positive
+    solution cap is reached, queued work is cancelled and running siblings
+    observe ``cancel_event`` between search frames.
     """
     ordered_branches = sorted(branches)
     if not ordered_branches:
@@ -212,7 +239,7 @@ def solve_thread_trials(
     # while each task copies its rule containers. Unpickle once per worker so
     # the full rule/guarantee graph remains thread-private, just as it does in
     # the process executor, while keeping task payloads compact.
-    worker_payload = pickle.dumps(grid, protocol=pickle.HIGHEST_PROTOCOL)
+    worker_payload = _serialize_thread_root(grid)
     runner = _ThreadBranchRunner(
         cancel_event,
         parent_stats is not None,
@@ -235,6 +262,8 @@ def solve_thread_trials(
 
         while futures:
             future = futures.popleft()
+            if max_sols == -1:
+                _wait_for_uncapped_result(future, futures)
             result = future.result()
             if parent_stats is None:
                 branch_solutions = result

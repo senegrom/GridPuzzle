@@ -32,7 +32,7 @@ The default remains equivalent to `parallel_backend="process"`.
 
 Each executor thread receives a private root object graph through pickle and creates a fresh detached task grid for each submitted branch. Custom grid classes, rules, guarantees, and their referenced state must therefore be picklable when thread mode is selected.
 
-Registered rule semantics remain immutable as documented in `DEVELOPMENT.md`. Per-thread roots avoid sharing rule and guarantee graphs across concurrently executing workers.
+Registered rule semantics remain immutable as documented in `DEVELOPMENT.md`. Per-thread roots avoid sharing rule and guarantee graphs across concurrently executing workers, and each task starts from a fresh context and runs inside the same source-protection and sandbox scopes as a process worker, so a free-threaded build's inherited thread contexts cannot carry the caller's scopes into the pool, and an extension's hooks are rolled back before the next task on that thread.
 
 Pickling isolates each worker's instance graph and nothing else. Module globals, class-level mutable state, external resources, callbacks and C-extension state are shared by every thread, so a custom rule or grid used in thread mode must be free of side effects at that level, or explicitly thread-safe: being picklable is necessary, not sufficient. The process backend has no such constraint, which is one reason it remains the default.
 
@@ -40,11 +40,11 @@ Pickling isolates each worker's instance graph and nothing else. Module globals,
 
 - Top-level branches are submitted and consumed in deterministic order.
 - Submission is bounded to one outstanding branch per worker.
-- A positive `max_sols` cap cancels queued work and signals running siblings at thread-only recursive search boundaries.
+- A positive `max_sols` cap cancels queued work and signals running siblings between search frames, in the thread-only driver.
 - Branch logging is context-local, and technique statistics are merged in the parent thread.
 - The caller's grid is never mutated.
 
-The ordinary sequential and process search recursion does not contain thread-cancellation polling. This keeps the default hot path unchanged when the opt-in backend is unused.
+The thread-only driver runs the same suspended branch frames as the default driver, so it is as stack-safe as the sequential search; it differs only in checking the cancellation event once per frame push or pop. The ordinary sequential and process driver contains no cancellation polling at all, which keeps the default hot path unchanged when the feature is not selected.
 
 ## Validation evidence
 

@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented in August 2026. Nishio, forcing chains, forcing nets, and recursive
-backtracking use reversible trail scopes instead of a complete
+Implemented in August 2026. Nishio, forcing chains, forcing nets, and the
+backtracking search use reversible trail scopes instead of a complete
 `Grid.deepcopy()` for every speculative branch. `Grid.deepcopy()` remains for
 the public non-mutating solve boundary and for each independent process-pool
 task. A process receives one serialized root grid through its initializer, then
@@ -173,7 +173,7 @@ fixpoint conclusion.
 - deepcopy and pickle coherence;
 - Nishio without branch deep copies;
 - forcing-chain and forcing-net consensus;
-- recursive backtracking without per-node deep copies;
+- backtracking driven by an explicit stack of suspended branch frames, without per-node deep copies;
 - transactional fish memo rollback;
 - dirty-worklist selectivity, pickle coherence, and exact rollback.
 

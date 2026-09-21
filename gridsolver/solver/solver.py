@@ -127,21 +127,20 @@ def solve(
             processes,
         )
     with _lg.solve_context(log_level):
-        if parallel_backend is _PROCESS_BACKEND:
-            return _solve_validated(grid, max_sols, processes)
-        return _solve_validated_thread(grid, max_sols, processes)
+        return _solve_validated(grid, max_sols, processes, parallel_backend)
 
 
 def _solve_validated(
     grid: Grid,
     max_sols: int,
     processes: int,
+    backend: str = _PROCESS_BACKEND,
 ) -> set[ImmutableGrid]:
     if max_sols == 0:
         return set()
 
     with validation_context(grid) as plan:
-        return _solve_with_plan(grid, max_sols, processes, plan)
+        return _solve_with_plan(grid, max_sols, processes, plan, backend)
 
 
 def _solve_with_plan(
@@ -149,13 +148,21 @@ def _solve_with_plan(
     max_sols: int,
     processes: int,
     plan: _ValidationPlan,
+    backend: str = _PROCESS_BACKEND,
 ) -> set[ImmutableGrid]:
     # Protect captured caller references, including subclass copy hooks. Normal
     # Grid.deepcopy still makes just one API-boundary clone and resets trails.
     with sandbox_sources():
         working_grid = grid.deepcopy()
     if processes > 1:
-        solutions = _solve_top_parallel(
+        # The validated backend is one of the two module constants, so this
+        # is an identity check made once per solve, outside the search.
+        top_level = (
+            _solve_top_threaded
+            if backend is _THREAD_BACKEND
+            else _solve_top_parallel
+        )
+        solutions = top_level(
             working_grid,
             max_sols,
             processes,
@@ -185,43 +192,6 @@ def _solve_with_plan(
             _lg.logs(0, "No solution found.", header=True)
 
     return solutions
-
-
-def _solve_validated_thread(
-    grid: Grid,
-    max_sols: int,
-    processes: int,
-) -> set[ImmutableGrid]:
-    """Run the opt-in thread executor without touching default hot paths."""
-    if max_sols == 0:
-        return set()
-
-    # The same snapshot, sandbox and per-solution check as the process path:
-    # the plan describes the original puzzle, the search runs on a clone, and
-    # every returned grid is validated against the plan before capping.
-    with validation_context(grid) as plan:
-        with sandbox_sources():
-            working_grid = grid.deepcopy()
-        solutions = _solve_top_threaded(
-            working_grid,
-            max_sols,
-            processes,
-        )
-
-        _validate_solution_set(plan, solutions)
-        solutions = _cap_solutions(solutions, max_sols)
-
-        if _lg.is_enabled(0):
-            for index, solution in enumerate(
-                sorted(solutions, key=_solution_key)
-            ):
-                _lg.logs(0, f"Solution {index}", header=True)
-                _log_solution(grid, solution)
-
-            if not solutions:
-                _lg.logs(0, "No solution found.", header=True)
-
-        return solutions
 
 
 def _atomic_pass_or_branches(
