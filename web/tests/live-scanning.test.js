@@ -4,6 +4,7 @@ import { makePuzzle } from "../model.js";
 import { overlayCells, previewAllowed, sameFrame, SCAN_COLOURS, drawLiveOverlay } from "../live-overlay.js";
 import { createLiveSession } from "../live-session.js";
 import { createLiveSolver } from "../live-solver.js";
+import { signatureIdentity } from "./frame-identity.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 function deferred() { let resolve, reject; const promise = new Promise((a,b)=>{resolve=a;reject=b;}); return {promise,resolve,reject}; }
@@ -53,9 +54,10 @@ test("drawing keeps source clues and uses perspective positions and readable que
 });
 function session(t, timers = {}){
  const reads=[],solves=[],statuses=[],changes=[];let time=0,readCancels=0,solveCancels=0;
- const s=createLiveSession({read(frame,progress){const d=deferred();reads.push({...d,frame,progress});return d.promise;},
+ const identity=signatureIdentity();
+ const s=identity.track(createLiveSession({read(frame,progress){const d=deferred();reads.push({...d,frame,progress});return d.promise;},
  solve(puzzle){const d=deferred();solves.push({...d,puzzle});return d.promise;},cancelRead(){readCancels++;},cancelSolve(){solveCancels++;},
- onStatus:m=>statuses.push(m),onChange:v=>changes.push(v),now:()=>time,...timers});
+ onStatus:m=>statuses.push(m),onChange:v=>changes.push(v),now:()=>time,isCurrent:identity.isCurrent,sameScene:identity.sameScene,...timers}));
  const frame=()=>({key:"latin:2",width:200,corners:[{x:0,y:0},{x:199,y:0},{x:199,y:199},{x:0,y:199}],signature:new Uint8Array(4096).fill(180),sharpness:200});
  s.start();t.after(()=>s.stop());return {s,frame,reads,solves,statuses,changes,advance(n=4000){time+=n;},get readCancels(){return readCancels;},get solveCancels(){return solveCancels;}};
 }
@@ -209,6 +211,26 @@ test("closing the camera or a runtime-loading timeout does not warm another work
  assert.equal(h.workers.length,1);
  const two=h.solver.solve(found().puzzle);[...h.timers.values()][0].fn();assert.equal(await two,null);
  assert.equal(h.workers.length,2,"a loading timeout terminates without an immediate reload");
+});
+test("a session cannot be built without the camera's identity functions",()=>{
+ const base={read:async()=>found(),solve:async()=>null,cancelRead(){},cancelSolve(){},onChange(){},onStatus(){}};
+ assert.throws(()=>createLiveSession({...base,sameScene:()=>true}),/isCurrent/);
+ assert.throws(()=>createLiveSession({...base,isCurrent:()=>true}),/sameScene/);
+});
+test("a delayed but verified proof keeps the preview published and still lets reading and solving start",async t=>{
+ const reads=[],solves=[],changes=[];
+ const s=createLiveSession({read(){const d=deferred();reads.push(d);return d.promise;},solve(){const d=deferred();solves.push(d);return d.promise;},
+  cancelRead(){},cancelSolve(){},onStatus(){},onChange:v=>changes.push(v),
+  isCurrent:frame=>({corners:frame.corners,stale:true}),sameScene:()=>true});
+ s.start();t.after(()=>s.stop());
+ const frame=()=>({key:"latin:2",width:200,corners:[{x:0,y:0},{x:199,y:0},{x:199,y:199},{x:0,y:199}],signature:new Uint8Array(4096).fill(180),sharpness:200});
+ s.observe(frame());s.observe(frame());
+ assert.equal(reads.length,1,"a delayed proof is still a verified frame, so reading starts");
+ reads[0].resolve(found());await tick();
+ assert.ok(s.preview,"the reading is published");assert.equal(s.preview.stale,true,"the tier reaches the preview unchanged");
+ assert.deepEqual(s.preview.corners,frame().corners);
+ assert.equal(solves.length,1,"solving is not gated on the live tier either");
+ solves[0].resolve(unique);await tick();assert.equal(s.preview.result,unique);
 });
 test("preparing the preview solver warms one worker that the first preview reuses",async()=>{
  const h=workerHarness();h.solver.prepare();h.solver.prepare();

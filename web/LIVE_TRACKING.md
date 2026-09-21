@@ -111,11 +111,17 @@ changes and errors terminate the worker and fence its replies. A two-second
 worker deadline fails closed; manual capture remains available without a
 synchronous registration fallback.
 
-A verification result is drawn only with its own source snapshot, not with a
-newer video frame. Frames more than 500 milliseconds old cannot authorize an
-overlay or capture metadata; the camera shows an unverified fresh frame instead.
-This may reduce the processed preview frame rate on slow devices. It is not a
-measured phone speedup or a promise that image copying/rendering is off-thread.
+A verification result is drawn only with its own source snapshot, never with a
+newer video frame. Verified views come in two tiers. A snapshot up to 500
+milliseconds old is live. One older than that, up to the worker's two-second
+deadline, is still drawn — marked DELAYED in the preview bar, in the canvas's
+`data-delayed` attribute and in its accessible label — so a device whose
+tracking takes a second per frame gets a lagging overlay rather than none;
+reads and solves still run on it, since every frame is verified individually.
+Beyond two seconds the camera shows an unverified fresh frame, and a worker
+that never answers reaches the failure, backoff and Restart path. Neither tier
+is a measured phone speedup or a promise that image copying and rendering are
+off-thread.
 
 After a complete numeric reading, a substantially clearer cell interior can
 trigger a targeted retry through `Scanner.readCells`. At most 12 uncertain,

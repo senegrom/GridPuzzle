@@ -5,13 +5,13 @@ import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
 import { createLiveTracker } from "./live-tracker.js";
-import { createLiveSession } from "./live-session.js";
+import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, SCAN_COLOURS } from "./live-overlay.js";
 
-function videoFrame(video, maxSide = 1600, target = null) {
+function videoFrame(video, maxSide = 1600) {
   if (!video.videoWidth || !video.videoHeight) throw Error("The camera is not ready yet.");
-  const canvas = target ?? document.createElement("canvas"), scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas"), scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
   const width = Math.max(1, Math.round(video.videoWidth * scale)), height = Math.max(1, Math.round(video.videoHeight * scale));
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
@@ -49,7 +49,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   let raw = null, guide = null, guideFrame = null, displayed = null, signature = null;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, displayedSerial = 0, sampledAt = -Infinity, retryTrackingAt = 0;
-  const MAX_TRACK_AGE = 500;
+  // Two tiers of verified display. A snapshot within FRESH is live. One older
+  // than that, up to the tracker's own deadline, is still drawn — on its own
+  // pixels, marked DELAYED — so a device whose worker takes a second per frame
+  // gets a lagging overlay rather than none. Beyond STALE the display falls
+  // back to an unverified frame and a worker that never answers reaches the
+  // failure path.
+  const FRESH_TRACK_AGE = 500, STALE_TRACK_AGE = 2000;
   const recovery = createTrackingRecovery({ now });
   let lastPaint = null, solverPrepared = false;
   function prepareSolver() {
@@ -58,7 +64,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     }
   }
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
-  const release = image => { if (image) image.width = image.height = 0; };
+  const release = releaseImage;
   function discardCandidate() { release(pendingCandidate?.image); pendingCandidate = null; }
   function anchorIds() {
     return [...new Set([...session.trackingFrames, guideFrame, pendingCandidate]
@@ -80,17 +86,21 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       y: p.y * (pixels.height - 1) / (image.height - 1) }));
     return (await tracker.anchor({ image: pixels, corners: points, rows, cols, anchors: anchorIds() })).anchor;
   }
+  const sampleAge = () => now() - sampledAt;
   function isCurrent(frame) {
-    if (!raw || !frame?.anchor || !scheduler.fresh || now() - sampledAt > MAX_TRACK_AGE) return false;
+    if (!raw || !frame?.anchor || !scheduler.fresh || sampleAge() > STALE_TRACK_AGE) return false;
     const view = proofs[frame.anchor.id];
     return view ? { corners: view.corners.map(p => ({
       x: p.x * (raw.width - 1) / (view.width - 1), y: p.y * (raw.height - 1) / (view.height - 1),
-    })) } : false;
+    })), stale: sampleAge() > FRESH_TRACK_AGE } : false;
   }
   function sameScene(a, b) {
     return a.anchor?.id === b.anchor?.id || b.anchor?.matches?.[a.anchor?.id] === true;
   }
-  const say = (message) => { if (active) $("camera-help").textContent = message; };
+  // One writer for the help line. The session dedups its own status, so the
+  // camera's guidance goes through it too, and a later status is not skipped
+  // as a repeat of a line that was overwritten in between.
+  const say = (message) => { if (active) session.notify(message); };
   const session = createLiveSession({
     read: async (frame, progress, onPreview = () => {}) => {
       const boxed = (found) => {
@@ -117,7 +127,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Realignment retires answers, not an idle interpreter. Closing the camera
     // still cancels everything; older/injected solvers keep the cancel contract.
     cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
-    onChange: () => {}, onStatus: say, isCurrent, sameScene, now, setTimer, clearTimer,
+    onChange: () => {}, onStatus: message => { $("camera-help").textContent = message; },
+    isCurrent, sameScene, now, setTimer, clearTimer,
   });
   function render() {
     if (!raw) return;
@@ -127,9 +138,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     const preview = session.preview;
     displayed = preview;
     guide = (guideFrame && isCurrent(guideFrame)?.corners) || preview?.corners || null;
+    // A verified view older than the live tier is drawn as delayed; only an
+    // overlay or guide makes the distinction visible.
+    const delayed = !!(guide || displayed) && Object.values(proofs).some(Boolean) && sampleAge() > FRESH_TRACK_AGE;
     // Validation still runs on every heartbeat. Only painting is deduplicated:
-    // a freshness loss, solve toggle or new proposal repaints immediately.
-    const visual = { raw, found: displayed?.found, result: displayed?.result,
+    // a freshness loss, solve toggle, tier change or new proposal repaints immediately.
+    const visual = { raw, found: displayed?.found, result: displayed?.result, delayed,
       geometry: JSON.stringify([guide, displayed?.corners]) };
     if (lastPaint && Object.keys(visual).every(key => lastPaint[key] === visual[key])) {
       diagnostics?.rendering?.({ painted: false }); return;
@@ -145,12 +159,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     ctx.fillStyle = "#101820e8"; ctx.fillRect(0, raw.height - bar, raw.width, bar);
     ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff"; ctx.fillText("PREVIEW", font * .6, raw.height - bar / 2);
+    if (delayed) {
+      ctx.textAlign = "right"; ctx.fillStyle = SCAN_COLOURS.uncertain;
+      ctx.fillText("DELAYED", raw.width - font * .6, raw.height - bar / 2); ctx.textAlign = "left";
+    }
     const labels = [["recognised", "Read"], ["uncertain", "Check ?"], ["unknown", "Unread ?"], ["solution", "Solution"]];
     labels.forEach(([kind, label], i) => { ctx.fillStyle = SCAN_COLOURS[kind]; ctx.fillText(label, raw.width * (.18 + i * .205), raw.height - bar / 2); });
     const counts = { recognised: 0, uncertain: 0, unknown: 0, solution: 0 };
     for (const cell of displayed ? overlayCells(displayed.found, displayed.result) : []) counts[cell.kind]++;
     for (const [key, count] of Object.entries(counts)) canvas.dataset[key] = String(count);
-    canvas.setAttribute("aria-label", `Camera preview: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unknown, ${counts.solution} solution entries. Live results are not confirmed.`);
+    canvas.dataset.delayed = delayed ? "1" : "0";
+    canvas.setAttribute("aria-label", `Camera preview: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unknown, ${counts.solution} solution entries.${delayed ? " The overlay is delayed behind the camera." : ""} Live results are not confirmed.`);
     lastPaint = visual;
     diagnostics?.rendering?.({ painted: true, milliseconds: now() - paintStarted });
   }
@@ -212,7 +231,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (!anchor) { session.suspend(); return; }
       const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
         rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
-        anchor, content: anchor?.content };
+        anchor };
       frame.warning = qualityMessage(found.quality) ||
         (!found.quality?.assessable && found.sharpness < 60 ? "Move closer and hold still for sharper numbers." : "");
       frame.sharpness = found.quality?.assessable ? found.quality.score : found.sharpness;
@@ -252,7 +271,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     try {
       const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
-      if (!active || owner !== epoch || key !== settingsKey || id < displayedSerial || now() - at > MAX_TRACK_AGE) return;
+      if (!active || owner !== epoch || key !== settingsKey || id < displayedSerial || now() - at > STALE_TRACK_AGE) return;
       // Display this operation's actual source snapshot, never project a late
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
@@ -280,7 +299,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         } else { release(candidate.image); session.suspend(); }
       }
       render();
-      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide });
+      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: now() - at > FRESH_TRACK_AGE });
     } catch (error) { trackingFailed(error, owner); }
     finally { if (!adopted) release(image); }
   }
@@ -304,7 +323,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
       syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
     }
-    if (!scheduler.fresh || now() - sampledAt > MAX_TRACK_AGE) {
+    if (!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) {
       proofs = {}; guide = null;
       session.suspend();
       if (!scheduler.fresh && raw) {
@@ -312,15 +331,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       }
     }
     prepareSolver();
+    // Conditions the camera owns take the help line while they last.
+    if (recovery.blocked) session.hold('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
+    else if (!scheduler.fresh && raw) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    else session.hold(null);
     render(); updateRestartControl();
-    if (recovery.blocked) say('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
-    else if (!scheduler.fresh && raw) say('Waiting for a new camera frame. Old readings are hidden; capture to review.');
     diagnostics?.scheduling?.(scheduler.stats);
   }
   const scheduler = createFrameScheduler({ video, now, setTimer, clearTimer,
     onFrame: tick, onHeartbeat: heartbeat, onError: error => say(error.message || 'Waiting for the camera…'),
     // Back off expensive snapshots when tracking is slow or a reading is
-    // settled, but stay below the 500ms evidence deadline. Never queue history.
+    // settled, but stay below the live tier's 500ms. Never queue history.
     interval: () => Math.max(session.settled ? 250 : 100,
       Math.min(300, (tracker.stats?.milliseconds ?? 0) * 1.5)),
   });
@@ -332,7 +353,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       syncSettings(image.width, image.height);
       // On a stalled/unsupported worker the UI and manual shutter still work,
       // but no old proof or captured clue metadata survives the age deadline.
-      if (!raw || now() - sampledAt > MAX_TRACK_AGE) {
+      if (!raw || sampleAge() > STALE_TRACK_AGE) {
         release(raw); raw = copyCanvas(image); proofs = {}; sampledAt = now(); displayedSerial = frameSerial + 1;
         // This unverified picture is fresh, not a tracking proof. Clearing
         // proofs keeps it untrusted; advancing its display timestamp prevents

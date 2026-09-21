@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makePuzzle } from "../model.js";
 import { createLiveSession } from "../live-session.js";
+import { signatureIdentity } from "./frame-identity.js";
 import { createLiveSolver } from "../live-solver.js";
 import { createLiveCamera } from "../live-camera.js";
 
@@ -13,9 +14,10 @@ const unique = {status:"unique",complete:true,solutions:[{cells:[1,2,2,1]}]};
 
 function session(t, timers = {}){
  const reads=[],solves=[],statuses=[],changes=[];let time=0,readCancels=0,solveCancels=0;
- const s=createLiveSession({read(frame,progress){const d=deferred();reads.push({...d,frame,progress});return d.promise;},
+ const identity=signatureIdentity();
+ const s=identity.track(createLiveSession({read(frame,progress){const d=deferred();reads.push({...d,frame,progress});return d.promise;},
  solve(puzzle){const d=deferred();solves.push({...d,puzzle});return d.promise;},cancelRead(){readCancels++;},cancelSolve(){solveCancels++;},
- onStatus:m=>statuses.push(m),onChange:v=>changes.push(v),now:()=>time,...timers});
+ onStatus:m=>statuses.push(m),onChange:v=>changes.push(v),now:()=>time,isCurrent:identity.isCurrent,sameScene:identity.sameScene,...timers}));
  const frame=()=>({key:"latin:2",width:200,corners:[{x:0,y:0},{x:199,y:0},{x:199,y:199},{x:0,y:199}],signature:new Uint8Array(4096).fill(180),sharpness:200});
  s.start();t.after(()=>s.stop());return {s,frame,reads,solves,statuses,changes,advance(n=4000){time+=n;},get readCancels(){return readCancels;},get solveCancels(){return solveCancels;}};
 }

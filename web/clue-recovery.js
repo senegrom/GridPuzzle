@@ -1,6 +1,6 @@
 import { clone, conflicts, checkShape } from './model.js';
 
-export const MAX_RETRY_CELLS = 12;
+const MAX_RETRY_CELLS = 12;
 // Structural targets/signs are not ordinary numeric cell values. Their review
 // flags must never be cleared by this numeric-only recovery path.
 export function recoveryCells(found, confirmed = []) {
