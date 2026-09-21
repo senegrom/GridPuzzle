@@ -63,7 +63,8 @@ jobs:
             selection: tests/test_examples_lsq.py::test_ex_diag_latin_squares
           # The tests marked slow that the per-push suite skips: the full
           # 288-solution parallel-vs-sequential equivalence, the two blank
-          # Sudoku enumerations and the deep stack-safety searches.
+          # Sudoku enumerations and the blank 32x32 Slitherlink search (the
+          # 1024-decision chain in the same file runs on every push).
           - name: Slow deterministic checks
             timeout: 30
             flags: -X dev

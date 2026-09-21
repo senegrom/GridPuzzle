@@ -76,7 +76,6 @@ _EXPECTED_FUNCTION_SLOW_NODES = {
     ("test_basic.py", "test_sudo1"),
     ("test_basic.py", "test_sudo_nonsq"),
     ("test_examples_lsq.py", "test_ex_diag_latin_squares"),
-    ("test_stack_safe_search.py", "test_deep_search_preserves_the_first_two_solutions_and_caller"),
     ("test_stack_safe_search.py", "test_large_slitherlink_search_returns_one_connected_cycle"),
 }
 
