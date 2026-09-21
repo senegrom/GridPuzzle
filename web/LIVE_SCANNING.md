@@ -113,6 +113,13 @@ the interpreter started by the camera's warm-up. Closing the camera still
 terminates it. Warm-up failures and timeouts are handled and retired, so later
 requests can retry without inheriting a broken worker.
 
+If grid tracking fails three times in a row (the camera waits two seconds,
+then four, between attempts), automatic tracking stops and the panel shows
+**Restart live scanning**. Pressing it discards the previous tracking work and
+starts again; until then the shutter still captures the current frame by hand,
+and readings the camera can no longer verify stay hidden rather than being
+shown on the wrong frame.
+
 `web/tests/live-latency.test.js` covers these ownership and scheduling cases.
 The repairs do not change OCR confidence thresholds, voting, reference answers,
 or solver constraints. They remove failed retries and unnecessary cold starts;
@@ -154,6 +161,22 @@ ink polarities, preserves jitter/brightness controls, checks faint mixed-contras
 clues and verifies deletion again after reloading the app. Camera completion
 callbacks are controlled to make race conditions reproducible; this is not
 physical-phone certification or an OCR-speed benchmark.
+
+## Re-reading one clue in the editor
+
+After **Review captured clues**, or a photo import, the editor's cell dialog
+offers **Re-read this clue** for a clue that is still flagged uncertain, is
+numeric, and whose cell matches the retained straightened photograph. It is not
+offered in Play mode, for confirmed or confident clues, or for Kakuro, KenKen
+and Killer puzzles, whose cage and sum targets keep the full-read path. The
+re-read shows OCR's proposal beside the field and changes nothing by itself:
+**Use proposal** copies the number into the field, and the ordinary **Save**
+confirms that one clue and stays undoable. Pressing the button again on the
+same pixels reuses the earlier proposal instead of running OCR again; a
+changed photograph, a changed puzzle, an edited field or a closed dialog
+discards a result that arrives late, and a read that takes longer than ninety
+seconds leaves the field as it was. Nothing in the proposal comes from a
+solution.
 
 ## Latency: one warm OCR engine
 

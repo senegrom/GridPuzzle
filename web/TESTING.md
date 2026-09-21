@@ -37,6 +37,48 @@ service-worker unit tests share `web/tests/service-worker-fixture.js`, an
 in-memory CacheStorage with the install, activate and fetch events driven by
 hand.
 
+### Suite inventory
+
+The 25 suites under `scripts/` (`harness.cjs` is the shared runner, not a
+suite) and the workflow jobs that run them. `build` is the deployment gate's
+main job in `browser-pages.yml`, `live-acceptance` its fresh-runner job on the
+built artifact; `recognition` and `live` are the two parallel jobs of
+`scan-input.yml` ("Scanner quality").
+
+| Suite | Proves | Runs in |
+| --- | --- | --- |
+| `app_review_regressions.cjs` | file download/import, camera-preference races and modal behaviour in the real UI | `live`, `live-acceptance` |
+| `browser_regressions.cjs` | generated OCR, perspective and review regressions on the production scanner | `build` |
+| `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
+| `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
+| `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live`, `live-acceptance` |
+| `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR, recorded as coverage | `live` |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live`, `build` (first step) |
+| `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live`, `live-acceptance` |
+| `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live`, `live-acceptance` |
+| `live_recovery_regressions.cjs` | degraded-to-clear automatic recovery of one printed cell with nothing injected | `live`, `live-acceptance` |
+| `live_soak_regressions.cjs` | twenty camera sessions leave no workers, timers or buffers behind | `live`, `live-acceptance` |
+| `newspaper_regressions.cjs` | the two real newspaper crops: no wrong, missed or invented clue unflagged; then runs `ocr_quality` | `build` |
+| `ocr_latency_regressions.cjs` | one warm OCR engine is reused across reads; times are reported, not enforced | `build` |
+| `ocr_quality_regressions.cjs` | contrast, resolution, blur and generated-clue quality floors with zero unflagged discrepancies | `recognition`, inside `newspaper` |
+| `photo_read_regressions.cjs` | a failed, malformed or cancelled photo read preserves the solved board, overlay and session | `build` |
+| `play_regressions.cjs` | Play mode against the real solver: answers, clashes, checking, hints, completion, reload | `build` |
+| `play_safety_regressions.cjs` | scan confirmation for Check and Hint, uniqueness, cancellation and late callbacks | `build` |
+| `recognition_fragments_regressions.cjs` | damaged glyphs stay complete, marked and reviewable | `recognition` |
+| `recognition_segments_regressions.cjs` | paired narrow-number and quality cases against a pinned baseline scanner; no previously correct cell lost | `recognition` |
+| `review_safety_regressions.cjs` | single-clue changes retire overlays; faint clues keep ink evidence; deleted pictures stay deleted | inside `live_camera` |
+| `scan_input_regressions.cjs` | original-detail decoding, EXIF orientation, local cell alignment and end-to-end photo scans against a pinned baseline | `recognition` |
+| `scanner_repair_regressions.cjs` | retained black clues, reload and undo, failed re-detection, import limits, cage-operator validation | `build` |
+| `scanner_settings_regressions.cjs` | dimension and type corrections, undo and the solver with deterministic scanner results | `build` |
+| `solver_update_regressions.cjs` | a two-tab service-worker update while an old solver worker is still initializing | `build` |
+| `structural_capture_regressions.cjs` | changed cage labels, walls and signs invalidate the live view; pictures are owned across tabs | inside `review_safety` |
+
+Two suites depend on an earlier step in the same job: `recognition_segments`
+and `scan_input` compare against `browser-artifacts/ocr-quality.json`, which
+`ocr_quality` writes (run alone, they stop with a message saying so), and
+`live_motion` and `external_replay` need `live-fixtures/` from
+`scripts/fetch_live_fixtures.py`.
+
 ## Offline test method
 
 The preview is served under `/GridPuzzle/`, matching Pages. After hash-verified offline preparation, the test stops the HTTP server and verifies that the origin is unreachable. The page then reloads, starts a fresh Python worker, solves, imports a photo and performs fresh OCR while the origin remains unavailable.
@@ -59,7 +101,7 @@ Camera lifecycle tests cover cancellation while permission, video playback or gr
 
 Both browsers exercise a real two-tab service-worker update while an old dedicated solver worker is initializing, then request its original verified archive online and with the origin server stopped. This focused lifecycle fixture controls the initialization delay; the full solver and OCR checks above still use the production runtimes. Unit tests cover changed and reused archive bytes, repeated updates, workers that are not enumerable yet, and cleanup after the owning clients close. Old solver archives are retained for the tabs and workers present at activation and pruned at a later activation once those clients have gone.
 
-The `Build and deploy phone scanner` workflow is the single full Chromium/WebKit deployment gate. Lightweight PR browser CI runs unit/parse checks; normal Linux/Windows CI and forward compatibility remain independent.
+The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate, and it also runs on pull requests that touch `web/`, `scripts/`, `gridsolver/` or `pyproject.toml`, so those changes meet the whole gate before merge. `Scanner quality` runs the recognition and live suites in two parallel jobs on pull requests that touch the scanner, and `Browser branch tests` runs the unit tests and parse checks on every pull request. Normal Linux/Windows CI and forward compatibility remain independent.
 
 
 ## Play confirmation and uniqueness
