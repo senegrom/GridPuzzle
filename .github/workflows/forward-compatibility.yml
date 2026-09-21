@@ -70,6 +70,7 @@ jobs:
         run: >-
           python -X dev -m pytest -q
           tests/test_cli_and_loading.py
+          tests/test_thread_executor.py
           tests/test_parser_fuzzing.py
           tests/test_candidate_domain.py
           tests/test_candidate_view.py
