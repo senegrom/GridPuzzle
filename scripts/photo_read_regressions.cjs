@@ -35,7 +35,7 @@ async function exercise(page, report, base) {
   await page.evaluate(async () => {
     window.photoJobs = [];
     (await import("./scanner.js")).Scanner.prototype.read = (...args) => new Promise((resolve, reject) => {
-      const progress = args.at(-1);
+      const progress = args[5];
       photoJobs.push({ resolve, reject, progress }); progress("Reading retained photo…", 0.1);
     });
   });

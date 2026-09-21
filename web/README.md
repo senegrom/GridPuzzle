@@ -201,3 +201,24 @@ five-minute inactivity timeout. A stalled phase aborts its network request,
 releases job ownership and reports an error; a subsequent retry can start a
 new job. Late retired work cannot publish success for a newer job. Only
 read-back, hash-verified stored assets authorize offline readiness.
+
+
+## Scan diagnostics
+
+The expandable **Why isn’t this working?** panel appears in the editor and live
+camera. It distinguishes finding/alignment, image quality, clue preparation,
+reading, checking and solving, with specific reasons where the pipeline knows
+them. It is a bounded in-memory trace, not telemetry.
+
+**Preview diagnostic report** freezes a JSON report containing the build,
+settings, timings, grid geometry, last recognized cells/review flags and bounded
+tracking/cancellation counters. It excludes photographs, filenames, URLs,
+stack traces, user notes, Play answers and solver solutions by default. Download
+is a separate user action and no report is automatically uploaded or persisted.
+
+The optional source-picture checkbox shows the exact image that will be
+attached before downloading. That attachment is a re-encoded source preview,
+limited to 1600 pixels, not the original file or its EXIF metadata. It can still
+show surroundings: review it before sharing. Closing or clearing the preview
+removes the attachment. A report identifies whether its readings were verified
+for the shown image; stale/hidden live readings are not labelled current.

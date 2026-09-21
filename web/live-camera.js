@@ -1,8 +1,9 @@
+import { createFrameScheduler } from "./live-frame-scheduler.js";
 import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
-import { gridAnchor, matchGrid } from "./live-registration.js";
+import { createLiveTracker } from "./live-tracker.js";
 import { createLiveSession } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, SCAN_COLOURS } from "./live-overlay.js";
@@ -40,12 +41,21 @@ export function fingerprint(image) {
 }
 
 export function createLiveCamera({ $, video, canvas, getSettings,
-  detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(),
+  detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
+  diagnostics = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
-  let active = false, timer = null, detection = null, epoch = 0, lastDetect = -Infinity;
+  let active = false, detection = null, epoch = 0, lastDetect = -Infinity;
   let raw = null, guide = null, guideFrame = null, displayed = null, signature = null;
-  let settingsKey = "", setting = null, currentPixels = null;
-  const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas"), contentCache = new Map();
+  let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
+  let frameSerial = 0, displayedSerial = 0, sampledAt = -Infinity, retryTrackingAt = 0;
+  const MAX_TRACK_AGE = 500;
+  const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
+  const release = image => { if (image) image.width = image.height = 0; };
+  function discardCandidate() { release(pendingCandidate?.image); pendingCandidate = null; }
+  function anchorIds() {
+    return [...new Set([...session.trackingFrames, guideFrame, pendingCandidate]
+      .map(frame => frame?.anchor?.id).filter(Number.isSafeInteger))].slice(0, 6);
+  }
   function contentPixels(image) {
     const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
     contentCanvas.width = Math.max(2, Math.round(image.width * scale));
@@ -54,27 +64,23 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     ctx.drawImage(image, 0, 0, contentCanvas.width, contentCanvas.height);
     return ctx.getImageData(0, 0, contentCanvas.width, contentCanvas.height);
   }
-  // The content sampler needs enough real pixels for thin screen/grid lines.
-  // Detection remains at 640px; registration/content use at most 1280px.
-  function anchorOf(image, corners, rows, cols) {
-    const pixels = image === raw ? (currentPixels ??= contentPixels(image)) : contentPixels(image);
+  // Registration, feature extraction and all content checks live exclusively
+  // in the worker. A proof is usable only with the pixels shown on the canvas.
+  async function anchorOf(image, corners, rows, cols) {
+    const pixels = contentPixels(image);
     const points = corners.map(p => ({ x: p.x * (pixels.width - 1) / (image.width - 1),
       y: p.y * (pixels.height - 1) / (image.height - 1) }));
-    return gridAnchor(pixels, points, rows, cols);
+    return (await tracker.anchor({ image: pixels, corners: points, rows, cols, anchors: anchorIds() })).anchor;
   }
   function isCurrent(frame) {
-    if (!raw || !frame.anchor) return false;
-    if (!contentCache.has(frame.anchor)) {
-      const pixels = currentPixels ??= contentPixels(raw),
-        matched = matchGrid(frame.anchor, pixels, frame.anchor.hint ?? frame.anchor.corners);
-      if (matched) frame.anchor.hint = matched.corners;
-      contentCache.set(frame.anchor, matched ? { corners: matched.corners.map(p => ({
-        x: p.x * (raw.width - 1) / (pixels.width - 1), y: p.y * (raw.height - 1) / (pixels.height - 1) })) } : false);
-    }
-    return contentCache.get(frame.anchor);
+    if (!raw || !frame?.anchor || !scheduler.fresh || now() - sampledAt > MAX_TRACK_AGE) return false;
+    const view = proofs[frame.anchor.id];
+    return view ? { corners: view.corners.map(p => ({
+      x: p.x * (raw.width - 1) / (view.width - 1), y: p.y * (raw.height - 1) / (view.height - 1),
+    })) } : false;
   }
   function sameScene(a, b) {
-    return !!(a.anchor && b.anchor && matchGrid(a.anchor, b.anchor.image, b.anchor.corners));
+    return a.anchor?.id === b.anchor?.id || b.anchor?.matches?.[a.anchor?.id] === true;
   }
   const say = (message) => { if (active) $("camera-help").textContent = message; };
   const session = createLiveSession({
@@ -86,12 +92,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         return found;
       };
       const found = boxed(await reader.read(frame.image, frame.corners, frame.settings.type, frame.rows, frame.cols, progress,
-        { onPreview: (partial) => onPreview(boxed(partial)) }));
+        { onPreview: (partial) => onPreview(boxed(partial)), onDiagnostic: event => diagnostics?.event(event) }));
       // A live overlay is explicitly a preview. Capturing must not silently
       // confirm inferred rules or accept OCR on behalf of the user.
       found.needsReview = true;
       return found;
     },
+    readCells: typeof reader.readCells === 'function' ? (frame, found, cells) =>
+      reader.readCells(frame.image, frame.corners, found, cells, say,
+        { onDiagnostic: event => diagnostics?.event(event) }) : null,
+    onEvent: event => diagnostics?.event(event),
     solve: (puzzle) => solver.solve(puzzle),
     autoSolve: () => getSettings()?.autoSolve !== false,
     // Realignment retires the pending read, not the warm OCR engine.
@@ -152,10 +162,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // A live frame is read the quick way: the last-resort readings cost
       // more than the interval between frames, and a grid held in front of
       // the camera is found without them.
+      diagnostics?.event({stage:"detecting",reason:"started",background:session.busy || !!session.preview});
       const found = await detector.detect(small, { thorough: false, rows: settings.rows, cols: settings.cols });
       if (!current()) return;
+      diagnostics?.geometry({ ...found, width: small.width, height: small.height, coordinateSpace: "detector-input" });
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
+        diagnostics?.event({stage:"detecting",reason:"no-grid"});
         guide = guideFrame = null; session.suspend(); say("Keep the whole grid in view, in even light."); return;
       }
       const rows = found.rows || settings.rows, cols = found.cols || settings.cols;
@@ -176,23 +189,25 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         say(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
         return;
       }
-      const anchor = anchorOf(image, corners, rows, cols);
+      job.anchoring = true;
+      const anchor = await anchorOf(image, corners, rows, cols);
+      if (!current()) return;
+      if (!anchor) { session.suspend(); return; }
       const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
         rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
         anchor, content: anchor?.content };
-      const view = isCurrent(frame);
-      if (!view) { session.suspend(); return; }
-      guide = view.corners; guideFrame = { ...frame, image: null };
-      if (!settings.enabled) { session.invalidate(); say("Automatic reading is paused (Grid size & settings). Capture to crop and read in the editor."); return; }
-      const warning = qualityMessage(found.quality),
-        clueSharpness = found.quality?.assessable ? found.quality.score : found.sharpness;
-      if (warning) { session.suspend(); say(warning); return; }
-      if (!found.quality?.assessable && found.sharpness < 60) { session.suspend(); say("Move closer and hold still for sharper numbers."); return; }
-      frame.sharpness = clueSharpness; frame.quality = found.quality;
-      job.handedOff = true;
-      session.observe(frame);
-      guideFrame = session.anchorFrame ?? guideFrame;
+      frame.warning = qualityMessage(found.quality) ||
+        (!found.quality?.assessable && found.sharpness < 60 ? "Move closer and hold still for sharper numbers." : "");
+      frame.sharpness = found.quality?.assessable ? found.quality.score : found.sharpness;
+      frame.quality = found.quality;
+      diagnostics?.event({stage:"quality",reason:found.quality?.reason || "found",background:session.busy || !!session.preview});
+      // The detection's source is not necessarily the currently displayed
+      // frame. Wait for an asynchronous proof before giving it to the session.
+      discardCandidate(); pendingCandidate = frame; job.handedOff = true;
+      // The next newly presented frame verifies this candidate. Do not sample
+      // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
+      if (job.anchoring && current()) { trackingFailed(error, owner); return; }
       if (current()) { guide = guideFrame = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
       if (!job.handedOff) image.width = image.height = 0;
@@ -200,27 +215,114 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (detection === job) detection = null;
     }
   }
+  function trackingFailed(error, owner) {
+    if (!active || owner !== epoch || error?.name === "AbortError") return;
+    epoch++; retryTrackingAt = now() + 2000; proofs = {};
+    tracker.reset(); discardCandidate(); cancelDetection();
+    guide = guideFrame = null; session.invalidate(); lastDetect = -Infinity;
+    diagnostics?.event({ stage: 'tracking', reason: 'worker-error', message: error.message });
+    say("Background tracking is unavailable. Save a picture to read in the editor; retrying…");
+    render();
+  }
+  async function track(image, key, owner) {
+    const id = ++frameSerial, at = now(), pixels = contentPixels(image),
+      width = pixels.width, height = pixels.height, anchors = anchorIds();
+    let adopted = false;
+    try {
+      const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
+      if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
+      if (!active || owner !== epoch || key !== settingsKey || id < displayedSerial || now() - at > MAX_TRACK_AGE) return;
+      // Display this operation's actual source snapshot, never project a late
+      // result onto a newer frame. The pending slot always holds the latest
+      // capture, so a slow worker cannot build up a historic video queue.
+      if (raw !== image) release(raw);
+      raw = image; adopted = true; sampledAt = at; displayedSerial = id;
+      proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
+        [anchor, view ? { ...view, width, height } : null]));
+      signature = fingerprint(raw);
+      session.motion(signature);
+      const candidate = pendingCandidate;
+      if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
+        pendingCandidate = null;
+        const view = isCurrent(candidate);
+        if (view) {
+          guideFrame = { ...candidate, image: null }; guide = view.corners;
+          if (!candidate.settings.enabled) {
+            session.invalidate(); release(candidate.image);
+            say("Automatic reading is paused (Grid size & settings). Capture to crop and read in the editor.");
+          } else if (candidate.warning) {
+            release(candidate.image); session.suspend(); say(candidate.warning);
+          } else {
+            session.observe(candidate); guideFrame = session.anchorFrame ?? guideFrame;
+          }
+        } else { release(candidate.image); session.suspend(); }
+      }
+      render();
+      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide });
+    } catch (error) { trackingFailed(error, owner); }
+    finally { if (!adopted) release(image); }
+  }
+  function syncSettings(width, height) {
+    const next = getSettings(), identitySettings = { ...next };
+    delete identitySettings.autoSolve;
+    const key = JSON.stringify([identitySettings, width, height]);
+    if (key !== settingsKey) {
+      epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
+      tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0;
+      cancelDetection(); lastDetect = -Infinity; session.invalidate();
+    }
+  }
+  function heartbeat() {
+    if (!active) return;
+    if (video.videoWidth && video.videoHeight) {
+      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+      syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
+    }
+    if (!scheduler.fresh || now() - sampledAt > MAX_TRACK_AGE) {
+      proofs = {}; guide = null;
+      session.suspend();
+      if (!scheduler.fresh && raw) {
+        diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
+      }
+    }
+    render();
+    if (!scheduler.fresh && raw) say('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    diagnostics?.scheduling?.(scheduler.stats);
+  }
+  const scheduler = createFrameScheduler({ video, now, setTimer, clearTimer,
+    onFrame: tick, onHeartbeat: heartbeat, onError: error => say(error.message || 'Waiting for the camera…'),
+    // Back off expensive snapshots when tracking is slow or a reading is
+    // settled, but stay below the 500ms evidence deadline. Never queue history.
+    interval: () => Math.max(session.settled ? 250 : 100,
+      Math.min(300, (tracker.stats?.milliseconds ?? 0) * 1.5)),
+  });
   function tick() {
     if (!active) return;
+    let image;
     try {
-      raw = videoFrame(video, 1600, raw); currentPixels = null; contentCache.clear(); signature = fingerprint(raw);
-      const next = getSettings(), identitySettings = { ...next };
-      delete identitySettings.autoSolve;
-      const key = JSON.stringify([identitySettings, raw.width, raw.height]);
-      if (key !== settingsKey) {
-        settingsKey = key; setting = next; guide = guideFrame = null;
-        cancelDetection(); lastDetect = -Infinity; session.invalidate();
+      image = videoFrame(video);
+      syncSettings(image.width, image.height);
+      // On a stalled/unsupported worker the UI and manual shutter still work,
+      // but no old proof or captured clue metadata survives the age deadline.
+      if (!raw || now() - sampledAt > MAX_TRACK_AGE) {
+        release(raw); raw = copyCanvas(image); proofs = {}; sampledAt = now(); displayedSerial = frameSerial + 1;
+        // This unverified picture is fresh, not a tracking proof. Clearing
+        // proofs keeps it untrusted; advancing its display timestamp prevents
+        // each tick moving the serial fence ahead of every worker reply.
+        session.suspend(); render();
+      } else { session.validate(); render(); }
+      if (now() >= retryTrackingAt) {
+        if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300))
+          void locate(copyCanvas(image), fingerprint(image), setting, settingsKey, epoch);
+        void track(image, settingsKey, epoch); image = null;
       }
-      session.motion(signature);
-      render();
-      // Detect quickly until something is on screen, then ease off.
-      if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300)) void locate(copyCanvas(raw), signature, setting, settingsKey, epoch);
     } catch (error) { say(error.message || "Waiting for the camera…"); }
-    timer = setTimer(tick, 100);
+    finally { release(image); }
   }
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); timer = setTimer(tick, 100); },
-    stop() { active = false; epoch++; clearTimer(timer); timer = null; cancelDetection(); session.stop(); reader.cancel(); raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = currentPixels = null; contentCache.clear(); },
+    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); reader.prepare?.(); solver.prepare?.(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
+    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); release(raw); raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; },
+    diagnosticSource() { return { image: raw, verified: !!isCurrent(session.anchorFrame) }; },
     capture() {
       if (!raw) throw Error("Wait for a camera frame before capturing.");
       // Validate the displayed raw frame, not a later camera frame. Never attach

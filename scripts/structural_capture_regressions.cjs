@@ -7,6 +7,7 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
   const { demo } = await import("./model.js");
   const { gridContent, sameGridContent } = await import("./live-content.js");
   const { createLiveCamera, fingerprint } = await import("./live-camera.js");
+  const { createLiveTracker } = await import("./live-tracker.js");
   const { sameFrame } = await import("./live-overlay.js");
   const puzzle = demo("futoshiki"), size = 900, cell = size / 4;
   puzzle.inequalities = [{ less: 0, greater: vertical ? 4 : 1 }];
@@ -53,7 +54,11 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
     let clock=0,serial=0,reads=0,solves=0,changed=false,release=null;
     const timers=new Map(),nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,document.createElement("div"));return nodes.get(id);};
     const video=board(cameraKind);video.videoWidth=video.videoHeight=size;const overlay=document.createElement("canvas");
-    const camera=createLiveCamera({$,video,canvas:overlay,getSettings:()=>({type:"futoshiki",rows:4,cols:4,enabled:true}),
+    // This race probe uses a canvas as its controlled video source. Supply
+    // its advancing presentation clock; absent metadata must stay untrusted.
+    Object.defineProperty(video, 'currentTime', { get: () => clock / 1000 });
+    const tracker=createLiveTracker();
+    const camera=createLiveCamera({tracker,$,video,canvas:overlay,getSettings:()=>({type:"futoshiki",rows:4,cols:4,enabled:true}),
       detector:{async detect(){return {confidence:.99,sharpness:200,rows:4,cols:4,corners:corners.map(p=>({x:p.x*639/899,y:p.y*639/899}))};},cancel(){}},
       reader:{async read(){reads++;const p=structuredClone(puzzle);if(changed)p.inequalities=erase ? [] : [{less:vertical ? 4 : 1,greater:0}];
         const found={puzzle:p,markedCells:p.cells.flatMap((v,i)=>v===null?[]:[i]),cellUncertain:[],notes:[]};
@@ -62,11 +67,20 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
         return phase==="solving"&&solves===1?new Promise(resolve=>{release=()=>resolve(result);}):result;},cancel(){}},
       now:()=>clock,setTimer(fn,ms){timers.set(++serial,{fn,at:clock+ms});return serial;},clearTimer(id){timers.delete(id);}});
     async function advance(ms){const end=clock+ms;for(;;){const next=[...timers].filter(([,v])=>v.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;
-      const [id,v]=next;clock=v.at;timers.delete(id);v.fn();await new Promise(resolve=>setTimeout(resolve,0));}clock=end;}
+      const [id,v]=next;clock=v.at;timers.delete(id);v.fn();
+      // This probe accelerates the camera clock, not the real worker clock.
+      // Drain actual off-thread work before the next synthetic 100ms tick;
+      // otherwise a few milliseconds of computation falsely become 5s loss.
+      const until=performance.now()+10000;let idle=0;
+      while(idle<2){await new Promise(resolve=>setTimeout(resolve,0));
+        const state=tracker.stats;idle=state.active+state.queuedFrames+state.queuedAnchors?0:idle+1;
+        if(performance.now()>until)throw Error('Background tracking failed to settle in the controlled clock probe');
+      }
+    }clock=end;}
     try {
       camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
-      if(phase==="solved"){await advance(hold);if(reads!==1)throw Error("unchanged structural board was reread");}
-      changed=true;video.getContext("2d").drawImage(board(cameraKind,true),0,0);await advance(100);
+      if(phase==="solved"){await advance(hold);if(reads!==1)throw Error(`Expected one retained read for an unchanged structural board, got ${reads}`);}
+      changed=true;video.getContext("2d").drawImage(board(cameraKind,true),0,0);await advance(300);
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
       const capture=camera.capture();
       const row={phase,before,after:Number(overlay.dataset.solution),metadata:capture.found,rawMatches:capture.photo.toDataURL()===video.toDataURL(),solvesBeforeReread:solves};

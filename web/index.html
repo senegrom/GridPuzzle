@@ -69,8 +69,28 @@
             <div class="live-legend" role="group" aria-label="Scan colours"><span class="live-green">Green · recognised</span><span class="live-yellow">Yellow · uncertain ?</span><span class="live-red">Red · unread clue ?</span><span class="live-blue">Blue · solution</span></div>
             <p id="camera-help" role="status" aria-live="polite">Hold the whole grid steady. Recognition and solution appear here.</p>
             <p class="live-warning">Preview only: a solution cannot verify the photograph or invisible variant rules.</p>
+            <details id="live-diagnostics" class="scan-diagnostics"><summary>Why isn’t this working?</summary>
+            <strong data-diagnostic="summary">Ready</strong><p data-diagnostic="reason" class="muted"></p>
+            <button type="button" data-diagnostic="prepare">Preview diagnostic report</button>
+            <p class="small-note">Reports include readings and settings, but no photographs, user notes, or solutions by default. Nothing is uploaded automatically. The preview is frozen; preview again to refresh it.</p>
+            <label class="check"><input type="checkbox" data-diagnostic="image-toggle" /> Include the current source picture (may show your surroundings)</label>
+            <pre data-diagnostic="preview" aria-label="Diagnostic report preview" tabindex="0" hidden></pre>
+            <img data-diagnostic="image" alt="This source picture will be included in the diagnostic file" hidden />
+            <p data-diagnostic="error" role="alert"></p>
+            <div class="inline-buttons"><button type="button" data-diagnostic="download" disabled>Download diagnostic JSON</button><button type="button" data-diagnostic="clear">Clear preview</button></div>
+          </details>
             <div class="camera-actions"><button id="start-camera" type="button" hidden>Start preview</button><button id="take-photo" class="shutter" type="button" aria-label="Capture and save this picture">▣ <span>Save picture</span></button><button id="retake-photo" type="button" hidden>Scan another</button><button id="download-live-capture" type="button" hidden>Download PNG</button><button id="use-live-capture" type="button" hidden>Review captured clues</button></div>
           </section>
+          <details id="scan-diagnostics" class="scan-diagnostics"><summary>Why isn’t this working?</summary>
+            <strong data-diagnostic="summary">Ready</strong><p data-diagnostic="reason" class="muted"></p>
+            <button type="button" data-diagnostic="prepare">Preview diagnostic report</button>
+            <p class="small-note">Reports include readings and settings, but no photographs, user notes, or solutions by default. Nothing is uploaded automatically. The preview is frozen; preview again to refresh it.</p>
+            <label class="check"><input type="checkbox" data-diagnostic="image-toggle" /> Include the current source picture (may show your surroundings)</label>
+            <pre data-diagnostic="preview" aria-label="Diagnostic report preview" tabindex="0" hidden></pre>
+            <img data-diagnostic="image" alt="This source picture will be included in the diagnostic file" hidden />
+            <p data-diagnostic="error" role="alert"></p>
+            <div class="inline-buttons"><button type="button" data-diagnostic="download" disabled>Download diagnostic JSON</button><button type="button" data-diagnostic="clear">Clear preview</button></div>
+          </details>
           <section id="photo-panel" hidden><p class="muted">Drag the four corners onto the grid’s outside corners. Exclude titles and margins. Set the row/column count before reading.</p><canvas id="crop-canvas" role="img" aria-label="Puzzle crop: drag the numbered corner handles"></canvas><div class="inline-buttons"><button id="read-photo" class="primary">Read puzzle</button><button id="rotate-photo">Rotate ↻</button><button id="detect-photo">Find grid</button><button id="hide-photo">Hide photo</button></div></section>
           <section id="saved-capture" class="saved-capture" aria-labelledby="saved-capture-title" hidden>
             <h3 id="saved-capture-title">Last saved picture</h3><p id="saved-capture-time" class="muted"></p>

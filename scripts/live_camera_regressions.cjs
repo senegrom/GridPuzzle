@@ -151,9 +151,32 @@ async function run() {
             await page.evaluate(() => { document.getElementById("puzzle-type").value = "sudoku"; });
           await page.waitForFunction(() => Number(document.getElementById("live-preview").dataset.uncertain) > 0, null, { timeout: 20000 });
           assert.ok(await page.evaluate(() => recoveryDetectCalls >= 2));
-          const status = await page.textContent("#camera-help");
-          await page.evaluate(async () => { delayedDetect.reject(Error("Obsolete detector failure")); await new Promise((resolve) => setTimeout(resolve, 0)); });
-          assert.equal(await page.textContent("#camera-help"), status);
+          // The recovery UI may legitimately progress from "unread clue" to
+          // "waiting for a clearer frame" while this obsolete promise settles.
+          // Observe every mutation, including removed/transient text, rather
+          // than freezing a status sampled on a different video frame.
+          const observed = await page.evaluate(async () => {
+            const help = document.getElementById("camera-help"), seen = [help.textContent];
+            const collect = records => {
+              for (const record of records) {
+                if (record.oldValue !== null) seen.push(record.oldValue);
+                for (const node of [...record.addedNodes, ...record.removedNodes]) seen.push(node.textContent);
+              }
+              seen.push(help.textContent);
+            };
+            const observer = new MutationObserver(collect);
+            observer.observe(help, { childList: true, characterData: true, characterDataOldValue: true, subtree: true });
+            try {
+              delayedDetect.reject(Error("Obsolete detector failure"));
+              await new Promise(resolve => setTimeout(resolve, 350));
+              collect(observer.takeRecords());
+              return [...new Set(seen)].filter(Boolean);
+            } finally { observer.disconnect(); }
+          });
+          assert.ok(observed.length > 0, "camera status remains available after detector recovery");
+          assert.ok(observed.every(message => !message.includes("Obsolete detector failure")),
+            "a retired detector error must never reach the UI, even transiently");
+          (report.detectorRecoveryStatuses ??= []).push({ recovery, observed });
           assert.equal(await page.locator("#camera-panel").isVisible(), true);
           assert.equal(await page.evaluate(() => liveTestStream.getTracks()[0].readyState), "live");
           await page.click("#close-camera");

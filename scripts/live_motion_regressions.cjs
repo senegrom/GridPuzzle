@@ -50,10 +50,10 @@ async function beginMotion(cells) {
   // Frames must flow while play() is pending: a captured canvas that is not
   // repainted delivers nothing, and play() then never settles.
   state.timer=setInterval(paint,80);
-  await video.play();
   let readerEpoch=0,finishSolve=null;
   const cancelSolve=()=>{finishSolve?.({status:'cancelled'});finishSolve=null;};
-  state.camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,
+  const {createScanDiagnostics}=await import('./scan-diagnostics.js');state.diagnostics=createScanDiagnostics();state.diagnostics.begin('live',{});
+  state.camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,diagnostics:state.diagnostics,
     getSettings:()=>({type:'sudoku',rows:9,cols:9,boxRows:3,boxCols:3,enabled:true}),
     reader:{prepare:()=>reader.prepare(),cancel(options){readerEpoch++;state.cancels++;reader.cancel(options);},
       async read(...args){const owner=readerEpoch;state.reads++;state.reading=true;
@@ -66,7 +66,40 @@ async function beginMotion(cells) {
     },// Keep the solver pending to isolate OCR retention from the normal
     // multiple-solution retry backoff. No answers are injected.
     solver:{prepare(){},cancel:cancelSolve,invalidate:cancelSolve,solve:()=>new Promise(resolve=>{finishSolve=resolve;})}});
-  state.camera.start();
+  // A verified view is transient. Capture and copy its result in one browser
+  // task; a later Playwright call may legitimately find the next frame hidden.
+  state.snapshot = () => {
+    const shot = state.camera.capture();
+    try { return { cells: shot.found?.puzzle.cells, review: shot.found?.needsReview,
+      reads: state.reads, cancels: state.cancels, ticks: state.ticks,
+      unknown: out.dataset.unknown, refining: !!shot.found?.refining }; }
+    finally { shot.photo.width = shot.photo.height = shot.annotated.width = shot.annotated.height = 0; }
+  };
+  // Match the user-opened production camera instead of relying on cold
+  // canvas-stream autoplay in WebKit. No frames or match results are faked.
+  let playTimer;
+  const startButton = document.createElement('button'); startButton.id = 'motion-start';
+  startButton.textContent = 'Start test camera';
+  startButton.style.cssText = 'position:fixed;left:0;top:300px;z-index:10000';
+  document.body.append(startButton);
+  state.playback = () => ({ started: !!state.started, error: state.startError ?? null,
+    readyState: video.readyState, paused: video.paused, width: video.videoWidth,
+    height: video.videoHeight, currentTime: video.currentTime });
+  state.stop = () => {
+    state.stopped = true; clearTimeout(playTimer); clearInterval(state.timer);
+    state.camera.stop(); state.stream.getTracks().forEach(track => track.stop());
+    video.srcObject = null; video.remove(); startButton.remove();
+  };
+  startButton.onclick = async () => {
+    startButton.disabled = true;
+    try {
+      await Promise.race([video.play(), new Promise((_, reject) => {
+        playTimer = setTimeout(() => reject(Error('Motion fixture video playback did not start')), 20000);
+      })]);
+      if (!state.stopped) { state.camera.start(); state.started = true; }
+    } catch (error) { state.startError = error.message; }
+    finally { clearTimeout(playTimer); }
+  };
 }
 async function externalTracking(fixtures) {
   const {gridAnchor,matchGrid}=await import('./live-registration.js');
@@ -103,12 +136,21 @@ async function run(){
    report.checks=[];const log=(message)=>console.log(`${name}: ${message}`);
    try{
     await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');log('app ready');
-    await page.evaluate(beginMotion,expected);log('camera started on the moving canvas');
+    await page.evaluate(beginMotion,expected);
+    await page.click('#motion-start');
+    await page.waitForFunction(() => motionState.started || motionState.startError, null, { timeout: 25000 });
+    report.playback = await page.evaluate(() => motionState.playback());
+    assert.equal(report.playback.error, null, 'actual video playback must start before camera acceptance');
+    assert.equal(report.playback.started, true);
+    log('camera started on the moving canvas');
     await page.waitForFunction(()=>motionState.reads>0);log('first read started');
     const first=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,unknown:motionOutput.dataset.unknown}));
     assert.equal(Number(first.unknown),0,'initial grid outline must not cover blank cells in red');
-    await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
-    const captured=await page.evaluate(()=>{const c=motionState.camera.capture();return {cells:c.found?.puzzle.cells,review:c.found?.needsReview,reads:motionState.reads,cancels:motionState.cancels,ticks:motionState.ticks,unknown:motionOutput.dataset.unknown,refining:!!c.found?.refining};});
+    const readingHandle = await page.waitForFunction(() => {
+      if (motionState.reading || Number(motionOutput.dataset.recognised) + Number(motionOutput.dataset.uncertain) !== 22) return false;
+      const value = motionState.snapshot(); return value.cells ? value : false;
+    });
+    const captured = await readingHandle.jsonValue(); await readingHandle.dispose();
     report.reading=captured;
     assert.deepEqual(captured.cells,expected);assert.equal(captured.review,true);assert.equal(captured.refining,false);assert.equal(captured.reads,1);assert.equal(captured.cancels,first.cancels);
     assert.equal(Number(captured.unknown),0);report.reading=captured;report.checks.push('22/22 real OCR clues finish during continual jitter and changing background; one read, no motion cancellation');log('22/22 read under jitter');
@@ -123,10 +165,13 @@ async function run(){
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'first displayed changed frame cannot show the old clue');
     await page.waitForFunction(()=>motionState.reads>1);
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'changed clue must never retain the old value');
-    await page.waitForFunction(()=>!motionState.reading && motionState.camera.capture().found?.puzzle.cells[1]===3);
-    report.changed=await page.evaluate(()=>({reads:motionState.reads,cancels:motionState.cancels,cells:motionState.camera.capture().found.puzzle.cells}));
+    const changedHandle = await page.waitForFunction(() => {
+      if (motionState.reading) return false;
+      const value = motionState.snapshot(); return value.cells?.[1] === 3 ? value : false;
+    });
+    report.changed = await changedHandle.jsonValue(); await changedHandle.dispose();
     report.checks.push('a changed clue starts a new genuine OCR read, never reusing old clue metadata');log('changed clue re-read');
-    await page.evaluate(()=>{motionState.camera.stop();clearInterval(motionState.timer);motionState.stream.getTracks().forEach(t=>t.stop());motionState.video.remove();});
+    await page.evaluate(()=>motionState.stop());
     await page.screenshot({path:`browser-artifacts/${name}-motion.png`});
     if(fs.existsSync('live-fixtures/fixtures.json')){
       const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8'));log(`tracking ${corpus.fixtures.length} external pictures`);
@@ -151,8 +196,10 @@ async function run(){
     }
    }catch(e){
     report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
-      ticks:window.motionState?.ticks,reading:window.motionState?.reading,witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
+      ticks:window.motionState?.ticks,reading:window.motionState?.reading,playback:window.motionState?.playback?.(),witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
     throw e;
+   } finally {
+    await page.evaluate(() => window.motionState?.stop?.()).catch(() => {});
    }
   },{timeout:60000});
  }finally{server.close();}
