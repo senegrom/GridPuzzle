@@ -178,6 +178,7 @@ export function setupPhotoFlow({
     // The camera panel covers the whole screen; Escape must leave it like a dialog.
     if (event.key === "Escape" && !$("camera-panel").hidden) { event.preventDefault?.(); closeCamera(); }
   });
+  $("restart-live").onclick = () => live?.restart?.();
   $("start-camera").onclick = () => {
     if (!pendingPlayback) return;
     // Reset a stalled element on the user gesture, retaining the granted stream.

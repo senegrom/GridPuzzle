@@ -1,8 +1,9 @@
+import { createMetricWindow } from "./scan-metrics.js";
 const STAGES = new Set(['idle','detecting','quality','tracking','preparing','reading','checking','solving','complete','error']);
 const REASONS = new Set(['ready','started','stopped','reset','settings-or-detection','grid-lost','content-changed',
   'found','no-grid','small','blur','contrast','full-read','targeted','identical-crops','ocr-complete','read-complete',
   'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
-  'worker-error','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
+  'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
   'manual-corners','review-required','auto-solve-off']);
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
@@ -28,6 +29,8 @@ function readingOf(found) {
 export function createScanDiagnostics({ now = () => performance.now(), build = '__BUILD_ID__' } = {}) {
   let started = now(), source = 'none', settings = {}, stage = 'idle', reason = 'ready', reading = null, geometry = null;
   let events = [], timings = {}, stageAt = started, counters = {}, tracking = {}, scheduling = {};
+  let paintMetrics = createMetricWindow(), workerMetrics = createMetricWindow(), ageMetrics = createMetricWindow();
+  let paintRequests = 0, lastMetricFrame = -1, firstReading = null;
   const listeners = new Set();
   function notify() { for (const listener of listeners) { try { listener(); } catch { /* Diagnostics cannot interrupt scanning. */ } } }
   function event(value) {
@@ -43,6 +46,8 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       const key = why === 'targeted' ? 'targetedReads' : 'fullReads'; counters[key] = (counters[key] ?? 0) + 1;
     }
     if (value.found) reading = readingOf(value.found);
+    if (firstReading === null && why === 'read-complete' && reading && !value.found?.refining)
+      firstReading = number(now() - started);
     if (!value.background) reason = why;
     const previous = events.at(-1);
     if (!previous || previous.stage !== next || previous.reason !== why || JSON.stringify(previous.targets) !== JSON.stringify(entry.targets) || value.calls !== undefined) {
@@ -52,7 +57,9 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
   return {
     begin(kind, value) {
       started = stageAt = now(); source = ['live','photo'].includes(kind) ? kind : 'none'; settings = settingsOf(value);
-      stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {}; notify();
+      stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {};
+      paintMetrics = createMetricWindow(); workerMetrics = createMetricWindow(); ageMetrics = createMetricWindow();
+      paintRequests = 0; lastMetricFrame = -1; firstReading = null; notify();
     },
     event,
     configure(value) { settings = settingsOf(value); reading = geometry = null; notify(); },
@@ -66,20 +73,30 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
           reason: ['small','blur','contrast'].includes(found.quality.reason) ? found.quality.reason : null } : null };
       notify();
     },
+    rendering(value) {
+      paintRequests++;
+      if (value.painted) paintMetrics.add(value.milliseconds);
+    },
     tracking(stats, frame) {
+      if (Number.isSafeInteger(frame.frame) && frame.frame > lastMetricFrame) {
+        lastMetricFrame = frame.frame;
+        workerMetrics.add(stats?.milliseconds); ageMetrics.add(frame.age);
+      }
       tracking = {};
       for (const key of ['submitted','completed','dropped','failures','milliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
     },
     scheduling(stats) {
-      scheduling = { mode: stats.mode === 'video-frame' ? 'video-frame' : 'fallback', fresh: !!stats.fresh };
-      for (const key of ['observed','processed','skipped','duplicates','intervalMilliseconds']) scheduling[key] = number(stats[key]);
+      scheduling = { mode: stats.mode === 'video-frame' ? 'video-frame' : 'fallback', fresh: !!stats.fresh, callbackStalled: !!stats.callbackStalled };
+      for (const key of ['observed','processed','skipped','duplicates','intervalMilliseconds','fallbacks']) scheduling[key] = number(stats[key]);
     },
     snapshot() {
       return structuredClone({ format: 'gridpuzzle-diagnostic', version: 1, build, source, settings, stage, reason,
         elapsedMilliseconds: number(now() - started),
         stageMilliseconds: Object.fromEntries(Object.entries({...timings, [stage]: (timings[stage] ?? 0) + now() - stageAt}).map(([k,v]) => [k, number(v)])),
-        counters, tracking, scheduling, geometry, lastReading: reading, events,
+        counters, tracking, scheduling,
+        performance: { firstCompletedReadingMilliseconds: firstReading, paintRequests,
+          rendering: paintMetrics.snapshot(), trackingWorker: workerMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
         privacy: { includesImage: false, automaticUpload: false, includesSolutions: false } });
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -93,6 +110,9 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   small: 'The numbers occupy too few pixels. Move closer.', blur: 'The printed clues are blurred. Hold still.',
   contrast: 'The clues have low contrast. Change the light or camera angle.',
   'clearer-frame-needed': 'Some clues need a clearer view. Only those numeric cells will be retried; capture to check them manually.',
+  'worker-paused': 'Tracking paused after repeated failures. Restart live scanning or save a picture for manual review.',
+  'worker-backoff': 'Tracking will retry after a short delay. You can still capture a picture.',
+  'worker-restarted': 'Live tracking restarted. A fresh frame and puzzle verification are required.',
   'worker-error': 'Background tracking failed. Capture a picture for manual review or restart the camera.',
   'content-changed': 'The printed content changed. Old readings were retired.',
   'grid-lost': 'The grid was lost. Old readings are not being displayed.',

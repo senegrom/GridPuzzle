@@ -10,9 +10,9 @@ function deferred() {
   const promise = new Promise((a, b) => { resolve = a; reject = b; });
   return { promise, resolve, reject };
 }
-function harness(t, solver = { solve: async () => null, cancel() {} }) {
+function harness(t, solver = { solve: async () => null, cancel() {} }, initial = {}) {
   let time = 0, serial = 0, cancellations = 0, frozenTime = null;
-  const timers = new Map(), detections = [], readings = [], nodes = new Map();
+  const timers = new Map(), detections = [], readings = [], nodes = new Map(), renders = [];
   const previous = globalThis.document;
   const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
@@ -20,15 +20,15 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   const canvas = () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} });
   globalThis.document = { createElement: canvas };
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
-  const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true };
-  let core = createTrackingCore(), hold = false;
+  const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true, ...initial };
+  let core = createTrackingCore(), hold = false, trackingError = false;
   const held = [];
   const tracker = {
-    anchor: async task => core.run({ ...task, op: 'anchor' }),
+    anchor: async task => { if (trackingError) throw Error('injected worker failure'); return core.run({ ...task, op: 'anchor' }); },
     verify: task => hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
-  const camera = createLiveCamera({ tracker, $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: canvas(),
+  const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: canvas(),
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },
@@ -53,7 +53,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { camera, timers, detections, readings, settings, advance, result, $, renders, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -194,4 +194,35 @@ test("a detector finishing on a stalled feed cannot manufacture fresh evidence",
  const h=harness(t);await h.advance(100);h.stall();await h.advance(600);await h.result();
  assert.equal(h.readings.length,0);assert.equal(h.camera.diagnosticSource().verified,false);
  assert.equal(h.camera.capture().found,null);
+});
+
+test('auto-solve off never prewarms the live solver; enabling warms it once',async t=>{
+ let count=0;const h=harness(t,{prepare(){count++;},cancel(){},solve:async()=>null},{autoSolve:false});
+ await h.advance(100);assert.equal(count,0);h.settings.autoSolve=true;await h.advance(100);assert.equal(count,1);
+ await h.advance(200);assert.equal(count,1);h.settings.autoSolve=false;await h.advance(100);assert.equal(count,1);
+});
+test('unchanged heartbeat and pre-tracking views skip redundant paints without skipping validation',async t=>{
+ const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();
+ const {makePuzzle}=await import('../model.js');const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,null,null,1];
+ h.readings[0].resolve({puzzle,cellUncertain:[],uncertain:[],markedCells:[0,3],needsReview:true,notes:[]});await flush();
+ await h.advance(1000);assert.ok(h.renders.some(r=>!r.painted));assert.ok(h.camera.capture().found);
+ h.stall();await h.advance(600);assert.equal(h.camera.capture().found,null);
+});
+test('repeated tracking failures back off and stop until an explicit restart',async t=>{
+ const h=harness(t);h.failTracking(true);await h.advance(100);await h.result();
+ assert.equal(h.camera.stats.recovery.failures,1);await h.advance(1500);assert.equal(h.detections.length,1);
+ await h.advance(1000);await h.result();assert.equal(h.camera.stats.recovery.failures,2);
+ await h.advance(4500);await h.result();assert.equal(h.camera.stats.recovery.blocked,true);
+ const count=h.detections.length;await h.advance(15000);assert.equal(h.detections.length,count);
+ assert.equal(h.$('restart-live').hidden,false);assert.ok(h.camera.capture().photo);
+ h.failTracking(false);h.camera.restart();await h.advance(100);await h.result();await h.advance(500);await h.result();
+ assert.equal(h.camera.stats.recovery.blocked,false);assert.equal(h.readings.length,1);
+});
+test('thirty open/close cycles release source/scratch canvases and timers, including late detectors',async t=>{
+ const h=harness(t);
+ for(let i=0;i<30;i++){
+  h.camera.start();await h.advance(100);const old=h.detections.at(-1);h.camera.stop();
+  assert.equal(h.timers.size,0);assert.equal(h.camera.stats.scratchPixels,0);assert.equal(h.camera.stats.retainedSources,0);
+  await h.result(old);assert.equal(h.camera.stats.active,false);assert.equal(h.timers.size,0);
+ }
 });

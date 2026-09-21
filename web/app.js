@@ -1,3 +1,4 @@
+import { setupClueReread } from "./clue-reread.js";
 import { nextReviewCell } from "./model.js";
 import { createTaskController } from "./task-controller.js";
 import { prepareEdit, restoreEdit, rememberEdit } from "./edit-history.js";
@@ -97,6 +98,10 @@ const storage = {
     }
   },
 };
+const clueReread = setupClueReread({ $, makeReader: () => new Scanner(),
+  getSelection: () => ({ puzzle: state.puzzle, cell: editing, play: playEditing, uncertain: state.uncertain,
+    image: state.rectified, source: state.puzzleSource, photoSource: state.photoSource,
+    rows: state.photoRows, cols: state.photoCols }) });
 let storageWarned = false;
 for (const [value, label] of Object.entries(TYPES)) {
   const option = document.createElement("option");
@@ -207,7 +212,7 @@ const tasks = createTaskController({
     }
   },
 });
-const stopTask = (message) => tasks.stop(message);
+const stopTask = (message) => { clueReread.cancel(); return tasks.stop(message); };
 const begin = () => tasks.begin();
 const finish = () => tasks.finish();
 function invalidate() {
@@ -715,6 +720,7 @@ function openCell(i) {
   $("review-position").hidden = !state.uncertain.size;
   $("review-position").textContent =
     `${state.uncertain.size} readings left to check. Saving confirms only this cell.`;
+  clueReread.open();
   $("cell-dialog").showModal();
   $("cell-value").focus();
   $("cell-value").select();
@@ -835,6 +841,7 @@ function openPlayCell(i) {
   $("review-position").textContent =
     `Enter 1 to ${maxValue(p)}, or leave the field blank to erase.`;
   $("cell-error").textContent = "";
+  clueReread.open();
   $("cell-dialog").showModal();
   $("cell-value").focus();
   $("cell-value").select();
