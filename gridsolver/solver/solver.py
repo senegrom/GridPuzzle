@@ -196,27 +196,32 @@ def _solve_validated_thread(
     if max_sols == 0:
         return set()
 
-    working_grid = grid.deepcopy()
-    solutions = _solve_top_threaded(
-        working_grid,
-        max_sols,
-        processes,
-    )
+    # The same snapshot, sandbox and per-solution check as the process path:
+    # the plan describes the original puzzle, the search runs on a clone, and
+    # every returned grid is validated against the plan before capping.
+    with validation_context(grid) as plan:
+        with sandbox_sources():
+            working_grid = grid.deepcopy()
+        solutions = _solve_top_threaded(
+            working_grid,
+            max_sols,
+            processes,
+        )
 
-    validate_solutions(grid, solutions)
-    solutions = _cap_solutions(solutions, max_sols)
+        _validate_solution_set(plan, solutions)
+        solutions = _cap_solutions(solutions, max_sols)
 
-    if _lg.is_enabled(0):
-        for index, solution in enumerate(
-            sorted(solutions, key=_solution_key)
-        ):
-            _lg.logs(0, f"Solution {index}", header=True)
-            _log_solution(grid, solution)
+        if _lg.is_enabled(0):
+            for index, solution in enumerate(
+                sorted(solutions, key=_solution_key)
+            ):
+                _lg.logs(0, f"Solution {index}", header=True)
+                _log_solution(grid, solution)
 
-        if not solutions:
-            _lg.logs(0, "No solution found.", header=True)
+            if not solutions:
+                _lg.logs(0, "No solution found.", header=True)
 
-    return solutions
+        return solutions
 
 
 def _atomic_pass_or_branches(

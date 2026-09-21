@@ -34,6 +34,8 @@ Each executor thread receives a private root object graph through pickle and cre
 
 Registered rule semantics remain immutable as documented in `DEVELOPMENT.md`. Per-thread roots avoid sharing rule and guarantee graphs across concurrently executing workers.
 
+Pickling isolates each worker's instance graph and nothing else. Module globals, class-level mutable state, external resources, callbacks and C-extension state are shared by every thread, so a custom rule or grid used in thread mode must be free of side effects at that level, or explicitly thread-safe: being picklable is necessary, not sufficient. The process backend has no such constraint, which is one reason it remains the default.
+
 ## Search behaviour
 
 - Top-level branches are submitted and consumed in deterministic order.
