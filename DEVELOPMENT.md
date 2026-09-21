@@ -38,10 +38,11 @@ The measured defaults are:
 | Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin-square variants | `FULL` |
 | Kakuro | `GENERIC` |
 | Hidato, Numbrix, Slitherlink | `RULES_ONLY` |
+| Str8ts | `RULES_ONLY` |
 
 The path choices are evidence-based. On the retained Parade expert Numbrix, `GENERIC` produced the same deterministic solution but took roughly four times as long as `RULES_ONLY`. On the retained Hidato corpus, the complete path rule plus pre-seeded value-presence guarantees made the generic tuple and contradiction tier redundant; `RULES_ONLY` preserved exact solutions and removed the two former path timeouts. Kakuro remains `GENERIC` because its overlapping sum/all-different runs still benefit from generic deductions.
 
-Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks.
+Str8ts declares `RULES_ONLY` in `gridsolver/grid_classes/str8ts.py`; it is reached only through the browser data contract, where a solve is capped at two solutions. Do not infer technique applicability from the compact one-row storage layout. Add or change a profile only after independent solution equivalence and family-specific benchmarks.
 
 ### Compact keyed grids
 

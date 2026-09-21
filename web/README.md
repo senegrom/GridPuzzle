@@ -28,6 +28,8 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - Photo-library import and a native camera-file fallback for denied/unavailable live camera access.
 - Four draggable crop corners, rotation, projective straightening, automatic continuous-grid size detection, explicit dimensions and puzzle-type selection.
 - Local printed-clue OCR with confidence/review flags and guided **Review highlighted clues → Save & next**.
+- **Re-read this clue** in the cell editor: a numeric OCR re-read of one unconfirmed clue against the retained photograph, shown as a proposal that only **Save** confirms.
+- **Restart live scanning** when grid tracking has failed three times in a row; the shutter keeps working meanwhile.
 - All twelve solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin square, diagonal Latin square, pandiagonal Latin square, Hidato, Numbrix, Kakuro, Slitherlink and Str8ts.
 - Str8ts support includes solid black street separators and numbered black cells. Numbered black cells constrain row/column uniqueness but do not join a street.
 - Editors for values/blocked or black cells, cages, inequalities and Kakuro directional clues, plus undo and validated JSON import/export.
@@ -169,17 +171,13 @@ The startup status is a cheap presence check. **Download for offline use** perfo
 
 ## Testing
 
-- `scripts/live_camera_regressions.cjs` uses a real canvas MediaStream, production OCR and Pyodide, and real IndexedDB in Chromium/WebKit to verify live solutions, exact shutter pixels, reload/delete, movement and uncertainty.
+Every browser suite, what it proves and which workflow job runs it is
+inventoried in [TESTING.md](TESTING.md). Beyond those suites:
 
 - `tests/test_web_api.py` verifies the Python/browser data contract; `tests/test_str8ts.py` verifies Str8ts street semantics and the uniquely solved newspaper puzzle.
-- `scripts/scanner_repair_regressions.cjs` checks retained black clues, reload/undo, failed re-detection, import pixel limits and cage-operator validation in Chromium and mobile WebKit.
 - `web/tests/` covers geometry, classification, OCR mapping/preprocessing, cache recovery, worker lifecycle, malformed input, type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
-- `scripts/browser_smoke.cjs` exercises all twelve puzzle families through the real Python/Pyodide solver in Chromium and WebKit.
-- `scripts/browser_regressions.cjs` exercises generated OCR/perspective/review regressions.
-- `scripts/play_regressions.cjs` plays the example through the real solver: answers, clashes, checking, hints, completion, reload persistence, reveal, and the runtime warm-up.
-- `scripts/newspaper_regressions.cjs` runs the production scanner/Tesseract pipeline against the two real user-provided newspaper crops in Chromium and WebKit. Any wrong, missed or invented clue that is not review-flagged fails the deployment.
 - The newspaper images and hand-checked ground truth live in `Examples/BrowserScanner/Newspaper/`, outside `web/`, so they do not inflate the deployed/offline bundle.
-- Normal Linux/Windows CI and forward compatibility remain independent from the single full Pages/browser gate.
+- Normal Linux/Windows CI and forward compatibility remain independent from the full Pages/browser gate.
 
 Generated fixtures are regression baselines, not substitutes for real-device testing.
 

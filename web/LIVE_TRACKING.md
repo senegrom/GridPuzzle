@@ -66,6 +66,30 @@ all twelve images. These known-corner checks measure tracking coverage, not
 end-to-end detection or digit accuracy. Images remain untracked; reports retain
 source revision, selection, file hashes and every success/failure.
 
+`live_recovery_regressions.cjs` supplies a real canvas MediaStream to the
+production camera, detector, tracking worker and Tesseract; one printed cell is
+resampled to simulate lost optical detail and the next phase restores the
+original raster. No OCR values, confidence, uncertainty, quality scores, corners
+or identity proofs enter the pipeline; reference values only score the output.
+A real targeted reply can be delayed to test a changed puzzle, and paused
+playback tests the freshness heartbeat. Raw before/after values, flags, calls
+and scheduling statistics are kept in `live-recovery.json`. These fixed cases
+are regression controls, not a representative corpus or an accuracy gain.
+
+`live_soak_regressions.cjs` runs twenty camera sessions per browser with
+resolution changes and delayed replies from the real tracking worker, with
+controlled video clocks and OCR so that only resource ownership is measured:
+worker counts, owned timers and source/scratch buffers must return to zero
+after each Stop. It is not a heap or device benchmark.
+
+`external_replay_regressions.cjs` replays the first three entries of the
+hash-selected Lexski test slice through automatic detection, tracking and real
+OCR; reference corners and values never reach the recognition path. Its report
+keeps no-read and quality rejections, errors, natural uncertainty and
+cell-level scores, and treats ambiguous pencil marks separately from printed
+givens. It records coverage; it is not a gate and not a promise that external
+images pass OCR.
+
 ## Additional document-video libraries
 
 `corpus/motion_tracks.py` imports local SmartDoc 2015 `metadata.csv[.gz]` or
@@ -139,8 +163,78 @@ confirmed clues are not replaced; absent marks cannot delete earlier clues.
 Changed proposals remain uncertain and require review. Solver answers do not
 participate. These controls do not constitute an accuracy gain on unseen photos.
 
+A failed or timed-out targeted read retires only its own request; the preceding
+full reading and its source stay available, but only current identity
+verification can authorize their display, and a late reply cannot restore a
+retired scene or replace a newer retry. Each cell has two automatic attempts.
+A request reserves an attempt before it starts; an explicit identical-crop
+skip or a zero-OCR result refunds it, an error or timeout consumes it. The
+1.5-second interval and the clarity threshold keep unchanged evidence from
+looping. Once every remaining cell is exhausted, the status line and the
+diagnostics ask for manual review instead of promising another retry.
+
 `live_features_regressions.cjs` tests the real worker, transfer/queue behaviour,
 selected-cell Tesseract calls, identical-crop skipping and diagnostic download
 privacy in Chromium and WebKit. The moving-video and real-solver integration
 suites still run separately. Unit tests additionally cover stopped workers,
 late results, failures, changed sources and manually protected cells.
+
+## Frame scheduling and paint work
+
+`live-frame-scheduler.js` follows newly presented video through one-shot
+`requestVideoFrameCallback` calls where the browser has them; presentation
+counts tell a genuinely new frame from a repeated one, including live streams
+whose media timestamp is zero. Without native callbacks it falls back to
+decoded-frame counts, then to an advancing media clock. A native callback that
+has gone silent is abandoned only after a second without one and two
+independent advances of the playback counters, with dropped frames subtracted;
+a timer or the media clock alone cannot authorize the switch, and callbacks
+from before the switch are fenced. Repeated starts and shutdown fence every
+old callback.
+
+Expensive snapshots run at most every 100 ms, back off to 250 ms once a
+reading is settled and up to 300 ms when recent worker timing calls for it;
+the latest-frame queue stays bounded. A separate 100 ms heartbeat expires the
+overlay when presentation or accepted tracking evidence is over 500 ms old
+even if no video callback arrives, so a detector reply can never sample a
+stalled video into fresh evidence. Every heartbeat still validates freshness
+and the current solver preferences, but a paint is issued only when the raw
+image, geometry, reading or solution has changed; a new frame, a changed
+proposal, a solution toggle or an expired proof invalidates that cache at
+once. Captures copy the exact displayed image synchronously, never a later
+frame. The preview solver is warmed once per camera session, and only while
+automatic solving is enabled. These are processing intervals, not sensor
+frame rates or a measured phone speedup.
+
+## Worker failure, backoff and restart
+
+A tracking failure backs off for two seconds, then four; the third consecutive
+failure stops automatic tracking and the camera offers **Restart live
+scanning** (`tracking-recovery.js`). One successful message does not clear the
+streak; two seconds of sustained verified work does. Restart retires the prior
+work, fences its replies and starts the callbacks and the worker again. Manual
+capture stays available throughout, and stale evidence stays hidden. Stop
+releases the scratch canvases and any pending read samples as well as the
+timers and workers.
+
+## Re-reading one clue: ownership
+
+The editor's per-clue re-read (described from the user's side in
+`LIVE_SCANNING.md`) is a numeric-only `Scanner.readCells` call on the retained
+rectified photograph. Identical source pixels reuse a cached proposal, up to
+eight per source, for crops of at most 65,536 pixels; new pixels cause a new
+read. A proposal is owned by the generation, image, cell, source and photo
+signature that requested it and by an open dialog with an unchanged draft:
+closing or reopening the editor, changing the source or puzzle, or editing the
+field discards a late result. A 90-second deadline retains the unchanged draft.
+The cache never promotes confidence, and nothing is inferred from a solution.
+
+## Diagnostic timings
+
+`scan-metrics.js` keeps bounded numeric windows of the latest 128 samples per
+measurement: painting, frame age, tracking latency, queue work and the time to
+the first completed reading. P50 and P95 describe the window; means, maxima and
+counts describe the session. Render requests are counted separately from
+actual paints, and repeated updates of one frame do not double-count its
+tracking measurement. The export carries numbers only, never images or free
+text. They are app timings, not sensor frame rates or battery estimates.

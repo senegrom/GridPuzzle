@@ -41,6 +41,8 @@ These families use compact keyed variables so blocked cells and graph edges are 
 - **Kakuro** models every maximal horizontal and vertical run with the existing sum-plus-all-different rule. Every white cell must belong to exactly one run of each orientation.
 - **Slitherlink** models horizontal and vertical edges as binary variables. Face clues constrain selected-edge counts, every vertex has degree zero or two, and selected edges must form one non-empty connected cycle.
 
+_Str8ts_ (`gridsolver/grid_classes/str8ts.py`) is the twelfth family: white cells form horizontal and vertical streets that each hold a consecutive set in any order, and every number, including a clue printed on a black cell, is unique in its row and column. It is reached through the phone app and the browser data contract (`gridsolver/web_api.py`) on square boards up to 9×9; there is no `--class` value or example corpus for it, and it runs the `RULES_ONLY` profile.
+
 An example is the _Miracle Sudoku_ in `Examples/miracleSudoku.py`.
 In addition to normal Sudoku rules, adjacent and knight-move-distant fields must not be equal, and horizontally or vertically adjacent fields must not differ by exactly 1.
 
@@ -97,6 +99,9 @@ The installed `gridpuzzle` command and `python run.py` expose the same options.
 Use `--processes N` for top-level process-pool search and `--max-solutions N`
 to cap the deterministic returned subset. Capped process-pool solves do not
 exhaust later branches merely to compute a global content-key minimum.
+`--parallel-backend {process,thread}` chooses the executor those workers run
+in; `thread` is opt-in and needs a free-threaded (no-GIL) Python build, see
+[FREE_THREADED.md](FREE_THREADED.md).
 
 The equivalent library call is:
 
