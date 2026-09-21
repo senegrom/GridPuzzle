@@ -32,7 +32,7 @@ The default remains equivalent to `parallel_backend="process"`.
 
 Each executor thread receives a private root object graph through pickle and creates a fresh detached task grid for each submitted branch. Custom grid classes, rules, guarantees, and their referenced state must therefore be picklable when thread mode is selected.
 
-Registered rule semantics remain immutable as documented in `DEVELOPMENT.md`. Per-thread roots avoid sharing rule and guarantee graphs across concurrently executing workers, and each task runs inside the same source-protection and sandbox scopes as a process worker, so an extension's hooks are rolled back before the next task on that thread.
+Registered rule semantics remain immutable as documented in `DEVELOPMENT.md`. Per-thread roots avoid sharing rule and guarantee graphs across concurrently executing workers, and each task starts from a fresh context and runs inside the same source-protection and sandbox scopes as a process worker, so a free-threaded build's inherited thread contexts cannot carry the caller's scopes into the pool, and an extension's hooks are rolled back before the next task on that thread.
 
 Pickling isolates each worker's instance graph and nothing else. Module globals, class-level mutable state, external resources, callbacks and C-extension state are shared by every thread, so a custom rule or grid used in thread mode must be free of side effects at that level, or explicitly thread-safe: being picklable is necessary, not sufficient. The process backend has no such constraint, which is one reason it remains the default.
 

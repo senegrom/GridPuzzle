@@ -10,6 +10,7 @@ been satisfied.
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import pickle
 import threading
 from collections import deque
@@ -41,8 +42,25 @@ from gridsolver.solver.validation import _requires_source_isolation
 _THREAD_STATE = threading.local()
 
 
+def _fresh_context(function, *args):
+    """Run worker code in a new context, as a worker process would.
+
+    A free-threaded build starts each new thread with a copy of the creating
+    thread's context (``sys.flags.thread_inherit_context``), so a pool thread
+    would otherwise carry the caller's ``protect_source`` scope into every
+    task and all workers would sandbox the caller's grid at once; the 3.14t
+    CI job failed on exactly that. A GIL build starts threads with an empty
+    context, which this makes the rule on both.
+    """
+    return contextvars.Context().run(function, *args)
+
+
 def _init_thread_worker(worker_payload: bytes) -> None:
     """Unpickle one private root object graph for the current worker."""
+    _fresh_context(_load_thread_root, worker_payload)
+
+
+def _load_thread_root(worker_payload: bytes) -> None:
     root = pickle.loads(worker_payload)
     if not isinstance(root, Grid):
         raise TypeError("Thread worker payload did not contain a Grid")
@@ -132,6 +150,12 @@ class _ThreadBranchRunner:
     collect_stats: bool
 
     def __call__(
+        self,
+        payload: tuple[int, int, int],
+    ) -> set[ImmutableGrid] | tuple[set[ImmutableGrid], PowerStats]:
+        return _fresh_context(self._run, payload)
+
+    def _run(
         self,
         payload: tuple[int, int, int],
     ) -> set[ImmutableGrid] | tuple[set[ImmutableGrid], PowerStats]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import logging
 import pickle
 import sys
@@ -675,3 +676,41 @@ def test_thread_backend_runs_without_the_gil():
     assert not sys._is_gil_enabled()
     expected = solver.solve(_small_sudoku(), log_level=0)
     assert solver.solve(_small_sudoku(), log_level=0, processes=2, parallel_backend="thread") == expected
+
+
+def test_thread_tasks_start_from_a_fresh_context(monkeypatch):
+    # A free-threaded build starts new threads with a copy of the creating
+    # thread's context (sys.flags.thread_inherit_context). A task must see
+    # none of the caller's scopes, exactly like a worker process, or every
+    # worker sandboxes the caller's grid at once. Inheriting threads are
+    # forced here so the check does not depend on the interpreter build.
+    monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: True)
+
+    class InheritingThread(threading.Thread):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("context", contextvars.copy_context())
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(threading, "Thread", InheritingThread)
+    caller_scope = contextvars.ContextVar("caller_scope", default=None)
+    token = caller_scope.set("caller")
+    seen = []
+    fresh_grid = solve_threaded._fresh_thread_grid
+
+    def observe():
+        seen.append(caller_scope.get())
+        return fresh_grid()
+
+    monkeypatch.setattr(solve_threaded, "_fresh_thread_grid", observe)
+    try:
+        expected = solver.solve(_BinaryGrid(1, 8, max_elem=2), log_level=-1)
+        threaded = solver.solve(
+            _BinaryGrid(1, 8, max_elem=2),
+            log_level=-1,
+            processes=2,
+            parallel_backend="thread",
+        )
+    finally:
+        caller_scope.reset(token)
+    assert threaded == expected
+    assert seen and all(value is None for value in seen)
