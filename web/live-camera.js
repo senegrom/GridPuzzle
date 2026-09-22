@@ -1,4 +1,4 @@
-import { createTrackingRecovery } from "./tracking-recovery.js";
+import { createTrackingRecovery, MAX_VERIFIED_TRACK_AGE } from "./tracking-recovery.js";
 import { createFrameScheduler } from "./live-frame-scheduler.js";
 import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
@@ -55,7 +55,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // gets a lagging overlay rather than none. Beyond STALE the display falls
   // back to an unverified frame and a worker that never answers reaches the
   // failure path.
-  const FRESH_TRACK_AGE = 500, STALE_TRACK_AGE = 2000;
+  const FRESH_TRACK_AGE = 500, STALE_TRACK_AGE = MAX_VERIFIED_TRACK_AGE;
   const recovery = createTrackingRecovery({ now });
   let lastPaint = null, solverPrepared = false;
   function prepareSolver() {

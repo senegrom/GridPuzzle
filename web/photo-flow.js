@@ -1,3 +1,4 @@
+import { fitReviewNotes } from "./session.js";
 import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { retainPhotoSource, rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
@@ -242,17 +243,24 @@ export function setupPhotoFlow({
         uncertain: new Set(found.cellUncertain ?? found.uncertain ?? []),
         blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
         cageUncertain: new Set(found.cageUncertain ?? []),
-        needsReview: true, notes: [...found.notes], rectified: found.rectified,
+        needsReview: true, notes: fitReviewNotes([...found.notes]), rectified: found.rectified,
         photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
-      diagnostics.event({stage:"checking",reason:"read-complete",found});
       // The crop editor may still show an earlier import; this capture is
       // reviewed on the board.
       $("photo-panel").hidden = true;
       setLayout(found.puzzle);
       state.puzzleSource = state.photoSource = getJobId();
+      // The stopped camera no longer owns diagnostics. Begin a fresh context
+      // for the exact unannotated capture, clearing any earlier image consent.
+      diagnostics.begin("photo", { ...found.puzzle, autoSolve: $("auto-solve").checked });
+      diagnostics.geometry({ rows: found.puzzle.rows, cols: found.puzzle.cols,
+        width: picture.photo.width, height: picture.photo.height,
+        coordinateSpace: "source-preview", corners: picture.corners });
+      diagnostics.event({ stage: "checking", reason: "read-complete",
+        found: { ...found, needsReview: true } });
       persist(); render({ replaceDraft: true });
       warmSolver?.();
       status("Captured clues ready for review.", "The saved picture is unchanged. Confirm the clues and rules before solving or playing.");
@@ -651,7 +659,7 @@ export function setupPhotoFlow({
         ]),
         cageUncertain: new Set(found.cageUncertain || []),
         needsReview: found.needsReview || needsBoxReview,
-        notes,
+        notes: fitReviewNotes(notes),
         rectified: found.rectified,
         puzzleSource: id,
         photoSource: id,
