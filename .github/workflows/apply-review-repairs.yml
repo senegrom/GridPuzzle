@@ -43,6 +43,9 @@ jobs:
           git rm .github/workflows/apply-review-repairs.yml scripts/review-repair.patch.gz.b64.part1 scripts/review-repair.patch.gz.b64.part2
           git add -A web scripts/editor_reread_regressions.cjs scripts/live_noise_regressions.cjs .github/workflows
           git write-tree | tee repair-evidence/tree.txt
+          git ls-tree -r "$(cat repair-evidence/tree.txt)" > repair-evidence/tree-files.txt
+          git diff --cached --binary > repair-evidence/staged.patch
+          git status --short > repair-evidence/status.txt
           test "$(cat repair-evidence/tree.txt)" = 10f0ea2c67a6cc92aff9a2784c154873220c11f6
           git config user.name senegrom
           git config user.email '6349874+senegrom@users.noreply.github.com'
