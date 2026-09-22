@@ -80,6 +80,11 @@ async function run() {
         await page.screenshot({path:`browser-artifacts/${name}-live-camera.png`});
         // The visible composition is frozen, stored and restorable, not redrawn
         // using a later video frame or by OCR of the already-painted numbers.
+        await page.evaluate(() => {
+          const panel = document.getElementById("live-diagnostics"), node = key => panel.querySelector(`[data-diagnostic="${key}"]`);
+          node("prepare").click(); node("image-toggle").checked = true; node("image-toggle").dispatchEvent(new Event("change"));
+          if (node("download").disabled) throw Error("Live diagnostic image should be available before capture");
+        });
         const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL());await page.click("#take-photo");
         await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
         assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true);
@@ -91,6 +96,31 @@ async function run() {
         assert.equal(await page.locator("#camera-panel").isVisible(),true,"saving stays on this screen");
         await page.click("#use-live-capture");
         assert.equal((await page.evaluate(()=>liveApp.getState())).needsReview,true);assert.equal((await page.evaluate(()=>liveApp.getState())).result,null);
+        report.captureDiagnostic = await page.evaluate(async () => {
+          const panel = document.getElementById("scan-diagnostics"), node = key => panel.querySelector(`[data-diagnostic="${key}"]`);
+          for (const id of ["scan-diagnostics", "live-diagnostics"]) {
+            const p = document.getElementById(id);
+            if (p.querySelector('[data-diagnostic="image-toggle"]').checked ||
+                p.querySelector('[data-diagnostic="image"]').hasAttribute("src")) throw Error("Capture handoff retained old image consent");
+          }
+          node("prepare").click(); const metadata = JSON.parse(node("preview").textContent);
+          if (metadata.source !== "photo" || !metadata.readingVerifiedForImage || metadata.privacy.includesImage || metadata.image)
+            throw Error("Capture diagnostic provenance or default privacy is wrong");
+          node("image-toggle").checked = true; node("image-toggle").dispatchEvent(new Event("change"));
+          if (node("download").disabled) throw Error(node("error").textContent);
+          const img = new Image(); img.src = node("image").src; await img.decode();
+          const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+          const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0); const pixels = ctx.getImageData(0, 0, c.width, c.height).data;
+          let coloured = 0; for (let i = 0; i < pixels.length; i += 4)
+            if (Math.max(pixels[i], pixels[i+1], pixels[i+2]) - Math.min(pixels[i], pixels[i+1], pixels[i+2]) > 25) coloured++;
+          c.width = c.height = 0;
+          if (coloured) throw Error("Diagnostic image contains coloured annotations, not the raw capture");
+          const result = { source: metadata.source, verified: metadata.readingVerifiedForImage,
+            defaultImage: metadata.privacy.includesImage, freshOptIn: JSON.parse(node("preview").textContent).privacy.includesImage,
+            annotatedPixels: coloured };
+          node("clear").click(); return result;
+        });
+        report.checks.push("captured-photo diagnostic handoff resets image consent; fresh opt-in exports raw pixels without solution annotations");
         await page.click("#solve");assert.equal(await page.locator("#confirm-dialog").isVisible(),true);await page.click("#confirm-back");
         report.checks.push("shutter preserves exact visible pixels in IndexedDB; importing its raw readings still requires review");
         await page.reload();await page.waitForSelector('body[data-ready="true"]');

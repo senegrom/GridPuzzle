@@ -41,6 +41,42 @@ async function exercise(page,report,base) {
   await page.evaluate(async()=>{editorJobs.at(-1).resolve(editorReply());await new Promise(r=>setTimeout(r,0));});
   assert.equal(await page.locator('#cell-dialog').isVisible(),false);assert.equal((await page.evaluate(()=>editorApp.getState())).puzzle.cells[0],1);
   report.checks=['one selected cell; no automatic field or puzzle mutation','identical pixels reuse cached proposal','explicit Use then Save; confirmed cells protected; Undo restores review','dismissed editor and edited draft survive late completion'];
+  // Save & next closes and immediately reopens the native dialog. Await its
+  // queued close event explicitly: a synchronous mock cannot catch this race.
+  await page.evaluate(async () => {
+    const { Scanner } = await import('./scanner.js'), { makePuzzle } = await import('./model.js');
+    const c = document.createElement('canvas'); c.width = c.height = 400;
+    const p = makePuzzle('latinsquare', 2); p.cells = [1, 2, null, null];
+    Scanner.prototype.read = async () => ({ puzzle: structuredClone(p), cellUncertain: [0, 1],
+      uncertain: [0, 1], needsReview: true, notes: [], rectified: c });
+    window.sequenceReply = cell => ({ puzzle: structuredClone(p), targetCells: [cell],
+      entries: [{ cell, kind: 'value', text: String(p.cells[cell]), confidence: 0 }] });
+    window.editorJobs = [];
+  });
+  await page.click('#show-crop'); await page.click('#read-photo');
+  await page.waitForFunction(() => document.getElementById('status-text').textContent === 'Puzzle read.');
+  await page.click('#review-clues'); await page.click('#reread-clue');
+  await page.waitForFunction(() => editorJobs.length === 1);
+  await page.evaluate(() => { window.queuedClueClose = new Promise(resolve =>
+    document.getElementById('cell-dialog').addEventListener('close', () => resolve(true), { once: true })); });
+  await page.click('#save-next'); await page.evaluate(() => queuedClueClose);
+  assert.equal(await page.locator('#cell-dialog').isVisible(), true);
+  assert.equal(await page.textContent('#cell-title'), 'Row 1 · Column 2');
+  assert.equal(await page.locator('#reread-clue-panel').isVisible(), true);
+  assert.deepEqual((await page.evaluate(() => editorApp.getState())).cellUncertain, [1]);
+  await page.click('#reread-clue'); await page.waitForFunction(() => editorJobs.length === 2);
+  await page.evaluate(async () => { editorJobs[0].resolve(sequenceReply(0)); await new Promise(r => setTimeout(r, 0)); });
+  assert.equal(await page.locator('#use-reread').isVisible(), false);
+  assert.equal(await page.locator('#reread-clue').isDisabled(), true);
+  await page.evaluate(() => editorJobs[1].resolve(sequenceReply(1)));
+  await page.waitForSelector('#use-reread:visible'); await page.click('#use-reread');
+  assert.deepEqual((await page.evaluate(() => editorApp.getState())).cellUncertain, [1]);
+  await page.click('#save-next'); assert.equal(await page.locator('#cell-dialog').isVisible(), false);
+  assert.deepEqual((await page.evaluate(() => editorApp.getState())).cellUncertain, []);
+  await page.click('#undo'); await page.click('#review-clues');
+  assert.equal(await page.locator('#reread-clue-panel').isVisible(), true);
+  await page.keyboard.press('Escape'); assert.equal(await page.locator('#cell-dialog').isVisible(), false);
+  report.checks.push('native queued close cannot hide or cancel the next clue; obsolete OCR cannot steal its request; final Save closes; Undo and Escape still work');
   await page.screenshot({path:`browser-artifacts/${report.browser}-clue-reread.png`});
 }
 async function run(){const server=await serve();try{await engines('editor-reread.json',(p,r)=>exercise(p,r,server.base));}finally{await server.close();}}
