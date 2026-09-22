@@ -328,8 +328,3 @@ Every master deployment waits for `live-acceptance` on a separate runner. It
 downloads `scanner-static-build` from that run, checks its build identifier,
 and runs the moving-feed and cross-feature suites before Pages can publish.
 This is the exact deployment artifact, not an independently rebuilt site.
-
-`live_noise_regressions.cjs` is a mandatory Scanner quality/live and exact-artifact
-live-acceptance test: automatic detection, real worker/OCR on independent sensor
-noise, covered-cell rejection, and fresh recognition after a changed digit.
-The editor reread suite also covers ten-note export and native Save & next races.

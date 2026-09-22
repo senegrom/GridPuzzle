@@ -4,7 +4,7 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
   'found','no-grid','small','blur','contrast','full-read','targeted','identical-crops','ocr-complete','read-complete',
   'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
   'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
-  'manual-corners','review-required','auto-solve-off','capture-ready','alignment-rejected']);
+  'manual-corners','review-required','auto-solve-off','alignment-rejected']);
 const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
@@ -28,7 +28,6 @@ function readingOf(found) {
 // In-memory, bounded and allowlisted. No image bytes, original filenames,
 // URLs, stack traces, user notes, Play answers or solver solutions enter here.
 export function createScanDiagnostics({ now = () => performance.now(), build = '__BUILD_ID__' } = {}) {
-  let sourceRevision = 0;
   let started = now(), source = 'none', settings = {}, stage = 'idle', reason = 'ready', reading = null, geometry = null;
   let events = [], timings = {}, stageAt = started, counters = {}, tracking = {}, scheduling = {};
   let paintMetrics = createMetricWindow(), workerMetrics = createMetricWindow(), ageMetrics = createMetricWindow();
@@ -55,23 +54,16 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       firstReading = number(now() - started);
     if (!value.background) reason = why;
     const previous = events.at(-1);
-    if (!previous || previous.stage !== next || previous.reason !== why || JSON.stringify(previous.targets) !== JSON.stringify(entry.targets) || value.calls !== undefined) {
+    if (!previous || previous.stage !== next || previous.reason !== why || previous.mismatch !== entry.mismatch || previous.region !== entry.region || JSON.stringify(previous.targets) !== JSON.stringify(entry.targets) || value.calls !== undefined) {
       events.push(entry); events = events.slice(-64); notify();
     }
   }
   return {
     begin(kind, value) {
-      sourceRevision++;
-      started = stageAt = now(); source = ['live','photo','capture'].includes(kind) ? kind : 'none'; settings = settingsOf(value);
+      started = stageAt = now(); source = ['live','photo'].includes(kind) ? kind : 'none'; settings = settingsOf(value);
       stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {};
       paintMetrics = createMetricWindow(); workerMetrics = createMetricWindow(); ageMetrics = createMetricWindow();
       paintRequests = 0; lastMetricFrame = -1; firstReading = null; notify();
-    },
-    handoff(kind) {
-      if (!['photo', 'capture'].includes(kind)) throw Error('Invalid diagnostic source handoff.');
-      source = kind; sourceRevision++;
-      event({ stage: 'checking', reason: 'capture-ready' });
-      notify(); // Also retire consent if a deduplicated event did not notify.
     },
     event,
     configure(value) { settings = settingsOf(value); reading = geometry = null; notify(); },
@@ -109,7 +101,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       for (const key of ['observed','processed','skipped','duplicates','intervalMilliseconds','fallbacks']) scheduling[key] = number(stats[key]);
     },
     snapshot() {
-      return structuredClone({ format: 'gridpuzzle-diagnostic', version: 1, build, source, sourceRevision, settings, stage, reason,
+      return structuredClone({ format: 'gridpuzzle-diagnostic', version: 1, build, source, settings, stage, reason,
         elapsedMilliseconds: number(now() - started),
         stageMilliseconds: Object.fromEntries(Object.entries({...timings, [stage]: (timings[stage] ?? 0) + now() - stageAt}).map(([k,v]) => [k, number(v)])),
         counters, tracking, scheduling,
@@ -136,7 +128,6 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   'grid-lost': 'The grid was lost. Old readings are not being displayed.',
   'identical-crops': 'The retry has the same crop pixels; no additional OCR evidence was counted.',
   'alignment-rejected': 'A grid was detected, but its printed content did not match between frames. Capture a single picture for review; the report records the rejected region when available.',
-  'capture-ready': 'The exact captured photograph is retained for review. Including it in a diagnostic report requires a new image opt-in.',
   'no-solution': 'These transcribed clues have no solution. Check the readings and puzzle rules.',
   multiple: 'These clues allow more than one solution. Check for a missing clue or rule.',
   unfinished: 'Search ended before a definitive result.', 'review-required': 'Check highlighted clues and confirm the rules.',

@@ -101,9 +101,10 @@ export function setupClueReread({ $, getSelection, makeReader, setTimer = setTim
     $(id).addEventListener('change', cancel);
   }
   $('cell-dialog').addEventListener('close', () => {
-    // Native close events are queued. A reopened editor already cancelled the
-    // old work in open(); its current draft must not be retired by that event.
-    if (!$('cell-dialog').open) { cancel(); panel.hidden = true; }
+    // Native close events are queued. Save & next may already have reopened
+    // this dialog; open() retired the old OCR job, not the new clue's context.
+    if ($('cell-dialog').open) return;
+    cancel(); panel.hidden = true;
   });
   $('cell-dialog').addEventListener('cancel', cancel);
   return { open, cancel };

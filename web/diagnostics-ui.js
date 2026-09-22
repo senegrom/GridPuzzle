@@ -19,13 +19,12 @@ export function setupDiagnosticsUI({ $, diagnostics, getSource }) {
     const node = key => panel.querySelector(`[data-diagnostic="${key}"]`);
     const summary = node('summary'), reason = node('reason'), preview = node('preview'), include = node('image-toggle'),
       image = node('image'), download = node('download'), error = node('error');
-    let frozen = null, sourceRevision = null;
+    let frozen = null;
     function update() {
       const snapshot = diagnostics.snapshot();
       // A new scan or closing the camera retires any prepared attachment too.
       // Reopening never carries an earlier image opt-in into another session.
-      if (sourceRevision !== snapshot.sourceRevision || !snapshot.events.length || snapshot.reason === 'stopped') clear();
-      sourceRevision = snapshot.sourceRevision;
+      if (!snapshot.events.length || snapshot.reason === 'stopped') clear();
       summary.textContent = STAGE_LABELS[snapshot.stage];
       reason.textContent = REASON_LABELS[snapshot.reason] ?? 'The report below records stage timings, settings, geometry and review flags. No image is included by default.';
     }

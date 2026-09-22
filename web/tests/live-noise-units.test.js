@@ -39,3 +39,22 @@ test('an absent worker anchor is reported and never authorizes a frame',()=>{
  const r=createTrackingCore().run({op:'verify',image:picture(),anchors:[99]});
  assert.equal(r.proofs[99],null);assert.deepEqual(r.rejections[99],{reason:'missing-anchor'});
 });
+
+test('diagnostics bound acquisition rejection details and discard nonallowlisted data', async () => {
+ const {createScanDiagnostics}=await import('../scan-diagnostics.js');
+ const d=createScanDiagnostics({now:()=>100});d.begin('live',{});
+ d.event({stage:'tracking',reason:'alignment-rejected',mismatch:'cell-content',region:17,image:'PRIVATE_PIXELS'});
+ d.event({stage:'tracking',reason:'alignment-rejected',mismatch:'PRIVATE_FILENAME',region:999999});
+ const report=d.snapshot();assert.equal(report.counters.unmatchedCandidates,2);
+ assert.deepEqual(report.events.at(-2),{milliseconds:0,stage:'tracking',reason:'alignment-rejected',mismatch:'cell-content',region:17});
+ assert.equal(report.events.at(-1).mismatch,undefined);assert.equal(report.events.at(-1).region,undefined);
+ assert.doesNotMatch(JSON.stringify(report),/PRIVATE/);
+});
+test('new verified tracking clears the previous rejected-region diagnostic', async () => {
+ const {createScanDiagnostics}=await import('../scan-diagnostics.js');const d=createScanDiagnostics();
+ d.tracking({}, {frame:1,age:30,matched:false,rejection:{reason:'cell-content',region:3}});
+ assert.equal(d.snapshot().tracking.mismatch,'cell-content');
+ d.tracking({}, {frame:2,age:30,matched:true});
+ assert.equal(d.snapshot().tracking.mismatch,undefined);assert.equal(d.snapshot().tracking.region,undefined);
+ assert.equal(d.snapshot().tracking.verified,true);
+});

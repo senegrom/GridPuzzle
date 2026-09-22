@@ -220,14 +220,3 @@ limited to 1600 pixels, not the original file or its EXIF metadata. It can still
 show surroundings: review it before sharing. Closing or clearing the preview
 removes the attachment. A report identifies whether its readings were verified
 for the shown image; stale/hidden live readings are not labelled current.
-
-### Review-state round trips
-
-Composed scan warnings, autosave and version-1 session backups share a bounded
-32-note, 500-character-per-note contract. Overlong in-memory text is condensed
-with an explicit warning and review remains required; cell/cage uncertainty,
-pending black-cell evidence and Play progress are preserved separately. Invalid
-or over-budget imported metadata is rejected before replacing the editor.
-Sequential Save & next keeps one native clue dialog open, so a previous queued
-close cannot hide the next clue's re-read control. Actual Close/Escape still
-retires pending proposals.

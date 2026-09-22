@@ -1,12 +1,21 @@
 import { checkShape, clone, fitPlay, fitBlackReadings } from "./model.js";
-import { reviewNotes } from "./review-notes.js";
 const KEY = "gridpuzzle-session-v1";
+
+// Recognition has its own eight-note budget. Photo detail and suggested rules
+// add context afterwards; all accepted/persisted/backup metadata uses this bound.
+export const MAX_REVIEW_NOTES = 16;
+export const MAX_REVIEW_NOTE_LENGTH = 500;
+export function fitReviewNotes(notes) {
+  return Array.isArray(notes)
+    ? notes.filter(note => typeof note === "string").slice(0, MAX_REVIEW_NOTES)
+        .map(note => note.slice(0, MAX_REVIEW_NOTE_LENGTH))
+    : [];
+}
 
 // Persist the transcription AND its uncertainty atomically. Never serialize
 // photographs/canvases, workers, solutions or history. An app reload must not
 // turn an unconfirmed OCR reading into a trusted clue.
 export function saveSession(storage, state) {
-  const warnings = reviewNotes(state.notes);
   storage.set(KEY, {
     puzzle: clone(state.puzzle),
     // Keep the combined list for older installations. New sessions distinguish
@@ -15,8 +24,8 @@ export function saveSession(storage, state) {
     cellUncertain: [...state.uncertain],
     blackReadings: fitBlackReadings(state.puzzle, state.blackReadings),
     cageUncertain: [...(state.cageUncertain || [])],
-    needsReview: Boolean(state.needsReview) || warnings.condensed,
-    notes: warnings.notes,
+    needsReview: Boolean(state.needsReview),
+    notes: fitReviewNotes(state.notes),
     // Play answers are the user's own work; the solution they are checked
     // against is never stored.
     play: Array.isArray(state.play) ? [...state.play] : [],
@@ -50,13 +59,13 @@ export function restoreSession(storage) {
   const blackReadings = fitBlackReadings(puzzle, saved?.blackReadings);
   for (const { cell } of blackReadings)
     if (!uncertain.includes(cell)) uncertain.push(cell);
-  const warnings = reviewNotes(saved?.notes), notes = warnings.notes;
+  const notes = fitReviewNotes(saved?.notes);
   return {
     puzzle: clone(puzzle),
     uncertain,
     blackReadings,
     cageUncertain,
-    needsReview: Boolean(saved?.needsReview) || warnings.condensed || uncertain.length > 0 || cageUncertain.length > 0,
+    needsReview: Boolean(saved?.needsReview) || uncertain.length > 0 || cageUncertain.length > 0,
     notes,
     play,
     hints,

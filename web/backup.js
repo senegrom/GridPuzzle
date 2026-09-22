@@ -1,7 +1,6 @@
 import { normalizePuzzle, fitPlay, fitBlackReadings, clone } from "./model.js";
-import { saveSession, restoreSession } from "./session.js";
+import { saveSession, restoreSession, MAX_REVIEW_NOTES, MAX_REVIEW_NOTE_LENGTH } from "./session.js";
 
-import { MAX_REVIEW_NOTES, MAX_REVIEW_NOTE_LENGTH } from "./review-notes.js";
 const FORMAT = "gridpuzzle-backup";
 function object(value, keys, name) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
@@ -34,7 +33,7 @@ export function parsePuzzleFile(payload) {
   if (![s.uncertain, s.cellUncertain, s.cageUncertain, s.hints].every(indices) ||
       typeof s.needsReview !== "boolean" || !Array.isArray(s.notes) || s.notes.length > MAX_REVIEW_NOTES ||
       !s.notes.every(note => typeof note === "string" && note.length <= MAX_REVIEW_NOTE_LENGTH))
-    throw Error("Invalid backup review metadata; nothing was imported.");
+    throw Error("Invalid backup review metadata.");
   const combined = new Set([...s.cellUncertain, ...s.cageUncertain]);
   if (s.uncertain.length !== combined.size || s.uncertain.some(i => !combined.has(i)))
     throw Error("Inconsistent backup review flags; nothing was imported.");
