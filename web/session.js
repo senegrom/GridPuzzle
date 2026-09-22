@@ -1,10 +1,12 @@
 import { checkShape, clone, fitPlay, fitBlackReadings } from "./model.js";
+import { reviewNotes } from "./review-notes.js";
 const KEY = "gridpuzzle-session-v1";
 
 // Persist the transcription AND its uncertainty atomically. Never serialize
 // photographs/canvases, workers, solutions or history. An app reload must not
 // turn an unconfirmed OCR reading into a trusted clue.
 export function saveSession(storage, state) {
+  const warnings = reviewNotes(state.notes);
   storage.set(KEY, {
     puzzle: clone(state.puzzle),
     // Keep the combined list for older installations. New sessions distinguish
@@ -13,8 +15,8 @@ export function saveSession(storage, state) {
     cellUncertain: [...state.uncertain],
     blackReadings: fitBlackReadings(state.puzzle, state.blackReadings),
     cageUncertain: [...(state.cageUncertain || [])],
-    needsReview: Boolean(state.needsReview),
-    notes: [...state.notes],
+    needsReview: Boolean(state.needsReview) || warnings.condensed,
+    notes: warnings.notes,
     // Play answers are the user's own work; the solution they are checked
     // against is never stored.
     play: Array.isArray(state.play) ? [...state.play] : [],
@@ -48,18 +50,13 @@ export function restoreSession(storage) {
   const blackReadings = fitBlackReadings(puzzle, saved?.blackReadings);
   for (const { cell } of blackReadings)
     if (!uncertain.includes(cell)) uncertain.push(cell);
-  const notes = Array.isArray(saved?.notes)
-    ? saved.notes
-        .filter((x) => typeof x === "string")
-        .slice(0, 8)
-        .map((x) => x.slice(0, 500))
-    : [];
+  const warnings = reviewNotes(saved?.notes), notes = warnings.notes;
   return {
     puzzle: clone(puzzle),
     uncertain,
     blackReadings,
     cageUncertain,
-    needsReview: Boolean(saved?.needsReview) || uncertain.length > 0 || cageUncertain.length > 0,
+    needsReview: Boolean(saved?.needsReview) || warnings.condensed || uncertain.length > 0 || cageUncertain.length > 0,
     notes,
     play,
     hints,

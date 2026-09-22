@@ -100,7 +100,11 @@ export function setupClueReread({ $, getSelection, makeReader, setTimer = setTim
     $(id).addEventListener('input', () => { cancel(); message.textContent = 'Draft edited. Re-read proposals will not overwrite it.'; });
     $(id).addEventListener('change', cancel);
   }
-  $('cell-dialog').addEventListener('close', () => { cancel(); panel.hidden = true; });
+  $('cell-dialog').addEventListener('close', () => {
+    // Native close events are queued. A reopened editor already cancelled the
+    // old work in open(); its current draft must not be retired by that event.
+    if (!$('cell-dialog').open) { cancel(); panel.hidden = true; }
+  });
   $('cell-dialog').addEventListener('cancel', cancel);
   return { open, cancel };
 }

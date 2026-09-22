@@ -135,9 +135,12 @@ function registration(anchor, image, g, hint) {
       corners.some((p,i) => Math.hypot(p.x - hint[i].x, p.y - hint[i].y) > SEARCH * 2)) return null;
   return corners;
 }
-export function matchGrid(anchor, image, hint = anchor?.corners) {
+export function matchGrid(anchor, image, hint = anchor?.corners, diagnostic = null) {
   if (!anchor || image?.width !== anchor.image.width || image?.height !== anchor.image.height ||
-      !validQuad(hint, image.width, image.height)) return null;
+      !validQuad(hint, image.width, image.height)) {
+    if (diagnostic) diagnostic.reason = 'geometry-mismatch';
+    return null;
+  }
   // Common stationary case avoids patch search. An exact view is not an
   // invitation to ignore later content changes; no result is cached across ticks.
   const g = gray(image); if (!g) return null;
@@ -146,6 +149,6 @@ export function matchGrid(anchor, image, hint = anchor?.corners) {
   if (identical) return { corners: anchor.corners, content: anchor.content };
   const corners = registration(anchor, image, g, hint) ?? hint;
   const content = gridContent(image, corners, anchor.rows, anchor.cols);
-  if (!sameGridContent(anchor.content, content)) return null;
+  if (!sameGridContent(anchor.content, content, diagnostic)) return null;
   return { corners, content };
 }

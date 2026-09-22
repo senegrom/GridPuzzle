@@ -1,3 +1,4 @@
+import { reviewNotes } from "./review-notes.js";
 import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { retainPhotoSource, rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
@@ -42,13 +43,17 @@ export function setupPhotoFlow({
     captured = null,
     saving = false;
   const diagnostics = createScanDiagnostics();
-  setupDiagnosticsUI({ $, diagnostics, getSource: () => diagnostics.snapshot().source === "live"
-    ? (live?.diagnosticSource?.() ?? { image: null, verified: false })
-    : { image: state.photo, verified: !!state.photoSource && state.photoSource === state.puzzleSource } });
+  setupDiagnosticsUI({ $, diagnostics, getSource: () => {
+    const kind = diagnostics.snapshot().source;
+    if (kind === "live") return live?.diagnosticSource?.() ?? { image: null, verified: false };
+    if (kind === "capture") return { image: captured?.photo ?? null, verified: !!captured?.found };
+    return { image: state.photo, verified: !!state.photoSource && state.photoSource === state.puzzleSource };
+  } });
   const modal = cameraModal($("camera-panel"), $("camera"));
   function stopCamera() {
     cameraEpoch++;
     live?.stop();
+    diagnostics.event({stage:"tracking",reason:"stopped"});
     live = null;
     pendingPlayback = null;
     clearTimeout(playbackTimer); playbackTimer = null;
@@ -193,6 +198,7 @@ export function setupPhotoFlow({
       const picture = live.capture();
       stopCamera();
       captured = picture;
+      diagnostics.handoff("capture");
       $("camera-panel").hidden = false;
       modal.open();
       document.body?.classList.add("camera-open");
@@ -242,11 +248,12 @@ export function setupPhotoFlow({
         uncertain: new Set(found.cellUncertain ?? found.uncertain ?? []),
         blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
         cageUncertain: new Set(found.cageUncertain ?? []),
-        needsReview: true, notes: [...found.notes], rectified: found.rectified,
+        needsReview: true, notes: reviewNotes(found.notes).notes, rectified: found.rectified,
         photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
+      diagnostics.handoff("photo");
       diagnostics.event({stage:"checking",reason:"read-complete",found});
       // The crop editor may still show an earlier import; this capture is
       // reviewed on the board.
@@ -650,8 +657,8 @@ export function setupPhotoFlow({
           ...blackReadings.map((entry) => entry.cell),
         ]),
         cageUncertain: new Set(found.cageUncertain || []),
-        needsReview: found.needsReview || needsBoxReview,
-        notes,
+        needsReview: found.needsReview || needsBoxReview || reviewNotes(notes).condensed,
+        notes: reviewNotes(notes).notes,
         rectified: found.rectified,
         puzzleSource: id,
         photoSource: id,
@@ -663,6 +670,7 @@ export function setupPhotoFlow({
       remember();
       clearPhotoMapping();
       Object.assign(state, next);
+      diagnostics.handoff("photo");
       diagnostics.event({stage:"checking",reason:"read-complete",found});
       persist();
       render({ replaceDraft: true });

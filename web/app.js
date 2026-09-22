@@ -721,7 +721,7 @@ function openCell(i) {
   $("review-position").textContent =
     `${state.uncertain.size} readings left to check. Saving confirms only this cell.`;
   clueReread.open();
-  $("cell-dialog").showModal();
+  if (!$("cell-dialog").open) $("cell-dialog").showModal();
   $("cell-value").focus();
   $("cell-value").select();
 }
@@ -768,20 +768,22 @@ function saveCell(advance = false) {
       draft.uncertain.delete(editing);
       draft.blackReadings = draft.blackReadings.filter((entry) => entry.cell !== editing);
     });
+    const following = advance ? nextReviewCell(state.uncertain, editing) : null;
+    if (following !== null) {
+      status("Clue saved.", "The previous solution has been cleared.");
+      openCell(following);
+      return;
+    }
     $("cell-dialog").close();
     // Rendering replaced the dialog's original focus target. Restore the
-    // edited cell before any Save & next dialog takes focus again.
+    // edited cell after the final Save or the end of sequential review.
     $("board").querySelector(`[data-cell="${editing}"]`)?.focus();
     status("Clue saved.", "The previous solution has been cleared.");
-    if (advance) {
-      const next = nextReviewCell(state.uncertain, editing);
-      if (next !== null) openCell(next);
-      else
-        status(
-          "Highlighted readings checked.",
-          "Confirm the puzzle type and any structural clues, then solve.",
-        );
-    }
+    if (advance)
+      status(
+        "Highlighted readings checked.",
+        "Confirm the puzzle type and any structural clues, then solve.",
+      );
   } catch (e) {
     $("cell-error").textContent = e.message;
   }
@@ -842,7 +844,7 @@ function openPlayCell(i) {
     `Enter 1 to ${maxValue(p)}, or leave the field blank to erase.`;
   $("cell-error").textContent = "";
   clueReread.open();
-  $("cell-dialog").showModal();
+  if (!$("cell-dialog").open) $("cell-dialog").showModal();
   $("cell-value").focus();
   $("cell-value").select();
 }

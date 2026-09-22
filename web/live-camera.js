@@ -57,7 +57,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // failure path.
   const FRESH_TRACK_AGE = 500, STALE_TRACK_AGE = 2000;
   const recovery = createTrackingRecovery({ now });
-  let lastPaint = null, solverPrepared = false;
+  let lastPaint = null, solverPrepared = false, unmatchedCandidates = 0;
   function prepareSolver() {
     if (getSettings()?.autoSolve !== false && !solverPrepared) {
       solverPrepared = true; solver.prepare?.();
@@ -280,7 +280,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
         [anchor, view ? { ...view, width, height } : null]));
       signature = fingerprint(raw);
-      if (Object.values(proofs).some(Boolean)) recovery.succeeded();
+      if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
       session.motion(signature);
       const candidate = pendingCandidate;
       if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
@@ -296,10 +296,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
           } else {
             session.observe(candidate); guideFrame = session.anchorFrame ?? guideFrame;
           }
-        } else { release(candidate.image); session.suspend(); }
+        } else {
+          release(candidate.image); session.suspend(); unmatchedCandidates++;
+          const rejection = result.rejections?.[candidate.anchor.id];
+          diagnostics?.event({ stage: 'tracking', reason: 'alignment-rejected',
+            mismatch: rejection?.reason, region: rejection?.region });
+        }
       }
       render();
-      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: now() - at > FRESH_TRACK_AGE });
+      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: now() - at > FRESH_TRACK_AGE,
+        rejection: Object.values(result.rejections ?? {})[0] });
     } catch (error) { trackingFailed(error, owner); }
     finally { if (!adopted) release(image); }
   }
@@ -310,12 +316,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (key !== settingsKey) {
       epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
       tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0; recovery.reset();
-      cancelDetection(); lastDetect = -Infinity; session.invalidate();
+      cancelDetection(); lastDetect = -Infinity; unmatchedCandidates = 0; session.invalidate();
     }
   }
   function updateRestartControl() {
     const button = $("restart-live");
-    if (button) button.hidden = !active || (!recovery.blocked && (scheduler.fresh || !raw));
+    if (button) button.hidden = !active || (!recovery.blocked && unmatchedCandidates < 3 && (scheduler.fresh || !raw));
   }
   function heartbeat() {
     if (!active) return;
@@ -334,6 +340,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Conditions the camera owns take the help line while they last.
     if (recovery.blocked) session.hold('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
     else if (!scheduler.fresh && raw) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
+      session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
     else session.hold(null);
     render(); updateRestartControl();
     diagnostics?.scheduling?.(scheduler.stats);
@@ -370,12 +378,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   return {
     start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
-    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; updateRestartControl(); },
+    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; updateRestartControl(); },
     restart() {
       if (!active) return;
       epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();
       session.invalidate(); proofs = {}; guide = guideFrame = null; lastDetect = -Infinity;
-      recovery.reset(); retryTrackingAt = 0; sampledAt = -Infinity;
+      recovery.reset(); retryTrackingAt = 0; sampledAt = -Infinity; unmatchedCandidates = 0;
       render(); scheduler.start(); updateRestartControl();
       diagnostics?.event({ stage: 'tracking', reason: 'worker-restarted' });
       say('Restarting live scanning. Waiting for a fresh verified frame…');
