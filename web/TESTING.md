@@ -39,7 +39,7 @@ hand.
 
 ### Suite inventory
 
-The 25 suites under `scripts/` (`harness.cjs` is the shared runner, not a
+The 26 suites under `scripts/` (`harness.cjs` is the shared runner, not a
 suite) and the workflow jobs that run them. `build` is the deployment gate's
 main job in `browser-pages.yml`, `live-acceptance` its fresh-runner job on the
 built artifact; `recognition` and `live` are the two parallel jobs of
@@ -56,6 +56,7 @@ built artifact; `recognition` and `live` are the two parallel jobs of
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live`, `build` (first step) |
 | `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live`, `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live`, `live-acceptance` |
+| `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it | `live`, `live-acceptance` |
 | `live_recovery_regressions.cjs` | degraded-to-clear automatic recovery of one printed cell with nothing injected | `live`, `live-acceptance` |
 | `live_soak_regressions.cjs` | twenty camera sessions leave no workers, timers or buffers behind | `live`, `live-acceptance` |
 | `newspaper_regressions.cjs` | the two real newspaper crops: no wrong, missed or invented clue unflagged; then runs `ocr_quality` | `build` |
