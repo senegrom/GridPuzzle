@@ -1,14 +1,9 @@
 name: Forward compatibility
 
 on:
+  # Every pull request, so that "Forward compatibility result" always
+  # reports; the changes job decides whether the suites run.
   pull_request:
-    paths:
-      - ".github/workflows/forward-compatibility.yml"
-      - "gridsolver/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "run.py"
-      - "examples2.py"
   workflow_dispatch:
   schedule:
     - cron: "41 4 * * 3"
@@ -27,8 +22,34 @@ env:
   PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning"
 
 jobs:
+  changes:
+    name: Changes that need forward compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # The weekly and manual runs always run the suites.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          paths: |
+            .github/workflows/forward-compatibility.yml
+            gridsolver/**
+            tests/**
+            pyproject.toml
+            run.py
+            examples2.py
+
   compatibility:
     name: ${{ matrix.label }}
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -85,3 +106,24 @@ jobs:
           tests/test_handler_aware_logging.py
           -m "not slow"
           --durations=10
+
+  # The check to require. A matrix job skipped before it expands never
+  # reports its entries' names, and a failed changes job would skip it. This
+  # job always runs and accounts for both.
+  result:
+    name: Forward compatibility result
+    if: always()
+    needs: [changes, compatibility]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.compatibility.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done

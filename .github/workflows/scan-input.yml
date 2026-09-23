@@ -1,15 +1,8 @@
 name: Scanner quality
 on:
+  # Every pull request, so that "Scanner quality result" always reports; the
+  # changes job decides whether the suites run.
   pull_request:
-    paths:
-      - 'web/**'
-      - 'scripts/*regressions.cjs'
-      - 'scripts/harness.cjs'
-      - 'scripts/build_web.py'
-      - 'scripts/fetch_live_fixtures.py'
-      - 'Examples/BrowserScanner/**'
-      - '.github/workflows/scan-input.yml'
-      - '.github/actions/setup-scanner/action.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,11 +10,38 @@ concurrency:
   group: scan-input-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    name: Changes that need the scanner suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # A manual run always runs the suites.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          paths: |
+            web/**
+            scripts/*regressions.cjs
+            scripts/harness.cjs
+            scripts/build_web.py
+            scripts/fetch_live_fixtures.py
+            Examples/BrowserScanner/**
+            .github/workflows/scan-input.yml
+            .github/actions/setup-scanner/**
   # The two jobs are separate on purpose: after the four recognition suites
   # have run on a runner, WebKit no longer starts playback of a canvas stream
   # and the live-motion suite waits forever (measured 2026-09-18), while on
   # a runner of its own it finishes in half a minute.
   recognition:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -55,6 +75,8 @@ jobs:
             browser-artifacts
           retention-days: 7
   live:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -86,3 +108,23 @@ jobs:
           name: live-report
           path: browser-artifacts
           retention-days: 7
+  # The check to require: suites skipped by the changes job report success,
+  # but a failed changes job would skip them too. This job always runs and
+  # tells the two apart.
+  result:
+    name: Scanner quality result
+    if: always()
+    needs: [changes, recognition, live]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.recognition.result }} ${{ needs.live.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done

@@ -5,8 +5,9 @@ on:
     branches: [master]
     # Documents and benchmark records do not change the code under test.
     paths-ignore: ["**/*.md", "LICENSE"]
+  # Every pull request, so that "CI result" always reports; the changes job
+  # applies the push trigger's filter.
   pull_request:
-    paths-ignore: ["**/*.md", "LICENSE"]
   workflow_dispatch:
 
 permissions:
@@ -22,8 +23,32 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  changes:
+    name: Changes that need CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # Pushes were already filtered by their trigger.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          # the push trigger's paths-ignore
+          paths: |
+            **
+            !**/*.md
+            !LICENSE
+
   core:
     name: Python 3.14 / ${{ matrix.platform }} bounded suite
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,3 +86,25 @@ jobs:
           tests
           -m "not slow"
           --durations=10
+
+  # The check to require. A job skipped by `if:` reports success, but a
+  # matrix job skipped before it expands never reports its entries' names,
+  # and a failed changes job would skip everything after it. This job always
+  # runs and accounts for both.
+  result:
+    name: CI result
+    if: always()
+    needs: [changes, core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.core.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done

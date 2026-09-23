@@ -1,7 +1,8 @@
 name: Browser branch tests
 on:
+  # Every pull request, with no paths filter, so that "Browser unit tests"
+  # always reports; the job takes seconds, so nothing decides whether it runs.
   pull_request:
-    paths-ignore: ["**/*.md", "LICENSE"]
 permissions:
   contents: read
 concurrency:
@@ -9,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   unit:
+    name: Browser unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

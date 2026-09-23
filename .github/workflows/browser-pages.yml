@@ -6,8 +6,9 @@ on:
     paths-ignore:
       - "**/*.md"
       - "benchmarks/**"
+  # Every pull request, so that "Deployment gate result" always reports; the
+  # changes job decides whether the gate runs.
   pull_request:
-    paths: ["web/**", "scripts/**", ".github/workflows/browser-pages.yml", "gridsolver/**", "pyproject.toml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,7 +16,31 @@ concurrency:
   group: gridpuzzle-browser-pages-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    name: Changes that need the deployment gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # Pushes were already filtered by their trigger.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          paths: |
+            web/**
+            scripts/**
+            .github/workflows/browser-pages.yml
+            gridsolver/**
+            pyproject.toml
   build:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -134,3 +159,23 @@ jobs:
       - name: Publish the tested branch artifact
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+  # The check to require: the gate's jobs skipped by the changes job report
+  # success, but a failed changes job would skip them too. This job always
+  # runs and tells the two apart.
+  result:
+    name: Deployment gate result
+    if: always()
+    needs: [changes, build, live-acceptance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.build.result }} ${{ needs.live-acceptance.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done
