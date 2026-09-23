@@ -101,6 +101,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // camera's guidance goes through it too, and a later status is not skipped
   // as a repeat of a line that was overwritten in between.
   const say = (message) => { if (active) session.notify(message); };
+  // Detector guidance (no grid, a timeout, rules the grid contradicts) ends a
+  // streak of rejected candidates: the alignment message the heartbeat holds
+  // describes a grid that is still being found, and must not hide this one.
+  const guidance = (message) => { unmatchedCandidates = 0; say(message); };
   const session = createLiveSession({
     read: async (frame, progress, onPreview = () => {}) => {
       const boxed = (found) => {
@@ -188,7 +192,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     job.deadline = setTimer(() => {
       if (!current()) return;
       cancelDetection(); guide = guideFrame = null; session.invalidate();
-      say("Grid detection timed out. Keep the grid steady — retrying…");
+      guidance("Grid detection timed out. Keep the grid steady — retrying…");
     }, 8000);
     try {
       // Detection copies the pixels synchronously, so one canvas serves every call.
@@ -205,7 +209,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
         diagnostics?.event({stage:"detecting",reason:"no-grid"});
-        guide = guideFrame = null; session.suspend(); say("Keep the whole grid in view, in even light."); return;
+        guide = guideFrame = null; session.suspend(); guidance("Keep the whole grid in view, in even light."); return;
       }
       const rows = found.rows || settings.rows, cols = found.cols || settings.cols;
       const selected = settings.rows === rows && settings.cols === cols &&
@@ -222,7 +226,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         // Sudoku, a 12 × 12 Str8ts). Keep the outline, skip the cell overlay
         // and say why instead of failing every frame.
         guide = corners; guideFrame = null; session.invalidate();
-        say(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
+        guidance(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
         return;
       }
       job.anchoring = true;
@@ -244,7 +248,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
       if (job.anchoring && current()) { trackingFailed(error, owner); return; }
-      if (current()) { guide = guideFrame = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
+      if (current()) { guide = guideFrame = null; session.invalidate(); guidance(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
       if (!job.handedOff) image.width = image.height = 0;
       clearTimer(job.deadline);

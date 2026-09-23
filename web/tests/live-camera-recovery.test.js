@@ -25,11 +25,14 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   const writes = []; let helpText = "";
   nodes.set("camera-help", { get textContent() { return helpText; }, set textContent(value) { helpText = value; writes.push(value); } });
   const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true, ...initial };
-  let core = createTrackingCore(), hold = false, trackingError = false;
+  let core = createTrackingCore(), hold = false, trackingError = false, rejectAll = false;
   const held = [];
   const tracker = {
     anchor: async task => { if (trackingError) throw Error('injected worker failure'); return core.run({ ...task, op: 'anchor' }); },
-    verify: task => hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
+    // rejectAll: the worker answers, but no candidate's printed content matches.
+    verify: task => rejectAll ? Promise.resolve({ proofs: Object.fromEntries(task.anchors.map(id => [id, null])),
+      rejections: Object.fromEntries(task.anchors.map(id => [id, { reason: 'cell-content', region: 0 }])) }) :
+      hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
   const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: view,
@@ -57,7 +60,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, rejectVerify(v) { rejectAll = v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -262,6 +265,21 @@ test('unchanged heartbeat and pre-tracking views skip redundant paints without s
  h.readings[0].resolve({puzzle,cellUncertain:[],uncertain:[],markedCells:[0,3],needsReview:true,notes:[]});await flush();
  await h.advance(1000);assert.ok(h.renders.some(r=>!r.painted));assert.ok(h.camera.capture().found);
  h.stall();await h.advance(600);assert.equal(h.camera.capture().found,null);
+});
+test('the rejected-alignment message gives way when the detector stops finding a matching grid',async t=>{
+ const h=harness(t);h.rejectVerify(true);await h.advance(100);
+ for(let k=0;k<3;k++){await h.result();await h.advance(700);}
+ assert.match(h.$('camera-help').textContent,/not matching between frames/);assert.equal(h.$('restart-live').hidden,false);
+ for(let k=0;k<3;k++){h.detections.at(-1).resolve({confidence:0});await flush();await h.advance(700);}
+ assert.equal(h.$('camera-help').textContent,'Keep the whole grid in view, in even light.','no-grid guidance must not be overwritten by an old rejection streak');
+ assert.equal(h.$('restart-live').hidden,true);
+ for(let k=0;k<2;k++){await h.result();await h.advance(700);}
+ assert.doesNotMatch(h.$('camera-help').textContent,/not matching between frames/,'a new streak starts from zero');
+ await h.result();await h.advance(700);
+ assert.match(h.$('camera-help').textContent,/not matching between frames/);
+ h.detections.at(-1).resolve({confidence:.99,rows:3,cols:2,sharpness:200,corners:[{x:0,y:0},{x:639,y:0},{x:639,y:639},{x:0,y:639}]});
+ await flush();await h.advance(700);
+ assert.match(h.$('camera-help').textContent,/does not fit/,'a grid that contradicts the rules is reported, not hidden behind the streak');
 });
 test('repeated tracking failures back off and stop until an explicit restart',async t=>{
  const h=harness(t);h.failTracking(true);await h.advance(100);await h.result();
