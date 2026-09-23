@@ -28,9 +28,11 @@ classifiers = [
 gridpuzzle = "run:main"
 
 [project.optional-dependencies]
+# The oldest releases with Python 3.14 wheels; the lowest-dependencies CI job
+# installs exactly these.
 corpus = [
-    "Pillow>=10.1",
-    "numpy>=2.0",
+    "Pillow>=11.3",
+    "numpy>=2.3.2",
 ]
 dev = [
     "pytest>=8.0",

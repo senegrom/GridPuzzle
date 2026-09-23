@@ -97,9 +97,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install the lowest versions the dependencies and the dev extra allow
+      - name: Install the lowest versions the dependencies and the dev and corpus extras allow
         uses: ./.github/actions/setup-project
         with:
+          extras: dev,corpus
           lower-bounds: "true"
       - name: Lint with the oldest ruff allowed
         run: python -m ruff check .
