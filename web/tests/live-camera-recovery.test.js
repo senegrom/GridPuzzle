@@ -21,6 +21,9 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   globalThis.document = { createElement: canvas };
   const view = canvas();
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
+  // The help line is a polite live region: every write is announced.
+  const writes = []; let helpText = "";
+  nodes.set("camera-help", { get textContent() { return helpText; }, set textContent(value) { helpText = value; writes.push(value); } });
   const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true, ...initial };
   let core = createTrackingCore(), hold = false, trackingError = false;
   const held = [];
@@ -54,7 +57,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -228,6 +231,18 @@ test("stalled video loses overlays on the heartbeat without a new processing tic
  h.resume();await h.advance(100);assert.ok(h.camera.capture().found,'unchanged source can be reverified');
  assert.equal(h.readings.length,1,'brief stalled delivery does not destroy OCR');
  assert.doesNotMatch(h.$('camera-help').textContent,/new camera frame/,'the stall message gives way to the status once frames resume');
+});
+
+test("heartbeats do not rewrite an unchanged help line", async t => {
+ const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();
+ assert.equal(h.readings.length,1);assert.match(h.$('camera-help').textContent,/Reading printed clues/);
+ const before=h.writes.length;await h.advance(5000);
+ assert.deepEqual(h.writes.slice(before),[],'fifty heartbeats with nothing held must not re-announce the status');
+ h.stall();await h.advance(600);assert.match(h.$('camera-help').textContent,/new camera frame/);
+ const held=h.writes.length;await h.advance(1000);
+ assert.equal(h.writes.length,held,'a held message is written once, not on every heartbeat');
+ h.resume();await h.advance(300);
+ assert.match(h.$('camera-help').textContent,/Reading printed clues/,'releasing the hold shows the status again');
 });
 
 test("a detector finishing on a stalled feed cannot manufacture fresh evidence", async t => {
