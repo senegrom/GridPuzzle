@@ -4,6 +4,12 @@
    rejections and annotation ambiguities, rather than selecting easy successes. */
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const {serve,engines,main}=require('./harness.cjs');
+// Once playback stops, capture() must drop the overlay as soon as the newest
+// presented frame is older than the frame scheduler's freshness limit
+// (web/live-frame-scheduler.js: fresh while now() - lastSeen <= 500); it
+// checks that itself, so no heartbeat has to run first. The margin covers
+// the polling interval and a busy runner.
+const PRESENTATION_FRESHNESS=500,MARGIN=500;
 async function begin(imageData){
  const {Scanner}=await import('./scanner.js'),{createLiveCamera}=await import('./live-camera.js'),{createScanDiagnostics}=await import('./scan-diagnostics.js');
  const img=new Image();img.src=imageData;await img.decode();
@@ -49,8 +55,9 @@ async function run(){
      if(r.result.reads.length){const read=r.result.reads.at(-1);r.score={correct:0,wrong:[],unflagged:[]};
       truth.forEach((label,cell)=>{if(label.ambiguous)return;if(label.value===read.cells[cell]){if(Number.isInteger(label.value))r.score.correct++;}else{const e={cell,expected:label.value,actual:read.cells[cell]};r.score.wrong.push(e);if(!read.uncertain.includes(cell))r.score.unflagged.push(e);}});
      }
-     await page.evaluate(()=>externalReplay.pause());
-     await page.waitForFunction(()=>externalReplay.capture()===false,null,{polling:200,timeout:5000});
+     const pausedAt=Date.now();await page.evaluate(()=>externalReplay.pause());
+     await page.waitForFunction(()=>externalReplay.capture()===false,null,{polling:100,timeout:PRESENTATION_FRESHNESS+MARGIN});
+     r.expiredAfter=Date.now()-pausedAt;
      assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
     }finally{
      r.closed=await page.evaluate(()=>window.externalReplay?.stop()).catch(()=>null);
