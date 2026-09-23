@@ -147,6 +147,8 @@ candidate sets back to their givens before selecting a branch.
 
 Importing the solver does not initialize Colorama, mutate stdout, or reconfigure the root logger. Terminal configuration is explicit through `set_colouring`.
 
+Solver output goes to loggers under the `gridsolver` namespace, and the library never sets their level. A message's detail level decides whether a solve renders it at all; its standard level decides whether the application's configuration admits it: detail 0 is INFO and every deeper detail DEBUG. `solver.QUIET` mutes a solve regardless of handlers, and `-1` still means every detail, so code that means "quiet" must pass `QUIET`. README's Logging section is the user-facing description.
+
 Verbosity, rendered-grid buffers, output thresholds, forcing-chain recursion state, and optional technique statistics are context-local. Concurrent solves do not overwrite one another's diagnostic state.
 
 - Windows terminal / Colorama mode uses `just_fix_windows_console()`.
