@@ -131,21 +131,37 @@ thread. There is one active operation, one replaceable latest video frame and
 one pending detector-anchor request. Up to eight worker-owned anchors are
 retained, with current reading/reference anchors protected from eviction. The
 worker keeps grayscale evidence, not extra RGBA source copies. Stop, settings
-changes and errors terminate the worker and fence its replies. A two-second
-worker deadline fails closed; manual capture remains available without a
-synchronous registration fallback.
+changes and errors terminate the worker and fence its replies. Each operation
+fails closed after its own deadline: two seconds for a verification, twenty for
+an anchor. Building an anchor measured about ten times a verification on a
+synthetic 9x9 board at the 1280-pixel content size and 67-131 times on real
+photographs (whose verifications are cheaper), so a device whose verifications
+approach two seconds needs about twenty for an anchor; with one shared
+two-second deadline every anchor on such a device failed and ended in Restart.
+Verifications wait while an anchor is built, and grid detection's own
+eight-second deadline no longer covers anchoring. Manual capture remains
+available without a synchronous registration fallback.
 
 A verification result is drawn only with its own source snapshot, never with a
-newer video frame. Verified views come in two tiers. A snapshot up to 500
-milliseconds old is live. One older than that, up to the worker's two-second
-deadline, is still drawn — marked DELAYED in the preview bar, in the canvas's
+newer video frame. Verified views come in two tiers. A view is live while the
+snapshot on screen is at most 500 milliseconds old. Once one is older, the view
+is still drawn — marked DELAYED in the preview bar, in the canvas's
 `data-delayed` attribute and in its accessible label — so a device whose
-tracking takes a second per frame gets a lagging overlay rather than none;
-reads and solves still run on it, since every frame is verified individually.
-Beyond two seconds the camera shows an unverified fresh frame, and a worker
-that never answers reaches the failure, backoff and Restart path. Neither tier
-is a measured phone speedup or a promise that image copying and rendering are
-off-thread.
+tracking takes a second per frame gets a lagging overlay rather than none. It
+returns to live only after snapshots have stayed within 500 milliseconds for
+two seconds: with replies of 300-400 ms, or pauses while an anchor is built,
+the age crosses 500 ms on every reply and the label would otherwise flip with
+it. A reply is adopted while its own snapshot is at most two seconds old and
+newer than the last adopted one, also after the display has fallen back to an
+unverified frame; its snapshot replaces that frame. A new detection waits
+until the pending candidate has been verified or rejected, so slow replies
+verify candidates instead of seeing each replaced before its reply, and reads
+and solves run on the delayed tier. A shown snapshot older than two seconds
+gives way to an unverified fresh frame: from about a second per verification
+the overlay alternates with such frames, and near two seconds it is rarely
+shown. A worker that never answers reaches the failure, backoff and Restart
+path. Neither tier is a measured phone speedup or a promise that image copying
+and rendering are off-thread.
 
 After a complete numeric reading, a substantially clearer cell interior can
 trigger a targeted retry through `Scanner.readCells`. At most 12 uncertain,
@@ -195,9 +211,10 @@ old callback.
 Expensive snapshots run at most every 100 ms, back off to 250 ms once a
 reading is settled and up to 300 ms when recent worker timing calls for it;
 the latest-frame queue stays bounded. A separate 100 ms heartbeat expires the
-overlay when presentation or accepted tracking evidence is over 500 ms old
-even if no video callback arrives, so a detector reply can never sample a
-stalled video into fresh evidence. Every heartbeat still validates freshness
+overlay when presentation is over 500 ms old, or the accepted tracking
+evidence is older than the two-second limit above, even if no video callback
+arrives, so a detector reply can never sample a stalled video into fresh
+evidence. Every heartbeat still validates freshness
 and the current solver preferences, but a paint is issued only when the raw
 image, geometry, reading or solution has changed; a new frame, a changed
 proposal, a solution toggle or an expired proof invalidates that cache at

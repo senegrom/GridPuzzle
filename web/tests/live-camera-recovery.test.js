@@ -32,7 +32,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
     // rejectAll: the worker answers, but no candidate's printed content matches.
     verify: task => rejectAll ? Promise.resolve({ proofs: Object.fromEntries(task.anchors.map(id => [id, null])),
       rejections: Object.fromEntries(task.anchors.map(id => [id, { reason: 'cell-content', region: 0 }])) }) :
-      hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
+      hold ? new Promise(resolve => held.push({ task, at: time, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
   const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: view,
@@ -60,7 +60,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, rejectVerify(v) { rejectAll = v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { get now() { return time; }, camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, rejectVerify(v) { rejectAll = v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -182,20 +182,37 @@ test("a worker reply up to two seconds late is adopted as a delayed overlay", as
  assert.equal(h.camera.diagnosticSource().verified,true,'a reply inside the limit is adopted');
  assert.equal(h.view.dataset.delayed,"1",'its snapshot is older than the live tier');
  h.holdTracking(false);await h.advance(300);
- assert.equal(h.view.dataset.delayed,"0",'prompt replies return the view to the live tier');
+ assert.equal(h.view.dataset.delayed,"1",'one prompt reply does not end the delayed tier');
+ await h.advance(2000);
+ assert.equal(h.view.dataset.delayed,"0",'two seconds of prompt replies return the view to the live tier');
  h.camera.stop();
  for(const job of h.held)job.resolve({proofs:{}});
  await flush();assert.equal(h.camera.diagnosticSource().verified,false,'closing still rejects every queued reply');
 });
 test("a worker reply older than the stale limit is dropped and the view falls back unverified", async t => {
  const h=harness(t);await h.advance(100);await h.result();
- h.holdTracking(true);await h.advance(2100);
+ h.holdTracking(true);await h.advance(2300);
  assert.equal(h.camera.diagnosticSource().verified,false,'past the stale limit the display is an unverified fresh frame');
  assert.equal(h.view.dataset.delayed,"0");assert.equal(h.camera.capture().found,null);
- const late=h.held[0];late.resolve(late.result());await flush();
+ const late=h.held[0];assert.ok(h.now-late.at>2000);late.resolve(late.result());await flush();
  assert.equal(h.camera.diagnosticSource().verified,false,'a reply older than the stale limit cannot restore the view');
  const recent=h.held.at(-1);assert.notEqual(recent,late);recent.resolve(recent.result());await flush();
  assert.equal(h.camera.diagnosticSource().verified,true,'a reply submitted after the fallback recovers tracking');
+});
+test("after a fallback, a reply still within the stale limit is adopted on its own snapshot", async t => {
+ const h=harness(t);await h.advance(100);await h.result();
+ h.holdTracking(true);await h.advance(2300);
+ assert.equal(h.camera.diagnosticSource().verified,false,'the display fell back to an unverified frame');
+ // Submitted before the fallback, but its own snapshot is 1.3 s old.
+ const inFlight=h.held.find(job=>job.at>=1200);assert.ok(h.now-inFlight.at<=1300);
+ inFlight.resolve(inFlight.result());await flush();
+ assert.equal(h.camera.diagnosticSource().verified,true,'a reply within the stale limit is not fenced out by the fallback');
+ assert.equal(h.view.dataset.delayed,"1",'its snapshot is drawn as delayed');
+ const paints=h.renders.filter(r=>r.painted).length;
+ const older=h.held.find(job=>job.at<inFlight.at&&h.now-job.at<=2000);
+ older.resolve(older.result());await flush();
+ assert.equal(h.renders.filter(r=>r.painted).length,paints,'an older reply never replaces a newer adopted snapshot');
+ assert.equal(h.camera.diagnosticSource().verified,true);
 });
 test("crossing into the delayed tier repaints once without a new frame", async t => {
  const h=harness(t);await h.advance(100);await h.result();
