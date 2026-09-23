@@ -501,3 +501,57 @@ def test_ci_tests_the_lowest_versions_pyproject_allows():
     assert 'python -X dev -m pytest -q tests -m "not slow"' in job
     action = (_GITHUB / "actions" / "setup-project" / "action.yml").read_text(encoding="utf-8")
     assert 'python scripts/lower_bounds.py "$EXTRAS" | tee "$constraints"' in action
+
+
+def _collect(*arguments: str, cwd: Path = _ROOT) -> set[str]:
+    """The node ids pytest itself collects with these arguments."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *arguments],
+        cwd=cwd, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
+
+
+def test_every_slow_test_runs_in_extended_ci():
+    """Per-push CI deselects `slow`, so a slow test runs only where an
+    Extended CI entry selects it; wire a new one into extended.yml."""
+    slow = _collect("tests", "-m", "slow")
+    assert "tests/test_basic.py::test_sudo1" in slow
+    selected = _collect(*[argument for selection in _extended_selections() for argument in selection])
+    assert sorted(slow - selected) == []
+
+
+def test_pytest_sees_every_way_to_mark_a_test_slow(tmp_path):
+    """Why the guard above asks pytest: a source scan missed a marked class,
+    a marked parameter and an aliased marker."""
+    (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers =\n    slow: slow\n", encoding="utf-8")
+    (tmp_path / "test_spellings.py").write_text(
+        textwrap.dedent("""\
+            import pytest
+
+            slow = pytest.mark.slow
+
+            @pytest.mark.slow
+            class TestCorpus:
+                def test_in_class(self):
+                    pass
+
+            @pytest.mark.parametrize("x", [1, pytest.param(2, marks=pytest.mark.slow)])
+            def test_param(x):
+                pass
+
+            @slow
+            def test_alias():
+                pass
+
+            def test_fast():
+                pass
+            """),
+        encoding="utf-8",
+    )
+    assert _collect("-m", "slow", cwd=tmp_path) == {
+        "test_spellings.py::TestCorpus::test_in_class",
+        "test_spellings.py::test_param[2]",
+        "test_spellings.py::test_alias",
+    }
