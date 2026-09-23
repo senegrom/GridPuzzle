@@ -82,19 +82,6 @@ def _fresh_thread_grid() -> Grid:
         return _thread_root().deepcopy()
 
 
-def _strip_solver_caches(grid: Grid) -> None:
-    """Drop derived state before serialising a worker-private root."""
-    grid._struct_cache.clear()
-    grid._rule_cache.clear()
-    grid._guarantee_cache.clear()
-    # These trail-aware memos are deliberately omitted by Grid.deepcopy().
-    # The thread path now reuses the solver-owned root directly, so remove
-    # them explicitly to preserve the same cache-free worker contract.
-    for name in ("_fish_value_memo", "_house_sums_memo"):
-        if hasattr(grid, name):
-            delattr(grid, name)
-
-
 def _solve_full_cancellable(
     grid: Grid,
     steps: list[int],
@@ -230,7 +217,6 @@ def solve_thread_trials(
     if not ordered_branches:
         return set()
 
-    _strip_solver_caches(grid)
     solutions: set[ImmutableGrid] = set()
     parent_stats = current_power_stats()
     cancel_event = threading.Event()
@@ -238,7 +224,9 @@ def solve_thread_trials(
     # root across free-threaded workers therefore creates avoidable contention
     # while each task copies its rule containers. Unpickle once per worker so
     # the full rule/guarantee graph remains thread-private, just as it does in
-    # the process executor, while keeping task payloads compact.
+    # the process executor, while keeping task payloads compact. The payload
+    # carries no trail, derived caches or trail-aware memos: Grid.__getstate__
+    # drops them under worker_serialization(), so the root is not stripped.
     worker_payload = _serialize_thread_root(grid)
     runner = _ThreadBranchRunner(
         cancel_event,

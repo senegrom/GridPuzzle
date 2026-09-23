@@ -114,10 +114,6 @@ def solve_parallel_trials(
     before the limit is reached. Later branches are cancelled rather than
     exhausted to compute a global content-key minimum.
     """
-    # Derived caches are cheap to rebuild and can dominate pickled payloads.
-    grid._struct_cache.clear()
-    grid._rule_cache.clear()
-    grid._guarantee_cache.clear()
     ordered_branches = sorted(branches)
     solutions: set[ImmutableGrid] = set()
     stats = current_power_stats()
@@ -125,6 +121,8 @@ def solve_parallel_trials(
 
     # Serialize the root once. Each worker receives that immutable payload
     # through its initializer; task payloads remain compact three-scalar tuples.
+    # Derived caches can dominate a pickled grid, but worker_serialization()
+    # already omits them (Grid.__getstate__), so the root is not cleared here.
     worker_payload = _serialize_worker_root(grid)
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=processes,

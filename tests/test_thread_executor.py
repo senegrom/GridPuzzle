@@ -207,14 +207,16 @@ def test_thread_root_serialisation_strips_derived_caches(monkeypatch):
     original_dumps = pickle.dumps
 
     def capture_dumps(root, *, protocol):
+        payload = original_dumps(root, protocol=protocol)
+        worker_root = pickle.loads(payload)
         captured["root"] = root
         captured["protocol"] = protocol
-        captured["struct_cache"] = dict(root._struct_cache)
-        captured["rule_cache"] = dict(root._rule_cache)
-        captured["guarantee_cache"] = dict(root._guarantee_cache)
-        captured["has_fish_memo"] = hasattr(root, "_fish_value_memo")
-        captured["has_house_memo"] = hasattr(root, "_house_sums_memo")
-        return original_dumps(root, protocol=protocol)
+        captured["struct_cache"] = dict(worker_root._struct_cache)
+        captured["rule_cache"] = dict(worker_root._rule_cache)
+        captured["guarantee_cache"] = dict(worker_root._guarantee_cache)
+        captured["has_fish_memo"] = hasattr(worker_root, "_fish_value_memo")
+        captured["has_house_memo"] = hasattr(worker_root, "_house_sums_memo")
+        return payload
 
     pool = _FakeThreadPool((set(),))
     monkeypatch.setattr(pickle, "dumps", capture_dumps)
@@ -239,6 +241,8 @@ def test_thread_root_serialisation_strips_derived_caches(monkeypatch):
         "has_fish_memo": False,
         "has_house_memo": False,
     }
+    # Worker serialisation drops them; the solver-owned root is not stripped.
+    assert grid._struct_cache and hasattr(grid, "_fish_value_memo")
 
 
 def test_thread_branch_runner_uses_a_fresh_grid_per_task(monkeypatch):

@@ -278,12 +278,12 @@ def _solve_top_parallel(
         0,
         f"Parallel: {len(branches)} top-level branches on {processes} processes",
     )
-    # Root propagation may populate large structural and fish caches. They
-    # are cheap to rebuild independently and expensive to pickle once per
-    # submitted branch, so workers receive one cache-free state clone.
-    worker_seed = grid.deepcopy()
+    # ``grid`` is already the solver-owned clone. The executor pickles it once
+    # under worker_serialization(), where Grid.__getstate__ drops the trail,
+    # the derived caches and the trail-aware memos, so workers never receive
+    # root-pass caches and a second full-grid clone here would be redundant.
     return solve_parallel_trials(
-        worker_seed,
+        grid,
         branches,
         max_sols,
         processes,
@@ -312,8 +312,9 @@ def _solve_top_threaded(
     from gridsolver.solver.solve_threaded import solve_thread_trials
 
     # ``grid`` is already the solver-owned clone. The thread executor
-    # serialises one private root per worker and does not mutate this root
-    # after setup, so another full-grid clone here is redundant.
+    # serialises one private root per worker (without trail, caches or memos,
+    # see Grid.__getstate__) and does not mutate this root after setup, so
+    # another full-grid clone here is redundant.
     return solve_thread_trials(
         grid,
         branches,
