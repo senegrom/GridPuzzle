@@ -103,6 +103,14 @@ exhaust later branches merely to compute a global content-key minimum.
 `--parallel-backend {process,thread}` chooses the executor those workers run
 in; `thread` is opt-in and needs a free-threaded (no-GIL) Python build, see
 [FREE_THREADED.md](FREE_THREADED.md).
+`--column-wise` and `--space-separated` apply to class-prefixed `--str` and
+`--file` input only; CSP-Rules forms, `--module` and `--example` fix their
+own layout, so those combinations are rejected rather than ignored.
+
+The command exits with status 0 when the puzzle has a solution (or
+`--max-solutions 0` asked for none), 1 when it has no solution, and 2 for
+usage and input errors, including `--parallel-backend thread` without
+`--processes 2` or more or on a runtime that still has the GIL.
 
 The equivalent library call is:
 

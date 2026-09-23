@@ -1,4 +1,6 @@
 import logging
+import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -15,8 +17,11 @@ from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.solver import solver
 from gridsolver.solver.logger import get_log
-from gridsolver.cli import build_parser
+from gridsolver.cli import build_parser, main
+
+_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_grid_loading_uses_exact_integer_size_inference():
@@ -253,3 +258,77 @@ def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
     )
 
     assert output.strip() == "[]"
+
+
+def _gridpuzzle(*argv):
+    """Run the CLI in its own interpreter: the exit status is a process contract."""
+    environment = dict(os.environ, PYTHONPATH=str(_ROOT), PYTHONIOENCODING="utf-8")
+    return subprocess.run(
+        [sys.executable, "-m", "gridsolver.cli", *argv, "--colour", "No"],
+        cwd=_ROOT, env=environment, capture_output=True, encoding="utf-8",
+        timeout=120,
+    )
+
+
+def test_cli_exit_status_reports_whether_the_puzzle_has_a_solution():
+    solved = _gridpuzzle("--str", "LatinSquare::1...")
+    unsolvable = _gridpuzzle("--str", "LatinSquare::11..")
+    nothing_asked = _gridpuzzle("--str", "LatinSquare::11..", "--max-solutions", "0")
+    usage_error = _gridpuzzle("--str", "11..")
+
+    assert solved.returncode == 0, solved.stderr
+    assert "Solution 0" in solved.stdout
+    assert unsolvable.returncode == 1, unsolvable.stderr
+    assert "No solution found." in unsolvable.stdout
+    assert nothing_asked.returncode == 0, nothing_asked.stderr
+    assert usage_error.returncode == 2
+    assert "pass --class" in usage_error.stderr
+
+
+@pytest.mark.parametrize("processes", ("0", "1"))
+def test_cli_thread_backend_without_workers_is_a_usage_error(processes, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--str", "LatinSquare::1...", "--processes", processes,
+              "--parallel-backend", "thread"])
+    assert exit_info.value.code == 2
+    assert "requires --processes 2 or more" in capsys.readouterr().err
+
+
+def test_cli_thread_backend_on_a_gil_build_is_a_usage_error(monkeypatch, capsys):
+    # It used to reach solve() and die with a RuntimeError traceback.
+    monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: False)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--str", "LatinSquare::1...", "--processes", "2",
+              "--parallel-backend", "thread"])
+    assert exit_info.value.code == 2
+    assert "free-threaded Python runtime" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ("--column-wise", "--space-separated"))
+@pytest.mark.parametrize(
+    "source, kind",
+    (
+        (("--example", "s"), "--example"),
+        (("--module", "gridsolver.examples.sudoku"), "--module"),
+        (("--str", "(solve 1 1 4)"), "CSP-Rules"),
+        (("--file", "{csp_file}"), "CSP-Rules"),
+    ),
+)
+def test_cli_rejects_layout_flags_its_input_ignores(source, kind, flag, tmp_path, capsys):
+    csp_file = tmp_path / "loop.clp"
+    csp_file.write_text("(solve 1 1 4)\n", encoding="utf-8")
+    argv = [part.format(csp_file=csp_file) for part in source]
+
+    with pytest.raises(SystemExit) as exit_info:
+        main([*argv, flag])
+
+    assert exit_info.value.code == 2
+    assert f"{flag} does not apply to {kind} input" in capsys.readouterr().err
+
+
+def test_cli_still_honours_layout_flags_for_class_prefixed_input():
+    column_wise = _gridpuzzle("--str", "LatinSquare::12..", "--column-wise")
+    spaced = _gridpuzzle("--str", "LatinSquare::1 . . 1", "--space-separated")
+
+    assert column_wise.returncode == 0, column_wise.stderr
+    assert spaced.returncode == 0, spaced.stderr

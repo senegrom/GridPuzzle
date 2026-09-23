@@ -4,6 +4,7 @@ import argparse
 import importlib
 import time
 from collections.abc import Sequence
+from pathlib import Path
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import (
@@ -48,7 +49,13 @@ def _solution_limit(raw_value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Solve a grid puzzle")
+    parser = argparse.ArgumentParser(
+        description="Solve a grid puzzle",
+        epilog=(
+            "Exit status: 0 when the puzzle has a solution, 1 when it has "
+            "none, 2 for usage and input errors."
+        ),
+    )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument(
         "-m",
@@ -135,6 +142,50 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _reject_ignored_options(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> None:
+    """Fail on options that the runtime or the chosen input cannot honour."""
+    if args.parallel_backend == "thread":
+        if args.processes <= 1:
+            parser.error("--parallel-backend thread requires --processes 2 or more")
+        if not solver.free_threaded_runtime_available():
+            parser.error(
+                "--parallel-backend thread requires a free-threaded Python "
+                "runtime with the GIL disabled"
+            )
+
+    # Like a forced --class, a silently ignored layout flag would be a trap:
+    # built grids and CSP-Rules forms fix their own layout.
+    layout_flags = [
+        flag
+        for flag, given in (
+            ("--column-wise", args.column_wise),
+            ("--space-separated", args.space_separated),
+        )
+        if given
+    ]
+    if not layout_flags:
+        return
+    if args.module or args.example:
+        source = "--module" if args.module else "--example"
+        parser.error(f"{layout_flags[0]} does not apply to {source} input")
+
+    from gridsolver.abstract_grids.csp_rules_loading import is_csp_rules_text
+
+    if args.file:
+        try:
+            text = Path(args.file).read_text(encoding="utf-8-sig")
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+    else:
+        # --class parses its string as bare values, never as CSP-Rules.
+        text = None if args.puzzle_class else args.puzzle_string
+    if is_csp_rules_text(text):
+        parser.error(f"{layout_flags[0]} does not apply to CSP-Rules input")
+
+
 def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Grid:
     row_wise = not args.column_wise
 
@@ -194,6 +245,7 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _reject_ignored_options(args, parser)
 
     set_colouring(Colouring[args.colour])
     detail = MAX_LVL if args.verbose else args.detail
@@ -201,14 +253,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     grid = _load_grid(args, parser)
     start = time.perf_counter()
-    solver.solve(
+    solutions = solver.solve(
         grid,
         max_sols=args.max_solutions,
         processes=args.processes,
         parallel_backend=args.parallel_backend,
     )
     _LOG.logs(0, f"Took {time.perf_counter() - start:.4f}s to execute.")
-    return 0
+    # argparse already exits 2 on usage and input errors. --max-solutions 0
+    # asks for no solutions, so finding none is not a failure there.
+    return 0 if solutions or args.max_solutions == 0 else 1
 
 
 if __name__ == "__main__":
