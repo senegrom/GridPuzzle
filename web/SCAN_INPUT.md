@@ -19,8 +19,11 @@ coordinate system; only OCR receives the detailed crop and its mapped corners.
 Input dimensions are checked BEFORE decoding. The enhancement is limited to
 16 million source pixels: requesting a resized bitmap alone does not guarantee
 that the browser decoder avoids a full-sized intermediate allocation. Larger
-files, unsupported ImageBitmap, concurrent detail decoding or decode errors
-retain the existing preview path with an explicit note. The original import's
+files, unsupported ImageBitmap or decode errors retain the existing preview
+path with an explicit note. Originals are decoded one at a time: a new read
+waits for an earlier, superseded decode (whose bitmap is closed on arrival)
+instead of falling back, and only a decoder silent for 15 seconds sends it to
+the preview. The original import's
 30 MB file limit and 120 MP downscaled / 24 MP full-decode limits are unchanged.
 A selected crop cannot recover detail absent in the original. This is a bounded
 improvement, not an unlimited full-resolution decoder for 48/120 MP sources.
