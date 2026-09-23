@@ -35,6 +35,7 @@ jobs:
             Examples/BrowserScanner/**
             .github/workflows/scan-input.yml
             .github/actions/setup-scanner/**
+            !**/*.md
   # The two jobs are separate on purpose: after the four recognition suites
   # have run on a runner, WebKit no longer starts playback of a canvas stream
   # and the live-motion suite waits forever (measured 2026-09-18), while on

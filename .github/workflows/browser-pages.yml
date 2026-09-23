@@ -2,12 +2,25 @@ name: Build and deploy phone scanner
 on:
   push:
     branches: [master]
-    # Documentation and benchmark records do not change the built app.
-    paths-ignore:
-      - "**/*.md"
-      - "benchmarks/**"
+    # What the built site and its gate read, and nothing else: every
+    # deployment asks each installed app to update, so a document or a
+    # corpus README must not redeploy.
+    paths:
+      - "web/**"
+      - "gridsolver/**"
+      - "LICENSE"
+      - "scripts/build_web.py"
+      - "scripts/fetch_live_fixtures.py"
+      - "scripts/*.cjs"
+      - "corpus/benchmark-runner.cjs"
+      - "corpus/detect_benchmark.cjs"
+      - "corpus/score.cjs"
+      - "Examples/BrowserScanner/**"
+      - ".github/workflows/browser-pages.yml"
+      - ".github/actions/setup-scanner/**"
+      - "!**/*.md"
   # Every pull request, so that "Deployment gate result" always reports; the
-  # changes job decides whether the gate runs.
+  # changes job applies the push trigger's paths.
   pull_request:
   workflow_dispatch:
 permissions:
@@ -32,12 +45,21 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/changed-paths
         with:
+          # the push trigger's paths
           paths: |
             web/**
-            scripts/**
-            .github/workflows/browser-pages.yml
             gridsolver/**
-            pyproject.toml
+            LICENSE
+            scripts/build_web.py
+            scripts/fetch_live_fixtures.py
+            scripts/*.cjs
+            corpus/benchmark-runner.cjs
+            corpus/detect_benchmark.cjs
+            corpus/score.cjs
+            Examples/BrowserScanner/**
+            .github/workflows/browser-pages.yml
+            .github/actions/setup-scanner/**
+            !**/*.md
   build:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'

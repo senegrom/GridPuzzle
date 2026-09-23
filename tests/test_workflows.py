@@ -260,3 +260,145 @@ def test_parse_checks_fail_when_node_fails():
     assert len(checks) == 2
     for check in checks:
         assert check.strip().endswith("-print0 | xargs -0 -n1 node --check"), check
+
+
+def _push_paths(text: str) -> list[str]:
+    """The push trigger's `paths` list."""
+    on_push = re.search(r"^  push:\n((?:    .*\n|[ \t]*\n)+)", text, re.M).group(1)
+    block = re.search(r"^    paths:\n((?:      .*\n)+)", on_push, re.M).group(1)
+    return [
+        line.strip()[2:].strip('"')
+        for line in block.splitlines()
+        if line.strip().startswith("- ")
+    ]
+
+
+def _files(path: str) -> set[str]:
+    """A file, or every file under a directory, relative to the root."""
+    full = _ROOT / path
+    if full.is_file():
+        return {path}
+    return {
+        found.relative_to(_ROOT).as_posix()
+        for found in full.rglob("*")
+        if found.is_file() and "__pycache__" not in found.parts
+    }
+
+
+def _deployment_inputs() -> set[str]:
+    """The repository files the deployment workflow's build and gate read.
+
+    The build's `ROOT / "..."` inputs, the scripts the jobs run and every
+    relative module those load, the browser unit tests (a push runs them)
+    with theirs, and the fixture directories the suites name.
+    """
+    action = _GITHUB / "actions" / "setup-scanner" / "action.yml"
+    text = _workflow("browser-pages.yml") + action.read_text(encoding="utf-8")
+    inputs = _files(".github/workflows/browser-pages.yml")
+    inputs |= _files(".github/actions/setup-scanner")
+    build = (_ROOT / "scripts" / "build_web.py").read_text(encoding="utf-8")
+    for name in re.findall(r'ROOT / "([^"]+)"', build):
+        inputs |= _files(name)
+    pending = re.findall(r"(?:node|python) (scripts/[\w.-]+)", text)
+    pending += [f"web/tests/{test.name}" for test in (_ROOT / "web" / "tests").glob("*.test.js")]
+    seen = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        inputs.add(path)
+        source = (_ROOT / path).read_text(encoding="utf-8")
+        # Node's own loading, not the imports a page evaluates
+        for target in re.findall(
+            r"""(?:\brequire|createRequire\(import\.meta\.url\))\(["'](\.\.?/[^"']+)["']\)""", source
+        ):
+            resolved = os.path.normpath(os.path.join(os.path.dirname(path), target))
+            pending.append(Path(resolved).as_posix())
+        for directory in re.findall(r"""["'](Examples/BrowserScanner/[^"']*)["']""", source):
+            inputs |= _files(directory)
+    return inputs
+
+
+def test_the_deployment_gates_pull_requests_use_its_push_paths():
+    text = _workflow("browser-pages.yml")
+    assert _changes_paths(text) == _push_paths(text)
+
+
+def test_the_deployment_redeploys_on_what_it_reads_and_nothing_else():
+    paths = _push_paths(_workflow("browser-pages.yml"))
+    inputs = {path for path in _deployment_inputs() if not path.endswith(".md")}
+    # the pins, the corpus scoring the scanner-settings suite loads, and the
+    # newspaper photographs three suites read
+    for path in (
+        ".github/actions/setup-scanner/action.yml",
+        "corpus/benchmark-runner.cjs",
+        "corpus/detect_benchmark.cjs",
+        "corpus/score.cjs",
+        "Examples/BrowserScanner/Newspaper/ground-truth.json",
+        "LICENSE",
+        "scripts/fetch_live_fixtures.py",
+        "scripts/harness.cjs",
+    ):
+        assert path in inputs, path
+    assert {path for path in inputs if not _filter_selects(paths, path)} == set()
+    # Run 35640528376 redeployed, and asked every installed app to update,
+    # for a push that changed two Examples README.txt files and documents.
+    for path in (
+        "Examples/README.txt",
+        "Examples/LatinSquares/README.txt",
+        "Examples/BrowserScanner/Newspaper/README.md",
+        "README.md",
+        "web/TESTING.md",
+        "benchmarks/corpus_timeout_baseline.json",
+        "pyproject.toml",
+        "tests/test_basic.py",
+        "scripts/smoke_wheel.py",
+        "corpus/benchmark.cjs",
+    ):
+        assert not _filter_selects(paths, path), path
+
+
+def test_every_change_that_runs_scanner_quality_runs_the_deployment_gate():
+    quality = _changes_paths(_workflow("scan-input.yml"))
+    gate = _push_paths(_workflow("browser-pages.yml"))
+    probes = {*_SAMPLE_PATHS, *_files("web"), *_files("scripts"), *_files("Examples/BrowserScanner")}
+    probes.discard(".github/workflows/scan-input.yml")
+    assert {path for path in probes if _filter_selects(quality, path)} - {
+        path for path in probes if _filter_selects(gate, path)
+    } == set()
+
+
+def test_a_documents_only_pull_request_runs_no_suites():
+    for name in _GATED_WORKFLOWS:
+        patterns = _changes_paths(_workflow(name))
+        assert not any(_filter_selects(patterns, path) for path in _DOCUMENTS), name
+
+
+def _extended_selections() -> list[list[str]]:
+    """Each Extended CI corpus entry's pytest arguments."""
+    text = _workflow("extended.yml")
+    selections = []
+    for match in re.finditer(r"^(\s+)selection: (>-\n((?:\1  .*\n)+)|.+\n)", text, re.M):
+        selections.append((match.group(3) or match.group(2)).split())
+    return selections
+
+
+def test_extended_ci_runs_when_what_its_jobs_read_changes():
+    paths = _push_paths(_workflow("extended.yml"))
+    read = {
+        argument.split("::")[0]
+        for selection in _extended_selections()
+        for argument in selection
+    }
+    read |= {
+        "tests/helpers.py",
+        "examples2.py",
+        "Examples/Sudoku/16x16/Metcalf-16x16-NP.clp",
+        "Examples/Slitherlink/Tatham/H7x7-L10-W5.clp",
+        "scripts/run_new_family_corpus.py",
+        "benchmarks/corpus_timeout_baseline.json",
+        ".github/workflows/extended.yml",
+    }
+    assert len(read) > 10
+    assert {path for path in read if not _filter_selects(paths, path)} == set()
