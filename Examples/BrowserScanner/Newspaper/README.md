@@ -9,3 +9,7 @@ These are user-provided newspaper puzzle photographs from 2026-09-07, cropped to
 `scripts/newspaper_regressions.cjs` runs the production scanner and self-hosted Tesseract.js pipeline against both images in Chromium and WebKit. Wrong, missing, or invented clues are acceptable only when the corresponding cell is explicitly flagged for review. The suite also enforces minimum correct-transcription counts and exact Str8ts black-cell geometry.
 
 The images live outside `web/`, so they are not shipped in the GitHub Pages application or included in the offline PWA bundle.
+
+## Rights
+
+The repository owner provided these crops as scanner test fixtures. The printed puzzles remain the copyright of the newspapers that published them; the photographs are not licensed under this repository's AGPL-3.0 licence and are kept only to test the scanner. `ground-truth.json` is a transcription of the printed clues and carries the same restriction.
