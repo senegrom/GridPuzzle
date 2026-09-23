@@ -21,7 +21,7 @@ async function stopServer() {
     await running.close();
   }
   await assert.rejects(
-    fetch(BASE, { signal: AbortSignal.timeout(2000) }),
+    fetch(BASE, { method: "HEAD", signal: AbortSignal.timeout(2000) }),
     "The origin must actually be unreachable during offline testing.",
   );
 }

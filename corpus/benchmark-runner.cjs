@@ -73,7 +73,9 @@ async function abortable(promise, signal) {
 async function waitForServer(base, getError) {
   for (let attempt = 0; attempt < 80; attempt++) {
     if (getError()) throw getError();
-    try { if ((await fetch(base, { signal: AbortSignal.timeout(1000) })).ok) return; } catch {}
+    // HEAD: a response body left unread makes Node 24 assert when the timeout
+    // signal fires, and readiness needs only the status.
+    try { if ((await fetch(base, { method: "HEAD", signal: AbortSignal.timeout(1000) })).ok) return; } catch {}
     await sleep(100);
   }
   throw Error("Benchmark HTTP server did not become ready");
