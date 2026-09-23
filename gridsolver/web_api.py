@@ -23,7 +23,7 @@ from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.slitherlink import Slitherlink
 from gridsolver.grid_classes.str8ts import Str8ts
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 TYPES = (
     'sudoku', 'killersudoku', 'futoshiki', 'kenken', 'latinsquare',
@@ -225,7 +225,7 @@ def solve_payload(payload):
     """
     started = time.perf_counter()
     grid = build_grid(payload)
-    solutions = solve(grid, processes=0, max_sols=2, log_level=-1)
+    solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
     rendered = []
     rows, cols = payload['rows'], payload['cols']
     for solution in sorted(solutions, key=lambda s: tuple(s)):

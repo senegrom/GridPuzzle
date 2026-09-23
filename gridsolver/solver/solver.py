@@ -6,6 +6,7 @@ from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.rules.rules import Guarantee
 from gridsolver.solver.atomic_solver import AtomicSolver
+from gridsolver.solver.logger import QUIET as QUIET
 from gridsolver.solver.solver_log import lg as _lg
 from gridsolver.solver.validation import (
     _ValidationPlan,
@@ -19,6 +20,7 @@ _THREAD_BACKEND = "thread"
 
 
 def set_loglevel(level: int) -> None:
+    """Set the detail level that solves without an explicit log_level use."""
     _lg.set_lvl(level)
 
 
@@ -105,6 +107,14 @@ def solve(
     parallel_backend: str = _PROCESS_BACKEND,
 ) -> set[ImmutableGrid]:
     """Solve a grid without mutating it.
+
+    ``log_level`` is this solve's detail level: None keeps the one set by
+    ``set_loglevel`` (0 by default: solutions and timings only), larger
+    values add search detail, -1 means every detail, and ``QUIET`` disables
+    all solver output whatever logging the application configured. Output
+    goes to the ``gridsolver.solver`` logger, detail 0 at INFO and deeper
+    detail at DEBUG, so it is rendered only when the application's logging
+    configuration admits those levels.
 
     With ``0 < max_sols < |solutions|`` the returned subset is deterministic
     within each mode but mode-dependent. Sequential search keeps the first

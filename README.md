@@ -115,6 +115,10 @@ solutions = solver.solve(
 
 Run `gridpuzzle --help` for the complete parser-generated option list.
 
+### Logging
+
+The library reports through the standard `logging` module, under the `gridsolver` logger namespace (the solver uses `gridsolver.solver`), and never sets a logger level itself. A solve's `log_level` (or `solver.set_loglevel`) chooses how much it reports: 0, the default, reports solutions and timings, larger values add search detail, and -1 reports every detail. Detail 0 is logged at INFO and deeper detail at DEBUG, so an application whose logging is configured at WARNING or above sees nothing and pays nothing for rendering it. Pass `log_level=solver.QUIET` to silence a solve whatever handlers and levels are configured. The command line installs its own output handler (`--colour`), so its `--detail` and `--verbose` output always shows.
+
 ## Rule types
 
 The following rules can be combined to create puzzles.

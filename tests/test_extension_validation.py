@@ -9,7 +9,7 @@ from gridsolver.solver.validation import (
     InvalidSolutionError,
     validate_solution,
 )
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 
 class _ReplaceSelectedCandidate(Rule):
@@ -243,7 +243,7 @@ def test_deep_extension_validation_fits_the_output_budget_without_recursion():
     grid[0] = 1
     grid.add_rule_checked(_DeepEmission(grid, 1100))
 
-    assert {tuple(solution) for solution in solve(grid, log_level=-1)} == {(1,)}
+    assert {tuple(solution) for solution in solve(grid, log_level=QUIET)} == {(1,)}
 
 
 @pytest.mark.parametrize("reject, depth, message", (

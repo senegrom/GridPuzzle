@@ -135,7 +135,7 @@ def solve_case(path: Path) -> dict[str, Any]:
         grid = create_from_csp_rules_file(path)
         solutions = solver.solve(
             grid,
-            log_level=-1,
+            log_level=solver.QUIET,
             max_sols=2,
         )
     except Exception as exc:  # recorded by the corpus harness, not swallowed
