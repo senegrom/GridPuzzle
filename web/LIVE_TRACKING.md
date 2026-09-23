@@ -7,12 +7,16 @@ were also rendered as red question marks before any reading existed.
 
 The camera now registers bounded local image patches across the detected grid.
 A robust projective fit accounts for small translations, rotation and scale;
-only then is the original per-region content guard applied. The content guard
-has not been weakened: labels, inequality signs, cage edges and both ink
-polarities still participate. An additional interior residual check rejects
-small changed digit strokes (including an 8 becoming 3) that previously passed
-the interior area-only guard. Content sampling uses up to 1280 pixels rather
-than 640; detection retains its 640-pixel budget. Registration is not identity:
+only then is the original per-region content guard applied. Labels, inequality
+signs, cage edges and both ink polarities still participate. An additional
+interior residual check rejects small changed digit strokes that passed the
+interior area-only guard: an 8 becoming a 3, or a 3 becoming an 8, is caught
+down to print contrast 15 on a clean print, and light strokes on a dark ground
+from about 45. The residual check's noise floor follows the grain measured in
+the two frames compared, so grain is not taken for a changed clue while clean
+prints keep the fixed floor (see "Noise units and acquisition diagnostics").
+Content sampling uses up to 1280 pixels rather than 640; detection retains
+its 640-pixel budget. Registration is not identity:
 a fitted rectangle alone never authorizes an overlay or captured metadata.
 
 Each read stays anchored to its captured pixels. Verification compares to that

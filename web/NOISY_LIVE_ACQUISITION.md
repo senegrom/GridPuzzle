@@ -1,11 +1,24 @@
 # Noise units and live acquisition diagnostics
 
-The interior comparison stretches contrast against its original anchor. Its
-four-level sensor-noise floor is now scaled into the same units as those
-stretched samples, instead of amplifying ordinary paper fluctuations into
-changed-content evidence. High-contrast guards and unstretched structural
-regions retain their existing bounds. A registered rectangle alone still never
-proves identity, and no solver result supplies missing clue pixels.
+The interior comparison stretches contrast against its original anchor, and
+sensor grain is stretched with it: a fixed four-level floor in stretched units
+turned ordinary paper grain into changed-content evidence and could block
+acquisition before OCR started. Scaling that floor by the stretch (#73) also
+raised it for every faint clean print, so an 8 becoming a 3 went unnoticed up
+to print contrast 80 and a 3 becoming an 8 up to 130. The floor is now
+measured: 1.5 times the frame-to-frame noise of the two regions compared (their
+median absolute difference at the chosen registration, as a standard
+deviation), in the region's own units and never below four levels. A clean
+print keeps the four-level floor; a grainy one gets a floor that grows with its
+grain. The unstretched structural strips use the same rule, so grain there is
+no longer a changed label, sign or wall. On synthetic 40-pixel cells, grain of
+±4 to ±10 levels produces no false changes (#73: 7-17% at ±8 and ±10), a whole
+9x9 board with ±8 grain at 30 pixels per cell stays unchanged (#73: 81% of
+pairs changed), and averaged over the review's noisy sweep the 8/3 stroke is
+caught more often than under #73. Heavy grain can still hide a faint stroke;
+detection falls as grain rises. High-contrast guards keep their bounds. A
+registered rectangle alone still never proves identity, and no solver result
+supplies missing clue pixels.
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image bytes.

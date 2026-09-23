@@ -22,6 +22,22 @@ for(const paper of [80,175,235])for(const seed of [1,11,129])test(`blank-cell no
  assert.equal(sameGridContent(gridContent(a,corners,1,1),gridContent(b,corners,1,1)),true);
  assert.ok(matchGrid(gridAnchor(a,corners,1,1),b));
 });
+// A whole 9x9 board, 30 px per cell: grain in the unstretched structural
+// strips (labels, cage walls, signs) failed there with a fixed floor.
+function board(seed,noise=8,cell=30,paper=190) {
+ const size=cell*9+2,data=new Uint8ClampedArray(size*size*4);let random=seed;
+ for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+  random=(Math.imul(random,1664525)+1013904223)>>>0;
+  const gx=(x-1)%cell,gy=(y-1)%cell,u=gx/cell,v=gy/cell,digit=(Math.floor((x-1)/cell)*7+Math.floor((y-1)/cell)*3)%4===0&&
+   ((u>=.43&&u<.46&&v>=.37&&v<.66)||(u>=.59&&u<.62&&v>=.37&&v<.66)||(u>=.43&&u<.62&&((v>=.35&&v<.38)||(v>=.49&&v<.52)||(v>=.64&&v<.67))));
+  const level=(gx<2||gy<2?40:digit?paper-120:paper)+(random%(noise*2+1))-noise,at=(y*size+x)*4;
+  data[at]=data[at+1]=data[at+2]=level;data[at+3]=255;
+ }
+ return gridContent({width:size,height:size,data},[{x:1,y:1},{x:size-2,y:1},{x:size-2,y:size-2},{x:1,y:size-2}],9,9);
+}
+for(const seed of [5,6,7])test(`grain across a whole board is not a changed board, seed ${seed}`,()=>{
+ const diagnostic={};assert.equal(sameGridContent(board(seed),board(seed+901),diagnostic),true,JSON.stringify(diagnostic));
+});
 for(const paper of [80,175,235])test(`a new faint printed mark is still rejected on noisy paper ${paper}`,()=>{
  const a=picture({paper,noise:4,seed:13}),b=picture({paper,noise:4,seed:71,mark:true});
  assert.equal(sameGridContent(gridContent(a,corners,1,1),gridContent(b,corners,1,1)),false);
