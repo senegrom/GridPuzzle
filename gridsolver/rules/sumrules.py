@@ -1,5 +1,10 @@
 import collections
+import functools
+import itertools
+import operator
 import reprlib
+import threading
+from array import array
 from functools import cached_property, lru_cache
 from numbers import Integral
 from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
@@ -322,7 +327,7 @@ class DivRule(Rule):
 # todo subtract from guarantees to make new subrules
 
 
-def _admissible_assignments(values: FrozenSet[int], cand_sets: Sequence[Set[int]],
+def _admissible_assignments(values: Sequence[int], cand_sets: Sequence[Set[int]],
                             restrict: dict) -> Iterator[Tuple[int, int]]:
     """All (position, value) pairs occurring in at least one bijection of
     `values` onto the positions, where position i admits value v iff
@@ -457,28 +462,174 @@ def _tarjan_scc(succ: Sequence[Sequence[int]]) -> List[int]:
     return comp
 
 
+def _mask_values(mask: int) -> Iterator[int]:
+    """Values encoded by a partition bitmask (bit v = value v), ascending."""
+    while mask:
+        lowest = mask & -mask
+        yield lowest.bit_length() - 1
+        mask ^= lowest
+
+
+def _mask_of(values: Iterable[int]) -> int:
+    mask = 0
+    for value in values:
+        mask |= 1 << value
+    return mask
+
+
+def _or_all(masks: Iterable[int]) -> int:
+    return functools.reduce(operator.or_, masks, 0)
+
+
+def _and_all(masks: Sequence[int]) -> int:
+    return functools.reduce(operator.and_, masks)
+
+
+def _distinct_partition_masks(count: int, target: int, max_elem: int) -> List[int]:
+    """Every set of ``count`` distinct values in 1..max_elem summing to
+    ``target``, as bitmasks in lexicographic order of the sorted values.
+
+    Explicit DFS over the next (strictly larger) value with exact bounds: the
+    rest must fit between the next consecutive values and the largest ones.
+    Nothing is truncated or approximated; the last two values of each set are
+    placed directly instead of through one more stack frame each.
+    """
+    masks: List[int] = []
+    if count <= 0 or count > max_elem:
+        return masks
+    append = masks.append
+    work = [(count, 0, target, 0)]  # (values left, previous value, sum left, mask)
+    while work:
+        left, previous, remaining, mask = work.pop()
+        if left == 1:
+            if previous < remaining <= max_elem:
+                append(mask | 1 << remaining)
+            continue
+        rest = left - 1
+        # rest values above x sum to at most rest*max_elem - rest*(rest-1)/2
+        # and at least rest*x + rest*(rest+1)/2.
+        first = max(previous + 1, remaining - rest * max_elem + rest * (rest - 1) // 2)
+        last = min((remaining - rest * (rest + 1) // 2) // left, max_elem - rest)
+        if left == 2:
+            for value in range(first, last + 1):
+                append(mask | 1 << value | 1 << (remaining - value))
+            continue
+        # Reverse pushes pop the smallest next value first (lexicographic).
+        for value in range(last, first - 1, -1):
+            work.append((rest, value, remaining - value, mask | 1 << value))
+    return masks
+
+
+def _compact_masks(masks: List[int], max_elem: int) -> Sequence[int]:
+    """Store masks in the smallest unsigned array that holds bit max_elem."""
+    for typecode in ("I", "L", "Q"):
+        if array(typecode).itemsize * 8 > max_elem:
+            return array(typecode, masks)
+    return tuple(masks)
+
+
+def _masks_nbytes(masks: Sequence[int]) -> int:
+    if isinstance(masks, array):
+        return masks.itemsize * len(masks)
+    # Tuple slot plus an int object of ceil(bits/30) 4-byte digits.
+    return sum(8 + 28 + 4 * (mask.bit_length() // 30) for mask in masks)
+
+
+class _PartitionMaskCache:
+    """Process-wide store of distinct-value partitions, bounded by bytes.
+
+    The former ``lru_cache(maxsize=65535)`` of partition tuples was bounded
+    by entry count only: one 12-cell cage on a 25x25 board kept about 94 MiB
+    of frozensets and tuples alive. Partitions are now compact bitmask arrays
+    (4 bytes each up to value 31). Results larger than ``max_entry_bytes`` are
+    never retained here; the rules that need them hold their own reference,
+    so they are released with the grid. The least recently used entries are
+    evicted once ``max_bytes`` is exceeded. Values are immutable (arrays are
+    never handed out for mutation) and shared by every rule with the same
+    (count, target, max_elem).
+    """
+
+    __slots__ = ("_entries", "_nbytes", "_lock", "max_bytes", "max_entry_bytes")
+
+    def __init__(self, max_bytes: int, max_entry_bytes: int) -> None:
+        self._entries: collections.OrderedDict = collections.OrderedDict()
+        self._nbytes = 0
+        self._lock = threading.Lock()
+        self.max_bytes = max_bytes
+        self.max_entry_bytes = max_entry_bytes
+
+    def get(self, count: int, target: int, max_elem: int) -> Sequence[int]:
+        key = (count, target, max_elem)
+        with self._lock:
+            masks = self._entries.get(key)
+            if masks is not None:
+                self._entries.move_to_end(key)
+                return masks
+        # Generate outside the lock: concurrent callers may duplicate work but
+        # always agree, and only one result is published.
+        masks = _compact_masks(_distinct_partition_masks(count, target, max_elem), max_elem)
+        nbytes = _masks_nbytes(masks)
+        if nbytes > self.max_entry_bytes:
+            return masks
+        with self._lock:
+            published = self._entries.get(key)
+            if published is not None:
+                return published
+            self._entries[key] = masks
+            self._nbytes += nbytes
+            while self._nbytes > self.max_bytes and self._entries:
+                _, evicted = self._entries.popitem(last=False)
+                self._nbytes -= _masks_nbytes(evicted)
+        return masks
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+            self._nbytes = 0
+
+    def info(self) -> Tuple[int, int]:
+        """(entries, bytes) currently retained."""
+        with self._lock:
+            return len(self._entries), self._nbytes
+
+
+_PARTITION_MASKS = _PartitionMaskCache(max_bytes=8 << 20, max_entry_bytes=2 << 20)
+
+
+def release_partition_caches() -> None:
+    """Drop every process-wide partition cache.
+
+    Long-lived interpreters that solve one puzzle after another (the browser
+    worker reuses one Pyodide interpreter) call this after each solve. Rules
+    still alive keep their own partitions, so this never changes a result.
+    """
+    _PARTITION_MASKS.clear()
+    SumAndElementsAtMostOnce._partition_tuples.cache_clear()
+
+
 class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
     def __init__(self, gsz: GridSizeContainer, cells: Iterable[IdxType], mysum: int):
         ElementsAtMostOnce.__init__(self, gsz, cells, None)
         SumRule.__init__(self, None, None, mysum)
 
     @cached_property
-    def sum_candidates(self) -> Tuple[FrozenSet[int]]:
-        # Exact staircase bijection: x[0] < ... < x[k-1] in 1..M iff
-        # y[i] = x[i] - i is nondecreasing in 1..M-k+1. The sum falls
-        # by k*(k-1)//2. Generate only admissible distinct partitions;
-        # do not approximate or defer the full matching/guarantee filter.
-        count = self.len_cells
-        staircase = count * (count - 1) // 2
-        return tuple(
-            frozenset(value + index for index, value in enumerate(partition))
-            for partition in self._partition_tuples(
-                self.sum - staircase,
-                count,
-                1,
-                self._max_elem - count + 1,
-            )
-        )
+    def _partition_masks(self) -> Sequence[int]:
+        # Every admissible set of distinct values as one bitmask (bit v set
+        # for value v), in lexicographic order. Shared through the bounded
+        # process cache; this instance keeps its own reference so evicting a
+        # cache entry never forces a rebuild while the rule is alive. Generate
+        # only admissible distinct partitions; do not approximate or defer the
+        # full matching/guarantee filter.
+        return _PARTITION_MASKS.get(self.len_cells, self.sum, self._max_elem)
+
+    @property
+    def sum_candidates(self) -> Tuple[FrozenSet[int], ...]:
+        """Every admissible value set, decoded on demand from the bitmasks.
+
+        Kept for inspection and compatibility; propagation consumes the
+        compact ``_partition_masks`` directly and never materialises these.
+        """
+        return tuple(frozenset(_mask_values(mask)) for mask in self._partition_masks)
 
     def __hash__(self):
         return hash((super().__hash__(), self.sum))
@@ -491,7 +642,10 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
 
     def __repr__(self):
         cell_str = ', '.join(_format_coord(cell, self._rows) for cell in self.cells)
-        return f"{type(self).__name__}[{self.sum}: {cell_str}; {reprlib.repr([set(p) for p in self.sum_candidates])}]"
+        # reprlib shows at most maxlist items, so decode only one more than that.
+        shown = [set(_mask_values(mask))
+                 for mask in itertools.islice(self._partition_masks, reprlib.aRepr.maxlist + 1)]
+        return f"{type(self).__name__}[{self.sum}: {cell_str}; {reprlib.repr(shown)}]"
 
     @staticmethod
     @lru_cache(maxsize=65535)
@@ -551,9 +705,10 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
     ) -> List[Deque[int]]:
         """Return detached mutable partitions using the historical API.
 
-        Solver code consumes the immutable cached ``_partition_tuples``
-        representation directly.  External callers retain the established
-        ``list[deque]`` result and cannot mutate the shared cache.
+        Solver code uses the compact distinct-value ``_partition_masks``
+        instead; this general (repetition-allowing) API and its
+        ``_partition_tuples`` cache serve external callers only. They retain
+        the established ``list[deque]`` result and cannot mutate the cache.
         """
         return [
             collections.deque(partition)
@@ -583,19 +738,25 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
             np0.clear()
             raise InvalidGrid()
 
-        candidates_union = set.union(*new_candidates)
-        new_sum_candidates = (sp - my_known for sp in self.sum_candidates if my_known <= sp)
-        new_sum_candidates = [sp for sp in new_sum_candidates if sp <= candidates_union]
-        if not new_sum_candidates:
+        # Keep the partitions that contain every known value and otherwise
+        # only values some unknown cell can still take; drop the known values.
+        known_mask = _mask_of(my_known)
+        outside = ~(known_mask | _mask_of(set.union(*new_candidates)))
+        if known_mask:
+            new_sum_masks = [mask ^ known_mask for mask in self._partition_masks
+                             if mask & known_mask == known_mask and not mask & outside]
+        else:
+            new_sum_masks = [mask for mask in self._partition_masks if not mask & outside]
+        if not new_sum_masks:
             self.invalidate_current_cells_and_raise_invalid_grid(candidates)
-        new_candidate_sets = frozenset().union(*new_sum_candidates)
+        new_candidate_sets = frozenset(_mask_values(_or_all(new_sum_masks)))
         for p in new_candidates:
             p &= new_candidate_sets
             if not p:
                 raise InvalidGrid()
 
         new_gts = self._filter_new_sum_candidates(new_candidate_cells, new_candidates,
-                                                  new_sum_candidates, guarantees)
+                                                  new_sum_masks, guarantees, known_mask)
         SumAndElementsAtMostOnce._update_from_guarantees(candidates, new_candidate_cells, guarantees)
 
         if lk:
@@ -612,15 +773,16 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         return False, None, new_gts
 
     def _filter_new_sum_candidates(self, new_cells: Sequence[int], new_candidates: Sequence[Set[int]],
-                                   new_sum_candidates: Iterable[FrozenSet[int]], gts: Iterable[Guarantee]) \
-            -> List[Guarantee]:
+                                   new_sum_masks: Sequence[int], gts: Iterable[Guarantee],
+                                   known_mask: int = 0) -> List[Guarantee]:
         # For each partition (a set of k distinct values for the k unknown
-        # cells) the assignable (cell, value) pairs are computed via bipartite
-        # matching (Regin's alldifferent filtering) instead of enumerating all
-        # k! permutations. Guarantees whose cells lie inside this cage restrict
-        # their value's admissible positions (a partition not containing such a
-        # value admits no assignment at all) — equivalent to the old
-        # permutation filter, verified by fuzzing (test_saeamo_regin_matches_bruteforce).
+        # cells, as a bitmask) the assignable (cell, value) pairs are computed
+        # via bipartite matching (Regin's alldifferent filtering) instead of
+        # enumerating all k! permutations. Guarantees whose cells lie inside
+        # this cage restrict their value's admissible positions (a partition
+        # not containing such a value admits no assignment at all) — equivalent
+        # to the old permutation filter, verified by fuzzing
+        # (test_saeamo_regin_matches_bruteforce).
         nc_set = frozenset(new_cells)
         position_restrict: dict = {}
         for gt in gts:
@@ -628,20 +790,46 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
                 positions = frozenset(i for i, cell in enumerate(new_cells) if cell in gt.cells)
                 prev = position_restrict.get(gt.val)
                 position_restrict[gt.val] = positions if prev is None else prev & positions
+        required = _mask_of(position_restrict)
 
-        allowed_by_pos: List[Set[int]] = [set() for _ in new_cells]
-        for sp in new_sum_candidates:
-            if any(v not in sp for v in position_restrict):
+        candidate_masks = [_mask_of(p) for p in new_candidates]
+        supported = [0] * len(new_cells)
+        # Values still unsupported at some position where they are candidates.
+        # A partition can only support pairs (position, value) with its own
+        # values, so skipping one that holds none of these, or stopping once
+        # every candidate pair is supported, leaves the result exactly as the
+        # full loop computes it. Every partition that could add a pair is
+        # still matched in full.
+        unsupported = _or_all(candidate_masks)
+        for sp in new_sum_masks:
+            if not sp & unsupported:
+                continue
+            if sp & required != required:
                 continue  # a guaranteed value is missing: no assignment of sp survives
-            for pos, val in _admissible_assignments(sp, new_candidates, position_restrict):
-                allowed_by_pos[pos].add(val)
+            for pos, val in _admissible_assignments(tuple(_mask_values(sp)), new_candidates, position_restrict):
+                supported[pos] |= 1 << val
+            unsupported = 0
+            for candidate_mask, supported_mask in zip(candidate_masks, supported):
+                unsupported |= candidate_mask & ~supported_mask
+            if not unsupported:
+                break
 
         for i, p in enumerate(new_candidates):
-            p &= allowed_by_pos[i]
+            p &= frozenset(_mask_values(supported[i]))
             if not p:
                 raise InvalidGrid()
 
-        intersect = frozenset.intersection(*new_sum_candidates)
+        if len(new_sum_masks) == 1:
+            # Build the one partition exactly as the frozenset implementation
+            # did (a copy of partition - known values): its table layout, and
+            # hence the order the guarantees below are emitted and inserted,
+            # stays identical. Several partitions intersect into a fresh table
+            # whose order the ascending construction reproduces.
+            known_values = set(_mask_values(known_mask))
+            only = frozenset(_mask_values(new_sum_masks[0] | known_mask)) - known_values
+            intersect = frozenset.intersection(only)
+        else:
+            intersect = frozenset(_mask_values(_and_all(new_sum_masks)))
 
         return [Guarantee(
             val=i, cells=frozenset(c for (c, p) in zip(new_cells, new_candidates) if i in p),

@@ -224,6 +224,9 @@ def solve_payload(payload):
     started = time.perf_counter()
     grid = build_grid(payload)
     solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
+    # One interpreter serves every browser solve: return cached partitions now.
+    from gridsolver.rules.sumrules import release_partition_caches
+    release_partition_caches()
     rendered = []
     rows, cols = payload['rows'], payload['cols']
     for solution in sorted(solutions, key=lambda s: tuple(s)):
