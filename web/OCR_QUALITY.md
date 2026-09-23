@@ -164,3 +164,11 @@ These suites use known corners and mostly generated print. They are regression
 controls, not an accuracy estimate for unseen photographs or handwriting, and
 they do not measure grid detection. Tesseract's own guidance on segmentation
 and preprocessing: https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
+
+## Alternatives tried
+
+A 26,731-parameter printed-digit network was trained and measured as a possible
+single-digit reader in `experiments/tiny-digit-cnn/`. The app does not use it:
+neither phone performance nor an improvement over the Tesseract readers above
+has been established, and its README records the evidence and the conditions
+for a next stage.

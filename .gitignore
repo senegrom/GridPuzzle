@@ -30,6 +30,10 @@ _test/
 node_modules/
 _site/
 _preview/
+# scripts/build_web.py stages a new site and keeps the old one aside until the
+# swap succeeds; a killed build can leave either behind.
+._site-stage-*/
+._site-backup-*/
 browser-artifacts/
 scan-input-artifacts/
 

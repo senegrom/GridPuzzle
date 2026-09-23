@@ -113,8 +113,8 @@ A `ContextVar`-backed recursion flag prevents forcing-chain recursion without le
 **All-invalid in forcing chain raises `InvalidGrid`.**
 If all candidates of a cell lead to contradictions through the constraint engine, the grid is truly invalid. Propagation only removes candidates, so an empty candidate set is irreversible. `AtomicSolver` also treats an explicit `InvalidGrid` exception as authoritative even when a custom rule does not mutate candidates before raising.
 
-**Techniques using `unique_rule_cells` must filter to full-size groups.**
-KenKen and Killer Sudoku cages create small `ElementsAtMostOnce` groups. Techniques such as locked candidate and skyscraper assume groups have `max_elem` cells. Filter with `len(group) == grid.max_elem`.
+**Only techniques that need a value to appear in a group may restrict themselves to full-size groups.**
+KenKen and Killer Sudoku cages create small `ElementsAtMostOnce` groups. Locked candidates and skyscraper reason that a value must occur somewhere in a house, which holds only for full all-different houses, so they read `topology.houses`. Fish covers and naked tuples only need each group to hold a value at most once, so they read every group in `unique_rule_cells`, cages included; restricting them to full-size groups would silently drop valid eliminations.
 
 ## Correctness history
 
@@ -223,9 +223,10 @@ without reviewing fresh reports and removing recovered cases.
 
 Reports retain the raw `timeout` status and separately list `accepted_timeouts`,
 `unexpected_timeouts`, and `resolved_timeouts`. The latter identifies previously
-slow cases that completed uniquely, for baseline cleanup. The initial seven
-Slitherlink allowances were verified against the September 2 run's four shard
-artifacts, not newly measured on September 10. All expire on October 10, 2026.
+slow cases that completed uniquely, for baseline cleanup. The current
+allowances, the run they were reviewed against, the review date and the expiry
+date all live in `benchmarks/corpus_timeout_baseline.json`; the loader rejects
+an expiry more than 31 days after the review.
 Case reports are written before the runner returns a regression failure; invalid
 configuration fails before launching cases. Missing report artifacts fail the
 upload step. Changes anywhere in `gridsolver/`, the corpus runner, its policy
@@ -240,7 +241,7 @@ python scripts/run_new_family_corpus.py \
   --shard-count 4 \
   --case-timeout 60 \
   --timeout-baseline benchmarks/corpus_timeout_baseline.json \
-  --output hidato-0.json
+  --output artifacts/hidato-0.json
 ```
 
 Omit `--timeout-baseline` for a strict run in which every timeout fails.

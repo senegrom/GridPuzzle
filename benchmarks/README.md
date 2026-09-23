@@ -51,3 +51,4 @@ used for each accepted or rejected optimization.
 | 09-10 | stack_safe_search | accepted | explicit DFS stack and side-effect-free guarantee normalization; identical fingerprints, blank-4x4 21.5 s to 20.0 s |
 | 09-10 | extension_boundaries | accepted as correctness repair | twelve regressions fail on the baseline; native timing within +2.24% on three smoke cases |
 | 09-11 | extension_workers | accepted as correctness repair | seven of nine worker/metadata regressions fail on the baseline; no timing claim |
+| 09-21 | thread_driver_default_path (.md/.json) | accepted | thread executor rewritten onto the explicit-stack driver; default path byte-identical, sudoku4 33.54 s to 33.12 s with identical fingerprints |
