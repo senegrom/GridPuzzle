@@ -15,9 +15,9 @@ down to print contrast 15 on a clean print, and light strokes on a dark ground
 from about 45. The residual check's noise floor follows the grain measured in
 the two frames compared, so grain is not taken for a changed clue while clean
 prints keep the fixed floor (see "Noise units and acquisition diagnostics").
-Content sampling uses up to 1280 pixels rather than 640; detection retains
-its 640-pixel budget. Registration is not identity:
-a fitted rectangle alone never authorizes an overlay or captured metadata.
+Content sampling uses up to 1280 pixels rather than 640; detection retains its
+640-pixel budget. Registration is not identity: a fitted rectangle alone never
+authorizes an overlay or captured metadata.
 
 Each read stays anchored to its captured pixels. Verification compares to that
 anchor, never a chain of drifting successor frames. Background pixels/timers
@@ -158,9 +158,9 @@ the age crosses 500 ms on every reply and the label would otherwise flip with
 it. A reply is adopted while its own snapshot is at most two seconds old and
 newer than the last adopted one, also after the display has fallen back to an
 unverified frame; its snapshot replaces that frame. A new detection waits
-until the pending candidate has been verified or rejected, so slow replies
-verify candidates instead of seeing each replaced before its reply, and reads
-and solves run on the delayed tier. A shown snapshot older than two seconds
+until the pending candidate has been verified or rejected, so with slow replies
+each candidate is verified before the next replaces it, and reads and solves
+run on the delayed tier. A shown snapshot older than two seconds
 gives way to an unverified fresh frame: from about a second per verification
 the overlay alternates with such frames, and near two seconds it is rarely
 shown. A worker that never answers reaches the failure, backoff and Restart
