@@ -20,7 +20,7 @@ from gridsolver.rules.topology import (
     SingleLoopRule,
 )
 from gridsolver.solver import atomic_solver, solver
-import run as run_cli
+from gridsolver import cli as run_cli
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]

@@ -8,9 +8,10 @@ Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, Lati
 
 Input puzzles are read as modules that define the variable `g`, from `.pzl` or retained CSP-Rules `.clp` files, or from strings.
 
-Execute `python run.py -m Examples.exampleSudoku` to solve the Sudoku stored as `g` in `Examples/exampleSudoku.py`.
+Execute `python run.py -m gridsolver.examples.sudoku` to solve the Sudoku stored as `g` in `gridsolver/examples/sudoku.py`.
 Additional options print intermediate steps or run one of the built-in examples.
-Try `python run.py -v -m Examples.exampleSudoku` for all intermediate steps.
+Try `python run.py -v -m gridsolver.examples.sudoku` for all intermediate steps.
+An installed package provides the same command as `gridpuzzle` (`gridpuzzle -m gridsolver.examples.sudoku`).
 
 Try `python run.py -s ..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2. -c sudoku` to solve a Sudoku from an arbitrary string.
 
@@ -43,7 +44,7 @@ These families use compact keyed variables so blocked cells and graph edges are 
 
 _Str8ts_ (`gridsolver/grid_classes/str8ts.py`) is the twelfth family: white cells form horizontal and vertical streets that each hold a consecutive set in any order, and every number, including a clue printed on a black cell, is unique in its row and column. It is reached through the phone app and the browser data contract (`gridsolver/web_api.py`) on square boards up to 9×9; there is no `--class` value or example corpus for it, and it runs the `RULES_ONLY` profile.
 
-An example is the _Miracle Sudoku_ in `Examples/miracleSudoku.py`.
+An example is the _Miracle Sudoku_ in `gridsolver/examples/miracle_sudoku.py`.
 In addition to normal Sudoku rules, adjacent and knight-move-distant fields must not be equal, and horizontally or vertically adjacent fields must not differ by exactly 1.
 
 ## Solving techniques

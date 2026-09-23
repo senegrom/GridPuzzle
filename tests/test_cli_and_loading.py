@@ -16,7 +16,7 @@ from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.solver.logger import get_log
-from run import build_parser
+from gridsolver.cli import build_parser
 
 
 def test_grid_loading_uses_exact_integer_size_inference():
@@ -243,7 +243,7 @@ def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
 def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
     command = (
         "import sys; "
-        "import run; "
+        "import gridsolver.cli; "
         "print(sorted(name for name in sys.modules "
         "if name.startswith('gridsolver.grid_classes.')))"
     )
