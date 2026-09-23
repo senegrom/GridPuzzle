@@ -9,6 +9,7 @@ on:
       - "web/**"
       - "gridsolver/**"
       - "LICENSE"
+      - "third_party/licenses/**"
       - "scripts/build_web.py"
       - "scripts/fetch_live_fixtures.py"
       - "scripts/*.cjs"
@@ -50,6 +51,7 @@ jobs:
             web/**
             gridsolver/**
             LICENSE
+            third_party/licenses/**
             scripts/build_web.py
             scripts/fetch_live_fixtures.py
             scripts/*.cjs
