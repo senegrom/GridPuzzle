@@ -468,8 +468,9 @@ def test_ci_installs_the_pinned_versions_dependabot_keeps_current():
     assert 'directory: "/.github/actions/setup-project"' in entry
     assert "versioning-strategy: increase" in entry
     action = (_GITHUB / "actions" / "setup-project" / "action.yml").read_text(encoding="utf-8")
-    assert 'export PIP_CONSTRAINT="$GITHUB_ACTION_PATH/constraints.txt"' in action
-    assert 'export PIP_BUILD_CONSTRAINT="$PIP_CONSTRAINT"' in action
+    assert 'constraints="$GITHUB_ACTION_PATH/constraints.txt"' in action
+    assert 'export PIP_CONSTRAINT="$constraints"' in action
+    assert 'export PIP_BUILD_CONSTRAINT="$constraints"' in action
     for name in ("PIP_CONSTRAINT", "PIP_BUILD_CONSTRAINT"):
         assert f'echo "{name}=${name}" >> "$GITHUB_ENV"' in action
     assert ".github/actions/setup-project/constraints.txt" in action, "the pip cache key"
@@ -490,3 +491,13 @@ def test_ci_installs_the_pinned_versions_dependabot_keeps_current():
 def _release(version: str) -> tuple[int, ...]:
     parts = [int(part) for part in version.split(".")]
     return tuple(parts + [0] * (3 - len(parts)))
+
+
+def test_ci_tests_the_lowest_versions_pyproject_allows():
+    job = _jobs(_workflow("ci.yml"))["lower-bounds"]
+    assert "uses: ./.github/actions/setup-project\n" in job
+    assert 'lower-bounds: "true"' in job
+    assert "extras:" not in job, "the dependencies and the dev extra, the default"
+    assert 'python -X dev -m pytest -q tests -m "not slow"' in job
+    action = (_GITHUB / "actions" / "setup-project" / "action.yml").read_text(encoding="utf-8")
+    assert 'python scripts/lower_bounds.py "$EXTRAS" | tee "$constraints"' in action

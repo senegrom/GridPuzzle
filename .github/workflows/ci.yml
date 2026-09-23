@@ -87,6 +87,25 @@ jobs:
           -m "not slow"
           --durations=10
 
+  # pyproject.toml promises that the oldest versions it allows still work;
+  # the core job tests the pinned current ones.
+  lower-bounds:
+    name: Python 3.14 / lowest allowed dependencies
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install the lowest versions the dependencies and the dev extra allow
+        uses: ./.github/actions/setup-project
+        with:
+          lower-bounds: "true"
+      - name: Lint with the oldest ruff allowed
+        run: python -m ruff check .
+      - name: Discover and run every bounded test
+        run: python -X dev -m pytest -q tests -m "not slow"
+
   # The check to require. A job skipped by `if:` reports success, but a
   # matrix job skipped before it expands never reports its entries' names,
   # and a failed changes job would skip everything after it. This job always
@@ -94,7 +113,7 @@ jobs:
   result:
     name: CI result
     if: always()
-    needs: [changes, core]
+    needs: [changes, core, lower-bounds]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -102,7 +121,7 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           RELEVANT: ${{ needs.changes.outputs.relevant }}
-          RESULTS: ${{ needs.core.result }}
+          RESULTS: ${{ needs.core.result }} ${{ needs.lower-bounds.result }}
         run: |
           echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
           [ "$CHANGES" = success ]

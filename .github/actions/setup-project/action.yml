@@ -5,10 +5,15 @@ description: >-
   these lines. The installation, and every later pip call in the job
   including isolated builds, resolves against constraints.txt beside this
   file: the exact current versions CI tests, which Dependabot keeps current.
+  With lower-bounds set to "true" it installs the oldest versions
+  pyproject.toml allows for the dependencies and the extras instead.
 inputs:
   extras:
     description: Extras to install, in pip's bracket syntax
     default: dev
+  lower-bounds:
+    description: Install pyproject.toml's lower bounds ("true") rather than the pinned versions
+    default: "false"
 runs:
   using: composite
   steps:
@@ -22,11 +27,17 @@ runs:
     - shell: bash
       env:
         EXTRAS: ${{ inputs.extras }}
+        LOWER_BOUNDS: ${{ inputs.lower-bounds }}
       run: |
+        constraints="$GITHUB_ACTION_PATH/constraints.txt"
+        if [ "$LOWER_BOUNDS" = true ]; then
+          constraints="$RUNNER_TEMP/lower-bounds.txt"
+          python scripts/lower_bounds.py "$EXTRAS" | tee "$constraints"
+        fi
         # pip applies PIP_BUILD_CONSTRAINT, not PIP_CONSTRAINT, to isolated
         # builds. Later steps read both from GITHUB_ENV, this one from its shell.
-        export PIP_CONSTRAINT="$GITHUB_ACTION_PATH/constraints.txt"
-        export PIP_BUILD_CONSTRAINT="$PIP_CONSTRAINT"
+        export PIP_CONSTRAINT="$constraints"
+        export PIP_BUILD_CONSTRAINT="$constraints"
         echo "PIP_CONSTRAINT=$PIP_CONSTRAINT" >> "$GITHUB_ENV"
         echo "PIP_BUILD_CONSTRAINT=$PIP_BUILD_CONSTRAINT" >> "$GITHUB_ENV"
         python -m pip install --upgrade pip
