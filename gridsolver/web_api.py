@@ -248,7 +248,7 @@ def solve_json(text):
     try:
         payload = json.loads(text)
         result = solve_payload(payload)
-    except (TypeError, ValueError, KeyError) as exc:
+    except (TypeError, ValueError) as exc:
         result = {'status': 'invalid', 'message': str(exc)}
     except Exception as exc:
         # The browser must never see a raw traceback; an unexpected failure is
