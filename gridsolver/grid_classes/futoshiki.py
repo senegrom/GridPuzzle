@@ -77,9 +77,13 @@ class Futoshiki(UniqueSquareGrid):
         horizontal = values[grid_end:horizontal_end]
         vertical = values[horizontal_end:]
 
-        # row_wise only reorders the value section; the two inequality
-        # sections have a fixed row-major layout, so a transposed payload
-        # with inequalities would silently bind them to wrong cell pairs.
+        # row_wise only reorders the value section. The inequality sections
+        # have a fixed layout: the horizontal one is row-major (each row's
+        # cols-1 gaps left to right, rows top to bottom), the vertical one is
+        # column-major (each column's rows-1 gaps top to bottom, columns left
+        # to right), which is how the published corpus files come out
+        # unique. A transposed payload with inequalities would silently bind
+        # them to the wrong cell pairs.
         if not row_wise and any(
             symbol != "-" for symbol in (*horizontal, *vertical)
         ):
