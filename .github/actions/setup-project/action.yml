@@ -2,7 +2,9 @@ name: Set up the project
 description: >-
   Python 3.14 with pip caching, the project installed in editable mode with
   the requested extras, and pip check. Every Python workflow used to repeat
-  these lines.
+  these lines. The installation, and every later pip call in the job
+  including isolated builds, resolves against constraints.txt beside this
+  file: the exact current versions CI tests, which Dependabot keeps current.
 inputs:
   extras:
     description: Extras to install, in pip's bracket syntax
@@ -14,9 +16,19 @@ runs:
       with:
         python-version: "3.14"
         cache: pip
-        cache-dependency-path: pyproject.toml
+        cache-dependency-path: |
+          pyproject.toml
+          .github/actions/setup-project/constraints.txt
     - shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
       run: |
+        # pip applies PIP_BUILD_CONSTRAINT, not PIP_CONSTRAINT, to isolated
+        # builds. Later steps read both from GITHUB_ENV, this one from its shell.
+        export PIP_CONSTRAINT="$GITHUB_ACTION_PATH/constraints.txt"
+        export PIP_BUILD_CONSTRAINT="$PIP_CONSTRAINT"
+        echo "PIP_CONSTRAINT=$PIP_CONSTRAINT" >> "$GITHUB_ENV"
+        echo "PIP_BUILD_CONSTRAINT=$PIP_BUILD_CONSTRAINT" >> "$GITHUB_ENV"
         python -m pip install --upgrade pip
-        python -m pip install -e ".[${{ inputs.extras }}]"
+        python -m pip install -e ".[$EXTRAS]"
         python -m pip check

@@ -1,0 +1,18 @@
+# Newer npm releases that the browser runtime's pins deliberately do not
+# follow yet.
+#
+# scripts/check_runtime_pins.py fails its weekly run when a pin in
+# scripts/build_web.py or .github/actions/setup-scanner/action.yml trails the
+# registry's latest release, unless an entry here names that exact release;
+# then it prints the reason as a notice. A later release fails again, so each
+# new version is considered once. Remove an entry when its pin catches up.
+
+[[deferred]]
+package = "tesseract.js"
+version = "7.0.0"
+reason = "OCR engine changes need the recognition suites' baselines reviewed first"
+
+[[deferred]]
+package = "tesseract.js-core"
+version = "6.1.2"
+reason = "OCR engine changes need the recognition suites' baselines reviewed first"

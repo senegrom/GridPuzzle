@@ -1,0 +1,27 @@
+name: Runtime pins
+
+# Dependabot tracks neither the npm packages scripts/build_web.py pins for the
+# self-hosted browser runtime (Pyodide, tesseract.js, its core and English
+# data) nor the Playwright version in .github/actions/setup-scanner. This
+# fails when one trails npm's latest release and no entry in
+# scripts/runtime_pin_deferrals.toml acknowledges that release.
+on:
+  schedule:
+    - cron: "29 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: Browser runtime pins against npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+      - name: Compare each pin with the registry's latest release
+        run: python scripts/check_runtime_pins.py

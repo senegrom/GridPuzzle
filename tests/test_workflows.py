@@ -6,6 +6,7 @@ the helpers below rely on the two-space indentation the files use.
 
 from __future__ import annotations
 
+import fnmatch
 import glob
 import os
 import re
@@ -13,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -402,3 +404,89 @@ def test_extended_ci_runs_when_what_its_jobs_read_changes():
     }
     assert len(read) > 10
     assert {path for path in read if not _filter_selects(paths, path)} == set()
+
+
+_PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)
+
+
+def _action_pins() -> dict[str, list[tuple[str, str, str]]]:
+    """External `uses:` references by the directory Dependabot must scan."""
+    found: dict[str, list[tuple[str, str, str]]] = {}
+    for path in sorted((_GITHUB / "workflows").glob("*.yml")):
+        found.setdefault("/", []).extend(_PINNED_ACTION.findall(path.read_text(encoding="utf-8")))
+    for path in sorted((_GITHUB / "actions").glob("*/action.yml")):
+        pins = _PINNED_ACTION.findall(path.read_text(encoding="utf-8"))
+        if pins:
+            found[f"/.github/actions/{path.parent.name}"] = pins
+    return found
+
+
+def _dependabot_entry(ecosystem: str) -> str:
+    text = (_GITHUB / "dependabot.yml").read_text(encoding="utf-8")
+    entries = re.split(r"^  - ", text, flags=re.M)[1:]
+    (entry,) = [entry for entry in entries if entry.startswith(f"package-ecosystem: {ecosystem}\n")]
+    return entry
+
+
+def test_every_action_is_pinned_by_commit_with_its_version():
+    for directory, pins in _action_pins().items():
+        for action, ref, comment in pins:
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), f"{action}@{ref} in {directory}"
+            assert re.fullmatch(r" # v\d+(\.\d+)*", comment), f"{action} in {directory}"
+
+
+def test_dependabot_scans_every_directory_that_pins_an_action():
+    entry = _dependabot_entry("github-actions")
+    directories = re.findall(r'^      - "([^"]+)"$', entry, re.M)
+    assert "/" in directories
+    pinning = _action_pins()
+    assert len(pinning) > 1, "no composite action pins an action"
+    for directory in pinning:
+        assert any(fnmatch.fnmatchcase(directory, pattern) for pattern in directories), directory
+
+
+def _requirement_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _constraints() -> dict[str, str]:
+    lines = (_GITHUB / "actions" / "setup-project" / "constraints.txt").read_text(encoding="utf-8")
+    pins = {}
+    for line in lines.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        # Dependabot's pip support treats a .txt file as a requirements file
+        # when every line is blank, a comment or a requirement.
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)==(\d+(?:\.\d+)*)", line)
+        assert match, line
+        pins[_requirement_name(match[1])] = match[2]
+    return pins
+
+
+def test_ci_installs_the_pinned_versions_dependabot_keeps_current():
+    entry = _dependabot_entry("pip")
+    assert 'directory: "/.github/actions/setup-project"' in entry
+    assert "versioning-strategy: increase" in entry
+    action = (_GITHUB / "actions" / "setup-project" / "action.yml").read_text(encoding="utf-8")
+    assert 'export PIP_CONSTRAINT="$GITHUB_ACTION_PATH/constraints.txt"' in action
+    assert 'export PIP_BUILD_CONSTRAINT="$PIP_CONSTRAINT"' in action
+    for name in ("PIP_CONSTRAINT", "PIP_BUILD_CONSTRAINT"):
+        assert f'echo "{name}=${name}" >> "$GITHUB_ENV"' in action
+    assert ".github/actions/setup-project/constraints.txt" in action, "the pip cache key"
+    python = re.search(r'python-version: "([\d.]+)"', action).group(1)
+    assert (_GITHUB / "actions" / "setup-project" / ".python-version").read_text().strip() == python
+    pins = _constraints()
+    project = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    requirements = [*project["dependencies"]]
+    for extra in project["optional-dependencies"].values():
+        requirements += extra
+    for requirement in requirements:
+        name, minimum = re.fullmatch(r"([A-Za-z0-9._-]+)>=([\d.]+)", requirement).groups()
+        pinned = pins[_requirement_name(name)]
+        assert _release(pinned) >= _release(minimum), requirement
+    assert {"pip", "setuptools"} <= pins.keys()
+
+
+def _release(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in version.split(".")]
+    return tuple(parts + [0] * (3 - len(parts)))
