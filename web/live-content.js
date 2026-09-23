@@ -71,18 +71,21 @@ function structureCount(rows, cols) {
   return 4 * rows * cols + rows * (cols - 1) + (rows - 1) * cols;
 }
 
-export function sameGridContent(a, b) {
+export function sameGridContent(a, b, diagnostic = null) {
   if (!a || !b || a.rows !== b.rows || a.cols !== b.cols ||
     a.pixels?.length !== a.rows * a.cols * CELL || a.pixels.length !== b.pixels?.length ||
     a.structure?.length !== structureCount(a.rows, a.cols) * CELL ||
-    a.structure.length !== b.structure?.length) return false;
+    a.structure.length !== b.structure?.length) {
+    if (diagnostic) diagnostic.reason = 'invalid-content';
+    return false;
+  }
   // Cell interiors also need residual checks: the small missing left strokes
   // between 8 and 3 can pass a high-contrast area-only test. Registration must
   // not turn that changed clue into evidence of unchanged content. Boundary strips:
   // unstretched (a thin grid line straddling two samples must not be amplified
   // by tiny motion), the high-contrast test and the low-contrast residual test.
-  return sameRegions(a.pixels, b.pixels, true, [[.03, 2.5, false], [.01, .06, true]]) &&
-    sameRegions(a.structure, b.structure, false, [[.01, .8, false], [.01, .06, true]]);
+  return sameRegions(a.pixels, b.pixels, true, [[.03, 2.5, false], [.01, .06, true]], diagnostic) &&
+    sameRegions(a.structure, b.structure, false, [[.01, .8, false], [.01, .06, true]], diagnostic);
 }
 
 // Robust levels of one raw region: means over histogram bands rather than
@@ -117,7 +120,7 @@ function normalize(raw, offset, out, lightInk, level, scale) {
   }
 }
 
-function sameRegions(rawA, rawB, stretch, checks) {
+function sameRegions(rawA, rawB, stretch, checks, diagnostic) {
   const histogram = new Uint16Array(256), a = new Uint8Array(CELL), b = new Uint8Array(CELL),
     rangesA = new Uint8Array(CELL), rangesB = new Uint8Array(CELL);
   for (let offset = 0; offset < rawA.length; offset += CELL) {
@@ -132,7 +135,11 @@ function sameRegions(rawA, rawB, stretch, checks) {
     normalize(rawA, offset, a, lightInk, lightInk ? A.low : A.paper, scale);
     normalize(rawB, offset, b, lightInk, lightInk ? B.low : B.paper, scale);
     for (const [fraction, average, detail] of checks)
-      if (!regionMatches(a, b, fraction, average, detail, rangesA, rangesB)) return false;
+      if (!regionMatches(a, b, fraction, average, detail, rangesA, rangesB, NOISE * scale)) {
+        // Numeric region position and a bounded reason only; never raw pixels.
+        if (diagnostic) { diagnostic.reason = stretch ? 'cell-content' : 'structural-content'; diagnostic.region = offset / CELL; }
+        return false;
+      }
   }
   return true;
 }
@@ -153,7 +160,7 @@ function sameRegions(rawA, rawB, stretch, checks) {
 // evaluated only at the best raw registration, so it cannot pick a different
 // shift merely to hide weak ink behind a strong grid line.
 const NOISE = 4, REGISTRATION = .1;
-function regionMatches(a, b, fraction, average, detail, rangesA, rangesB) {
+function regionMatches(a, b, fraction, average, detail, rangesA, rangesB, noise) {
   if (!detail) {
     for (const shift of SHIFTS) if (passes(a, b, shift, fraction, average, 0, rangesA, rangesB)) return true;
     localRanges(a, rangesA); localRanges(b, rangesB);
@@ -165,14 +172,17 @@ function regionMatches(a, b, fraction, average, detail, rangesA, rangesB) {
   for (let i = 0; i < CELL; i++) if (Math.abs(a[i] - b[i]) > 2) { quiet = false; break; }
   if (quiet) return true;
   localRanges(a, rangesA); localRanges(b, rangesB);
-  return passes(a, b, bestRegistration(a, b), fraction, average, null, rangesA, rangesB);
+  // Contrast stretching scales both print and sensor noise. Keeping a raw
+  // four-level floor here amplified flat-cell noise into changed-clue evidence
+  // and could block acquisition indefinitely before OCR even started.
+  return passes(a, b, bestRegistration(a, b), fraction, average, null, rangesA, rangesB, noise);
 }
 
 // allow: 0 is the strict 64-level test, a number forgives that fraction of the
 // local contrast in the 64-level test, null is the low-contrast residual test.
-function passes(a, b, [dx, dy], fraction, average, allow, rangesA, rangesB) {
+function passes(a, b, [dx, dy], fraction, average, allow, rangesA, rangesB, noise = NOISE) {
   const ix = Math.floor(dx), iy = Math.floor(dy), fx = dx - ix, fy = dy - iy,
-    threshold = allow === null ? NOISE : 64;
+    threshold = allow === null ? noise : 64;
   let changed = 0, difference = 0;
   for (let y = 1; y < SIDE - 1; y++) for (let x = 1; x < SIDE - 1; x++) {
     const at = (y + iy) * SIDE + x + ix;
@@ -180,7 +190,7 @@ function passes(a, b, [dx, dy], fraction, average, allow, rangesA, rangesB) {
     const below = fy ? b[at + SIDE] * (1 - fx) + b[at + SIDE + (fx ? 1 : 0)] * fx : top;
     const av = a[y * SIDE + x], bv = top * (1 - fy) + below * fy;
     let allowance = 0;
-    if (allow === null) allowance = NOISE + .15 * Math.max(av, bv) + .4 * Math.max(rangesA[y * SIDE + x], rangesB[at]);
+    if (allow === null) allowance = noise + .15 * Math.max(av, bv) + .4 * Math.max(rangesA[y * SIDE + x], rangesB[at]);
     else if (allow) allowance = allow * Math.max(rangesA[y * SIDE + x], rangesB[at]);
     const delta = Math.max(0, Math.abs(av - bv) - allowance);
     difference += delta;

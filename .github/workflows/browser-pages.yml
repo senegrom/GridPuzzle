@@ -90,6 +90,8 @@ jobs:
         run: node scripts/app_review_regressions.cjs
       - name: Background tracking, targeted reads and diagnostic privacy
         run: node scripts/live_features_regressions.cjs
+      - name: Noisy live acquisition, automatic OCR and changed-content safety
+        run: node scripts/live_noise_regressions.cjs
       - name: Real degraded-to-clear live recovery and stalled-frame safety
         run: node scripts/live_recovery_regressions.cjs
       - name: Clue editor re-read proposals and confirmation

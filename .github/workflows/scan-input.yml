@@ -60,6 +60,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
+      - name: Noisy live acquisition, automatic OCR and changed-content safety
+        run: node scripts/live_noise_regressions.cjs
       - name: Real degraded-to-clear live recovery and stalled-frame safety
         run: node scripts/live_recovery_regressions.cjs
       - name: Fetch bounded external picture tests

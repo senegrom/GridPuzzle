@@ -38,13 +38,15 @@ export function createTrackingCore() {
         return { anchor: { id, matches, corners: anchor.corners }, retained: anchors.size };
       }
       if (task.op !== 'verify') throw Error('Unknown tracking operation.');
-      const proofs = {};
+      const proofs = {}, rejections = {};
       for (const id of keep) {
-        const anchor = anchors.get(id), match = anchor && matchGrid(anchor, task.image, anchor.hint ?? anchor.corners);
+        const diagnostic = {}, anchor = anchors.get(id),
+          match = anchor && matchGrid(anchor, task.image, anchor.hint ?? anchor.corners, diagnostic);
         if (match) anchor.hint = match.corners;
+        else rejections[id] = anchor ? diagnostic : { reason: 'missing-anchor' };
         proofs[id] = match ? { corners: match.corners } : null;
       }
-      return { proofs, retained: anchors.size };
+      return { proofs, rejections, retained: anchors.size };
     },
     get size() { return anchors.size; },
   };

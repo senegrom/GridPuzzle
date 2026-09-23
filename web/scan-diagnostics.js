@@ -4,7 +4,8 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
   'found','no-grid','small','blur','contrast','full-read','targeted','identical-crops','ocr-complete','read-complete',
   'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
   'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
-  'manual-corners','review-required','auto-solve-off']);
+  'manual-corners','review-required','auto-solve-off','alignment-rejected']);
+const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
 const settingsOf = value => {
@@ -39,6 +40,9 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
     if (value.background !== true && next !== stage) { timings[stage] = (timings[stage] ?? 0) + now() - stageAt; stageAt = now(); stage = next; }
     const entry = { milliseconds: number(now() - started), stage: next, reason: why, ...(value.background ? {background:true} : {}) };
     if (value.targets) entry.targets = indices(value.targets, 12);
+    if (MISMATCHES.has(value.mismatch)) entry.mismatch = value.mismatch;
+    if (Number.isInteger(value.region) && value.region >= 0 && value.region < 4096) entry.region = value.region;
+    if (why === 'alignment-rejected') counters.unmatchedCandidates = (counters.unmatchedCandidates ?? 0) + 1;
     for (const key of ['regions','calls','changed']) if (Number.isInteger(value[key]) && value[key] >= 0 && value[key] <= 10000) entry[key] = value[key];
     if (value.cancelledRead) counters.cancelledReads = (counters.cancelledReads ?? 0) + 1;
     if (value.cancelledSolve) counters.cancelledSolves = (counters.cancelledSolves ?? 0) + 1;
@@ -50,7 +54,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       firstReading = number(now() - started);
     if (!value.background) reason = why;
     const previous = events.at(-1);
-    if (!previous || previous.stage !== next || previous.reason !== why || JSON.stringify(previous.targets) !== JSON.stringify(entry.targets) || value.calls !== undefined) {
+    if (!previous || previous.stage !== next || previous.reason !== why || previous.mismatch !== entry.mismatch || previous.region !== entry.region || JSON.stringify(previous.targets) !== JSON.stringify(entry.targets) || value.calls !== undefined) {
       events.push(entry); events = events.slice(-64); notify();
     }
   }
@@ -86,6 +90,11 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       for (const key of ['submitted','completed','dropped','failures','milliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
       tracking.tier = frame.stale ? 'delayed' : 'live';
+      if (MISMATCHES.has(frame.rejection?.reason)) {
+        tracking.mismatch = frame.rejection.reason;
+        const region = frame.rejection.region;
+        if (Number.isInteger(region) && region >= 0 && region < 4096) tracking.region = region;
+      }
     },
     scheduling(stats) {
       scheduling = { mode: stats.mode === 'video-frame' ? 'video-frame' : 'fallback', fresh: !!stats.fresh, callbackStalled: !!stats.callbackStalled };
@@ -118,6 +127,7 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   'content-changed': 'The printed content changed. Old readings were retired.',
   'grid-lost': 'The grid was lost. Old readings are not being displayed.',
   'identical-crops': 'The retry has the same crop pixels; no additional OCR evidence was counted.',
+  'alignment-rejected': 'A grid was detected, but its printed content did not match between frames. Capture a single picture for review; the report records the rejected region when available.',
   'no-solution': 'These transcribed clues have no solution. Check the readings and puzzle rules.',
   multiple: 'These clues allow more than one solution. Check for a missing clue or rule.',
   unfinished: 'Search ended before a definitive result.', 'review-required': 'Check highlighted clues and confirm the rules.',

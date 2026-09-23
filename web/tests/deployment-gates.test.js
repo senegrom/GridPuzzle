@@ -16,7 +16,8 @@ test('master deployment waits for moving-camera acceptance of the exact built ar
  const quality=fs.readFileSync(new URL('../../.github/workflows/scan-input.yml',import.meta.url),'utf8');
  assert.match(quality,/node scripts\/live_recovery_regressions\.cjs/);
  assert.match(quality,/node scripts\/external_replay_regressions\.cjs/);
- for (const name of ['editor_reread', 'live_soak']) assert.ok(gate.includes(`node scripts/${name}_regressions.cjs`));
+ assert.match(quality,/node scripts\/live_noise_regressions\.cjs/);
+ for (const name of ['editor_reread', 'live_soak', 'live_noise']) assert.ok(gate.includes(`node scripts/${name}_regressions.cjs`));
  assert.doesNotMatch(gate,/build_web\.py/,'test the artifact rather than a separate rebuild');
  assert.match(source.slice(source.indexOf('  deploy:')),/needs: \[build, configure, live-acceptance\]/);
 });
