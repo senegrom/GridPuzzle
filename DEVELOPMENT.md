@@ -181,11 +181,13 @@ The default workflow:
 
 Corpus modules that are intentionally excluded from every push carry the
 `slow` marker at module scope and are selected explicitly by extended CI. A
-weekly/manual forward-compatibility workflow additionally exercises
-free-threaded Python 3.14 and the Python 3.15 prerelease with warnings treated
-as errors.
+forward-compatibility workflow, weekly, on demand and on pull requests that
+change Python code, additionally runs the bounded suite on free-threaded
+Python 3.14, with the GIL required off, and on the Python 3.15 prerelease,
+with warnings treated as errors.
 
-The scheduled/manual extended workflow includes:
+The extended workflow, which runs weekly, on demand and on every push to
+master that changes the solver, the example corpora or their tests, includes:
 
 - existing supported example corpora;
 - a 16-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: four deterministic shards per family, one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;

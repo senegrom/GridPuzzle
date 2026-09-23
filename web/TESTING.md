@@ -23,23 +23,29 @@ Automatic classification is treated as a trust boundary: automatically identifie
 
 ## How the browser suites run
 
-Every `scripts/*_regressions.cjs` suite is built on `scripts/harness.cjs`:
-`serve()` starts Python's `http.server` for the built site on a port the
-system picks (under `/GridPuzzle/` through the `_preview` link when a suite
-needs the Pages path), `engines()` runs the suite in Chromium and WebKit on a
-fresh phone-sized context with the service worker blocked, collects page
-errors, screenshots a failing engine and writes one report per engine under
-`browser-artifacts/`, and `baselineSite()` builds the two-root directory the
-paired suites use to compare the scanner with a pinned earlier one. The
-offline smoke suite alone asks for a fixed port, since it stops and restarts
-its origin and the service worker's cache must still belong to it. The
-service-worker unit tests share `web/tests/service-worker-fixture.js`, an
-in-memory CacheStorage with the install, activate and fetch events driven by
-hand.
+Most suites in `scripts/` are built on `scripts/harness.cjs`: `serve()` starts
+Python's `http.server` for the built site on a port the system picks (under
+`/GridPuzzle/` through the `_preview` link when a suite needs the Pages path)
+and stops it however the suite ends, `engines()` runs the suite in Chromium
+and WebKit on a fresh phone-sized context with the service worker blocked,
+collects page errors, screenshots a failing engine and writes one report per
+engine under `browser-artifacts/`, and `baselineSite()` builds the two-root
+directory the paired suites use to compare the scanner with a pinned earlier
+one. The offline smoke suite asks `serve()` for a fixed port (8765), since it
+stops and restarts its origin and the service worker's cache must still belong
+to it. Three suites serve the site themselves: `ocr_latency` from its own Node
+server on port 8777, which can serve a second build beside it; `solver_update`
+from a Node server on a port the system picks, to control what each request
+returns; and `detect_benchmark_regressions` through the corpus benchmark
+runner, which starts `http.server` on port 8782. `review_safety` and
+`structural_capture` do not run alone: `live_camera` and `review_safety` call
+them with their page. The service-worker unit tests share
+`web/tests/service-worker-fixture.js`, an in-memory CacheStorage with the
+install, activate and fetch events driven by hand.
 
 ### Suite inventory
 
-The 25 suites under `scripts/` (`harness.cjs` is the shared runner, not a
+The 26 suites under `scripts/` (`harness.cjs` is the shared runner, not a
 suite) and the workflow jobs that run them. `build` is the deployment gate's
 main job in `browser-pages.yml`, `live-acceptance` its fresh-runner job on the
 built artifact; `recognition` and `live` are the two parallel jobs of
@@ -101,7 +107,7 @@ Camera lifecycle tests cover cancellation while permission, video playback or gr
 
 Both browsers exercise a real two-tab service-worker update while an old dedicated solver worker is initializing, then request its original verified archive online and with the origin server stopped. This focused lifecycle fixture controls the initialization delay; the full solver and OCR checks above still use the production runtimes. Unit tests cover changed and reused archive bytes, repeated updates, workers that are not enumerable yet, and cleanup after the owning clients close. Old solver archives are retained for the tabs and workers present at activation and pruned at a later activation once those clients have gone.
 
-The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate, and it also runs on pull requests that touch `web/`, `scripts/`, `gridsolver/` or `pyproject.toml`, so those changes meet the whole gate before merge. `Scanner quality` runs the recognition suites and the external-picture replay in two parallel jobs on pull requests that touch the scanner, and `Browser branch tests` runs the unit tests and parse checks on every pull request. Normal Linux/Windows CI and forward compatibility remain independent.
+The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate. A push to master runs it, and deploys, only when it changes what the site or the gate reads: `web/`, `gridsolver/`, `LICENSE`, the build and fixture scripts, the suites, the three corpus modules the scanner-settings suite loads, `Examples/BrowserScanner/`, the workflow and the setup-scanner action, documents excluded. A pull request that changes any of these meets the whole gate before merge. `Scanner quality` runs the recognition suites and the external-picture replay in two parallel jobs on pull requests that touch the scanner, and `Browser branch tests` runs the unit tests and parse checks on every pull request. Normal Linux/Windows CI and forward compatibility remain independent. All five start on every pull request, so that their checks always report; in all but `Browser branch tests` a first job decides whether the rest needs to run.
 
 
 ## Play confirmation and uniqueness
