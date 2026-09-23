@@ -20,6 +20,22 @@ const SMALL_PHONE = Object.freeze({ ...PHONE, viewport: { width: 390, height: 84
 // A directory link that needs no privilege on Windows.
 const link = (target, at) => fs.symlinkSync(path.resolve(target), at, process.platform === "win32" ? "junction" : "dir");
 
+/* What to clean up however the process ends. On Linux and macOS a child
+   outlives a Node process that crashes, so a static server would keep its
+   port and the directory it serves (on Windows, libuv's job object already
+   ends it with Node); and a suite killed mid-run must not leave a copy of
+   the built site in the system temp. The exit event runs only synchronous
+   code: kill() signals at once, and the directories go after the servers
+   that hold them. */
+const servers = new Set(), temporary = new Set();
+const removeTemporary = () => { for (const d of temporary) { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5 }); temporary.delete(d); } };
+process.once("exit", () => {
+  for (const server of servers) server.kill();
+  removeTemporary();
+});
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]])
+  process.once(signal, () => process.exit(code));
+
 /* Python's http.server serving `directory` on a port the system picks, or on
    `port` for a suite that stops and restarts its origin. `pages: true` serves
    the site under /GridPuzzle/ through the _preview link, as GitHub Pages does.
@@ -35,6 +51,8 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
   }
   const server = spawn("python", ["-u", "-m", "http.server", String(port), "--bind", "127.0.0.1", "--directory", directory],
     { stdio: ["ignore", "pipe", "ignore"] });
+  servers.add(server);
+  server.once("exit", () => servers.delete(server));
   const close = () => new Promise((resolve) => {
     if (server.exitCode !== null || server.signalCode !== null) return resolve();
     server.once("exit", resolve);
@@ -66,14 +84,6 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
   await close();
   throw Error(`${base} did not answer within a minute`);
 }
-
-// Temporary directories to remove however the process ends; a suite killed
-// mid-run must not leave a copy of the built site in the system temp.
-const temporary = new Set();
-const removeTemporary = () => { for (const d of temporary) { fs.rmSync(d, { recursive: true, force: true }); temporary.delete(d); } };
-process.once("exit", removeTemporary);
-for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]])
-  process.once(signal, () => { removeTemporary(); process.exit(code); });
 
 /* A temporary directory holding the built site twice: `candidate` is the
    site as built, `baseline` a copy in which `files` (under web/) come from
