@@ -104,7 +104,7 @@ jobs:
           else f'the GIL is enabled: {sys.version}')"
 
       - name: Compile Python sources with warnings as errors
-        run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+        run: python -m compileall -q gridsolver tests scripts Examples run.py
 
       - name: Discover and run every bounded test
         run: >-

@@ -9,7 +9,6 @@ on:
       # The example corpora, their tests and what those import; they run in
       # no other workflow.
       - "Examples/**"
-      - "examples2.py"
       - "tests/helpers.py"
       - "tests/test_examples_*.py"
       - "scripts/run_new_family_corpus.py"

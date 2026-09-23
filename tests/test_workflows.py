@@ -190,7 +190,6 @@ _SAMPLE_PATHS = (
     "tests/test_data/sudoku2x2.pzl",
     "pyproject.toml",
     "run.py",
-    "examples2.py",
     "benchmarks/record.json",
     "experiments/tiny-digit-cnn/infer.mjs",
     ".github/workflows/ci.yml",
@@ -395,7 +394,6 @@ def test_extended_ci_runs_when_what_its_jobs_read_changes():
     }
     read |= {
         "tests/helpers.py",
-        "examples2.py",
         "Examples/Sudoku/16x16/Metcalf-16x16-NP.clp",
         "Examples/Slitherlink/Tatham/H7x7-L10-W5.clp",
         "scripts/run_new_family_corpus.py",

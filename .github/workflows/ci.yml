@@ -78,7 +78,7 @@ jobs:
         run: python -m ruff check .
 
       - name: Compile Python sources
-        run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+        run: python -m compileall -q gridsolver tests scripts Examples run.py
 
       - name: Discover and run every bounded test
         run: >-

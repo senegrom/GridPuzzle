@@ -48,12 +48,14 @@ include = ["gridsolver*", "Examples"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-config", "--strict-markers"]
-# pytest attaches its capture handler at level NOTSET to the root logger for
-# every test. The solver renders search steps whenever a handler would accept
-# them, so without a level here a sequential deep search formats every step
-# for a handler nobody reads: the 1024-decision chain took 27 s instead of
-# 0.85 s (measured 2026-09-21). Tests that read the log raise the level
-# themselves with caplog.set_level.
+# pytest attaches its capture handler to the root logger for every test,
+# at level NOTSET unless this sets one. The solver logs its steps at INFO and
+# DEBUG under the "gridsolver" logger and renders a step only when some
+# handler would accept it, so at WARNING the capture handler admits no solver
+# output and a deep search formats nothing that nobody reads. (Before solver
+# logging used standard levels, a NOTSET handler slowed the 1024-decision
+# chain from 0.85 s to 27 s, measured 2026-09-21.) Tests that read the log set
+# the level they need with caplog.set_level.
 log_level = "WARNING"
 xfail_strict = true
 markers = [
