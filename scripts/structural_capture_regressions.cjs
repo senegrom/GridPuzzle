@@ -6,9 +6,8 @@ const fs = require("node:fs"), path = require("node:path");
 async function structuralProbe({ ink = 0, vertical = false, erase = false, hold = 12000 } = {}) {
   const { demo } = await import("./model.js");
   const { gridContent, sameGridContent } = await import("./live-content.js");
-  const { createLiveCamera, fingerprint } = await import("./live-camera.js");
+  const { createLiveCamera } = await import("./live-camera.js");
   const { createLiveTracker } = await import("./live-tracker.js");
-  const { sameFrame } = await import("./live-overlay.js");
   const puzzle = demo("futoshiki"), size = 900, cell = size / 4;
   puzzle.inequalities = [{ less: 0, greater: vertical ? 4 : 1 }];
   const scenario = vertical ? "vertical" : "horizontal";
@@ -45,7 +44,7 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
   const pixels=[];
   for(const kind of ["horizontal","vertical","horizontal-erase","vertical-erase","label","wall"]) {
     const a=board(kind),b=board(kind,true),reference=content(a);
-    pixels.push({kind,coarseSame:sameFrame(fingerprint(a),fingerprint(b)),changed:sameGridContent(reference,content(b)),
+    pixels.push({kind,changed:sameGridContent(reference,content(b)),
       identical:sameGridContent(reference,content(a)),light:sameGridContent(reference,content(board(kind,false,0,.94))),
       jitter:sameGridContent(reference,content(board(kind,false,1)))});
   }
@@ -236,7 +235,6 @@ async function storageProbe(page) {
 
 function assertStructural(structural) {
   for(const p of structural.pixels){assert.equal(p.changed,false,`${structural.ink}: ${p.kind} change`);assert.equal(p.identical,true);assert.equal(p.light,true,`${p.kind} lighting`);assert.equal(p.jitter,true,`${p.kind} jitter`);}
-  assert.equal(structural.pixels[0].coarseSame,true,"fixture must exercise a change the coarse motion check misses");
   for(const row of structural.outcomes){assert.equal(row.after,0,row.phase);assert.equal(row.metadata,null);assert.equal(row.rawMatches,true);assert.ok(row.reads>=2);assert.equal(row.finalAnswers,0);
     if(row.phase==="solved")assert.equal(row.before,4);if(row.phase==="reading")assert.equal(row.solvesBeforeReread,0);}
 }

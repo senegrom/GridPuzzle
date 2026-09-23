@@ -24,29 +24,12 @@ function copyCanvas(source) {
   canvas.getContext("2d").drawImage(source, 0, 0);
   return canvas;
 }
-let thumbnail = null;
-export function fingerprint(image) {
-  // One reusable 64 px canvas: this runs ten times a second.
-  const canvas = thumbnail ??= document.createElement("canvas"); canvas.width = canvas.height = 64;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(image, 0, 0, 64, 64);
-  const rgba = ctx.getImageData(0, 0, 64, 64).data, signature = new Uint8Array(4096);
-  let at = 0;
-  // 8x8 spatial blocks, not whole scanlines, for local change detection.
-  for (let by = 0; by < 64; by += 8) for (let bx = 0; bx < 64; bx += 8)
-    for (let y = by; y < by + 8; y++) for (let x = bx; x < bx + 8; x++) {
-      const i = 4 * (y * 64 + x);
-      signature[at++] = (77 * rgba[i] + 150 * rgba[i + 1] + 29 * rgba[i + 2]) >> 8;
-    }
-  return signature;
-}
-
 export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
   diagnostics = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, detection = null, epoch = 0, lastDetect = -Infinity;
-  let raw = null, guide = null, guideFrame = null, displayed = null, signature = null;
+  let raw = null, guide = null, guideFrame = null, displayed = null;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, displayedSerial = 0, sampledAt = -Infinity, retryTrackingAt = 0;
   // Two tiers of verified display. A snapshot within FRESH is live. One older
@@ -183,7 +166,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (job) clearTimer(job.deadline);
     detector.cancel();
   }
-  async function locate(image, frameSignature, settings, key, owner) {
+  async function locate(image, settings, key, owner) {
     const job = {};
     detection = job; lastDetect = now();
     const current = () => active && owner === epoch && key === settingsKey && detection === job;
@@ -233,7 +216,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const anchor = await anchorOf(image, corners, rows, cols);
       if (!current()) return;
       if (!anchor) { session.suspend(); return; }
-      const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
+      const frame = { image, corners, width: image.width, height: image.height,
         rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
         anchor };
       frame.warning = qualityMessage(found.quality) ||
@@ -283,9 +266,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       raw = image; adopted = true; sampledAt = at; displayedSerial = id;
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
         [anchor, view ? { ...view, width, height } : null]));
-      signature = fingerprint(raw);
       if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
-      session.motion(signature);
+      session.motion();
       const candidate = pendingCandidate;
       if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
         pendingCandidate = null;
@@ -374,7 +356,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       } else { session.validate(); render(); }
       if (!recovery.blocked && now() >= retryTrackingAt) {
         if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300))
-          void locate(copyCanvas(image), fingerprint(image), setting, settingsKey, epoch);
+          void locate(copyCanvas(image), setting, settingsKey, epoch);
         void track(image, settingsKey, epoch); image = null;
       }
     } catch (error) { say(error.message || "Waiting for the camera…"); }
@@ -382,7 +364,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   return {
     start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
-    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; updateRestartControl(); },
+    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; updateRestartControl(); },
     restart() {
       if (!active) return;
       epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();

@@ -8,7 +8,7 @@ import vm from "node:vm";
 import { makePuzzle, checkShape } from "../model.js";
 import { prepareEdit } from "../edit-history.js";
 import { sniffDimensions } from "../image-dimensions.js";
-import { previewBlocker, previewAllowed, drawLiveOverlay } from "../live-overlay.js";
+import { previewBlocker, drawLiveOverlay } from "../live-overlay.js";
 import { createLiveCamera } from "../live-camera.js";
 import { captureTransaction, setupCaptureGallery } from "../capture-store.js";
 import { createTaskController } from "../task-controller.js";
@@ -108,7 +108,6 @@ test("the preview blocker names the actual obstacle", () => {
   puzzle.cells = [1, null, null, null];
   assert.match(previewBlocker({ puzzle, markedCells: [0, 3] }), /Red \? cells/);
   assert.equal(previewBlocker({ puzzle, markedCells: [0] }), null);
-  assert.equal(previewAllowed({ puzzle, markedCells: [0] }), true);
   const cage = makePuzzle("kenken", 2);
   cage.cages = [{ cells: [0, 1], target: 3, op: "+" }];
   assert.match(previewBlocker({ puzzle: cage, markedCells: [] }), /cage/i);

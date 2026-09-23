@@ -127,8 +127,8 @@ they do not establish a new universal OCR accuracy or physical-phone speed figur
 
 ## Content checks, faint clues and deletion ordering
 
-The coarse camera-motion fingerprint is not used to certify individual clues.
-The live preview also keeps an area-sampled 24-by-24 signature for each cell,
+No whole-frame thumbnail or motion fingerprint certifies clues; the camera
+keeps none. The live preview keeps an area-sampled 24-by-24 signature for each cell,
 including white-on-black marks. Cell-local illumination normalization and small
 registration offsets tolerate modest brightness changes and sub-cell jitter.
 A changed signature retires the old recognition and solution, including delayed
