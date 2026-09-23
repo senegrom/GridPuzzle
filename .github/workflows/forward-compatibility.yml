@@ -19,7 +19,15 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONHASHSEED: random
   PYTHONUNBUFFERED: "1"
-  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning"
+  # Warnings are errors. Two filters come after the categories: an import
+  # that re-enables the GIL on the free-threaded build fails too, where
+  # Python only warns; and Python 3.15's linecache warning that module
+  # globals lack __spec__.loader is ignored. Python itself creates such
+  # globals for the __mp_main__ module of a spawned worker, so formatting a
+  # traceback through a worker function defined in a script's __main__
+  # killed the worker and turned the two process-failure probes'
+  # deliberate errors into BrokenProcessPool.
+  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning,error:The global interpreter lock (GIL) has been enabled:RuntimeWarning,ignore:Module globals is missing a __spec__.loader:DeprecationWarning"
 
 jobs:
   changes:
@@ -38,13 +46,14 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/changed-paths
         with:
+          # the Python the bounded suite runs, with the data it reads
           paths: |
-            .github/workflows/forward-compatibility.yml
+            **/*.py
             gridsolver/**
             tests/**
+            Examples/**
             pyproject.toml
-            run.py
-            examples2.py
+            .github/workflows/forward-compatibility.yml
 
   compatibility:
     name: ${{ matrix.label }}
@@ -84,26 +93,23 @@ jobs:
           python -m pip wheel --no-deps . --wheel-dir dist
           gridpuzzle --help
 
+      # setup-python's freethreaded input must really have produced a build
+      # without the GIL, and importing the package and what the tests use
+      # must not have turned it back on.
+      - name: Require the GIL to be disabled
+        if: matrix.freethreaded
+        run: >-
+          python -c "import sys, sysconfig, colorama, gridsolver.solver.solver, pytest, rich;
+          sys.exit(0 if sysconfig.get_config_var('Py_GIL_DISABLED') and not sys._is_gil_enabled()
+          else f'the GIL is enabled: {sys.version}')"
+
       - name: Compile Python sources with warnings as errors
         run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
 
-      - name: Run the portable compatibility surface
+      - name: Discover and run every bounded test
         run: >-
           python -X dev -m pytest -q
-          tests/test_cli_and_loading.py
-          tests/test_thread_executor.py
-          tests/test_parser_fuzzing.py
-          tests/test_candidate_domain.py
-          tests/test_candidate_view.py
-          tests/test_compact_api_hardening.py
-          tests/test_partition_cache.py
-          tests/test_rule_inputs.py
-          tests/test_solution_validation.py
-          tests/test_path_guarantees.py
-          tests/test_new_puzzle_families.py
-          tests/test_trail.py
-          tests/test_differential.py
-          tests/test_handler_aware_logging.py
+          tests
           -m "not slow"
           --durations=10
 
