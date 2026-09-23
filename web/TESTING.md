@@ -47,20 +47,20 @@ built artifact; `recognition` and `live` are the two parallel jobs of
 
 | Suite | Proves | Runs in |
 | --- | --- | --- |
-| `app_review_regressions.cjs` | file download/import, camera-preference races and modal behaviour in the real UI | `live`, `live-acceptance` |
+| `app_review_regressions.cjs` | file download/import, camera-preference races and modal behaviour in the real UI | `live-acceptance` |
 | `browser_regressions.cjs` | generated OCR, perspective and review regressions on the production scanner | `build` |
 | `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
-| `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live`, `live-acceptance` |
+| `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR, recorded as coverage | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live`, `build` (first step) |
-| `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live`, `live-acceptance` |
-| `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live`, `live-acceptance` |
-| `live_recovery_regressions.cjs` | degraded-to-clear automatic recovery of one printed cell with nothing injected | `live`, `live-acceptance` |
-| `live_soak_regressions.cjs` | twenty camera sessions leave no workers, timers or buffers behind | `live`, `live-acceptance` |
-| `newspaper_regressions.cjs` | the two real newspaper crops: no wrong, missed or invented clue unflagged; then runs `ocr_quality` | `build` |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `build` (first step) |
+| `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
+| `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live-acceptance` |
+| `live_recovery_regressions.cjs` | degraded-to-clear automatic recovery of one printed cell with nothing injected | `live-acceptance` |
+| `live_soak_regressions.cjs` | twenty camera sessions leave no workers, timers or buffers behind | `live-acceptance` |
+| `newspaper_regressions.cjs` | the two real newspaper crops: no wrong, missed or invented clue unflagged | `build` |
 | `ocr_latency_regressions.cjs` | one warm OCR engine is reused across reads; times are reported, not enforced | `build` |
-| `ocr_quality_regressions.cjs` | contrast, resolution, blur and generated-clue quality floors with zero unflagged discrepancies | `recognition`, inside `newspaper` |
+| `ocr_quality_regressions.cjs` | contrast, resolution, blur and generated-clue quality floors with zero unflagged discrepancies | `recognition`; `build` on pushes and manual runs |
 | `photo_read_regressions.cjs` | a failed, malformed or cancelled photo read preserves the solved board, overlay and session | `build` |
 | `play_regressions.cjs` | Play mode against the real solver: answers, clashes, checking, hints, completion, reload | `build` |
 | `play_safety_regressions.cjs` | scan confirmation for Check and Hint, uniqueness, cancellation and late callbacks | `build` |
@@ -101,7 +101,7 @@ Camera lifecycle tests cover cancellation while permission, video playback or gr
 
 Both browsers exercise a real two-tab service-worker update while an old dedicated solver worker is initializing, then request its original verified archive online and with the origin server stopped. This focused lifecycle fixture controls the initialization delay; the full solver and OCR checks above still use the production runtimes. Unit tests cover changed and reused archive bytes, repeated updates, workers that are not enumerable yet, and cleanup after the owning clients close. Old solver archives are retained for the tabs and workers present at activation and pruned at a later activation once those clients have gone.
 
-The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate, and it also runs on pull requests that touch `web/`, `scripts/`, `gridsolver/` or `pyproject.toml`, so those changes meet the whole gate before merge. `Scanner quality` runs the recognition and live suites in two parallel jobs on pull requests that touch the scanner, and `Browser branch tests` runs the unit tests and parse checks on every pull request. Normal Linux/Windows CI and forward compatibility remain independent.
+The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate, and it also runs on pull requests that touch `web/`, `scripts/`, `gridsolver/` or `pyproject.toml`, so those changes meet the whole gate before merge. `Scanner quality` runs the recognition suites and the external-picture replay in two parallel jobs on pull requests that touch the scanner, and `Browser branch tests` runs the unit tests and parse checks on every pull request. Normal Linux/Windows CI and forward compatibility remain independent.
 
 
 ## Play confirmation and uniqueness
@@ -170,9 +170,10 @@ coverage without downloading dependencies.
 ## OCR quality
 
 [OCR_QUALITY.md](OCR_QUALITY.md) describes each recognition mechanism with its
-measurements and the acceptance suites. The newspaper gate runs the production
-OCR quality suite in Chromium and mobile WebKit, using real Tesseract and fixed
-reference clues.
+measurements and the acceptance suites. The production OCR quality suite runs
+in Chromium and mobile WebKit, using real Tesseract and fixed reference clues:
+in Scanner quality on pull requests, and in the deployment gate on every
+deployment.
 
 ## Live detector recovery
 

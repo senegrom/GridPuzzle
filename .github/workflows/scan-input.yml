@@ -38,7 +38,9 @@ jobs:
   # The two jobs are separate on purpose: after the four recognition suites
   # have run on a runner, WebKit no longer starts playback of a canvas stream
   # and the live-motion suite waits forever (measured 2026-09-18), while on
-  # a runner of its own it finishes in half a minute.
+  # a runner of its own it finishes in half a minute. The external replay
+  # plays a canvas stream too; the other live suites run in the deployment
+  # gate (browser-pages.yml), whose paths cover all of these but this file.
   recognition:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
@@ -82,24 +84,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
-      - name: Noisy live acquisition, automatic OCR and changed-content safety
-        run: node scripts/live_noise_regressions.cjs
-      - name: Real degraded-to-clear live recovery and stalled-frame safety
-        run: node scripts/live_recovery_regressions.cjs
       - name: Fetch bounded external picture tests
         run: python scripts/fetch_live_fixtures.py
-      - name: Real moving-video scanning and external picture tracking
-        run: node scripts/live_motion_regressions.cjs
-      - name: Camera capture and solver integration
-        run: node scripts/live_camera_regressions.cjs
-      - name: Backup, preferences and modal integration
-        run: node scripts/app_review_regressions.cjs
-      - name: Background tracking, targeted reads and diagnostic privacy
-        run: node scripts/live_features_regressions.cjs
-      - name: Clue editor re-read proposals and confirmation
-        run: node scripts/editor_reread_regressions.cjs
-      - name: Repeated-session worker and image ownership soak
-        run: node scripts/live_soak_regressions.cjs
       - name: External pictures through automatic detection, tracking and OCR
         run: node scripts/external_replay_regressions.cjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

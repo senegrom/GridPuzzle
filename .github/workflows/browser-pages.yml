@@ -46,7 +46,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
-      - run: python -m pip install -e '.[dev]'
       # The bounded Python suite runs in CI on every push and pull request, and
       # the browser unit tests run in "Browser branch tests" on every pull
       # request; on a master push this is the only place the latter run.
@@ -81,6 +80,11 @@ jobs:
         run: |
           node scripts/browser_regressions.cjs
           node scripts/newspaper_regressions.cjs
+      # Scanner quality runs this on pull requests, ahead of the two suites
+      # that compare with its report; every deployment runs it here.
+      - name: Newspaper, font and degraded-image quality checks
+        if: github.event_name != 'pull_request'
+        run: node scripts/ocr_quality_regressions.cjs
       - name: Upload screenshots and test report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

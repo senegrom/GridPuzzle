@@ -143,13 +143,13 @@ results, packing limits, retry priority, cache ownership and cancellation.
 
 ## Acceptance suites
 
-`scripts/ocr_quality_regressions.cjs`, run by `newspaper_regressions.cjs` and
-by the Scanner quality workflow, scans the newspaper crops and generated one-,
-two- and three-digit clues at 35% and 65% contrast, half resolution and blur,
-with two font, size and position cases held out from candidate selection. It
-requires exact black-cell geometry, zero unflagged discrepancies, minimum
-correct counts, bounded numeric review flags and the confirmation warning when
-contrast is adjusted; raw measurements are kept in
+`scripts/ocr_quality_regressions.cjs`, run by the Scanner quality workflow on
+pull requests and by the deployment gate on pushes, scans the newspaper crops
+and generated one-, two- and three-digit clues at 35% and 65% contrast, half
+resolution and blur, with two font, size and position cases held out from
+candidate selection. It requires exact black-cell geometry, zero unflagged
+discrepancies, minimum correct counts, bounded numeric review flags and the
+confirmation warning when contrast is adjusted; raw measurements are kept in
 `browser-artifacts/ocr-quality.json`.
 
 `scripts/recognition_segments_regressions.cjs` compares the production scanner
