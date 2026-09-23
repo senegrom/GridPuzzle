@@ -30,8 +30,8 @@ NPM = shutil.which("npm") or "npm"
 # reach the deployed site.
 PACKAGES = {
     "pyodide": (
-        "314.0.6",
-        "sha512-BKDTJyIqFxC4BExLqeRS3f5xvXZIjOt8C3zGLN/Cc7tFxSwvKVhVkchQQ2AGLOtR4YrVOIFxbV8poyDOOmWwxQ==",
+        "314.0.7",
+        "sha512-0YvXxEhfEdpLfb/XkM2BFAeMROq0iMUX2bzzH9pOttyMcWkwq+HbE5uyuGD82LN7y2q+SNvi/6V5JEsOlD2R1A==",
     ),
     "tesseract.js": (
         "6.0.1",
@@ -46,6 +46,56 @@ PACKAGES = {
         "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==",
     ),
 }
+
+
+# Licence texts the build ships in addition to a package's own licence files.
+# Pyodide's npm package ships none, and its python_stdlib.zip is the CPython
+# standard library; the English model package ships none either. See
+# third_party/licenses/README.md for where each text comes from.
+VENDORED_LICENCES = ROOT / "third_party" / "licenses"
+EXTRA_LICENCES = {
+    "pyodide": ("pyodide/LICENSE", "pyodide/CPython-LICENSE"),
+    "@tesseract.js-data/eng": ("tesseract.js-data-eng/LICENSE",),
+}
+# What the notices file says about a package beyond its metadata licence.
+LICENCE_NOTES = {
+    "pyodide": "bundles the CPython standard library under the PSF License Agreement",
+    "@tesseract.js-data/eng": (
+        "the model data it redistributes (naptha/tessdata, from "
+        "tesseract-ocr/tessdata_best) is Apache-2.0"
+    ),
+}
+
+
+def licence_files(name, source):
+    """Every licence text shipped for a package: its own files plus vendored ones.
+
+    A package that brings no licence file and has none vendored stops the
+    build rather than being published without its licence.
+    """
+    own = [path for path in sorted(source.glob("*LICENSE*")) if path.is_file()]
+    vendored = [VENDORED_LICENCES / relative for relative in EXTRA_LICENCES.get(name, ())]
+    for path in vendored:
+        if not path.is_file():
+            raise FileNotFoundError(f"Vendored licence text missing: {path}")
+    if not own and not vendored:
+        raise FileNotFoundError(
+            f"{name} ships no licence file and none is vendored in {VENDORED_LICENCES}"
+        )
+    return own + vendored
+
+
+def core_files(source):
+    """The plain and SIMD LSTM-only core loaders.
+
+    Each *.wasm.js loader embeds its WebAssembly binary, and the Tesseract
+    worker only ever requests the loaders, so the separate *.wasm files would
+    add 5.5 MiB to every offline download without being used.
+    """
+    cores = sorted(source.glob("*lstm.wasm.js"))
+    if len(cores) != 2:
+        raise FileNotFoundError(f"Expected the plain and SIMD LSTM core loaders: {cores}")
+    return cores
 
 
 def tarball_integrity(path):
@@ -270,12 +320,14 @@ def build(out):
         licence.compress_type = zipfile.ZIP_DEFLATED
         archive.writestr(licence, (ROOT / "LICENSE").read_bytes())
     provenance = []
+    notices = []
     with tempfile.TemporaryDirectory() as temporary:
         for name, (version, pinned) in PACKAGES.items():
             source, integrity = package(name, version, pinned, Path(temporary))
             provenance.append(
                 {"package": name, "version": version, "integrity": integrity}
             )
+            bundle_notices = []
             if name == "pyodide":
                 # Since 314.0 the Emscripten bootstrap is a native ES module.
                 for file in (
@@ -290,15 +342,15 @@ def build(out):
             elif name == "tesseract.js":
                 for file in ("tesseract.min.js", "worker.min.js"):
                     copy(source / "dist" / file, vendor / "tesseract" / file)
+                    # Each bundle's header points to this sibling notice file,
+                    # which lists the licences of the code bundled into it.
+                    notice = f"{file}.LICENSE.txt"
+                    copy(source / "dist" / notice, vendor / "tesseract" / notice)
+                    bundle_notices.append(f"vendor/{build}/tesseract/{notice}")
             elif name == "tesseract.js-core":
                 # The OCR host runs Tesseract in LSTM-only mode, so the legacy-engine
                 # core variants would only enlarge the offline download.
-                cores = sorted(source.glob("*lstm*.wasm*"))
-                if len(cores) != 4:
-                    raise FileNotFoundError(
-                        f"Expected the plain and SIMD LSTM cores with their loaders: {cores}"
-                    )
-                for file in cores:
+                for file in core_files(source):
                     copy(file, vendor / "tesseract-core" / file.name)
             else:
                 candidates = sorted(source.rglob("eng.traineddata.gz"))
@@ -308,14 +360,20 @@ def build(out):
                         f"English best_int model not found: {candidates}"
                     )
                 copy(preferred[0], vendor / "tessdata/eng.traineddata.gz")
-            for license_path in source.glob("*LICENSE*"):
-                if license_path.is_file():
-                    copy(
-                        license_path,
-                        out
-                        / "licenses"
-                        / f"{name.replace('/', '_').replace('@', '')}-{license_path.name}",
-                    )
+            prefix = name.replace("/", "_").replace("@", "")
+            shipped = []
+            for license_path in licence_files(name, source):
+                target = f"licenses/{prefix}-{license_path.name}"
+                copy(license_path, out / target)
+                shipped.append(target)
+            shipped.extend(bundle_notices)
+            package_json = source / "package.json"
+            metadata = (
+                json.loads(package_json.read_text(encoding="utf-8"))
+                if package_json.is_file()
+                else {}
+            )
+            notices.append((name, version, metadata.get("license", "see licence text"), shipped))
     for name, size in [
         ("apple-touch-icon.png", 180),
         ("icon-192.png", 192),
@@ -330,10 +388,17 @@ def build(out):
         encoding="utf-8",
         newline="\n",
     )
+    lines = [
+        "GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle",
+        "Its browser dependencies are self-hosted and version-pinned, and keep their own licences.",
+        "",
+    ]
+    for name, version, licence, shipped in notices:
+        note = LICENCE_NOTES.get(name)
+        lines.append(f"{name} {version}: {licence}" + (f"; {note}" if note else ""))
+        lines.extend(f"  {path}" for path in shipped)
     (out / "THIRD_PARTY_NOTICES.txt").write_text(
-        "GridPuzzle is AGPL-3.0-only. Source: https://github.com/senegrom/GridPuzzle\nBrowser dependencies are self-hosted, version-pinned, and retain their supplied licenses.\n"
-        + json.dumps(provenance, indent=2)
-        + "\n",
+        "\n".join(lines) + "\n\n" + json.dumps(provenance, indent=2) + "\n",
         encoding="utf-8",
         newline="\n",
     )

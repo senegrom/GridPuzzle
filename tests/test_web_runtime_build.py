@@ -27,33 +27,51 @@ def test_runtime_urls_and_worker_are_immutable(build, tmp_path):
         assert '__BUILD_ID__' not in script.read_text(encoding="utf-8")
 
 
-def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path):
-    build = "111111111111"
-    monkeypatch.setattr(build_web.subprocess, "check_output", lambda *a, **k: build + "0" * 28)
-    monkeypatch.setattr(build_web, "icon", lambda size, path: None)
-    package_paths = {
-        "pyodide": ["pyodide.mjs", "pyodide.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"],
-        "tesseract.js": ["dist/tesseract.min.js", "dist/worker.min.js"],
-        "tesseract.js-core": ["tesseract-core-lstm.wasm", "tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm.js"],
-        "@tesseract.js-data/eng": ["best_int/eng.traineddata.gz"],
-    }
+# The upstream layout of each pinned package, as far as the build reads it:
+# Pyodide and the English model ship no licence file (the build vendors
+# theirs), and tesseract.js-core ships bare .wasm files the build must skip.
+PACKAGE_PATHS = {
+    "pyodide": ["pyodide.mjs", "pyodide.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json", "package.json"],
+    "tesseract.js": ["dist/tesseract.min.js", "dist/worker.min.js", "dist/tesseract.min.js.LICENSE.txt", "dist/worker.min.js.LICENSE.txt", "LICENSE.md", "package.json"],
+    "tesseract.js-core": ["tesseract-core-lstm.wasm", "tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm.js", "LICENSE", "package.json"],
+    "@tesseract.js-data/eng": ["4.0.0_best_int/eng.traineddata.gz", "package.json"],
+}
+LICENCES = {"pyodide": "MPL-2.0", "tesseract.js": "Apache-2.0", "tesseract.js-core": "Apache-2.0", "@tesseract.js-data/eng": "MIT"}
 
+
+def fake_packages(paths=PACKAGE_PATHS):
     def package(name, version, integrity, temporary):
         root = temporary / name.replace("/", "_")
-        for file in package_paths[name]:
+        for file in paths[name]:
             path = root / file
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"unchanged upstream bytes: {name}/{file}")
+            if file == "package.json":
+                path.write_text(json.dumps({"name": name, "license": LICENCES[name]}))
+            else:
+                path.write_text(f"unchanged upstream bytes: {name}/{file}")
         return root, integrity
 
-    monkeypatch.setattr(build_web, "package", package)
-    build_web.build(tmp_path)
+    return package
+
+
+def fake_build(monkeypatch, out, build="111111111111", paths=PACKAGE_PATHS):
+    monkeypatch.setattr(build_web.subprocess, "check_output", lambda *a, **k: build + "0" * 28)
+    monkeypatch.setattr(build_web, "icon", lambda size, path: None)
+    monkeypatch.setattr(build_web, "package", fake_packages(paths))
+    build_web.build(out)
+
+
+def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path):
+    build = "111111111111"
+    package_paths = PACKAGE_PATHS
+    fake_build(monkeypatch, tmp_path, build)
     manifest = json.loads((tmp_path / "assets.json").read_text(encoding="utf-8"))
     paths = {asset["path"] for asset in manifest["assets"]}
     assert manifest["build"] == build
     assert f"solver-worker.{build}.js" in paths
     for file in package_paths["pyodide"]:
-        assert f"vendor/{build}/pyodide/{file}" in paths
+        if file != "package.json":
+            assert f"vendor/{build}/pyodide/{file}" in paths
     for path in paths:
         if path.startswith("vendor/"):
             assert path.startswith(f"vendor/{build}/")
@@ -63,30 +81,72 @@ def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path)
         assert len(data) == asset["bytes"]
 
 
+def test_every_package_ships_its_licence_and_no_unused_core(monkeypatch, tmp_path):
+    build = "111111111111"
+    fake_build(monkeypatch, tmp_path, build)
+    paths = {asset["path"] for asset in json.loads((tmp_path / "assets.json").read_text(encoding="utf-8"))["assets"]}
+    expected = {
+        "licenses/pyodide-LICENSE",
+        "licenses/pyodide-CPython-LICENSE",
+        "licenses/tesseract.js-LICENSE.md",
+        "licenses/tesseract.js-core-LICENSE",
+        "licenses/tesseract.js-data_eng-LICENSE",
+        f"vendor/{build}/tesseract/tesseract.min.js.LICENSE.txt",
+        f"vendor/{build}/tesseract/worker.min.js.LICENSE.txt",
+    }
+    assert expected <= paths
+    # The loaders embed their WebAssembly; the bare binaries are never requested.
+    cores = sorted(path.rsplit("/", 1)[1] for path in paths if "/tesseract-core/" in path)
+    assert cores == ["tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm.js"]
+    assert not any(path.endswith(".wasm") and "tesseract" in path for path in paths)
+    notices = (tmp_path / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
+    for name, licence in LICENCES.items():
+        assert f"{name} " in notices and licence in notices
+    for path in expected:
+        assert f"  {path}" in notices
+
+
+def test_a_package_without_any_licence_stops_the_build(monkeypatch, tmp_path):
+    monkeypatch.setattr(build_web, "EXTRA_LICENCES", {})
+    with pytest.raises(FileNotFoundError, match="pyodide ships no licence file"):
+        fake_build(monkeypatch, tmp_path)
+
+
+def test_a_missing_bundle_licence_notice_stops_the_build(monkeypatch, tmp_path):
+    paths = dict(PACKAGE_PATHS)
+    paths["tesseract.js"] = [p for p in paths["tesseract.js"] if not p.endswith("worker.min.js.LICENSE.txt")]
+    with pytest.raises(FileNotFoundError, match="worker.min.js.LICENSE.txt"):
+        fake_build(monkeypatch, tmp_path, paths=paths)
+
+
+def test_vendored_licence_texts_are_the_expected_licences():
+    texts = {
+        relative: (build_web.VENDORED_LICENCES / relative).read_text(encoding="utf-8")
+        for relatives in build_web.EXTRA_LICENCES.values()
+        for relative in relatives
+    }
+    assert texts["pyodide/LICENSE"].startswith("Mozilla Public License Version 2.0")
+    assert "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2" in texts["pyodide/CPython-LICENSE"]
+    assert "Apache License" in texts["tesseract.js-data-eng/LICENSE"][:200]
+
+
+def test_core_files_select_only_the_two_lstm_loaders(tmp_path):
+    for name in ["tesseract-core.wasm.js", "tesseract-core-simd.wasm.js", "tesseract-core-lstm.wasm",
+                 "tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm.js"]:
+        (tmp_path / name).write_text("x")
+    assert [path.name for path in build_web.core_files(tmp_path)] == [
+        "tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm.js"]
+    (tmp_path / "tesseract-core-simd-lstm.wasm.js").unlink()
+    with pytest.raises(FileNotFoundError):
+        build_web.core_files(tmp_path)
+
+
 def test_solver_archive_is_reproducible(monkeypatch, tmp_path):
     build = "111111111111"
-    monkeypatch.setattr(build_web.subprocess, "check_output", lambda *a, **k: build + "0" * 28)
-    monkeypatch.setattr(build_web, "icon", lambda size, path: None)
-
-    def package(name, version, integrity, temporary):
-        root = temporary / name.replace("/", "_")
-        files = {
-            "pyodide": ["pyodide.mjs", "pyodide.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"],
-            "tesseract.js": ["dist/tesseract.min.js", "dist/worker.min.js"],
-            "tesseract.js-core": ["tesseract-core-lstm.wasm", "tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm.js"],
-            "@tesseract.js-data/eng": ["best_int/eng.traineddata.gz"],
-        }[name]
-        for file in files:
-            path = root / file
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"bytes of {name}/{file}", encoding="utf-8")
-        return root, integrity
-
-    monkeypatch.setattr(build_web, "package", package)
     archives = []
     for attempt in ("one", "two"):
         out = tmp_path / attempt
         out.mkdir()
-        build_web.build(out)
+        fake_build(monkeypatch, out, build)
         archives.append((out / f"solver.{build}.zip").read_bytes())
     assert archives[0] == archives[1], "identical sources must produce an identical solver archive"

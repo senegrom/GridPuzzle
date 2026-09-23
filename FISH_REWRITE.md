@@ -42,7 +42,10 @@ For value v, fish size f (`fish`):
   Note: a single guarantee may span multiple cover houses — the constraint is
   containment in the *union*, not in a single house. A per-guarantee
   single-house assumption would silently lose patterns.
-- Covers: f houses (full-size `ElementsAtMostOnce` groups, `unique_rule_cells`).
+- Covers: f groups from `unique_rule_cells`, that is every `ElementsAtMostOnce`
+  group, cages included. The elimination only needs each cover to hold v at
+  most once, so a cover need not be a full-size house; restricting covers to
+  full-size groups would silently lose patterns.
 - Eliminations:
   1. v removed from every cover-house cell outside `all_gts = ∪Gᵢ`.
   2. "Cannibal": v removed from cells *inside* `all_gts` that lie in ≥ 2 cover houses.

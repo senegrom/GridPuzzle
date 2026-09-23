@@ -58,7 +58,9 @@ not replacing the current scanner.
 
 ## Reproduce
 
-Use Python 3.13 and Node 22. Training dependencies are optional and isolated here.
+The recorded run used Python 3.13 and Node 22; the repository itself targets
+Python 3.14, so check that the pins in `requirements.txt` install on your
+interpreter. Training dependencies are optional and isolated here.
 Install the requirements and local fonts matching the manifest, then run:
 
 ```sh
@@ -81,10 +83,11 @@ python prepare_photos.py --source ../..
 node photo_probe.mjs ../../_site
 ```
 
-Weights and detailed outputs live under `artifacts/`, intentionally untracked.
-The accompanying downloadable experiment bundle includes the already-trained
-weights, manifest, parity vectors and measured reports. The trained float32
-weight SHA-256 is:
+Weights and detailed outputs live under `artifacts/`, intentionally untracked,
+and no trained bundle is published; rerun `train.py` to reproduce them. Without
+the weights, `infer.test.mjs` still runs its pure-JavaScript checks and skips the
+rest, which is how CI runs it. The recorded run's trained float32 weight SHA-256
+is:
 `af894f2d71035020a1554d9791937592cd480db42d1c7935d75d21dacbaa7978`.
 
 ## Integration decision

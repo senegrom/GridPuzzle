@@ -173,7 +173,8 @@ fixpoint conclusion.
 - deepcopy and pickle coherence;
 - Nishio without branch deep copies;
 - forcing-chain and forcing-net consensus;
-- backtracking driven by an explicit stack of suspended branch frames, without per-node deep copies;
+- backtracking without per-node deep copies (the explicit-stack driver's depth
+  safety is covered separately, in `tests/test_stack_safe_search.py`);
 - transactional fish memo rollback;
 - dirty-worklist selectivity, pickle coherence, and exact rollback.
 

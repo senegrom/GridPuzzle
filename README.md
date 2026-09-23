@@ -180,17 +180,31 @@ python scripts/run_new_family_corpus.py \
   --shard-index 0 \
   --shard-count 4 \
   --case-timeout 60 \
-  --output slitherlink-0.json
+  --output artifacts/slitherlink-0.json
 ```
 
 Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly or manually and uploads each JSON report as an artifact.
 
 GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux and Windows discover the complete non-slow suite, while forward-compatibility CI covers free-threaded Python 3.14 and the Python 3.15 prerelease.
 
+## Documentation
+
+- [DEVELOPMENT.md](DEVELOPMENT.md): architecture, performance policy and the corpus runner.
+- [TODO.md](TODO.md): open items, rejected ideas and standing rules.
+- [TRAIL_DESIGN.md](TRAIL_DESIGN.md): the reversible trail the solver backtracks on.
+- [FISH_REWRITE.md](FISH_REWRITE.md): fish semantics and the parked rewrite.
+- [FREE_THREADED.md](FREE_THREADED.md): the opt-in free-threaded executor.
+- [benchmarks/README.md](benchmarks/README.md): the index of measured and rejected changes.
+- [web/README.md](web/README.md): the phone scanner app and its own documents.
+
 ## Acknowledgements
 
-Many puzzle examples originated in Denis Berthier's CSP-Rules corpus.
+This repository began as Denis Berthier's CSP-Rules-V2.1, and many puzzle examples come from its corpus.
 
 ## License
 
-The software is distributed under the GNU AGPL v3.0 license.
+GridPuzzle is distributed under the GNU AGPL v3.0 license (`LICENSE`).
+
+The example corpora keep their own terms: the CSP-Rules files are GPL-3.0, and the newspaper transcriptions and photographs remain their publishers' copyright. [Examples/NOTICE.md](Examples/NOTICE.md) lists them.
+
+The phone scanner self-hosts Pyodide, the CPython standard library, Tesseract.js and its English model under their own licences; the build ships each licence text with the site, and [third_party/licenses/README.md](third_party/licenses/README.md) lists the ones the repository vendors.
