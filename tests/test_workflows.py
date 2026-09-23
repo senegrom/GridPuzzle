@@ -250,3 +250,13 @@ def test_changed_paths_selects_what_a_paths_filter_would(name, changed, tmp_path
     expected = {path for path in changed if _filter_selects(patterns, path)}
     assert selected == expected
     assert output.read_text(encoding="utf-8") == f"relevant={str(bool(expected)).lower()}\n"
+
+
+def test_parse_checks_fail_when_node_fails():
+    r"""`find -exec cmd {} \;` exits 0 whatever cmd reports; xargs does not."""
+    checks = []
+    for path in sorted((_GITHUB / "workflows").glob("*.yml")):
+        checks += re.findall(r"^.*node --check.*$", path.read_text(encoding="utf-8"), re.M)
+    assert len(checks) == 2
+    for check in checks:
+        assert check.strip().endswith("-print0 | xargs -0 -n1 node --check"), check
