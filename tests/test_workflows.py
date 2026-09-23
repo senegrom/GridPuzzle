@@ -495,7 +495,9 @@ def test_ci_tests_the_lowest_versions_pyproject_allows():
     job = _jobs(_workflow("ci.yml"))["lower-bounds"]
     assert "uses: ./.github/actions/setup-project\n" in job
     assert 'lower-bounds: "true"' in job
-    assert "extras:" not in job, "the dependencies and the dev extra, the default"
+    # Every extra with lower bounds: the dependencies plus dev and corpus.
+    assert "extras: dev,corpus
+" in job
     assert 'python -X dev -m pytest -q tests -m "not slow"' in job
     action = (_GITHUB / "actions" / "setup-project" / "action.yml").read_text(encoding="utf-8")
     assert 'python scripts/lower_bounds.py "$EXTRAS" | tee "$constraints"' in action
