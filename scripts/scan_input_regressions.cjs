@@ -115,7 +115,10 @@ async function alignmentChecks() {
 }
 
 async function run() {
-  const site = baselineSite(BASELINE, ['scanner.js','scan-analysis.js','geometry-worker.js','live-camera.js','photo-flow.js']);
+  // The baseline's live-camera.js imports helpers the current live-overlay.js
+  // no longer exports (sameFrame), so it takes its own era's overlay module;
+  // that one still exports everything the current modules import from it.
+  const site = baselineSite(BASELINE, ['scanner.js','scan-analysis.js','geometry-worker.js','live-camera.js','live-overlay.js','photo-flow.js']);
   const server = await serve({ directory: site.directory });
   try {
     await engines('scan-input-artifacts/scan-input.json', async (candidate, report, name, browser) => {
