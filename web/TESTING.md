@@ -52,7 +52,7 @@ built artifact; `recognition` and `live` are the two parallel jobs of
 | `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
-| `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR, recorded as coverage | `live` |
+| `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; a picture the app declines to read is recorded, not failed | `live` |
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `build` (first step) |
 | `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live-acceptance` |

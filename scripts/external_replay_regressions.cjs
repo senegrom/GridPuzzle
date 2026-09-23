@@ -1,7 +1,10 @@
 /* Fixed external corpus replay through automatic detection, tracking and real
    OCR. Reference corners/digits are never passed to the browser pipeline.
-   This records previously unmeasured coverage, including no-read/quality
-   rejections and annotation ambiguities, rather than selecting easy successes. */
+   This records coverage, including no-read/quality rejections and annotation
+   ambiguities, rather than selecting easy successes, and holds every reading
+   to the app's safety contract, as newspaper_regressions does: a wrong,
+   missed or invented clue must be flagged for review. A picture the app
+   declines to read is recorded, not failed. */
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const {serve,engines,main}=require('./harness.cjs');
 // Once playback stops, capture() must drop the overlay as soon as the newest
@@ -59,6 +62,7 @@ async function run(){
      await page.waitForFunction(()=>externalReplay.capture()===false,null,{polling:100,timeout:PRESENTATION_FRESHNESS+MARGIN});
      r.expiredAfter=Date.now()-pausedAt;
      assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
+     if(r.score)assert.deepEqual(r.score.unflagged,[],'every wrong, missed or invented clue must be flagged for review');
     }finally{
      r.closed=await page.evaluate(()=>window.externalReplay?.stop()).catch(()=>null);
      if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}
