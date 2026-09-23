@@ -5,7 +5,7 @@ import pytest
 from gridsolver.abstract_grids.grid import Grid, SolveStatus, pairs
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.grid_classes.futoshiki import Futoshiki
-from gridsolver.grid_classes.kenken import Kenken
+from gridsolver.grid_classes.kenken import Kenken, _CellTuple
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import InvalidGrid, Rule
@@ -181,6 +181,19 @@ def test_kenken_failed_load_is_transactional_and_retryable():
 
     grid.load("aabb:a+3b+3")
     assert grid.has_been_filled
+
+
+def test_kenken_accepts_plain_cage_tuples_like_killer_sudoku():
+    # make_rule read the cage by attribute name, so a plain tuple died with
+    # AttributeError before the operator was even looked at.
+    cages = ((3, [(0, 0), (0, 1)], "+"), (2, (1, 0, 1, 1), "/"))
+    plain = Kenken(cages, n=2)
+    named = Kenken([_CellTuple(*cage) for cage in cages], n=2)
+
+    assert plain == named
+    assert len(solver.solve(plain, log_level=solver.QUIET)) == 2
+    with pytest.raises(ValueError, match="Not supported operator 'x'"):
+        Kenken([(3, [(0, 0)], "x")], n=3)
 
 
 def test_division_rule_does_not_accept_a_rounded_float_ratio():

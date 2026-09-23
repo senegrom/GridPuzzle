@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import time
-from collections import namedtuple
 from collections.abc import Mapping
 
 from gridsolver.abstract_grids.grid import Grid
@@ -32,7 +31,6 @@ TYPES = (
 )
 _ALLOWED = {'version', 'type', 'rows', 'cols', 'boxRows', 'boxCols',
             'cells', 'cages', 'inequalities', 'clues', 'black'}
-_Cage = namedtuple('BrowserCage', 'mytarget cells operator')
 
 
 def _integer(value, name, lo, hi):
@@ -196,7 +194,7 @@ def build_grid(payload):
             if op in ('-', '/') and len(area) != 2:
                 raise ValueError('Difference and division cages require exactly two cells')
             cells = [coord(i) for i in indices]
-            entries.append((target, cells) if kind == 'killersudoku' else _Cage(target, cells, op))
+            entries.append((target, cells) if kind == 'killersudoku' else (target, cells, op))
         if covered != set(range(count)):
             raise ValueError(f'Cages must cover every cell; {count - len(covered)} cells need a cage')
         if kind == 'killersudoku':
