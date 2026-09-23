@@ -92,7 +92,7 @@ The measured defaults are FULL for the original dense-grid families, GENERIC for
 
 Measured live by `tests/technique_stats_harness.py` over a representative corpus. June 2026 measurements found AIC to be the strongest expensive technique, while `naked_tuples(5)`, `locked_candidate`, and `empty_rectangle` were the cheap workhorses. Deep fish and hidden-tuple tiers had zero hits in forcing-chain branches, so they are skipped there; this produced a 6.6x corpus speedup with identical solutions.
 
-The hardest built-in test puzzle (`example_t`) is solved entirely without backtracking.
+The hardest built-in test puzzle (`gridpuzzle -e t`) is solved entirely without backtracking.
 
 ## Arguments
 
@@ -161,6 +161,9 @@ Restricts how many cells in a collection may contain a distinguished value. Slit
 
 #### `SingleLoopRule`
 Requires selected graph edges to form exactly one non-empty simple cycle and performs safe bridge, component, and cyclic-block pruning before the graph is fully decided.
+
+#### `ConsecutiveSetRule`
+The cells must hold distinct values that form one run of consecutive numbers, in any order, as every Str8ts street does. Candidates survive only if some feasible run can still be matched to the cells.
 
 ## Development
 
