@@ -109,8 +109,10 @@ own layout, so those combinations are rejected rather than ignored.
 
 The command exits with status 0 when the puzzle has a solution (or
 `--max-solutions 0` asked for none), 1 when it has no solution, and 2 for
-usage and input errors, including `--parallel-backend thread` without
-`--processes 2` or more or on a runtime that still has the GIL.
+usage and input errors, including a `--module` that fails to import and
+`--parallel-backend thread` without `--processes 2` or more or on a runtime
+that still has the GIL. Status 3 means the solver itself failed; the command
+prints the traceback.
 
 The equivalent library call is:
 

@@ -3,6 +3,7 @@
 import argparse
 import importlib
 import time
+import traceback
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -50,10 +51,13 @@ def _solution_limit(raw_value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        # not the script path, which on Windows is Scripts\gridpuzzle
+        prog="gridpuzzle",
         description="Solve a grid puzzle",
         epilog=(
             "Exit status: 0 when the puzzle has a solution, 1 when it has "
-            "none, 2 for usage and input errors."
+            "none, 2 for usage and input errors, 3 when the solver itself "
+            "fails (with its traceback)."
         ),
     )
     source = parser.add_mutually_exclusive_group(required=True)
@@ -196,8 +200,10 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
     if args.module:
         try:
             module = importlib.import_module(args.module)
-        except ImportError as exc:
-            parser.error(f"Cannot import module {args.module!r}: {exc}")
+        except Exception as exc:
+            # A puzzle module that raises while it loads is bad input, like
+            # a missing one, not a puzzle without a solution.
+            parser.error(f"Cannot import module {args.module!r}: {type(exc).__name__}: {exc}")
         if not hasattr(module, "g"):
             parser.error(f"Module {args.module!r} does not define puzzle object g")
         grid = module.g
@@ -245,6 +251,15 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        return _run(args, parser)
+    except Exception:
+        # An uncaught exception would exit 1, which says "no solution".
+        traceback.print_exc()
+        return 3
+
+
+def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     _reject_ignored_options(args, parser)
 
     set_colouring(Colouring[args.colour])
