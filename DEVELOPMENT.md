@@ -194,7 +194,7 @@ master that changes the solver, the example corpora, their tests or the
 pinned dependencies it installs, includes:
 
 - existing supported example corpora;
-- a 16-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: four deterministic shards per family, one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
+- a 7-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: one job each for the first three, which finish in seconds, and four deterministic shards for Slitherlink, with one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
 - the slow pandiagonal Latin-square corpus;
 - full parallel/sequential enumeration equivalence;
 
@@ -245,12 +245,12 @@ Run a local shard with the same reviewed exceptions as CI:
 
 ```bash
 python scripts/run_new_family_corpus.py \
-  --family hidato \
+  --family slitherlink \
   --shard-index 0 \
   --shard-count 4 \
   --case-timeout 60 \
   --timeout-baseline benchmarks/corpus_timeout_baseline.json \
-  --output artifacts/hidato-0.json
+  --output artifacts/slitherlink-0.json
 ```
 
 Omit `--timeout-baseline` for a strict run in which every timeout fails.

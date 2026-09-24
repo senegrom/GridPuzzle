@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import glob
+import json
 import os
 import re
 import shutil
@@ -15,7 +16,7 @@ import subprocess
 import sys
 import textwrap
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -516,6 +517,28 @@ def test_extended_ci_runs_when_what_its_jobs_read_changes():
     }
     assert len(read) > 10
     assert {path for path in read if not _filter_selects(paths, path)} == set()
+
+
+def test_extended_ci_solves_every_new_family_file_in_exactly_one_shard():
+    from scripts.run_new_family_corpus import FAMILY_DIRECTORIES
+
+    job = _jobs(_workflow("extended.yml"))["new-family-corpus"]
+    entries = re.findall(r"- \{ family: (\w+), shard: (\d+), shards: (\d+) \}", job)
+    shards: dict[str, set[tuple[int, int]]] = {}
+    for family, shard, count in entries:
+        shards.setdefault(family, set()).add((int(shard), int(count)))
+    assert set(shards) == set(FAMILY_DIRECTORIES)
+    for family, pairs in shards.items():
+        (count,) = {count for _, count in pairs}
+        assert sorted(shard for shard, _ in pairs) == list(range(count)), family
+    # A family with reviewed timeouts stays sharded: each of its timeouts costs
+    # a whole case timeout, and one job holding them all nears the job limit.
+    baseline = json.loads((_ROOT / "benchmarks" / "corpus_timeout_baseline.json").read_text(encoding="utf-8"))
+    slow = {PurePosixPath(entry["path"]).parts[1] for entry in baseline["timeouts"]}
+    sharded = {FAMILY_DIRECTORIES[family] for family, pairs in shards.items() if min(c for _, c in pairs) > 1}
+    assert slow <= sharded
+    assert '--shard-count "${{ matrix.shards }}"' in job
+    assert "name: new-family-${{ matrix.family }}-${{ matrix.shard }}" in job
 
 
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)

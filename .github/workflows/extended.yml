@@ -90,15 +90,24 @@ jobs:
         run: python ${{ matrix.flags }} -m pytest -q ${{ matrix.selection }} --durations=20
 
   new-family-corpus:
-    name: ${{ matrix.family }} corpus shard ${{ matrix.shard }}
+    name: ${{ matrix.family }} corpus shard ${{ matrix.shard }} of ${{ matrix.shards }}
     runs-on: ubuntu-latest
     # worst shard is ~21 cases x 60s case timeout, well under an hour
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        family: [hidato, numbrix, kakuro, slitherlink]
-        shard: [0, 1, 2, 3]
+        # Hidato, Numbrix and Kakuro finish in seconds, and every job is
+        # billed as at least a minute, so each runs as one job. Slitherlink,
+        # which holds every reviewed timeout, keeps four shards.
+        include:
+          - { family: hidato, shard: 0, shards: 1 }
+          - { family: numbrix, shard: 0, shards: 1 }
+          - { family: kakuro, shard: 0, shards: 1 }
+          - { family: slitherlink, shard: 0, shards: 4 }
+          - { family: slitherlink, shard: 1, shards: 4 }
+          - { family: slitherlink, shard: 2, shards: 4 }
+          - { family: slitherlink, shard: 3, shards: 4 }
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -108,7 +117,7 @@ jobs:
           python scripts/run_new_family_corpus.py
           --family "${{ matrix.family }}"
           --shard-index "${{ matrix.shard }}"
-          --shard-count 4
+          --shard-count "${{ matrix.shards }}"
           --case-timeout 60
           --timeout-baseline benchmarks/corpus_timeout_baseline.json
           --output "artifacts/${{ matrix.family }}-${{ matrix.shard }}.json"
