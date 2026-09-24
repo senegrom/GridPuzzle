@@ -1,0 +1,145 @@
+{
+  "python": "3.14.7 free-threading build (main, Aug  6 2026, 02:20:28) [GCC 13.3.0]",
+  "gil_enabled": false,
+  "workers": 2,
+  "rounds": 9,
+  "warmup_rounds": 1,
+  "cases": {
+    "loaded4_all": {
+      "description": "4x4 Sudoku with two rows given, all 4 solutions",
+      "max_sols": -1,
+      "count": 4,
+      "digest": "068b2b9efe856cdc129ed8ea71332b877f7abe0e1bcb74b85ca2f6b8be4669bb",
+      "process_seconds": [
+        0.11907354400000258,
+        0.11814779000000186,
+        0.11856470800000096,
+        0.11851072599999668,
+        0.11809908600000085,
+        0.11809092100000385,
+        0.11997461200000004,
+        0.11931918500000194,
+        0.11887665000000425
+      ],
+      "thread_seconds": [
+        0.12249809200000072,
+        0.10036720499999774,
+        0.10120173399999999,
+        0.1001285079999974,
+        0.1011160139999987,
+        0.09929952899999961,
+        0.1000018659999995,
+        0.10032271900000467,
+        0.10046273400000416
+      ],
+      "process_median": 0.11856470800000096,
+      "thread_median": 0.10036720499999774,
+      "thread_over_process": 0.8465183838684689
+    },
+    "blank4_cap1": {
+      "description": "blank 4x4 Sudoku, first solution",
+      "max_sols": 1,
+      "count": 1,
+      "digest": "9a10f84dcf6ac6cdcf9bfc3a2929478090b0f2f809896c8a7dc222db3afb4d25",
+      "process_seconds": [
+        2.877132197999998,
+        2.874335813000002,
+        2.8634939669999966,
+        2.8703197509999967,
+        2.8816248410000043,
+        2.8906702639999935,
+        2.9000767170000046,
+        2.866251120000001,
+        2.856569563000008
+      ],
+      "thread_seconds": [
+        2.963715104000002,
+        2.959537894999997,
+        2.965202918999992,
+        2.960150150000004,
+        2.9426265479999927,
+        2.968204426,
+        2.947466917,
+        2.976303455000007,
+        2.9506966940000012
+      ],
+      "process_median": 2.874335813000002,
+      "thread_median": 2.960150150000004,
+      "thread_over_process": 1.029855362276002
+    },
+    "blank4_all": {
+      "description": "blank 4x4 Sudoku, all 288 solutions",
+      "max_sols": -1,
+      "count": 288,
+      "digest": "5aa8608840428b800a8f6d7376bff20f9cf7a37934b15de803fd55cd45edae05",
+      "process_seconds": [
+        17.379043759999973,
+        17.386254030000003,
+        17.30463199900001,
+        17.585112699000007,
+        17.392526508999993,
+        17.509388627999954,
+        17.388127817000054,
+        17.330055781999988,
+        17.297828138
+      ],
+      "thread_seconds": [
+        18.104479077999997,
+        18.079396739999993,
+        17.906839600000012,
+        18.200130341000033,
+        18.164888082000004,
+        18.03955978800002,
+        18.034675055000037,
+        17.959415903000036,
+        17.89547382699999
+      ],
+      "process_median": 17.386254030000003,
+      "thread_median": 18.03955978800002,
+      "thread_over_process": 1.0375759929006407
+    },
+    "nonsquare6_cap20": {
+      "description": "6x6 Sudoku with 3x2 boxes and two rows given, 20 of 1408",
+      "max_sols": 20,
+      "count": 20,
+      "digest": "1ddbb072af9fd91228bf788a99e4ea77c1cc3ecdd1d6a34de5ed14ce8d1aa717",
+      "process_seconds": [
+        11.899312218999967,
+        11.950607869999999,
+        11.973996194999927,
+        11.967816950000042,
+        11.948411835000002,
+        11.932427054999948,
+        11.986998104000008,
+        11.974113797999962,
+        12.759821285000044
+      ],
+      "thread_seconds": [
+        12.323661488000027,
+        12.392025840999963,
+        12.419314032000102,
+        12.399926254999968,
+        12.365404615999978,
+        12.431252005000033,
+        12.399996003999945,
+        12.480093803000045,
+        12.807193134000045
+      ],
+      "process_median": 11.967816950000042,
+      "thread_median": 12.399996003999945,
+      "thread_over_process": 1.0361117700751514
+    }
+  },
+  "summary": {
+    "geomean_ratio": 0.9839199980960103,
+    "worst_ratio": 1.0375759929006407,
+    "best_ratio": 0.8465183838684689,
+    "positive_cap_geomean_ratio": 1.0329788295648537
+  },
+  "definitions": {
+    "thread_over_process": "median thread seconds / median process seconds for one case",
+    "geomean_ratio": "geometric mean of thread_over_process over the cases",
+    "worst_ratio": "largest thread_over_process",
+    "positive_cap_geomean_ratio": "geometric mean over the cases with max_sols > 0"
+  }
+}

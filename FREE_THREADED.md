@@ -48,9 +48,8 @@ The thread-only driver runs the same suspended branch frames as the default driv
 
 ## Validation evidence
 
-The committed benchmark records are:
+The current measurement is `benchmarks/thread_executor_314t_2026-09-24.md`, taken with `scripts/benchmark_thread_executor.py` through the manual "Thread executor benchmark" workflow on free-threaded CPython 3.14.7 with two workers. On the same runner in the same window, the thread/process geometric mean was `0.967x` for current master and `0.966x` for the tree before the explicit-stack rewrite, so the rewrite cost nothing. The thread executor takes 16% less time on the short loaded 4x4 case and 0 to 2% more on the three long ones; single runs on shared runners drift by about three points.
 
-- `benchmarks/default_executor_overhead_2026-08-12.md`
-- `benchmarks/free_threaded_executor_2026-08-12.md`
+The executor was accepted on 2026-08-12 at a `0.823x` geometric mean (`benchmarks/free_threaded_executor_2026-08-12.md`). That lead is gone, and the same-window comparison shows it went before the rewrite; the August record does not name its machine, so solver changes since then and a different runner are both possible causes. The executor remains opt-in, at rough parity with the process pool, and the process pool remains the default.
 
-The accepted Python 3.14 validation measured a default-path geometric-mean ratio of `0.999608x` with a worst ratio of `1.026823x`. On free-threaded Python 3.14, the real-workload thread/process geometric mean was `0.823100x`, the worst real-workload ratio was `1.013592x`, and the positive-cap ratio was `0.970613x`.
+The default path is unaffected when the thread backend is not selected: the rewrite left `_solve_full` and `_solve_branch` byte-identical (`benchmarks/thread_driver_default_path_2026-09-21.md`), and the original default-path overhead check is `benchmarks/default_executor_overhead_2026-08-12.md`.

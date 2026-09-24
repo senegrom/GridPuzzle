@@ -59,7 +59,10 @@ frozen equivalence reference for any future attempt.
   The opt-in `parallel_backend="thread"` executor of 2026-08-12 did
   (`benchmarks/free_threaded_executor_2026-08-12.md`): 0.82x geometric mean
   against the process pool on 3.14t, worst 1.01x, default path within 0.1%.
-  It stays opt-in and process remains the default; see `FREE_THREADED.md`.
+  Re-measured on 2026-09-24 it is at parity instead, 0.97x with the long
+  cases 0-2% slower, and the tree before its explicit-stack rewrite measures
+  the same (`benchmarks/thread_executor_314t_2026-09-24.md`). It stays opt-in
+  and process remains the default; see `FREE_THREADED.md`.
 - **Full AIC peer-edge rebuild**, **lazy chain logging**, **whole-object size
   guard**: see the rejected rows of `benchmarks/README.md`.
 
