@@ -29,7 +29,8 @@ def test_runtime_urls_and_worker_are_immutable(build, tmp_path):
 
 # The upstream layout of each pinned package, as far as the build reads it:
 # Pyodide and the English model ship no licence file (the build vendors
-# theirs), and tesseract.js-core ships bare .wasm files the build must skip.
+# theirs), Pyodide ships a classic-script pyodide.js nothing requests, and
+# tesseract.js-core ships bare .wasm files; the build must skip both.
 PACKAGE_PATHS = {
     "pyodide": ["pyodide.mjs", "pyodide.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json", "package.json"],
     "tesseract.js": ["dist/tesseract.min.js", "dist/worker.min.js", "dist/tesseract.min.js.LICENSE.txt", "dist/worker.min.js.LICENSE.txt", "LICENSE.md", "package.json"],
@@ -70,8 +71,11 @@ def test_manifest_contains_the_complete_versioned_runtime(monkeypatch, tmp_path)
     assert manifest["build"] == build
     assert f"solver-worker.{build}.js" in paths
     for file in package_paths["pyodide"]:
-        if file != "package.json":
+        if file not in ("package.json", "pyodide.js"):
             assert f"vendor/{build}/pyodide/{file}" in paths
+    # The solver worker imports pyodide.mjs; the classic script only cost
+    # every offline install 19 KB.
+    assert f"vendor/{build}/pyodide/pyodide.js" not in paths
     for path in paths:
         if path.startswith("vendor/"):
             assert path.startswith(f"vendor/{build}/")

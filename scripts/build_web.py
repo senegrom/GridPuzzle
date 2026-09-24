@@ -33,6 +33,8 @@ PACKAGES = {
         "314.0.7",
         "sha512-0YvXxEhfEdpLfb/XkM2BFAeMROq0iMUX2bzzH9pOttyMcWkwq+HbE5uyuGD82LN7y2q+SNvi/6V5JEsOlD2R1A==",
     ),
+    # web/sw.js stores only the core this version's worker would load (its
+    # getCore.js SIMD probe); re-check that when moving this pin.
     "tesseract.js": (
         "6.0.1",
         "sha512-/sPvMvrCtgxnNRCjbTYbr7BRu0yfWDsMZQ2a/T5aN/L1t8wUQN6tTWv6p6FwzpoEBA0jrN2UD2SX4QQFRdoDbA==",
@@ -376,9 +378,10 @@ def build(out):
             bundle_notices = []
             if name == "pyodide":
                 # Since 314.0 the Emscripten bootstrap is a native ES module.
+                # The solver worker imports pyodide.mjs; the classic-script
+                # pyodide.js is never requested, so it is not shipped.
                 for file in (
                     "pyodide.mjs",
-                    "pyodide.js",
                     "pyodide.asm.mjs",
                     "pyodide.asm.wasm",
                     "python_stdlib.zip",
