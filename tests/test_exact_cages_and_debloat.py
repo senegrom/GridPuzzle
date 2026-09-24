@@ -2,7 +2,6 @@
 import copy
 import pickle
 import random
-from collections import deque
 from functools import cached_property
 from itertools import combinations, combinations_with_replacement, product
 from math import factorial, prod
@@ -41,20 +40,6 @@ def test_staircase_preserves_every_partition_and_its_order(maximum):
         for target in range(count * maximum + 2):
             rule = SumAndElementsAtMostOnce(size, range(count), target)
             assert rule.sum_candidates == tuple(by_sum.get(target, ()))
-
-
-def test_partition2_keeps_repetitions_and_detached_deques():
-    cls = SumAndElementsAtMostOnce
-    for minimum in (1, 2):
-        for maximum in range(minimum, minimum + 4):
-            for count in range(1, 5):
-                options = tuple(combinations_with_replacement(range(minimum, maximum + 1), count))
-                for target in range(count * maximum + 2):
-                    expected = [deque(values) for values in options if sum(values) == target]
-                    assert cls.partition2(target, count, minimum, maximum) == expected
-    result = cls.partition2(6, 3, 1, 4)
-    result[0].clear()
-    assert cls.partition2(6, 3, 1, 4)[0] == deque((1, 1, 4))
 
 
 def _apply_signature(rule, known, candidates, guarantees):

@@ -340,7 +340,9 @@ sum reduced by k*(k-1)/2. The inverse x[i] = y[i] + i is unique. Consequently
 every admissible partition is preserved, in the same order. The existing exact
 matching, guarantee restriction, and derived-cage pipeline is UNCHANGED and
 still runs before branching. There is no approximate shortcut or deferred
-fallback. The historical partition2() API continues to include repetitions.
+fallback. The historical repetition-allowing partition2() API and its tuple
+cache, which nothing in the solver called any more, were removed on
+2026-09-24.
 
 Since 2026-09-23 the partitions are kept as compact bitmask arrays (4 bytes
 per partition up to value 31) in a process-wide cache bounded by bytes, not

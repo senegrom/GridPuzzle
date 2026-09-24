@@ -5,9 +5,9 @@ import operator
 import reprlib
 import threading
 from array import array
-from functools import cached_property, lru_cache
+from functools import cached_property
 from numbers import Integral
-from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence, Iterator, Optional, FrozenSet
+from typing import Tuple, Set, Sequence, List, Iterable, MutableSequence, Iterator, Optional, FrozenSet
 
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType, _format_coord
@@ -594,14 +594,13 @@ _PARTITION_MASKS = _PartitionMaskCache(max_bytes=8 << 20, max_entry_bytes=2 << 2
 
 
 def release_partition_caches() -> None:
-    """Drop every process-wide partition cache.
+    """Drop the process-wide partition cache.
 
     Long-lived interpreters that solve one puzzle after another (the browser
     worker reuses one Pyodide interpreter) call this after each solve. Rules
     still alive keep their own partitions, so this never changes a result.
     """
     _PARTITION_MASKS.clear()
-    SumAndElementsAtMostOnce._partition_tuples.cache_clear()
 
 
 class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
@@ -643,79 +642,6 @@ class SumAndElementsAtMostOnce(ElementsAtMostOnce, SumRule):
         shown = [set(_mask_values(mask))
                  for mask in itertools.islice(self._partition_masks, reprlib.aRepr.maxlist + 1)]
         return f"{type(self).__name__}[{self.sum}: {cell_str}; {reprlib.repr(shown)}]"
-
-    @staticmethod
-    @lru_cache(maxsize=65535)
-    def _partition_tuples(
-        n: int,
-        count: int,
-        mini: int = 1,
-        maxi: Optional[int] = None,
-    ) -> tuple[tuple[int, ...], ...]:
-        """Return immutable nondecreasing bounded partitions.
-
-        The former process-global dictionary exposed cached mutable lists of
-        deques. Any caller could corrupt every later cage using the same key,
-        and clearing that dictionary at an arbitrary size boundary could race
-        with free-threaded callers. ``lru_cache`` owns the bound and every
-        cached value is immutable.
-        """
-        if maxi is None:
-            maxi = n
-        if maxi < mini or count <= 0 or not count * mini <= n <= count * maxi:
-            return ()
-
-        # Explicit lexicographic DFS. The old recursive call graph could exceed
-        # Python's recursion limit even when a thousand-cell cage had ONE
-        # admissible partition. Frames store only scalars; a single prefix is
-        # reused instead of copying it at each depth. No partitions or matching
-        # deductions are truncated, deferred or replaced by bounds-only logic.
-        partitions: list[tuple[int, ...]] = []
-        prefix: list[int] = []
-        work = [(n, count, mini, 0)]
-        while work:
-            remaining, left, lower, depth = work.pop()
-            if depth:
-                prefix[depth - 1:] = [lower]
-            if remaining == left * lower:
-                partitions.append((*prefix, *((lower,) * left)))
-                continue
-            if remaining == left * maxi:
-                partitions.append((*prefix, *((maxi,) * left)))
-                continue
-            if left == 1:
-                partitions.append((*prefix, remaining))
-                continue
-            first = max(lower, remaining - (left - 1) * maxi)
-            last = min(remaining // left, maxi)
-            # Reverse pushes retain the former ascending recursion order.
-            for value in range(last, first - 1, -1):
-                work.append((remaining - value, left - 1, value, depth + 1))
-        return tuple(partitions)
-
-    @staticmethod
-    def partition2(
-        n: int,
-        count: int,
-        mini: int = 1,
-        maxi: Optional[int] = None,
-    ) -> List[Deque[int]]:
-        """Return detached mutable partitions using the historical API.
-
-        Solver code uses the compact distinct-value ``_partition_masks``
-        instead; this general (repetition-allowing) API and its
-        ``_partition_tuples`` cache serve external callers only. They retain
-        the established ``list[deque]`` result and cannot mutate the cache.
-        """
-        return [
-            collections.deque(partition)
-            for partition in SumAndElementsAtMostOnce._partition_tuples(
-                n,
-                count,
-                mini,
-                maxi,
-            )
-        ]
 
     def apply(self, known: MutableSequence[int], candidates: Tuple[Set[int]], guarantees: Set[Guarantee] = None):
         guarantees = () if guarantees is None else guarantees
