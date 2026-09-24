@@ -478,8 +478,18 @@ async function installControlledCamera(page) {
       if (ms === 800 || ms === 900 || (ms === 100 && fn.name === "tick")) { camera.queued.push(fn); return -1; }
       return timeout(fn, ms, ...args);
     };
+    // Count Python interpreters started from here on: the page already has
+    // one, and the camera and the following Solve must reuse it.
+    const NativeWorker = window.Worker;
+    camera.solverWorkers = 0;
+    window.Worker = function Worker(url, options) {
+      if (String(url).includes("solver-worker")) camera.solverWorkers++;
+      return new NativeWorker(url, options);
+    };
+    window.Worker.prototype = NativeWorker.prototype;
     camera.restore = () => {
       window.setTimeout = timeout;
+      window.Worker = NativeWorker;
       delete video.srcObject;
       delete video.play;
       if (original) Object.defineProperty(media, "getUserMedia", original);
@@ -513,7 +523,19 @@ async function cameraOwnershipRegressions(page, report) {
       assert.equal(await page.evaluate(() => window.cameraTest.queued.length), 0, "cancelled capture never restarts");
       if (action === "edit") await page.click("#close-cell");
       else {
-        await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
+        await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 })
+          .catch(async (error) => {
+            // Say what the page showed, so a timeout explains itself.
+            const seen = await page.evaluate(() => ({
+              status: document.querySelector("#status-text")?.textContent,
+              detail: document.querySelector("#status-detail")?.textContent,
+              result: window.testState().result?.status ?? null,
+              solverWorkers: window.cameraTest?.solverWorkers,
+            }));
+            throw new Error(`${error.message}; the page showed ${JSON.stringify(seen)}`);
+          });
+        assert.equal(await page.evaluate(() => window.cameraTest.solverWorkers), 0,
+          "the camera's previews and the Solve after them reuse the page's interpreter");
       }
     }
   } finally {

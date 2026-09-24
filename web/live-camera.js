@@ -26,7 +26,7 @@ function copyCanvas(source) {
 }
 export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
-  diagnostics = null,
+  diagnostics = null, solverWorker = null, onSolverReleased = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, detection = null, epoch = 0, lastDetect = -Infinity, trackAfter = -Infinity, anchorMs = 0;
   let ownVerifiedAt = -Infinity;
@@ -50,6 +50,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (getSettings()?.autoSolve !== false && !solverPrepared) {
       solverPrepared = true; solver.prepare?.();
     }
+  }
+  // Closing the camera stops a running preview search, which only termination
+  // can do, and hands an idle or warming interpreter to onSolverReleased, so
+  // Solve after live scanning does not load Python again. Without a taker, or
+  // with an injected solver that cannot release one, it is terminated.
+  function retireSolver() {
+    const idle = solver.release ? solver.release() : (solver.cancel(), null);
+    if (idle) onSolverReleased ? onSolverReleased(idle) : idle.terminate();
   }
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = releaseImage;
@@ -135,9 +143,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     autoSolve: () => getSettings()?.autoSolve !== false,
     // Realignment retires the pending read, not the warm OCR engine.
     cancelRead: () => reader.cancel({ keepEngine: true }),
-    // Realignment retires answers, not an idle interpreter. Closing the camera
-    // still cancels everything; older/injected solvers keep the cancel contract.
-    cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
+    // Realignment retires answers, not an idle interpreter; older/injected
+    // solvers keep the cancel contract. Closing the camera goes to retireSolver.
+    cancelSolve: () => !active ? retireSolver() : solver.invalidate ? solver.invalidate() : solver.cancel(),
     onChange: () => {}, onStatus: message => { $("camera-help").textContent = message; },
     // No verification runs while the worker builds an anchor.
     lossPaused: () => detection?.anchoring === true,
@@ -414,6 +422,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     } catch (error) { say(error.message || "Waiting for the camera…"); }
     finally { release(image); }
   }
+  // One Python interpreter per page: the one the page already started serves
+  // the previews instead of a second download and start-up, and closing the
+  // camera hands an idle one back (retireSolver). Adopted last, so a camera
+  // that fails to construct never holds it.
+  if (solverWorker) solver.adopt ? solver.adopt(solverWorker) : solverWorker.terminate();
   return {
     start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
     stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = adoptedAt = laggedAt = -Infinity; updateRestartControl(); },

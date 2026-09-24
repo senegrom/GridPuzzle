@@ -1128,23 +1128,26 @@ $("undo").onclick = () => {
 };
 $("stop").onclick = () => stopTask("Stopped.");
 function ensureWorker() {
-  if (!worker) {
-    const w = new Worker(new URL("./solver-worker.js", import.meta.url), {
+  if (!worker)
+    ownWorker(new Worker(new URL("./solver-worker.js", import.meta.url), {
       type: "module",
-    });
-    worker = w;
-    state.solverWarm = false;
-    w.onmessage = ({ data: m }) => {
-      if (worker === w && m.type === "ready") state.solverWarm = true;
-    };
-    w.onerror = () => {
-      if (worker !== w) return;
-      w.terminate();
-      worker = null;
-      state.solverWarm = false;
-    };
-  }
+    }));
   return worker;
+}
+// The page's interpreter, whether started here or handed back by the camera.
+function ownWorker(w) {
+  worker = w;
+  state.solverWarm = false;
+  w.onmessage = ({ data: m }) => {
+    if (worker === w && m.type === "ready") state.solverWarm = true;
+  };
+  w.onerror = () => {
+    if (worker !== w) return;
+    w.terminate();
+    worker = null;
+    state.solverWarm = false;
+  };
+  return w;
 }
 // Load Python while the user is still looking at the puzzle, so the first
 // Solve, Check or Hint does not wait for the runtime. A warm-up failure only
@@ -1478,8 +1481,30 @@ $("apply-json").onclick = () => {
 
 const { stopCamera } = setupPhotoFlow({
   savePicture: setupCaptureGallery($),
-  releaseSolver: () => {
-    worker?.terminate(); worker = null; state.solverWarm = false;
+  // The page runs one Python interpreter. The camera's previews take over
+  // an idle or warming one when they will solve; otherwise it is released.
+  releaseSolver: (handOff) => {
+    const w = worker;
+    worker = null;
+    state.solverWarm = false;
+    if (handOff) return w;
+    w?.terminate();
+    return null;
+  },
+  // Closing the camera hands its idle interpreter back, so Solve after live
+  // scanning does not download and start Python again.
+  adoptSolver: (w) => {
+    if (worker) {
+      w.terminate();
+      return;
+    }
+    try {
+      ownWorker(w).postMessage({ type: "warm" });
+    } catch {
+      w.terminate();
+      worker = null;
+      state.solverWarm = false;
+    }
   },
   $,
   state,

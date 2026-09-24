@@ -109,9 +109,14 @@ is new recognition evidence. Small focus fluctuations do not restart OCR.
 
 Camera realignment now cancels an active search but preserves an idle or warming
 Python worker. The first camera frame and settings changes no longer discard
-the interpreter started by the camera's warm-up. Closing the camera still
-terminates it. Warm-up failures and timeouts are handled and retired, so later
-requests can retry without inheriting a broken worker.
+the interpreter started by the camera's warm-up. The page runs one interpreter:
+with automatic solving on, opening the camera hands the page's idle or warming
+interpreter to the previews, and closing the camera hands it back unless a
+preview search is running, which only termination can stop. Solve after live
+scanning therefore starts without downloading and starting Python again.
+Without automatic solving the camera takes no interpreter, and the page's is
+released while the camera is open. Warm-up failures and timeouts are handled
+and retired, so later requests can retry without inheriting a broken worker.
 
 If grid tracking fails three times in a row (the camera waits two seconds,
 then four, between attempts), automatic tracking stops and the panel shows
