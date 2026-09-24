@@ -21,7 +21,7 @@ export function trackingFrame(image) {
   let g, integral;
   return {
     get gray() { if (g === undefined) g = gray(image); return g; },
-    get integral() { return (integral ??= integralImage(image)); },
+    get integral() { return (integral ??= integralImage(image, this.gray)); },
   };
 }
 function at(g, w, x, y) {
