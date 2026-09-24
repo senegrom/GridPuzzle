@@ -23,9 +23,10 @@ from gridsolver.solver.propagation import propagate_basic
 
 
 class _CombinationOracleCage(SumAndElementsAtMostOnce):
+    # apply() consumes the bitmask partitions; sum_candidates decodes them.
     @cached_property
-    def sum_candidates(self):
-        return tuple(frozenset(values) for values in combinations(
+    def _partition_masks(self):
+        return tuple(sum(1 << value for value in values) for values in combinations(
             range(1, self._max_elem + 1), self.len_cells
         ) if sum(values) == self.sum)
 

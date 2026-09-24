@@ -77,8 +77,10 @@ def test_parallel_workers_receive_a_cache_free_root_seed(monkeypatch):
 
     assert solver._solve_top_parallel(grid, 3, 2) == set()
 
-    seed = captured["seed"]
-    assert seed is not grid
+    # The solver-owned grid goes to the executor without another clone;
+    # worker_serialization() keeps the root pass caches out of the payload.
+    assert captured["seed"] is grid
+    seed = pickle.loads(parallel_module._serialize_worker_root(grid))
     assert seed.known == grid.known
     assert tuple(map(set, seed._candidates)) == tuple(map(set, grid._candidates))
     assert seed.rules == grid.rules
