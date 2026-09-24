@@ -20,7 +20,7 @@ from gridsolver.rules.topology import (
     SingleLoopRule,
 )
 from gridsolver.solver import atomic_solver, solver
-import run as run_cli
+from gridsolver import cli as run_cli
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -643,7 +643,7 @@ def test_kakuro_impossible_target_loads_and_solves_to_unsatisfiable():
         ),
     )
 
-    assert solver.solve(grid, log_level=-1) == set()
+    assert solver.solve(grid, log_level=solver.QUIET) == set()
 
 
 def test_cli_str_route_handles_self_describing_strings():

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import time
-from collections import namedtuple
 from collections.abc import Mapping
 
 from gridsolver.abstract_grids.grid import Grid
@@ -23,7 +22,7 @@ from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.slitherlink import Slitherlink
 from gridsolver.grid_classes.str8ts import Str8ts
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 TYPES = (
     'sudoku', 'killersudoku', 'futoshiki', 'kenken', 'latinsquare',
@@ -32,7 +31,6 @@ TYPES = (
 )
 _ALLOWED = {'version', 'type', 'rows', 'cols', 'boxRows', 'boxCols',
             'cells', 'cages', 'inequalities', 'clues', 'black'}
-_Cage = namedtuple('BrowserCage', 'mytarget cells operator')
 
 
 def _integer(value, name, lo, hi):
@@ -196,7 +194,7 @@ def build_grid(payload):
             if op in ('-', '/') and len(area) != 2:
                 raise ValueError('Difference and division cages require exactly two cells')
             cells = [coord(i) for i in indices]
-            entries.append((target, cells) if kind == 'killersudoku' else _Cage(target, cells, op))
+            entries.append((target, cells) if kind == 'killersudoku' else (target, cells, op))
         if covered != set(range(count)):
             raise ValueError(f'Cages must cover every cell; {count - len(covered)} cells need a cage')
         if kind == 'killersudoku':
@@ -225,7 +223,7 @@ def solve_payload(payload):
     """
     started = time.perf_counter()
     grid = build_grid(payload)
-    solutions = solve(grid, processes=0, max_sols=2, log_level=-1)
+    solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
     rendered = []
     rows, cols = payload['rows'], payload['cols']
     for solution in sorted(solutions, key=lambda s: tuple(s)):
@@ -250,7 +248,7 @@ def solve_json(text):
     try:
         payload = json.loads(text)
         result = solve_payload(payload)
-    except (TypeError, ValueError, KeyError) as exc:
+    except (TypeError, ValueError) as exc:
         result = {'status': 'invalid', 'message': str(exc)}
     except Exception as exc:
         # The browser must never see a raw traceback; an unexpected failure is

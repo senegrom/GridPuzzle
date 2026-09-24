@@ -1,5 +1,5 @@
 from gridsolver.grid_classes.str8ts import Str8ts
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 
 def newspaper_grid():
@@ -26,7 +26,7 @@ def newspaper_grid():
 
 def test_newspaper_str8ts_is_unique():
     grid = newspaper_grid()
-    solutions = solve(grid, processes=0, max_sols=2, log_level=-1)
+    solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
     assert len(solutions) == 1
     values = grid.values_by_key(next(iter(solutions)))
     expected = [
@@ -51,7 +51,7 @@ def test_numbered_black_cells_break_streets_but_count_for_uniqueness():
         [[1, 2, 3], [2, 3, 1], [3, 1, None]],
         black={(1, 1)},
     )
-    solutions = solve(grid, processes=0, max_sols=2, log_level=-1)
+    solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
     assert len(solutions) == 1
     assert grid.values_by_key(next(iter(solutions)))[(2, 2)] == 2
     assert (1, 1) in grid.numbered_black

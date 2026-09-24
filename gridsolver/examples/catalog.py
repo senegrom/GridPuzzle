@@ -1,18 +1,21 @@
+"""The built-in puzzles behind ``gridpuzzle --example``."""
+
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.grid_loading import create_from_str
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.sudoku import Sudoku
 
 
-def get_example(args) -> Grid:
-    # "s"/"f"/"m" are the same puzzles the Examples package defines; import
+def get_example(name: str) -> Grid:
+    """Build the example puzzle that ``--example NAME`` selects."""
+    # "s"/"f"/"m" are the puzzles of the sibling example modules; import
     # them instead of duplicating the definitions (drift risk). Lazy imports
     # keep unrelated example choices from paying construction cost.
-    if args.example == "s":
-        from Examples import exampleSudoku
-        g = exampleSudoku.g
+    if name == "s":
+        from gridsolver.examples import sudoku
+        g = sudoku.g
 
-    elif args.example == "t":
+    elif name == "t":
         g = Sudoku()
         g.load(
             [[8, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 3, 6, 0, 0, 0, 0, 0], [0, 7, 0, 0, 9, 0, 2, 0, 0],
@@ -21,11 +24,11 @@ def get_example(args) -> Grid:
              [0, 0, 8, 5, 0, 0, 0, 1, 0],
              [0, 9, 0, 0, 0, 0, 4, 0, 0]], row_wise=True)
 
-    elif args.example == "f":
-        from Examples import exampleFutoshiki
-        g = exampleFutoshiki.g
+    elif name == "f":
+        from gridsolver.examples import futoshiki
+        g = futoshiki.g
 
-    elif args.example == "b":
+    elif name == "b":
         g = KillerSudoku()
         g.ext_sum_cells([
             (22, (0, 0, 0, 1, 1, 1, 1, 2)),
@@ -57,7 +60,7 @@ def get_example(args) -> Grid:
             (12, (5, 8, 6, 8, 7, 8))
         ])
 
-    elif args.example == "a":
+    elif name == "a":
         g = KillerSudoku()
 
         g.ext_sum_cells([
@@ -93,7 +96,7 @@ def get_example(args) -> Grid:
             (10, (8, 3, 8, 4)),
         ])
 
-    elif args.example == "c":
+    elif name == "c":
         g = create_from_str(
             """
             KillerSudoku::
@@ -110,7 +113,7 @@ def get_example(args) -> Grid:
             a6b24c15d12e24f19g3h20i6j15k16l23m23n17o10p18q22r9s4t18u11v12w33x18y10z17
             """)
 
-    elif args.example == "d":
+    elif name == "d":
         g = KillerSudoku()
 
         g.load_with_dic(
@@ -128,11 +131,11 @@ def get_example(args) -> Grid:
                   "i": 7, "j": 16, "k": 16, "l": 12, "m": 17, "n": 17, "o": 17, "p": 10, "q": 20, "r": 7,
                   "s": 6, "t": 9, "u": 7, "v": 26, "w": 23, "x": 12, "y": 26, "z": 21, "0": 12, "1": 10})
 
-    elif args.example == "m":
-        from Examples import miracleSudoku
-        g = miracleSudoku.g
+    elif name == "m":
+        from gridsolver.examples import miracle_sudoku
+        g = miracle_sudoku.g
 
     else:
-        raise ValueError("Example choice not supported: " + str(args.example))
+        raise ValueError("Example choice not supported: " + str(name))
 
     return g

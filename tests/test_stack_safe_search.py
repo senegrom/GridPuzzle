@@ -15,7 +15,7 @@ def test_deep_search_preserves_the_first_two_solutions_and_caller():
     grid = _BinaryGrid(1, 1024, max_elem=2)
     recursion_limit = sys.getrecursionlimit()
 
-    solutions = solver.solve(grid, max_sols=2, log_level=-1)
+    solutions = solver.solve(grid, max_sols=2, log_level=solver.QUIET)
 
     assert {tuple(solution) for solution in solutions} == {
         (1,) * 1024,
@@ -30,7 +30,7 @@ def test_deep_search_preserves_the_first_two_solutions_and_caller():
 def test_large_slitherlink_search_returns_one_connected_cycle():
     grid = Slitherlink([[None] * 32 for _ in range(32)])
 
-    solutions = solver.solve(grid, max_sols=1, log_level=-1)
+    solutions = solver.solve(grid, max_sols=1, log_level=solver.QUIET)
 
     assert len(solutions) == 1
     # Check the actual edge geometry independently of SingleLoopRule.

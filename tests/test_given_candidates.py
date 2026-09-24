@@ -4,7 +4,7 @@ from gridsolver.abstract_grids.grid import Grid, SolveStatus, TechniqueProfile
 from gridsolver.rules.rules import Rule
 from gridsolver.solver.atomic_solver import AtomicSolver
 from gridsolver.solver.propagation import propagate_basic
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 
 @pytest.mark.parametrize("profile", TechniqueProfile)
@@ -23,7 +23,7 @@ def test_candidates_excluding_a_given_are_an_unsatisfiable_grid(profile, candida
     before = grid.deepcopy()
 
     assert not grid.is_valid
-    assert solve(grid, max_sols=1, log_level=-1) == set()
+    assert solve(grid, max_sols=1, log_level=QUIET) == set()
     assert grid == before
     assert AtomicSolver(grid.deepcopy(), [], set()).solve_atomic() is SolveStatus.INVALID
     assert propagate_basic(grid.deepcopy()) is SolveStatus.INVALID
@@ -37,7 +37,7 @@ def test_expanded_candidates_cannot_branch_away_from_an_existing_given(profile, 
     grid.get_candidates(0).update({2, 3})
 
     assert grid.is_valid
-    assert {tuple(solution) for solution in solve(grid, log_level=-1)} == {
+    assert {tuple(solution) for solution in solve(grid, log_level=QUIET)} == {
         (1, 1), (1, 2), (1, 3),
     }
     assert grid.known == (1, 0)

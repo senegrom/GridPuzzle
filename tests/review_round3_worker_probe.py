@@ -9,7 +9,7 @@ import time
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.rules.rules import Rule
 from gridsolver.solver import solve_parallel as parallel
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 
 class BinaryGrid(Grid):
@@ -39,7 +39,7 @@ def main():
     for _ in range(2):
         source = BinaryGrid(1, 2, 2)
         source.add_rule_checked(CapturedRule(source))
-        solutions = {tuple(s) for s in solve(source, log_level=-1, processes=2, max_sols=cap)}
+        solutions = {tuple(s) for s in solve(source, log_level=QUIET, processes=2, max_sols=cap)}
         assert solutions <= expected
         assert len(solutions) == (4 if cap == -1 else cap)
         if previous is not None:

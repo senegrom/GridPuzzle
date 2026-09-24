@@ -10,7 +10,7 @@ from gridsolver.grid_classes.cage_loading import _parse_compact_dictionary
 from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce, SumRule
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 
 
 def test_killer_compact_dictionary_supports_numeric_labels():
@@ -139,7 +139,7 @@ def test_large_compact_dictionary_loads_and_solves_without_recursion(family, sid
     )
 
     grid = create_from_str(f"{family}::{''.join(labels)}:{dictionary}")
-    solutions = solve(grid, max_sols=2, log_level=-1)
+    solutions = solve(grid, max_sols=2, log_level=QUIET)
 
     assert len(solutions) == 1
     solution = next(iter(solutions))

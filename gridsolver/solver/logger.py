@@ -128,11 +128,23 @@ def set_colouring(colouring: Colouring | str) -> None:
     raise ValueError(str(colouring))
 
 
+# Logging contract. Every solver logger lives under the "gridsolver"
+# namespace and keeps the level the application gives it (none is forced).
+# A message's detail level d decides whether a solve renders it at all
+# (d <= the solve's log_level); its standard logging level decides whether
+# the application's configuration lets it through: d == 0 (solutions,
+# timings) is INFO and every deeper detail is DEBUG. An application that
+# configures WARNING or above therefore sees nothing, and pays nothing for
+# rendering. Negative log levels count down from MAX_LVL, so -1 keeps its
+# historical meaning of maximum detail; QUIET, just below that range,
+# disables every solver message whatever handlers and levels exist.
 MAX_LVL = 1000
+QUIET = -(MAX_LVL + 2)
+_MUTED = -1  # normalized detail level below every message
 
 
 def _lvl(level: int) -> int:
-    return MAX_LVL - level + 1
+    return logging.INFO if level <= 0 else logging.DEBUG
 
 
 TIME_DELTA_LOG_MIN = 0.5
@@ -161,7 +173,6 @@ class CoordToString:
 class GridLogger:
     def __init__(self, logger: logging.Logger, level: int) -> None:
         self.lg = logger
-        self.lg.setLevel(1)
         self._detail_level: ContextVar[int] = ContextVar(
             f"gridpuzzle_log_level_{logger.name}_{id(self)}",
             default=self._normalize_level(level),
@@ -182,7 +193,8 @@ class GridLogger:
             raise TypeError("log level must be an integer")
         level = int(level)
         if level < 0:
-            return MAX_LVL + level + 1
+            # -1 is MAX_LVL and -(MAX_LVL + 1) is 0; QUIET and below mute.
+            return max(MAX_LVL + level + 1, _MUTED)
         return level
 
     @property
@@ -205,8 +217,12 @@ class GridLogger:
         return -1 if threshold is None else threshold
 
     def is_enabled(self, level: int) -> bool:
+        # The detail check comes first: it is the whole cost of the hot-path
+        # `lg.on` guards in an ordinary solve.
+        if level > self._detail_level.get():
+            return False
         log_level = _lvl(level)
-        if level > self.detail_level or not self.lg.isEnabledFor(log_level):
+        if not self.lg.isEnabledFor(log_level):
             return False
         threshold = self._output_threshold.get()
         if threshold is None:
@@ -241,7 +257,7 @@ class GridLogger:
     @contextmanager
     def muted_context(self):
         """Suppress logging in one context without affecting sibling threads."""
-        level_token = self._detail_level.set(-1)
+        level_token = self._detail_level.set(_MUTED)
         buffer_token = self._grid_buf.set(None)
         output_token = self._output_threshold.set(-1)
         try:
@@ -314,8 +330,14 @@ class GridLogger:
         self._detail_level.set(self._normalize_level(level))
 
 
+_NAMESPACE = "gridsolver"
+
+
 def get_log(class_: type | str, level: int) -> GridLogger:
+    """Wrap the logger for ``class_``, placed under the "gridsolver" namespace."""
     name = class_.__name__ if isinstance(class_, type) else class_
+    if name != _NAMESPACE and not name.startswith(f"{_NAMESPACE}."):
+        name = f"{_NAMESPACE}.{name}"
     logger = logging.getLogger(name)
     # Avoid logging.lastResort output before an application explicitly configures
     # logging. The NullHandler does not block propagation once the root logger is
