@@ -95,6 +95,16 @@ def test_every_package_ships_its_licence_and_no_unused_core(monkeypatch, tmp_pat
         f"vendor/{build}/tesseract/worker.min.js.LICENSE.txt",
     }
     assert expected <= paths
+    # The libraries statically linked into the two WebAssembly runtimes, and
+    # the Emscripten runtime inside both, ship their own texts.
+    vendored = {f"licenses/pyodide-{name}" for name in (
+        "CPython-Doc-license.rst", "HACL-LICENSE", "libffi-LICENSE", "xz-COPYING", "zstd-LICENSE",
+        "zlib-LICENSE", "bzip2-LICENSE", "emscripten-LICENSE", "musl-COPYRIGHT")}
+    vendored |= {f"licenses/tesseract.js-core-{name}" for name in (
+        "leptonica-license.txt", "libjpeg-README", "libpng-LICENSE", "libtiff-COPYRIGHT", "giflib-COPYING",
+        "libwebp-COPYING", "libwebp-PATENTS", "openlibm-LICENSE.md", "zlib-README",
+        "emscripten-LICENSE", "musl-COPYRIGHT")}
+    assert vendored <= paths
     # The loaders embed their WebAssembly; the bare binaries are never requested.
     cores = sorted(path.rsplit("/", 1)[1] for path in paths if "/tesseract-core/" in path)
     assert cores == ["tesseract-core-lstm.wasm.js", "tesseract-core-simd-lstm.wasm.js"]
@@ -102,8 +112,19 @@ def test_every_package_ships_its_licence_and_no_unused_core(monkeypatch, tmp_pat
     notices = (tmp_path / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
     for name, licence in LICENCES.items():
         assert f"{name} " in notices and licence in notices
-    for path in expected:
+    for path in expected | vendored:
         assert f"  {path}" in notices
+    # libjpeg's licence requires this sentence wherever only executable code ships.
+    assert "this software is based in part on the work of the Independent JPEG Group" in notices
+
+
+def test_two_licence_texts_with_one_published_name_stop_the_build(monkeypatch, tmp_path):
+    # The model's LICENSE would land on the name Pyodide's own LICENSE uses.
+    licences = dict(build_web.EXTRA_LICENCES)
+    licences["pyodide"] = (*licences["pyodide"], "tesseract.js-data-eng/LICENSE")
+    monkeypatch.setattr(build_web, "EXTRA_LICENCES", licences)
+    with pytest.raises(ValueError, match="would both be published as licenses/pyodide-LICENSE"):
+        fake_build(monkeypatch, tmp_path)
 
 
 def test_a_package_without_any_licence_stops_the_build(monkeypatch, tmp_path):
@@ -128,6 +149,28 @@ def test_vendored_licence_texts_are_the_expected_licences():
     assert texts["pyodide/LICENSE"].startswith("Mozilla Public License Version 2.0")
     assert "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2" in texts["pyodide/CPython-LICENSE"]
     assert "Apache License" in texts["tesseract.js-data-eng/LICENSE"][:200]
+    markers = {
+        "pyodide/CPython-Doc-license.rst": "Licenses and Acknowledgements for Incorporated Software",
+        "pyodide/HACL-LICENSE": "HACL* Contributors",
+        "pyodide/libffi-LICENSE": "libffi",
+        "pyodide/xz-COPYING": "liblzma is in the public domain",
+        "pyodide/zstd-LICENSE": "BSD License",
+        "pyodide/zlib-LICENSE": "Jean-loup Gailly and Mark Adler",
+        "pyodide/bzip2-LICENSE": "Julian Seward",
+        "emscripten/emscripten-LICENSE": "Emscripten",
+        "emscripten/musl-COPYRIGHT": "musl",
+        "tesseract.js-core/leptonica-license.txt": "Leptonica",
+        "tesseract.js-core/libjpeg-README": "based in part on the work of",
+        "tesseract.js-core/libpng-LICENSE": "PNG Reference Library License",
+        "tesseract.js-core/libtiff-COPYRIGHT": "Sam Leffler",
+        "tesseract.js-core/giflib-COPYING": "Eric S. Raymond",
+        "tesseract.js-core/libwebp-COPYING": "Google Inc",
+        "tesseract.js-core/libwebp-PATENTS": "patent",
+        "tesseract.js-core/openlibm-LICENSE.md": "OpenLibm",
+        "tesseract.js-core/zlib-README": "Jean-loup Gailly",
+    }
+    for relative, marker in markers.items():
+        assert marker in texts[relative], relative
 
 
 def test_core_files_select_only_the_two_lstm_loaders(tmp_path):

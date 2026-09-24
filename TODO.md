@@ -18,6 +18,18 @@ solve_chain's `_find_link_ends`/`_find_link_ends_with_num`: superficially
 twins, but they walk different state spaces (cell vs value-cell) and
 unification would tax the single-digit hot path.
 
+## OPEN: two searches that still do not finish (measured, left by choice)
+
+Both are recorded in `benchmarks/solver_memory_pruning_2026-09-23.md`.
+
+- A 10x10 Hidato with only 1 and 100 given runs past 300 s CPU; the 8x8 board
+  with only its two ends takes 16.6 s. The layered walks and the matching
+  filter prune values, but not the geometric dead ends this board is full of,
+  so it needs a change of search strategy rather than more propagation.
+- A 25x25 Killer board of 12- and 13-cell row cages with no givens does not
+  finish within 300 s CPU. Since the byte-bounded partition cache it peaks at
+  68 MiB instead of 1,579 MiB, so what remains is search time.
+
 ## Fish — parked; see `FISH_REWRITE.md`
 
 A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
