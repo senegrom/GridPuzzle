@@ -50,16 +50,53 @@ PACKAGES = {
 
 # Licence texts the build ships in addition to a package's own licence files.
 # Pyodide's npm package ships none, and its python_stdlib.zip is the CPython
-# standard library; the English model package ships none either. See
+# standard library; the English model package ships none either. Both
+# WebAssembly runtimes also statically link third-party C libraries and the
+# Emscripten runtime with musl libc, whose texts are vendored here too. See
 # third_party/licenses/README.md for where each text comes from.
 VENDORED_LICENCES = ROOT / "third_party" / "licenses"
+EMSCRIPTEN_LICENCES = ("emscripten/emscripten-LICENSE", "emscripten/musl-COPYRIGHT")
 EXTRA_LICENCES = {
-    "pyodide": ("pyodide/LICENSE", "pyodide/CPython-LICENSE"),
+    "pyodide": (
+        "pyodide/LICENSE",
+        "pyodide/CPython-LICENSE",
+        "pyodide/CPython-Doc-license.rst",
+        "pyodide/HACL-LICENSE",
+        "pyodide/libffi-LICENSE",
+        "pyodide/xz-COPYING",
+        "pyodide/zstd-LICENSE",
+        "pyodide/zlib-LICENSE",
+        "pyodide/bzip2-LICENSE",
+        *EMSCRIPTEN_LICENCES,
+    ),
+    "tesseract.js-core": (
+        "tesseract.js-core/leptonica-license.txt",
+        "tesseract.js-core/libjpeg-README",
+        "tesseract.js-core/libpng-LICENSE",
+        "tesseract.js-core/libtiff-COPYRIGHT",
+        "tesseract.js-core/giflib-COPYING",
+        "tesseract.js-core/libwebp-COPYING",
+        "tesseract.js-core/libwebp-PATENTS",
+        "tesseract.js-core/openlibm-LICENSE.md",
+        "tesseract.js-core/zlib-README",
+        *EMSCRIPTEN_LICENCES,
+    ),
     "@tesseract.js-data/eng": ("tesseract.js-data-eng/LICENSE",),
 }
 # What the notices file says about a package beyond its metadata licence.
 LICENCE_NOTES = {
-    "pyodide": "bundles the CPython standard library under the PSF License Agreement",
+    "pyodide": (
+        "bundles the CPython standard library under the PSF License Agreement; "
+        "its WebAssembly runtime also contains the software CPython incorporates "
+        "(expat, libmpdec, mimalloc and the others in CPython-Doc-license.rst, and HACL*), "
+        "libffi, liblzma (public domain), zstd, zlib, bzip2, SQLite (public domain) "
+        "and the Emscripten runtime with musl libc"
+    ),
+    "tesseract.js-core": (
+        "its WebAssembly core contains Tesseract, Leptonica, libjpeg, libpng, libtiff, "
+        "giflib, libwebp, zlib, openlibm and the Emscripten runtime with musl libc; "
+        "this software is based in part on the work of the Independent JPEG Group"
+    ),
     "@tesseract.js-data/eng": (
         "the model data it redistributes (naptha/tessdata, from "
         "tesseract-ocr/tessdata_best) is Apache-2.0"
@@ -329,6 +366,7 @@ def build(out):
         archive.writestr(licence, (ROOT / "LICENSE").read_bytes())
     provenance = []
     notices = []
+    licence_targets = set()
     with tempfile.TemporaryDirectory() as temporary:
         for name, (version, pinned) in PACKAGES.items():
             source, integrity = package(name, version, pinned, Path(temporary))
@@ -372,6 +410,11 @@ def build(out):
             shipped = []
             for license_path in licence_files(name, source):
                 target = f"licenses/{prefix}-{license_path.name}"
+                # Two texts with the same file name would silently overwrite
+                # one another, publishing one licence in place of two.
+                if target in licence_targets:
+                    raise ValueError(f"Two licence texts would both be published as {target}")
+                licence_targets.add(target)
                 copy(license_path, out / target)
                 shipped.append(target)
             shipped.extend(bundle_notices)

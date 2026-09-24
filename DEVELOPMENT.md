@@ -58,15 +58,16 @@ Str8ts declares `RULES_ONLY` in `gridsolver/grid_classes/str8ts.py`; it is reach
 
 **Hidato and Numbrix** share `ConsecutiveAdjacencyRule`. A separate whole-grid `ElementsAtMostOnce` rule and one pre-seeded presence `Guarantee` per value form the permutation model, preserving independent propagation and final validation. The path rule performs:
 
-- immediate predecessor/successor support checks;
+- immediate predecessor/successor support checks: an interior value needs two distinct neighbours offering its predecessor and successor;
 - fixed-clue graph-distance filtering;
 - bipartite parity filtering for orthogonal Numbrix;
-- layered forward/backward support pruning between fixed clues and endpoint layers;
+- layered forward/backward support pruning between fixed clues and endpoint layers, computed on per-value cell bitsets;
+- all-different filtering by bipartite matching (Régin): a value stays at a cell only if some perfect matching of values to cells uses that pair, which catches the pigeonhole dead ends the layered walks miss, such as a region of free cells that the gaps reaching it cannot fill;
 - complete-path validation after all cells are known.
 
 Hidato supplies orthogonal plus diagonal adjacency and permits blocked cells. Numbrix supplies orthogonal adjacency and rejects blocked cells.
 
-**Kakuro** uses the existing `SumAndElementsAtMostOnce` rule. The grid constructor validates that runs are straight, contiguous, maximal between black cells or board edges, arithmetically feasible with distinct digits, and that every white cell belongs to exactly one horizontal and one vertical run.
+**Kakuro** uses the existing `SumAndElementsAtMostOnce` rule. The grid constructor validates that runs are straight, contiguous, maximal between black cells or board edges, arithmetically feasible with distinct digits, and that every white cell belongs to exactly one horizontal and one vertical run. It also adds an `UnsatisfiableRule` for every connected group of runs whose across totals differ from its down totals: both totals count the same cells, so such a puzzle has no solution, and it now reports that at the first propagation instead of after an exhaustive search.
 
 **Slitherlink** uses:
 
@@ -340,6 +341,17 @@ every admissible partition is preserved, in the same order. The existing exact
 matching, guarantee restriction, and derived-cage pipeline is UNCHANGED and
 still runs before branching. There is no approximate shortcut or deferred
 fallback. The historical partition2() API continues to include repetitions.
+
+Since 2026-09-23 the partitions are kept as compact bitmask arrays (4 bytes
+per partition up to value 31) in a process-wide cache bounded by bytes, not
+entries: 8 MiB in total, least recently used first out, and a result over
+2 MiB is never retained there, only by the rules that use it, so it goes
+with their grid. The browser adapter calls `release_partition_caches()`
+after each solve, because its interpreter lives as long as the page. The
+cage matching skips partitions that cannot support a new (cell, value) pair
+and stops once every candidate pair is supported. A 12-cell cage on a 25x25
+board kept 93.8 MiB under the former entry-bounded tuple cache and keeps
+0.43 MiB now (`benchmarks/solver_memory_pruning_2026-09-23.md`).
 
 Grid dimensions and domains are write-once even for mutable Grid instances;
 solution identity and cached hashes cannot change through public assignments
