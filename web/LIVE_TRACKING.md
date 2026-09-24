@@ -24,6 +24,12 @@ anchor, never a chain of drifting successor frames. Background pixels/timers
 are not the authority for identifying the puzzle. There are at most 25 patch
 features, an 8-pixel local search, bounded deterministic robust fitting and
 one current-frame verification cache. A cache is cleared on every camera tick.
+The search runs around where the anchor last matched, and the fitted corners
+must stay within 16 pixels of that position, so a grid that jumps further
+cannot be found by verification alone. The next detection finds it: when an
+anchor operation matches a retained anchor at the new detection, it records
+where, and the following verifications search there, so the reading re-locks
+instead of being lost after five seconds and read again.
 
 OCR ownership is separate from display permission. Brief tracking loss hides
 all entries and captured clue metadata without cancelling the read. Its result
@@ -142,16 +148,26 @@ worker keeps grayscale evidence, not extra RGBA source copies. Stop, settings
 changes and errors terminate the worker and fence its replies. Each operation
 fails closed after its own deadline: two seconds for a verification, twenty for
 an anchor. With one shared two-second deadline, every anchor on a device whose
-verifications approach two seconds failed and ended in Restart. On real
-photographs with camera noise an anchor costs 1.1 to 2.3 times a verification
-of the same anchors: building it costs about as much as one more verification,
-and it re-matches every retained anchor (desktop Chromium, 960 and 1280 pixels,
-2026-09-24). The ten times on a synthetic 9x9 board and 67-131 times on
-photographs measured earlier compared against verifying an unchanged frame,
-which returns before registration and the content comparison. Verifications
-wait while an anchor is built, and grid detection's own eight-second deadline
-no longer covers anchoring. Manual capture remains available without a
-synchronous registration fallback.
+verifications approach two seconds failed and ended in Restart.
+
+Verification cost grows with the anchors it checks, since each one is a
+registration and a full content comparison. An anchor operation re-matches
+every retained anchor, so the reference, the best frame and a challenger are
+compared with each new detection there. A verification checks only the anchors
+whose proofs are read: the reading's own anchor, the frame being read, a
+pending candidate, and the guide while no preview is shown. A settled reading
+therefore verifies one anchor per frame where it used to verify three or four.
+Each operation computes the frame's grayscale and integral image once for all
+its anchors. On six noisy real photographs in desktop Chromium at 960 and
+1280 pixels (2026-09-24), a verification of one anchor takes 51-66 ms (63-79 ms
+before these changes), and of three anchors 140-177 ms (194-244 ms). An anchor
+with three retained anchors costs 1.1 to 1.2 times a verification of the same
+three, and 19-27 ms to build alone. The ten times on a synthetic 9x9 board
+and 67-131 times on photographs measured before 2026-09-24 compared against
+verifying an unchanged frame, which returns before registration and the
+content comparison. Verifications wait while an anchor is built, and grid
+detection's own eight-second deadline no longer covers anchoring. Manual
+capture remains available without a synchronous registration fallback.
 
 A verification result is drawn only with its own source snapshot, never with a
 newer video frame. Verified views come in two tiers. A view is live while the

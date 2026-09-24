@@ -62,11 +62,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = releaseImage;
   function discardCandidate() { release(pendingCandidate?.image); pendingCandidate = null; }
-  // The pending candidate comes first: detection waits for its verdict.
-  function anchorIds() {
-    return [...new Set([pendingCandidate, ...session.trackingFrames, guideFrame]
-      .map(frame => frame?.anchor?.id).filter(Number.isSafeInteger))].slice(0, 6);
-  }
+  const ids = frames => [...new Set(frames.map(frame => frame?.anchor?.id)
+    .filter(Number.isSafeInteger))].slice(0, 6);
+  // The anchors the worker keeps and compares each new detection with. The
+  // pending candidate comes first: detection waits for its verdict.
+  const anchorIds = () => ids([pendingCandidate, ...session.trackingFrames, guideFrame]);
+  // The anchors a verification checks: only those whose proofs are read. Each
+  // costs a full content comparison, about 100 ms for a 9x9 photograph on a
+  // desktop, while the reference, the best frame and the challenger are
+  // compared through their anchor-time matches. The guide outline needs its
+  // own proof only without a preview, whose corners it otherwise follows.
+  const verifyIds = () => ids([pendingCandidate, ...session.proofFrames, session.preview ? null : guideFrame]);
   function contentPixels(image) {
     const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
     contentCanvas.width = Math.max(2, Math.round(image.width * scale));
@@ -158,7 +164,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     session.validate();
     const preview = session.preview;
     displayed = preview;
-    guide = (guideFrame && isCurrent(guideFrame)?.corners) || preview?.corners || null;
+    // With a preview the outline follows its corners; guideFrame is then not
+    // verified at all (see verifyIds).
+    guide = preview?.corners || (guideFrame && isCurrent(guideFrame)?.corners) || null;
     // A verified view in the delayed tier is drawn as delayed; only an
     // overlay or guide makes the distinction visible.
     const delayed = !!(guide || displayed) && delayedTier();
@@ -293,7 +301,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   async function track(image, key, owner) {
     const id = ++frameSerial, at = now(), pixels = contentPixels(image),
-      width = pixels.width, height = pixels.height, anchors = anchorIds();
+      width = pixels.width, height = pixels.height, anchors = verifyIds();
     let adopted = false;
     try {
       const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
