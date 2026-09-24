@@ -20,7 +20,8 @@ def failing_branch(payload):
     directory = Path(os.environ["GRIDPUZZLE_FAILURE_PROBE"])
     _, value, _ = payload
     if value == int(os.environ.get("GRIDPUZZLE_FAILING_VALUE", "1")):
-        deadline = time.monotonic() + 10
+        # Only synchronisation: a sibling worker can start slowly under load.
+        deadline = time.monotonic() + 60
         while not (directory / "started").exists():
             if time.monotonic() >= deadline:
                 raise RuntimeError("Sibling did not start")
