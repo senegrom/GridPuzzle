@@ -63,6 +63,17 @@ export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
     }
   return out;
 }
+// The share of set samples of a 0/1 mask inside a rectangle, clipped to the image.
+export function fraction(mask, w, h, x, y, rw, rh) {
+  let sum = 0,
+    n = 0;
+  for (let yy = Math.max(0, Math.floor(y)); yy < Math.min(h, y + rh); yy++)
+    for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(w, x + rw); xx++) {
+      sum += mask[yy * w + xx];
+      n++;
+    }
+  return sum / Math.max(1, n);
+}
 function polygonArea(p) {
   return (
     Math.abs(

@@ -7,6 +7,19 @@ const url=path=>new URL(path,self.registration.scope).href;
 const scopeURL=new URL(self.registration.scope);
 const RETAINED=url(".retained-solvers.json");
 const isSolver=asset=>/^solver\.[a-f0-9]{12}\.zip$/.test(asset.path);
+// tesseract.js 6.0.1 loads one of the two LSTM cores per device
+// (src/worker-script/browser/getCore.js): the SIMD build where
+// wasm-feature-detect's simd() probe below validates, the plain build
+// elsewhere. Offline storage needs only that one; where WebAssembly cannot be
+// probed here, both are kept.
+const SIMD_PROBE=new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]);
+function unusedCore(){
+  try{return WebAssembly.validate(SIMD_PROBE)?"tesseract-core-lstm.wasm.js":"tesseract-core-simd-lstm.wasm.js";}
+  catch{return null;}
+}
+function offlineAssets(assets,skip=unusedCore()){
+  return skip?assets.filter(asset=>!asset.path.endsWith(`/tesseract-core/${skip}`)):assets;
+}
 // Failures the fetch handler is allowed to explain. The body it returns is
 // one of these literals, chosen by a code carried on the error; no text from
 // an exception ever reaches a response, and everything else fails generically.
@@ -268,7 +281,7 @@ function prepareOffline(port, clientId) {
     job.promise = Promise.resolve().then(async () => {
       try {
         const signal = job.controller.signal;
-        const assets = await offlinePhase(job, () => manifest({ network: true, signal }));
+        const assets = offlineAssets(await offlinePhase(job, () => manifest({ network: true, signal })));
         const cache = await offlinePhase(job, () => contentCache());
         for (let i = 0; i < assets.length; i++) {
           await offlinePhase(job, () => verifiedAsset(cache, assets[i], { verifyStored: true, requireStorage: true, signal }));
@@ -311,7 +324,7 @@ self.addEventListener("message", event => {
   event.waitUntil((async () => {
     try {
       if (event.data?.type !== "OFFLINE_STATUS") throw diagnostic("Unknown offline task");
-      port.postMessage({ done: true, ready: await offlineReadyFast(await manifest()) });
+      port.postMessage({ done: true, ready: await offlineReadyFast(offlineAssets(await manifest())) });
     } catch (error) { port.postMessage({ error: error?.message || String(error) }); }
     finally { port.close?.(); }
   })());

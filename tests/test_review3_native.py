@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 
 import pytest
 
@@ -128,6 +129,12 @@ def test_real_later_failure_terminates_slow_first_branch(method, tmp_path):
     env = dict(os.environ, GRIDPUZZLE_FAILURE_PROBE=str(tmp_path), GRIDPUZZLE_FAILING_VALUE="2", GRIDPUZZLE_PROBE_CAP="-1")
     process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("review_parallel_probe.py")), method], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     try:
+        # Starting the workers can take long on a loaded runner or under
+        # coverage, so the window opens once the slow first branch runs: from
+        # then on it blocks for a minute unless the failure terminates it.
+        deadline = time.monotonic() + 120
+        while not (tmp_path / "started").exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
         try:
             stdout, stderr = process.communicate(timeout=20)
         except subprocess.TimeoutExpired:

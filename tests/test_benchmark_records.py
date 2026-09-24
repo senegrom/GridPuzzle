@@ -46,3 +46,15 @@ def test_a_tree_with_changes_is_not_recorded_as_its_commit(tmp_path):
     # an edited tracked file
     (tree / "solver.py").write_text("RESULT = 2\n", encoding="utf-8")
     assert bench.tree_commit(tree) == head + "+uncommitted"
+
+
+def test_a_run_without_output_cannot_overwrite_a_dated_record():
+    default = bench.build_parser().parse_args(["--baseline-root", "."]).output
+    # benchmarks/ holds the committed evidence; the default lands in an
+    # ignored scratch directory instead.
+    assert default.parts[0] != "benchmarks"
+    ignored = subprocess.run(
+        ["git", "-C", str(ROOT), "check-ignore", "-q", default.as_posix()],
+        capture_output=True,
+    )
+    assert ignored.returncode == 0, f"{default} is not ignored"

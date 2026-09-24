@@ -1,18 +1,7 @@
 import { refineCellBounds } from './cell-boundaries.js';
 import { isGridStroke } from "./ocr-map.js";
 import { isCage } from "./model.js";
-import { gray, thresholdGray, estimateGrid } from "./geometry.js";
-
-function fraction(mask, w, h, x, y, rw, rh) {
-  let sum = 0,
-    n = 0;
-  for (let yy = Math.max(0, Math.floor(y)); yy < Math.min(h, y + rh); yy++)
-    for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(w, x + rw); xx++) {
-      sum += mask[yy * w + xx];
-      n++;
-    }
-  return sum / Math.max(1, n);
-}
+import { gray, thresholdGray, estimateGrid, fraction } from "./geometry.js";
 
 function mean(grayImage, w, h, x, y, rw, rh) {
   let sum = 0,

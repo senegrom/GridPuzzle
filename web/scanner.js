@@ -5,6 +5,7 @@ import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
+import { fraction } from "./geometry.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -21,16 +22,6 @@ function canvasOf(image) {
     0,
   );
   return c;
-}
-function fraction(mask, w, h, x, y, rw, rh) {
-  let sum = 0,
-    n = 0;
-  for (let yy = Math.max(0, Math.floor(y)); yy < Math.min(h, y + rh); yy++)
-    for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(w, x + rw); xx++) {
-      sum += mask[yy * w + xx];
-      n++;
-    }
-  return sum / Math.max(1, n);
 }
 function otsuThreshold(g, width, x, y, w, h) {
   const histogram = new Uint32Array(256);

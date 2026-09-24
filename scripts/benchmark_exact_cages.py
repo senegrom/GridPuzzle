@@ -151,13 +151,20 @@ def micro(root):
     return result
 
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-root', type=Path)
     parser.add_argument('--root', type=Path)
     parser.add_argument('--case', choices=CASES)
     parser.add_argument('--samples', type=int, default=3)
-    parser.add_argument('--output', type=Path, default=Path('benchmarks/exact_cages_2026-09-06.json'))
+    # An ignored scratch path: a dated record under benchmarks/ is evidence,
+    # and a run that forgets --output must not overwrite one.
+    parser.add_argument('--output', type=Path, default=Path('artifacts/exact_cages.json'))
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
     if args.case:
         child(args.root.resolve(), args.case)

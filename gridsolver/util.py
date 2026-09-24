@@ -1,6 +1,17 @@
 from collections.abc import Iterable, Iterator
 from itertools import chain
+from numbers import Integral
 from typing import TypeVar
+
+
+def positive_int(name: str, value: object) -> int:
+    """``value`` as an int; bools, non-integers and values below one raise."""
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise TypeError(f"{name} must be an integer")
+    value = int(value)
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
 
 
 def iter_bits(mask: int) -> Iterator[int]:

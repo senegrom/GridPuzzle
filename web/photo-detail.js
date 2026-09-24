@@ -3,7 +3,8 @@ import { validQuad } from './geometry.js';
 // Encoded files, not decoded megapixel canvases. Weak ownership follows the
 // preview through rotation and disappears when that photograph is discarded.
 const sources = new WeakMap();
-export const DETAIL_PIXEL_LIMIT = 16_000_000, DETAIL_SIDE = 1800;
+export const DETAIL_PIXEL_LIMIT = 16_000_000;
+const DETAIL_SIDE = 1800;
 // One original-resolution decode at a time bounds memory. A read queues behind
 // an earlier decode instead of degrading to the preview: a superseded read's
 // decode cannot be cancelled, but its bitmap is closed as soon as it arrives,
