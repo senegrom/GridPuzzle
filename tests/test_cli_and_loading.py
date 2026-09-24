@@ -1,4 +1,7 @@
 import logging
+import os
+from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -15,8 +18,11 @@ from gridsolver.grid_classes.kenken import Kenken
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku
 from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.sudoku import Sudoku
+from gridsolver.solver import solver
 from gridsolver.solver.logger import get_log
-from run import build_parser
+from gridsolver.cli import build_parser, main
+
+_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_grid_loading_uses_exact_integer_size_inference():
@@ -243,7 +249,7 @@ def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
 def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
     command = (
         "import sys; "
-        "import run; "
+        "import gridsolver.cli; "
         "print(sorted(name for name in sys.modules "
         "if name.startswith('gridsolver.grid_classes.')))"
     )
@@ -253,3 +259,169 @@ def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
     )
 
     assert output.strip() == "[]"
+
+
+def _gridpuzzle(*argv, colour="No"):
+    """Run the CLI in its own interpreter: the exit status is a process contract."""
+    environment = dict(os.environ, PYTHONPATH=str(_ROOT), PYTHONIOENCODING="utf-8")
+    colour_option = ("--colour", colour) if colour else ()
+    return subprocess.run(
+        [sys.executable, "-m", "gridsolver.cli", *argv, *colour_option],
+        cwd=_ROOT, env=environment, capture_output=True, encoding="utf-8",
+        timeout=120,
+    )
+
+
+_TOOK = re.compile(r"Took \d+\.\d{4}s to execute\.")
+# stdout of `python run.py ARGS` on master fa48f70, before the solver's log
+# records moved from levels 1..1001 into INFO/DEBUG; only the timing differs
+# between runs. The CLI configures its own handler, so none of it may change.
+_GOLDEN_OUTPUT = {
+    ("--str", "LatinSquare::1...", "--verbose"): (
+        'Solving rule-based\n'
+        'LatinSquare(2,2) - [8 rls, 0 ria, 0 gts, 0 gia]\n'
+        '\u250f\u2501\u2501\u252f\u2501\u2501\u2513\n'
+        '\u25031 \u250212\u2503\n'
+        '\u2520\u2500\u2500\u253c\u2500\u2500\u2528\n'
+        '\u250312\u250212\u2503\n'
+        '\u2517\u2501\u2501\u2537\u2501\u2501\u251b\n'
+        '\n'
+        '\x1b[34mStep [0] - 0 (basic)\x1b[0m\n'
+        'LatinSquare(2,2) - [4 rls, 4 ria, 1 gts, 7 gia]\n'
+        '\u250f\u2501\u2501\u252f\u2501\u2501\u2513\n'
+        '\u25031 \u2502\x1b[91m1\x1b[0m2\u2503\n'
+        '\u2520\u2500\u2500\u253c\u2500\u2500\u2528\n'
+        '\u2503\x1b[91m1\x1b[0m2\u25021\x1b[91m2\x1b[0m\u2503\n'
+        '\u2517\u2501\u2501\u2537\u2501\u2501\u251b\n'
+        '\n'
+        '\x1b[34mStep [0] - 1 (basic)\x1b[0m\n'
+        'LatinSquare(2,2) - [0 rls, 8 ria, 0 gts, 8 gia]\n'
+        '\u250f\u2501\u2501\u252f\u2501\u2501\u2513\n'
+        '\u25031 \u2502 2\u2503\n'
+        '\u2520\u2500\u2500\u253c\u2500\u2500\u2528\n'
+        '\u2503 2\u25021 \u2503\n'
+        '\u2517\u2501\u2501\u2537\u2501\u2501\u251b\n'
+        '\n'
+        'Done after 2 steps: \tSolveStatus.SOLVED\n'
+        'LatinSquare(2,2) - [0 rls, 8 ria, 0 gts, 8 gia]\n'
+        '\u250f\u2501\u2501\u252f\u2501\u2501\u2513\n'
+        '\u25031 \u2502 2\u2503\n'
+        '\u2520\u2500\u2500\u253c\u2500\u2500\u2528\n'
+        '\u2503 2\u25021 \u2503\n'
+        '\u2517\u2501\u2501\u2537\u2501\u2501\u251b\n'
+        '\n'
+        '\x1b[34mSolution 0\x1b[0m\n'
+        'LatinSquare(2,2)\n'
+        '\u250f\u2501\u2501\u2513\n'
+        '\u250312\u2503\n'
+        '\u250321\u2503\n'
+        '\u2517\u2501\u2501\u251b\n'
+        '\n'
+        'Took <T>s to execute.\n'
+    ),
+    ("--str", ".........", "--class", "latinsquare", "--max-solutions", "2",
+     "--colour", "No"): (
+        'Step [0, 0, 2] - Reached max_sols == 2\n'
+        'Step [0, 1] - Reached max_sols == 2\n'
+        'Step [1] - Reached max_sols == 2\n'
+        'Solution 0\n'
+        'LatinSquare(3,3)\n'
+        '\u250f\u2501\u2501\u2501\u2513\n'
+        '\u2503123\u2503\n'
+        '\u2503231\u2503\n'
+        '\u2503312\u2503\n'
+        '\u2517\u2501\u2501\u2501\u251b\n'
+        '\n'
+        'Solution 1\n'
+        'LatinSquare(3,3)\n'
+        '\u250f\u2501\u2501\u2501\u2513\n'
+        '\u2503132\u2503\n'
+        '\u2503213\u2503\n'
+        '\u2503321\u2503\n'
+        '\u2517\u2501\u2501\u2501\u251b\n'
+        '\n'
+        'Took <T>s to execute.\n'
+    ),
+    ("--file", "Examples/Hidato/Mebane/Mebane-III.1-S.clp", "--max-solutions", "1"): (
+        '\x1b[34mSolution 0\x1b[0m\n'
+        ' 5  4  7  8  9\n'
+        ' 3  6 ## 10 11\n'
+        ' 2 ## ## ## 12\n'
+        ' 1 19 ## 16 13\n'
+        '20 18 17 15 14\n'
+        'Took <T>s to execute.\n'
+    ),
+}
+
+
+@pytest.mark.parametrize("argv", list(_GOLDEN_OUTPUT), ids=("verbose", "capped", "compact"))
+def test_cli_output_matches_the_golden_capture(argv):
+    result = _gridpuzzle(*argv, colour=None)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert _TOOK.sub("Took <T>s to execute.", result.stdout) == _GOLDEN_OUTPUT[argv]
+
+
+def test_cli_exit_status_reports_whether_the_puzzle_has_a_solution():
+    solved = _gridpuzzle("--str", "LatinSquare::1...")
+    unsolvable = _gridpuzzle("--str", "LatinSquare::11..")
+    nothing_asked = _gridpuzzle("--str", "LatinSquare::11..", "--max-solutions", "0")
+    usage_error = _gridpuzzle("--str", "11..")
+
+    assert solved.returncode == 0, solved.stderr
+    assert "Solution 0" in solved.stdout
+    assert unsolvable.returncode == 1, unsolvable.stderr
+    assert "No solution found." in unsolvable.stdout
+    assert nothing_asked.returncode == 0, nothing_asked.stderr
+    assert usage_error.returncode == 2
+    assert "pass --class" in usage_error.stderr
+
+
+@pytest.mark.parametrize("processes", ("0", "1"))
+def test_cli_thread_backend_without_workers_is_a_usage_error(processes, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--str", "LatinSquare::1...", "--processes", processes,
+              "--parallel-backend", "thread"])
+    assert exit_info.value.code == 2
+    assert "requires --processes 2 or more" in capsys.readouterr().err
+
+
+def test_cli_thread_backend_on_a_gil_build_is_a_usage_error(monkeypatch, capsys):
+    # It used to reach solve() and die with a RuntimeError traceback.
+    monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: False)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--str", "LatinSquare::1...", "--processes", "2",
+              "--parallel-backend", "thread"])
+    assert exit_info.value.code == 2
+    assert "free-threaded Python runtime" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ("--column-wise", "--space-separated"))
+@pytest.mark.parametrize(
+    "source, kind",
+    (
+        (("--example", "s"), "--example"),
+        (("--module", "gridsolver.examples.sudoku"), "--module"),
+        (("--str", "(solve 1 1 4)"), "CSP-Rules"),
+        (("--file", "{csp_file}"), "CSP-Rules"),
+    ),
+)
+def test_cli_rejects_layout_flags_its_input_ignores(source, kind, flag, tmp_path, capsys):
+    csp_file = tmp_path / "loop.clp"
+    csp_file.write_text("(solve 1 1 4)\n", encoding="utf-8")
+    argv = [part.format(csp_file=csp_file) for part in source]
+
+    with pytest.raises(SystemExit) as exit_info:
+        main([*argv, flag])
+
+    assert exit_info.value.code == 2
+    assert f"{flag} does not apply to {kind} input" in capsys.readouterr().err
+
+
+def test_cli_still_honours_layout_flags_for_class_prefixed_input():
+    column_wise = _gridpuzzle("--str", "LatinSquare::12..", "--column-wise")
+    spaced = _gridpuzzle("--str", "LatinSquare::1 . . 1", "--space-separated")
+
+    assert column_wise.returncode == 0, column_wise.stderr
+    assert spaced.returncode == 0, spaced.stderr

@@ -1,10 +1,9 @@
 import pytest
-from argparse import Namespace
 
 from pytest import raises
 
-import examples2
 import helpers
+from gridsolver.examples.catalog import get_example
 from gridsolver.solver import solver
 
 
@@ -12,8 +11,7 @@ pytestmark = pytest.mark.slow
 
 
 def _example_test(x: str):
-    args = Namespace(example=x)
-    g = examples2.get_example(args)
+    g = get_example(x)
     sol = solver.solve(g, helpers.VERB)
     assert len(sol) == 1
 

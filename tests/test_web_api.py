@@ -122,3 +122,16 @@ def test_unexpected_solver_exception_is_reported_not_raised(monkeypatch):
     result = json.loads(solve_json('{"type": "sudoku", "rows": 4, "cols": 4, "cells": ' + json.dumps([None] * 16) + '}'))
     assert result['status'] == 'error'
     assert 'RuntimeError' in result['message']
+
+
+def test_escaped_key_error_is_a_solver_error_not_invalid_data(monkeypatch):
+    # Every payload check raises ValueError or TypeError. A KeyError can only
+    # be a bug, and reporting it as invalid data sent users to recheck clues.
+    import gridsolver.web_api as web_api
+
+    def lookup_bug(payload):
+        return {}['missing']
+
+    monkeypatch.setattr(web_api, 'build_grid', lookup_bug)
+    result = json.loads(solve_json('{"type": "sudoku", "rows": 4, "cols": 4, "cells": ' + json.dumps([None] * 16) + '}'))
+    assert result == {'status': 'error', 'message': "KeyError: 'missing'"}

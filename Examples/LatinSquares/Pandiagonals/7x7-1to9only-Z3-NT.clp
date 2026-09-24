@@ -1,4 +1,4 @@
-LatinSquare::
+PandiagonalLatinSquare::
 #http://forum.enjoysudoku.com/pandiagonal-latin-squares-t39102-22.html
 #
 #

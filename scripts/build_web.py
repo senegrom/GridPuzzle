@@ -67,6 +67,12 @@ LICENCE_NOTES = {
 }
 
 
+# The command line and its --example puzzles are never imported in the
+# browser (web_api.py is the entry point), so the solver archive leaves them out.
+BROWSER_EXCLUDED = ("gridsolver/cli.py",)
+BROWSER_EXCLUDED_DIRS = ("gridsolver/examples/",)
+
+
 def licence_files(name, source):
     """Every licence text shipped for a package: its own files plus vendored ones.
 
@@ -311,6 +317,8 @@ def build(out):
     ) as archive:
         for source in sorted((ROOT / "gridsolver").rglob("*.py")):
             name = source.relative_to(ROOT).as_posix()
+            if name in BROWSER_EXCLUDED or name.startswith(BROWSER_EXCLUDED_DIRS):
+                continue
             entry = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
             entry.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(entry, source.read_bytes())

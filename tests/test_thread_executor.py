@@ -539,7 +539,7 @@ def test_thread_search_is_stack_safe_on_a_deep_decision_chain(monkeypatch):
     threaded = solver.solve(
         _BinaryGrid(1, 1024, max_elem=2),
         max_sols=2,
-        log_level=-1,
+        log_level=solver.QUIET,
         processes=2,
         parallel_backend="thread",
     )
@@ -584,8 +584,8 @@ def _family_boards():
 def test_thread_backend_matches_sequential_per_family(family, monkeypatch):
     monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: True)
     board = _family_boards()[family]
-    sequential = solver.solve(board(), log_level=-1)
-    threaded = solver.solve(board(), log_level=-1, processes=2, parallel_backend="thread")
+    sequential = solver.solve(board(), log_level=solver.QUIET)
+    threaded = solver.solve(board(), log_level=solver.QUIET, processes=2, parallel_backend="thread")
     assert len(sequential) >= 2, "the board must branch for the pool to matter"
     assert threaded == sequential
 
@@ -594,10 +594,10 @@ def test_concurrent_thread_solves_keep_their_roots_private(monkeypatch):
     from gridsolver.grid_classes.futoshiki import Futoshiki
 
     monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: True)
-    expected = solver.solve(Futoshiki(3), log_level=-1)
+    expected = solver.solve(Futoshiki(3), log_level=solver.QUIET)
 
     def threaded(_):
-        return solver.solve(Futoshiki(3), log_level=-1, processes=2, parallel_backend="thread")
+        return solver.solve(Futoshiki(3), log_level=solver.QUIET, processes=2, parallel_backend="thread")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         results = list(pool.map(threaded, range(3)))
@@ -703,10 +703,10 @@ def test_thread_tasks_start_from_a_fresh_context(monkeypatch):
 
     monkeypatch.setattr(solve_threaded, "_fresh_thread_grid", observe)
     try:
-        expected = solver.solve(_BinaryGrid(1, 8, max_elem=2), log_level=-1)
+        expected = solver.solve(_BinaryGrid(1, 8, max_elem=2), log_level=solver.QUIET)
         threaded = solver.solve(
             _BinaryGrid(1, 8, max_elem=2),
-            log_level=-1,
+            log_level=solver.QUIET,
             processes=2,
             parallel_backend="thread",
         )

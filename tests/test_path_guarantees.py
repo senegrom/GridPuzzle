@@ -206,7 +206,7 @@ def test_seeded_numbrix_matches_independent_blank_2x3_oracle():
         for solution in solver.solve(
             grid,
             max_sols=-1,
-            log_level=-1,
+            log_level=solver.QUIET,
         )
     }
 

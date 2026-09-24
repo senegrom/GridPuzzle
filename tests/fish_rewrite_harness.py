@@ -23,7 +23,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from gridsolver.abstract_grids.grid import Grid
-from gridsolver.abstract_grids.grid_loading import create_from_file
+from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str_and_class
 from gridsolver.solver import solver
 import gridsolver.solver.atomic_solver as _am
 from gridsolver.solver.solve_fish import fish as current_fish, finned_fish as current_finned_fish
@@ -211,13 +211,23 @@ def capture_states(grid: Grid, max_states: int) -> list:
     return states
 
 
+def _plain_latin_square(path: Path) -> Grid:
+    """The file's givens as a plain Latin square, without its declared class."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    payload = "".join(line.strip() for line in lines[1:] if not line.startswith("#"))
+    return create_from_str_and_class(payload, "latinsquare")
+
+
 # NOTE (Aug 2026): the original sudoku-mith and killer-c capture puzzles
 # rotted after the June technique re-tiering — both now solve via earlier
 # techniques before any fish call runs, capturing zero states (so did a
 # 16x16 candidate). Only house-rich grids still reach the fish tiers;
 # both entries below are probe-verified to capture real states.
+# The 7x7 states have always come from the Z3-NT givens read as a plain Latin
+# square: the file declared LatinSquare:: until 2026-09-23. Solved as the
+# pandiagonal square it is, it finishes before any fish call (zero states).
 PUZZLES = [
-    ("pandiagonal-7x7-Z3", lambda: create_from_file(
+    ("latin-7x7-Z3-givens", lambda: _plain_latin_square(
         _PROJECT_ROOT / "Examples/LatinSquares/Pandiagonals/7x7-1to9only-Z3-NT.clp")),
     ("pandiagonal-11x11", lambda: create_from_file(
         _PROJECT_ROOT / "Examples/LatinSquares/Pandiagonals/11x11-1to9only-W4.clp")),

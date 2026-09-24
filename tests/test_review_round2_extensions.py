@@ -9,7 +9,7 @@ from gridsolver.rules.rules import InvalidGrid, Rule
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.solver.propagation import apply_rules
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 from gridsolver.solver.validation import InvalidSolutionError, validate_solution
 
 
@@ -44,7 +44,7 @@ def test_full_solve_returns_the_six_ordered_solutions():
         if values[0] < values[1] and values[0] != values[2]
     }
     assert len(expected) == 6
-    actual = {tuple(solution) for solution in solve(grid, log_level=-1)}
+    actual = {tuple(solution) for solution in solve(grid, log_level=QUIET)}
     assert actual == expected
 
 

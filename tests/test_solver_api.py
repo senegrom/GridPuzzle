@@ -282,8 +282,8 @@ def test_capped_search_does_not_undercount_overlapping_guarantee_branches():
         Guarantee(1, frozenset({0, 1}), grid.rows, grid.cols)
     )
 
-    exhaustive = solver.solve(grid, max_sols=-1, log_level=-1)
-    capped = solver.solve(grid, max_sols=10, log_level=-1)
+    exhaustive = solver.solve(grid, max_sols=-1, log_level=solver.QUIET)
+    capped = solver.solve(grid, max_sols=10, log_level=solver.QUIET)
 
     assert len(exhaustive) == 15
     assert len(capped) == 10

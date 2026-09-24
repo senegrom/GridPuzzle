@@ -43,16 +43,26 @@ def smoke_wheel(wheel_dir: Path) -> None:
 
         run([python, "-I", "-X", "utf8", "-m", "pip", "install", wheels[0]])
         run([python, "-I", "-X", "utf8", "-c", "\n".join((
-            "import importlib, pathlib, sys",
+            "import importlib, importlib.metadata, importlib.util, pathlib, sys",
             "prefix = pathlib.Path(sys.prefix).resolve()",
-            "for name in ('gridsolver', 'run', 'examples2', 'Examples.exampleSudoku'):",
+            "for name in ('gridsolver', 'gridsolver.cli', 'gridsolver.examples.sudoku'):",
             "    module = importlib.import_module(name)",
             "    assert pathlib.Path(module.__file__).resolve().is_relative_to(prefix), name",
+            # Only the gridsolver package may install. A top-level run.py
+            # shadowed, or was shadowed by, other distributions' run.py
+            # (win_unicode_console ships one), breaking the console script.
+            "for name in ('run', 'examples2', 'Examples'):",
+            "    assert importlib.util.find_spec(name) is None, name",
+            "tops = {pathlib.PurePosixPath(file.as_posix()).parts[0]",
+            "        for file in importlib.metadata.files('gridpuzzle-solver')}",
+            "stray = {top for top in tops if top not in ('gridsolver', '..') and not top.endswith('.dist-info')}",
+            "assert not stray, sorted(stray)",
         ))])
         run([console, "--help"])
         run([console, "--str", "Sudoku::123434122143432.", "--max-solutions", "1", "--colour", "No"], solution=True)
         run([console, "--example", "s", "--max-solutions", "1", "--colour", "No"], solution=True)
-    print("Clean-wheel imports and both installed CLI solves passed.")
+        run([console, "--module", "gridsolver.examples.futoshiki", "--colour", "No"], solution=True)
+    print("Clean-wheel imports, package contents and the installed CLI solves passed.")
 
 
 def main() -> None:
