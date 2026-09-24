@@ -33,7 +33,7 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 - All twelve solver families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin square, diagonal Latin square, pandiagonal Latin square, Hidato, Numbrix, Kakuro, Slitherlink and Str8ts.
 - Str8ts support includes solid black street separators and numbered black cells. Numbered black cells constrain row/column uniqueness but do not join a street.
 - Editors for values/blocked or black cells, cages, inequalities and Kakuro directional clues, plus undo and validated JSON import/export.
-- **Play mode** (Editing → Play): enter your own answers in blank cells, see clashes with rows, columns, boxes and printed clues, check answers privately, and take one-cell hints. Check, Hint and automatic completion checking require confirmation of unreviewed scans. Per-cell verdicts and hints require a completed unique solution; ambiguous puzzles keep your answers unchanged instead of comparing them with an arbitrary completion. Answers persist with the puzzle; the checking solution is never stored.
+- **Play mode** (Editing → Play): enter your own answers in blank cells, see clashes with rows, columns, boxes and printed clues, check answers privately, and take one-cell hints. Check, Hint and automatic completion checking require confirmation of unreviewed scans; confirming resumes only the action that asked, Back and Escape leave warnings and answers untouched, and replacing the board cancels a pending confirmation. Per-cell verdicts and hints require a completed unique solution, which only a finished search supplies; ambiguous puzzles keep your answers unchanged instead of comparing them with an arbitrary completion, and Reveal stays available to inspect multiple solutions. Play hides photo overlays that show the full solution and disables photo view, photo export and alternative-solution controls until you leave it. Answers persist with the puzzle; the checking solution is never stored.
 - The Python runtime loads in the background as soon as a puzzle is on the board, so Solve, Check and Hint respond without a first-load wait.
 - A strict Python data boundary and the full Python 3.14 solver through Pyodide in a cancellable worker. Browser solving uses sequential search capped at two solutions to distinguish no/unique/multiple solutions without unsupported browser multiprocessing.
 - Clean-board and captured-photo overlays, including Slitherlink edges, plus PNG overlay export.
@@ -49,8 +49,7 @@ verified reading; a late response from an earlier solve cannot reappear.
 
 The full-screen camera is modal: background controls are inert, Tab and
 Shift+Tab remain inside it, and closing it restores the previous focus and
-background state. Native VoiceOver and physical-device usability still need
-manual testing.
+background state.
 
 Kakuro Play feedback checks run duplicates and reachable sum bounds. Killer
 cages enforce distinct values and sum bounds; KenKen checks sum/product bounds
@@ -66,21 +65,21 @@ A unique solution verifies only the transcribed rules and clues. It does not pro
 
 Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the bounded Tesseract atlas call. When a scan has at most 150 numeric crops, every single-glyph digit is then re-read on its own, once from its binary crop and once from its grayscale crop, and the three readings vote: unanimity clears the review flag even at low individual scores, any disagreement keeps it. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
 
-An earlier baseline on the 2026-09-07 real newspaper regressions recorded Chromium 153 and WebKit 26.6 reading the shaded Sudoku **24/24**. They both read the Str8ts **19/20** printed values, with the one missed clue explicitly flagged for review; both detect the Str8ts black-cell layout exactly and produce **zero unsafe unflagged discrepancies**. Generated regressions remain useful secondary baselines: Chromium reads all tested generated variants exactly, while that baseline's WebKit perspective/shadow case read 29/30 with the miss flagged. Current measurements are retained in the workflow reports.
+The measured results on those crops and on the generated fixtures are in [TESTING.md](TESTING.md); current measurements are retained in the workflow reports.
 
-Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised. Physical-iPhone autofocus/exposure, installed-mode camera behaviour, storage eviction and airplane-mode use still require hardware testing.
+Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised.
+
+No automated suite is a physical-device test. VoiceOver and physical usability, autofocus and exposure, installed-mode camera behaviour, storage eviction, airplane-mode use, decoder memory and phone speed still require hardware testing, and generated fixtures are regression baselines, not substitutes for it.
 
 Digit cleanup retains neighbouring glyphs in multi-digit numbers and preserves ink in pure black-and-white scans. Invalid Str8ts values and Kakuro targets become highlighted blanks for correction. An incompatible cage reading leaves its cells uncovered; missing or ambiguous targets remain unset. These incomplete structures are editable, and Solve requires their correction rather than accepting an invented operator or target.
 
 The documents beside this one:
 
-- [LIVE_SCANNING.md](LIVE_SCANNING.md): the live workflow, colour semantics, storage policy, bounded OCR retries and dim white-on-black glyph recovery.
-- [LIVE_TRACKING.md](LIVE_TRACKING.md): how a handheld frame keeps its identity through motion, and who owns a pending read.
+- [LIVE_CAMERA.md](LIVE_CAMERA.md): the live camera: colours, saved pictures, identity through motion, tracking tiers and costs, changed-print checks, recovery and its tests.
 - [GRID_DETECTION.md](GRID_DETECTION.md): how the grid is found in a frame, measured on the puzzle corpus.
 - [OCR_QUALITY.md](OCR_QUALITY.md): how printed clues are read and recovered, with the measured improvements and acceptance suites.
 - [SCAN_INPUT.md](SCAN_INPUT.md): original-detail crops of still photographs, the clue-focused frame quality score and local cell-boundary refinement.
-- [STRUCTURAL_CAPTURE_SAFETY.md](STRUCTURAL_CAPTURE_SAFETY.md): how the live view notices changed print, and how saved pictures are owned across tabs.
-- [TESTING.md](TESTING.md): the test method and every suite.
+- [TESTING.md](TESTING.md): the test method, every suite and the corpus benchmarks.
 
 ## Photo imports and retained readings
 
@@ -90,7 +89,7 @@ headers are rejected with an export-to-JPEG/PNG/WebP message rather than
 using compressed byte count as a decoded-pixel budget. The app requests
 resized bitmaps when available, refuses images over 120 megapixels, and
 refuses full-image fallback over 24 megapixels. Decoder-internal memory
-use is browser-dependent; these checks are not a physical-device memory guarantee.
+use is browser-dependent.
 
 A numbered black-cell reading that cannot be represented by a proposed
 Hidato/Kakuro type remains highlighted and is retained in editor/session
@@ -119,6 +118,10 @@ files remain importable, but explicitly require clue/rule confirmation because
 they carry no record of review or Play progress. The underlying solver schema
 is unchanged.
 
+A selected JSON file or an applied JSON draft supersedes older pending reads,
+also when the newer input then fails size, syntax or shape validation;
+cancelling the file picker supersedes nothing.
+
 ## Data contract
 
 ```json
@@ -139,7 +142,7 @@ Cells are zero-based row-major. `null` is blank; `"#"` is a blocked/blank-black 
 
 Omitting a cage operator defaults to `+`; explicit `null` is invalid in both JavaScript and Python.
 
-The browser rejects malformed dimensions, boxes, Str8ts black metadata, overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become solve requests. Incomplete cage coverage and missing OCR targets remain editable states, but **Solve** performs a solve-ready check before Pyodide starts. The Python adapter remains the authoritative final boundary.
+The browser rejects malformed dimensions, boxes, Str8ts black metadata (explicitly malformed metadata is rejected, not normalized to an empty list), overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become solve requests. Incomplete cage coverage, missing OCR targets, fully blocked Str8ts and Hidato drafts and duplicate Hidato and Numbrix clues remain editable states, but **Solve** performs a solve-ready check before Pyodide starts, consistently with the native loaders; numbered black cells do not count as Str8ts white cells. Browser editability and solve-readiness are separate contracts, checked against the native adapter on shared fixtures. The Python adapter remains the authoritative final boundary.
 
 The 25×25 browser limit is a phone resource policy, not a native solver limit. Str8ts itself is limited to square 2×2 through 9×9 boards. A deadline/cancellation means unfinished, never unsatisfiable or unique.
 
@@ -167,38 +170,29 @@ newer tabs do not prolong obsolete clients' retention. Unowned old builds are
 pruned on a subsequent activation. Reused module responses resolve relative
 imports against the requested versioned URL, not a previous download's URL.
 
-The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
-
-## Testing
-
-Every browser suite, what it proves and which workflow job runs it is
-inventoried in [TESTING.md](TESTING.md). Beyond those suites:
-
-- `tests/test_web_api.py` verifies the Python/browser data contract; `tests/test_str8ts.py` verifies Str8ts street semantics and the uniquely solved newspaper puzzle.
-- `web/tests/` covers geometry, classification, OCR mapping/preprocessing, cache recovery, worker lifecycle, malformed input, type confirmation, structural validation, keyboard boundaries, no-op edit guards and service-worker routing.
-- The newspaper images and hand-checked ground truth live in `Examples/BrowserScanner/Newspaper/`, outside `web/`, so they do not inflate the deployed/offline bundle.
-- Normal Linux/Windows CI and forward compatibility remain independent from the full Pages/browser gate.
-
-Generated fixtures are regression baselines, not substitutes for real-device testing.
-
-## Input, build and lifecycle hardening
-
-The page declares a same-origin Content Security Policy and a no-referrer policy; every runtime asset is self-hosted. Builds are staged before publication. Inside the repository, only `_site` is accepted as output; custom external outputs must be new or builder-owned. Source directories, Git metadata, repository ancestors and symbolic output links are refused, and a failed build preserves the previous good output.
-
-Task/deadline ownership, edit snapshots, camera/photo flow and offline controls are separate modules. Grayscale/threshold/region preparation runs off the UI thread. Each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Stale task generations cannot replace a newer puzzle.
-
-The live camera detects a stable grid, processes it off the interface thread and projects coloured readings and solution entries onto the same view. Moving away clears stale answers. This is not a physical-device autofocus or motion-tracking certification; step-by-step deduction explanations are not included.
-
-### Offline download recovery
+The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Of the two Tesseract core loaders it stores only the one this device will load, chosen with the same WebAssembly SIMD test Tesseract.js uses (both where WebAssembly cannot be probed); both stay on the server. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 
 Offline preparation is one shared job per service-worker build, with a bounded
 listener set. Retrying reconnects to a healthy job rather than duplicating or
-cancelling another tab's download. Each manifest/asset verification/storage
-phase has a worker-owned four-minute deadline, shorter than the page's
-five-minute inactivity timeout. A stalled phase aborts its network request,
-releases job ownership and reports an error; a subsequent retry can start a
-new job. Late retired work cannot publish success for a newer job. Only
+cancelling another tab's download. Each manifest, asset verification and
+storage phase has a worker-owned four-minute deadline, shorter than the page's
+five-minute inactivity timeout; a stalled phase aborts its network request,
+releases job ownership and reports an error, and a later retry can start a new
+job. Late retired work cannot publish success for a newer job, and only
 read-back, hash-verified stored assets authorize offline readiness.
+
+## Testing
+
+Every browser suite, what it proves and which workflow job runs it, and the
+unit tests by area, are in [TESTING.md](TESTING.md). `tests/test_web_api.py`
+verifies the Python/browser data contract and `tests/test_str8ts.py` Str8ts
+street semantics and the uniquely solved newspaper puzzle. The newspaper images
+and hand-checked ground truth live in `Examples/BrowserScanner/Newspaper/`,
+outside `web/`, so they do not inflate the deployed or offline bundle.
+
+## Input, build and lifecycle hardening
+
+The page declares a same-origin Content Security Policy and a no-referrer policy, and every runtime asset is self-hosted. Builds are staged before publication, and a failed build keeps the previous good output: inside the repository only `_site` is accepted as output, custom external outputs must be new or builder-owned, and source directories, Git metadata, repository ancestors and symbolic output links are refused. Task and deadline ownership, edit snapshots, the camera and photo flow and the offline controls are separate modules, and stale task generations cannot replace a newer puzzle. Grayscale, threshold and region preparation runs off the UI thread, and each OCR scan owns a dedicated host that can terminate raw Tesseract workers even while language initialization is pending. Step-by-step deduction explanations are not included.
 
 
 ## Scan diagnostics

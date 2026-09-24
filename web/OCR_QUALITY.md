@@ -2,8 +2,8 @@
 
 How printed clues are read once the grid is found, what each mechanism was
 measured to do, and the suites that keep it. Grid detection is in
-[GRID_DETECTION.md](GRID_DETECTION.md), the live workflow in
-[LIVE_SCANNING.md](LIVE_SCANNING.md), the suites' method in
+[GRID_DETECTION.md](GRID_DETECTION.md), the live camera in
+[LIVE_CAMERA.md](LIVE_CAMERA.md), the suites' method in
 [TESTING.md](TESTING.md).
 
 Every recovery below is a proposal for review: it never draws replacement

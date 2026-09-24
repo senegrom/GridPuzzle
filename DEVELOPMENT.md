@@ -189,9 +189,10 @@ change Python code, additionally runs the bounded suite on free-threaded
 Python 3.14, with the GIL required off, and on the Python 3.15 prerelease,
 with warnings treated as errors.
 
-The extended workflow, which runs weekly, on demand and on every push to
-master that changes the solver, the example corpora, their tests or the
-pinned dependencies it installs, includes:
+The extended workflow runs weekly, on demand and on every push to master that
+changes `gridsolver/`, the example corpora, the corpus runner or its timeout
+baseline, the regression tests that exercise them, `pyproject.toml` or the
+setup-project action and its pins. It includes:
 
 - existing supported example corpora;
 - a 7-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: one job each for the first three, which finish in seconds, and four deterministic shards for Slitherlink, with one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
@@ -220,26 +221,21 @@ Slitherlink files with additional constraints remain explicitly classified,
 not silently solved as ordinary Slitherlink.
 
 There are **no timeout exemptions by default**. Extended CI explicitly supplies
-`--timeout-baseline benchmarks/corpus_timeout_baseline.json`. This reviewed
-baseline names exact existing corpus paths, gives each a reason, records the
-supporting run, and expires within 31 days of review. Its timeout must match the
-requested case timeout. Expired, future-dated, malformed, duplicate, missing-file,
-or out-of-repository entries fail before cases run. Never renew the dates
-without reviewing fresh reports and removing recovered cases. In the
-baseline's last week the runner adds a warning to the run saying when it
-expires, so the weekly job warns while it still passes.
+`--timeout-baseline benchmarks/corpus_timeout_baseline.json`, which holds the
+current allowances, the run they were reviewed against, the review date and the
+expiry date. It names exact existing corpus paths, gives each a reason, and must
+expire within 31 days of its review; its timeout must match the requested case
+timeout. Expired, future-dated, malformed, duplicate, missing-file, or
+out-of-repository entries fail before cases run. Never renew the dates without
+reviewing fresh reports and removing recovered cases. In the baseline's last
+week the runner adds a warning to the run saying when it expires, so the weekly
+job warns while it still passes.
 
 Reports retain the raw `timeout` status and separately list `accepted_timeouts`,
 `unexpected_timeouts`, and `resolved_timeouts`. The latter identifies previously
-slow cases that completed uniquely, for baseline cleanup. The current
-allowances, the run they were reviewed against, the review date and the expiry
-date all live in `benchmarks/corpus_timeout_baseline.json`; the loader rejects
-an expiry more than 31 days after the review.
-Case reports are written before the runner returns a regression failure; invalid
-configuration fails before launching cases. Missing report artifacts fail the
-upload step. Changes anywhere in `gridsolver/`, the corpus runner, its policy
-baseline, the related regression tests, `pyproject.toml` or the setup-project
-action and its pins trigger extended CI on `master`.
+slow cases that completed uniquely, for baseline cleanup. Case reports are
+written before the runner returns a regression failure; invalid configuration
+fails before launching cases. Missing report artifacts fail the upload step.
 
 Run a local shard with the same reviewed exceptions as CI:
 

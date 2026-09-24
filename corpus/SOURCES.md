@@ -212,74 +212,56 @@ needed for these regressions and is not vendored.
 
 ## Reliable partial rebuilds and portable tooling
 
-All three Python entry points use `corpus/config.py`. `PUZZLE_CORPUS_CACHE`
-controls the downloaded datasets **and** the Janko fetcher, parser and renderer;
-Janko data lives under `<cache>/janko`. Existing path defaults are retained.
-`PUZZLE_CORPUS_INDEX` optionally relocates the inventory JSON (useful for isolated
-runs); otherwise it remains `corpus/index.json` in the checkout. Set these
-variables before starting a command.
+All three Python entry points use `corpus/config.py`, and the variables must be
+set before a command starts. `PUZZLE_CORPUS_CACHE` controls the downloaded
+datasets and the Janko fetcher, parser and renderer (Janko data lives under
+`<cache>/janko`); `PUZZLE_CORPUS_INDEX` relocates the inventory JSON, which
+otherwise stays `corpus/index.json` in the checkout.
 
 A rebuild collects and validates the selected sources before touching their
-outputs. A missing cache or required source asset makes the source
-**unavailable**, not empty: the collector enumerates its required image folders
-(both folders of a combined source, the originals' sibling annotation folder)
-and metadata (newspaper corner CSV headers, each Lexski split's metadata and
-referenced images, KU Leuven's data and label arrays, the standalone Futoshiki
-photograph), discards anything collected for that source, keeps its existing
-images, targets and inventory, and the run exits nonzero rather than claim a
-complete rebuild; other sources still rebuild. Optional handwritten labels and
-per-image annotations stay optional. An existing, readable, intentionally empty
-image directory is a completed empty rebuild, and its old managed images and
-targets are removed. Collector errors abort before any output changes. Do not
-run multiple builders concurrently on one corpus/index.
+outputs, and collector errors abort before any output changes. A missing cache
+or a missing required asset (an image folder, including both folders of a
+combined source and the originals' annotation folder, or metadata: the newspaper
+corner CSV headers, each Lexski split's metadata and referenced images, KU
+Leuven's data and label arrays, the standalone Futoshiki photograph) makes that
+source **unavailable**, not empty: what was collected for it is discarded, its
+existing images, targets and inventory are kept, the run exits nonzero, and
+other sources still rebuild. Optional handwritten labels and per-image
+annotations stay optional. An existing, readable, intentionally empty image
+directory is a completed empty rebuild whose old managed images and targets are
+removed. Do not run several builders on one corpus or index at once.
 
-Deduplication considers actual bytes of retained, indexed images, including
-skipped sources, together with the selected rebuild candidates. The first
-source in the registry owns a duplicate, with filename as a stable tie-breaker;
-unknown source sets sort after registered sources by relative path. A higher
-priority source can reclaim an indexed duplicate from another set, removing
-only that duplicate image/target pair after writing the canonical copy. Full,
-partial and reordered rebuilds therefore agree on duplicate ownership for the
-available inventory. Index and target JSON replacements are atomic. Older
-unindexed/orphaned files should be reconciled with a full rebuild before scoring.
+Deduplication compares the bytes of retained, indexed images, including skipped
+sources, with the selected candidates. The first source in the registry owns a
+duplicate, with the filename as a stable tie-breaker and unknown sets sorted
+after registered ones by relative path; a higher-priority source can reclaim an
+indexed duplicate, removing only that image/target pair after writing the
+canonical copy. Full, partial and reordered rebuilds therefore agree on
+ownership. Index and target JSON replacements are atomic; reconcile older
+unindexed or orphaned files with a full rebuild before scoring.
 
-The renderer checks all font resources before changing corpus outputs. It uses
-only available fonts; without system fonts it uses Pillow's scalable bundled
-Aileron fallback. No fonts are downloaded or copied into the repository. Explicit
-configuration is strict and errors are reported before rendering:
+The renderer checks every font resource before changing outputs, uses only
+available fonts and otherwise Pillow's scalable bundled Aileron fallback, and
+never downloads or copies fonts into the repository. Explicit configuration is
+strict, with errors reported before rendering; both options may be repeated:
 
 ```bash
 python corpus/render_puzzles.py --font /path/to/font.ttf --only sudoku --per-family 1
 python corpus/render_puzzles.py --font-dir /path/to/fonts --only kenken
 ```
 
-Both options may be repeated. Use `.[corpus]` to install Pillow with FreeType and
-NumPy. Cage labels use ASCII `-`, `x` and `/` so missing mathematical-symbol
-glyphs do not silently turn operators into replacement boxes. Font selection
-and this label change can alter regenerated pixels; a fixed seed alone does
-not make outputs portable across different font installations. Supply the same
-font files explicitly when comparing renderer output between machines.
+Use `.[corpus]` to install Pillow with FreeType and NumPy. Cage labels use ASCII
+`-`, `x` and `/`, so missing mathematical-symbol glyphs cannot turn operators
+into replacement boxes. Fonts change regenerated pixels, and a fixed seed alone
+does not make outputs portable: supply the same font files when comparing
+renderer output between machines.
 
-The benchmark checkpoints `browser-artifacts/corpus-benchmark.json` before
-startup, after each image and after cleanup. Bad JSON, unreadable images and
-recoverable scan errors become individual error rows, and later images continue.
-A browser disconnect or SIGINT/SIGTERM stops the run and saves partial results.
-Reports include `status`, `totalImages`, `completedImages`, `failure` and
-`cleanupErrors`; cleanup never replaces the primary failure. The CLI returns
-nonzero for incomplete runs, any failed image or failed cleanup. Context,
-browser and HTTP-server cleanup is attempted independently, including startup
-and output-write failures. Hard process termination or loss of disk access can
-only preserve the last successful checkpoint, not guarantee a final report.
-
-The CI workflow installs the optional renderer dependencies on Linux and
-Windows, so these tests run with the rest of the bounded suite: full, partial
+The benchmarks' checkpointing and report format are described in
+`web/TESTING.md`. CI installs the optional renderer dependencies on Linux and
+Windows, so the corpus tests run with the bounded suite on temporary fixtures,
+without fetching public datasets or touching the external corpus: full, partial
 and skipped rebuilds, cache overrides, a real three-variant render with the
-bundled font, bad-font preflight, and benchmark failure and interrupt paths.
-They use temporary fixtures and never fetch public datasets or mutate the
-external corpus.
-
-`tests/test_corpus_source_layout.py` exercises the registered collectors on
-temporary cache and corpus directories: real files, byte-for-byte output and
-index preservation, late failures in combined sources, and the valid-empty
-control. The detection-only benchmark's report format is described in
-`web/TESTING.md`.
+bundled font, bad-font preflight, benchmark failure and interrupt paths, and
+(`tests/test_corpus_source_layout.py`) the registered collectors with
+byte-for-byte output and index preservation, late failures in combined sources
+and the valid-empty control.

@@ -4,14 +4,12 @@
 
 Implemented in August 2026. Nishio, forcing chains, forcing nets, and the
 backtracking search use reversible trail scopes instead of a complete
-`Grid.deepcopy()` for every speculative branch. `Grid.deepcopy()` remains for
-the public non-mutating solve boundary and for each independent process-pool
-task. A process receives one serialized root grid through its initializer, then
-creates each task locally through the purpose-built copy path.
-
-The implementation is correctness-gated. No performance claim should be made
-without a repeatable corpus benchmark, because Python-level journaling also
-adds overhead to every candidate mutation.
+`Grid.deepcopy()` for every speculative branch; `Grid.deepcopy()` remains for
+the public non-mutating solve boundary and for each process-pool task (see
+"Process-pool boundary"). The design is closed: a replacement needs complete
+solution-set equivalence and fresh corpus measurements, because Python-level
+journaling adds overhead to every candidate mutation (`TODO.md`, standing
+rules).
 
 ## Problem
 
@@ -128,12 +126,9 @@ in-process speculation:
 
 This avoids repeatedly transmitting the complete puzzle while preserving
 subclass copy hooks, fresh trails, empty derived caches, and complete task
-isolation. Directly mutating the worker root under an outer trail was tested
-with a conservative base-class guard and passed success, contradiction,
-exception, optional-memo, differential, and extension-fallback checks on Linux
-and Windows. It was nevertheless rejected because it regressed full blank-4x4
-enumeration by 1.98%, non-square 6x6 cap-20 by 0.76%, and a 1,000-branch case by
-3.11%; see `benchmarks/worker_trail_reuse_rejected_2026-08-09.md`.
+isolation. Directly mutating the worker root under an outer trail passed every
+correctness check but was slower, and was rejected
+(`benchmarks/worker_trail_reuse_rejected_2026-08-09.md`).
 
 A note on `guarantees_ia`: its composition is schedule-dependent bookkeeping.
 The same dominated fact can land there directly on one propagation schedule
@@ -161,42 +156,20 @@ fixpoint conclusion.
 9. Caller-owned grids remain unmodified by `solve()`.
 10. Process-pool tasks never solve the worker initializer root in place.
 
-## Test coverage
+## Tests and measurements
 
-`tests/test_trail.py` covers:
+`tests/test_trail.py` covers every candidate and mapping mutator, nested and
+misordered marks, known/rule/guarantee/cache/dirty-state rollback, fish memo
+rollback, pickle and deepcopy coherence, and Nishio, forcing and backtracking
+without per-branch deep copies; `tests/test_stack_safe_search.py` covers the
+explicit-stack driver's depth safety. Sequential/parallel equivalence is in
+`tests/test_basic.py` and `tests/test_regressions.py`, the process pool's root,
+per-task clones and bounded submission in `tests/test_solver_api.py`, and an
+independent enumeration of the complete 4x4 Sudoku solution space, with
+candidate soundness after a deduction pass, in `tests/test_differential.py`.
 
-- every candidate and mapping mutator;
-- nested marks and invalid mark ordering;
-- known, rule, and guarantee rollback;
-- cache identity and cache lifecycle restoration;
-- propagation and exception rollback;
-- deepcopy and pickle coherence;
-- Nishio without branch deep copies;
-- forcing-chain and forcing-net consensus;
-- backtracking without per-node deep copies (the explicit-stack driver's depth
-  safety is covered separately, in `tests/test_stack_safe_search.py`);
-- transactional fish memo rollback;
-- dirty-worklist selectivity, pickle coherence, and exact rollback.
-
-Deterministic sequential/parallel equivalence lives in `tests/test_basic.py`
-(full 288-solution merge) and `tests/test_regressions.py` (start methods).
-
-`tests/test_solver_api.py` covers process-pool root initialisation, isolated
-per-task clones, compact task payloads, bounded submission, capped worker
-termination, and unlimited replenishment.
-
-`tests/test_differential.py` independently enumerates the complete 4x4 Sudoku
-solution space and checks both complete returned solution sets and candidate
-soundness after an atomic deduction pass.
-
-## Measurement record
-
-The original trail implementation was approximately performance-neutral on the
-selected enumeration cases: blank 4x4 all-288 moved from 41.0s to 41.9s, while
-non-square 6x6 cap-20 moved from 22.2s to 21.2s, with identical solution sets.
-See `benchmarks/trail_baseline_2026-08-08.md`.
-
-The trail representation is therefore considered closed unless a replacement
-is validated against complete solution sets and a broader corpus. The rejected
-worker-root reuse experiment confirms that removing a copy can still lose once
-Python-level journaling and cleanup are included.
+The trail engine measured approximately performance-neutral against the
+deep-copy design, with identical solution sets
+(`benchmarks/trail_baseline_2026-08-08.md`); the rejected worker-root reuse
+shows that removing a copy can still lose once journaling and clean-up are
+counted.

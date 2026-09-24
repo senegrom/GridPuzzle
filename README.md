@@ -170,41 +170,14 @@ The cells must hold distinct values that form one run of consecutive numbers, in
 
 ## Development
 
-Install the package and development dependencies from the repository metadata:
+Install the package and development dependencies from the repository metadata, then run the bounded suite as CI does on Linux and Windows:
 
 ```bash
 python -m pip install -e ".[dev]"
+python -X dev -m pytest -q tests -m "not slow"
 ```
 
-Run a quick bounded selection with:
-
-```bash
-python -X dev -m pytest -q tests/test_regressions.py tests/test_basic.py tests/test_scale.py -m "not slow"
-```
-
-(The actual CI core job runs the full non-slow suite across all test files;
-see `.github/workflows/ci.yml` for the authoritative list.)
-
-The `slow` marker contains the long example-corpus checks and is intentionally excluded from the default push workflow (the generated large-scale tests run fast enough to stay per-push):
-
-```bash
-python -X dev -m pytest -m slow
-```
-
-Run an isolated retained-corpus shard locally with:
-
-```bash
-python scripts/run_new_family_corpus.py \
-  --family slitherlink \
-  --shard-index 0 \
-  --shard-count 4 \
-  --case-timeout 60 \
-  --output artifacts/slitherlink-0.json
-```
-
-Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs these corpora as seven jobs (Hidato, Numbrix and Kakuro whole, Slitherlink in four shards) weekly, on demand and on every push to `master` that changes the solver, the example corpora, their tests or the pinned dependencies, and uploads each JSON report as an artifact.
-
-GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux and Windows discover the complete non-slow suite, while forward-compatibility CI covers free-threaded Python 3.14 and the Python 3.15 prerelease.
+The `slow` marker holds the long example-corpus checks, which only extended CI runs (`python -X dev -m pytest -m slow`). [DEVELOPMENT.md](DEVELOPMENT.md) describes the CI workflows, the isolated corpus runner and its timeout policy.
 
 ## Documentation
 
