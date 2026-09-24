@@ -189,7 +189,8 @@ Python 3.14, with the GIL required off, and on the Python 3.15 prerelease,
 with warnings treated as errors.
 
 The extended workflow, which runs weekly, on demand and on every push to
-master that changes the solver, the example corpora or their tests, includes:
+master that changes the solver, the example corpora, their tests or the
+pinned dependencies it installs, includes:
 
 - existing supported example corpora;
 - a 16-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: four deterministic shards per family, one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
@@ -234,7 +235,8 @@ an expiry more than 31 days after the review.
 Case reports are written before the runner returns a regression failure; invalid
 configuration fails before launching cases. Missing report artifacts fail the
 upload step. Changes anywhere in `gridsolver/`, the corpus runner, its policy
-baseline, or the related regression tests trigger extended CI on `master`.
+baseline, the related regression tests, `pyproject.toml` or the setup-project
+action and its pins trigger extended CI on `master`.
 
 Run a local shard with the same reviewed exceptions as CI:
 

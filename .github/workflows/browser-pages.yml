@@ -72,9 +72,10 @@ jobs:
       - uses: ./.github/actions/setup-scanner
       # The bounded Python suite runs in CI on every push and pull request, and
       # the browser unit tests run in "Browser branch tests" on every pull
-      # request; on a master push this is the only place the latter run.
+      # request; on a master push or a manual run this is the only place the
+      # latter run.
       - name: Geometry and model tests
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         run: node --test web/tests/*.test.js
       - name: Retain build for independent testing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

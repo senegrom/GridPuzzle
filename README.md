@@ -199,7 +199,7 @@ python scripts/run_new_family_corpus.py \
   --output artifacts/slitherlink-0.json
 ```
 
-Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly, on demand and on every push to `master` that changes the solver, the example corpora or their tests, and uploads each JSON report as an artifact.
+Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly, on demand and on every push to `master` that changes the solver, the example corpora, their tests or the pinned dependencies, and uploads each JSON report as an artifact.
 
 GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux and Windows discover the complete non-slow suite, while forward-compatibility CI covers free-threaded Python 3.14 and the Python 3.15 prerelease.
 

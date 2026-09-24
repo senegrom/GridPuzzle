@@ -4,6 +4,10 @@ on:
   # changes job decides whether the suites run.
   pull_request:
   workflow_dispatch:
+  # No push workflow runs these suites, and two pull requests that each
+  # passed can merge into a combination neither ran: once a week on master.
+  schedule:
+    - cron: "13 4 * * 4"
 permissions:
   contents: read
 concurrency:
@@ -15,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      # A manual run always runs the suites.
+      # A weekly or manual run always runs the suites.
       relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -60,7 +64,7 @@ jobs:
           git rev-parse HEAD > scan-input-artifacts/commit.txt
       # The browser unit tests run in "Browser branch tests" on every pull request.
       - name: Every browser module parses
-        run: find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
+        run: set -o pipefail; find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
       - name: Newspaper, font and degraded-image quality checks
         run: node scripts/ocr_quality_regressions.cjs
       - name: Damaged-clue checks

@@ -20,6 +20,10 @@ on:
       - "tests/test_basic.py"
       - "tests/test_stack_safe_search.py"
       - ".github/workflows/extended.yml"
+      # Every job installs through setup-project: a merged Dependabot pin
+      # or a dependency change reaches the corpora here, not only on Sunday.
+      - "pyproject.toml"
+      - ".github/actions/setup-project/**"
   schedule:
     - cron: "17 3 * * 0"
 
