@@ -7,8 +7,9 @@ cache is bounded by bytes and skips huge results, and the browser adapter
 releases it after every solve. Exactness is checked against brute force.
 """
 import random
+import sys
+import threading
 from array import array
-from concurrent.futures import ThreadPoolExecutor
 from itertools import combinations, permutations
 
 import pytest
@@ -73,17 +74,38 @@ def test_process_cache_is_bounded_by_bytes_and_skips_huge_results():
     assert cache.info() == (0, 0)
 
 
-def test_process_cache_is_safe_for_concurrent_callers():
-    sumrules.release_partition_caches()
-    expected = list(sumrules._PARTITION_MASKS.get(6, 60, 16))
-    sumrules.release_partition_caches()
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        results = list(executor.map(
-            lambda _: sumrules._PARTITION_MASKS.get(6, 60, 16), range(128)
-        ))
-    assert all(list(result) == expected for result in results)
-    published = sumrules._PARTITION_MASKS.get(6, 60, 16)
-    assert sumrules._PARTITION_MASKS.get(6, 60, 16) is published
+def test_process_cache_publishes_one_result_under_concurrent_misses():
+    """Callers that miss the same key together each generate it, and exactly
+    one result may be published and counted. Without that check every racing
+    caller counted its bytes again and kept its own copy, so the cache
+    believed it held several times what it did and evicted early."""
+    key = (7, 70, 20)  # about a millisecond to generate: long enough to overlap
+    expected = list(sumrules._compact_masks(sumrules._distinct_partition_masks(*key), key[2]))
+    interval = sys.getswitchinterval()
+    # A GIL build must switch threads inside the generation for the misses
+    # to overlap; a free-threaded one runs them at once anyway.
+    sys.setswitchinterval(1e-5)
+    try:
+        for _ in range(5):
+            cache = sumrules._PartitionMaskCache(max_bytes=8 << 20, max_entry_bytes=2 << 20)
+            barrier = threading.Barrier(8, timeout=30)
+            results = [None] * 8
+
+            def call(index, cache=cache, barrier=barrier, results=results):
+                barrier.wait()
+                results[index] = cache.get(*key)
+
+            threads = [threading.Thread(target=call, args=(index,)) for index in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(60)
+            published = cache.get(*key)
+            assert list(published) == expected
+            assert all(result is published for result in results)
+            assert cache.info() == (1, published.itemsize * len(published))
+    finally:
+        sys.setswitchinterval(interval)
 
 
 def test_browser_solve_releases_partition_caches():

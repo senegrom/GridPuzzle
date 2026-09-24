@@ -196,7 +196,8 @@ in-memory cache reuses isolated readings only for byte-identical crop images
 with the identical segmentation mode, never for approximate matches, cell
 indices or solver answers; it is bounded to 256 entries or two megabytes of
 keys and cleared with the engine. Grid detection runs every 300 ms until a
-preview exists, then every second.
+reading is being tracked, then at least a second after the previous
+candidate's verdict and longer when anchors are slow (`LIVE_TRACKING.md`).
 
 `scripts/ocr_latency_regressions.cjs` reads the two retained newspaper crops
 five times on one Scanner in both engines and records cold and warm read times,

@@ -16,3 +16,33 @@ def test_records_name_the_trees_actually_measured(tmp_path):
     assert bench.tree_commit(tmp_path) is None
     # The old fixed constant claimed one historical commit for every record.
     assert not hasattr(bench, "BASELINE")
+
+
+def test_a_tree_with_changes_is_not_recorded_as_its_commit(tmp_path):
+    tree = tmp_path / "tree"
+    tree.mkdir()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@example.com",
+             "-c", "core.autocrlf=false", "-C", str(tree), *args],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+
+    git("init", "-q")
+    (tree / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    (tree / "solver.py").write_text("RESULT = 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "measured")
+    head = git("rev-parse", "HEAD")
+    assert bench.tree_commit(tree) == head
+    # an ignored file is not part of the measured tree
+    (tree / "run.log").write_text("timings\n", encoding="utf-8")
+    assert bench.tree_commit(tree) == head
+    # a new module the change would import, not yet added
+    (tree / "helper.py").write_text("HELP = 2\n", encoding="utf-8")
+    assert bench.tree_commit(tree) == head + "+uncommitted"
+    (tree / "helper.py").unlink()
+    # an edited tracked file
+    (tree / "solver.py").write_text("RESULT = 2\n", encoding="utf-8")
+    assert bench.tree_commit(tree) == head + "+uncommitted"

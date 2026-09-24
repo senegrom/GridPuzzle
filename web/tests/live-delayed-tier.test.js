@@ -3,13 +3,15 @@ import assert from "node:assert/strict";
 import { createLiveCamera } from "../live-camera.js";
 import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE } from "../live-tracker.js";
 import { createTrackingCore } from "../live-tracking-core.js";
+import { makePuzzle } from "../model.js";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 // The production camera and tracker on a fake clock, with a fake worker that
 // runs the real tracking core and answers each operation after delay(op)
-// milliseconds, or never when delay(op) is null.
-function simulation(t, delay) {
+// milliseconds, or never when delay(op) is null. Readings never finish unless
+// readMs is given; then each finishes after readMs and solves at once.
+function simulation(t, delay, { readMs = null } = {}) {
   let time = 0, serial = 0;
   const timers = new Map(), nodes = new Map();
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
@@ -21,6 +23,9 @@ function simulation(t, delay) {
   const previous = globalThis.document;
   globalThis.document = { createElement: canvas };
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
+  // The help line is a polite live region: every write is announced.
+  const writes = []; let help = "";
+  nodes.set("camera-help", { get textContent() { return help; }, set textContent(value) { help = value; writes.push(value); } });
   const counts = { replies: 0, adopted: 0, failures: 0, reads: 0 };
   const tracker = createLiveTracker({ setTimer, clearTimer, makeWorker() {
     const core = createTrackingCore(), worker = {
@@ -44,10 +49,18 @@ function simulation(t, delay) {
       tracking(_stats, info) { if ("stale" in info) counts.adopted++; } },
     video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } },
     getSettings: () => ({ type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true }),
-    // A quick detector; readings never finish, since only the display is measured.
+    // A quick detector; by default readings never finish, since only the display is measured.
     detector: { detect: () => new Promise((resolve) => setTimer(() => resolve(structuredClone(found)), 50)), cancel() {} },
-    reader: { read() { counts.reads++; return new Promise(() => {}); }, cancel() {} },
-    solver: { solve: async () => null, cancel() {} },
+    reader: { read() {
+      counts.reads++;
+      if (readMs === null) return new Promise(() => {});
+      return new Promise((resolve) => setTimer(() => {
+        const puzzle = makePuzzle("latinsquare", 2, 2); puzzle.cells = [1, null, null, null];
+        resolve({ puzzle, cellUncertain: [], markedCells: [] });
+      }, readMs));
+    }, cancel() {} },
+    solver: readMs === null ? { solve: async () => null, cancel() {} }
+      : { solve: async () => ({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 2, 1] }] }), cancel() {}, invalidate() {} },
     now: () => time, setTimer, clearTimer });
   async function advance(ms) {
     const end = time + ms;
@@ -69,7 +82,7 @@ function simulation(t, delay) {
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, counts, advance, observe, $ };
+  return { camera, counts, advance, observe, $, writes };
 }
 const changes = (states) => states.filter((state, i) => i && state !== states[i - 1]).length;
 const share = (states, state) => states.filter((s) => s === state).length / states.length;
@@ -113,6 +126,46 @@ test("a slow anchor within its own deadline succeeds instead of failing the work
   const states = await s.observe(10000);
   assert.ok(share(states, "unverified") < 1, "verified views are shown between anchors");
   assert.equal(s.counts.failures, 0);
+});
+
+// No verification runs while an anchor is built, so an anchor longer than the
+// two-second stale limit plus the five-second loss limit used to reset the
+// reference on every attempt: reading never started and "Grid lost" repeated.
+for (const slow of [8000, 15000])
+  test(`a ${slow / 1000} s anchor still starts reading without a grid-lost reset`, async (t) => {
+    assert.ok(slow < ANCHOR_DEADLINE);
+    const s = simulation(t, (op) => op === "anchor" ? slow : 100);
+    await s.advance(2 * slow + 3000);
+    assert.equal(s.counts.reads, 1, "two anchors are enough to start reading");
+    assert.equal(s.writes.filter((text) => /Grid lost/.test(text)).length, 0, "building an anchor is not a lost grid");
+    assert.equal(s.counts.failures, 0);
+    const states = await s.observe(10000);
+    assert.ok(share(states, "unverified") < .5, "the reading is tracked between anchors");
+  });
+
+test("one-second anchors leave a tracked preview live most of the time", async (t) => {
+  const s = simulation(t, (op) => op === "anchor" ? 1000 : 30, { readMs: 1000 });
+  await s.advance(8000);
+  assert.equal(s.counts.reads, 1);
+  const states = await s.observe(30000);
+  // Each anchor pauses verification for a second and the delayed tier then
+  // holds for two more; re-detecting every second kept the view DELAYED.
+  assert.ok(share(states, "live") >= .6, `live ${share(states, "live")}`);
+  assert.equal(share(states, "unverified"), 0);
+});
+
+test("slow verifications do not alternate the help line", async (t) => {
+  for (const ms of [1000, 1300, 1600]) {
+    const s = simulation(t, (op) => op === "anchor" ? 20 : ms);
+    await s.advance(10000);
+    assert.equal(s.counts.reads, 1);
+    const before = s.writes.length, states = await s.observe(15000);
+    assert.ok(share(states, "unverified") > 0 || ms === 1000, `${ms} ms: the view does fall back between replies`);
+    // Each fallback used to announce "Aligning the grid" and each reply the
+    // status again: six to nine announcements every five seconds.
+    assert.ok(s.writes.length - before <= 1, `${ms} ms: ${s.writes.slice(before).join(" | ")}`);
+    s.camera.stop();
+  }
 });
 
 test("a worker that never answers an anchor still reaches backoff and Restart", async (t) => {

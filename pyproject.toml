@@ -60,6 +60,7 @@ log_level = "WARNING"
 xfail_strict = true
 markers = [
     "slow: very long-running tests (deselect with -m 'not slow')",
+    "gate: tests of the jobs that decide whether CI jobs run; an ungated job runs them on every pull request",
 ]
 
 [tool.ruff.lint]

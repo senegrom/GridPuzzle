@@ -141,8 +141,11 @@ async function run() {
           Scanner.prototype.read=async()=>{const puzzle=makePuzzle("sudoku",4);puzzle.cells=[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1];
             return {puzzle,cellUncertain:[0,5],cageUncertain:[],markedCells:[0,5],needsReview:true,notes:[],rectified:livePaper};};
         });
-        await startLive(page);await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.uncertain)>0);
-        const unclear=await page.locator("#live-preview").evaluate(c=>({...c.dataset}));
+        // Read the counts inside the wait: a fallback frame between the wait and
+        // a second read would clear them on a loaded machine.
+        await startLive(page);
+        const unclear=await (await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;
+          return Number(d.uncertain)>0 ? {...d} : false;})).jsonValue();
         assert.ok(Number(unclear.recognised)>0&&Number(unclear.uncertain)>0&&Number(unclear.unknown)>0);
         assert.equal(Number(unclear.solution),0);await page.click("#close-camera");
         report.checks.push("green/yellow/red readings remain distinct and an unread printed clue is never replaced by a blue guess");

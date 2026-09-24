@@ -1,8 +1,10 @@
 """The external picture slice comes from one pinned, hash-checked revision."""
 
+import email.message
 import hashlib
 import json
 import re
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -73,3 +75,82 @@ def test_changed_metadata_is_refused_before_any_image_is_fetched(dataset):
         fetch.run()
     assert len(requested) == 1
     assert not report.exists()
+
+
+_URL = f"{fetch.SOURCE}/resolve/{fetch.REVISION}/data/test/metadata.jsonl"
+
+
+class _Response:
+    def __init__(self, data):
+        self.data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def read(self, size):
+        return self.data[:size]
+
+
+def _opener(outcomes):
+    """An opener that raises or answers with each outcome in turn."""
+    calls = []
+
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        outcome = outcomes[len(calls) - 1]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return _Response(outcome)
+
+    return opener, calls
+
+
+def _http_error(code, retry_after=None):
+    headers = email.message.Message()
+    if retry_after is not None:
+        headers["Retry-After"] = retry_after
+    return HTTPError(_URL, code, "error", headers, None)
+
+
+def test_transient_failures_are_retried_with_doubling_pauses():
+    opener, calls = _opener([URLError("reset"), _http_error(503), TimeoutError("read"), b"data"])
+    pauses = []
+    assert fetch.download(_URL, 100, opener=opener, sleep=pauses.append) == b"data"
+    assert calls == [_URL] * 4
+    assert pauses == [2.0, 4.0, 8.0]
+
+
+def test_retries_are_bounded():
+    opener, calls = _opener([URLError("down")] * fetch.ATTEMPTS)
+    pauses = []
+    with pytest.raises(URLError):
+        fetch.download(_URL, 100, opener=opener, sleep=pauses.append)
+    assert len(calls) == fetch.ATTEMPTS
+    assert len(pauses) == fetch.ATTEMPTS - 1
+
+
+@pytest.mark.parametrize("code", [403, 404])
+def test_a_missing_or_forbidden_file_is_not_retried(code):
+    opener, calls = _opener([_http_error(code), b"never"])
+    pauses = []
+    with pytest.raises(HTTPError):
+        fetch.download(_URL, 100, opener=opener, sleep=pauses.append)
+    assert len(calls) == 1
+    assert pauses == []
+
+
+def test_a_rate_limit_waits_as_asked_within_a_bound():
+    opener, _ = _opener([_http_error(429, "12"), _http_error(429, "600"), b"data"])
+    pauses = []
+    assert fetch.download(_URL, 100, opener=opener, sleep=pauses.append) == b"data"
+    assert pauses == [12.0, fetch.MAX_PAUSE]
+
+
+def test_an_oversized_file_is_refused_without_retrying():
+    opener, calls = _opener([b"x" * 101, b"x"])
+    with pytest.raises(ValueError, match="exceeded 100 bytes"):
+        fetch.download(_URL, 100, opener=opener, sleep=lambda seconds: None)
+    assert len(calls) == 1

@@ -68,7 +68,10 @@ for(const end of ["success","error","progress"])test(`motion ignores stale OCR $
  const h=session(t);h.s.observe(h.frame());h.s.observe(h.frame());
  h.s.motion(new Uint8Array(4096));const status=h.statuses.at(-1);
  if(end==="success")h.reads[0].resolve(found());else if(end==="error")h.reads[0].reject(Error("obsolete"));else h.reads[0].progress("obsolete");
- await tick();assert.equal(h.s.preview,null);assert.equal(h.solves.length,0);assert.match(h.statuses.at(-1),/Aligning the grid/);
+ await tick();assert.equal(h.s.preview,null);assert.equal(h.solves.length,0);assert.doesNotMatch(h.statuses.at(-1),/obsolete/);
+ // The loss is announced once the view has stayed unverified for two seconds.
+ h.advance(1999);h.s.motion(new Uint8Array(4096));assert.doesNotMatch(h.statuses.at(-1),/Aligning the grid/);
+ h.advance(1);h.s.motion(new Uint8Array(4096));assert.match(h.statuses.at(-1),/Aligning the grid/);
 });
 test("camera close cancels both pipelines and ignores a delayed solution",async t=>{
  const h=session(t);h.s.observe(h.frame());h.s.observe(h.frame());h.reads[0].resolve(found());await tick();

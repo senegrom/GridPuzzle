@@ -1,7 +1,7 @@
 name: Browser branch tests
 on:
   # Every pull request, with no paths filter, so that "Browser unit tests"
-  # always reports; the job takes seconds, so nothing decides whether it runs.
+  # always reports; the jobs take seconds, so nothing decides whether they run.
   pull_request:
 permissions:
   contents: read
@@ -23,7 +23,27 @@ jobs:
       - name: Browser model, lifecycle and safety unit tests
         run: node --test web/tests/*.test.js experiments/tiny-digit-cnn/infer.test.mjs
       - name: Check every browser module parses
-        run: find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
+        run: set -o pipefail; find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
       # Scanner quality covers recognition and tracking on pull requests.
       # Relevant application changes also run the complete deployment
       # acceptance workflow without publishing; master is the only publisher.
+
+  # The tests of the changes and result jobs that decide whether the other
+  # workflows' jobs run. Behind those jobs, a pull request that broke
+  # changed-paths or a result job would skip the very tests that catch it;
+  # they need only pytest, so they run here, where nothing decides.
+  gates:
+    name: Workflow gate tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version-file: .github/actions/setup-project/.python-version
+      - name: Changes-job, changed-paths and result-job tests
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+        run: |
+          python -m pip install --constraint .github/actions/setup-project/constraints.txt pytest
+          python -m pytest -q -m gate tests/test_workflows.py

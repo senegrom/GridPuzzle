@@ -261,9 +261,10 @@ def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
     assert output.strip() == "[]"
 
 
-def _gridpuzzle(*argv, colour="No"):
+def _gridpuzzle(*argv, colour="No", path=()):
     """Run the CLI in its own interpreter: the exit status is a process contract."""
-    environment = dict(os.environ, PYTHONPATH=str(_ROOT), PYTHONIOENCODING="utf-8")
+    environment = dict(os.environ, PYTHONPATH=os.pathsep.join((str(_ROOT), *map(str, path))),
+                       PYTHONIOENCODING="utf-8")
     colour_option = ("--colour", colour) if colour else ()
     return subprocess.run(
         [sys.executable, "-m", "gridsolver.cli", *argv, *colour_option],
@@ -376,6 +377,29 @@ def test_cli_exit_status_reports_whether_the_puzzle_has_a_solution():
     assert nothing_asked.returncode == 0, nothing_asked.stderr
     assert usage_error.returncode == 2
     assert "pass --class" in usage_error.stderr
+    # the command's name, not the path of the script that started it
+    assert usage_error.stderr.startswith("usage: gridpuzzle ")
+
+
+def test_cli_puzzle_module_that_fails_to_load_is_an_input_error(tmp_path):
+    # It used to escape as a traceback with status 1, which says "no solution".
+    (tmp_path / "broken_puzzle.py").write_text("g = 1 / 0\n", encoding="utf-8")
+    result = _gridpuzzle("--module", "broken_puzzle", path=(tmp_path,))
+
+    assert result.returncode == 2
+    assert "Cannot import module 'broken_puzzle': ZeroDivisionError: division by zero" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_internal_error_exits_3_with_its_traceback(monkeypatch, capsys):
+    def fail(*args, **kwargs):
+        raise RuntimeError("solver fault")
+
+    monkeypatch.setattr(solver, "solve", fail)
+    assert main(["--str", "LatinSquare::1...", "--colour", "No"]) == 3
+    error = capsys.readouterr().err
+    assert "Traceback (most recent call last)" in error
+    assert error.rstrip().endswith("RuntimeError: solver fault")
 
 
 @pytest.mark.parametrize("processes", ("0", "1"))

@@ -27,6 +27,9 @@ FAMILY_DIRECTORIES = {
     "kakuro": "Kakuro",
     "slitherlink": "Slitherlink",
 }
+# A weekly job reads the baseline, so a week's notice reaches at least one of
+# its runs before the expiry fails them all.
+EXPIRY_NOTICE_DAYS = 7
 
 
 def classify_unsupported_variant(path: Path) -> str | None:
@@ -107,6 +110,27 @@ def load_timeout_baseline(
             raise ValueError(f"Duplicate timeout baseline case: {raw_path}")
         allowed.add(raw_path)
     return frozenset(allowed)
+
+
+def expiry_notice(path: Path | None, *, today: date | None = None) -> str | None:
+    """A reminder when a valid timeout baseline expires within a week.
+
+    From its expiry date every run that reads the baseline fails at load, and
+    the renewal needs a review of fresh shard reports, so the runs of the week
+    before say so while they still pass.
+    """
+    if path is None:
+        return None
+    expires = date.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["expires_on"])
+    today = datetime.now(UTC).date() if today is None else today
+    left = (expires - today).days
+    if left > EXPIRY_NOTICE_DAYS:
+        return None
+    return (
+        f"{path.as_posix()} expires on {expires.isoformat()}, in {left} day{'' if left == 1 else 's'}; "
+        "from then every corpus run that reads it fails. Review the latest shard reports, "
+        "remove recovered cases and move both dates."
+    )
 
 
 def report_exit_code(report: dict[str, Any]) -> int:
@@ -380,6 +404,13 @@ def main(argv: list[str] | tuple[str, ...] | None = None) -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(rendered, encoding="utf-8")
     print(rendered, end="")
+    # run_corpus has validated the baseline. stdout carries the report, so
+    # the notice goes to stderr: a workflow command that GitHub shows as a
+    # warning on the run, and a plain line for a terminal.
+    notice = expiry_notice(args.timeout_baseline)
+    if notice is not None:
+        print(f"::warning title=Timeout baseline expires soon::{notice}", file=sys.stderr)
+        print(f"warning: {notice}", file=sys.stderr)
 
     return report_exit_code(report)
 

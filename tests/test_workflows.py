@@ -104,6 +104,25 @@ def _filter_selects(patterns: list[str], path: str) -> bool:
     return selected
 
 
+def _bash() -> str | None:
+    """The bash GitHub runs these scripts with: Git's on Windows, where
+    System32's bash.exe starts WSL instead; the system's elsewhere."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    if git:
+        for base in Path(git).resolve().parents[:3]:
+            if (base / "bin" / "bash.exe").is_file():
+                return str(base / "bin" / "bash.exe")
+    found = shutil.which("bash")
+    return found if found and "system32" not in found.lower() else None
+
+
+# The tests marked `gate` check the jobs that decide whether other jobs run.
+# They must not run behind those jobs: a pull request that broke
+# changed-paths or a result job would skip the very tests that catch it, so
+# browser-tests.yml runs them with nothing deciding whether they run.
+@pytest.mark.gate
 @pytest.mark.parametrize("name", _PULL_REQUEST_WORKFLOWS)
 def test_every_pull_request_runs_the_workflow(name):
     settings = _event_settings(_workflow(name), "pull_request")
@@ -113,6 +132,7 @@ def test_every_pull_request_runs_the_workflow(name):
     assert settings == [], f"{name} filters its pull requests: {settings}"
 
 
+@pytest.mark.gate
 @pytest.mark.parametrize("name", _GATED_WORKFLOWS)
 def test_the_changes_job_gates_every_job_and_the_result_job_checks_them(name):
     jobs = _jobs(_workflow(name))
@@ -144,6 +164,7 @@ def test_the_changes_job_gates_every_job_and_the_result_job_checks_them(name):
     ) in changes
 
 
+@pytest.mark.gate
 def test_result_jobs_hold_one_policy():
     """The four result jobs differ only in the jobs they check."""
     steps = set()
@@ -153,6 +174,57 @@ def test_result_jobs_hold_one_policy():
     assert len(steps) == 1
 
 
+def _result_script(name: str) -> tuple[str, int]:
+    """A result job's shell script and the number of job results it checks."""
+    result = _jobs(_workflow(name))["result"]
+    script = re.search(r"^        run: \|\n((?:          .*\n?)+)", result, re.M).group(1)
+    return textwrap.dedent(script), re.search(r"RESULTS: (.*)", result).group(1).count("${{")
+
+
+def _result_cases(width: int) -> list[tuple[str, str, list[str], bool]]:
+    """(changes job result, relevant, gated job results, whether the check passes)."""
+    ran, skipped = ["success"] * width, ["skipped"] * width
+    return [
+        ("success", "true", ran, True),
+        ("success", "true", ["failure", *ran[1:]], False),
+        ("success", "true", [*ran[:-1], "cancelled"], False),
+        # the changes asked for the suites and nothing ran
+        ("success", "true", skipped, False),
+        ("success", "false", skipped, True),
+        ("success", "false", [*skipped[:-1], "success"], False),
+        # a failed or cancelled changes job skips everything after it
+        ("failure", "", skipped, False),
+        ("cancelled", "", skipped, False),
+        ("skipped", "", skipped, False),
+    ]
+
+
+@pytest.mark.gate
+@pytest.mark.skipif(_bash() is None, reason="needs the bash GitHub runs the script with")
+@pytest.mark.parametrize("name", _GATED_WORKFLOWS)
+def test_result_jobs_pass_only_when_every_job_the_changes_call_for_succeeded(name):
+    """Run each result job's script the way GitHub does (`bash -e {0}`)."""
+    script, width = _result_script(name)
+    assert width >= 1
+    for changes, relevant, results, passes in _result_cases(width):
+        run = subprocess.run(
+            [_bash(), "-e", "-c", script],
+            env={**os.environ, "CHANGES": changes, "RELEVANT": relevant, "RESULTS": " ".join(results)},
+            capture_output=True, text=True, check=False,
+        )
+        assert (run.returncode == 0) == passes, (name, changes, relevant, results, run.stdout, run.stderr)
+
+
+@pytest.mark.gate
+def test_the_gate_tests_run_ungated_on_every_pull_request():
+    text = _workflow("browser-tests.yml")
+    assert _event_settings(text, "pull_request") == []
+    job = _jobs(text)["gates"]
+    assert "needs:" not in job and "\n    if:" not in job
+    assert "python -m pytest -q -m gate tests/test_workflows.py" in job
+
+
+@pytest.mark.gate
 def test_ci_pull_requests_skip_what_its_pushes_skip():
     text = _workflow("ci.yml")
     ignored = re.search(r"^    paths-ignore: \[(.*)\]$", text, re.M).group(1)
@@ -211,6 +283,7 @@ def _action_script() -> str:
 _DOCUMENTS = ("README.md", "web/README.md", "benchmarks/record.md")
 
 
+@pytest.mark.gate
 @pytest.mark.skipif(
     sys.platform == "win32" or not shutil.which("bash") or not shutil.which("git"),
     reason="runs the action's bash script with git, as the Linux runners do",
@@ -253,14 +326,48 @@ def test_changed_paths_selects_what_a_paths_filter_would(name, changed, tmp_path
     assert output.read_text(encoding="utf-8") == f"relevant={str(bool(expected)).lower()}\n"
 
 
-def test_parse_checks_fail_when_node_fails():
-    r"""`find -exec cmd {} \;` exits 0 whatever cmd reports; xargs does not."""
+def test_parse_checks_fail_when_node_or_find_fails():
+    r"""`find -exec cmd {} \;` exits 0 whatever cmd reports; xargs does not.
+    GitHub runs a step with `bash -e`, so without pipefail the pipeline's
+    status is xargs's alone, and a find that fails (a renamed web/) would
+    hand xargs nothing and pass."""
     checks = []
     for path in sorted((_GITHUB / "workflows").glob("*.yml")):
         checks += re.findall(r"^.*node --check.*$", path.read_text(encoding="utf-8"), re.M)
     assert len(checks) == 2
     for check in checks:
+        assert check.strip().startswith("run: set -o pipefail; find "), check
         assert check.strip().endswith("-print0 | xargs -0 -n1 node --check"), check
+
+
+def _step(job: str, marker: str) -> str:
+    """The text of the step in `job` whose lines include `marker`."""
+    (step,) = [step for step in re.split(r"^      - ", job, flags=re.M) if marker in step]
+    return step
+
+
+def test_every_event_runs_the_browser_unit_tests_once():
+    """Browser branch tests runs them on pull requests; the deployment's
+    build job runs them on every other event, manual runs included."""
+    assert _event_settings(_workflow("browser-tests.yml"), "push") is None
+    unit = _step(_jobs(_workflow("browser-tests.yml"))["unit"], "node --test web/tests/*.test.js")
+    assert "if:" not in unit
+    build = _step(_jobs(_workflow("browser-pages.yml"))["build"], "node --test web/tests/*.test.js")
+    assert "if: github.event_name != 'pull_request'\n" in build
+
+
+def test_scanner_quality_runs_after_merge_too():
+    """Its suites run in no push workflow, so a weekly run sees what merged
+    pull requests combined; a scheduled run makes the changes job say yes."""
+    text = _workflow("scan-input.yml")
+    (cron,) = _event_settings(text, "schedule")
+    assert re.fullmatch(r'- cron: "\d+ \d+ \* \* \d"', cron), cron
+    others = {
+        line.strip()
+        for name in ("extended.yml", "forward-compatibility.yml", "runtime-pins.yml")
+        for line in _event_settings(_workflow(name), "schedule") or ()
+    }
+    assert cron not in others
 
 
 def _push_paths(text: str) -> list[str]:
@@ -321,6 +428,7 @@ def _deployment_inputs() -> set[str]:
     return inputs
 
 
+@pytest.mark.gate
 def test_the_deployment_gates_pull_requests_use_its_push_paths():
     text = _workflow("browser-pages.yml")
     assert _changes_paths(text) == _push_paths(text)
@@ -370,6 +478,7 @@ def test_every_change_that_runs_scanner_quality_runs_the_deployment_gate():
     } == set()
 
 
+@pytest.mark.gate
 def test_a_documents_only_pull_request_runs_no_suites():
     for name in _GATED_WORKFLOWS:
         patterns = _changes_paths(_workflow(name))
@@ -399,6 +508,11 @@ def test_extended_ci_runs_when_what_its_jobs_read_changes():
         "scripts/run_new_family_corpus.py",
         "benchmarks/corpus_timeout_baseline.json",
         ".github/workflows/extended.yml",
+        # every job installs the project through setup-project, whose pins
+        # Dependabot moves
+        "pyproject.toml",
+        ".github/actions/setup-project/action.yml",
+        ".github/actions/setup-project/constraints.txt",
     }
     assert len(read) > 10
     assert {path for path in read if not _filter_selects(paths, path)} == set()
