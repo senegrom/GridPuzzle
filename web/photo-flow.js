@@ -31,6 +31,7 @@ export function setupPhotoFlow({
   setDeadline,
   savePicture,
   releaseSolver,
+  adoptSolver,
   liveFactory = createLiveCamera,
 }) {
   let stream = null,
@@ -41,7 +42,11 @@ export function setupPhotoFlow({
     pendingPlayback = null,
     playbackTimer = null,
     captured = null,
-    saving = false;
+    saving = false,
+    // The page's idle interpreter while the camera opens: the live previews
+    // take it over once they start, and it goes back if they never do.
+    parkedSolver = null;
+  const returnSolver = (worker) => (adoptSolver ? adoptSolver(worker) : worker.terminate());
   const diagnostics = createScanDiagnostics();
   setupDiagnosticsUI({ $, diagnostics, getSource: () => diagnostics.snapshot().source === "live"
     ? (live?.diagnosticSource?.() ?? { image: null, verified: false })
@@ -51,6 +56,11 @@ export function setupPhotoFlow({
     cameraEpoch++;
     live?.stop();
     live = null;
+    if (parkedSolver) {
+      const worker = parkedSolver;
+      parkedSolver = null;
+      returnSolver(worker);
+    }
     pendingPlayback = null;
     clearTimeout(playbackTimer); playbackTimer = null;
     $("start-camera").hidden = true;
@@ -65,7 +75,9 @@ export function setupPhotoFlow({
   async function openCamera() {
     stopTask();
     stopCamera();
-    releaseSolver?.();
+    // Previews that solve take over the page's interpreter; without automatic
+    // solving the camera needs none, and the interpreter is released as before.
+    parkedSolver = releaseSolver?.($("auto-solve").checked === true) ?? null;
     captured = null;
     const previewCanvas = $("live-preview");
     previewCanvas.getContext?.("2d")?.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);
@@ -135,7 +147,10 @@ export function setupPhotoFlow({
               enabled: $("auto-capture").checked,
               autoSolve: $("auto-solve").checked,
             }),
+            solverWorker: parkedSolver,
+            onSolverReleased: returnSolver,
           });
+          parkedSolver = null;
           live.start();
         } catch (error) {
           if (epoch !== cameraEpoch) return;
