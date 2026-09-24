@@ -51,8 +51,7 @@ fallback. A sparse/unassessable grid does not pretend to have calibrated quality
 
 Messages distinguish small numbers, blurry clues and low contrast. The shutter
 still works when automatic recognition pauses. Scores and thresholds are
-heuristics, not OCR probabilities or a reliable glare classifier. Focus noise,
-paper texture and physical-phone camera behaviour require wider field testing.
+heuristics, not OCR probabilities or a reliable glare classifier.
 
 ## Local numeric-cell boundary refinement
 
@@ -95,5 +94,6 @@ accuracy.
 
 The small generated-page set and two repository photographs are regression
 controls, not an independent representative estimate of phone scanning accuracy.
-No physical iPhone speed, memory or real camera-quality improvement is claimed
-without device testing. The Scanner quality workflow keeps the raw reports.
+None of this is a physical-phone test: focus noise, paper texture, camera
+quality, speed and memory need field testing on devices, and no improvement
+there is claimed. The Scanner quality workflow keeps the raw reports.
