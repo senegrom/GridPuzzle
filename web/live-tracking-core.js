@@ -26,10 +26,13 @@ export function createTrackingCore() {
           const old = anchors.get(id);
           const match = old && old.rows === task.rows && old.cols === task.cols &&
             matchGrid(old, task.image, task.corners, null, frame);
-          // A match here found the old anchor's grid where the detector sees it
-          // now. Verification searches only near the last matched position, so
-          // without this a grid that jumped further than that never re-locks.
-          if (match) old.hint = match.corners;
+          // A match here found the old anchor's grid where the detector saw it.
+          // Verification searches only near where it last matched the anchor,
+          // so a grid that jumped further never re-locks without this. Only a
+          // lost anchor takes it: the detection's frame can be older than the
+          // frames verification has tracked since, and moving a tracked
+          // anchor's search back would lose a grid in continuous motion.
+          if (match && old.lost) { old.hint = match.corners; old.lost = false; }
           matches[id] = !!match;
         }
         // Registration only uses dimensions after the anchor was built. Keep
@@ -48,8 +51,9 @@ export function createTrackingCore() {
       for (const id of keep) {
         const diagnostic = {}, anchor = anchors.get(id),
           match = anchor && matchGrid(anchor, task.image, anchor.hint ?? anchor.corners, diagnostic, frame);
-        if (match) anchor.hint = match.corners;
-        else rejections[id] = anchor ? diagnostic : { reason: 'missing-anchor' };
+        if (match) { anchor.hint = match.corners; anchor.lost = false; }
+        else if (anchor) { anchor.lost = true; rejections[id] = diagnostic; }
+        else rejections[id] = { reason: 'missing-anchor' };
         proofs[id] = match ? { corners: match.corners } : null;
       }
       return { proofs, rejections, retained: anchors.size };

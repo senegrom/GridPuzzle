@@ -44,6 +44,19 @@ test("an anchor re-locks after a jump once a detection of the moved grid has mat
   assert.ok(Math.hypot(proof.corners[0].x - 165, proof.corners[0].y - 139) < 1.5, JSON.stringify(proof.corners[0]));
 });
 
+test("a detection from an older frame does not pull a tracked anchor's search back", () => {
+  const core = createTrackingCore();
+  const first = core.run({ op: "anchor", image: scene(120, 110), corners: cornersAt(120, 110), rows: 4, cols: 4, anchors: [] }).anchor.id;
+  // The grid moves steadily; verification follows it.
+  for (const [x, y] of [[124, 112], [128, 114], [132, 116]])
+    assert.ok(core.run({ op: "verify", image: scene(x, y), anchors: [first] }).proofs[first], `tracked at ${x},${y}`);
+  // A detection started on an earlier frame finishes only now.
+  const late = core.run({ op: "anchor", image: scene(122, 111), corners: cornersAt(122, 111), rows: 4, cols: 4, anchors: [first] });
+  assert.equal(late.anchor.matches[first], true);
+  // 14 px from the old detection, 6 px from where verification last found it.
+  assert.ok(core.run({ op: "verify", image: scene(136, 118), anchors: [first] }).proofs[first], "the anchor keeps tracking");
+});
+
 // The production camera, tracker and tracking core on a fake clock with a
 // moving printed grid; detection is stubbed to find it where it is.
 function simulation(t) {
