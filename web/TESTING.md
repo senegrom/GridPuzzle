@@ -129,19 +129,23 @@ outline instead of the detector's, which separates recognition from detection;
 detector alone over every corpus image with corner ground truth, at the live
 and photograph scales, and prints per set how many grids were found with the
 right size and corners within 3% of the diagonal, how many quads the line
-stage rejected, and the time per frame; `web/GRID_DETECTION.md` explains the
-stages and records the measurements.
+stage rejected, and the time per frame (`--engine webkit` switches browser);
+`web/GRID_DETECTION.md` explains the stages and records the measurements.
 
-Both benchmarks share one checkpointing runner. The detection benchmark writes
-a `formatVersion` 1 object rather than a bare array: per-image measurements sit
-in `results`, and `status`, `failure`, `cleanupErrors`, `totalImages`,
-`completedImages` and the per-set, per-scale `summary` describe completion.
-The numeric `error` inside each scale is corner error; a top-level row
-`error` is an input or execution failure, excluded from the success metrics
-and counted as `failed`. The report is saved before start-up, after each
-image and after clean-up, so browser loss, SIGINT or SIGTERM leave a partial
-report with every resource closed. Malformed targets and undecodable images
-are recorded individually and count toward the per-set `--limit`; images
-without corner truth are excluded. `--engine webkit` is available. The
-`scanner_settings` gate calls `detect_benchmark_regressions.cjs` for real
-browser PNG decoding and HTTP-server clean-up in both engines.
+Both benchmarks share one checkpointing runner. The report is saved before
+start-up, after each image and after clean-up, so browser loss, SIGINT or
+SIGTERM leave a partial report with every resource closed; bad JSON,
+undecodable images and recoverable scan errors become individual error rows and
+later images continue. Reports carry `status`, `failure`, `cleanupErrors`,
+`totalImages` and `completedImages`; context, browser and HTTP-server clean-up is
+attempted independently and never replaces the primary failure. The command
+exits nonzero for an incomplete run, any failed image or a failed clean-up, and
+a hard kill or lost disk access keeps only the last checkpoint. The detection
+benchmark writes a `formatVersion` 1 object rather than a bare array: per-image
+measurements sit in `results`, with a per-set, per-scale `summary`. The numeric
+`error` inside each scale is corner error; a top-level row `error` is an input
+or execution failure, excluded from the success metrics and counted as
+`failed`. Malformed targets and undecodable images count toward the per-set
+`--limit`; images without corner truth are excluded. The `scanner_settings`
+gate calls `detect_benchmark_regressions.cjs` for real browser PNG decoding and
+HTTP-server clean-up in both engines.

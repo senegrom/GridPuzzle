@@ -49,32 +49,20 @@ frozen equivalence reference for any future attempt.
   technique value across grid families; a future signal must measure
   downstream value, such as whether a hit concludes a forcing-chain branch.
   `tests/technique_stats_harness.py` collects the per-technique statistics.
-- **Depth-gated technique tiers** (`solve(..., depth_gate=K)` limited
-  descendants of search depth K to the cheap tier; 86x on blank-4x4
-  enumeration at gate 0). An opt-in with no adoption path, removed from every
-  runtime, CLI and test surface on 2026-08-14. Any depth-based gating needs
-  broad corpus evidence first, since the partial-corpus win above inverted at
-  scale.
+- **Depth-gated technique tiers**: 86x on blank-4x4 enumeration at gate 0, but
+  an opt-in with no adoption path, removed on 2026-08-14 (the "depth gate" row
+  of `benchmarks/README.md`). Any depth-based gating needs broad corpus
+  evidence first, since the partial-corpus win above inverted at scale.
 - **Pruned recursion in fish enumeration**: equivalent, but 12% slower than
   the per-value dirty-fingerprint memo the fish rules use.
 - **Mutating the worker root inside a guarded trail scope** instead of one
-  clone per parallel task: passed every rollback, contradiction, exception,
-  differential and extension-fallback check, but regressed the clone baseline
-  by 3.11% at 1,000 branches, 1.98% on full blank-4x4 enumeration and 0.76% on
-  non-square 6x6 cap-20. Keep clone-per-task unless a materially cheaper
-  rollback is demonstrated (`benchmarks/worker_trail_reuse_rejected_2026-08-09.md`).
-- **Free-threaded thread-pool top-level search** on CPython 3.14.7t: a
-  synthetic 1,000-trivial-branch case improved 59.62%, but blank-4x4 cap-1
-  regressed 4.22%, full blank-4x4 enumeration 4.83% and non-square 6x6 cap-20
-  4.32%. Keep the process pool; a new thread executor must beat these numbers
-  on the same cases (`benchmarks/free_threaded_threads_rejected_2026-08-09.md`).
-  The opt-in `parallel_backend="thread"` executor of 2026-08-12 did
-  (`benchmarks/free_threaded_executor_2026-08-12.md`): 0.82x geometric mean
-  against the process pool on 3.14t, worst 1.01x, default path within 0.1%.
-  Re-measured on 2026-09-24 it is at parity instead, 0.97x with the long
-  cases 0-2% slower, and the tree before its explicit-stack rewrite measures
-  the same (`benchmarks/thread_executor_314t_2026-09-24.md`). It stays opt-in
-  and process remains the default; see `FREE_THREADED.md`.
+  clone per parallel task: correct but slower; keep clone-per-task unless a
+  materially cheaper rollback is demonstrated
+  (`benchmarks/worker_trail_reuse_rejected_2026-08-09.md`).
+- **Free-threaded thread-pool top-level search**: rejected as a default
+  (`benchmarks/free_threaded_threads_rejected_2026-08-09.md`); the opt-in
+  `parallel_backend="thread"` executor that followed now measures at parity
+  with the process pool, which stays the default (`FREE_THREADED.md`).
 - **Full AIC peer-edge rebuild**, **lazy chain logging**, **whole-object size
   guard**: see the rejected rows of `benchmarks/README.md`.
 
