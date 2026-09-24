@@ -1,9 +1,10 @@
 """Candidate-state topology shared by advanced deduction techniques."""
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from gridsolver.abstract_grids.grid import Grid
+from gridsolver.util import iter_bits
 
 
 def cells_mask(cells: Iterable[int]) -> int:
@@ -13,11 +14,8 @@ def cells_mask(cells: Iterable[int]) -> int:
     return mask
 
 
-def iter_cells(mask: int) -> Iterator[int]:
-    while mask:
-        bit = mask & -mask
-        yield bit.bit_length() - 1
-        mask ^= bit
+# The cells of a cell bitset (bit c for cell c), ascending.
+iter_cells = iter_bits
 
 
 @dataclass(slots=True)

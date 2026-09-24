@@ -1,6 +1,5 @@
 """Exact partitions and independent completion/error observation regressions."""
 from concurrent.futures import Future
-from itertools import combinations_with_replacement
 import multiprocessing
 import os
 from pathlib import Path
@@ -16,20 +15,12 @@ from gridsolver.rules.sumrules import SumAndElementsAtMostOnce as Cage
 from gridsolver.solver import solve_parallel as parallel
 
 
-@pytest.mark.parametrize("maximum", range(1, 8))
-def test_iterative_partitions_equal_complete_ordered_oracle(maximum):
-    for count in range(1, 7):
-        expected = {}
-        for values in combinations_with_replacement(range(1, maximum + 1), count):
-            expected.setdefault(sum(values), []).append(values)
-        for target in range(count - 1, count * maximum + 2):
-            assert Cage._partition_tuples(target, count, 1, maximum) == tuple(expected.get(target, ()))
+# The partitions themselves are checked against ordered combinations in
+# test_partition_memory.py and test_exact_cages_and_debloat.py.
 
 
 @pytest.mark.parametrize("count", (1000, 2500))
 def test_large_near_extreme_partition_has_no_recursion(count):
-    assert Cage._partition_tuples(count + 1, count, 1, 2) == ((1,) * (count - 1) + (2,),)
-    assert Cage._partition_tuples(2 * count - 1, count, 1, 2) == ((1,) + (2,) * (count - 1),)
     grid = GridSizeContainer(1, count, max_elem=count + 1)
     cage = Cage(grid, range(count), count * (count + 1) // 2 + 1)
     assert cage.sum_candidates == (frozenset((*range(1, count), count + 1)),)

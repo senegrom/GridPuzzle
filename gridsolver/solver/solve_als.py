@@ -12,20 +12,6 @@ from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
 
 
-def cell_houses(
-    grid: Grid,
-    all_houses: list[frozenset[int]],
-) -> dict[int, list[frozenset[int]]]:
-    """cell -> houses containing it; cached (houses derive from the rule set)."""
-    return grid.cached_rule_struct(
-        "als_cell_houses",
-        lambda: {
-            cell: [house for house in all_houses if cell in house]
-            for cell in range(grid.len)
-        },
-    )
-
-
 # noinspection PyProtectedMember
 def _build_als_list(
     grid: Grid,

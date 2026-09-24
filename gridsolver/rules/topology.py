@@ -7,14 +7,7 @@ from numbers import Integral
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Guarantee, InvalidGrid, Rule, RuleAlwaysSatisfied
 from gridsolver.rules.sumrules import _tarjan_scc
-
-
-def _bits(mask: int) -> Iterator[int]:
-    """Indices of the set bits of ``mask``, ascending."""
-    while mask:
-        lowest = mask & -mask
-        yield lowest.bit_length() - 1
-        mask ^= lowest
+from gridsolver.util import iter_bits
 
 
 class ConsecutiveAdjacencyRule(Rule):
@@ -173,7 +166,7 @@ class ConsecutiveAdjacencyRule(Rule):
                     result |= moved << offset if offset > 0 else moved >> -offset
             return result
         neighbour_masks = self._neighbour_masks
-        for cell in _bits(mask):
+        for cell in iter_bits(mask):
             result |= neighbour_masks[cell]
         return result
 
@@ -190,7 +183,7 @@ class ConsecutiveAdjacencyRule(Rule):
                     once |= moved
             return once, twice
         neighbour_masks = self._neighbour_masks
-        for cell in _bits(mask):
+        for cell in iter_bits(mask):
             moved = neighbour_masks[cell]
             twice |= once & moved
             once |= moved
@@ -227,7 +220,7 @@ class ConsecutiveAdjacencyRule(Rule):
         cells_mask: int,
         value: int,
     ) -> None:
-        for cell in _bits(cells_mask):
+        for cell in iter_bits(cells_mask):
             possible = candidates[cell]
             possible.discard(value)
             if not possible:
@@ -304,7 +297,7 @@ class ConsecutiveAdjacencyRule(Rule):
         successors: list[list[int]] = [[]]
         for value in range(1, maximum + 1):
             others = positions[value] & ~(1 << match_cell[value])
-            successors.append([match_value[cell] for cell in _bits(others)])
+            successors.append([match_value[cell] for cell in iter_bits(others)])
         component = _tarjan_scc(successors)
 
         # The cells whose matched values share a component with v are exactly
@@ -354,7 +347,7 @@ class ConsecutiveAdjacencyRule(Rule):
                             return occupied
                         cell = previous
                         value = reached_from[cell]
-                for cell in _bits(reach):
+                for cell in iter_bits(reach):
                     reached_from[cell] = value
                     following.append(match_value[cell])
             frontier = following

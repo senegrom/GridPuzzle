@@ -1,3 +1,4 @@
+import json
 from itertools import permutations, product
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from gridsolver.grid_classes.compact_grid import CompactGrid
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.slitherlink import Slitherlink
-from gridsolver.rules.rules import InvalidGrid
+from gridsolver.rules.rules import InvalidGrid, UnsatisfiableRule
 from gridsolver.rules.topology import (
     ConsecutiveAdjacencyRule,
     SingleLoopRule,
@@ -170,19 +171,59 @@ def test_hidato_uses_diagonal_adjacency_but_numbrix_does_not():
     assert not solver.solve(Numbrix.from_board(board))
 
 
-def test_path_inputs_reject_duplicates_non_integral_and_disconnected_boards():
+def test_path_inputs_reject_duplicates_and_non_integral_clues():
     with pytest.raises(ValueError, match="Duplicate path clue"):
         Hidato.from_board(((1, 1), (0, 0)))
     with pytest.raises(TypeError, match="integer"):
         Hidato.from_board(((1.5,),))
+
+
+# Two isolated cells, and a blocked column splitting two 3-cell columns.
+_SPLIT_HIDATO_BOARDS = (
+    ((1, "B", "B"), ("B", "B", "B"), ("B", "B", 2)),
+    ((1, "B", 0), (0, "B", 0), (0, "B", 6)),
+)
+
+
+@pytest.mark.parametrize("board", _SPLIT_HIDATO_BOARDS)
+def test_a_hidato_split_into_separate_regions_has_no_solution(board):
+    # Well-formed input without a solution, like a Kakuro whose run totals
+    # disagree: it solves to nothing at the first propagation, not ValueError.
+    grid = Hidato.from_board(board)
+    reasons = [rule.reason for rule in grid.rules if isinstance(rule, UnsatisfiableRule)]
+    assert reasons == ["the playable cells form 2 separate regions, and one path cannot visit them all"]
+    assert not grid.get_rules_of_type(ConsecutiveAdjacencyRule)
+    for profile in (TechniqueProfile.RULES_ONLY, TechniqueProfile.GENERIC, TechniqueProfile.FULL):
+        variant = type("SplitHidato", (Hidato,), {"technique_profile": profile})
+        assert solver.solve(variant.from_board(board), log_level=solver.QUIET) == set()
+
+
+def test_the_path_rule_still_rejects_a_disconnected_graph_given_directly():
+    grid = Grid(1, 3, max_elem=3)
     with pytest.raises(ValueError, match="connected"):
-        Hidato.from_board(
-            (
-                (1, "B", "B"),
-                ("B", "B", "B"),
-                ("B", "B", 2),
-            )
+        ConsecutiveAdjacencyRule(grid, cells=(0, 1, 2), adjacency=((1,), (0,), ()))
+    with pytest.raises(ValueError, match="connected"):
+        ConsecutiveAdjacencyRule(
+            Grid(1, 4, max_elem=4), cells=(0, 1, 2, 3), adjacency=((1,), (0,), (3,), (2,))
         )
+
+
+def test_a_single_playable_cell_is_a_one_value_path():
+    grid = Hidato.from_board(((0, "B"), ("B", "B")))
+    assert {tuple(solution) for solution in solver.solve(grid, log_level=solver.QUIET)} == {(1,)}
+
+
+def test_split_hidato_boards_answer_no_solution_in_the_cli_and_browser(tmp_path):
+    from gridsolver.web_api import solve_json
+
+    path = tmp_path / "split.clp"
+    path.write_text("(solve Hidato topological 3 6\n1 B .\n. B .\n. B 6\n)\n", encoding="utf-8")
+    assert run_cli.main(("--file", str(path), "--colour", "No")) == 1
+
+    payload = {"version": 1, "type": "hidato", "rows": 3, "cols": 3,
+               "cells": [1, "#", None, None, "#", None, None, "#", 6]}
+    result = json.loads(solve_json(json.dumps(payload)))
+    assert (result["status"], result["solutions"], result["complete"]) == ("no-solution", [], True)
 
 
 def test_numbrix_distance_parity_rejects_impossible_fixed_clues():

@@ -45,8 +45,9 @@ def fingerprint(value):
 def clear_partition_caches():
     """Start each timed solve cold on either tree.
 
-    Newer trees keep distinct-value partitions in a bounded mask cache next
-    to the legacy tuple cache; older trees have only the tuple cache.
+    Trees since 2026-09-23 keep distinct-value partitions in a bounded mask
+    cache that release_partition_caches() empties; older trees have only
+    the tuple cache (removed on 2026-09-24).
     """
     from gridsolver.rules import sumrules
     release = getattr(sumrules, 'release_partition_caches', None)

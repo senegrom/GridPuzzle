@@ -5,6 +5,7 @@ from numbers import Integral
 
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.grid_classes.compact_grid import CompactGrid, _rectangular_rows
+from gridsolver.rules.rules import UnsatisfiableRule
 from gridsolver.rules.topology import ConsecutiveAdjacencyRule
 from gridsolver.rules.unique import ElementsAtMostOnce, value_presence_guarantees
 
@@ -31,6 +32,24 @@ def _parse_path_clue(raw_value: object, key: BoardCell) -> int:
     if value <= 0:
         raise ValueError(f"Path clues must be positive, got {value} at {key}")
     return value
+
+
+def _region_count(adjacency: Sequence[Sequence[int]]) -> int:
+    """Connected regions of the playable cells under the path's adjacency."""
+    seen = [False] * len(adjacency)
+    regions = 0
+    for start in range(len(adjacency)):
+        if seen[start]:
+            continue
+        regions += 1
+        seen[start] = True
+        stack = [start]
+        while stack:
+            for neighbour in adjacency[stack.pop()]:
+                if not seen[neighbour]:
+                    seen[neighbour] = True
+                    stack.append(neighbour)
+    return regions
 
 
 class _ConsecutivePathGrid(CompactGrid):
@@ -113,18 +132,34 @@ class _ConsecutivePathGrid(CompactGrid):
                     neighbours.append(cell)
             adjacency.append(tuple(sorted(neighbours)))
         cells = tuple(range(self.len))
-        path_rule = ConsecutiveAdjacencyRule(
-            self,
-            cells=cells,
-            adjacency=tuple(adjacency),
-        )
-        # Keep one canonical immutable topology on both the grid and rule.
-        self.adjacency = path_rule.adjacency
+        regions = _region_count(adjacency)
+        if regions > 1:
+            # Blocked cells can split the board, and no single path visits
+            # every region. That is a well-formed puzzle without a solution,
+            # like a Kakuro whose run totals disagree, so it solves to zero
+            # solutions instead of being rejected as malformed input.
+            # ConsecutiveAdjacencyRule itself still rejects a disconnected
+            # graph, so this board gets no path rule.
+            self.adjacency = tuple(adjacency)
+            rule = UnsatisfiableRule(
+                self,
+                cells,
+                f"the playable cells form {regions} separate regions, "
+                "and one path cannot visit them all",
+            )
+        else:
+            rule = ConsecutiveAdjacencyRule(
+                self,
+                cells=cells,
+                adjacency=tuple(adjacency),
+            )
+            # Keep one canonical immutable topology on both the grid and rule.
+            self.adjacency = rule.adjacency
 
         self.add_rules_checked(
             (
                 ElementsAtMostOnce(self, cells=cells),
-                path_rule,
+                rule,
             )
         )
         # A path over N cells is a permutation of 1..N.  Seed that presence

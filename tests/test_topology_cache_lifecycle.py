@@ -3,7 +3,14 @@ from gridsolver.rules.rules import Guarantee
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver.candidate_topology import CandidateTopology
-from gridsolver.solver.solve_als import cell_houses as _cell_houses
+
+
+def _cell_houses(grid, houses):
+    """A rule-derived structure held in the rule-only cache, used as a probe."""
+    return grid.cached_rule_struct(
+        "test_cell_houses",
+        lambda: {cell: [house for house in houses if cell in house] for cell in range(grid.len)},
+    )
 
 
 def _guarantee(grid: Sudoku) -> Guarantee:

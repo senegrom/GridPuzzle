@@ -7,6 +7,7 @@ start methods are exercised by the regression suite.
 
 import concurrent.futures
 import pickle
+import sys
 from collections import deque
 from contextlib import nullcontext
 
@@ -24,6 +25,24 @@ from gridsolver.solver.validation import _requires_source_isolation
 
 
 _WORKER_ROOT_GRID: Grid | None = None
+
+# On Windows the executor waits on every worker's handle at once, and one wait
+# covers at most 63 handles, two of which it keeps for itself, so
+# ProcessPoolExecutor refuses more than 61 workers there.
+_WINDOWS_MAX_WORKERS = 61
+
+
+def pool_size(processes: int, branch_count: int, platform: str = sys.platform) -> int:
+    """Workers worth starting: one per branch at most, within the platform limit.
+
+    Results depend only on the branch order and the cap, never on the number
+    of workers, so clamping a large ``processes`` changes nothing but the
+    idle processes it would have started.
+    """
+    size = min(processes, branch_count)
+    if platform == "win32":
+        size = min(size, _WINDOWS_MAX_WORKERS)
+    return max(1, size)
 
 
 def _serialize_worker_root(grid: Grid) -> bytes:
@@ -124,8 +143,9 @@ def solve_parallel_trials(
     # Derived caches can dominate a pickled grid, but worker_serialization()
     # already omits them (Grid.__getstate__), so the root is not cleared here.
     worker_payload = _serialize_worker_root(grid)
+    workers = pool_size(processes, len(ordered_branches))
     with concurrent.futures.ProcessPoolExecutor(
-        max_workers=processes,
+        max_workers=workers,
         initializer=_init_worker,
         initargs=(worker_payload,),
     ) as pool:
@@ -134,7 +154,7 @@ def solve_parallel_trials(
             # Keep no more than one outstanding branch per worker. Append
             # incrementally so a later submission failure retains earlier work
             # for cancellation, rather than losing a half-built deque.
-            initial_count = min(processes, len(ordered_branches))
+            initial_count = min(workers, len(ordered_branches))
             for cell, value in ordered_branches[:initial_count]:
                 futures.append(pool.submit(worker, (cell, value, max_sols)))
             next_branch_index = initial_count

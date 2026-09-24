@@ -1,4 +1,5 @@
 import pickle
+import sys
 from concurrent.futures import Future
 
 import pytest
@@ -267,6 +268,51 @@ def test_unlimited_parallel_search_replenishes_all_branches(monkeypatch):
     assert pool.exited
     assert not any(future.cancelled for future in pool.futures)
     _assert_compact_worker_payloads(pool)
+
+
+def test_pool_size_is_one_worker_per_branch_within_the_platform_limit():
+    assert parallel_module.pool_size(100, 3, platform="linux") == 3
+    assert parallel_module.pool_size(2, 50, platform="linux") == 2
+    assert parallel_module.pool_size(100, 1000, platform="linux") == 100
+    assert parallel_module.pool_size(4, 0, platform="linux") == 1
+    # ProcessPoolExecutor refuses more than 61 workers on Windows.
+    assert parallel_module.pool_size(100, 1000, platform="win32") == 61
+    assert parallel_module.pool_size(100, 5, platform="win32") == 5
+
+
+def test_parallel_pool_never_exceeds_the_branches_or_the_platform_limit(monkeypatch):
+    pool = _FakeProcessPool([{f"branch-{value}"} for value in range(1, 101)])
+    _install_fake_pool(monkeypatch, pool)
+
+    result = parallel_module.solve_parallel_trials(
+        Grid(1, 1, max_elem=100),
+        [(0, value) for value in range(1, 101)],
+        max_sols=1,
+        processes=500,
+    )
+
+    assert result == {"branch-1"}
+    assert pool.max_workers == (61 if sys.platform == "win32" else 100)
+    assert len(pool.futures) == pool.max_workers
+
+    few = _FakeProcessPool(({"first"}, {"second"}, {"third"}))
+    _install_fake_pool(monkeypatch, few)
+    parallel_module.solve_parallel_trials(
+        Grid(1, 1, max_elem=3),
+        [(0, value) for value in range(1, 4)],
+        max_sols=-1,
+        processes=500,
+    )
+    assert few.max_workers == 3
+
+
+def test_more_processes_than_the_platform_allows_still_solve():
+    # Real workers: before the clamp, 100 processes raised ValueError on
+    # Windows after the root pass. Two branches start two workers whatever N.
+    grid = Grid(1, 2, max_elem=2)
+    expected = solver.solve(grid, log_level=solver.QUIET)
+    assert len(expected) == 4
+    assert solver.solve(grid, processes=100, log_level=solver.QUIET) == expected
 
 
 @pytest.mark.parametrize("max_sols", (-1, 0))

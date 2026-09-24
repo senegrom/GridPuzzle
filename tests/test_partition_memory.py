@@ -119,7 +119,6 @@ def test_browser_solve_releases_partition_caches():
     result = web_api.solve_payload(payload)
     assert result["status"] in ("unique", "multiple")
     assert sumrules._PARTITION_MASKS.info() == (0, 0)
-    assert SumAndElementsAtMostOnce._partition_tuples.cache_info().currsize == 0
 
 
 def _bruteforce(maximum, target, known, candidates, guarantees):

@@ -1,6 +1,18 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from itertools import chain
 from typing import TypeVar
+
+
+def iter_bits(mask: int) -> Iterator[int]:
+    """Indices of the set bits of ``mask``, ascending.
+
+    The one implementation behind cell bitsets (bit c for cell c) and value
+    bitsets (bit v for value v) alike.
+    """
+    while mask:
+        lowest = mask & -mask
+        yield lowest.bit_length() - 1
+        mask ^= lowest
 
 
 def flatten(values: Iterable) -> list:
