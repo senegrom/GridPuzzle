@@ -153,6 +153,45 @@ test('cancellation after decode closes the source and produces no enhanced canva
   await assert.rejects(photoDetail(preview, quad(1600, 1200), { current: () => current }), { name: 'AbortError' });
   assert.ok(h.bitmaps[0].closed); assert.equal(h.canvases.length, 0);
 });
+function controlledDecodes(t) {
+  const h = mock(t), decode = globalThis.createImageBitmap, pending = [];
+  let inflight = 0; h.most = 0; h.pending = pending;
+  globalThis.createImageBitmap = () => {
+    h.most = Math.max(h.most, ++inflight);
+    return new Promise((resolve) => pending.push(async () => { inflight--; resolve(await decode()); }));
+  };
+  return h;
+}
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+test('a superseded read still decoding does not degrade the next read to the preview', async (t) => {
+  const h = controlledDecodes(t), corners = quad(1600, 1200);
+  const preview = retainPhotoSource({ width: 1600, height: 1200 }, {}, { width: 4000, height: 3000 });
+  let firstCurrent = true;
+  const first = photoDetail(preview, corners, { current: () => firstCurrent });
+  await settle(); assert.equal(h.pending.length, 1);
+  firstCurrent = false; // A nudged corner starts a new read.
+  const second = photoDetail(preview, corners);
+  await settle(); assert.equal(h.pending.length, 1, 'one original decode at a time');
+  h.pending[0](); await assert.rejects(first, { name: 'AbortError' }); assert.ok(h.bitmaps[0].closed);
+  await settle(); assert.equal(h.pending.length, 2);
+  h.pending[1](); const result = await second;
+  assert.equal(result.enhanced, true); assert.match(result.note, /original photo detail/);
+  assert.equal(h.most, 1); assert.ok(h.bitmaps[1].closed); result.release();
+});
+test('a read superseded while queued never decodes', async (t) => {
+  const h = controlledDecodes(t), corners = quad(1600, 1200);
+  const preview = retainPhotoSource({ width: 1600, height: 1200 }, {}, { width: 4000, height: 3000 });
+  let firstCurrent = true, secondCurrent = true;
+  const first = photoDetail(preview, corners, { current: () => firstCurrent });
+  await settle(); firstCurrent = false;
+  const second = photoDetail(preview, corners, { current: () => secondCurrent });
+  await settle(); secondCurrent = false;
+  const third = photoDetail(preview, corners);
+  h.pending[0](); await assert.rejects(first, { name: 'AbortError' });
+  await assert.rejects(second, { name: 'AbortError' });
+  await settle(); assert.equal(h.pending.length, 2, 'the queued, superseded read skipped its decode');
+  h.pending[1](); assert.equal((await third).enhanced, true);
+});
 test('rotating a retained preview keeps original-source ownership', async (t) => {
   mock(t); const preview = retainPhotoSource({ width: 1600, height: 1200 }, {}, { width: 4000, height: 3000 });
   const rotated = { width: 1200, height: 1600 }; rotatePhotoSource(preview, rotated);

@@ -1,4 +1,17 @@
-import { sameFrame } from "../live-overlay.js";
+// Test-only frame identity: production compares worker proofs, not thumbnails.
+// Local blocks as well as the whole signature: a changed clue or a finger over
+// one area differs even when the total difference is small.
+function sameFrame(a, b) {
+  if (!a || !b || a.length !== b.length || !a.length) return false;
+  let total = 0;
+  for (let i = 0; i < a.length; i += 64) {
+    let local = 0;
+    for (let j = i; j < Math.min(a.length, i + 64); j++) local += Math.abs(a[j] - b[j]);
+    if (local / Math.min(64, a.length - i) > 16) return false;
+    total += local;
+  }
+  return total / a.length < 6;
+}
 
 // The frame identity a session had before the camera owned it, for tests that
 // model motion with fingerprints: a frame is current while its fingerprint

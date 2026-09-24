@@ -5,9 +5,8 @@ const assert = require("node:assert/strict");
 async function cameraContentProbe() {
   const { demo } = await import("./model.js");
   const { gridContent, sameGridContent } = await import("./live-content.js");
-  const { createLiveCamera, fingerprint } = await import("./live-camera.js");
+  const { createLiveCamera } = await import("./live-camera.js");
   const { createLiveTracker } = await import("./live-tracker.js");
-  const { sameFrame } = await import("./live-overlay.js");
   const puzzle = demo(), marks = puzzle.cells.flatMap((v,i)=>v === null ? [] : [i]);
   const solution = { status:"unique", complete:true, solutions:[{cells:[
     5,3,4,6,7,8,9,1,2,6,7,2,1,9,5,3,4,8,1,9,8,3,4,2,5,6,7,
@@ -26,7 +25,7 @@ async function cameraContentProbe() {
   const original=board(), signature=gridContent(image(original),corners,9,9), comparisons=[];
   for(const value of [1,2,3,4,6,7,8,9,null]) {
     const next=board(value);
-    comparisons.push({value, coarseSame:sameFrame(fingerprint(original),fingerprint(next)),
+    comparisons.push({value,
       contentSame:sameGridContent(signature,gridContent(image(next),corners,9,9))});
   }
   const controls = [sameGridContent(signature,gridContent(image(board(5,.94)),corners,9,9)),
@@ -105,7 +104,7 @@ async function captureOrderingProbe() {
 
 async function faintClueProbe() {
   const { Scanner } = await import("./scanner.js");
-  const { overlayCells, previewAllowed } = await import("./live-overlay.js");
+  const { overlayCells, previewBlocker } = await import("./live-overlay.js");
   const { demo } = await import("./model.js");
   const results=[];
   for(const level of [215,230,235]) {
@@ -119,7 +118,7 @@ async function faintClueProbe() {
     const missed={...found,puzzle:structuredClone(found.puzzle)};missed.puzzle.cells[0]=null;
     const r={status:"unique",complete:true,solutions:[{cells:Array(81).fill(5)}]};
     results.push({level,value:found.puzzle.cells[0],marked:found.markedCells.includes(0),uncertain:found.cellUncertain.includes(0),
-      allowed:previewAllowed(found),unreadAllowed:previewAllowed(missed),unreadColour:overlayCells(missed,r).find(x=>x.cell===0).kind});
+      allowed:previewBlocker(found)===null,unreadAllowed:previewBlocker(missed)===null,unreadColour:overlayCells(missed,r).find(x=>x.cell===0).kind});
   }
   return results;
 }

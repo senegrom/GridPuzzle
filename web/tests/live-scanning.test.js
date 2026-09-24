@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makePuzzle } from "../model.js";
-import { overlayCells, previewAllowed, sameFrame, SCAN_COLOURS, drawLiveOverlay } from "../live-overlay.js";
+import { overlayCells, previewBlocker, SCAN_COLOURS, drawLiveOverlay } from "../live-overlay.js";
 import { createLiveSession } from "../live-session.js";
 import { createLiveSolver } from "../live-solver.js";
 import { signatureIdentity } from "./frame-identity.js";
@@ -20,12 +20,12 @@ test("live colours distinguish readings, uncertainty, unresolved cells and solut
 });
 test("unknown printed clues cannot be hidden by a computed value",()=>{
  const f=found();f.markedCells.push(1);
- assert.equal(overlayCells(f,unique)[1].kind,"unknown");assert.equal(previewAllowed(f),false);
- delete f.markedCells;f.cellUncertain=[1];assert.equal(previewAllowed(f),false);
+ assert.equal(overlayCells(f,unique)[1].kind,"unknown");assert.notEqual(previewBlocker(f),null);
+ delete f.markedCells;f.cellUncertain=[1];assert.notEqual(previewBlocker(f),null);
 });
 test("missed numbered black cells remain red and prevent speculative solving",()=>{
  const f=found();f.puzzle.type="str8ts";f.puzzle.black=[1];f.puzzle.cells[1]="#";f.markedCells.push(1);
- assert.equal(overlayCells(f,unique).find(c=>c.cell===1).kind,"unknown");assert.equal(previewAllowed(f),false);
+ assert.equal(overlayCells(f,unique).find(c=>c.cell===1).kind,"unknown");assert.notEqual(previewBlocker(f),null);
 });
 for(const result of [{...unique,status:"multiple"},{...unique,complete:false},{...unique,status:"error"},{...unique,solutions:[{cells:[1]}]}])
  test(`no blue entries for ${result.status}/${result.complete}/${result.solutions[0].cells.length}`,()=>{
@@ -33,16 +33,11 @@ for(const result of [{...unique,status:"multiple"},{...unique,complete:false},{.
 });
 test("conflicting clues are yellow and never justify a live solve",()=>{
  const f=found();f.puzzle.cells[1]=1;
- assert.equal(previewAllowed(f),false);assert.equal(overlayCells(f)[0].kind,"uncertain");
+ assert.notEqual(previewBlocker(f),null);assert.equal(overlayCells(f)[0].kind,"uncertain");
 });
 test("live preview accepts inferred rules without confirming the saved puzzle",()=>{
- const f=found();assert.equal(previewAllowed(f),true);assert.equal(f.needsReview,true);
- const empty=found();empty.puzzle.cells.fill(null);assert.equal(previewAllowed(empty),false);
-});
-test("local frame changes invalidate the overlay even with a small total difference",()=>{
- const a=new Uint8Array(4096).fill(180),b=a.slice();b.fill(10,0,64);
- assert.equal(sameFrame(a,b),false);assert.equal(sameFrame(a,a.slice()),true);
- assert.equal(sameFrame(a,new Uint8Array(4096).fill(182)),true);assert.equal(sameFrame(a,null),false);
+ const f=found();assert.equal(previewBlocker(f),null);assert.equal(f.needsReview,true);
+ const empty=found();empty.puzzle.cells.fill(null);assert.notEqual(previewBlocker(empty),null);
 });
 test("drawing keeps source clues and uses perspective positions and readable question marks",()=>{
  const text=[],transforms=[],fills=[];
@@ -116,7 +111,7 @@ for(const failure of ["construction","post"])test(`preview worker ${failure} fai
 test("cage-only puzzles can show blue answers without accepting structural review",()=>{
  const f=found();f.puzzle=makePuzzle("kenken",2);f.puzzle.cages=[1,2,2,1].map((target,cell)=>({cells:[cell],target,op:"="}));
  f.markedCells=[];f.cageUncertain=[0,1,2,3];
- assert.equal(previewAllowed(f),true);assert.equal(overlayCells(f,unique).filter(c=>c.kind==="solution").length,4);
+ assert.equal(previewBlocker(f),null);assert.equal(overlayCells(f,unique).filter(c=>c.kind==="solution").length,4);
  assert.equal(f.needsReview,true);
 });
 

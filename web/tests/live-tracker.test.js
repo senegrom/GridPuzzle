@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -27,6 +27,14 @@ test('anchor creation is bounded and runs before a queued video verification',as
   const anchor=h.tracker.anchor({image:image(),anchors:[]});h.reply(h.workers[0]);await one;
   assert.equal(h.workers[0].sent.at(-1).op,'anchor');h.reply(h.workers[0],{anchor:{id:1}});await anchor;
   assert.equal(h.workers[0].sent.at(-1).op,'verify');h.reply(h.workers[0]);await next;h.tracker.reset();
+});
+test('an anchor has its own, longer deadline; a verification keeps two seconds',()=>{
+  const delays=[],tracker=createLiveTracker({makeWorker:()=>({postMessage(){},terminate(){}}),
+    setTimer(_fn,ms){delays.push(ms);return delays.length;},clearTimer(){}});
+  tracker.anchor({image:image(),anchors:[]}).catch(()=>{});tracker.reset();
+  tracker.verify({image:image(),anchors:[]}).catch(()=>{});tracker.reset();
+  assert.deepEqual(delays,[ANCHOR_DEADLINE,VERIFY_DEADLINE]);
+  assert.equal(VERIFY_DEADLINE,2000);assert.ok(ANCHOR_DEADLINE>=10*VERIFY_DEADLINE,'about ten verifications per anchor');
 });
 test('stop rejects active and queued work and late old-worker replies cannot settle a restart',async()=>{
   const h=harness(),a=h.tracker.verify({image:image(),anchors:[]}),b=h.tracker.verify({image:image(),anchors:[]});

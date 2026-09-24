@@ -4,7 +4,13 @@ import { validQuad } from './geometry.js';
 // preview through rotation and disappears when that photograph is discarded.
 const sources = new WeakMap();
 export const DETAIL_PIXEL_LIMIT = 16_000_000, DETAIL_SIDE = 1800;
-let decoding = false;
+// One original-resolution decode at a time bounds memory. A read queues behind
+// an earlier decode instead of degrading to the preview: a superseded read's
+// decode cannot be cancelled, but its bitmap is closed as soon as it arrives,
+// and a read superseded while it waits never decodes at all. A decoder that
+// never answers only costs a later read DECODE_WAIT, then the preview.
+let decodeQueue = Promise.resolve();
+const DECODE_WAIT = 15000;
 export function retainPhotoSource(preview, file, dimensions) {
   if (preview && file && dimensions) sources.set(preview, { file, dimensions, turns: 0 });
   return preview;
@@ -54,11 +60,16 @@ export async function photoDetail(preview, corners, { current = () => true } = {
   if (source.dimensions.width * source.dimensions.height > DETAIL_PIXEL_LIMIT)
     return fallback('Large-photo memory limit: recognition uses the preview. Crop the original in your photo app for more detail.');
   if (Math.max(source.dimensions.width, source.dimensions.height) <= Math.max(preview.width, preview.height)) return fallback();
-  if (typeof globalThis.createImageBitmap !== 'function' || decoding)
-    return fallback('Original-detail decoding is unavailable; recognition uses the preview.');
-  let bitmap = null, canvas = null;
-  decoding = true;
+  const unavailable = 'Original-detail decoding is unavailable; recognition uses the preview.';
+  if (typeof globalThis.createImageBitmap !== 'function') return fallback(unavailable);
+  const previous = decodeQueue;
+  let finished, timer = null, bitmap = null, canvas = null;
+  decodeQueue = new Promise((resolve) => { finished = resolve; });
   try {
+    const turn = await Promise.race([previous.then(() => true),
+      new Promise((resolve) => { timer = setTimeout(resolve, DECODE_WAIT, false); })]);
+    if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
+    if (!turn) return fallback(unavailable);
     bitmap = await createImageBitmap(source.file, { imageOrientation: 'from-image' });
     if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
     const plan = detailPlan(preview, corners, bitmap.width, bitmap.height, source.turns);
@@ -81,8 +92,9 @@ export async function photoDetail(preview, corners, { current = () => true } = {
     if (!current() || error?.name === 'AbortError') throw new DOMException('Scan cancelled', 'AbortError');
     return fallback('Original-detail decoding failed; recognition uses the preview.');
   } finally {
+    clearTimeout(timer);
     bitmap?.close?.();
     if (canvas) canvas.width = canvas.height = 0;
-    decoding = false;
+    finished();
   }
 }

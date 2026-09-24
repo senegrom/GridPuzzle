@@ -135,7 +135,7 @@ function sameRegions(rawA, rawB, stretch, checks, diagnostic) {
     normalize(rawA, offset, a, lightInk, lightInk ? A.low : A.paper, scale);
     normalize(rawB, offset, b, lightInk, lightInk ? B.low : B.paper, scale);
     for (const [fraction, average, detail] of checks)
-      if (!regionMatches(a, b, fraction, average, detail, rangesA, rangesB, NOISE * scale)) {
+      if (!regionMatches(a, b, fraction, average, detail, rangesA, rangesB, histogram)) {
         // Numeric region position and a bounded reason only; never raw pixels.
         if (diagnostic) { diagnostic.reason = stretch ? 'cell-content' : 'structural-content'; diagnostic.region = offset / CELL; }
         return false;
@@ -159,8 +159,16 @@ function sameRegions(rawA, rawB, stretch, checks, diagnostic) {
 // sub-sample motion, then requires even weak residual strokes to agree. It is
 // evaluated only at the best raw registration, so it cannot pick a different
 // shift merely to hide weak ink behind a strong grid line.
-const NOISE = 4, REGISTRATION = .1;
-function regionMatches(a, b, fraction, average, detail, rangesA, rangesB, noise) {
+//
+// Its noise floor is measured, not assumed: NOISE_FACTOR times the pair's own
+// frame-to-frame noise, in the region's units whether stretched or not, and
+// never below NOISE. A clean print keeps the NOISE floor that catches an 8
+// becoming a 3 down to print contrast 15; a grainy one gets a floor that grows
+// with its grain. Scaling NOISE by the contrast stretch instead (#73) raised
+// the floor for every faint print, grainy or not, and missed 8/3 changes up to
+// contrast 130, while grain in unstretched structural strips still failed.
+const NOISE = 4, NOISE_FACTOR = 1.5, REGISTRATION = .1;
+function regionMatches(a, b, fraction, average, detail, rangesA, rangesB, histogram) {
   if (!detail) {
     for (const shift of SHIFTS) if (passes(a, b, shift, fraction, average, 0, rangesA, rangesB)) return true;
     localRanges(a, rangesA); localRanges(b, rangesB);
@@ -172,10 +180,27 @@ function regionMatches(a, b, fraction, average, detail, rangesA, rangesB, noise)
   for (let i = 0; i < CELL; i++) if (Math.abs(a[i] - b[i]) > 2) { quiet = false; break; }
   if (quiet) return true;
   localRanges(a, rangesA); localRanges(b, rangesB);
-  // Contrast stretching scales both print and sensor noise. Keeping a raw
-  // four-level floor here amplified flat-cell noise into changed-clue evidence
-  // and could block acquisition indefinitely before OCR even started.
-  return passes(a, b, bestRegistration(a, b), fraction, average, null, rangesA, rangesB, noise);
+  const shift = bestRegistration(a, b);
+  return passes(a, b, shift, fraction, average, null, rangesA, rangesB,
+    Math.max(NOISE, NOISE_FACTOR * pairNoise(a, b, shift, histogram)));
+}
+
+// Frame-to-frame noise of a region pair: the median absolute difference of the
+// compared samples at the given registration, times 1.4826, the standard
+// deviation of Gaussian differences with that median. A changed stroke covers
+// a minority of the samples and cannot move the median.
+function pairNoise(a, b, [dx, dy], histogram) {
+  const ix = Math.floor(dx), iy = Math.floor(dy), fx = dx - ix, fy = dy - iy;
+  histogram.fill(0);
+  for (let y = 1; y < SIDE - 1; y++) for (let x = 1; x < SIDE - 1; x++) {
+    const at = (y + iy) * SIDE + x + ix;
+    const top = b[at] * (1 - fx) + b[at + (fx ? 1 : 0)] * fx;
+    const below = fy ? b[at + SIDE] * (1 - fx) + b[at + SIDE + (fx ? 1 : 0)] * fx : top;
+    histogram[Math.round(Math.abs(a[y * SIDE + x] - (top * (1 - fy) + below * fy)))]++;
+  }
+  let median = 0;
+  for (let seen = histogram[0]; seen * 2 < (SIDE - 2) ** 2; seen += histogram[++median]);
+  return 1.4826 * median;
 }
 
 // allow: 0 is the strict 64-level test, a number forgives that fraction of the

@@ -24,38 +24,25 @@ function copyCanvas(source) {
   canvas.getContext("2d").drawImage(source, 0, 0);
   return canvas;
 }
-let thumbnail = null;
-export function fingerprint(image) {
-  // One reusable 64 px canvas: this runs ten times a second.
-  const canvas = thumbnail ??= document.createElement("canvas"); canvas.width = canvas.height = 64;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(image, 0, 0, 64, 64);
-  const rgba = ctx.getImageData(0, 0, 64, 64).data, signature = new Uint8Array(4096);
-  let at = 0;
-  // 8x8 spatial blocks, not whole scanlines, for local change detection.
-  for (let by = 0; by < 64; by += 8) for (let bx = 0; bx < 64; bx += 8)
-    for (let y = by; y < by + 8; y++) for (let x = bx; x < bx + 8; x++) {
-      const i = 4 * (y * 64 + x);
-      signature[at++] = (77 * rgba[i] + 150 * rgba[i + 1] + 29 * rgba[i + 2]) >> 8;
-    }
-  return signature;
-}
-
 export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
   diagnostics = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, detection = null, epoch = 0, lastDetect = -Infinity;
-  let raw = null, guide = null, guideFrame = null, displayed = null, signature = null;
+  let raw = null, guide = null, guideFrame = null, displayed = null;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
-  let frameSerial = 0, displayedSerial = 0, sampledAt = -Infinity, retryTrackingAt = 0;
-  // Two tiers of verified display. A snapshot within FRESH is live. One older
-  // than that, up to the tracker's own deadline, is still drawn — on its own
-  // pixels, marked DELAYED — so a device whose worker takes a second per frame
-  // gets a lagging overlay rather than none. Beyond STALE the display falls
-  // back to an unverified frame and a worker that never answers reaches the
+  let frameSerial = 0, adoptedAt = -Infinity, sampledAt = -Infinity, laggedAt = -Infinity, retryTrackingAt = 0;
+  // Two tiers of verified display. A view is live while the snapshot on screen
+  // is at most FRESH old. Once one is older, the view is still drawn — on its
+  // own pixels, marked DELAYED — so a device whose worker takes a second per
+  // frame gets a lagging overlay rather than none. It returns to live only
+  // after snapshots have stayed within FRESH for LIVE_SETTLE: with replies of
+  // 300-400 ms, or a worker pausing for an anchor, the snapshot's age crosses
+  // FRESH on every reply, and the label would flip with it. A reply is adopted
+  // while its own snapshot is within STALE; beyond that the display falls back
+  // to an unverified frame and a worker that never answers reaches the
   // failure path.
-  const FRESH_TRACK_AGE = 500, STALE_TRACK_AGE = MAX_VERIFIED_TRACK_AGE;
+  const FRESH_TRACK_AGE = 500, LIVE_SETTLE = 2000, STALE_TRACK_AGE = MAX_VERIFIED_TRACK_AGE;
   const recovery = createTrackingRecovery({ now });
   let lastPaint = null, solverPrepared = false, unmatchedCandidates = 0;
   function prepareSolver() {
@@ -66,8 +53,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = releaseImage;
   function discardCandidate() { release(pendingCandidate?.image); pendingCandidate = null; }
+  // The pending candidate comes first: detection waits for its verdict.
   function anchorIds() {
-    return [...new Set([...session.trackingFrames, guideFrame, pendingCandidate]
+    return [...new Set([pendingCandidate, ...session.trackingFrames, guideFrame]
       .map(frame => frame?.anchor?.id).filter(Number.isSafeInteger))].slice(0, 6);
   }
   function contentPixels(image) {
@@ -87,12 +75,18 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     return (await tracker.anchor({ image: pixels, corners: points, rows, cols, anchors: anchorIds() })).anchor;
   }
   const sampleAge = () => now() - sampledAt;
+  // Whether the verified view on screen is in the delayed tier (see above).
+  function delayedTier() {
+    if (!Object.values(proofs).some(Boolean)) return false;
+    if (sampleAge() > FRESH_TRACK_AGE) laggedAt = now();
+    return now() - laggedAt < LIVE_SETTLE;
+  }
   function isCurrent(frame) {
     if (!raw || !frame?.anchor || !scheduler.fresh || sampleAge() > STALE_TRACK_AGE) return false;
     const view = proofs[frame.anchor.id];
     return view ? { corners: view.corners.map(p => ({
       x: p.x * (raw.width - 1) / (view.width - 1), y: p.y * (raw.height - 1) / (view.height - 1),
-    })), stale: sampleAge() > FRESH_TRACK_AGE } : false;
+    })), stale: delayedTier() } : false;
   }
   function sameScene(a, b) {
     return a.anchor?.id === b.anchor?.id || b.anchor?.matches?.[a.anchor?.id] === true;
@@ -101,6 +95,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // camera's guidance goes through it too, and a later status is not skipped
   // as a repeat of a line that was overwritten in between.
   const say = (message) => { if (active) session.notify(message); };
+  // Detector guidance (no grid, a timeout, rules the grid contradicts) ends a
+  // streak of rejected candidates: the alignment message the heartbeat holds
+  // describes a grid that is still being found, and must not hide this one.
+  const guidance = (message) => { unmatchedCandidates = 0; say(message); };
   const session = createLiveSession({
     read: async (frame, progress, onPreview = () => {}) => {
       const boxed = (found) => {
@@ -138,9 +136,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     const preview = session.preview;
     displayed = preview;
     guide = (guideFrame && isCurrent(guideFrame)?.corners) || preview?.corners || null;
-    // A verified view older than the live tier is drawn as delayed; only an
+    // A verified view in the delayed tier is drawn as delayed; only an
     // overlay or guide makes the distinction visible.
-    const delayed = !!(guide || displayed) && Object.values(proofs).some(Boolean) && sampleAge() > FRESH_TRACK_AGE;
+    const delayed = !!(guide || displayed) && delayedTier();
     // Validation still runs on every heartbeat. Only painting is deduplicated:
     // a freshness loss, solve toggle, tier change or new proposal repaints immediately.
     const visual = { raw, found: displayed?.found, result: displayed?.result, delayed,
@@ -179,7 +177,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (job) clearTimer(job.deadline);
     detector.cancel();
   }
-  async function locate(image, frameSignature, settings, key, owner) {
+  async function locate(image, settings, key, owner) {
     const job = {};
     detection = job; lastDetect = now();
     const current = () => active && owner === epoch && key === settingsKey && detection === job;
@@ -188,7 +186,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     job.deadline = setTimer(() => {
       if (!current()) return;
       cancelDetection(); guide = guideFrame = null; session.invalidate();
-      say("Grid detection timed out. Keep the grid steady — retrying…");
+      guidance("Grid detection timed out. Keep the grid steady — retrying…");
     }, 8000);
     try {
       // Detection copies the pixels synchronously, so one canvas serves every call.
@@ -205,7 +203,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const corners = found.corners?.map((p) => ({ x: p.x * (image.width - 1) / (small.width - 1), y: p.y * (image.height - 1) / (small.height - 1) }));
       if (found.confidence < .8 || !validQuad(corners, image.width, image.height)) {
         diagnostics?.event({stage:"detecting",reason:"no-grid"});
-        guide = guideFrame = null; session.suspend(); say("Keep the whole grid in view, in even light."); return;
+        guide = guideFrame = null; session.suspend(); guidance("Keep the whole grid in view, in even light."); return;
       }
       const rows = found.rows || settings.rows, cols = found.cols || settings.cols;
       const selected = settings.rows === rows && settings.cols === cols &&
@@ -222,14 +220,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         // Sudoku, a 12 × 12 Str8ts). Keep the outline, skip the cell overlay
         // and say why instead of failing every frame.
         guide = corners; guideFrame = null; session.invalidate();
-        say(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
+        guidance(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
         return;
       }
-      job.anchoring = true;
+      // Anchoring is bounded by the tracker's own, longer anchor deadline; this
+      // one covers detection only, which a slow anchor must not time out.
+      job.anchoring = true; clearTimer(job.deadline);
       const anchor = await anchorOf(image, corners, rows, cols);
       if (!current()) return;
       if (!anchor) { session.suspend(); return; }
-      const frame = { image, signature: frameSignature, corners, width: image.width, height: image.height,
+      const frame = { image, corners, width: image.width, height: image.height,
         rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
         anchor };
       frame.warning = qualityMessage(found.quality) ||
@@ -244,7 +244,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
       if (job.anchoring && current()) { trackingFailed(error, owner); return; }
-      if (current()) { guide = guideFrame = null; session.invalidate(); say(error.message || "Cannot find the grid. Adjust the camera."); }
+      if (current()) { guide = guideFrame = null; session.invalidate(); guidance(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
       if (!job.handedOff) image.width = image.height = 0;
       clearTimer(job.deadline);
@@ -271,17 +271,19 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     try {
       const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
-      if (!active || owner !== epoch || key !== settingsKey || id < displayedSerial || now() - at > STALE_TRACK_AGE) return;
+      // Fence by snapshot time: a reply is adopted while its own snapshot is
+      // within STALE and newer than the last adopted one, even if an
+      // unverified fallback picture is on screen meanwhile.
+      if (!active || owner !== epoch || key !== settingsKey || at <= adoptedAt || now() - at > STALE_TRACK_AGE) return;
       // Display this operation's actual source snapshot, never project a late
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
       if (raw !== image) release(raw);
-      raw = image; adopted = true; sampledAt = at; displayedSerial = id;
+      raw = image; adopted = true; sampledAt = adoptedAt = at;
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
         [anchor, view ? { ...view, width, height } : null]));
-      signature = fingerprint(raw);
       if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
-      session.motion(signature);
+      session.motion();
       const candidate = pendingCandidate;
       if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
         pendingCandidate = null;
@@ -304,7 +306,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         }
       }
       render();
-      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: now() - at > FRESH_TRACK_AGE,
+      diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
         rejection: Object.values(result.rejections ?? {})[0] });
     } catch (error) { trackingFailed(error, owner); }
     finally { if (!adopted) release(image); }
@@ -362,15 +364,20 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // On a stalled/unsupported worker the UI and manual shutter still work,
       // but no old proof or captured clue metadata survives the age deadline.
       if (!raw || sampleAge() > STALE_TRACK_AGE) {
-        release(raw); raw = copyCanvas(image); proofs = {}; sampledAt = now(); displayedSerial = frameSerial + 1;
+        release(raw); raw = copyCanvas(image); proofs = {}; sampledAt = now();
         // This unverified picture is fresh, not a tracking proof. Clearing
-        // proofs keeps it untrusted; advancing its display timestamp prevents
-        // each tick moving the serial fence ahead of every worker reply.
+        // proofs keeps it untrusted, and its own timestamp keeps each tick from
+        // replacing it again. It does not fence replies in flight: one whose
+        // snapshot is still within STALE is shown instead, on its own pixels.
         session.suspend(); render();
       } else { session.validate(); render(); }
       if (!recovery.blocked && now() >= retryTrackingAt) {
-        if (!detection && now() - lastDetect >= (session.preview ? 1000 : 300))
-          void locate(copyCanvas(image), fingerprint(image), setting, settingsKey, epoch);
+        // One candidate at a time: a new detection waits until a reply has
+        // verified or rejected the pending one. Replacing it every 300 ms
+        // meant that once replies took longer than that, no candidate was
+        // ever verified and reading never started.
+        if (!detection && !pendingCandidate && now() - lastDetect >= (session.preview ? 1000 : 300))
+          void locate(copyCanvas(image), setting, settingsKey, epoch);
         void track(image, settingsKey, epoch); image = null;
       }
     } catch (error) { say(error.message || "Waiting for the camera…"); }
@@ -378,12 +385,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   return {
     start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
-    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = signature = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = -Infinity; updateRestartControl(); },
+    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = adoptedAt = laggedAt = -Infinity; updateRestartControl(); },
     restart() {
       if (!active) return;
       epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();
       session.invalidate(); proofs = {}; guide = guideFrame = null; lastDetect = -Infinity;
-      recovery.reset(); retryTrackingAt = 0; sampledAt = -Infinity; unmatchedCandidates = 0;
+      recovery.reset(); retryTrackingAt = 0; sampledAt = adoptedAt = laggedAt = -Infinity; unmatchedCandidates = 0;
       render(); scheduler.start(); updateRestartControl();
       diagnostics?.event({ stage: 'tracking', reason: 'worker-restarted' });
       say('Restarting live scanning. Waiting for a fresh verified frame…');

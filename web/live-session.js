@@ -286,9 +286,13 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     notify(message) { lastStatus = message; onStatus(message); },
     // A message the camera keeps asserting while its condition lasts, in place
     // of the status; hold(null) releases it and the status is shown again.
+    // The camera calls hold(null) on every heartbeat, so only an actual
+    // release may forget the last line: otherwise the unchanged status would
+    // be rewritten, and announced, ten times a second.
     hold(message) {
+      const released = held !== null && message === null;
       held = message;
-      if (message === null) { lastStatus = ""; return; }
+      if (message === null) { if (released) lastStatus = ""; return; }
       if (lastStatus !== message) { lastStatus = message; onStatus(message); }
     },
     suspend: hide, motion, observe, validate,

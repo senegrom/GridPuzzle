@@ -49,7 +49,6 @@ export function previewBlocker(found) {
     return `${error?.message || "The readings are incomplete."} Check the readings and the puzzle type.`;
   }
 }
-export const previewAllowed = (found) => previewBlocker(found) === null;
 
 export function drawLiveOverlay(ctx, width, height, corners, found, result = null) {
   if (!validQuad(corners, width, height) || !found?.puzzle) return;
@@ -84,18 +83,4 @@ export function drawLiveOverlay(ctx, width, height, corners, found, result = nul
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.restore();
-}
-
-// Compare local blocks as well as the whole frame. A changed clue or a finger
-// over one area must not inherit an otherwise identical grid's blue entries.
-export function sameFrame(a, b) {
-  if (!a || !b || a.length !== b.length || !a.length) return false;
-  let total = 0;
-  for (let i = 0; i < a.length; i += 64) {
-    let local = 0;
-    for (let j = i; j < Math.min(a.length, i + 64); j++) local += Math.abs(a[j] - b[j]);
-    if (local / Math.min(64, a.length - i) > 16) return false;
-    total += local;
-  }
-  return total / a.length < 6;
 }

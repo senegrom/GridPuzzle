@@ -1,3 +1,5 @@
+import { downloadBlob } from "./download.js";
+
 // One explicitly captured picture, local to this browser. Never autosave live
 // frames, never upload them, and never evict an older shot on a failed write.
 const DB = "gridpuzzle-captures-v1", STORE = "pictures", MAX_PNG_BYTES = 20 * 1024 * 1024;
@@ -145,11 +147,9 @@ export function setupCaptureGallery($, { load = loadCapture, save = saveCapture,
   }
   function download() {
     if (!latest) return;
-    // Reuse the gallery's URL for the same blob: a download prompt (iOS) can
-    // fetch it well after the click, so a short-lived URL would fail.
-    const link = document.createElement("a"), owned = !objectURL, url = objectURL ?? URL.createObjectURL(latest.blob);
-    link.href = url; link.download = `gridpuzzle-scan-${new Date(latest.createdAt).toISOString().replace(/[:.]/g, "-")}.png`;
-    link.click(); if (owned) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    // Reuse the gallery's URL for the same blob, which lives as long as the
+    // preview; without one, the shared helper keeps its own URL for a minute.
+    downloadBlob(latest.blob, `gridpuzzle-scan-${new Date(latest.createdAt).toISOString().replace(/[:.]/g, "-")}.png`, objectURL);
   }
   $("download-capture").onclick = $("download-live-capture").onclick = download;
   $("delete-capture").onclick = async () => {
