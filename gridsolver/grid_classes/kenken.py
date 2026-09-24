@@ -33,7 +33,10 @@ class Kenken(UniqueSquareGrid):
             self.ext_target_cells(target_cells)
 
     def make_rule(self, target_cell: _CellTuple) -> Rule:
-        cells = list(target_cell.cells)
+        # Unpack by position, as KillerSudoku does, so plain
+        # (target, cells, operator) tuples work as well as _CellTuple.
+        target, raw_cells, operator = target_cell
+        cells = list(raw_cells)
         if not cells:
             raise ValueError("KenKen cages must contain at least one cell")
         if isinstance(cells[0], Integral):
@@ -41,20 +44,20 @@ class Kenken(UniqueSquareGrid):
                 raise ValueError("Flat cage coordinates must contain complete row/column pairs")
             cells = list(pairs(cells))
 
-        match target_cell.operator:
+        match operator:
             case "+":
-                return SumRule(gsz=self, cells=cells, mysum=target_cell.mytarget)
+                return SumRule(gsz=self, cells=cells, mysum=target)
             case "-":
-                return DiffRule(gsz=self, cells=cells, target=target_cell.mytarget)
+                return DiffRule(gsz=self, cells=cells, target=target)
             case "/" | ":":
-                return DivRule(gsz=self, cells=cells, target=target_cell.mytarget)
+                return DivRule(gsz=self, cells=cells, target=target)
             case "*":
-                return ProdRule(gsz=self, cells=cells, target=target_cell.mytarget)
+                return ProdRule(gsz=self, cells=cells, target=target)
             case _:
-                raise ValueError(f"Not supported operator {target_cell.operator!r}")
+                raise ValueError(f"Not supported operator {operator!r}")
 
     def ext_target_cells(self, target_cells: Iterable[_CellTuple]) -> None:
-        """Add arithmetic cages atomically."""
+        """Add (target, cells, operator) cages atomically."""
         rules = [self.make_rule(target_cell) for target_cell in target_cells]
         self.add_rules_checked(rules)
 

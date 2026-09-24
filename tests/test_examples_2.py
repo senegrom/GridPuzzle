@@ -2,28 +2,28 @@ from gridsolver.solver import solver
 
 
 def test_ex_sudoku():
-    from Examples import exampleSudoku
+    from gridsolver.examples import sudoku
 
-    sol = solver.solve(exampleSudoku.g)
+    sol = solver.solve(sudoku.g)
     assert len(sol) == 1
 
 
 def test_ex_futoshiki():
-    from Examples import exampleFutoshiki
+    from gridsolver.examples import futoshiki
 
-    sol = solver.solve(exampleFutoshiki.g)
+    sol = solver.solve(futoshiki.g)
     assert len(sol) == 1
 
 
 def test_ex_killer_sudoku():
-    from Examples import killerSudoku
+    from gridsolver.examples import killer_sudoku
 
-    sol = solver.solve(killerSudoku.g)
+    sol = solver.solve(killer_sudoku.g)
     assert len(sol) == 1
 
 
 def test_ex_miracle_sudoku():
-    from Examples import miracleSudoku
+    from gridsolver.examples import miracle_sudoku
 
-    sol = solver.solve(miracleSudoku.g)
+    sol = solver.solve(miracle_sudoku.g)
     assert len(sol) == 1

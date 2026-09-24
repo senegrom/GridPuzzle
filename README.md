@@ -8,9 +8,10 @@ Constraint-propagation solver for Sudoku, Futoshiki, Killer Sudoku, KenKen, Lati
 
 Input puzzles are read as modules that define the variable `g`, from `.pzl` or retained CSP-Rules `.clp` files, or from strings.
 
-Execute `python run.py -m Examples.exampleSudoku` to solve the Sudoku stored as `g` in `Examples/exampleSudoku.py`.
+Execute `python run.py -m gridsolver.examples.sudoku` to solve the Sudoku stored as `g` in `gridsolver/examples/sudoku.py`.
 Additional options print intermediate steps or run one of the built-in examples.
-Try `python run.py -v -m Examples.exampleSudoku` for all intermediate steps.
+Try `python run.py -v -m gridsolver.examples.sudoku` for all intermediate steps.
+An installed package provides the same command as `gridpuzzle` (`gridpuzzle -m gridsolver.examples.sudoku`).
 
 Try `python run.py -s ..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8...........57.....7...2. -c sudoku` to solve a Sudoku from an arbitrary string.
 
@@ -43,7 +44,7 @@ These families use compact keyed variables so blocked cells and graph edges are 
 
 _Str8ts_ (`gridsolver/grid_classes/str8ts.py`) is the twelfth family: white cells form horizontal and vertical streets that each hold a consecutive set in any order, and every number, including a clue printed on a black cell, is unique in its row and column. It is reached through the phone app and the browser data contract (`gridsolver/web_api.py`) on square boards up to 9×9; there is no `--class` value or example corpus for it, and it runs the `RULES_ONLY` profile.
 
-An example is the _Miracle Sudoku_ in `Examples/miracleSudoku.py`.
+An example is the _Miracle Sudoku_ in `gridsolver/examples/miracle_sudoku.py`.
 In addition to normal Sudoku rules, adjacent and knight-move-distant fields must not be equal, and horizontally or vertically adjacent fields must not differ by exactly 1.
 
 ## Solving techniques
@@ -91,7 +92,7 @@ The measured defaults are FULL for the original dense-grid families, GENERIC for
 
 Measured live by `tests/technique_stats_harness.py` over a representative corpus. June 2026 measurements found AIC to be the strongest expensive technique, while `naked_tuples(5)`, `locked_candidate`, and `empty_rectangle` were the cheap workhorses. Deep fish and hidden-tuple tiers had zero hits in forcing-chain branches, so they are skipped there; this produced a 6.6x corpus speedup with identical solutions.
 
-The hardest built-in test puzzle (`example_t`) is solved entirely without backtracking.
+The hardest built-in test puzzle (`gridpuzzle -e t`) is solved entirely without backtracking.
 
 ## Arguments
 
@@ -102,6 +103,14 @@ exhaust later branches merely to compute a global content-key minimum.
 `--parallel-backend {process,thread}` chooses the executor those workers run
 in; `thread` is opt-in and needs a free-threaded (no-GIL) Python build, see
 [FREE_THREADED.md](FREE_THREADED.md).
+`--column-wise` and `--space-separated` apply to class-prefixed `--str` and
+`--file` input only; CSP-Rules forms, `--module` and `--example` fix their
+own layout, so those combinations are rejected rather than ignored.
+
+The command exits with status 0 when the puzzle has a solution (or
+`--max-solutions 0` asked for none), 1 when it has no solution, and 2 for
+usage and input errors, including `--parallel-backend thread` without
+`--processes 2` or more or on a runtime that still has the GIL.
 
 The equivalent library call is:
 
@@ -114,6 +123,10 @@ solutions = solver.solve(
 ```
 
 Run `gridpuzzle --help` for the complete parser-generated option list.
+
+### Logging
+
+The library reports through the standard `logging` module, under the `gridsolver` logger namespace (the solver uses `gridsolver.solver`), and never sets a logger level itself. A solve's `log_level` (or `solver.set_loglevel`) chooses how much it reports: 0, the default, reports solutions and timings, larger values add search detail, and -1 reports every detail. Detail 0 is logged at INFO and deeper detail at DEBUG, so an application whose logging is configured at WARNING or above sees nothing and pays nothing for rendering it. Pass `log_level=solver.QUIET` to silence a solve whatever handlers and levels are configured. The command line installs its own output handler (`--colour`), so its `--detail` and `--verbose` output always shows.
 
 ## Rule types
 
@@ -148,6 +161,9 @@ Restricts how many cells in a collection may contain a distinguished value. Slit
 
 #### `SingleLoopRule`
 Requires selected graph edges to form exactly one non-empty simple cycle and performs safe bridge, component, and cyclic-block pruning before the graph is fully decided.
+
+#### `ConsecutiveSetRule`
+The cells must hold distinct values that form one run of consecutive numbers, in any order, as every Str8ts street does. Candidates survive only if some feasible run can still be matched to the cells.
 
 ## Development
 

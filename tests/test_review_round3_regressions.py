@@ -17,7 +17,7 @@ from gridsolver.abstract_grids.extension_scope import _PROTECTED_SOURCES
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.rules.rules import Rule
 from gridsolver.solver import solve_parallel as parallel
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 from gridsolver.solver.validation import validation_context
 
 
@@ -88,7 +88,7 @@ def test_branch_metadata_cannot_silently_remove_valid_completions(profile):
         ReadsOriginalGiven(source, cells=(0, 2)),
     ))
     armed = True
-    actual = {tuple(solution) for solution in solve(source, log_level=-1)}
+    actual = {tuple(solution) for solution in solve(source, log_level=QUIET)}
     expected = set(product((1, 2), repeat=3))
     assert source.known == (0, 0, 0)
     assert _PROTECTED_SOURCES.get() == ()
@@ -116,7 +116,7 @@ def test_api_clone_preserves_picklability_of_captured_source_rules():
 
 def test_sequential_solver_discards_captured_source_writes():
     source = _source(_CapturedWriteRule)
-    assert {tuple(solution) for solution in solve(source, log_level=-1)} == set(
+    assert {tuple(solution) for solution in solve(source, log_level=QUIET)} == set(
         product((1, 2), repeat=2)
     )
     assert source.known == (0, 0)

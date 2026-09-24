@@ -1,6 +1,6 @@
 Example corpora for GridPuzzle.
 
-Corpora for ten of the twelve families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin squares (plain, diagonal and pandiagonal), Hidato, Kakuro, Numbrix and Slitherlink. Str8ts has no corpus here; its two newspaper photographs live under BrowserScanner/.
+Corpora for ten of the twelve families: Sudoku, Killer Sudoku, Futoshiki, KenKen, Latin squares (plain and pandiagonal), Hidato, Kakuro, Numbrix and Slitherlink. Diagonal Latin squares and Str8ts have no corpus here; BrowserScanner/Newspaper holds one Str8ts and one Sudoku newspaper photograph for the scanner's regression suite.
 
 The Hidato, Kakuro, Numbrix and Slitherlink files are CSP-Rules forms and load through the normal file route (gridpuzzle --file Examples/Hidato/...); extended CI solves each of those corpora in isolated shards weekly and on every push to master that changes them, accepting the timeouts listed in benchmarks/corpus_timeout_baseline.json.
 

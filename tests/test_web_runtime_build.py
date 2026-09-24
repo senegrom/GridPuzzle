@@ -141,6 +141,18 @@ def test_core_files_select_only_the_two_lstm_loaders(tmp_path):
         build_web.core_files(tmp_path)
 
 
+def test_solver_archive_holds_the_solver_but_not_the_command_line(monkeypatch, tmp_path):
+    import zipfile
+
+    build = "111111111111"
+    fake_build(monkeypatch, tmp_path, build)
+    names = set(zipfile.ZipFile(tmp_path / f"solver.{build}.zip").namelist())
+    assert "gridsolver/web_api.py" in names and "LICENSE" in names
+    assert "gridsolver/solver/solver.py" in names
+    assert "gridsolver/cli.py" not in names
+    assert not any(name.startswith("gridsolver/examples/") for name in names)
+
+
 def test_solver_archive_is_reproducible(monkeypatch, tmp_path):
     build = "111111111111"
     archives = []

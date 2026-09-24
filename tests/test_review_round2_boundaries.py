@@ -13,7 +13,7 @@ from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver.propagation import apply_rules
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 from gridsolver.solver.validation import InvalidSolutionError, validate_solution, validate_solutions
 
 
@@ -49,7 +49,7 @@ def test_native_inequality_merging_still_combines_and_deduplicates():
     rulehelper_atmostonce(grid)
     assert set(grid.rules) == set(merged)
     expected = {v for v in product(range(1, 4), repeat=3) if v[0] != v[1] and v[0] != v[2]}
-    assert {tuple(v) for v in solve(grid, log_level=-1)} == expected
+    assert {tuple(v) for v in solve(grid, log_level=QUIET)} == expected
 
 
 @pytest.mark.parametrize("incremental", (False, True))
@@ -228,7 +228,7 @@ def test_captured_source_resets_between_hooks_and_validates_original_puzzle(api,
     elif api == "set":
         validate_solutions(source, expected)
     else:
-        assert solve(source, log_level=-1) == expected
+        assert solve(source, log_level=QUIET) == expected
     assert seen and all(values == (0, 0) for values in seen)
     assert state(source) == before
     assert _PROTECTED_SOURCES.get() == ()
@@ -255,9 +255,9 @@ def test_solve_protects_captured_source_and_nested_outer_trail(failure):
     outer = source.trail_mark()
     if failure:
         with pytest.raises(failure, match="solve hook"):
-            solve(source, log_level=-1)
+            solve(source, log_level=QUIET)
     else:
-        assert {tuple(solution) for solution in solve(source, log_level=-1)} == {(1, 1), (1, 2)}
+        assert {tuple(solution) for solution in solve(source, log_level=QUIET)} == {(1, 1), (1, 2)}
     assert state(source) == before
     assert source._trail_state.dirty == dirty
     assert all(left is right for left, right in zip(caches, (
@@ -280,9 +280,9 @@ def test_subclass_copy_hook_cannot_mutate_the_caller(failure):
     before = state(source)
     if failure:
         with pytest.raises(failure, match="copy hook"):
-            solve(source, log_level=-1)
+            solve(source, log_level=QUIET)
     else:
-        assert len(solve(source, log_level=-1)) == 4
+        assert len(solve(source, log_level=QUIET)) == 4
     assert state(source) == before
     assert _PROTECTED_SOURCES.get() == ()
 
@@ -295,7 +295,7 @@ def test_native_rules_keep_the_non_sandbox_solve_path(monkeypatch):
         raise AssertionError("Native solve should not enter an extension sandbox")
 
     monkeypatch.setattr(Grid, "_extension_sandbox", no_sandbox)
-    assert {tuple(solution) for solution in solve(source, log_level=-1)} == {(1, 2), (2, 1)}
+    assert {tuple(solution) for solution in solve(source, log_level=QUIET)} == {(1, 2), (2, 1)}
 
 
 class _PickleHookRule(Rule):

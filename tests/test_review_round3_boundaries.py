@@ -23,7 +23,7 @@ from gridsolver.solver.candidate_topology import CandidateTopology
 from gridsolver.solver.propagation import apply_rules
 from gridsolver.solver.rulehelpers import rulehelper_house_sums, rulehelper_sum_atmostonce
 from gridsolver.solver.solve_ineq_bounds import ineq_bounds
-from gridsolver.solver.solver import solve
+from gridsolver.solver.solver import QUIET, solve
 from gridsolver.solver.validation import validate_solution, validation_context
 
 
@@ -313,4 +313,4 @@ def test_native_clone_does_not_retain_its_source():
     source = Grid(1, 2, 2)
     source.add_rule_checked(ElementsAtMostOnce(source, cells=(0, 1)))
     assert source.deepcopy()._extension_sources == ()
-    assert {tuple(s) for s in solve(source, log_level=-1)} == {(1, 2), (2, 1)}
+    assert {tuple(s) for s in solve(source, log_level=QUIET)} == {(1, 2), (2, 1)}

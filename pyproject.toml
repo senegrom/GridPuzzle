@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 [project.scripts]
-gridpuzzle = "run:main"
+gridpuzzle = "gridsolver.cli:main"
 
 [project.optional-dependencies]
 # The oldest releases with Python 3.14 wheels; the lowest-dependencies CI job
@@ -39,13 +39,11 @@ dev = [
     "ruff>=0.16",
 ]
 
-[tool.setuptools]
-py-modules = ["run", "examples2"]
-
 [tool.setuptools.packages.find]
-# Examples ships only its .py example modules (gridpuzzle -e s/f/m imports
-# them); the .clp/.pzl corpus files in its subdirectories stay repo-only.
-include = ["gridsolver*", "Examples"]
+# Only the gridsolver package installs: the CLI is gridsolver.cli and the
+# --example puzzles are gridsolver.examples. Top-level modules such as the
+# checkout's run.py shim would collide with other distributions' run.py.
+include = ["gridsolver*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
