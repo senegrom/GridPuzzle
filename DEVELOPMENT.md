@@ -65,7 +65,7 @@ Str8ts declares `RULES_ONLY` in `gridsolver/grid_classes/str8ts.py`; it is reach
 - all-different filtering by bipartite matching (Régin): a value stays at a cell only if some perfect matching of values to cells uses that pair, which catches the pigeonhole dead ends the layered walks miss, such as a region of free cells that the gaps reaching it cannot fill;
 - complete-path validation after all cells are known.
 
-Hidato supplies orthogonal plus diagonal adjacency and permits blocked cells. Numbrix supplies orthogonal adjacency and rejects blocked cells.
+Hidato supplies orthogonal plus diagonal adjacency and permits blocked cells. Numbrix supplies orthogonal adjacency and rejects blocked cells. Blocked cells can split a Hidato board into separate regions that no single path visits; the grid then gets an `UnsatisfiableRule` naming the region count instead of the path rule, which still rejects a disconnected graph given to it directly.
 
 **Kakuro** uses the existing `SumAndElementsAtMostOnce` rule. The grid constructor validates that runs are straight, contiguous, maximal between black cells or board edges, arithmetically feasible with distinct digits, and that every white cell belongs to exactly one horizontal and one vertical run. It also adds an `UnsatisfiableRule` for every connected group of runs whose across totals differ from its down totals: both totals count the same cells, so such a puzzle has no solution, and it now reports that at the first propagation instead of after an exhaustive search.
 
@@ -324,7 +324,7 @@ validated candidate changes publish only after that preparation succeeds.
 Failures and interruptions leave the source scheduled for retry. Built-in
 rule batches retain the in-place set fast path.
 
-Kakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions.
+Kakuro distinguishes malformed structure from an impossible puzzle. Run geometry, coverage, and clue syntax are validated while loading; a numerically infeasible target is accepted as a structurally valid but unsatisfiable puzzle and must solve to zero solutions. Hidato draws the same line: a board whose blocked cells split the playable cells into separate regions is well-formed and solves to zero solutions, so the browser answers "no solution" and the command line exits 1, not 2.
 
 
 ## Exact cage generation and graph simplification (September 2026)
