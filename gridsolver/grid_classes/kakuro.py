@@ -6,6 +6,7 @@ from numbers import Integral
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.grid_classes.compact_grid import CompactGrid
+from gridsolver.rules.rules import Rule, UnsatisfiableRule
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
 
 
@@ -114,11 +115,12 @@ class Kakuro(CompactGrid):
         self.white_cells = frozenset(normalized_white)
 
         normalized_runs: list[KakuroRun] = []
+        orientations: list[str] = []
         coverage = {
             cell: {"H": 0, "V": 0}
             for cell in self.white_cells
         }
-        rules: list[SumAndElementsAtMostOnce] = []
+        rules: list[Rule] = []
         seen_runs: set[tuple[str, tuple[BoardCell, ...]]] = set()
 
         if isinstance(runs, (str, bytes, bytearray)):
@@ -168,6 +170,7 @@ class Kakuro(CompactGrid):
 
             run = KakuroRun(target=target, cells=cells)
             normalized_runs.append(run)
+            orientations.append(orientation)
             rules.append(
                 SumAndElementsAtMostOnce(
                     self,
@@ -192,7 +195,48 @@ class Kakuro(CompactGrid):
             )
 
         self.runs = tuple(normalized_runs)
+        rules.extend(self._unequal_run_totals(orientations))
         self.add_rules_checked(rules)
+
+    def _unequal_run_totals(self, orientations: Sequence[str]) -> list[Rule]:
+        """Rules for groups of runs whose across and down totals differ.
+
+        Every white cell lies in exactly one across and one down run, so
+        within a connected group of runs the across targets and the down
+        targets both add up the same cells. A group whose two totals differ
+        has no solution; like any contradiction it solves to zero solutions,
+        but at the first propagation instead of after an exhaustive search.
+        """
+        parent = list(range(len(self.runs)))
+
+        def root(index: int) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        runs_by_cell: dict[BoardCell, list[int]] = {}
+        for index, run in enumerate(self.runs):
+            for cell in run.cells:
+                runs_by_cell.setdefault(cell, []).append(index)
+        for first, second in runs_by_cell.values():
+            parent[root(first)] = root(second)
+
+        groups: dict[int, list[int]] = {}
+        for index in range(len(self.runs)):
+            groups.setdefault(root(index), []).append(index)
+        rules: list[Rule] = []
+        for members in groups.values():
+            across = sum(self.runs[i].target for i in members if orientations[i] == "H")
+            down = sum(self.runs[i].target for i in members if orientations[i] == "V")
+            if across != down:
+                cells = sorted({cell for i in members for cell in self.runs[i].cells})
+                rules.append(UnsatisfiableRule(
+                    self,
+                    [self.compact_cell(cell) for cell in cells],
+                    f"across runs total {across}, down runs total {down}",
+                ))
+        return rules
 
     def _copy_extra_state_to(self, result: Grid) -> None:
         super()._copy_extra_state_to(result)

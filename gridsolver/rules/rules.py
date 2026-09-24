@@ -283,3 +283,43 @@ class Rule(ABC):
         for cell in self.cells:
             candidates[cell].clear()
         raise InvalidGrid()
+
+
+class UnsatisfiableRule(Rule):
+    """A constraint that no assignment of its cells can meet.
+
+    Load-time analysis adds one when the puzzle definition already rules out
+    every solution, so the puzzle solves to zero solutions (at the first
+    propagation, without search) instead of raising. ``reason`` records why.
+    """
+
+    __slots__ = ("reason",)
+
+    def __init__(
+        self,
+        gsz: GridSizeContainer,
+        cells: Iterable[IdxType],
+        reason: str,
+    ) -> None:
+        super().__init__(gsz, cells, None)
+        self.cells = tuple(sorted(self.cells))
+        self.reason = str(reason)
+
+    def apply(
+        self,
+        known: MutableSequence[int],
+        candidates: tuple[set[int], ...],
+        guarantees: Iterable[Guarantee] | None = None,
+    ) -> TApplyResult:
+        self.invalidate_current_cells_and_raise_invalid_grid(candidates)
+
+    def __repr__(self) -> str:
+        cell_str = ", ".join(_format_coord(cell, self._rows) for cell in self.cells)
+        return f"{type(self).__name__}[{self.reason}: {cell_str}]"
+
+    def __eq__(self, other: object) -> bool:
+        return super().__eq__(other) and self.reason == other.reason
+
+    # The reason stays out of the hash: string hashes are process-local, and
+    # equal rules still hash equally from their cells alone.
+    __hash__ = Rule.__hash__
