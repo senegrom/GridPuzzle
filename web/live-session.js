@@ -9,13 +9,22 @@ export function releaseImage(image) {
   try { image.width = image.height = 0; } catch { /* plain test data */ }
 }
 
+// A view that stays unverified for LOSS_LIMIT milliseconds retires the reading.
+// Verified replies on the delayed tier can arrive up to two seconds apart, so
+// a view hidden for less than ALIGN_NOTICE is not announced: announcing every
+// such gap made the help line alternate with the status on each reply.
+const LOSS_LIMIT = 5000, ALIGN_NOTICE = 2000;
+
 // OCR ownership and overlay visibility are deliberately separate. Motion may
 // hide a result, but only changed rules/content, a timeout or Stop retires work.
 // Frame identity belongs to the camera: `isCurrent(frame)` says whether the
 // frame is verified against the pixels on screen (falsy, or { corners, stale })
 // and `sameScene(a, b)` whether two frames show the same printed puzzle.
+// `lossPaused()` says whether no proof can currently arrive (the tracking
+// worker is building an anchor); that time does not count towards the loss.
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus,
-  isCurrent, sameScene, autoSolve = () => true, readCells = null, onEvent = () => {}, now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  isCurrent, sameScene, autoSolve = () => true, readCells = null, onEvent = () => {}, lossPaused = () => false,
+  now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   if (typeof isCurrent !== "function") throw new TypeError("createLiveSession requires isCurrent(frame)");
   if (typeof sameScene !== "function") throw new TypeError("createLiveSession requires sameScene(a, b)");
   let active = false, generation = 0, pending = false, preview = null, stored = null;
@@ -23,7 +32,10 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   let pendingRecovery = null, recoveryQuality = null, lastRecovery = -Infinity;
   const recoveryAttempts = new Map();
   let reference = null, best = null, challenger = null, stable = 0, attempts = 0;
-  let lastRead = -Infinity, lastSharpness = 0, deadline = null, lostAt = null;
+  let lastRead = -Infinity, lastSharpness = 0, deadline = null;
+  // lossStart: when the verified view was last lost (null while verified);
+  // lossCounted: how much of the loss since then counts, updated at lossTick.
+  let lossStart = null, lossCounted = 0, lossTick = 0;
   let status = "Reading printed clues… Keep the grid in view.", lastStatus = "", held = null;
   // While the camera holds a message (a stalled feed, a paused worker), the
   // session's own status stays off the help line; releasing the hold shows
@@ -41,7 +53,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     onEvent({ stage: "tracking", reason, cancelledRead: pending && !solving, cancelledSolve: solving });
     generation++; solveGeneration++; solving = false; clearDeadline(); pending = false; stable = 0; attempts = 0;
     release(best); release(activeSample); release(pendingRecovery?.sample); best = reference = challenger = stored = activeSample = null;
-    lastRead = -Infinity; lastSharpness = 0; lostAt = null;
+    lastRead = -Infinity; lastSharpness = 0; lossStart = null;
     pendingRecovery = recoveryQuality = null; lastRecovery = -Infinity; recoveryAttempts.clear();
     cancelRead(); cancelSolve(); publish(null);
   }
@@ -61,12 +73,17 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     // verified observations of this original anchor. Resetting acquisition
     // here can starve OCR whenever worker replies span multiple camera ticks.
     // Changed content, settings and prolonged loss still reset ownership.
-    if (lostAt === null) lostAt = now();
     // Bounded retention prevents a camera pointed elsewhere keeping old
-    // images/work indefinitely. Brief motion never restarts this clock.
-    if (now() - lostAt >= 5000) {
+    // images/work indefinitely. Brief motion never restarts this clock, but
+    // it stands still while the worker builds an anchor: no proof can arrive
+    // meanwhile, and an anchor longer than the limit once reset every read.
+    const time = now();
+    if (lossStart === null) { lossStart = lossTick = time; lossCounted = 0; }
+    else { if (!lossPaused()) lossCounted += time - lossTick; lossTick = time; }
+    if (lossCounted >= LOSS_LIMIT) {
       reset("grid-lost"); say("Grid lost. Keep the whole puzzle in view to read again.");
-    } else say(pending ? "Aligning the grid — keeping the current read…" : "Aligning the grid — checking the printed clues…");
+    } else if (time - lossStart >= ALIGN_NOTICE)
+      say(pending ? "Aligning the grid — keeping the current read…" : "Aligning the grid — checking the printed clues…");
     return false;
   }
   function validate() {
@@ -83,7 +100,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!target) return false;
     const view = proof(target);
     if (!view) return hide();
-    lostAt = null;
+    lossStart = null;
     commitRecovery();
     if (stored) publish({ ...stored, corners: view.corners, stale: view.stale === true });
     if (stored || pending) say(status);
@@ -208,7 +225,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       }
       reset("content-changed"); say("Printed content changed — reading the new clues…");
     }
-    challenger = null; lostAt = null;
+    challenger = null; lossStart = null;
     if (!reference) reference = { ...frame, image: null };
     stable++;
     const targets = readCells && stored?.readComplete ? recoveryCells(stored.found) : [];
