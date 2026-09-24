@@ -1,9 +1,18 @@
 /* Fixed external corpus replay through automatic detection, tracking and real
    OCR. Reference corners/digits are never passed to the browser pipeline.
-   This records previously unmeasured coverage, including no-read/quality
-   rejections and annotation ambiguities, rather than selecting easy successes. */
+   This records coverage, including no-read/quality rejections and annotation
+   ambiguities, rather than selecting easy successes, and holds every reading
+   to the app's safety contract, as newspaper_regressions does: a wrong,
+   missed or invented clue must be flagged for review. A picture the app
+   declines to read is recorded, not failed. */
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const {serve,engines,main}=require('./harness.cjs');
+// Once playback stops, capture() must drop the overlay as soon as the newest
+// presented frame is older than the frame scheduler's freshness limit
+// (web/live-frame-scheduler.js: fresh while now() - lastSeen <= 500); it
+// checks that itself, so no heartbeat has to run first. The margin covers
+// the polling interval and a busy runner.
+const PRESENTATION_FRESHNESS=500,MARGIN=500;
 async function begin(imageData){
  const {Scanner}=await import('./scanner.js'),{createLiveCamera}=await import('./live-camera.js'),{createScanDiagnostics}=await import('./scan-diagnostics.js');
  const img=new Image();img.src=imageData;await img.decode();
@@ -49,9 +58,11 @@ async function run(){
      if(r.result.reads.length){const read=r.result.reads.at(-1);r.score={correct:0,wrong:[],unflagged:[]};
       truth.forEach((label,cell)=>{if(label.ambiguous)return;if(label.value===read.cells[cell]){if(Number.isInteger(label.value))r.score.correct++;}else{const e={cell,expected:label.value,actual:read.cells[cell]};r.score.wrong.push(e);if(!read.uncertain.includes(cell))r.score.unflagged.push(e);}});
      }
-     await page.evaluate(()=>externalReplay.pause());
-     await page.waitForFunction(()=>externalReplay.capture()===false,null,{polling:200,timeout:5000});
+     const pausedAt=Date.now();await page.evaluate(()=>externalReplay.pause());
+     await page.waitForFunction(()=>externalReplay.capture()===false,null,{polling:100,timeout:PRESENTATION_FRESHNESS+MARGIN});
+     r.expiredAfter=Date.now()-pausedAt;
      assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
+     if(r.score)assert.deepEqual(r.score.unflagged,[],'every wrong, missed or invented clue must be flagged for review');
     }finally{
      r.closed=await page.evaluate(()=>window.externalReplay?.stop()).catch(()=>null);
      if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}

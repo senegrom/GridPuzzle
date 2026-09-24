@@ -4,6 +4,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { serve, engines, main } = require('./harness.cjs');
+// Once playback stops, the overlay must expire as soon as the newest
+// presented frame is older than the frame scheduler's freshness limit
+// (web/live-frame-scheduler.js: fresh while now() - lastSeen <= 500), well
+// before the two-second STALE_TRACK_AGE. capture() checks it itself; the
+// margin covers the polling interval and a busy runner.
+const PRESENTATION_FRESHNESS = 500, MARGIN = 500;
 async function begin({ font, race = false }) {
   const { Scanner } = await import('./scanner.js');
   const { createLiveCamera } = await import('./live-camera.js');
@@ -148,8 +154,9 @@ async function run() {
               assert.ok(record.after.capture.uncertain.includes(52)); assert.equal(record.after.capture.needsReview, true);
               record.before.full[0].cells.forEach((v, i) => { if (i !== 52) assert.equal(record.after.capture.cells[i], v, `protected cell ${i}`); });
               assert.ok(record.after.retries[0].result.stats.calls < record.before.full[0].stats.calls);
-              await page.evaluate(() => recoveryState.pause());
-              await page.waitForFunction(() => recoveryState.snapshot().capture === null, null, { polling: 100, timeout: 5000 });
+              const pausedAt = Date.now(); await page.evaluate(() => recoveryState.pause());
+              await page.waitForFunction(() => recoveryState.snapshot().capture === null, null, { polling: 100, timeout: PRESENTATION_FRESHNESS + MARGIN });
+              record.expiredAfter = Date.now() - pausedAt;
               record.stalled = await page.evaluate(() => recoveryState.snapshot());
               assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
               await page.evaluate(() => recoveryState.resume());

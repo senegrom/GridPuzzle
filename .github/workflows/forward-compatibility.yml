@@ -1,14 +1,9 @@
 name: Forward compatibility
 
 on:
+  # Every pull request, so that "Forward compatibility result" always
+  # reports; the changes job decides whether the suites run.
   pull_request:
-    paths:
-      - ".github/workflows/forward-compatibility.yml"
-      - "gridsolver/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "run.py"
-      - "examples2.py"
   workflow_dispatch:
   schedule:
     - cron: "41 4 * * 3"
@@ -24,11 +19,46 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONHASHSEED: random
   PYTHONUNBUFFERED: "1"
-  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning"
+  # Warnings are errors. Two filters come after the categories: an import
+  # that re-enables the GIL on the free-threaded build fails too, where
+  # Python only warns; and Python 3.15's linecache warning that module
+  # globals lack __spec__.loader is ignored. Python itself creates such
+  # globals for the __mp_main__ module of a spawned worker, so formatting a
+  # traceback through a worker function defined in a script's __main__
+  # killed the worker and turned the two process-failure probes'
+  # deliberate errors into BrokenProcessPool.
+  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning,error:The global interpreter lock (GIL) has been enabled:RuntimeWarning,ignore:Module globals is missing a __spec__.loader:DeprecationWarning"
 
 jobs:
+  changes:
+    name: Changes that need forward compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # The weekly and manual runs always run the suites.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          # the Python the bounded suite runs, with the data it reads
+          paths: |
+            **/*.py
+            gridsolver/**
+            tests/**
+            Examples/**
+            pyproject.toml
+            .github/workflows/forward-compatibility.yml
+
   compatibility:
     name: ${{ matrix.label }}
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -63,25 +93,43 @@ jobs:
           python -m pip wheel --no-deps . --wheel-dir dist
           gridpuzzle --help
 
-      - name: Compile Python sources with warnings as errors
-        run: python -m compileall -q gridsolver tests scripts Examples run.py examples2.py
+      # setup-python's freethreaded input must really have produced a build
+      # without the GIL, and importing the package and what the tests use
+      # must not have turned it back on.
+      - name: Require the GIL to be disabled
+        if: matrix.freethreaded
+        run: >-
+          python -c "import sys, sysconfig, colorama, gridsolver.solver.solver, pytest, rich;
+          sys.exit(0 if sysconfig.get_config_var('Py_GIL_DISABLED') and not sys._is_gil_enabled()
+          else f'the GIL is enabled: {sys.version}')"
 
-      - name: Run the portable compatibility surface
+      - name: Compile Python sources with warnings as errors
+        run: python -m compileall -q gridsolver tests scripts Examples run.py
+
+      - name: Discover and run every bounded test
         run: >-
           python -X dev -m pytest -q
-          tests/test_cli_and_loading.py
-          tests/test_thread_executor.py
-          tests/test_parser_fuzzing.py
-          tests/test_candidate_domain.py
-          tests/test_candidate_view.py
-          tests/test_compact_api_hardening.py
-          tests/test_partition_cache.py
-          tests/test_rule_inputs.py
-          tests/test_solution_validation.py
-          tests/test_path_guarantees.py
-          tests/test_new_puzzle_families.py
-          tests/test_trail.py
-          tests/test_differential.py
-          tests/test_handler_aware_logging.py
+          tests
           -m "not slow"
           --durations=10
+
+  # The check to require. A matrix job skipped before it expands never
+  # reports its entries' names, and a failed changes job would skip it. This
+  # job always runs and accounts for both.
+  result:
+    name: Forward compatibility result
+    if: always()
+    needs: [changes, compatibility]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.compatibility.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done

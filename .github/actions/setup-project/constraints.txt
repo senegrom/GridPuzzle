@@ -1,0 +1,23 @@
+# The exact versions CI installs through this action: the dependencies and
+# the dev and corpus extras with everything they pull in, the pip that
+# installs them and the setuptools that builds the project. The action puts
+# this file in PIP_CONSTRAINT and PIP_BUILD_CONSTRAINT, so later pip calls in
+# the job and their isolated build environments resolve against it too.
+#
+# Dependabot proposes updates to these pins every week (.github/dependabot.yml).
+# pyproject.toml keeps open lower bounds instead, which CI's lower-bounds job
+# tests; Dependabot leaves those alone.
+colorama==0.4.6
+iniconfig==2.3.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
+numpy==2.5.3
+packaging==26.3
+pillow==12.3.0
+pip==26.2.1
+pluggy==1.6.0
+pygments==2.21.0
+pytest==9.1.1
+rich==15.0.0
+ruff==0.16.8
+setuptools==84.0.0

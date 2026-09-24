@@ -17,7 +17,7 @@ Try `python run.py -s ..29.6......1.83...96.7....9...5....2....9.31.1..8.5....8.
 
 ## Phone app
 
-The same solver runs in the browser as an installable, camera-first web app at https://senegrom.github.io/GridPuzzle/. It photographs a printed puzzle, straightens it, reads the clues with on-device OCR, lets you review them, and solves with the complete Python engine through Pyodide; nothing leaves the phone. A play mode lets you enter your own answers, check them against the solution and take hints. The sources live in `web/`, the build in `scripts/build_web.py`, and the data boundary in `gridsolver/web_api.py`; `web/README.md` and `web/TESTING.md` describe the design, the recognition trust model and the acceptance tests. Every push to `master` rebuilds the site, runs the Chromium and WebKit acceptance suites against the real solver and OCR, and deploys.
+The same solver runs in the browser as an installable, camera-first web app at https://senegrom.github.io/GridPuzzle/. It photographs a printed puzzle, straightens it, reads the clues with on-device OCR, lets you review them, and solves with the complete Python engine through Pyodide; nothing leaves the phone. A play mode lets you enter your own answers, check them against the solution and take hints. The sources live in `web/`, the build in `scripts/build_web.py`, and the data boundary in `gridsolver/web_api.py`; `web/README.md` and `web/TESTING.md` describe the design, the recognition trust model and the acceptance tests. Every push to `master` that changes the app, the solver or their acceptance suites rebuilds the site, runs the Chromium and WebKit acceptance suites against the real solver and OCR, and deploys; a pull request that changes them runs the same suites first.
 
 ## Puzzle types
 
@@ -199,7 +199,7 @@ python scripts/run_new_family_corpus.py \
   --output artifacts/slitherlink-0.json
 ```
 
-Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly or manually and uploads each JSON report as an artifact.
+Each case runs in a fresh interpreter. Reports distinguish unique, multiple, unsatisfiable, timed-out, deliberately unsupported variant, and unexpected-error outcomes. Extended CI runs a 16-job family/shard matrix weekly, on demand and on every push to `master` that changes the solver, the example corpora or their tests, and uploads each JSON report as an artifact.
 
 GitHub Actions tests the minimum supported runtime, Python 3.14. Package metadata accepts Python 3.14 and newer; Linux and Windows discover the complete non-slow suite, while forward-compatibility CI covers free-threaded Python 3.14 and the Python 3.15 prerelease.
 

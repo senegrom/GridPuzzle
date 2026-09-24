@@ -1,9 +1,13 @@
-# Keep the GitHub Actions SHA pins and the Python lower bounds current. Each
-# ecosystem is grouped into one weekly pull request.
+# One grouped pull request per ecosystem, weekly.
 version: 2
 updates:
+  # The SHA pins of the actions. "/" covers .github/workflows; the composite
+  # actions under .github/actions pin actions of their own and need their
+  # directories named.
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: weekly
       day: monday
@@ -12,8 +16,14 @@ updates:
         patterns:
           - "*"
     open-pull-requests-limit: 3
+  # The exact versions CI tests, in .github/actions/setup-project/constraints.txt
+  # (Dependabot reads any requirements-format .txt file in the directory, and
+  # .python-version there makes it resolve for Python 3.14). pyproject.toml's
+  # dependencies are deliberately open lower bounds, which CI's lower-bounds
+  # job tests; raising them would only drop versions that still work.
   - package-ecosystem: pip
-    directory: /
+    directory: "/.github/actions/setup-project"
+    versioning-strategy: increase
     schedule:
       interval: weekly
       day: monday

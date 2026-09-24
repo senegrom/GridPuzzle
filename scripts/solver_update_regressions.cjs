@@ -212,7 +212,7 @@ async function stopServer() {
       assert.deepEqual(await other.evaluate(() => window.results[0]), expected(second));
       // Prove the same old URL remains available without any network fallback.
       await stopServer();
-      await assert.rejects(fetch(base, { signal: AbortSignal.timeout(2000) }), "the origin is actually unreachable");
+      await assert.rejects(fetch(base, { method: "HEAD", signal: AbortSignal.timeout(2000) }), "the origin is actually unreachable");
       await page.evaluate(() => window.solver.postMessage("again"));
       await page.waitForFunction(() => window.results.length === 2);
       assert.deepEqual(await page.evaluate(() => window.results[1]), expected(first));

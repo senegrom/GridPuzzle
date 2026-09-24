@@ -1,0 +1,38 @@
+name: Decide whether a pull request needs a workflow
+description: >-
+  Sets `relevant` to "true" when merging the checked-out pull request changes
+  a file that `paths` selects. The patterns are those of a workflow's paths
+  filter: globs from the repository root in which `*` stops at a slash and
+  `**` crosses directories, and `!` excludes what an earlier pattern
+  selected. Workflows use this instead of a pull_request paths filter, which
+  skips the whole workflow so that none of its checks ever reports and a
+  required one stays pending forever; a job skipped by `if:` reports. Needs
+  the pull request's merge commit checked out with its parents
+  (fetch-depth: 2).
+inputs:
+  paths:
+    description: Path patterns, one per line, as in a paths filter
+    required: true
+outputs:
+  relevant:
+    description: '"true" when a selected file changes, else "false"'
+    value: ${{ steps.compare.outputs.relevant }}
+runs:
+  using: composite
+  steps:
+    - id: compare
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        # Glob pathspecs match like a paths filter: `*` stops at a slash.
+        GIT_GLOB_PATHSPECS: "1"
+      run: |
+        # A paths filter's `!pattern` is the pathspec `:!pattern`.
+        mapfile -t pathspecs < <(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' -e 's/^!/:!/' <<< "$PATHS")
+        # The merge commit's first parent is the base branch, so this is what
+        # merging the pull request changes. It also fails the step when the
+        # parents are missing, rather than guessing.
+        echo "Changed:"; git diff --no-renames --name-only HEAD^1 HEAD
+        echo "Selected:"; git diff --no-renames --name-only HEAD^1 HEAD -- "${pathspecs[@]}" | tee "$RUNNER_TEMP/selected"
+        if [ -s "$RUNNER_TEMP/selected" ]; then relevant=true; else relevant=false; fi
+        echo "relevant=$relevant" | tee -a "$GITHUB_OUTPUT"

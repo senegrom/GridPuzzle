@@ -1,7 +1,8 @@
 name: Browser branch tests
 on:
+  # Every pull request, with no paths filter, so that "Browser unit tests"
+  # always reports; the job takes seconds, so nothing decides whether it runs.
   pull_request:
-    paths-ignore: ["**/*.md", "LICENSE"]
 permissions:
   contents: read
 concurrency:
@@ -9,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   unit:
+    name: Browser unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -16,10 +18,12 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
+      # The experiment's pure-JavaScript checks run without its untracked
+      # weights and skip the rest.
       - name: Browser model, lifecycle and safety unit tests
-        run: node --test web/tests/*.test.js
+        run: node --test web/tests/*.test.js experiments/tiny-digit-cnn/infer.test.mjs
       - name: Check every browser module parses
-        run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+        run: find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
       # Scanner quality covers recognition and tracking on pull requests.
       # Relevant application changes also run the complete deployment
       # acceptance workflow without publishing; master is the only publisher.

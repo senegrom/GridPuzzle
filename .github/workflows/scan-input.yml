@@ -1,15 +1,8 @@
 name: Scanner quality
 on:
+  # Every pull request, so that "Scanner quality result" always reports; the
+  # changes job decides whether the suites run.
   pull_request:
-    paths:
-      - 'web/**'
-      - 'scripts/*regressions.cjs'
-      - 'scripts/harness.cjs'
-      - 'scripts/build_web.py'
-      - 'scripts/fetch_live_fixtures.py'
-      - 'Examples/BrowserScanner/**'
-      - '.github/workflows/scan-input.yml'
-      - '.github/actions/setup-scanner/action.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,11 +10,41 @@ concurrency:
   group: scan-input-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    name: Changes that need the scanner suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # A manual run always runs the suites.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          paths: |
+            web/**
+            scripts/*regressions.cjs
+            scripts/harness.cjs
+            scripts/build_web.py
+            scripts/fetch_live_fixtures.py
+            Examples/BrowserScanner/**
+            .github/workflows/scan-input.yml
+            .github/actions/setup-scanner/**
+            !**/*.md
   # The two jobs are separate on purpose: after the four recognition suites
   # have run on a runner, WebKit no longer starts playback of a canvas stream
   # and the live-motion suite waits forever (measured 2026-09-18), while on
-  # a runner of its own it finishes in half a minute.
+  # a runner of its own it finishes in half a minute. The external replay
+  # plays a canvas stream too; the other live suites run in the deployment
+  # gate (browser-pages.yml), whose paths cover all of these but this file.
   recognition:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -37,7 +60,7 @@ jobs:
           git rev-parse HEAD > scan-input-artifacts/commit.txt
       # The browser unit tests run in "Browser branch tests" on every pull request.
       - name: Every browser module parses
-        run: find web -name '*.js' -not -path '*/vendor/*' -exec node --check {} \;
+        run: find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
       - name: Newspaper, font and degraded-image quality checks
         run: node scripts/ocr_quality_regressions.cjs
       - name: Damaged-clue checks
@@ -55,29 +78,15 @@ jobs:
             browser-artifacts
           retention-days: 7
   live:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
-      - name: Noisy live acquisition, automatic OCR and changed-content safety
-        run: node scripts/live_noise_regressions.cjs
-      - name: Real degraded-to-clear live recovery and stalled-frame safety
-        run: node scripts/live_recovery_regressions.cjs
       - name: Fetch bounded external picture tests
         run: python scripts/fetch_live_fixtures.py
-      - name: Real moving-video scanning and external picture tracking
-        run: node scripts/live_motion_regressions.cjs
-      - name: Camera capture and solver integration
-        run: node scripts/live_camera_regressions.cjs
-      - name: Backup, preferences and modal integration
-        run: node scripts/app_review_regressions.cjs
-      - name: Background tracking, targeted reads and diagnostic privacy
-        run: node scripts/live_features_regressions.cjs
-      - name: Clue editor re-read proposals and confirmation
-        run: node scripts/editor_reread_regressions.cjs
-      - name: Repeated-session worker and image ownership soak
-        run: node scripts/live_soak_regressions.cjs
       - name: External pictures through automatic detection, tracking and OCR
         run: node scripts/external_replay_regressions.cjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -86,3 +95,23 @@ jobs:
           name: live-report
           path: browser-artifacts
           retention-days: 7
+  # The check to require: suites skipped by the changes job report success,
+  # but a failed changes job would skip them too. This job always runs and
+  # tells the two apart.
+  result:
+    name: Scanner quality result
+    if: always()
+    needs: [changes, recognition, live]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.recognition.result }} ${{ needs.live.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done

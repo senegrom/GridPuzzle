@@ -87,7 +87,6 @@ async function run() {
   } finally {
     server.close();
   }
-  await require("./ocr_quality_regressions.cjs").run();
 }
 module.exports = { run };
 main(module, run);

@@ -2,12 +2,27 @@ name: Build and deploy phone scanner
 on:
   push:
     branches: [master]
-    # Documentation and benchmark records do not change the built app.
-    paths-ignore:
-      - "**/*.md"
-      - "benchmarks/**"
+    # What the built site and its gate read, and nothing else: every
+    # deployment asks each installed app to update, so a document or a
+    # corpus README must not redeploy.
+    paths:
+      - "web/**"
+      - "gridsolver/**"
+      - "LICENSE"
+      - "third_party/licenses/**"
+      - "scripts/build_web.py"
+      - "scripts/fetch_live_fixtures.py"
+      - "scripts/*.cjs"
+      - "corpus/benchmark-runner.cjs"
+      - "corpus/detect_benchmark.cjs"
+      - "corpus/score.cjs"
+      - "Examples/BrowserScanner/**"
+      - ".github/workflows/browser-pages.yml"
+      - ".github/actions/setup-scanner/**"
+      - "!**/*.md"
+  # Every pull request, so that "Deployment gate result" always reports; the
+  # changes job applies the push trigger's paths.
   pull_request:
-    paths: ["web/**", "scripts/**", ".github/workflows/browser-pages.yml", "gridsolver/**", "pyproject.toml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,13 +30,46 @@ concurrency:
   group: gridpuzzle-browser-pages-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    name: Changes that need the deployment gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # Pushes were filtered by their trigger; a manual run runs everything.
+      relevant: ${{ github.event_name != 'pull_request' || steps.diff.outputs.relevant == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/changed-paths
+        with:
+          # the push trigger's paths
+          paths: |
+            web/**
+            gridsolver/**
+            LICENSE
+            third_party/licenses/**
+            scripts/build_web.py
+            scripts/fetch_live_fixtures.py
+            scripts/*.cjs
+            corpus/benchmark-runner.cjs
+            corpus/detect_benchmark.cjs
+            corpus/score.cjs
+            Examples/BrowserScanner/**
+            .github/workflows/browser-pages.yml
+            .github/actions/setup-scanner/**
+            !**/*.md
   build:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
-      - run: python -m pip install -e '.[dev]'
       # The bounded Python suite runs in CI on every push and pull request, and
       # the browser unit tests run in "Browser branch tests" on every pull
       # request; on a master push this is the only place the latter run.
@@ -56,6 +104,11 @@ jobs:
         run: |
           node scripts/browser_regressions.cjs
           node scripts/newspaper_regressions.cjs
+      # Scanner quality runs this on pull requests, ahead of the two suites
+      # that compare with its report; every deployment runs it here.
+      - name: Newspaper, font and degraded-image quality checks
+        if: github.event_name != 'pull_request'
+        run: node scripts/ocr_quality_regressions.cjs
       - name: Upload screenshots and test report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -134,3 +187,23 @@ jobs:
       - name: Publish the tested branch artifact
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+  # The check to require: the gate's jobs skipped by the changes job report
+  # success, but a failed changes job would skip them too. This job always
+  # runs and tells the two apart.
+  result:
+    name: Deployment gate result
+    if: always()
+    needs: [changes, build, live-acceptance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job the changes call for
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULTS: ${{ needs.build.result }} ${{ needs.live-acceptance.result }}
+        run: |
+          echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
+          [ "$CHANGES" = success ]
+          expected=skipped; if [ "$RELEVANT" = true ]; then expected=success; fi
+          for result in $RESULTS; do [ "$result" = "$expected" ]; done
