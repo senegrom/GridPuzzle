@@ -9,9 +9,13 @@ block a run.
 from __future__ import annotations
 import base64
 import hashlib
+import http.client
 import json
 import math
+import sys
+import time
 from pathlib import Path, PurePosixPath
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -37,9 +41,40 @@ IMAGE_SHA256 = {
     "images/r4k4memgy6ac1.webp": "e774200ec2795618af85f017c910c6ec626adde3d8807ed58896492bc21f3b76",
 }
 
-def download(url: str, limit: int) -> bytes:
-    with urlopen(Request(url, headers={"User-Agent": "GridPuzzle-regression-tests/1"}), timeout=45) as response:
-        data = response.read(limit + 1)
+# Every deployment fetches the slice, so a brief outage or rate limit at the
+# host must not fail it: a few attempts, with pauses that double.
+ATTEMPTS = 4
+FIRST_PAUSE = 2.0
+MAX_PAUSE = 30.0
+
+def transient(error: BaseException) -> bool:
+    """Whether another attempt can succeed: a timeout, a dropped or refused
+    connection, or a busy (408, 429) or failing (5xx) server. A missing or
+    forbidden file cannot change at a pinned revision."""
+    if isinstance(error, HTTPError):
+        return error.code in (408, 429) or error.code >= 500
+    return isinstance(error, (OSError, http.client.HTTPException))
+
+def download(url: str, limit: int, *, opener=urlopen, sleep=time.sleep) -> bytes:
+    pause = FIRST_PAUSE
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            with opener(Request(url, headers={"User-Agent": "GridPuzzle-regression-tests/1"}), timeout=45) as response:
+                data = response.read(limit + 1)
+            break
+        except (OSError, http.client.HTTPException) as error:
+            asked = ""
+            if isinstance(error, HTTPError):
+                # An HTTPError is also the server's open response.
+                asked = str((error.headers or {}).get("Retry-After") or "")
+                error.close()
+            if attempt == ATTEMPTS or not transient(error):
+                raise
+            wait = max(pause, float(asked)) if asked.isdigit() else pause
+            wait = min(wait, MAX_PAUSE)
+            print(f"{url}: {error}; retrying in {wait:g} s", file=sys.stderr, flush=True)
+            sleep(wait)
+            pause *= 2
     if len(data) > limit:
         raise ValueError(f"Bounded download exceeded {limit} bytes: {url}")
     return data
