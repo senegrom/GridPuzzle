@@ -83,6 +83,7 @@ The measured defaults are FULL for the original dense-grid families, GENERIC for
 #### Graph-specific propagation
 - **Layered consecutive-path support** — removes Hidato/Numbrix candidates that cannot lie on any adjacency-supported path between fixed or endpoint value layers
 - **Graph-distance and parity bounds** — fixed path clues restrict reachable values; orthogonal Numbrix additionally uses bipartite parity
+- **All-different matching** (Régin) — a Hidato/Numbrix value stays at a cell only if some perfect matching of values to cells uses that pair, which catches regions of free cells the remaining values cannot fill exactly
 - **Possible-cycle analysis** — Slitherlink removes graph bridges and edges outside every viable cyclic block, rejects disconnected selected components, and prevents premature subloops
 
 #### Last resort
@@ -223,4 +224,4 @@ GridPuzzle is distributed under the GNU AGPL v3.0 license (`LICENSE`).
 
 The example corpora keep their own terms: the CSP-Rules files are GPL-3.0, and the newspaper transcriptions and photographs remain their publishers' copyright. [Examples/NOTICE.md](Examples/NOTICE.md) lists them.
 
-The phone scanner self-hosts Pyodide, the CPython standard library, Tesseract.js and its English model under their own licences; the build ships each licence text with the site, and [third_party/licenses/README.md](third_party/licenses/README.md) lists the ones the repository vendors.
+The phone scanner self-hosts Pyodide, the CPython standard library, Tesseract.js and its English model under their own licences, together with the C libraries compiled into their WebAssembly runtimes. The build ships each licence text with the site, the app's footer links the list, and [third_party/licenses/README.md](third_party/licenses/README.md) lists the texts the repository vendors and where each comes from.
