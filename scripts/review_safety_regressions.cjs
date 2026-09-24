@@ -75,7 +75,12 @@ async function cameraContentProbe() {
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
       const shot=camera.capture();outcomes.push({phase,before,after:Number(overlay.dataset.solution),
         capturedClue:shot.found?.puzzle.cells[0]??null,rawMatches:shot.photo.toDataURL()===video.toDataURL()});
-      await advance(1400);if(reads<2)throw Error("changed content never triggered a fresh read");
+      // advance() drains the tracking worker but not detection, so the fake time
+      // a fresh read takes depends on real scheduling: wait for it, up to 3 s,
+      // and look at the overlay no earlier than the fixed 1.4 s used to.
+      let waited=0;for(;reads<2&&waited<3000;waited+=100)await advance(100);
+      if(reads<2)throw Error("changed content never triggered a fresh read");
+      if(waited<1400)await advance(1400-waited);
       if(Number(overlay.dataset.solution)!==0)throw Error("obsolete solution returned after rereading");
     } finally{camera.stop();}
   }

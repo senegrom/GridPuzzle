@@ -28,7 +28,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
   diagnostics = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
-  let active = false, detection = null, epoch = 0, lastDetect = -Infinity;
+  let active = false, detection = null, epoch = 0, lastDetect = -Infinity, trackAfter = -Infinity, anchorMs = 0;
+  let ownVerifiedAt = -Infinity;
   let raw = null, guide = null, guideFrame = null, displayed = null;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, adoptedAt = -Infinity, sampledAt = -Infinity, laggedAt = -Infinity, retryTrackingAt = 0;
@@ -75,6 +76,18 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     return (await tracker.anchor({ image: pixels, corners: points, rows, cols, anchors: anchorIds() })).anchor;
   }
   const sampleAge = () => now() - sampledAt;
+  // Detection spacing while a reading is tracked (see tick). A new detection
+  // then only offers a sharper frame, clues to retry or a changed grid, which
+  // verification notices too. The worker builds one anchor at a time and
+  // verifies nothing meanwhile, so the spacing runs from the previous
+  // candidate's verdict, not its start, and grows with the last anchor's cost:
+  // an anchor over half the live tier ages the view onto the delayed tier,
+  // which then holds for LIVE_SETTLE as well, and such pauses are kept to about
+  // a quarter of the time.
+  function trackGap() {
+    const pause = anchorMs > FRESH_TRACK_AGE / 2 ? anchorMs + LIVE_SETTLE : anchorMs;
+    return Math.max(1000, 3 * pause);
+  }
   // Whether the verified view on screen is in the delayed tier (see above).
   function delayedTier() {
     if (!Object.values(proofs).some(Boolean)) return false;
@@ -126,6 +139,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // still cancels everything; older/injected solvers keep the cancel contract.
     cancelSolve: () => active && solver.invalidate ? solver.invalidate() : solver.cancel(),
     onChange: () => {}, onStatus: message => { $("camera-help").textContent = message; },
+    // No verification runs while the worker builds an anchor.
+    lossPaused: () => detection?.anchoring === true,
     isCurrent, sameScene, now, setTimer, clearTimer,
   });
   function render() {
@@ -226,7 +241,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // Anchoring is bounded by the tracker's own, longer anchor deadline; this
       // one covers detection only, which a slow anchor must not time out.
       job.anchoring = true; clearTimer(job.deadline);
-      const anchor = await anchorOf(image, corners, rows, cols);
+      const anchorStarted = now(), anchor = await anchorOf(image, corners, rows, cols);
+      anchorMs = now() - anchorStarted;
       if (!current()) return;
       if (!anchor) { session.suspend(); return; }
       const frame = { image, corners, width: image.width, height: image.height,
@@ -246,7 +262,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (job.anchoring && current()) { trackingFailed(error, owner); return; }
       if (current()) { guide = guideFrame = null; session.invalidate(); guidance(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
-      if (!job.handedOff) image.width = image.height = 0;
+      if (!job.handedOff) {
+        image.width = image.height = 0;
+        if (current()) trackAfter = now() + trackGap();
+      }
       clearTimer(job.deadline);
       if (detection === job) detection = null;
     }
@@ -255,7 +274,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (!active || owner !== epoch || error?.name === "AbortError") return;
     epoch++; recovery.fail(); retryTrackingAt = recovery.nextAttempt; proofs = {};
     tracker.reset(); discardCandidate(); cancelDetection();
-    guide = guideFrame = null; session.invalidate(); lastDetect = -Infinity;
+    guide = guideFrame = null; session.invalidate(); lastDetect = trackAfter = ownVerifiedAt = -Infinity;
     diagnostics?.event({ stage: 'tracking', reason: 'worker-error', message: error.message });
     say(recovery.blocked
       ? "Background tracking repeatedly failed. Tap Restart live scanning, or save a picture to read in the editor."
@@ -283,6 +302,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
         [anchor, view ? { ...view, width, height } : null]));
       if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
+      // Whether the reading's own frame still verifies. A rejection means the
+      // grid moved away or its content changed, which only a new detection can
+      // settle; a reply that is merely slow says nothing of the kind.
+      const own = session.anchorFrame?.anchor?.id;
+      if (own !== undefined && Object.hasOwn(result.proofs, own)) ownVerifiedAt = result.proofs[own] ? at : -Infinity;
       session.motion();
       const candidate = pendingCandidate;
       if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
@@ -304,6 +328,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
           diagnostics?.event({ stage: 'tracking', reason: 'alignment-rejected',
             mismatch: rejection?.reason, region: rejection?.region });
         }
+        trackAfter = now() + trackGap();
       }
       render();
       diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
@@ -318,7 +343,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (key !== settingsKey) {
       epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
       tracker.reset(); discardCandidate(); proofs = {}; retryTrackingAt = 0; recovery.reset();
-      cancelDetection(); lastDetect = -Infinity; unmatchedCandidates = 0; session.invalidate();
+      cancelDetection(); lastDetect = trackAfter = ownVerifiedAt = -Infinity; unmatchedCandidates = 0; session.invalidate();
     }
   }
   function updateRestartControl() {
@@ -375,8 +400,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         // One candidate at a time: a new detection waits until a reply has
         // verified or rejected the pending one. Replacing it every 300 ms
         // meant that once replies took longer than that, no candidate was
-        // ever verified and reading never started.
-        if (!detection && !pendingCandidate && now() - lastDetect >= (session.preview ? 1000 : 300))
+        // ever verified and reading never started. Detections start every
+        // 300 ms to acquire or re-find the grid; once a reading is shown, or
+        // is running or finished with its own frame still verifying, they
+        // follow trackGap() instead. Replies can be two seconds old and two
+        // seconds apart, so "still" allows twice the stale limit.
+        const tracked = !!session.preview ||
+          ((session.busy || session.settled) && now() - ownVerifiedAt <= 2 * STALE_TRACK_AGE);
+        if (!detection && !pendingCandidate && (tracked ? now() >= trackAfter : now() - lastDetect >= 300))
           void locate(copyCanvas(image), setting, settingsKey, epoch);
         void track(image, settingsKey, epoch); image = null;
       }
@@ -384,12 +415,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     finally { release(image); }
   }
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
+    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
     stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = adoptedAt = laggedAt = -Infinity; updateRestartControl(); },
     restart() {
       if (!active) return;
       epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();
-      session.invalidate(); proofs = {}; guide = guideFrame = null; lastDetect = -Infinity;
+      session.invalidate(); proofs = {}; guide = guideFrame = null; lastDetect = trackAfter = ownVerifiedAt = -Infinity;
       recovery.reset(); retryTrackingAt = 0; sampledAt = adoptedAt = laggedAt = -Infinity; unmatchedCandidates = 0;
       render(); scheduler.start(); updateRestartControl();
       diagnostics?.event({ stage: 'tracking', reason: 'worker-restarted' });

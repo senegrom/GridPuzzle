@@ -32,6 +32,10 @@ is verified again. A late solver result remains hidden until reverified too.
 Two mutually matching fresh detections of changed content retire the old job;
 settings changes and Stop do so immediately. Five seconds of unverified loss
 retires retained work, and the original 90-second OCR timeout is preserved.
+Time while the worker builds an anchor does not count towards those five
+seconds, since no verification can arrive meanwhile: before, an anchor of about
+seven seconds or more reset the reference each time, so reading never started
+and the help line repeated "Grid lost".
 Only one OCR job/solve is active. Temporary captured-frame canvases are released
 on success, failure, outdated detection, replacement and Stop.
 
@@ -137,14 +141,17 @@ retained, with current reading/reference anchors protected from eviction. The
 worker keeps grayscale evidence, not extra RGBA source copies. Stop, settings
 changes and errors terminate the worker and fence its replies. Each operation
 fails closed after its own deadline: two seconds for a verification, twenty for
-an anchor. Building an anchor measured about ten times a verification on a
-synthetic 9x9 board at the 1280-pixel content size and 67-131 times on real
-photographs (whose verifications are cheaper), so a device whose verifications
-approach two seconds needs about twenty for an anchor; with one shared
-two-second deadline every anchor on such a device failed and ended in Restart.
-Verifications wait while an anchor is built, and grid detection's own
-eight-second deadline no longer covers anchoring. Manual capture remains
-available without a synchronous registration fallback.
+an anchor. With one shared two-second deadline, every anchor on a device whose
+verifications approach two seconds failed and ended in Restart. On real
+photographs with camera noise an anchor costs 1.1 to 2.3 times a verification
+of the same anchors: building it costs about as much as one more verification,
+and it re-matches every retained anchor (desktop Chromium, 960 and 1280 pixels,
+2026-09-24). The ten times on a synthetic 9x9 board and 67-131 times on
+photographs measured earlier compared against verifying an unchanged frame,
+which returns before registration and the content comparison. Verifications
+wait while an anchor is built, and grid detection's own eight-second deadline
+no longer covers anchoring. Manual capture remains available without a
+synchronous registration fallback.
 
 A verification result is drawn only with its own source snapshot, never with a
 newer video frame. Verified views come in two tiers. A view is live while the
@@ -163,9 +170,28 @@ each candidate is verified before the next replaces it, and reads and solves
 run on the delayed tier. A shown snapshot older than two seconds
 gives way to an unverified fresh frame: from about a second per verification
 the overlay alternates with such frames, and near two seconds it is rarely
-shown. A worker that never answers reaches the failure, backoff and Restart
-path. Neither tier is a measured phone speedup or a promise that image copying
-and rendering are off-thread.
+shown. The help line does not follow that alternation: it announces "Aligning
+the grid" only once the view has stayed unverified for two seconds, because
+verified replies can arrive that far apart; announcing every gap alternated
+it with the status six to eight times every five seconds. A worker that never
+answers reaches the failure, backoff and Restart path. Neither tier is a
+measured phone speedup or a promise that image copying and rendering are
+off-thread.
+
+Grid detection starts every 300 ms, counted from the start of the previous
+detection, while the grid is being acquired or re-found. Once a reading is
+shown, or is running or finished while its own frame still verifies (the last
+reply covering it, within four seconds, verified it rather than rejecting it),
+a new detection only offers a sharper frame, clues to retry or a changed grid,
+which the verification's content check notices as well. It then waits at least
+a second after the previous candidate's verdict, and, when the last anchor took
+more than 250 ms, three times that anchor's time plus the two-second settle:
+the worker verifies nothing while it builds an anchor, and such an anchor ages
+the view onto the delayed tier. Re-detecting every second from its start kept
+the view DELAYED whenever anchors took half a second or more: with 30 ms
+verifications and anchors of 0.5-2 s, the fake-clock simulation of the real
+camera, tracker and tracking core showed the preview live 0% of the time, and
+now 73-80%.
 
 After a complete numeric reading, a substantially clearer cell interior can
 trigger a targeted retry through `Scanner.readCells`. At most 12 uncertain,
