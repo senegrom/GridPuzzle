@@ -19,7 +19,22 @@ import time
 
 
 CASES = ('sudoku4', 'killer-hard', 'killer-deadly', 'slitherlink2', 'slitherlink3')
-BASELINE = '69b662087b896b864d6bb93b180d9c8f13c975a8'
+
+
+def tree_commit(path):
+    """The commit a measured tree is at, marked when it has uncommitted changes.
+
+    Records name the trees they actually measured; None when the tree is not
+    a git checkout.
+    """
+    try:
+        commit = subprocess.run(['git', '-C', str(path), 'rev-parse', 'HEAD'],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        changes = subprocess.run(['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=no'],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return commit + ('+uncommitted' if changes else '')
 
 
 def fingerprint(value):
@@ -149,8 +164,10 @@ def main():
     if args.baseline_root is None or args.samples < 1:
         parser.error('--baseline-root and a positive --samples are required')
     baseline = args.baseline_root.resolve()
-    report = {'python': sys.version, 'baseline': BASELINE, 'samples': args.samples,
-              'timing_note': 'Three fresh-interpreter samples per mode; compare medians, not a claim of universal speedup.',
+    report = {'python': sys.version, 'baseline': tree_commit(baseline), 'candidate': tree_commit(root),
+              'samples': args.samples,
+              'timing_note': f'{args.samples} fresh-interpreter samples per mode, alternating trees; '
+                             'compare medians, not a claim of universal speedup.',
               'cases': {}, 'micro': micro(root)}
     report['loop_states_equivalent'] = loop_differential(root, baseline)
     print('Identical complete loop-rule outcomes on', report['loop_states_equivalent'], 'states.', flush=True)
