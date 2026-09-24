@@ -1,18 +1,7 @@
-from numbers import Integral
-
 from gridsolver.abstract_grids.pretty_print import PrettyPrintArgs
 from gridsolver.abstract_grids.unique_square_grid import UniqueSquareGrid
 from gridsolver.rules.unique import ElementsAtLeastOnce, ElementsAtMostOnce
-
-
-
-def _box_dimension(name: str, value: object) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral):
-        raise TypeError(f"{name} must be an integer")
-    value = int(value)
-    if value <= 0:
-        raise ValueError(f"{name} must be positive")
-    return value
+from gridsolver.util import positive_int
 
 
 class Sudoku(UniqueSquareGrid):
@@ -24,10 +13,10 @@ class Sudoku(UniqueSquareGrid):
     )
 
     def __init__(self, rows_in_box: int = 3, cols_in_box: int = 3, box_rows: int = 3, box_cols: int = 3):
-        rows_in_box = _box_dimension("rows_in_box", rows_in_box)
-        cols_in_box = _box_dimension("cols_in_box", cols_in_box)
-        box_rows = _box_dimension("box_rows", box_rows)
-        box_cols = _box_dimension("box_cols", box_cols)
+        rows_in_box = positive_int("rows_in_box", rows_in_box)
+        cols_in_box = positive_int("cols_in_box", cols_in_box)
+        box_rows = positive_int("box_rows", box_rows)
+        box_cols = positive_int("box_cols", box_cols)
 
         n: int = rows_in_box * box_rows
         if n != cols_in_box * box_cols:
