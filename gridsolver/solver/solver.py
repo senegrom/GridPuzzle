@@ -263,7 +263,7 @@ def _solve_top_parallel(
     processes: int,
 ) -> set[ImmutableGrid]:
     """Run one atomic pass, then distribute deterministic first-level branches."""
-    from gridsolver.solver.solve_parallel import solve_parallel_trials
+    from gridsolver.solver.solve_parallel import pool_size, solve_parallel_trials
 
     settled, branches, _ = _atomic_pass_or_branches(
         grid,
@@ -276,7 +276,8 @@ def _solve_top_parallel(
 
     _lg.logs(
         0,
-        f"Parallel: {len(branches)} top-level branches on {processes} processes",
+        f"Parallel: {len(branches)} top-level branches on "
+        f"{pool_size(processes, len(branches))} processes",
     )
     # ``grid`` is already the solver-owned clone. The executor pickles it once
     # under worker_serialization(), where Grid.__getstate__ drops the trail,
