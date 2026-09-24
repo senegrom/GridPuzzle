@@ -2,11 +2,12 @@ const cancelled = () => new DOMException('Tracking request retired', 'AbortError
 // Each operation fails closed after its own deadline. A verification later than
 // two seconds is useless to the delayed tier. An anchor is built from the whole
 // grid and re-matches every retained anchor: on noisy real photographs it
-// measured 1.1-2.3 times a verification of the same anchors (the earlier ten
-// and 67-131 times compared against verifying an unchanged frame, which skips
-// registration). Sharing the two-second deadline failed every anchor on a
-// device whose verifications approach it and ended in Restart; twenty seconds
-// leaves a wide margin.
+// measured 1.1-1.2 times a verification of the same three anchors, which the
+// camera no longer asks a verification to check (see LIVE_TRACKING.md). The
+// earlier ten and 67-131 times compared against verifying an unchanged frame,
+// which skips registration. Sharing the two-second deadline failed every anchor
+// on a device whose verifications approach it and ended in Restart; twenty
+// seconds leaves a wide margin.
 export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 
 // One active worker operation, one latest pending video frame and one pending
