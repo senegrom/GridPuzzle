@@ -17,6 +17,22 @@ runs:
     - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
       with:
         node-version: "22"
+    # Downloads only: npm keeps the tarballs it packs in ~/.npm, and the build
+    # still checks every packed tarball against its SHA-512 pin in
+    # scripts/build_web.py, so a restored cache cannot change what ships. The
+    # keys cover that file and this one, where the Playwright version lives.
+    - name: Restore npm downloads
+      id: npm-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.npm
+        key: scanner-npm-${{ runner.os }}-${{ hashFiles('scripts/build_web.py', '.github/actions/setup-scanner/action.yml') }}
+    - name: Restore Playwright browsers
+      id: browser-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: scanner-playwright-${{ runner.os }}-${{ hashFiles('.github/actions/setup-scanner/action.yml') }}
     - name: Build pinned self-hosted runtime
       shell: bash
       run: |
@@ -26,3 +42,16 @@ runs:
       run: |
         npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
         npx playwright install --with-deps chromium webkit
+    # Parallel jobs may race to save the same key; the losers only warn.
+    - name: Save npm downloads
+      if: steps.npm-cache.outputs.cache-hit != 'true' && inputs.build == 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.npm
+        key: ${{ steps.npm-cache.outputs.cache-primary-key }}
+    - name: Save Playwright browsers
+      if: steps.browser-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ steps.browser-cache.outputs.cache-primary-key }}
