@@ -124,6 +124,28 @@ def test_unexpected_solver_exception_is_reported_not_raised(monkeypatch):
     assert 'RuntimeError' in result['message']
 
 
+def test_json_nested_too_deeply_is_invalid_data_not_a_solver_error():
+    # json.loads recurses per level; within the 200,000-character limit the
+    # nesting reaches past the recursion limit and raised RecursionError.
+    for text in ('[' * 100_000 + ']' * 100_000, '{"a":' * 30_000 + '1' + '}' * 30_000):
+        result = json.loads(solve_json(text))
+        assert result == {'status': 'invalid', 'message': 'Puzzle data is nested too deeply'}
+
+
+def test_a_failed_solve_still_releases_the_partition_cache(monkeypatch):
+    import gridsolver.web_api as web_api
+    from gridsolver.rules import sumrules
+
+    def fill_then_fail(grid, **options):
+        sumrules._PARTITION_MASKS.get(6, 30, 9)
+        raise RuntimeError('solver failed after filling the cache')
+
+    monkeypatch.setattr(web_api, 'solve', fill_then_fail)
+    result = json.loads(solve_json(json.dumps(puzzle())))
+    assert result['status'] == 'error'
+    assert sumrules._PARTITION_MASKS.info() == (0, 0)
+
+
 def test_escaped_key_error_is_a_solver_error_not_invalid_data(monkeypatch):
     # Every payload check raises ValueError or TypeError. A KeyError can only
     # be a bug, and reporting it as invalid data sent users to recheck clues.

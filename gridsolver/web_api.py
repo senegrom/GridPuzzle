@@ -22,6 +22,7 @@ from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.slitherlink import Slitherlink
 from gridsolver.grid_classes.str8ts import Str8ts
+from gridsolver.rules.sumrules import release_partition_caches
 from gridsolver.solver.solver import QUIET, solve
 
 TYPES = (
@@ -222,11 +223,13 @@ def solve_payload(payload):
     Both results are independently validated by the existing solver.solve().
     """
     started = time.perf_counter()
-    grid = build_grid(payload)
-    solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
-    # One interpreter serves every browser solve: return cached partitions now.
-    from gridsolver.rules.sumrules import release_partition_caches
-    release_partition_caches()
+    try:
+        grid = build_grid(payload)
+        solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
+    finally:
+        # One interpreter serves every browser solve: return the cached
+        # partitions now, also when building or solving the grid raised.
+        release_partition_caches()
     rendered = []
     rows, cols = payload['rows'], payload['cols']
     for solution in sorted(solutions, key=lambda s: tuple(s)):
@@ -249,7 +252,12 @@ def solve_json(text):
     if not isinstance(text, str) or len(text) > 200_000:
         return json.dumps({'status': 'invalid', 'message': 'Puzzle data is too large'})
     try:
-        payload = json.loads(text)
+        try:
+            payload = json.loads(text)
+        except RecursionError:
+            # The decoder recurses once per nesting level: data nested deeper
+            # than the interpreter allows is malformed input, not a solver fault.
+            raise ValueError('Puzzle data is nested too deeply') from None
         result = solve_payload(payload)
     except (TypeError, ValueError) as exc:
         result = {'status': 'invalid', 'message': str(exc)}
