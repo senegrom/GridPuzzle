@@ -124,12 +124,22 @@ def test_unexpected_solver_exception_is_reported_not_raised(monkeypatch):
     assert 'RuntimeError' in result['message']
 
 
-def test_json_nested_too_deeply_is_invalid_data_not_a_solver_error():
-    # json.loads recurses per level; within the 200,000-character limit the
-    # nesting reaches past the recursion limit and raised RecursionError.
+def test_json_nested_too_deeply_is_invalid_data_not_a_solver_error(monkeypatch):
+    # json.loads recurses per level. Where the stack runs out first (Windows
+    # here, Pyodide in the browser) it raised RecursionError, which the
+    # adapter reported as a solver error; where the text parses (Linux), the
+    # payload checks reject it. Either way it is invalid data.
     for text in ('[' * 100_000 + ']' * 100_000, '{"a":' * 30_000 + '1' + '}' * 30_000):
-        result = json.loads(solve_json(text))
-        assert result == {'status': 'invalid', 'message': 'Puzzle data is nested too deeply'}
+        assert json.loads(solve_json(text))['status'] == 'invalid'
+
+    import types
+    import gridsolver.web_api as web_api
+
+    def exhausted(text):
+        raise RecursionError('maximum recursion depth exceeded while decoding a JSON array')
+
+    monkeypatch.setattr(web_api, 'json', types.SimpleNamespace(loads=exhausted, dumps=json.dumps))
+    assert json.loads(solve_json('[[]]')) == {'status': 'invalid', 'message': 'Puzzle data is nested too deeply'}
 
 
 def test_a_failed_solve_still_releases_the_partition_cache(monkeypatch):
