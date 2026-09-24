@@ -1,4 +1,4 @@
-import { gridAnchor, matchGrid } from './live-registration.js';
+import { gridAnchor, matchGrid, trackingFrame } from './live-registration.js';
 
 // Worker-owned anchors. Main-thread objects contain opaque IDs and proofs,
 // never the grayscale raster, feature patches or content-comparison arrays.
@@ -16,15 +16,21 @@ export function createTrackingCore() {
   return {
     run(task) {
       if (!imageOK(task.image)) throw Error('Invalid tracking frame.');
-      const keep = ids(task.anchors);
+      // One frame, several anchors: its grayscale and integral image are built once.
+      const keep = ids(task.anchors), frame = trackingFrame(task.image);
       if (task.op === 'anchor') {
-        const anchor = gridAnchor(task.image, task.corners, task.rows, task.cols);
+        const anchor = gridAnchor(task.image, task.corners, task.rows, task.cols, frame);
         if (!anchor) return { anchor: null };
         const matches = {};
         for (const id of keep) {
           const old = anchors.get(id);
-          matches[id] = !!(old && old.rows === task.rows && old.cols === task.cols &&
-            matchGrid(old, task.image, task.corners));
+          const match = old && old.rows === task.rows && old.cols === task.cols &&
+            matchGrid(old, task.image, task.corners, null, frame);
+          // A match here found the old anchor's grid where the detector sees it
+          // now. Verification searches only near the last matched position, so
+          // without this a grid that jumped further than that never re-locks.
+          if (match) old.hint = match.corners;
+          matches[id] = !!match;
         }
         // Registration only uses dimensions after the anchor was built. Keep
         // one-byte grayscale pixels, not another four-byte camera-frame copy.
@@ -41,7 +47,7 @@ export function createTrackingCore() {
       const proofs = {}, rejections = {};
       for (const id of keep) {
         const diagnostic = {}, anchor = anchors.get(id),
-          match = anchor && matchGrid(anchor, task.image, anchor.hint ?? anchor.corners, diagnostic);
+          match = anchor && matchGrid(anchor, task.image, anchor.hint ?? anchor.corners, diagnostic, frame);
         if (match) anchor.hint = match.corners;
         else rejections[id] = anchor ? diagnostic : { reason: 'missing-anchor' };
         proofs[id] = match ? { corners: match.corners } : null;

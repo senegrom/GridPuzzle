@@ -1,5 +1,5 @@
 import { homography, project, validQuad } from "./geometry.js";
-import { gridContent, sameGridContent } from "./live-content.js";
+import { gridContent, integralImage, sameGridContent } from "./live-content.js";
 
 // A bounded, anchored patch registration, not an identity classifier. A good
 // geometric fit is NEVER enough to publish OCR: every original content region
@@ -13,6 +13,16 @@ function gray(image) {
   for (let i = 0; i < g.length; i++)
     g[i] = (77 * data[4 * i] + 150 * data[4 * i + 1] + 29 * data[4 * i + 2]) >> 8;
   return g;
+}
+// What depends on a frame alone: its grayscale pixels and the integral image
+// its content is sampled from. One operation checks several anchors against
+// the same frame, so each is computed once, on first use.
+export function trackingFrame(image) {
+  let g, integral;
+  return {
+    get gray() { if (g === undefined) g = gray(image); return g; },
+    get integral() { return (integral ??= integralImage(image)); },
+  };
 }
 function at(g, w, x, y) {
   const ix = Math.floor(x), iy = Math.floor(y), dx = x - ix, dy = y - iy, i = iy * w + ix;
@@ -52,10 +62,10 @@ function features(image, corners, g) {
   }
   return points;
 }
-export function gridAnchor(image, corners, rows, cols) {
-  const g = gray(image);
+export function gridAnchor(image, corners, rows, cols, frame = trackingFrame(image)) {
+  const g = frame.gray;
   if (!g || !validQuad(corners, image.width, image.height)) return null;
-  const content = gridContent(image, corners, rows, cols);
+  const content = gridContent(image, corners, rows, cols, frame);
   if (!content) return null;
   return { image, gray: g, corners: corners.map(p => ({ ...p })), rows, cols, content,
     points: features(image, corners, g) };
@@ -135,7 +145,7 @@ function registration(anchor, image, g, hint) {
       corners.some((p,i) => Math.hypot(p.x - hint[i].x, p.y - hint[i].y) > SEARCH * 2)) return null;
   return corners;
 }
-export function matchGrid(anchor, image, hint = anchor?.corners, diagnostic = null) {
+export function matchGrid(anchor, image, hint = anchor?.corners, diagnostic = null, frame = trackingFrame(image)) {
   if (!anchor || image?.width !== anchor.image.width || image?.height !== anchor.image.height ||
       !validQuad(hint, image.width, image.height)) {
     if (diagnostic) diagnostic.reason = 'geometry-mismatch';
@@ -143,12 +153,12 @@ export function matchGrid(anchor, image, hint = anchor?.corners, diagnostic = nu
   }
   // Common stationary case avoids patch search. An exact view is not an
   // invitation to ignore later content changes; no result is cached across ticks.
-  const g = gray(image); if (!g) return null;
+  const g = frame.gray; if (!g) return null;
   let identical = true;
   for (let i = 0; i < g.length; i++) if (g[i] !== anchor.gray[i]) { identical = false; break; }
   if (identical) return { corners: anchor.corners, content: anchor.content };
   const corners = registration(anchor, image, g, hint) ?? hint;
-  const content = gridContent(image, corners, anchor.rows, anchor.cols);
+  const content = gridContent(image, corners, anchor.rows, anchor.cols, frame);
   if (!sameGridContent(anchor.content, content, diagnostic)) return null;
   return { corners, content };
 }

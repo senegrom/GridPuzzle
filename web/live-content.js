@@ -10,16 +10,13 @@ const SHIFTS = [[0,0]];
 for (const distance of [1/3, 2/3, 1])
   for (const [x,y] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]])
     SHIFTS.push([x * distance, y * distance]);
-export function gridContent(image, corners, rows, cols) {
+// Area sampling prevents thin anti-aliased strokes from changing merely
+// because a camera pixel moves across a sampling point. The integral image
+// makes this independent of the source resolution and averaging footprint.
+// It depends only on the frame, so every anchor checked against one frame
+// shares it (trackingFrame in live-registration.js).
+export function integralImage(image) {
   const { width, height, data } = image;
-  if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1 ||
-    rows > 25 || cols > 25 || data?.length !== width * height * 4 ||
-    !validQuad(corners, width, height)) return null;
-  const m = homography(corners), pixels = new Uint8Array(rows * cols * CELL);
-  const structure = new Uint8Array(structureCount(rows, cols) * CELL);
-  // Area sampling prevents thin anti-aliased strokes from changing merely
-  // because a camera pixel moves across a sampling point. The integral image
-  // makes this independent of the source resolution and averaging footprint.
   const stride = width + 1, integral = new Uint32Array(stride * (height + 1));
   for (let y = 0; y < height; y++) {
     let row = 0;
@@ -29,6 +26,18 @@ export function gridContent(image, corners, rows, cols) {
       integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + row;
     }
   }
+  return integral;
+}
+// `frame` may carry this image's integral image; it is read only after the
+// image and the corners have been validated.
+export function gridContent(image, corners, rows, cols, frame = null) {
+  const { width, height, data } = image;
+  if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1 ||
+    rows > 25 || cols > 25 || data?.length !== width * height * 4 ||
+    !validQuad(corners, width, height)) return null;
+  const m = homography(corners), pixels = new Uint8Array(rows * cols * CELL);
+  const structure = new Uint8Array(structureCount(rows, cols) * CELL);
+  const stride = width + 1, integral = frame?.integral ?? integralImage(image);
   const sumAt = (x, y) => {
     const xx = Math.max(0, Math.min(width, x)), yy = Math.max(0, Math.min(height, y));
     const x0 = Math.floor(xx), y0 = Math.floor(yy), x1 = Math.min(x0 + 1, width), y1 = Math.min(y0 + 1, height);

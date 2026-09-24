@@ -316,7 +316,16 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     get preview() { return preview; },
     get busy() { return pending; },
     get settled() { return !!stored?.readComplete && !pending && !pendingRecovery; },
+    // Every frame whose anchor the tracker must retain and compare new
+    // detections with.
     get trackingFrames() { return [stored?.sample, reference, challenger, best, activeSample].filter(Boolean); },
+    // The frames whose proofs the session reads: the anchor frame (the
+    // overlay, validation and solving) and the frame being read, which becomes
+    // the anchor frame once its first clues arrive and which a finished retry
+    // checks before it is applied. The reference, the challenger and the best
+    // frame are only compared through sameScene, which uses the matches
+    // recorded when an anchor is built.
+    get proofFrames() { return [stored?.sample ?? reference, activeSample].filter(Boolean); },
     get anchorFrame() { return stored?.sample ?? reference; },
   };
 }
