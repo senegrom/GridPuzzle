@@ -12,6 +12,7 @@ from typing import Tuple, Set, Sequence, List, Iterable, Deque, MutableSequence,
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.rules.rules import Rule, Guarantee, RuleAlwaysSatisfied, InvalidGrid, IdxType, _format_coord
 from gridsolver.rules.unique import ElementsAtMostOnce
+from gridsolver.util import iter_bits
 
 
 def _integer_target(name: str, target: object) -> int:
@@ -462,12 +463,8 @@ def _tarjan_scc(succ: Sequence[Sequence[int]]) -> List[int]:
     return comp
 
 
-def _mask_values(mask: int) -> Iterator[int]:
-    """Values encoded by a partition bitmask (bit v = value v), ascending."""
-    while mask:
-        lowest = mask & -mask
-        yield lowest.bit_length() - 1
-        mask ^= lowest
+# Values encoded by a partition bitmask (bit v = value v), ascending.
+_mask_values = iter_bits
 
 
 def _mask_of(values: Iterable[int]) -> int:

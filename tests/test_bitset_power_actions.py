@@ -9,7 +9,6 @@ import pytest
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee, InvalidGrid
 from gridsolver.solver.candidate_topology import CandidateTopology, cells_mask
-from gridsolver.solver.solve_als import cell_houses
 from gridsolver.solver.solve_empty_rectangle import empty_rectangle
 from gridsolver.solver.solve_locked_candidate import locked_candidate
 from gridsolver.solver.solve_skyscraper import skyscraper
@@ -17,6 +16,11 @@ from tests.test_differential import (
     _grid_from_completions,
     _solution_pair_at_distance,
 )
+
+
+def cell_houses(grid, houses):
+    """cell -> the houses containing it, as the legacy implementations looked it up."""
+    return {cell: [house for house in houses if cell in house] for cell in range(grid.len)}
 
 
 def _legacy_locked_candidate(grid: Sudoku) -> None:
