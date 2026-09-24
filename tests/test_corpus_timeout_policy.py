@@ -164,6 +164,42 @@ def test_the_shipped_baseline_is_one_the_weekly_job_will_accept():
     assert allowed, "a baseline with no accepted timeout should be deleted, not shipped empty"
 
 
+@pytest.mark.parametrize("left", [8, 7, 1])
+def test_a_baseline_in_its_last_week_says_so(root, left):
+    path, data = _baseline(root)
+    expires = date.fromisoformat(data["expires_on"])
+    notice = corpus.expiry_notice(path, today=expires - timedelta(days=left))
+    if left > corpus.EXPIRY_NOTICE_DAYS:
+        assert notice is None
+    else:
+        assert f"expires on {expires.isoformat()}, in {left} day" in notice
+    assert corpus.expiry_notice(None) is None
+
+
+@pytest.mark.parametrize("left", [30, 5])
+def test_main_warns_on_stderr_only_in_the_baselines_last_week(root, monkeypatch, capsys, left):
+    """The weekly job's runs of the last week pass but say the baseline is
+    about to expire; stdout keeps carrying nothing but the report."""
+    path, data = _baseline(root)
+    today = datetime.now(UTC).date()
+    data["reviewed_on"] = (today - timedelta(days=30 - left)).isoformat()
+    data["expires_on"] = (today + timedelta(days=left)).isoformat()
+    path.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(corpus, "run_isolated_case",
+                        lambda path, **kwargs: {"path": path.as_posix(), "status": "unique"})
+    status = corpus.main(("--root", str(root), "--family", "slitherlink", "--timeout-baseline", str(path)))
+    captured = capsys.readouterr()
+    assert status == 0
+    assert json.loads(captured.out)["resolved_timeouts"] == ["Examples/Slitherlink/a.clp"]
+    if left > corpus.EXPIRY_NOTICE_DAYS:
+        assert captured.err == ""
+        return
+    annotation, plain = captured.err.splitlines()
+    assert annotation.startswith("::warning title=Timeout baseline expires soon::")
+    assert plain.startswith("warning: ")
+    assert f"in {left} days" in annotation and f"in {left} days" in plain
+
+
 @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "0", "-1"])
 def test_cli_rejects_non_finite_or_non_positive_deadlines(raw):
     with pytest.raises(SystemExit) as caught:

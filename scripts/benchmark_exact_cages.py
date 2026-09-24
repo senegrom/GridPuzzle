@@ -25,12 +25,13 @@ def tree_commit(path):
     """The commit a measured tree is at, marked when it has uncommitted changes.
 
     Records name the trees they actually measured; None when the tree is not
-    a git checkout.
+    a git checkout. Files git does not track count as changes unless they are
+    ignored: a new module the measured change imports is part of that change.
     """
     try:
         commit = subprocess.run(['git', '-C', str(path), 'rev-parse', 'HEAD'],
                                 capture_output=True, text=True, check=True).stdout.strip()
-        changes = subprocess.run(['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=no'],
+        changes = subprocess.run(['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=normal'],
                                  capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
