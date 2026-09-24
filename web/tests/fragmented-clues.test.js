@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { prepareScan } from "../scan-analysis.js";
 import { applyDigitVotes, puzzleFromReadings } from "../scanner.js";
-import { overlayCells, previewAllowed } from "../live-overlay.js";
+import { overlayCells, previewBlocker } from "../live-overlay.js";
 
 function image({ black = false, noise = false, trailing = false, connected = false } = {}) {
   const width = 300, height = 300, data = new Uint8ClampedArray(width * height * 4);
@@ -33,7 +33,7 @@ for (const black of [false, true]) {
     const found = puzzleFromReadings(prepared, black ? "str8ts" : "latinsquare", 3, 3);
     assert.ok(found.markedCells.includes(0));
     assert.equal(overlayCells(found).find((item) => item.cell === 0).kind, "unknown");
-    assert.equal(previewAllowed(found), false);
+    assert.notEqual(previewBlocker(found), null);
     entry.text = "1"; entry.confidence = 99;
     applyDigitVotes([entry], [{ index: 0, kind: "binary", text: "1", confidence: 99 }, { index: 0, kind: "gray", text: "1", confidence: 99 }]);
     assert.equal(entry.confidence, 0, "recovered geometry always needs review");

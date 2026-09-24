@@ -5,6 +5,7 @@ import { prepareEdit, restoreEdit, rememberEdit } from "./edit-history.js";
 import { setupPhotoFlow } from "./photo-flow.js";
 import { setupOffline } from "./offline.js";
 import { setupCaptureGallery } from "./capture-store.js";
+import { downloadBlob } from "./download.js";
 import {
   TYPES,
   makePuzzle,
@@ -1418,16 +1419,8 @@ $("apply-layout").onclick = () => {
     fail(e);
   }
 };
-function download(blob, name) {
-  const a = document.createElement("a"),
-    url = URL.createObjectURL(blob);
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 3000);
-}
 function exportFile(value, name) {
-  download(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }), name);
+  downloadBlob(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }), name);
 }
 $("export-json").onclick = () => {
   try { exportFile(createBackup(state, $("edit-tool").value), `gridpuzzle-${state.puzzle.type}-backup.json`); }
@@ -1448,7 +1441,7 @@ $("save-photo").onclick = () => {
   }
   drawOverlay();
   $("solution-photo").toBlob((blob) => {
-    if (blob) download(blob, "gridpuzzle-solution.png");
+    if (blob) downloadBlob(blob, "gridpuzzle-solution.png");
   });
 };
 $("import-json").onclick = () => $("json-file").click();

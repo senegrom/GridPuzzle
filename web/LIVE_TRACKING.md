@@ -7,13 +7,17 @@ were also rendered as red question marks before any reading existed.
 
 The camera now registers bounded local image patches across the detected grid.
 A robust projective fit accounts for small translations, rotation and scale;
-only then is the original per-region content guard applied. The content guard
-has not been weakened: labels, inequality signs, cage edges and both ink
-polarities still participate. An additional interior residual check rejects
-small changed digit strokes (including an 8 becoming 3) that previously passed
-the interior area-only guard. Content sampling uses up to 1280 pixels rather
-than 640; detection retains its 640-pixel budget. Registration is not identity:
-a fitted rectangle alone never authorizes an overlay or captured metadata.
+only then is the original per-region content guard applied. Labels, inequality
+signs, cage edges and both ink polarities still participate. An additional
+interior residual check rejects small changed digit strokes that passed the
+interior area-only guard: an 8 becoming a 3, or a 3 becoming an 8, is caught
+down to print contrast 15 on a clean print, and light strokes on a dark ground
+from about 45. The residual check's noise floor follows the grain measured in
+the two frames compared, so grain is not taken for a changed clue while clean
+prints keep the fixed floor (see "Noise units and acquisition diagnostics").
+Content sampling uses up to 1280 pixels rather than 640; detection retains its
+640-pixel budget. Registration is not identity: a fitted rectangle alone never
+authorizes an overlay or captured metadata.
 
 Each read stays anchored to its captured pixels. Verification compares to that
 anchor, never a chain of drifting successor frames. Background pixels/timers
@@ -131,21 +135,37 @@ thread. There is one active operation, one replaceable latest video frame and
 one pending detector-anchor request. Up to eight worker-owned anchors are
 retained, with current reading/reference anchors protected from eviction. The
 worker keeps grayscale evidence, not extra RGBA source copies. Stop, settings
-changes and errors terminate the worker and fence its replies. A two-second
-worker deadline fails closed; manual capture remains available without a
-synchronous registration fallback.
+changes and errors terminate the worker and fence its replies. Each operation
+fails closed after its own deadline: two seconds for a verification, twenty for
+an anchor. Building an anchor measured about ten times a verification on a
+synthetic 9x9 board at the 1280-pixel content size and 67-131 times on real
+photographs (whose verifications are cheaper), so a device whose verifications
+approach two seconds needs about twenty for an anchor; with one shared
+two-second deadline every anchor on such a device failed and ended in Restart.
+Verifications wait while an anchor is built, and grid detection's own
+eight-second deadline no longer covers anchoring. Manual capture remains
+available without a synchronous registration fallback.
 
 A verification result is drawn only with its own source snapshot, never with a
-newer video frame. Verified views come in two tiers. A snapshot up to 500
-milliseconds old is live. One older than that, up to the worker's two-second
-deadline, is still drawn — marked DELAYED in the preview bar, in the canvas's
+newer video frame. Verified views come in two tiers. A view is live while the
+snapshot on screen is at most 500 milliseconds old. Once one is older, the view
+is still drawn — marked DELAYED in the preview bar, in the canvas's
 `data-delayed` attribute and in its accessible label — so a device whose
-tracking takes a second per frame gets a lagging overlay rather than none;
-reads and solves still run on it, since every frame is verified individually.
-Beyond two seconds the camera shows an unverified fresh frame, and a worker
-that never answers reaches the failure, backoff and Restart path. Neither tier
-is a measured phone speedup or a promise that image copying and rendering are
-off-thread.
+tracking takes a second per frame gets a lagging overlay rather than none. It
+returns to live only after snapshots have stayed within 500 milliseconds for
+two seconds: with replies of 300-400 ms, or pauses while an anchor is built,
+the age crosses 500 ms on every reply and the label would otherwise flip with
+it. A reply is adopted while its own snapshot is at most two seconds old and
+newer than the last adopted one, also after the display has fallen back to an
+unverified frame; its snapshot replaces that frame. A new detection waits
+until the pending candidate has been verified or rejected, so with slow replies
+each candidate is verified before the next replaces it, and reads and solves
+run on the delayed tier. A shown snapshot older than two seconds
+gives way to an unverified fresh frame: from about a second per verification
+the overlay alternates with such frames, and near two seconds it is rarely
+shown. A worker that never answers reaches the failure, backoff and Restart
+path. Neither tier is a measured phone speedup or a promise that image copying
+and rendering are off-thread.
 
 After a complete numeric reading, a substantially clearer cell interior can
 trigger a targeted retry through `Scanner.readCells`. At most 12 uncertain,
@@ -195,9 +215,10 @@ old callback.
 Expensive snapshots run at most every 100 ms, back off to 250 ms once a
 reading is settled and up to 300 ms when recent worker timing calls for it;
 the latest-frame queue stays bounded. A separate 100 ms heartbeat expires the
-overlay when presentation or accepted tracking evidence is over 500 ms old
-even if no video callback arrives, so a detector reply can never sample a
-stalled video into fresh evidence. Every heartbeat still validates freshness
+overlay when presentation is over 500 ms old, or the accepted tracking
+evidence is older than the two-second limit above, even if no video callback
+arrives, so a detector reply can never sample a stalled video into fresh
+evidence. Every heartbeat still validates freshness
 and the current solver preferences, but a paint is issued only when the raw
 image, geometry, reading or solution has changed; a new frame, a changed
 proposal, a solution toggle or an expired proof invalidates that cache at
@@ -238,3 +259,40 @@ counts describe the session. Render requests are counted separately from
 actual paints, and repeated updates of one frame do not double-count its
 tracking measurement. The export carries numbers only, never images or free
 text. They are app timings, not sensor frame rates or battery estimates.
+
+## Noise units and acquisition diagnostics
+
+The interior comparison stretches contrast against its original anchor, and
+sensor grain is stretched with it: a fixed four-level floor in stretched units
+turned ordinary paper grain into changed-content evidence and could block
+acquisition before OCR started. Scaling that floor by the stretch (#73) also
+raised it for every faint clean print, so an 8 becoming a 3 went unnoticed up
+to print contrast 80 and a 3 becoming an 8 up to 130. The floor is now
+measured: 1.5 times the frame-to-frame noise of the two regions compared (their
+median absolute difference at the chosen registration, as a standard
+deviation), in the region's own units and never below four levels. A clean
+print keeps the four-level floor; a grainy one gets a floor that grows with its
+grain. The unstretched structural strips use the same rule, so grain there is
+no longer a changed label, sign or wall. On synthetic 40-pixel cells, grain of
+±4 to ±10 levels produces no false changes (#73: 7-17% at ±8 and ±10), a whole
+9x9 board with ±8 grain at 30 pixels per cell stays unchanged (#73: 81% of
+pairs changed), and averaged over the review's noisy sweep the 8/3 stroke is
+caught more often than under #73. Heavy grain can still hide a faint stroke;
+detection falls as grain rises. High-contrast guards keep their bounds. A
+registered rectangle alone still never proves identity, and no solver result
+supplies missing clue pixels.
+
+The tracking worker returns bounded rejection reasons (cell, structural region,
+geometry or missing anchor), with numeric region indices only, never image bytes.
+Three rejected candidates in a row surface an explicit alignment message and
+Restart until a candidate verifies, or until detection reports no grid, a
+timeout, an error or a grid that does not fit the rules and says so instead;
+Save picture retains the independent single-photo crop/read route. These reasons
+help distinguish pre-OCR acquisition failure from OCR, rendering or worker delay.
+
+`live_noise_regressions.cjs` runs automatic type/grid detection, the real tracking
+worker and Tesseract on a continually re-noised grey/blue synthetic board, then
+covers it and changes a digit. Labels score output only. No user photograph is
+committed. This is a bounded failure regression, not proof that every noisy or
+blurred phone capture will match; diagnostics without imagery cannot establish
+an exact visual cause.

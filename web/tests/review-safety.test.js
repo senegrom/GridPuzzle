@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { prepareScan } from "../scan-analysis.js";
 import { puzzleFromReadings } from "../scanner.js";
-import { overlayCells, previewAllowed } from "../live-overlay.js";
+import { overlayCells, previewBlocker } from "../live-overlay.js";
 import { gridContent, sameGridContent } from "../live-content.js";
 import { createLiveSession } from "../live-session.js";
 import { saveCapture, deleteCapture, loadCapture, setupCaptureGallery } from "../capture-store.js";
@@ -35,7 +35,7 @@ for (const level of [215, 220, 230, 235]) test(`a faint white-cell clue at gray 
   assert.ok(e, "the clue must reach OCR"); assert.equal(e.recoveredMark, true);
   let found = transcription(prep);
   assert.ok(found.markedCells.includes(0)); assert.ok(found.cellUncertain.includes(0));
-  assert.equal(previewAllowed(found), false);
+  assert.notEqual(previewBlocker(found), null);
   const solution = { status: "unique", complete: true, solutions: [{ cells: [1,2,3,2,3,1,3,1,2] }] };
   assert.equal(overlayCells(found, solution).find((cell) => cell.cell === 0).kind, "unknown");
   e.text = "1"; e.confidence = 99; found = transcription(prep);
@@ -51,7 +51,7 @@ test("plausible faint fragments remain unknown even without an OCR-sized glyph",
   assert.deepEqual(prep.unreadCells, [0]); assert.equal(prep.entries.length, 0);
   const found = transcription(prep);
   assert.deepEqual(found.markedCells, [0]); assert.deepEqual(found.cellUncertain, [0]);
-  assert.equal(previewAllowed(found), false);
+  assert.notEqual(previewBlocker(found), null);
 });
 
 const corners = [{x:0,y:0},{x:299,y:0},{x:299,y:299},{x:0,y:299}];

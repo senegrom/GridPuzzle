@@ -31,7 +31,7 @@ function lightOnDark(g) {
   }
   return bright > n * 0.02 && bright > dark * 1.5;
 }
-export function inverted(g) {
+function inverted(g) {
   const out = new Uint8Array(g.length);
   for (let i = 0; i < g.length; i++) out[i] = 255 - g[i];
   return out;

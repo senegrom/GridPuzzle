@@ -21,12 +21,18 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   globalThis.document = { createElement: canvas };
   const view = canvas();
   const $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
+  // The help line is a polite live region: every write is announced.
+  const writes = []; let helpText = "";
+  nodes.set("camera-help", { get textContent() { return helpText; }, set textContent(value) { helpText = value; writes.push(value); } });
   const settings = { type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true, ...initial };
-  let core = createTrackingCore(), hold = false, trackingError = false;
+  let core = createTrackingCore(), hold = false, trackingError = false, rejectAll = false;
   const held = [];
   const tracker = {
     anchor: async task => { if (trackingError) throw Error('injected worker failure'); return core.run({ ...task, op: 'anchor' }); },
-    verify: task => hold ? new Promise(resolve => held.push({ task, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
+    // rejectAll: the worker answers, but no candidate's printed content matches.
+    verify: task => rejectAll ? Promise.resolve({ proofs: Object.fromEntries(task.anchors.map(id => [id, null])),
+      rejections: Object.fromEntries(task.anchors.map(id => [id, { reason: 'cell-content', region: 0 }])) }) :
+      hold ? new Promise(resolve => held.push({ task, at: time, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
   const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: view,
@@ -54,7 +60,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, failTracking(v) { trackingError=v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { get now() { return time; }, camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, rejectVerify(v) { rejectAll = v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -176,20 +182,37 @@ test("a worker reply up to two seconds late is adopted as a delayed overlay", as
  assert.equal(h.camera.diagnosticSource().verified,true,'a reply inside the limit is adopted');
  assert.equal(h.view.dataset.delayed,"1",'its snapshot is older than the live tier');
  h.holdTracking(false);await h.advance(300);
- assert.equal(h.view.dataset.delayed,"0",'prompt replies return the view to the live tier');
+ assert.equal(h.view.dataset.delayed,"1",'one prompt reply does not end the delayed tier');
+ await h.advance(2000);
+ assert.equal(h.view.dataset.delayed,"0",'two seconds of prompt replies return the view to the live tier');
  h.camera.stop();
  for(const job of h.held)job.resolve({proofs:{}});
  await flush();assert.equal(h.camera.diagnosticSource().verified,false,'closing still rejects every queued reply');
 });
 test("a worker reply older than the stale limit is dropped and the view falls back unverified", async t => {
  const h=harness(t);await h.advance(100);await h.result();
- h.holdTracking(true);await h.advance(2100);
+ h.holdTracking(true);await h.advance(2300);
  assert.equal(h.camera.diagnosticSource().verified,false,'past the stale limit the display is an unverified fresh frame');
  assert.equal(h.view.dataset.delayed,"0");assert.equal(h.camera.capture().found,null);
- const late=h.held[0];late.resolve(late.result());await flush();
+ const late=h.held[0];assert.ok(h.now-late.at>2000);late.resolve(late.result());await flush();
  assert.equal(h.camera.diagnosticSource().verified,false,'a reply older than the stale limit cannot restore the view');
  const recent=h.held.at(-1);assert.notEqual(recent,late);recent.resolve(recent.result());await flush();
  assert.equal(h.camera.diagnosticSource().verified,true,'a reply submitted after the fallback recovers tracking');
+});
+test("after a fallback, a reply still within the stale limit is adopted on its own snapshot", async t => {
+ const h=harness(t);await h.advance(100);await h.result();
+ h.holdTracking(true);await h.advance(2300);
+ assert.equal(h.camera.diagnosticSource().verified,false,'the display fell back to an unverified frame');
+ // Submitted before the fallback, but its own snapshot is 1.3 s old.
+ const inFlight=h.held.find(job=>job.at>=1200);assert.ok(h.now-inFlight.at<=1300);
+ inFlight.resolve(inFlight.result());await flush();
+ assert.equal(h.camera.diagnosticSource().verified,true,'a reply within the stale limit is not fenced out by the fallback');
+ assert.equal(h.view.dataset.delayed,"1",'its snapshot is drawn as delayed');
+ const paints=h.renders.filter(r=>r.painted).length;
+ const older=h.held.find(job=>job.at<inFlight.at&&h.now-job.at<=2000);
+ older.resolve(older.result());await flush();
+ assert.equal(h.renders.filter(r=>r.painted).length,paints,'an older reply never replaces a newer adopted snapshot');
+ assert.equal(h.camera.diagnosticSource().verified,true);
 });
 test("crossing into the delayed tier repaints once without a new frame", async t => {
  const h=harness(t);await h.advance(100);await h.result();
@@ -230,6 +253,18 @@ test("stalled video loses overlays on the heartbeat without a new processing tic
  assert.doesNotMatch(h.$('camera-help').textContent,/new camera frame/,'the stall message gives way to the status once frames resume');
 });
 
+test("heartbeats do not rewrite an unchanged help line", async t => {
+ const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();
+ assert.equal(h.readings.length,1);assert.match(h.$('camera-help').textContent,/Reading printed clues/);
+ const before=h.writes.length;await h.advance(5000);
+ assert.deepEqual(h.writes.slice(before),[],'fifty heartbeats with nothing held must not re-announce the status');
+ h.stall();await h.advance(600);assert.match(h.$('camera-help').textContent,/new camera frame/);
+ const held=h.writes.length;await h.advance(1000);
+ assert.equal(h.writes.length,held,'a held message is written once, not on every heartbeat');
+ h.resume();await h.advance(300);
+ assert.match(h.$('camera-help').textContent,/Reading printed clues/,'releasing the hold shows the status again');
+});
+
 test("a detector finishing on a stalled feed cannot manufacture fresh evidence", async t => {
  const h=harness(t);await h.advance(100);h.stall();await h.advance(600);await h.result();
  assert.equal(h.readings.length,0);assert.equal(h.camera.diagnosticSource().verified,false);
@@ -247,6 +282,21 @@ test('unchanged heartbeat and pre-tracking views skip redundant paints without s
  h.readings[0].resolve({puzzle,cellUncertain:[],uncertain:[],markedCells:[0,3],needsReview:true,notes:[]});await flush();
  await h.advance(1000);assert.ok(h.renders.some(r=>!r.painted));assert.ok(h.camera.capture().found);
  h.stall();await h.advance(600);assert.equal(h.camera.capture().found,null);
+});
+test('the rejected-alignment message gives way when the detector stops finding a matching grid',async t=>{
+ const h=harness(t);h.rejectVerify(true);await h.advance(100);
+ for(let k=0;k<3;k++){await h.result();await h.advance(700);}
+ assert.match(h.$('camera-help').textContent,/not matching between frames/);assert.equal(h.$('restart-live').hidden,false);
+ for(let k=0;k<3;k++){h.detections.at(-1).resolve({confidence:0});await flush();await h.advance(700);}
+ assert.equal(h.$('camera-help').textContent,'Keep the whole grid in view, in even light.','no-grid guidance must not be overwritten by an old rejection streak');
+ assert.equal(h.$('restart-live').hidden,true);
+ for(let k=0;k<2;k++){await h.result();await h.advance(700);}
+ assert.doesNotMatch(h.$('camera-help').textContent,/not matching between frames/,'a new streak starts from zero');
+ await h.result();await h.advance(700);
+ assert.match(h.$('camera-help').textContent,/not matching between frames/);
+ h.detections.at(-1).resolve({confidence:.99,rows:3,cols:2,sharpness:200,corners:[{x:0,y:0},{x:639,y:0},{x:639,y:639},{x:0,y:639}]});
+ await flush();await h.advance(700);
+ assert.match(h.$('camera-help').textContent,/does not fit/,'a grid that contradicts the rules is reported, not hidden behind the streak');
 });
 test('repeated tracking failures back off and stop until an explicit restart',async t=>{
  const h=harness(t);h.failTracking(true);await h.advance(100);await h.result();

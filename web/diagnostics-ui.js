@@ -1,4 +1,5 @@
 import { STAGE_LABELS, REASON_LABELS } from './scan-diagnostics.js';
+import { downloadBlob } from './download.js';
 
 // Export is always a separate click after a frozen preview. Images are encoded
 // only after explicit opt-in and are re-rendered to omit original EXIF metadata.
@@ -53,9 +54,7 @@ export function setupDiagnosticsUI({ $, diagnostics, getSource }) {
     node('clear').onclick = clear;
     download.onclick = () => {
       if (!frozen) return;
-      const blob = new Blob([JSON.stringify(frozen, null, 2)], {type:'application/json'}), url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'gridpuzzle-diagnostic.json'; a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 3000);
+      downloadBlob(new Blob([JSON.stringify(frozen, null, 2)], {type:'application/json'}), 'gridpuzzle-diagnostic.json');
     };
     panel.addEventListener('toggle', () => { if (!panel.open) clear(); else update(); });
     diagnostics.subscribe(update); update();
