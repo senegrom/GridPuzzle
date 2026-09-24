@@ -4,6 +4,8 @@ from collections import deque
 from itertools import chain
 from typing import Sequence, Tuple, Set, Iterable, List, Deque, Iterator, MutableSequence
 
+from gridsolver.util import positive_int
+
 
 class PrettyPrintArgs:
 
@@ -166,15 +168,6 @@ class PrettyPrintArgs:
         )
 
 
-def _positive_integer(name: str, value: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral):
-        raise TypeError(f"{name} must be an integer")
-    value = int(value)
-    if value <= 0:
-        raise ValueError(f"{name} must be positive")
-    return value
-
-
 def _grid_value(name: str, value: object, maximum: int, minimum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral):
         raise TypeError(f"{name} must contain integers")
@@ -310,9 +303,9 @@ def pretty_print(
     args: PrettyPrintArgs | None = None,
     ineqs: Iterable[Sequence[int]] | None = None,
 ) -> str:
-    rows = _positive_integer("rows", rows)
-    cols = _positive_integer("cols", cols)
-    max_elem = _positive_integer("max_elem", max_elem)
+    rows = positive_int("rows", rows)
+    cols = positive_int("cols", cols)
+    max_elem = positive_int("max_elem", max_elem)
     expected = rows * cols
     known_values = _known_values(known, expected, max_elem)
 
