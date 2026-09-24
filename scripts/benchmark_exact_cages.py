@@ -26,12 +26,25 @@ def fingerprint(value):
     return hashlib.sha256(repr(value).encode()).hexdigest()
 
 
+def clear_partition_caches():
+    """Start each timed solve cold on either tree.
+
+    Newer trees keep distinct-value partitions in a bounded mask cache next
+    to the legacy tuple cache; older trees have only the tuple cache.
+    """
+    from gridsolver.rules import sumrules
+    release = getattr(sumrules, 'release_partition_caches', None)
+    if release is None:
+        sumrules.SumAndElementsAtMostOnce._partition_tuples.cache_clear()
+    else:
+        release()
+
+
 def child(root, case):
     sys.path.insert(0, str(root))
     from gridsolver.abstract_grids.grid_loading import create_from_file
     from gridsolver.grid_classes.slitherlink import Slitherlink
     from gridsolver.grid_classes.sudoku import Sudoku
-    from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
     from gridsolver.solver.atomic_solver import AtomicSolver
     from gridsolver.solver import solver
     if case == 'sudoku4':
@@ -57,7 +70,7 @@ def child(root, case):
             calls += 1
         return result
     solver._atomic_pass_or_branches = counted
-    SumAndElementsAtMostOnce._partition_tuples.cache_clear()
+    clear_partition_caches()
     start = time.perf_counter()
     solutions = solver.solve(grid)
     elapsed = time.perf_counter() - start
@@ -107,7 +120,7 @@ def micro(root):
     for n in (9, 16, 25, 100):
         samples = []
         for _ in range(5):
-            SumAndElementsAtMostOnce._partition_tuples.cache_clear()
+            clear_partition_caches()
             rule = SumAndElementsAtMostOnce(GridSizeContainer(1, n, n), range(n), n*(n+1)//2)
             start = time.perf_counter()
             assert rule.sum_candidates == (frozenset(range(1, n+1)),)
@@ -152,7 +165,7 @@ def main():
                 env = {k:v for k,v in os.environ.items() if k != 'PYTHONPATH'}
                 env['PYTHONHASHSEED'] = '0'
                 run = subprocess.run([sys.executable, str(script), '--root', str(source), '--case', case],
-                                     cwd=source, env=env, capture_output=True, text=True, timeout=180, check=True)
+                                     cwd=source, env=env, capture_output=True, text=True, timeout=900, check=True)
                 results[mode].append(json.loads(run.stdout.splitlines()[-1]))
         identity = ('solutions', 'solution_sha256', 'root_sha256', 'branch_nodes')
         expected = tuple(results['before'][0][k] for k in identity)
