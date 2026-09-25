@@ -71,8 +71,6 @@ def test_cli_parser_exposes_parallel_and_solution_limits():
             "3",
             "--max-solutions",
             "2",
-            "--parallel-backend",
-            "process",
             "--colour",
             "No",
         ]
@@ -82,7 +80,6 @@ def test_cli_parser_exposes_parallel_and_solution_limits():
     assert args.puzzle_class == "latinsquare"
     assert args.processes == 3
     assert args.max_solutions == 2
-    assert args.parallel_backend == "process"
     assert args.colour == "No"
 
 
@@ -96,8 +93,6 @@ def test_cli_parser_rejects_invalid_worker_and_solution_limits():
         parser.parse_args([*common, "--max-solutions", "-2"])
     with pytest.raises(SystemExit):
         parser.parse_args([*common, "--processes", "not-an-int"])
-    with pytest.raises(SystemExit):
-        parser.parse_args([*common, "--parallel-backend", "auto"])
 
 
 def test_get_log_does_not_reconfigure_the_root_logger():
@@ -400,25 +395,6 @@ def test_cli_internal_error_exits_3_with_its_traceback(monkeypatch, capsys):
     error = capsys.readouterr().err
     assert "Traceback (most recent call last)" in error
     assert error.rstrip().endswith("RuntimeError: solver fault")
-
-
-@pytest.mark.parametrize("processes", ("0", "1"))
-def test_cli_thread_backend_without_workers_is_a_usage_error(processes, capsys):
-    with pytest.raises(SystemExit) as exit_info:
-        main(["--str", "LatinSquare::1...", "--processes", processes,
-              "--parallel-backend", "thread"])
-    assert exit_info.value.code == 2
-    assert "requires --processes 2 or more" in capsys.readouterr().err
-
-
-def test_cli_thread_backend_on_a_gil_build_is_a_usage_error(monkeypatch, capsys):
-    # It used to reach solve() and die with a RuntimeError traceback.
-    monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: False)
-    with pytest.raises(SystemExit) as exit_info:
-        main(["--str", "LatinSquare::1...", "--processes", "2",
-              "--parallel-backend", "thread"])
-    assert exit_info.value.code == 2
-    assert "free-threaded Python runtime" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("flag", ("--column-wise", "--space-separated"))

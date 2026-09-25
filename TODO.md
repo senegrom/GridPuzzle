@@ -60,9 +60,12 @@ frozen equivalence reference for any future attempt.
   materially cheaper rollback is demonstrated
   (`benchmarks/worker_trail_reuse_rejected_2026-08-09.md`).
 - **Free-threaded thread-pool top-level search**: rejected as a default
-  (`benchmarks/free_threaded_threads_rejected_2026-08-09.md`); the opt-in
-  `parallel_backend="thread"` executor that followed now measures at parity
-  with the process pool, which stays the default (`FREE_THREADED.md`).
+  (`benchmarks/free_threaded_threads_rejected_2026-08-09.md`). The opt-in
+  `parallel_backend="thread"` executor that followed was removed on
+  2026-09-25 after it measured at parity with the process pool, 0.967x on
+  free-threaded Python 3.14 (`benchmarks/thread_executor_314t_2026-09-24.md`);
+  the forward-compatibility workflow still runs the whole bounded suite on
+  that build.
 - **Full AIC peer-edge rebuild**, **lazy chain logging**, **whole-object size
   guard**: see the rejected rows of `benchmarks/README.md`.
 

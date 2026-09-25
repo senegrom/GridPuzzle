@@ -101,19 +101,14 @@ The installed `gridpuzzle` command and `python run.py` expose the same options.
 Use `--processes N` for top-level process-pool search and `--max-solutions N`
 to cap the deterministic returned subset. Capped process-pool solves do not
 exhaust later branches merely to compute a global content-key minimum.
-`--parallel-backend {process,thread}` chooses the executor those workers run
-in; `thread` is opt-in and needs a free-threaded (no-GIL) Python build, see
-[FREE_THREADED.md](FREE_THREADED.md).
 `--column-wise` and `--space-separated` apply to class-prefixed `--str` and
 `--file` input only; CSP-Rules forms, `--module` and `--example` fix their
 own layout, so those combinations are rejected rather than ignored.
 
 The command exits with status 0 when the puzzle has a solution (or
 `--max-solutions 0` asked for none), 1 when it has no solution, and 2 for
-usage and input errors, including a `--module` that fails to import and
-`--parallel-backend thread` without `--processes 2` or more or on a runtime
-that still has the GIL. Status 3 means the solver itself failed; the command
-prints the traceback.
+usage and input errors, including a `--module` that fails to import. Status 3
+means the solver itself failed; the command prints the traceback.
 
 The equivalent library call is:
 
@@ -185,7 +180,6 @@ The `slow` marker holds the long example-corpus checks, which only extended CI r
 - [TODO.md](TODO.md): open items, rejected ideas and standing rules.
 - [TRAIL_DESIGN.md](TRAIL_DESIGN.md): the reversible trail the solver backtracks on.
 - [FISH_REWRITE.md](FISH_REWRITE.md): fish semantics and the parked rewrite.
-- [FREE_THREADED.md](FREE_THREADED.md): the opt-in free-threaded executor.
 - [benchmarks/README.md](benchmarks/README.md): the index of measured and rejected changes.
 - [web/README.md](web/README.md): the phone scanner app and its own documents.
 

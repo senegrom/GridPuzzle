@@ -15,10 +15,6 @@ from gridsolver.solver.validation import (
 )
 
 
-_PROCESS_BACKEND = "process"
-_THREAD_BACKEND = "thread"
-
-
 def set_loglevel(level: int) -> None:
     """Set the detail level that solves without an explicit log_level use."""
     _lg.set_lvl(level)
@@ -51,37 +47,6 @@ def _log_solution(grid: Grid, solution: ImmutableGrid) -> None:
     )
 
 
-def free_threaded_runtime_available() -> bool:
-    """Return whether this interpreter is a free-threaded build with no GIL."""
-    import sys
-    import sysconfig
-
-    if not bool(sysconfig.get_config_var("Py_GIL_DISABLED")):
-        return False
-    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
-    return not is_gil_enabled() if callable(is_gil_enabled) else True
-
-
-def _validate_parallel_backend(
-    parallel_backend: str,
-    processes: int,
-) -> str:
-    if type(parallel_backend) is not str:
-        raise TypeError("parallel_backend must be 'process' or 'thread'")
-    if parallel_backend == _PROCESS_BACKEND:
-        return _PROCESS_BACKEND
-    if parallel_backend != _THREAD_BACKEND:
-        raise ValueError("parallel_backend must be 'process' or 'thread'")
-    if processes <= 1:
-        raise ValueError("parallel_backend='thread' requires processes > 1")
-    if not free_threaded_runtime_available():
-        raise RuntimeError(
-            "parallel_backend='thread' requires a free-threaded Python "
-            "runtime with the GIL disabled"
-        )
-    return _THREAD_BACKEND
-
-
 def _validate_solve_options(
     max_sols: int,
     processes: int,
@@ -104,7 +69,6 @@ def solve(
     log_level: int | None = None,
     max_sols: int = -1,
     processes: int = 0,
-    parallel_backend: str = _PROCESS_BACKEND,
 ) -> set[ImmutableGrid]:
     """Solve a grid without mutating it.
 
@@ -129,28 +93,20 @@ def solve(
     if not isinstance(grid, Grid):
         raise TypeError("grid must be a Grid instance")
     max_sols, processes = _validate_solve_options(max_sols, processes)
-    # The default object is the module constant, so ordinary solves take one
-    # identity check and retain the exact pre-thread validation/search path.
-    if parallel_backend is not _PROCESS_BACKEND:
-        parallel_backend = _validate_parallel_backend(
-            parallel_backend,
-            processes,
-        )
     with _lg.solve_context(log_level):
-        return _solve_validated(grid, max_sols, processes, parallel_backend)
+        return _solve_validated(grid, max_sols, processes)
 
 
 def _solve_validated(
     grid: Grid,
     max_sols: int,
     processes: int,
-    backend: str = _PROCESS_BACKEND,
 ) -> set[ImmutableGrid]:
     if max_sols == 0:
         return set()
 
     with validation_context(grid) as plan:
-        return _solve_with_plan(grid, max_sols, processes, plan, backend)
+        return _solve_with_plan(grid, max_sols, processes, plan)
 
 
 def _solve_with_plan(
@@ -158,21 +114,13 @@ def _solve_with_plan(
     max_sols: int,
     processes: int,
     plan: _ValidationPlan,
-    backend: str = _PROCESS_BACKEND,
 ) -> set[ImmutableGrid]:
     # Protect captured caller references, including subclass copy hooks. Normal
     # Grid.deepcopy still makes just one API-boundary clone and resets trails.
     with sandbox_sources():
         working_grid = grid.deepcopy()
     if processes > 1:
-        # The validated backend is one of the two module constants, so this
-        # is an identity check made once per solve, outside the search.
-        top_level = (
-            _solve_top_threaded
-            if backend is _THREAD_BACKEND
-            else _solve_top_parallel
-        )
-        solutions = top_level(
+        solutions = _solve_top_parallel(
             working_grid,
             max_sols,
             processes,
@@ -288,39 +236,6 @@ def _solve_top_parallel(
         branches,
         max_sols,
         processes,
-    )
-
-
-def _solve_top_threaded(
-    grid: Grid,
-    max_sols: int,
-    workers: int,
-) -> set[ImmutableGrid]:
-    """Run deterministic first-level branches on free-threaded workers."""
-    settled, branches, _ = _atomic_pass_or_branches(
-        grid,
-        [0],
-        set(),
-        allow_overlapping_guarantee_branches=max_sols == -1,
-    )
-    if settled is not None:
-        return settled
-
-    _lg.logs(
-        0,
-        f"Parallel: {len(branches)} top-level branches on {workers} threads",
-    )
-    from gridsolver.solver.solve_threaded import solve_thread_trials
-
-    # ``grid`` is already the solver-owned clone. The thread executor
-    # serialises one private root per worker (without trail, caches or memos,
-    # see Grid.__getstate__) and does not mutate this root after setup, so
-    # another full-grid clone here is redundant.
-    return solve_thread_trials(
-        grid,
-        branches,
-        max_sols,
-        workers,
     )
 
 
