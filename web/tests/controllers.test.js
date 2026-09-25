@@ -77,3 +77,15 @@ test("undo retains a detached pending photo layout distinct from the board", () 
   assert.equal(state.puzzle.rows, 9);
   assert.deepEqual(state.layout, { rows: "4", cols: "4", boxRows: "1", boxCols: "4" });
 });
+
+// --- task controller: Check and Hint are protected like Solve -------------
+test("a running task disables Check and Hint until it finishes", () => {
+  const nodes = new Map(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { setAttribute() {}, hidden: false, disabled: false }); return nodes.get(id); };
+  const tasks = createTaskController({ $, scanner: { cancel() {} }, status() {}, onStop() {} });
+  tasks.begin();
+  assert.equal($("check-play").disabled, true);
+  assert.equal($("hint-play").disabled, true);
+  tasks.finish();
+  assert.equal($("check-play").disabled, false);
+  assert.equal($("hint-play").disabled, false);
+});

@@ -49,3 +49,12 @@ test("accepted drafts normalize play and hints without carrying derived results 
   for (const key of ["result", "playSolution", "history", "photo"])
     assert.equal(Object.hasOwn(draft, key), false, `${key} must not undo commit-time invalidation`);
 });
+
+test("an edit that shrinks the board drops indices that no longer exist", () => {
+  const state = { puzzle: makePuzzle("latinsquare", 3), layout: null, uncertain: new Set([0, 8]), blackReadings: [], cageUncertain: new Set([8]),
+    needsReview: true, notes: [], puzzleSource: null, play: [], hints: [], selected: [8, 1] };
+  const draft = prepareEdit(state, (d) => { d.puzzle = makePuzzle("latinsquare", 2); });
+  assert.deepEqual([...draft.uncertain], [0]);
+  assert.deepEqual([...draft.cageUncertain], []);
+  assert.deepEqual(draft.selected, [1]);
+});

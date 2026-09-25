@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { captureTransaction, saveCapture, loadCapture, setupCaptureGallery } from "../capture-store.js";
+import {
+  captureTransaction,
+  saveCapture,
+  loadCapture,
+  setupCaptureGallery,
+  deleteCapture,
+} from "../capture-store.js";
 import { memoryStore } from "./capture-memory.js";
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function idb({ failure = null }={}) {
@@ -95,4 +101,60 @@ test("a timed-out lock request cannot later save a picture",async()=>{
  const locks={request(_name,{signal}){return new Promise((resolve,reject)=>signal.addEventListener("abort",()=>{cancelled=true;reject(signal.reason);},{once:true}));}};
  await assert.rejects(saveCapture(new Blob(["png"],{type:"image/png"}),42,{...h,locks,lockTimeout:5}),/timed out/);
  assert.equal(cancelled,true);assert.equal(h.transactions,0);
+});
+
+// --- capture-store ---------------------------------------------------------
+test("downloading the shown picture reuses its long-lived object URL", async (t) => {
+  const created = [], revoked = [];
+  const previousURL = globalThis.URL, previousDocument = globalThis.document;
+  globalThis.URL = { createObjectURL: (blob) => { created.push(blob); return `blob:${created.length}`; }, revokeObjectURL: (url) => revoked.push(url) };
+  globalThis.document = { createElement: () => ({ click() { this.clicked = true; } }) };
+  t.after(() => { globalThis.URL = previousURL; globalThis.document = previousDocument; });
+  const nodes = new Map(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { hidden: false, textContent: "", removeAttribute() {} }); return nodes.get(id); };
+  const save = setupCaptureGallery($, { load: async () => null, save: async () => {}, remove: async () => {} });
+  await save({ toBlob(done) { done(new Blob(["png"], { type: "image/png" })); } }, 42);
+  assert.equal(created.length, 1);
+  $("download-capture").onclick();
+  assert.equal(created.length, 1, "the download must not mint a second, short-lived URL for the same blob");
+  assert.deepEqual(revoked, []);
+});
+
+test("a version-1 database without its store is reset instead of failing forever", async () => {
+  let deleted = 0;
+  const db = { objectStoreNames: { contains: () => false }, close() {}, transaction() { throw Error("NotFoundError"); } };
+  const open = { result: db };
+  const indexedDB = { open() { queueMicrotask(() => open.onsuccess?.()); return open; }, deleteDatabase() { deleted++; } };
+  await assert.rejects(captureTransaction("readwrite", (store) => store.get("latest"), { indexedDB }), /reset/);
+  assert.equal(deleted, 1);
+});
+
+function slowPng() { const bytes=deferred(), blob=new Blob(["png"],{type:"image/png"});blob.arrayBuffer=()=>bytes.promise;return {blob,release:()=>bytes.resolve(new TextEncoder().encode("png").buffer)}; }
+
+for (const phase of ["conversion", "opening"]) test(`Delete wins over an older save delayed during ${phase}`, async () => {
+  const options=memoryStore(), pic=slowPng();
+  if(phase==="opening") {options.hold();pic.release();}
+  const save=saveCapture(pic.blob,42,options);const observed=assert.rejects(save,/superseded/);await tick();
+  await deleteCapture(options); assert.equal(await loadCapture(options),null);
+  if(phase==="opening") options.release();else pic.release();
+  await observed; assert.equal(await loadCapture(options),null);
+});
+
+test("a later capture cannot be overwritten by an older slow conversion", async () => {
+  const options=memoryStore(), pic=slowPng(), old=saveCapture(pic.blob,1,options), observed=assert.rejects(old,/superseded/);
+  await saveCapture(new Blob(["new"],{type:"image/png"}),2,options);pic.release();await observed;
+  assert.equal((await loadCapture(options)).createdAt,2);
+});
+
+test("a delayed delete cannot remove a newer requested capture", async () => {
+  const options=memoryStore();options.hold();const old=deleteCapture(options), observed=assert.rejects(old,/superseded/);
+  await saveCapture(new Blob(["new"],{type:"image/png"}),2,options);options.release();await observed;
+  assert.equal((await loadCapture(options)).createdAt,2);
+});
+
+test("the gallery's deleted message agrees with durable state after a stale conversion",async()=>{
+  const options=memoryStore(), nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,{hidden:false,removeAttribute(){}});return nodes.get(id);};
+  const capture=setupCaptureGallery($,{load:()=>loadCapture(options),save:(b,t)=>saveCapture(b,t,options),remove:()=>deleteCapture(options)});
+  const pic=slowPng(), saving=capture({toBlob(cb){cb(pic.blob);}},42);await tick();await $("delete-capture").onclick();
+  pic.release();assert.equal(await saving,false);assert.equal(await loadCapture(options),null);
+  assert.equal($("saved-capture").hidden,true);assert.match($("capture-storage-status").textContent,/deleted/);
 });

@@ -50,3 +50,41 @@ for(const state of ['play','confirmed','noPhoto','structural','badMapping'])test
  if(state==='structural')h.s.puzzle.type='kakuro';if(state==='badMapping')h.s.cols=3;
  h.api.open();assert.equal(h.$('reread-clue-panel').hidden,true);await h.$('reread-clue').onclick();assert.equal(h.jobs.length,0);
 });
+
+function canvas(width = 600, height = 600) {
+  const ctx = new Proxy({
+    getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+    drawImage(source) { this.source = source; },
+  }, { get: (o, k) => o[k] ?? (() => {}) });
+  return { width, height, getContext: () => ctx, toDataURL: () => 'data:image/jpeg;base64,aA==' };
+}
+
+function node(id) {
+  const callbacks = new Map();
+  return { ...canvas(), id, value: '', textContent: '', checked: false, hidden: false, disabled: false,
+    open: false, style: {}, dataset: {}, focus() {}, scrollIntoView() {}, setAttribute() {},
+    removeAttribute(key) { delete this[key]; },
+    addEventListener(type, fn) { if (!callbacks.has(type)) callbacks.set(type, []); callbacks.get(type).push(fn); },
+    emit(type) { for (const fn of callbacks.get(type) ?? []) fn({ type, target: this }); },
+    pause() {}, load() {}, async play() {},
+  };
+}
+
+test('queued close from the previous clue cannot cancel a reopened clue, but genuine close cancels it', async () => {
+  const nodes = new Map(), $ = id => { if (!nodes.has(id)) nodes.set(id, node(id)); return nodes.get(id); };
+  const p = makePuzzle('latinsquare', 2); p.cells = [1, 2, null, null];
+  const selection = { puzzle: p, cell: 0, uncertain: new Set([0, 1]), image: canvas(200, 200),
+    source: 7, photoSource: 7, rows: 2, cols: 2 };
+  const jobs = []; let cancellations = 0;
+  const reread = setupClueReread({ $, getSelection: () => selection,
+    makeReader: () => ({ cancel() { cancellations++; }, readCells: (...args) => new Promise(resolve => jobs.push({ resolve, cell: args[3][0] })) }) });
+  $('cell-dialog').open = true; reread.open(); const old = $('reread-clue').onclick();
+  selection.cell = 1; selection.uncertain.delete(0); reread.open();
+  const current = $('reread-clue').onclick(), before = cancellations;
+  $('cell-dialog').emit('close'); assert.equal(cancellations, before);
+  assert.equal($('reread-clue-panel').hidden, false); assert.equal($('reread-clue').disabled, true);
+  jobs[0].resolve({}); await old; assert.equal($('reread-clue').disabled, true);
+  $('cell-dialog').open = false; $('cell-dialog').emit('close');
+  assert.equal(cancellations, before + 1); assert.equal($('reread-clue-panel').hidden, true);
+  jobs[1].resolve({}); await current; assert.equal($('use-reread').hidden, true);
+});

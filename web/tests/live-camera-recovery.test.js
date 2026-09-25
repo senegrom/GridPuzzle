@@ -316,3 +316,32 @@ test('thirty open/close cycles release source/scratch canvases and timers, inclu
   await h.result(old);assert.equal(h.camera.stats.active,false);assert.equal(h.timers.size,0);
  }
 });
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+// --- live-camera: a detected grid that contradicts the chosen rules --------
+test("a detected grid that does not fit the selected rules shows the reason instead of failing every frame", async (t) => {
+  const timers = new Map(); let serial = 0, time = 0;
+  const nodes = new Map(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
+  const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
+    getImageData: (x, y, w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(180) }) };
+  const previous = globalThis.document;
+  globalThis.document = { createElement: () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} }) };
+  t.after(() => { globalThis.document = previous; });
+  const detections = [], invalidations = [];
+  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: { width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} },
+    getSettings: () => ({ type: "sudoku", rows: 9, cols: 9, boxRows: 3, boxCols: 3, enabled: true }),
+    detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() {} },
+    reader: { read() { return new Promise(() => {}); }, cancel() {} },
+    solver: { solve: async () => null, cancel() { invalidations.push("cancel"); }, prepare() {} }, now: () => time,
+    setTimer(fn, ms) { timers.set(++serial, { fn, at: time + ms }); return serial; }, clearTimer(id) { timers.delete(id); } });
+  const advance = async (ms) => { const end = time + ms; for (;;) { const next = [...timers.entries()].filter(([, j]) => j.at <= end).sort((a, b) => a[1].at - b[1].at)[0]; if (!next) break; time = next[1].at; timers.delete(next[0]); next[1].fn(); await tick(); } time = end; await tick(); };
+  t.after(() => camera.stop());
+  camera.start(); await advance(100);
+  assert.equal(detections.length, 1);
+  detections[0].resolve({ confidence: .99, rows: 9, cols: 6, sharpness: 200, corners: [{ x: 0, y: 0 }, { x: 639, y: 0 }, { x: 639, y: 639 }, { x: 0, y: 639 }] });
+  await tick();
+  assert.match($("camera-help").textContent, /Detected 9 × 6, which does not fit Sudoku/);
+  await advance(300);
+  assert.match($("camera-help").textContent, /does not fit Sudoku/, "the message survives further frames instead of a per-tick error");
+});
