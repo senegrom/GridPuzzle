@@ -34,13 +34,13 @@ export function saveSession(storage, state) {
 }
 export function restoreSession(storage) {
   const saved = storage.get(KEY);
-  const puzzle = saved?.puzzle ?? storage.get("gridpuzzle-puzzle-v1");
+  const puzzle = saved?.puzzle;
   if (!puzzle) return null;
   try {
     checkShape(puzzle);
   } catch {
     return null;
-  } // Malformed/legacy state must not prevent startup.
+  } // Malformed state must not prevent startup.
   const indices = (values) => Array.isArray(values)
     ? [
         ...new Set(

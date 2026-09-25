@@ -264,7 +264,6 @@ _SAMPLE_PATHS = (
     "pyproject.toml",
     "run.py",
     "benchmarks/record.json",
-    "experiments/tiny-digit-cnn/infer.mjs",
     ".github/workflows/ci.yml",
     ".github/workflows/browser-pages.yml",
     ".github/workflows/scan-input.yml",
