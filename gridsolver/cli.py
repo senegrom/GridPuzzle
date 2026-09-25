@@ -119,15 +119,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Top-level workers (0 or 1 means sequential)",
     )
     parser.add_argument(
-        "--parallel-backend",
-        choices=("process", "thread"),
-        default="process",
-        help=(
-            "Top-level executor; thread requires a free-threaded Python "
-            "runtime and is opt-in"
-        ),
-    )
-    parser.add_argument(
         "--max-solutions",
         type=_solution_limit,
         default=-1,
@@ -150,16 +141,7 @@ def _reject_ignored_options(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> None:
-    """Fail on options that the runtime or the chosen input cannot honour."""
-    if args.parallel_backend == "thread":
-        if args.processes <= 1:
-            parser.error("--parallel-backend thread requires --processes 2 or more")
-        if not solver.free_threaded_runtime_available():
-            parser.error(
-                "--parallel-backend thread requires a free-threaded Python "
-                "runtime with the GIL disabled"
-            )
-
+    """Fail on options that the chosen input cannot honour."""
     # Like a forced --class, a silently ignored layout flag would be a trap:
     # built grids and CSP-Rules forms fix their own layout.
     layout_flags = [
@@ -272,7 +254,6 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         grid,
         max_sols=args.max_solutions,
         processes=args.processes,
-        parallel_backend=args.parallel_backend,
     )
     _LOG.logs(0, f"Took {time.perf_counter() - start:.4f}s to execute.")
     # argparse already exits 2 on usage and input errors. --max-solutions 0
