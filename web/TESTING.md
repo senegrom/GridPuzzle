@@ -87,6 +87,42 @@ and `scan_input` compare against `browser-artifacts/ocr-quality.json`, which
 `live_motion` and `external_replay` need `live-fixtures/` from
 `scripts/fetch_live_fixtures.py`.
 
+### Live-camera suite timing
+
+`live_camera_regressions.cjs` records the wall time of every phase per engine
+in `live-camera.json` (`phases`, in start order; a nested phase is part of its
+parent) and prints one line per phase. On the hosted runner (run 36181850845,
+2026-09-25), in seconds:
+
+| Phase | Chromium | WebKit |
+| --- | ---: | ---: |
+| live solve | 3.4 | 14.0 |
+| capture and diagnostics | 0.3 | 1.9 |
+| saved picture reload and deletion | 0.2 | 0.4 |
+| moving away and closing | 3.8 | 12.4 |
+| unread evidence | 1.1 | 9.2 |
+| capture without a live reading | 0.8 | 9.4 |
+| detector recovery: settings | 2.5 | 9.9 |
+| detector recovery: deadline | 9.4 | 17.6 |
+| review safety | 50.8 | 65.6 |
+| · changed content | 6.9 | 9.2 |
+| · capture ordering | 0.1 | 0.2 |
+| · faint clues | 2.9 | 3.1 |
+| · structural capture | 40.9 | 53.1 |
+| · · structural changes | 4.4 | 6.2 |
+| · · twelve faint structural variants | 34.7 | 44.2 |
+| · · real photographs | 1.2 | 1.2 |
+| · · picture ownership across tabs | 0.6 | 1.4 |
+| total | 72.3 | 140.4 |
+
+The twelve faint structural variants are over a third of the suite. It used
+to be the first step of `build`, which every later job waits for; in its own
+`live-camera` job beside `live-acceptance`, a pull request's gate went from
+732 s (build 520 s, then live-acceptance 201 s) to 590 s (build 308 s, then
+live-camera 271 s alongside live-acceptance 199 s), at about two more billed
+runner minutes per run. `live-camera` is now the longer of the two parallel
+jobs; running its two engines as separate jobs would shorten it further.
+
 ## Unit tests by area
 
 `node --test web/tests/*.test.js` runs every browser unit test; the Python
