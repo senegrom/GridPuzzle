@@ -20,11 +20,9 @@ function unusedCore(){
 function offlineAssets(assets,skip=unusedCore()){
   return skip?assets.filter(asset=>!asset.path.endsWith(`/tesseract-core/${skip}`)):assets;
 }
-// Failures the fetch handler is allowed to explain. The body it returns is
-// one of these literals, chosen by a code carried on the error; no text from
-// an exception ever reaches a response, and everything else fails generically.
-const SHOWN={ambiguousRuntime:"Cannot identify the outgoing runtime version. Reload this tab."};
-const diagnostic=(message,code)=>code?Object.assign(Error(message),{code}):Error(message);
+// Messages for offline tasks. The fetch handler never puts exception text in
+// a response; it fails generically.
+const diagnostic=message=>Error(message);
 
 function validateManifest(data,build=VERSION){
   if(data?.build!==build||!Array.isArray(data.assets))throw diagnostic("Update the app before downloading offline assets.");
@@ -122,28 +120,12 @@ function assetBuild(key){
 async function historicalAsset(key,clientId){
   let build=assetBuild(key);
   if(!build&&clientId){
-    // Upgrade bridge for already-running, unversioned workers and old tabs'
-    // lazy imports. New runtime URLs carry their build and need no client ID.
+    // An old tab's lazy imports of unversioned modules come from its own
+    // build. Runtime URLs carry their build and need no client ID.
     const owner=(await retainedSolvers()).find(asset=>asset.clients.includes(clientId));
     if(owner)build=assetBuild(url(owner.path));
   }
   return build?(await buildAssets(build)).find(asset=>url(asset.path)===key):null;
-}
-async function legacyAsset(key){
-  // A newly controlling worker can receive fetches before its activate event
-  // starts, so activationReady and the new retention index may not exist yet.
-  // Old manifests already exist. Use only a hash-unambiguous legacy match;
-  // immutable URLs and known owners take the more precise routes above.
-  if(!key.startsWith(url("vendor/"))||assetBuild(key))return null;
-  let match=null;
-  for(const name of await caches.keys()){
-    if(!name.startsWith(PREFIX+"meta:")||name===META)continue;
-    const asset=(await buildAssets(name.slice((PREFIX+"meta:").length))).find(a=>url(a.path)===key);
-    if(!asset)continue;
-    if(match&&match.sha256!==asset.sha256)throw diagnostic(SHOWN.ambiguousRuntime,"ambiguousRuntime");
-    match=asset;
-  }
-  return match;
 }
 async function preserveActiveSolvers(){
   // Preserve whole outgoing builds, not just their solver archives. A worker
@@ -228,11 +210,10 @@ self.addEventListener("fetch",event=>{
     if(target.href===url("assets.json"))return (await (await caches.open(META)).match(url("assets.json")))||fetch(request);
     try{
       const key=routeAsset(request,target),current=assets.find(a=>url(a.path)===key);
-      let historical=request.mode==="navigate"?null:await historicalAsset(key,event.clientId);
-      if(!historical&&!current)historical=await legacyAsset(key);
+      const historical=request.mode==="navigate"?null:await historicalAsset(key,event.clientId);
       const asset=historical||current;
       if(!asset)return fetch(request);
-      // An outgoing legacy URL may no longer exist on the origin. Identical
+      // An outgoing build's URL may no longer exist on the origin. Identical
       // bytes under the current immutable URL are a safe cache-miss fallback;
       // never substitute a dependency merely because its filename matches.
       const equivalent=historical&&assets.find(current=>current.sha256===asset.sha256);
@@ -243,10 +224,9 @@ self.addEventListener("fetch",event=>{
       return new Response(response.body,{status:response.status,statusText:response.statusText,headers:response.headers});
     }catch(error){
       // Fail closed, but legibly: a rejected respondWith reaches the page only
-      // as "Failed to fetch". A 502 keeps the diagnostic and is never cached.
-      const code=error?.code,body=Object.hasOwn(SHOWN,code??"")?SHOWN[code]:"Request failed.";
+      // as "Failed to fetch". A 502 says what failed and is never cached.
       console.warn(`GridPuzzle service worker: ${error?.message||String(error)} (${target.href})`);
-      return new Response(body,{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+      return new Response("Request failed.",{status:502,statusText:"Bad Gateway",headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
     }
   })());
 });

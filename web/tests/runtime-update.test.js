@@ -6,13 +6,12 @@ import { activateWorker, memoryCaches, scope } from "./service-worker-fixture.js
 const prefix = `gridpuzzle:${scope}:`;
 const first = "111111111111", second = "222222222222", third = "333333333333", fourth = "444444444444";
 const hash = (body) => createHash("sha256").update(body).digest("hex");
-function runtimeUpdates({ legacy = false, changed = true, legacyBuilds = legacy ? [first] : [] } = {}) {
+function runtimeUpdates({ changed = true } = {}) {
   const { caches, stores } = memoryCaches(), requests = [];
   let build, clients = [], offline = false;
-  const root = (version) => legacyBuilds.includes(version) ? "vendor/pyodide/" : `vendor/${version}/pyodide/`;
+  const root = (version) => `vendor/${version}/pyodide/`;
   const files = (version) => ({
     "index.html": `page ${version}`,
-    "solver-worker.js": `legacy alias ${version}`,
     [`solver-worker.${version}.js`]: `worker ${version}`,
     [`solver.${version}.zip`]: `solver ${version}`,
     [root(version) + "pyodide.mjs"]: "identical module with relative imports",
@@ -45,43 +44,41 @@ function runtimeUpdates({ legacy = false, changed = true, legacyBuilds = legacy 
 }
 
 for (const changed of [true, false])
-  for (const legacy of [true, false])
-    test(`${legacy ? "legacy" : "versioned"} runtime survives updates (${changed ? "changed" : "reused"} bytes) online and offline`, async () => {
-      const h = runtimeUpdates({ legacy, changed }), oldRead = await h.activate(first);
-      const oldPaths = Object.keys(h.files(first));
-      for (const path of oldPaths) assert.equal(await (await oldRead(path)).text(), h.files(first)[path]);
-      h.clients(["old-tab"]);
-      const newRead = await h.activate(second);
-      for (const path of oldPaths) assert.equal(await h.cached(first, path), true, path);
-      h.offline(true);
-      const before = h.requests.length;
-      for (const path of oldPaths) {
-        assert.equal(await (await oldRead(path, "old-tab")).text(), h.files(first)[path]);
-        assert.equal(await (await newRead(path, "old-tab")).text(), h.files(first)[path]);
-      }
-      for (const path of Object.keys(h.files(second)))
-        assert.equal(await (await newRead(path, "new-tab")).text(), h.files(second)[path]);
-      assert.equal(h.requests.length, before, "every dependency is available without network fallback");
-    });
+  test(`versioned runtime survives updates (${changed ? "changed" : "reused"} bytes) online and offline`, async () => {
+    const h = runtimeUpdates({ changed }), oldRead = await h.activate(first);
+    const oldPaths = Object.keys(h.files(first));
+    for (const path of oldPaths) assert.equal(await (await oldRead(path)).text(), h.files(first)[path]);
+    h.clients(["old-tab"]);
+    const newRead = await h.activate(second);
+    for (const path of oldPaths) assert.equal(await h.cached(first, path), true, path);
+    h.offline(true);
+    const before = h.requests.length;
+    for (const path of oldPaths) {
+      assert.equal(await (await oldRead(path, "old-tab")).text(), h.files(first)[path]);
+      assert.equal(await (await newRead(path, "old-tab")).text(), h.files(first)[path]);
+    }
+    for (const path of Object.keys(h.files(second)))
+      assert.equal(await (await newRead(path, "new-tab")).text(), h.files(second)[path]);
+    assert.equal(h.requests.length, before, "every dependency is available without network fallback");
+  });
 
 test("new Python runtimes are complete at installation, before any solver starts", async () => {
   const h = runtimeUpdates(); await h.activate(first);
   for (const path of Object.keys(h.files(first))) assert.equal(await h.cached(first, path), true, path);
 });
 
-for (const legacy of [true, false])
-  test(`${legacy ? "legacy" : "immutable"} old dependencies resolve before activation has created its retention index`, async () => {
-    const h = runtimeUpdates({ legacy }), oldRead = await h.activate(first);
-    for (const path of Object.keys(h.files(first))) await oldRead(path);
-    h.clients(["old-tab"]);
-    await h.activate(second, async (newRead) => {
-      h.offline(true);
-      for (const id of ["old-tab", "unlisted-worker", ""])
-        for (const file of ["pyodide.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"])
-          assert.equal(await (await newRead(h.root(first) + file, id)).text(), h.files(first)[h.root(first) + file]);
-      h.offline(false);
-    });
+test("immutable old dependencies resolve before activation has created its retention index", async () => {
+  const h = runtimeUpdates(), oldRead = await h.activate(first);
+  for (const path of Object.keys(h.files(first))) await oldRead(path);
+  h.clients(["old-tab"]);
+  await h.activate(second, async (newRead) => {
+    h.offline(true);
+    for (const id of ["old-tab", "unlisted-worker", ""])
+      for (const file of ["pyodide.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"])
+        assert.equal(await (await newRead(h.root(first) + file, id)).text(), h.files(first)[h.root(first) + file]);
+    h.offline(false);
   });
+});
 
 test("later clients do not extend the lifetime of old dependency graphs", async () => {
   const h = runtimeUpdates(), oldRead = await h.activate(first);
@@ -105,32 +102,6 @@ test("navigation loads the new app even when the old document has a retained man
   assert.equal(await (await read("?launch=1", "old-tab", true)).text(), `page ${second}`);
 });
 
-
-test("legacy workers without an enumerated client ID keep unambiguous cached dependencies", async () => {
-  const h = runtimeUpdates({ legacy: true }), oldRead = await h.activate(first);
-  for (const path of Object.keys(h.files(first))) await oldRead(path);
-  h.clients(["old-tab"]); const read = await h.activate(second);
-  h.offline(true); const count = h.requests.length;
-  for (const id of ["", "unlisted-worker"])
-    for (const file of ["pyodide.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"])
-      assert.equal(await (await read("vendor/pyodide/" + file, id)).text(), h.files(first)["vendor/pyodide/" + file]);
-  assert.equal(h.requests.length, count, "routing must not depend on a replaced origin URL");
-});
-
-test("unidentified legacy clients never receive a guessed dependency from conflicting old manifests", async () => {
-  const h = runtimeUpdates({ legacyBuilds: [first, second] }), one = await h.activate(first);
-  for (const path of Object.keys(h.files(first))) await one(path);
-  h.clients(["old-tab"]); const two = await h.activate(second);
-  for (const path of Object.keys(h.files(second)))
-    assert.equal(await (await two(path, "second-tab")).text(), h.files(second)[path]);
-  h.clients(["old-tab", "second-tab"]); const three = await h.activate(third);
-  h.offline(true); const count = h.requests.length;
-  const ambiguous = await three("vendor/pyodide/pyodide.asm.wasm", "unlisted-worker");
-  assert.equal(ambiguous.status, 502, "ambiguous legacy bytes fail closed with a legible status");
-  assert.match(await ambiguous.text(), /Cannot identify the outgoing runtime version/);
-  assert.equal(await (await three("vendor/pyodide/pyodide.mjs", "unlisted-worker")).text(), "identical module with relative imports");
-  assert.equal(h.requests.length, count, "ambiguous bytes must fail closed, not fall back to the origin");
-});
 
 for (const failure of ["evicted manifest", "retention index write"])
   test(`a failed activation (${failure}) does not poison request routing for the worker's lifetime`, async () => {

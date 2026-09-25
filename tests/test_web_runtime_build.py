@@ -11,7 +11,7 @@ from scripts import build_web
 def test_runtime_urls_and_worker_are_immutable(build, tmp_path):
     build_web.write_web_sources(tmp_path, build)
     worker = (tmp_path / f"solver-worker.{build}.js").read_text(encoding="utf-8")
-    assert (tmp_path / "solver-worker.js").read_text(encoding="utf-8") == worker
+    assert not (tmp_path / "solver-worker.js").exists(), "no unversioned worker alias"
     assert f'./vendor/{build}/pyodide/pyodide.mjs' in worker
     assert f'./vendor/{build}/pyodide/' in worker
     assert f'solver.{build}.zip' in worker

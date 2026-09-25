@@ -158,13 +158,10 @@ cache, so later application-only updates do not redownload Python. The offline
 button still prepares and verifies the remaining assets, including OCR data.
 
 Activation retains the complete manifests and cached dependency sets of live
-outgoing tabs/workers, not just their Python solver archives. Unversioned
-requests from pre-migration clients are routed through their retained manifest;
-missing bytes can be fetched from a new URL only when the recorded digest is
-identical. Before activation writes its owner index, or when a browser omits a worker's
-client identity, legacy vendor paths use the already-cached manifests only if
-all matches have the same digest. Conflicting historical versions are rejected
-instead of guessed. Retention
+outgoing tabs/workers, not just their Python solver archives. Runtime URLs
+carry their build; an old tab's unversioned requests (its lazy module imports)
+are routed through its retained manifest, and missing bytes can be fetched
+from a new URL only when the recorded digest is identical. Retention
 owners survive service-worker restarts and later updates;
 newer tabs do not prolong obsolete clients' retention. Unowned old builds are
 pruned on a subsequent activation. Reused module responses resolve relative

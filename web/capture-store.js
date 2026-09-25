@@ -120,9 +120,6 @@ export async function saveCapture(blob, createdAt = Date.now(), options) {
 export async function loadCapture(options) {
   const record = await captureTransaction("readonly", (store) => store.get("latest"), options);
   if (!record || !Number.isFinite(record.createdAt)) return null;
-  // Keep compatibility with captures written by the initial Blob-based format.
-  if (record.blob instanceof Blob && record.blob.type === "image/png" && record.blob.size > 0 && record.blob.size <= MAX_PNG_BYTES)
-    return { blob: record.blob, createdAt: record.createdAt };
   if (record.type !== "image/png" || !(record.bytes instanceof ArrayBuffer) || !record.bytes.byteLength || record.bytes.byteLength > MAX_PNG_BYTES)
     return null;
   return { blob: new Blob([record.bytes], { type: "image/png" }), createdAt: record.createdAt };
