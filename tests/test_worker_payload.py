@@ -1,26 +1,20 @@
 """Worker payloads carry puzzle state only, never solver caches or trails.
 
-Both executors pickle the solver-owned root once under
+The process executor pickles the solver-owned root once under
 ``worker_serialization()``; ``Grid.__getstate__`` is the single place that
 drops the trail journal, the derived caches and the trail-aware memos. These
-tests pin that contract, so the executors need no stripping or extra clone of
-their own and a future change to ``__getstate__`` cannot regress it silently.
+tests pin that contract, so the executor needs no stripping or extra clone of
+its own and a future change to ``__getstate__`` cannot regress it silently.
 """
 import pickle
-
-import pytest
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.trail import TrailedSet
 from gridsolver.grid_classes.futoshiki import Futoshiki
-from gridsolver.solver import solve_parallel, solve_threaded, solver
+from gridsolver.solver import solve_parallel, solver
 
 _CACHES = ("_struct_cache", "_rule_cache", "_guarantee_cache")
 _MEMOS = ("_fish_value_memo", "_house_sums_memo")
-_SERIALIZERS = {
-    "process": solve_parallel._serialize_worker_root,
-    "thread": solve_threaded._serialize_thread_root,
-}
 
 
 def _root_with_solver_state() -> Grid:
@@ -40,10 +34,9 @@ def _root_with_solver_state() -> Grid:
     return grid
 
 
-@pytest.mark.parametrize("backend", sorted(_SERIALIZERS))
-def test_worker_payload_carries_no_caches_memos_or_trail(backend):
+def test_worker_payload_carries_no_caches_memos_or_trail():
     source = _root_with_solver_state()
-    payload = _SERIALIZERS[backend](source)
+    payload = solve_parallel._serialize_worker_root(source)
     root = pickle.loads(payload)
 
     assert b"must not reach a worker" not in payload

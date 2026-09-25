@@ -7,18 +7,14 @@ Sudokus. Each instance compares the complete solution set, capped solves
 (1 and 2), and, as a soundness canary, the complete set under the GENERIC
 and FULL profiles. The oracles share no code with the solver.
 
-The 2026-09-24 fuzz pass added two shapes these seeds did not reach: path
+The 2026-09-24 fuzz pass added a shape these seeds did not reach: path
 boards with sparse clues (the two endpoints and at most three interior
-values), where the path rule's matching carries the search, and the same
-oracles through the free-threaded executor, which the free-threaded CI job
-runs without the GIL.
+values), where the path rule's matching carries the search.
 """
 import random
 from contextlib import suppress
 from functools import cache
 from itertools import permutations
-
-import pytest
 
 from gridsolver.abstract_grids.grid import TechniqueProfile
 from gridsolver.grid_classes.kakuro import Kakuro
@@ -44,25 +40,21 @@ def _profiled(cls, profile):
 
 
 def _check(make, decode, expected, base_cls,
-           profiles=(TechniqueProfile.GENERIC, TechniqueProfile.FULL), **options):
-    """Complete set, caps 1 and 2, then the complete set under ``profiles``.
-
-    ``options`` go to every solve: the thread-backend variant passes its
-    worker count and backend.
-    """
+           profiles=(TechniqueProfile.GENERIC, TechniqueProfile.FULL)):
+    """Complete set, caps 1 and 2, then the complete set under ``profiles``."""
     _SEEN.append(len(expected))
     grid = make(base_cls)
-    solutions = [decode(grid, solution) for solution in solver.solve(grid, **options)]
+    solutions = [decode(grid, solution) for solution in solver.solve(grid)]
     assert len(solutions) == len(set(solutions))
     assert set(solutions) == expected
     for cap in (1, 2):
         grid = make(base_cls)
-        capped = {decode(grid, solution) for solution in solver.solve(grid, max_sols=cap, **options)}
+        capped = {decode(grid, solution) for solution in solver.solve(grid, max_sols=cap)}
         assert len(capped) == min(cap, len(expected))
         assert capped <= expected
     for profile in profiles:
         grid = make(_profiled(base_cls, profile))
-        assert {decode(grid, solution) for solution in solver.solve(grid, **options)} == expected
+        assert {decode(grid, solution) for solution in solver.solve(grid)} == expected
 
 
 # --- Hidato and Numbrix: every directed Hamiltonian path of the active cells
@@ -547,31 +539,4 @@ def test_killer_matches_filtered_sudoku_table():
     assert len(_sudokus_4x4()) == 288
     for make, expected in _killer_instances(20260923, 10):
         _check(make, _decode_4x4, expected, KillerSudoku)
-    _assert_mixed_batch()
-
-
-# --- The same oracles through the free-threaded executor
-
-
-@pytest.fixture
-def thread_backend(monkeypatch):
-    # A GIL build still runs the thread executor, with the GIL; the
-    # free-threaded CI job runs these tests without it.
-    monkeypatch.setattr(solver, "free_threaded_runtime_available", lambda: True)
-    return {"processes": 2, "parallel_backend": "thread", "profiles": ()}
-
-
-def test_thread_backend_matches_the_path_oracles(thread_backend):
-    for cls, board, expected in _path_instances(20260924, 6):
-        _check(lambda variant, board=board: variant.from_board(board), _decode_keyed, expected, cls, **thread_backend)
-    for cls, board, expected in _sparse_path_instances(20260925, 4):
-        _check(lambda variant, board=board: variant.from_board(board), _decode_keyed, expected, cls, **thread_backend)
-    _SEEN.clear()
-
-
-def test_thread_backend_matches_the_kakuro_and_killer_oracles(thread_backend):
-    for make, expected, _ in _kakuro_instances(20260924, 4):
-        _check(make, _decode_keyed, expected, Kakuro, **thread_backend)
-    for make, expected in _killer_instances(20260924, 6):
-        _check(make, _decode_4x4, expected, KillerSudoku, **thread_backend)
     _assert_mixed_batch()
