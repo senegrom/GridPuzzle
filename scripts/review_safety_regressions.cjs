@@ -128,22 +128,33 @@ async function faintClueProbe() {
   return results;
 }
 
-module.exports = async function reviewSafety(page) {
+// `time(phase, run)` records each phase's wall time (live_camera's timer).
+module.exports = async function reviewSafety(page, time = (phase, run) => run()) {
+  const camera=await time("changed content",async()=>{
   const camera=await page.evaluate(cameraContentProbe);
   for(const comparison of camera.comparisons)assert.equal(comparison.contentSame,false,`changed ${comparison.value} must invalidate content`);
   assert.deepEqual(camera.controls,[true,true],"small brightness and sub-cell jitter controls");
   for(const p of camera.polarity)assert.equal(p.same,false,"white-on-black changes must invalidate");
   for(const result of camera.outcomes){assert.equal(result.after,0);assert.equal(result.capturedClue,null);assert.equal(result.rawMatches,true);
     if(["solved","erased"].includes(result.phase))assert.equal(result.before,51);}
+  return camera;
+  });
+  const storage=await time("capture ordering",async()=>{
   const storage=await page.evaluate(captureOrderingProbe);
   assert.equal(storage.before,true);assert.equal(storage.after,true);assert.equal(storage.reported,false);
   assert.equal(storage.hidden,true);assert.match(storage.message,/deleted/);assert.equal(storage.oldOutcome,"AbortError");assert.equal(storage.newest,44);
   // Reopen the app and database, not just the gallery's in-memory revision.
   await page.reload();await page.waitForSelector('body[data-ready="true"]');
   assert.equal(await page.evaluate(async()=>(await (await import("./capture-store.js")).loadCapture())===null),true);
+  return storage;
+  });
+  const faint=await time("faint clues",async()=>{
   const faint=await page.evaluate(faintClueProbe);
   for(const result of faint){assert.equal(result.marked,true);assert.equal(result.uncertain,true);assert.equal(result.value,6);
     assert.equal(result.allowed,false);assert.equal(result.unreadAllowed,false);assert.equal(result.unreadColour,"unknown");}
-  const structuralCapture = await require("./structural_capture_regressions.cjs")(page);
+  return faint;
+  });
+  const structuralCapture = await time("structural capture",()=>
+    require("./structural_capture_regressions.cjs")(page,(phase,run)=>time(`structural capture / ${phase}`,run)));
   return {camera,storage,faint,structuralCapture};
 };

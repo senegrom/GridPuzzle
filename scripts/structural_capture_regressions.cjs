@@ -238,14 +238,22 @@ function assertStructural(structural) {
   for(const row of structural.outcomes){assert.equal(row.after,0,row.phase);assert.equal(row.metadata,null);assert.equal(row.rawMatches,true);assert.ok(row.reads>=2);assert.equal(row.finalAnswers,0);
     if(row.phase==="solved")assert.equal(row.before,4);if(row.phase==="reading")assert.equal(row.solvesBeforeReread,0);}
 }
-module.exports=async function structuralCapture(page) {
+// `time(phase, run)` records each phase's wall time (live_camera's timer).
+module.exports=async function structuralCapture(page, time = (phase, run) => run()) {
+  const structural=await time("structural changes",async()=>{
   const structural=await page.evaluate(structuralProbe);
   assertStructural(structural);
+  return structural;
+  });
+  const faint=await time("faint structural variants",async()=>{
   const faint=[];
   for (const ink of [150,205,210]) for (const vertical of [false,true]) for (const erase of [false,true]) {
     const result=await page.evaluate(structuralProbe,{ink,vertical,erase,hold:1200});
     assertStructural(result);faint.push(result);
   }
+  return faint;
+  });
+  const real=await time("real photographs",async()=>{
   const fixtures="Examples/BrowserScanner/Newspaper", photos=JSON.parse(fs.readFileSync(path.join(fixtures,"ground-truth.json"))).fixtures
     .map((f)=>({name:f.name,cells:f.cells,data:fs.readFileSync(path.join(fixtures,f.image)).toString("base64")}));
   const real=await page.evaluate(realPhotoProbe,{photos});
@@ -253,7 +261,9 @@ module.exports=async function structuralCapture(page) {
     for(const [k,v] of Object.entries(r.controls))assert.equal(v,true,`${r.name}: ${k} must not read as changed printed content`);
     for(const [k,v] of Object.entries(r.changes))assert.equal(v,false,`${r.name}: ${k} must read as changed printed content`);
   }
-  const storage=await storageProbe(page);
+  return real;
+  });
+  const storage=await time("picture ownership across tabs",()=>storageProbe(page));
   return {structural,faint,real,storage};
 };
 module.exports.assertStructural=assertStructural;
