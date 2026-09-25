@@ -1,4 +1,5 @@
 import itertools
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from gridsolver.abstract_grids.grid import Grid
@@ -10,6 +11,34 @@ from gridsolver.solver.candidate_topology import (
 )
 from gridsolver.solver.logger import CoordToString
 from gridsolver.solver.solver_log import lg as _lg
+
+
+def iter_als(
+    cells: list[int],
+    values,
+    overlap=None,
+) -> Iterator[tuple[frozenset[int], frozenset[int]]]:
+    """Almost Locked Sets of size 1-3 among ``cells``: N cells whose candidates
+    together hold N+1 values, as (cells, values) frozensets, singles first,
+    then pairs, then triples, each in ``cells`` order.
+
+    ``values`` maps a cell to its candidate set. With ``overlap``, only sets
+    sharing a value with it are yielded. The callers choose the cells: the ALS
+    pass gives a house's unsolved cells with two or more candidates, Sue de
+    Coq a box or line remainder.
+    """
+    for cell in cells:
+        cell_values = values[cell]
+        if len(cell_values) == 2 and (overlap is None or cell_values & overlap):
+            yield frozenset((cell,)), frozenset(cell_values)
+    for first, second in itertools.combinations(cells, 2):
+        union = values[first] | values[second]
+        if len(union) == 3 and (overlap is None or union & overlap):
+            yield frozenset((first, second)), frozenset(union)
+    for combo in itertools.combinations(cells, 3):
+        union = values[combo[0]] | values[combo[1]] | values[combo[2]]
+        if len(union) == 4 and (overlap is None or union & overlap):
+            yield frozenset(combo), frozenset(union)
 
 
 # noinspection PyProtectedMember
@@ -24,27 +53,10 @@ def _build_als_list(
     all_als: list[tuple[frozenset[int], frozenset[int]]] = []
 
     for house in all_houses:
-        unsolved = [(cell, frozenset(cands[cell])) for cell in house
-                    if known[cell] == 0 and len(cands[cell]) >= 2]
-
-        # ALS of size 1: a single cell with 2 candidates (bivalue cell)
-        for cell, cell_cands in unsolved:
-            if len(cell_cands) == 2:
-                all_als.append((frozenset([cell]), cell_cands))
-
-        # ALS of size 2: two cells with 3 total candidates
-        for (c1, cd1), (c2, cd2) in itertools.combinations(unsolved, 2):
-            union = cd1 | cd2
-            if len(union) == 3:
-                all_als.append((frozenset([c1, c2]), union))
-
-        # ALS of size 3: three cells with 4 total candidates
-        if len(unsolved) >= 3:
-            for combo in itertools.combinations(unsolved, 3):
-                cells_fs = frozenset(cell for cell, _ in combo)
-                union = frozenset().union(*(cd for _, cd in combo))
-                if len(union) == 4:
-                    all_als.append((cells_fs, union))
+        # One frozen snapshot per cell, shared by every combination below.
+        unsolved = {cell: frozenset(cands[cell]) for cell in house
+                    if known[cell] == 0 and len(cands[cell]) >= 2}
+        all_als.extend(iter_als(list(unsolved), unsolved))
 
     seen_als = set()
     unique_als = []

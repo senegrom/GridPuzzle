@@ -1,9 +1,9 @@
-import itertools
 from typing import List, FrozenSet
 
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.rules.rules import InvalidGrid
 from gridsolver.solver.logger import CoordToString
+from gridsolver.solver.solve_als import iter_als
 from gridsolver.solver.solver_log import lg as _lg
 
 
@@ -78,8 +78,8 @@ def sue_de_coq(grid: Grid) -> None:
             required_overlap = len(C_I) - n_I + 2
 
             # Find ALSs in box-remainder and line-remainder
-            box_als_list = _find_als(box_rem, cands, C_I)
-            line_als_list = _find_als(line_rem, cands, C_I)
+            box_als_list = list(iter_als(box_rem, cands, C_I))
+            line_als_list = list(iter_als(line_rem, cands, C_I))
 
             for box_als_cells, box_als_vals in box_als_list:
                 box_overlap = box_als_vals & C_I
@@ -133,31 +133,3 @@ def sue_de_coq(grid: Grid) -> None:
 
                     if made_progress:
                         return
-
-
-def _find_als(cells: list, cands, target_vals: set) -> list:
-    """Find Almost Locked Sets in the given cells whose values overlap with target_vals.
-    Returns list of (frozenset_cells, frozenset_vals)."""
-    result = []
-
-    # Size 1: bivalue cells (1 cell, 2 candidates = ALS)
-    for cell in cells:
-        cv = cands[cell]
-        if len(cv) == 2 and (cv & target_vals):
-            result.append((frozenset([cell]), frozenset(cv)))
-
-    # Size 2: pairs with 3 candidates (2 cells, 3 candidates = ALS)
-    if len(cells) >= 2:
-        for c1, c2 in itertools.combinations(cells, 2):
-            union = cands[c1] | cands[c2]
-            if len(union) == 3 and (union & target_vals):
-                result.append((frozenset([c1, c2]), frozenset(union)))
-
-    # Size 3: triples with 4 candidates (3 cells, 4 candidates = ALS)
-    if len(cells) >= 3:
-        for combo in itertools.combinations(cells, 3):
-            union = cands[combo[0]] | cands[combo[1]] | cands[combo[2]]
-            if len(union) == 4 and (union & target_vals):
-                result.append((frozenset(combo), frozenset(union)))
-
-    return result
