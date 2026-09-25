@@ -115,15 +115,7 @@ applyType.id = "use-type";
 applyType.className = "text-button";
 applyType.hidden = true;
 $("type-help").after(applyType);
-// Version 1 preferences could hold a puzzle type written by board loading
-// rather than chosen by the user, so only the explicit settings migrate and
-// the scan type starts over at automatic detection.
-const legacyPrefs = storage.get("gridpuzzle-settings-v1"),
-  prefs =
-    storage.get("gridpuzzle-settings-v2") ||
-    (legacyPrefs && typeof legacyPrefs === "object"
-      ? { ...legacyPrefs, type: "auto" }
-      : null);
+const prefs = storage.get("gridpuzzle-settings-v2");
 if (prefs) {
   if (prefs.type === "auto" || Object.hasOwn(TYPES, prefs.type))
     $("puzzle-type").value = prefs.type;

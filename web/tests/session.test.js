@@ -49,12 +49,15 @@ test("Metadata is bounded and cannot reference nonexistent cells", () => {
   assert.deepEqual(restoreSession(storage).notes, ["ok"]);
   assert.equal(restoreSession(storage).needsReview, true);
 });
-test("Existing data-only autosaves migrate without executing any content", () => {
+test("autosaves restore as data only, never executing any content", () => {
   const storage = store();
-  storage.set("gridpuzzle-puzzle-v1", makePuzzle());
+  storage.set("gridpuzzle-session-v1", { puzzle: makePuzzle() });
   assert.equal(restoreSession(storage).puzzle.type, "sudoku");
-  storage.set("gridpuzzle-puzzle-v1", { type: "__import__" });
+  storage.set("gridpuzzle-session-v1", { puzzle: { type: "__import__" } });
   assert.equal(restoreSession(storage), null);
+  storage.set("gridpuzzle-puzzle-v1", makePuzzle());
+  storage.set("gridpuzzle-session-v1", null);
+  assert.equal(restoreSession(storage), null, "the pre-release key is no longer read");
 });
 test("cage and cell warnings remain independent through autosave and undo", () => {
   const storage = store(), state = {

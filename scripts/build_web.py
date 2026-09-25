@@ -331,15 +331,13 @@ def write_web_sources(out, build):
             text = text.replace("./vendor/", f"./vendor/{build}/")
             if source.suffix == ".js":
                 text = text.replace("./solver-worker.js", f"./solver-worker.{build}.js")
-            if source.name == "solver-worker.js":
+            # App code always starts the exact worker for its build, so the
+            # worker is published under its versioned name only.
+            name = source.name
+            if name == "solver-worker.js":
                 text = text.replace("solver.zip", f"solver.{build}.zip")
-            (out / source.name).write_text(text, encoding="utf-8", newline="\n")
-            if source.name == "solver-worker.js":
-                # The unversioned alias supports installed pre-migration apps;
-                # new app code always starts the exact worker for its build.
-                (out / f"solver-worker.{build}.js").write_text(
-                    text, encoding="utf-8", newline="\n"
-                )
+                name = f"solver-worker.{build}.js"
+            (out / name).write_text(text, encoding="utf-8", newline="\n")
 
 
 def build(out):

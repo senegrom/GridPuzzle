@@ -8,8 +8,8 @@ const source = fs.readFileSync("web/sw.js", "utf8");
 const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
-let build = first, requests = [], legacy = false;
-const runtimeRoot = () => legacy && build === first ? "vendor/pyodide/" : `vendor/${build}/pyodide/`;
+let build = first, requests = [];
+const runtimeRoot = () => `vendor/${build}/pyodide/`;
 function expected(version) {
   return { status: 200, body: `verified solver ${version}`, runtime: {
     tag: version, wasm: `wasm ${version}`, stdlib: `stdlib ${version}`, lock: `lock ${version}`,
@@ -34,7 +34,6 @@ function files() {
   return {
     "index.html": `<!doctype html><title>Solver update ${build}</title>`,
     "offline.js": offlineSource,
-    "solver-worker.js": worker,
     [`solver-worker.${build}.js`]: worker,
     [`solver.${build}.zip`]: `verified solver ${build}`,
     // This module is byte-identical across builds. Its relative imports and
@@ -77,8 +76,7 @@ async function stopServer() {
   });
 }
 (async () => {
-  for (const [name, engine, oldLayout] of Object.entries({ chromium, webkit }).flatMap(([name, engine]) => [[name, engine, "versioned"], [name, engine, "legacy"]])) {
-    legacy = oldLayout === "legacy";
+  for (const [name, engine] of Object.entries({ chromium, webkit })) {
     build = first;
     requests = [];
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -86,7 +84,7 @@ async function stopServer() {
     const browser = await engine.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
-    const report = { browser: name, version: browser.version(), oldLayout, errors: [] };
+    const report = { browser: name, version: browser.version(), errors: [] };
     reports.push(report);
     page.on("pageerror", (error) => report.errors.push(error.message));
     try {
@@ -150,7 +148,7 @@ async function stopServer() {
           else window.results.push(data);
         };
         window.solver.postMessage("probe");
-      }, legacy ? "./solver-worker.js" : `./solver-worker.${first}.js`);
+      }, `./solver-worker.${first}.js`);
       await page.waitForFunction(() => window.results.length === 1);
       assert.deepEqual(await page.evaluate(() => window.results[0]), expected(first));
       assert.equal(requests.filter((request) => request.path === `solver.${first}.zip`).length, 1, "the pre-update worker uses the verified cache, not the origin");
@@ -196,11 +194,6 @@ async function stopServer() {
         return (await cache.match(new URL(".retained-solvers.json", location.href))).json();
       });
       assert.deepEqual(await page.evaluate(() => window.results[0]), expected(first));
-      if (legacy) {
-        // The claimed old tab also routes unversioned dependencies through
-        // the new controller, not just through the old worker's controller.
-        assert.equal(await page.evaluate(async () => (await fetch("./vendor/pyodide/pyodide.asm.wasm")).text()), `wasm ${first}`);
-      }
       await other.reload();
       await other.evaluate((script) => {
         window.results=[];
@@ -225,7 +218,7 @@ async function stopServer() {
         "another tab activates while an old solver initializes",
         "old and new workers keep their exact archive, WASM, stdlib and lock files online and offline",
         "a reused module response resolves relative dependencies against its requested versioned URL",
-        `${oldLayout} outgoing worker migration`,
+        "versioned outgoing worker migration",
         "late startup replies cannot override explicit offline verification failures",
         "negative offline verification is never reported as ready",
         "controller changes cancel old offline acknowledgements without reloading the other tab",

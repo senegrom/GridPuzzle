@@ -68,10 +68,6 @@ test("PNG byte storage round-trips exact pixels without requiring IndexedDB Blob
  const loaded=await loadCapture(h);assert.equal(loaded.blob.type,"image/png");
  assert.deepEqual(new Uint8Array(await loaded.blob.arrayBuffer()),bytes);assert.equal(loaded.createdAt,42);
 });
-test("legacy Blob captures remain readable",async()=>{
- const blob=new Blob(["old PNG"],{type:"image/png"}),loaded=await loadCapture(memoryStore({blob,createdAt:42}));
- assert.equal(loaded.blob,blob);assert.equal(loaded.createdAt,42);
-});
 test("invalid capture metadata and encoded data never create a gallery image",async()=>{
  for(const record of [null,{}, {type:"image/jpeg",bytes:new ArrayBuffer(1),createdAt:1},
  {type:"image/png",bytes:"not bytes",createdAt:1},{type:"image/png",bytes:new ArrayBuffer(0),createdAt:1},

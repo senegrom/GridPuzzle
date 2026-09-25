@@ -74,11 +74,11 @@ test("production handlers use the shared helpers and solve-ready gate", () => {
   assert.ok((source.match(/checkSolveReady\(state\.puzzle\)/g) || []).length >= 2);
 });
 
-test("loading a board keeps the scan type preference; settings migrate to v2", () => {
+test("loading a board keeps the scan type preference; settings persist as v2", () => {
   const source = read("app.js");
   assert.equal(source.includes('$("puzzle-type").value = p.type'), false);
   assert.match(source, /storage\.set\("gridpuzzle-settings-v2"/);
-  assert.match(source, /storage\.get\("gridpuzzle-settings-v1"\)/);
+  assert.match(source, /storage\.get\("gridpuzzle-settings-v2"\)/);
 });
 
 test("core HTML owns the safe-area and security polish without patch files", () => {
