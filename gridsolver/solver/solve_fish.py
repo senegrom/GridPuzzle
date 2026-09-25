@@ -1,3 +1,28 @@
+"""Guarantee-based fish and finned fish.
+
+For a value v and fish size f (``fish``):
+
+- Bases are f pairwise-disjoint guarantees G1..Gf for v, each contained in the
+  union of the f covers. A guarantee may span several covers: only
+  containment in their union is required, and a one-cover-per-guarantee
+  assumption would silently lose patterns.
+- Covers are f groups from ``unique_rule_cells``, that is every
+  ``ElementsAtMostOnce`` group, cages included. An elimination only needs
+  each cover to hold v at most once, so a cover need not be a full-size house.
+- Eliminations: v leaves every cover cell outside the union of the bases and,
+  by the cannibal rule, every base cell that lies in two or more covers.
+
+``finned_fish`` takes f + 1 covers with at least one nonempty pairwise
+intersection, eliminates only in pairwise cover intersections outside the
+bases, and needs three or more covers for a cannibal.
+
+Pattern detection reads guarantees and houses, never candidates, so within
+one call the result of a full enumeration is order-independent: a pure set
+difference. Bases are guarantees rather than a row's or column's candidate
+positions, which makes this more general than textbook fish, so equivalence
+is judged against this code, not the literature. A base-first rewrite was
+measured 5.5x slower and reverted; see TODO.md.
+"""
 import itertools
 from numbers import Integral
 from typing import FrozenSet
