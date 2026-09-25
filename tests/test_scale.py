@@ -56,7 +56,8 @@ def test_sudoku_scale(k):
 
 # Unmarked August 2026: 49x49..100x100 propagate in seconds since the
 # rule-only caches and event-driven dispatch landed (100x100 was 867s in
-# June, ~6s now); the dedicated extended-CI job finished in 34s total.
-@pytest.mark.parametrize("k", [7, 8, 9, 10])
+# June). The 100x100 case took 17.1 s of the bounded suite on 2026-09-24, so
+# it runs in Extended CI's slow deterministic checks instead.
+@pytest.mark.parametrize("k", [7, 8, 9, pytest.param(10, marks=pytest.mark.slow)])
 def test_sudoku_scale_large(k):
     _solve_and_check(k)

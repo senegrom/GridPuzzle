@@ -23,6 +23,7 @@ def test_latin_square_corpus_files_declare_their_folders_class(folder, expected)
         assert type(create_from_file(file)) is expected, file.name
 
 
+@pytest.mark.slow  # 20.9 s of the bounded suite (2026-09-24); Extended CI runs it with the other corpora
 def test_ex_latin_squares():
     solve_all_in_path(example_path / "LatinSquares", False)
 
