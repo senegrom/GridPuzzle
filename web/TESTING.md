@@ -41,14 +41,14 @@ them with their page. The service-worker unit tests share
 `web/tests/service-worker-fixture.js`, an in-memory CacheStorage with the
 install, activate and fetch events driven by hand.
 
-The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate. A push to master runs it, and deploys, only when it changes what the site or the gate reads: `web/`, `gridsolver/`, `LICENSE`, the vendored licence texts, the build and fixture scripts, the suites, the three corpus modules the scanner-settings suite loads, `Examples/BrowserScanner/`, the workflow and the setup-scanner action, documents excluded. A pull request that changes any of these meets the whole gate before merge. Every master deployment waits for `live-acceptance` on a separate runner, which downloads `scanner-static-build` from that run, checks its build identifier and runs the moving-feed and cross-feature suites on that exact artifact before Pages can publish. `Scanner quality` runs the recognition suites and the external-picture replay in two parallel jobs on pull requests that touch the scanner, and weekly on master, since no push runs them. `Browser branch tests` runs the unit tests and parse checks on every pull request, and the tests of the jobs that decide what runs (`pytest -m gate`), which must not sit behind those jobs. Normal Linux/Windows CI and forward compatibility remain independent. All five start on every pull request, so that their checks always report; in all but `Browser branch tests` a first job decides whether the rest needs to run.
+The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deployment gate. A push to master runs it, and deploys, only when it changes what the site or the gate reads: `web/`, `gridsolver/`, `LICENSE`, the vendored licence texts, the build and fixture scripts, the suites, the three corpus modules the scanner-settings suite loads, `Examples/BrowserScanner/`, the workflow and the setup-scanner action, documents excluded. A pull request that changes any of these meets the whole gate before merge. Every master deployment waits for `live-acceptance` on a separate runner, which downloads `scanner-static-build` from that run, checks its build identifier and runs the moving-feed and cross-feature suites on that exact artifact before Pages can publish, and for `live-camera`, which does the same for the live-camera suite beside it. `Scanner quality` runs the recognition suites and the external-picture replay in two parallel jobs on pull requests that touch the scanner, and weekly on master, since no push runs them. `Browser branch tests` runs the unit tests and parse checks on every pull request, and the tests of the jobs that decide what runs (`pytest -m gate`), which must not sit behind those jobs. Normal Linux/Windows CI and forward compatibility remain independent. All five start on every pull request, so that their checks always report; in all but `Browser branch tests` a first job decides whether the rest needs to run.
 
 ### Suite inventory
 
 The 26 suites under `scripts/` (`harness.cjs` is the shared runner, not a
 suite) and the workflow jobs that run them. `build` is the deployment gate's
-main job in `browser-pages.yml`, `live-acceptance` its fresh-runner job on the
-built artifact; `recognition` and `live` are the two parallel jobs of
+main job in `browser-pages.yml`, `live-acceptance` and `live-camera` its two
+fresh-runner jobs on the built artifact; `recognition` and `live` are the two parallel jobs of
 `scan-input.yml` ("Scanner quality"). The camera suites are described in more
 detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 
@@ -60,7 +60,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; a picture the app declines to read is recorded, not failed | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `build` (first step) |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live-camera` |
 | `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it | `live-acceptance` |
@@ -86,6 +86,42 @@ and `scan_input` compare against `browser-artifacts/ocr-quality.json`, which
 `ocr_quality` writes (run alone, they stop with a message saying so), and
 `live_motion` and `external_replay` need `live-fixtures/` from
 `scripts/fetch_live_fixtures.py`.
+
+### Live-camera suite timing
+
+`live_camera_regressions.cjs` records the wall time of every phase per engine
+in `live-camera.json` (`phases`, in start order; a nested phase is part of its
+parent) and prints one line per phase. On the hosted runner (run 36181850845,
+2026-09-25), in seconds:
+
+| Phase | Chromium | WebKit |
+| --- | ---: | ---: |
+| live solve | 3.4 | 14.0 |
+| capture and diagnostics | 0.3 | 1.9 |
+| saved picture reload and deletion | 0.2 | 0.4 |
+| moving away and closing | 3.8 | 12.4 |
+| unread evidence | 1.1 | 9.2 |
+| capture without a live reading | 0.8 | 9.4 |
+| detector recovery: settings | 2.5 | 9.9 |
+| detector recovery: deadline | 9.4 | 17.6 |
+| review safety | 50.8 | 65.6 |
+| · changed content | 6.9 | 9.2 |
+| · capture ordering | 0.1 | 0.2 |
+| · faint clues | 2.9 | 3.1 |
+| · structural capture | 40.9 | 53.1 |
+| · · structural changes | 4.4 | 6.2 |
+| · · twelve faint structural variants | 34.7 | 44.2 |
+| · · real photographs | 1.2 | 1.2 |
+| · · picture ownership across tabs | 0.6 | 1.4 |
+| total | 72.3 | 140.4 |
+
+The twelve faint structural variants are over a third of the suite. It used
+to be the first step of `build`, which every later job waits for; in its own
+`live-camera` job beside `live-acceptance`, a pull request's gate went from
+732 s (build 520 s, then live-acceptance 201 s) to 590 s (build 308 s, then
+live-camera 271 s alongside live-acceptance 199 s), at about two more billed
+runner minutes per run. `live-camera` is now the longer of the two parallel
+jobs; running its two engines as separate jobs would shorten it further.
 
 ## Unit tests by area
 

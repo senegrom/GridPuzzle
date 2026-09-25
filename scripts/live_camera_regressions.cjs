@@ -61,12 +61,28 @@ async function solveLive(page) {
   await startLive(page);
   await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)>0,null,{timeout:150000});
 }
+// Wall time per phase and engine, in the report and the log, so that a split
+// of this long suite can be decided from measurements. A nested phase is part
+// of its parent's time; entries keep the order in which the phases started.
+function phaseTimer(report,name) {
+  report.phases=[];
+  return function time(phase,run) {
+    const entry={phase,seconds:null},started=performance.now();
+    report.phases.push(entry);
+    return Promise.resolve().then(run).finally(()=>{
+      entry.seconds=Math.round((performance.now()-started)/100)/10;
+      console.log(`${name} ${phase}: ${entry.seconds} s`);
+    });
+  };
+}
 async function run() {
   const server=await serve();
   try {
     await engines("live-camera.json",async(page,report,name)=>{
       report.checks=[];
+      const time=phaseTimer(report,name);
       try {
+        await time("live solve",async()=>{
         await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);await solveLive(page);
         assert.equal(await page.locator("#camera-panel").isVisible(),true);
         assert.equal(await page.evaluate(()=>document.getElementById("video").srcObject.getTracks()[0].readyState),"live");
@@ -78,6 +94,8 @@ async function run() {
         const panel=await page.locator("#camera-panel").boundingBox();assert.ok(panel.height<=934&&panel.width<=432);
         report.checks.push("real streamed 4x4 Sudoku is detected, recognised and solved over the live view without accepting the editor state");
         await page.screenshot({path:`browser-artifacts/${name}-live-camera.png`});
+        });
+        await time("capture and diagnostics",async()=>{
         // The visible composition is frozen, stored and restorable, not redrawn
         // using a later video frame or by OCR of the already-painted numbers.
         await page.evaluate(() => {
@@ -123,17 +141,23 @@ async function run() {
         report.checks.push("captured-photo diagnostic handoff resets image consent; fresh opt-in exports raw pixels without solution annotations");
         await page.click("#solve");assert.equal(await page.locator("#confirm-dialog").isVisible(),true);await page.click("#confirm-back");
         report.checks.push("shutter preserves exact visible pixels in IndexedDB; importing its raw readings still requires review");
+        });
+        await time("saved picture reload and deletion",async()=>{
         await page.reload();await page.waitForSelector('body[data-ready="true"]');
         await page.waitForSelector("#saved-capture-image");assert.equal(await page.locator("#saved-capture").isVisible(),true);
         await page.click("#delete-capture");await page.waitForFunction(()=>document.getElementById("saved-capture").hidden);
         await page.reload();await page.waitForSelector('body[data-ready="true"]');
         assert.equal(await page.evaluate(async()=>(await (await import("./capture-store.js")).loadCapture())??null),null);
         report.checks.push("saved PNG survives reload; explicit deletion persists");
+        });
+        await time("moving away and closing",async()=>{
         await page.evaluate(async()=>{window.liveApp=await import("./app.js");});await fixture(page);await solveLive(page);
         await page.evaluate(()=>{window.liveMode="blank";});
         await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)===0,null,{timeout:10000});
         await page.click("#close-camera");assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true);
         report.checks.push("moving away removes blue entries and closing the camera stops the stream");
+        });
+        await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.
         await page.evaluate(async()=>{
           window.liveMode="grid";
@@ -149,6 +173,8 @@ async function run() {
         assert.ok(Number(unclear.recognised)>0&&Number(unclear.uncertain)>0&&Number(unclear.unknown)>0);
         assert.equal(Number(unclear.solution),0);await page.click("#close-camera");
         report.checks.push("green/yellow/red readings remain distinct and an unread printed clue is never replaced by a blue guess");
+        });
+        await time("capture without a live reading",async()=>{
         // With automatic reading paused there is no live transcription, but the
         // shutter must still lead somewhere: the exact frame enters the crop editor.
         await page.evaluate(()=>{document.getElementById("auto-capture").checked=false;});
@@ -164,9 +190,10 @@ async function run() {
         assert.equal(await page.locator("#crop-canvas").isVisible(),true);assert.match(await page.textContent("#status-detail"),/Detected 4/);
         await page.evaluate(()=>{document.getElementById("auto-capture").checked=true;});
         report.checks.push("a capture without a live reading opens the crop editor with the detected grid");
+        });
         // Keep the real canvas MediaStream and real grid detector. Delay one
         // detector call to exercise settings cancellation and bounded recovery.
-        for (const recovery of ["settings", "deadline"]) {
+        for (const recovery of ["settings", "deadline"]) await time(`detector recovery: ${recovery}`,async()=>{
           await page.evaluate(async () => {
             const { Scanner } = await import("./scanner.js");
             window.originalLiveDetect ??= Scanner.prototype.detect;
@@ -213,9 +240,10 @@ async function run() {
           assert.equal(await page.locator("#camera-panel").isVisible(), true);
           assert.equal(await page.evaluate(() => liveTestStream.getTracks()[0].readyState), "live");
           await page.click("#close-camera");
-        }
+        });
         report.checks.push("settings changes and detection deadlines recover from a stalled detector without stopping video or accepting its late error");
-        report.reviewSafety=await require("./review_safety_regressions.cjs")(page);
+        report.reviewSafety=await time("review safety",()=>
+          require("./review_safety_regressions.cjs")(page,(phase,run)=>time(`review safety / ${phase}`,run)));
         report.checks.push("single-clue changes retire pending and solved overlays; faint clues retain ink evidence; deleted PNGs stay deleted after reload");
         console.log(`${name}: live camera and capture regressions passed`);
       } catch(error){

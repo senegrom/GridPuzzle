@@ -83,8 +83,6 @@ jobs:
           name: scanner-static-build
           path: _site
           retention-days: 2
-      - name: Live camera overlays and saved-picture regressions
-        run: node scripts/live_camera_regressions.cjs
       - name: OCR latency and engine reuse regressions
         run: node scripts/ocr_latency_regressions.cjs
       - name: Cross-tab solver update regressions
@@ -160,6 +158,33 @@ jobs:
           name: deployed-live-acceptance
           path: browser-artifacts
           retention-days: 7
+  # The live-camera suite takes about 3.5 minutes over both engines, most of it
+  # the nested review-safety and structural checks. On its own fresh runner it
+  # tests the same downloaded artifact beside live-acceptance instead of
+  # lengthening the build job, which every later job waits for.
+  live-camera:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: scanner-static-build
+          path: _site
+      - uses: ./.github/actions/setup-scanner
+        with:
+          build: "false"
+      - name: Verify exact deployment build
+        run: node -e "const fs=require('node:fs');if(JSON.parse(fs.readFileSync('_site/build-info.json')).build!==process.env.GITHUB_SHA.slice(0,12))process.exit(1)"
+      - name: Live camera overlays and saved-picture regressions
+        run: node scripts/live_camera_regressions.cjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: live-camera-report
+          path: browser-artifacts
+          retention-days: 7
   configure:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
@@ -176,7 +201,7 @@ jobs:
           echo '::error::Pages is not enabled for Actions. A repository owner must set Settings > Pages > Source to GitHub Actions, then re-run this job. The workflow token cannot grant itself repository administration permission.'
   deploy:
     if: github.ref == 'refs/heads/master'
-    needs: [build, configure, live-acceptance]
+    needs: [build, configure, live-acceptance, live-camera]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -195,7 +220,7 @@ jobs:
   result:
     name: Deployment gate result
     if: always()
-    needs: [changes, build, live-acceptance]
+    needs: [changes, build, live-acceptance, live-camera]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -203,7 +228,7 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           RELEVANT: ${{ needs.changes.outputs.relevant }}
-          RESULTS: ${{ needs.build.result }} ${{ needs.live-acceptance.result }}
+          RESULTS: ${{ needs.build.result }} ${{ needs.live-acceptance.result }} ${{ needs.live-camera.result }}
         run: |
           echo "changes: $CHANGES, relevant: $RELEVANT, jobs: $RESULTS"
           [ "$CHANGES" = success ]
