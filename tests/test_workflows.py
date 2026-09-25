@@ -540,6 +540,30 @@ def test_extended_ci_solves_every_new_family_file_in_exactly_one_shard():
     assert "name: new-family-${{ matrix.family }}-${{ matrix.shard }}" in job
 
 
+@pytest.mark.parametrize("name", sorted(path.name for path in (_GITHUB / "workflows").glob("*.yml")))
+def test_every_leg_of_a_matrix_job_uploads_under_its_own_name(name):
+    """A second upload of an artifact name already in the run fails, so an
+    upload in a matrix job must name its leg (the per-engine live-camera
+    jobs, the corpus shards)."""
+    for job_id, job in _jobs(_workflow(name)).items():
+        if not re.search(r"^      matrix:$", job, re.M):
+            continue
+        for step in re.split(r"^      - ", job, flags=re.M):
+            if "actions/upload-artifact@" not in step:
+                continue
+            upload = re.search(r"^          name: (.+)$", step, re.M)
+            assert upload and "${{ matrix." in upload.group(1), f"{name} {job_id}: {upload and upload.group(1)}"
+
+
+def test_each_browser_set_keeps_its_own_playwright_cache():
+    """A per-engine job installs one browser; under the full set's key its
+    cache would stand in for both and never be refreshed."""
+    action = (_GITHUB / "actions" / "setup-scanner" / "action.yml").read_text(encoding="utf-8")
+    assert "npx playwright install --with-deps $BROWSERS" in action
+    key = re.search(r"path: ~/\.cache/ms-playwright\n\s+key: (.+)", action).group(1)
+    assert "${{ steps.browsers.outputs.set }}" in key, key
+
+
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)
 
 
