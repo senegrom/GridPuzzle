@@ -172,7 +172,7 @@ python -m pip install -e ".[dev]"
 python -X dev -m pytest -q tests -m "not slow"
 ```
 
-The `slow` marker holds the long example-corpus checks, which only extended CI runs (`python -X dev -m pytest -m slow`). [DEVELOPMENT.md](DEVELOPMENT.md) describes the CI workflows, the isolated corpus runner and its timeout policy.
+The `slow` marker holds the long example-corpus checks and the longest deterministic tests (blank-grid enumerations, the 100x100 Sudoku), which only extended CI runs (`python -X dev -m pytest -m slow`). [DEVELOPMENT.md](DEVELOPMENT.md) describes the CI workflows, the isolated corpus runner and its timeout policy.
 
 ## Documentation
 

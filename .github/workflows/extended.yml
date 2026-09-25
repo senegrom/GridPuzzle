@@ -18,6 +18,7 @@ on:
       - "tests/test_gridpuzzle_review_regressions.py"
       - "tests/test_review3_native.py"
       - "tests/test_basic.py"
+      - "tests/test_scale.py"
       - "tests/test_stack_safe_search.py"
       - ".github/workflows/extended.yml"
       # Every job installs through setup-project: a merged Dependabot pin
@@ -72,8 +73,9 @@ jobs:
             selection: tests/test_examples_lsq.py::test_ex_diag_latin_squares
           # The tests marked slow that the per-push suite skips: the full
           # 288-solution parallel-vs-sequential equivalence, the two blank
-          # Sudoku enumerations and the blank 32x32 Slitherlink search (the
-          # 1024-decision chain in the same file runs on every push).
+          # Sudoku enumerations, the blank 32x32 Slitherlink search (the
+          # 1024-decision chain in the same file runs on every push) and the
+          # 100x100 Sudoku (the smaller sizes also run on every push).
           - name: Slow deterministic checks
             timeout: 30
             flags: -X dev
@@ -81,6 +83,7 @@ jobs:
               tests/test_basic.py::test_parallel_trials_match_sequential
               tests/test_basic.py::test_sudo1
               tests/test_basic.py::test_sudo_nonsq
+              tests/test_scale.py::test_sudoku_scale_large
               tests/test_stack_safe_search.py
 
     steps:
