@@ -167,8 +167,14 @@ and preprocessing: https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
 
 ## Alternatives tried
 
-A 26,731-parameter printed-digit network was trained and measured as a possible
-single-digit reader in `experiments/tiny-digit-cnn/`. The app does not use it:
-neither phone performance nor an improvement over the Tesseract readers above
-has been established, and its README records the evidence and the conditions
-for a next stage.
+A 26,731-parameter printed-digit network (two 3x3 convolutions and two dense
+layers, trained on 24,200 synthetic crops in three font families) was measured
+as a possible single-digit reader. It read 3,863 of 4,000 held-out generated
+digits in unseen font families and rejected 380 of 400 non-digits, but 11 of
+its 3,233 answers scored at least 0.99 were still wrong, so a high score was
+no permission to accept a clue. On crops from the two repository photographs
+in five variations it read 216 of 220 printed clues, with one false digit. The
+app never used it: neither phone performance nor an improvement over the
+Tesseract readers above was established. The prototype was removed on
+2026-09-25; its code, training script and full measurements remain in git
+history under `experiments/tiny-digit-cnn/` (last present at commit e7eced2).
