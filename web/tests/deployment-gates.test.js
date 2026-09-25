@@ -26,23 +26,27 @@ const RECOGNITION=['ocr_quality_regressions','recognition_fragments_regressions'
 
 test('master deployment waits for moving-camera acceptance of the exact built artifact',()=>{
  const source=workflow('browser-pages.yml');
- const gate=source.slice(source.indexOf('  live-acceptance:'),source.indexOf('  configure:'));
- const relevance=source.slice(source.indexOf('  changes:'),source.indexOf('  build:'));
- assert.match(relevance,/^ +gridsolver\/\*\*$/m,'native solver changes also run pre-merge acceptance');
- assert.match(source.slice(source.indexOf('  build:'),source.indexOf('  live-acceptance:')),/needs: changes\n    if: needs\.changes\.outputs\.relevant == 'true'/);
- assert.match(gate,/needs: build/);
- assert.match(gate,/actions\/download-artifact@[0-9a-f]{40} # v8/,'the artifact download is SHA-pinned');
- assert.match(gate,/name: scanner-static-build/);
- assert.match(gate,/GITHUB_SHA\.slice\(0,12\)/);
- for (const name of ['live_motion','app_review','live_features','live_noise','live_recovery','editor_reread','live_soak'])
-  assert.ok(gate.includes(`node scripts/${name}_regressions.cjs`),name);
- assert.doesNotMatch(gate,/build_web\.py/,'test the artifact rather than a separate rebuild');
- assert.match(source.slice(source.indexOf('  deploy:')),/needs: \[build, configure, live-acceptance\]/);
+ const all=jobs(source);
+ assert.match(all.changes,/^ +gridsolver\/\*\*$/m,'native solver changes also run pre-merge acceptance');
+ assert.match(all.build,/needs: changes\n    if: needs\.changes\.outputs\.relevant == 'true'/);
+ // Two fresh-runner jobs test the exact built artifact: the moving-feed and
+ // cross-feature suites, and beside them the long live-camera suite.
+ const suites={'live-acceptance':['live_motion','app_review','live_features','live_noise','live_recovery','editor_reread','live_soak'],'live-camera':['live_camera']};
+ for (const [id,names] of Object.entries(suites)) {
+  const gate=all[id];
+  assert.match(gate,/needs: build/,id);
+  assert.match(gate,/actions\/download-artifact@[0-9a-f]{40} # v8/,'the artifact download is SHA-pinned');
+  assert.match(gate,/name: scanner-static-build/,id);
+  assert.match(gate,/GITHUB_SHA\.slice\(0,12\)/,id);
+  for (const name of names) assert.ok(gate.includes(`node scripts/${name}_regressions.cjs`),`${id}: ${name}`);
+  assert.doesNotMatch(gate,/build_web\.py/,'test the artifact rather than a separate rebuild');
+ }
+ assert.match(all.deploy,/needs: \[build, configure, live-acceptance, live-camera\]/);
 });
 
 test('each browser suite runs once per event, and never plays a canvas stream after the recognition suites',()=>{
  const runs=[];
- for (const [file,ids,events] of [['browser-pages.yml',['build','live-acceptance'],['pull_request','push']],['scan-input.yml',['recognition','live'],['pull_request']]]) {
+ for (const [file,ids,events] of [['browser-pages.yml',['build','live-acceptance','live-camera'],['pull_request','push']],['scan-input.yml',['recognition','live'],['pull_request']]]) {
   const all=jobs(workflow(file));
   for (const id of ids) {
    const job=suiteRuns(all[id]);
