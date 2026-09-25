@@ -445,7 +445,7 @@ actual paints, and repeated updates of one frame do not double-count its
 tracking measurement. The export carries numbers only, never images or free
 text. They are app timings, not sensor frame rates or battery estimates.
 
-## External pictures and document-video tooling
+## External pictures
 
 `python scripts/fetch_live_fixtures.py` retrieves 12 hash-selected records from
 the **test** split of Lexski/sudoku-image-recognition at revision 733559b. It
@@ -454,24 +454,8 @@ is made before running the scanner, not by keeping only pictures it can read.
 The images stay untracked; reports keep the source revision, selection, file
 hashes and every success and failure.
 
-`corpus/motion_tracks.py` imports local SmartDoc 2015 `metadata.csv[.gz]` or
-MIDV-500 `ground_truth` JSON directories into a common `clips/frames/corners`
-manifest. It validates ordering and finite, convex quads, rejects empty or wrong
-inputs, and copies only coordinates and frame references, not personal fields
-or portraits. Routine CI downloads no full archive, and no benchmark of those
-datasets is claimed.
-
-```sh
-python corpus/motion_tracks.py smartdoc /path/frames/metadata.csv.gz /tmp/smartdoc-tracks.json
-python corpus/motion_tracks.py midv /path/document/ground_truth /tmp/midv-tracks.json
-```
-
-Sources and attribution:
-- Lexski (CC0): https://huggingface.co/datasets/Lexski/sudoku-image-recognition
-- SmartDoc (CC BY 4.0): https://github.com/jchazalon/smartdoc15-ch1-dataset
-  Burie et al., *ICDAR2015 Competition on Smartphone Document Capture and OCR*.
-- MIDV-500: Arlazarov et al., https://arxiv.org/abs/1807.05786. Refer to the
-  downloaded dataset's individual source-image licenses for image reuse.
+Source and attribution: Lexski (CC0),
+https://huggingface.co/datasets/Lexski/sudoku-image-recognition
 
 ## Tests
 
