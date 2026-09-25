@@ -82,6 +82,5 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# These harnesses put the repository root on sys.path before importing it.
-"tests/fish_rewrite_harness.py" = ["E402"]
+# This harness puts the repository root on sys.path before importing it.
 "tests/technique_stats_harness.py" = ["E402"]

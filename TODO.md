@@ -30,15 +30,18 @@ Both are recorded in `benchmarks/solver_memory_pruning_2026-09-23.md`.
   finish within 300 s CPU. Since the byte-bounded partition cache it peaks at
   68 MiB instead of 1,579 MiB, so what remains is search time.
 
-## Fish — parked; see `FISH_REWRITE.md`
-
-A base-first rewrite was implemented, equivalence-tested, measured 5.5x slower,
-and reverted. Remaining options need an explicit choice: textbook-base
-restriction (changes solver behaviour) or incremental dirty tracking (exact,
-but needs per-pattern bookkeeping). `tests/fish_rewrite_harness.py` remains the
-frozen equivalence reference for any future attempt.
-
 ## Rejected, with the measurements
+
+- **Base-first fish rewrite** (2026-06-11): enumerating disjoint guarantee
+  combinations before solving their cover was byte-identical on every captured
+  state but 5.5x slower (554 s against 100 s), because on house-rich grids
+  almost every combination of guarantees is disjoint and coverable, so the
+  pattern space stays about C(houses, f). What remains would need a choice:
+  textbook bases (changes behaviour) or incremental re-examination of changed
+  patterns (exact, with per-pattern bookkeeping). The fish semantics are in
+  `gridsolver/solver/solve_fish.py`; the equivalence harness and the write-up
+  were removed on 2026-09-25 and remain in git history
+  (`tests/fish_rewrite_harness.py`, `FISH_REWRITE.md`).
 
 - **Adaptive technique gating by inner hit rate** (skip AIC inside forcing
   chains after 30 inner tries below a 50% hit rate). The representative corpus

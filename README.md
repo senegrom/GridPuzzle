@@ -179,7 +179,6 @@ The `slow` marker holds the long example-corpus checks and the longest determini
 - [DEVELOPMENT.md](DEVELOPMENT.md): architecture, performance policy and the corpus runner.
 - [TODO.md](TODO.md): open items, rejected ideas and standing rules.
 - [TRAIL_DESIGN.md](TRAIL_DESIGN.md): the reversible trail the solver backtracks on.
-- [FISH_REWRITE.md](FISH_REWRITE.md): fish semantics and the parked rewrite.
 - [benchmarks/README.md](benchmarks/README.md): the index of measured and rejected changes.
 - [web/README.md](web/README.md): the phone scanner app and its own documents.
 
