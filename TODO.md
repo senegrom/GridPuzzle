@@ -6,18 +6,6 @@ measurements in `benchmarks/README.md`; the trail invariants are in
 `TRAIL_DESIGN.md`; the technique profiles and their evidence in `DEVELOPMENT.md`.
 GridPuzzle requires Python 3.14 or newer.
 
-## OPEN: merge the two ALS enumerators (small, benchmark-gated)
-
-`solve_als._build_als_list` and `solve_sue_de_coq._find_als` both hand-roll
-"N cells with N+1 candidates, N in {1,2,3}" via itertools.combinations,
-differing only in input scope and an overlap filter (~30 duplicated lines,
-3 call sites). A shared generator would serve both — but this is measured
-hot-path territory, so per project policy it needs a before/after benchmark
-with solution-set equivalence before landing. Do NOT similarly merge
-solve_chain's `_find_link_ends`/`_find_link_ends_with_num`: superficially
-twins, but they walk different state spaces (cell vs value-cell) and
-unification would tax the single-digit hot path.
-
 ## OPEN: two searches that still do not finish (measured, left by choice)
 
 Both are recorded in `benchmarks/solver_memory_pruning_2026-09-23.md`.
@@ -88,3 +76,8 @@ Both are recorded in `benchmarks/solver_memory_pruning_2026-09-23.md`.
   futures and call `terminate_workers()`; outstanding futures are bounded to
   the worker count; each worker gets one serialized root and clones it per
   task.
+- The ALS pass and Sue de Coq share one ALS enumerator, `solve_als.iter_als`
+  (`benchmarks/als_enumerator_merge_2026-09-25.md`). Do not similarly merge
+  solve_chain's `_find_link_ends`/`_find_link_ends_with_num`: superficially
+  twins, but they walk different state spaces (cell vs value-cell) and
+  unification would tax the single-digit hot path.

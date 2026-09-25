@@ -1,0 +1,559 @@
+{
+ "baseline": "80889e3",
+ "candidate": "perf/als-enumerator (80889e3 + the merge)",
+ "python": "3.14.5 (GIL build), Windows, PYTHONHASHSEED=0, idle priority on a loaded host",
+ "method": "fresh interpreter per sample, warm-up solve, time.process_time around the timed solves, master and branch alternating with the order flipped each round; short puzzles repeat the solve (sudoku-mith 20x, magictour-1 5x, magictour-113 2x)",
+ "solves": [
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.6875,
+   "wall": 4.4444,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.5312,
+   "wall": 5.7225,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.6875,
+   "wall": 6.3182,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.7031,
+   "wall": 4.711,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.625,
+   "wall": 5.4832,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.7969,
+   "wall": 4.8942,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.7969,
+   "wall": 4.3092,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.6406,
+   "wall": 3.6958,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.5312,
+   "wall": 4.0988,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.5469,
+   "wall": 6.4334,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.7344,
+   "wall": 3.3778,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.5,
+   "wall": 3.9533,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.5938,
+   "wall": 3.6726,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-mith",
+   "cpu": 2.7344,
+   "wall": 3.7193,
+   "solutions": 1,
+   "fingerprint": "687f9b27ad1cacb3"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 2.9844,
+   "wall": 3.2877,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 2.9531,
+   "wall": 4.1394,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 3.0938,
+   "wall": 4.8218,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 3.0469,
+   "wall": 4.8494,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 2.9844,
+   "wall": 6.0376,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 3.125,
+   "wall": 3.7783,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 3.1719,
+   "wall": 4.4245,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 3.0938,
+   "wall": 4.2008,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 2.9844,
+   "wall": 4.2961,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 3.0469,
+   "wall": 3.701,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 2.8906,
+   "wall": 3.3232,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 2.9688,
+   "wall": 4.2297,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-1",
+   "cpu": 2.9531,
+   "wall": 3.7107,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-1",
+   "cpu": 3.0781,
+   "wall": 4.6772,
+   "solutions": 1,
+   "fingerprint": "8ba628c7860bfc06"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.375,
+   "wall": 5.3242,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 4.2812,
+   "wall": 4.8803,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 4.5312,
+   "wall": 7.411,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.8438,
+   "wall": 6.9665,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.5938,
+   "wall": 6.6768,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 4.4375,
+   "wall": 6.4781,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 4.5625,
+   "wall": 6.0969,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.375,
+   "wall": 6.2879,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.4531,
+   "wall": 6.6641,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 4.5469,
+   "wall": 5.208,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 4.3125,
+   "wall": 4.4215,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.4531,
+   "wall": 5.2846,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "magictour-113",
+   "cpu": 4.3281,
+   "wall": 4.6978,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "magictour-113",
+   "cpu": 3.8438,
+   "wall": 4.0861,
+   "solutions": 1,
+   "fingerprint": "73ef00e3f8bf228d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 67.25,
+   "wall": 98.1924,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 69.0781,
+   "wall": 135.3472,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 69.2188,
+   "wall": 295.5399,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 70.75,
+   "wall": 314.4702,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 69.9531,
+   "wall": 194.3929,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 69.9375,
+   "wall": 168.815,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 69.875,
+   "wall": 128.3948,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 70.9688,
+   "wall": 149.0167,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "master",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 71.2031,
+   "wall": 123.9656,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  },
+  {
+   "tree": "branch",
+   "puzzle": "sudoku-t-hard",
+   "cpu": 66.375,
+   "wall": 90.2428,
+   "solutions": 1,
+   "fingerprint": "a02e824e99e1346d"
+  }
+ ],
+ "summary": [
+  {
+   "puzzle": "sudoku-mith",
+   "n": [
+    7,
+    7
+   ],
+   "master_median": 2.625,
+   "branch_median": 2.7344,
+   "change_pct": 4.17,
+   "master_range": [
+    2.5,
+    2.7031
+   ],
+   "branch_range": [
+    2.5312,
+    2.7969
+   ],
+   "fingerprints": [
+    "687f9b27ad1cacb3"
+   ]
+  },
+  {
+   "puzzle": "magictour-1",
+   "n": [
+    7,
+    7
+   ],
+   "master_median": 2.9844,
+   "branch_median": 3.0781,
+   "change_pct": 3.14,
+   "master_range": [
+    2.9531,
+    3.0938
+   ],
+   "branch_range": [
+    2.8906,
+    3.1719
+   ],
+   "fingerprints": [
+    "8ba628c7860bfc06"
+   ]
+  },
+  {
+   "puzzle": "magictour-113",
+   "n": [
+    7,
+    7
+   ],
+   "master_median": 4.4531,
+   "branch_median": 4.4375,
+   "change_pct": -0.35,
+   "master_range": [
+    4.3281,
+    4.8438
+   ],
+   "branch_range": [
+    3.8438,
+    4.5625
+   ],
+   "fingerprints": [
+    "73ef00e3f8bf228d"
+   ]
+  },
+  {
+   "puzzle": "sudoku-t-hard",
+   "n": [
+    5,
+    5
+   ],
+   "master_median": 70.75,
+   "branch_median": 69.2188,
+   "change_pct": -2.16,
+   "master_range": [
+    67.25,
+    71.2031
+   ],
+   "branch_range": [
+    66.375,
+    69.9375
+   ],
+   "fingerprints": [
+    "a02e824e99e1346d"
+   ]
+  }
+ ],
+ "micro": {
+  "method": "300 random candidate states; ALS pass: 4 passes over all states per sample; Sue de Coq lists: 200 passes over 300 (cells, overlap) pairs per sample; 7 interleaved samples",
+  "medians": {
+   "build_old": 1.3594,
+   "build_new": 0.7188,
+   "find_old": 1.4219,
+   "find_new": 1.4375,
+   "build_change_pct": -47.12,
+   "find_change_pct": 1.1
+  },
+  "samples": {
+   "build_old": [
+    1.46875,
+    1.359375,
+    1.3125,
+    1.34375,
+    1.390625,
+    1.359375,
+    1.375
+   ],
+   "build_new": [
+    0.71875,
+    0.71875,
+    0.734375,
+    0.671875,
+    0.71875,
+    0.734375,
+    0.75
+   ],
+   "find_old": [
+    1.4375,
+    1.40625,
+    1.40625,
+    1.484375,
+    1.421875,
+    1.4375,
+    1.421875
+   ],
+   "find_new": [
+    1.4375,
+    1.484375,
+    1.4375,
+    1.453125,
+    1.421875,
+    1.421875,
+    1.421875
+   ]
+  }
+ }
+}
