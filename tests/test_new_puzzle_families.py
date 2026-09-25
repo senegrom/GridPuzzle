@@ -1,5 +1,5 @@
 import json
-from itertools import permutations, product
+from itertools import combinations, permutations, product
 from pathlib import Path
 
 import pytest
@@ -11,11 +11,12 @@ from gridsolver.abstract_grids.csp_rules_loading import (
 )
 from gridsolver.abstract_grids.grid import Grid, TechniqueProfile
 from gridsolver.abstract_grids.grid_loading import create_from_file, create_from_str
+from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
 from gridsolver.grid_classes.compact_grid import CompactGrid
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.grid_classes.slitherlink import Slitherlink
-from gridsolver.rules.rules import InvalidGrid, UnsatisfiableRule
+from gridsolver.rules.rules import InvalidGrid, RuleAlwaysSatisfied, UnsatisfiableRule
 from gridsolver.rules.topology import (
     ConsecutiveAdjacencyRule,
     SingleLoopRule,
@@ -713,3 +714,45 @@ def test_compact_grid_equality_includes_puzzle_key_mapping():
     assert equivalent == first
     assert first != different_keys
     assert different_keys != first
+
+
+def _is_cycle(edges):
+    if not edges:
+        return False
+    adjacency = {}
+    for first, second in edges:
+        adjacency.setdefault(first, set()).add(second)
+        adjacency.setdefault(second, set()).add(first)
+    if any(len(neighbours) != 2 for neighbours in adjacency.values()):
+        return False
+    pending = [next(iter(adjacency))]
+    seen = set(pending)
+    while pending:
+        for neighbour in adjacency[pending.pop()]:
+            if neighbour not in seen:
+                seen.add(neighbour)
+                pending.append(neighbour)
+    return len(seen) == len(adjacency)
+
+
+def test_single_loop_pruning_preserves_every_small_graph_cycle():
+    edges = tuple(combinations(range(4), 2))
+    size = GridSizeContainer(1, len(edges), 2)
+    rule = SingleLoopRule(size, range(len(edges)), edges)
+    cycles = tuple(frozenset(i for i, value in enumerate(values) if value)
+                   for values in product((False, True), repeat=len(edges))
+                   if _is_cycle([edge for edge, value in zip(edges, values) if value]))
+    for state in product((0, 1, 2), repeat=len(edges)):
+        possible = {i for i, value in enumerate(state) if value != 0}
+        selected = {i for i, value in enumerate(state) if value == 2}
+        completions = tuple(cycle for cycle in cycles if selected <= cycle <= possible)
+        candidates = tuple({1} if value == 0 else {2} if value == 2 else {1, 2} for value in state)
+        try:
+            rule.apply([0] * len(edges), candidates)
+        except InvalidGrid:
+            assert not completions
+            continue
+        except RuleAlwaysSatisfied:
+            assert completions
+        for cycle in completions:
+            assert all((2 if i in cycle else 1) in candidates[i] for i in range(len(edges)))

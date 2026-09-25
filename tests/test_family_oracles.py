@@ -14,11 +14,15 @@ values), where the path rule's matching carries the search.
 import random
 from contextlib import suppress
 from functools import cache
-from itertools import permutations
+from itertools import permutations, product
+
+import pytest
 
 from gridsolver.abstract_grids.grid import TechniqueProfile
+from gridsolver.grid_classes.futoshiki import Futoshiki
 from gridsolver.grid_classes.kakuro import Kakuro
 from gridsolver.grid_classes.killer_sudoku import KillerSudoku, SumCellPair
+from gridsolver.grid_classes.latins_square import LatinSquare
 from gridsolver.grid_classes.path_puzzles import Hidato, Numbrix
 from gridsolver.rules.rules import RuleAlwaysSatisfied
 from gridsolver.rules.topology import ConsecutiveAdjacencyRule
@@ -540,3 +544,61 @@ def test_killer_matches_filtered_sudoku_table():
     for make, expected in _killer_instances(20260923, 10):
         _check(make, _decode_4x4, expected, KillerSudoku)
     _assert_mixed_batch()
+
+
+def _latin_oracle(
+    size: int,
+    puzzle: str,
+    inequalities: tuple[tuple[tuple[int, int], tuple[int, int]], ...] = (),
+) -> set[tuple[int, ...]]:
+    """Enumerate small Latin grids without using GridPuzzle rules."""
+    givens = tuple(0 if token == "." else int(token, 36) for token in puzzle)
+    row_options = tuple(permutations(range(1, size + 1)))
+    solutions: set[tuple[int, ...]] = set()
+
+    for rows in product(row_options, repeat=size):
+        if any(
+            given and rows[index // size][index % size] != given
+            for index, given in enumerate(givens)
+        ):
+            continue
+        if any(
+            len({rows[row][col] for row in range(size)}) != size
+            for col in range(size)
+        ):
+            continue
+        if any(rows[lt[0]][lt[1]] >= rows[gt[0]][gt[1]] for lt, gt in inequalities):
+            continue
+
+        # ImmutableGrid stores cells column-major; the oracle generates rows.
+        solutions.add(
+            tuple(rows[row][col] for col in range(size) for row in range(size))
+        )
+
+    return solutions
+
+
+@pytest.mark.parametrize("puzzle", [".........", "12......."])
+def test_latin_solver_matches_independent_complete_oracle(puzzle: str):
+    grid = LatinSquare(3)
+    grid.load(puzzle)
+
+    actual = {tuple(solution) for solution in solver.solve(grid, log_level=0)}
+    expected = _latin_oracle(3, puzzle)
+
+    assert actual == expected
+
+
+def test_futoshiki_solver_matches_independent_complete_oracle():
+    inequalities = (
+        ((0, 0), (0, 1)),
+        ((2, 2), (1, 2)),
+    )
+    grid = Futoshiki(3)
+    grid.load("." * 9 + "-" * 12)
+    grid.ext_ineqs(inequalities)
+
+    actual = {tuple(solution) for solution in solver.solve(grid, log_level=0)}
+    expected = _latin_oracle(3, "." * 9, inequalities)
+
+    assert actual == expected

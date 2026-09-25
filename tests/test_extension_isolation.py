@@ -1,4 +1,11 @@
-"""Source and scheduling boundary regressions supplementing the review cases."""
+"""Custom (extension) rules cannot corrupt the solver, the caller or each other.
+
+Rule selection, watcher and validation metadata written by extension hooks
+is sandboxed and rolled back; lazy rule and guarantee outputs are validated
+after they are consumed; failures inside hooks, including KeyboardInterrupt,
+preserve pending work and the parent's caches; native rules keep the fast
+path that needs no sandbox.
+"""
 
 import pickle
 from itertools import product
@@ -8,13 +15,14 @@ import pytest
 from gridsolver.abstract_grids.extension_scope import _PROTECTED_SOURCES
 from gridsolver.abstract_grids.grid import Grid
 from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
-from gridsolver.rules.rules import Guarantee, Rule
+from gridsolver.rules.rules import Guarantee, InvalidGrid, Rule
 from gridsolver.rules.uneq import UneqRule
 from gridsolver.rules.unique import ElementsAtMostOnce
 from gridsolver.solver.propagation import apply_rules
 from gridsolver.solver.rulehelpers import rulehelper_atmostonce
 from gridsolver.solver.solver import QUIET, solve
 from gridsolver.solver.validation import InvalidSolutionError, validate_solution, validate_solutions
+from gridsolver.util import peek
 
 
 def state(grid):
@@ -343,3 +351,295 @@ def test_validation_errors_never_reinvoke_constraint_repr(kind):
         validate_solution(source, ImmutableGrid((1,), 1, 1, 1))
     assert not source._trail_state.marks
     assert _PROTECTED_SOURCES.get() == ()
+
+
+class _OrderedUneq(UneqRule):
+    """A UneqRule extension additionally requiring origin < related."""
+    def apply(self, known, candidates, guarantees=None):
+        first = known[self.origin_cell]
+        second = known[next(iter(self.rel_cells))]
+        if first and second and first >= second:
+            raise InvalidGrid("The first cell must be smaller")
+        return super().apply(known, candidates, guarantees)
+
+
+def _ordered_grid():
+    grid = Grid(1, 3, max_elem=3)
+    custom = _OrderedUneq(grid, origin_cell=0, rel_cells=(1,))
+    grid.add_rules_checked((custom, UneqRule(grid, origin_cell=0, rel_cells=(2,))))
+    return grid, custom
+
+
+def test_unequal_union_retains_custom_rule_semantics():
+    grid, custom = _ordered_grid()
+    rulehelper_atmostonce(grid)
+    assert custom in grid.rules
+    assert custom not in grid.rules_ia
+
+
+def test_full_solve_returns_the_six_ordered_solutions():
+    grid, _ = _ordered_grid()
+    expected = {
+        values for values in product(range(1, 4), repeat=3)
+        if values[0] < values[1] and values[0] != values[2]
+    }
+    assert len(expected) == 6
+    actual = {tuple(solution) for solution in solve(grid, log_level=QUIET)}
+    assert actual == expected
+
+
+@pytest.mark.parametrize("error_type", (RuntimeError, KeyboardInterrupt))
+def test_dirty_rule_selection_failure_preserves_pending_work(error_type):
+    grid = Grid(1, 1, max_elem=2)
+    armed = [False]
+    applied = []
+
+    class TemporaryHashFailure(Rule):
+        def __hash__(self):
+            if armed[0]:
+                raise error_type("temporary hash failure")
+            return super().__hash__()
+
+        def apply(self, known, candidates, guarantees=None):
+            applied.append(True)
+            candidates[0].intersection_update({2})
+            return False, None, None
+
+    grid.add_rule_checked(TemporaryHashFailure(grid, cells=(0,)))
+    armed[0] = True
+    try:
+        with pytest.raises(error_type, match="temporary hash failure"):
+            apply_rules(grid)
+    finally:
+        armed[0] = False
+    assert applied == []
+    apply_rules(grid)
+    assert applied == [True]
+    assert grid.get_candidates(0) == {2}
+
+
+@pytest.mark.parametrize("error_type", (RuntimeError, KeyboardInterrupt))
+def test_selection_hook_mutations_are_rolled_back(error_type):
+    grid = Grid(1, 1, max_elem=2)
+    armed = [False]
+
+    class MutatingHash(Rule):
+        def __hash__(self):
+            if armed[0]:
+                grid.get_candidates(0).discard(2)
+                raise error_type("selection interrupted")
+            return super().__hash__()
+
+        def apply(self, known, candidates, guarantees=None):
+            return False, None, None
+
+    grid.add_rule_checked(MutatingHash(grid, cells=(0,)))
+    before = grid.get_candidates(0).copy()
+    armed[0] = True
+    try:
+        with pytest.raises(error_type, match="selection interrupted"):
+            apply_rules(grid)
+    finally:
+        armed[0] = False
+    assert grid.get_candidates(0) == before
+    assert not grid._trail_state.marks
+
+
+@pytest.mark.parametrize("mutation", ("given", "candidate"))
+@pytest.mark.parametrize("error_type", (None, RuntimeError, KeyboardInterrupt))
+def test_final_validation_preserves_captured_source_grid(mutation, error_type):
+    grid = Grid(1, 1, max_elem=2)
+
+    class CapturedSourceMutation(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            if mutation == "given":
+                grid[0] = 2
+            else:
+                grid.get_candidates(0).discard(2)
+            if error_type is not None:
+                raise error_type("validation hook interrupted")
+            return False, None, None
+
+    grid.add_rule_checked(CapturedSourceMutation(grid, cells=(0,)))
+    before = (grid.known, grid.get_candidates(0).copy(), grid.has_been_filled)
+    solution = ImmutableGrid((1,), rows=1, cols=1, max_elem=2)
+    if error_type is None:
+        validate_solution(grid, solution)
+    else:
+        expected_error = KeyboardInterrupt if error_type is KeyboardInterrupt else InvalidSolutionError
+        with pytest.raises(expected_error, match="validation hook interrupted"):
+            validate_solution(grid, solution)
+    after = (grid.known, grid.get_candidates(0).copy(), grid.has_been_filled)
+    assert after == before
+    assert not grid._trail_state.marks
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError, KeyboardInterrupt])
+@pytest.mark.parametrize("cache", ["weak", "strong", "struct"])
+def test_extension_iterator_preserves_nested_parent_caches(error, cache):
+    grid = Grid(1, 2, max_elem=2)
+
+    def cached():
+        if cache == "weak":
+            return grid.weak_links[0]
+        if cache == "strong":
+            return grid.semi_strong_links[1][0]
+        return grid.cached_struct("review_nested", lambda: {"items": [set()]})["items"][0]
+
+    original = cached()
+    dictionaries = grid._struct_cache, grid._rule_cache, grid._guarantee_cache
+
+    def emitted_rules():
+        cached().add(1)
+        if error is not None:
+            raise error("extension interrupted")
+        yield from ()
+
+    if error is None:
+        grid.add_rules_checked(emitted_rules())
+    else:
+        with pytest.raises(error, match="extension interrupted"):
+            grid.add_rules_checked(emitted_rules())
+    assert cached() is original
+    assert original == set()
+    assert all(before is after for before, after in zip(
+        dictionaries,
+        (grid._struct_cache, grid._rule_cache, grid._guarantee_cache),
+        strict=True,
+    ))
+    assert not grid._trail_state.marks
+
+
+def test_nested_sandbox_restores_each_parent_cache_without_copy_hooks():
+    grid = Grid(1, 2, max_elem=2)
+
+    class NoCopy:
+        def __deepcopy__(self, memo):
+            raise AssertionError("Sandbox must not invoke arbitrary copy hooks")
+
+    sentinel = NoCopy()
+    grid.cached_struct("sentinel", lambda: sentinel)
+    original = grid.weak_links
+    with grid._extension_sandbox():
+        outer = grid.weak_links
+        outer[0].add(1)
+        with grid._extension_sandbox():
+            grid.weak_links[0].add(0)
+        assert grid.weak_links is outer
+        assert outer[0] == {1}
+    assert grid.weak_links is original
+    assert original[0] == set()
+    assert grid._struct_cache["sentinel"] is sentinel
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError, KeyboardInterrupt])
+def test_rule_application_cannot_mutate_parent_cached_links(error):
+    grid = Grid(1, 2, max_elem=2)
+
+    class Hook(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            grid.weak_links[0].add(1)
+            if error is not None:
+                raise error("application interrupted")
+            return False, None, None
+
+    grid.add_rule_checked(Hook(grid, cells=(0,)))
+    original = grid.weak_links
+    if error is None:
+        apply_rules(grid)
+    else:
+        with pytest.raises(error, match="application interrupted"):
+            apply_rules(grid)
+    assert grid.weak_links is original
+    assert original[0] == set()
+    assert not grid._trail_state.marks
+
+
+@pytest.mark.parametrize("output_kind", ["rules", "guarantees"])
+@pytest.mark.parametrize("mutation", ["known", "candidates"])
+def test_validation_checks_state_after_lazy_outputs(output_kind, mutation):
+    grid = Grid(1, 1, max_elem=1)
+
+    class LazyMutation(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            def outputs():
+                if mutation == "known":
+                    known[0] = 0
+                else:
+                    candidates[0].clear()
+                yield from ()
+            if output_kind == "rules":
+                return False, outputs(), None
+            return False, None, outputs()
+
+    grid.add_rule_checked(LazyMutation(grid, cells=(0,)))
+    solution = ImmutableGrid((1,), rows=1, cols=1, max_elem=1)
+    with pytest.raises(InvalidSolutionError):
+        validate_solution(grid, solution)
+
+
+def test_validation_checks_state_after_guarantee_metadata_iteration():
+    grid = Grid(1, 1, max_elem=1)
+
+    class LazyMetadata(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            def cells():
+                candidates[0].clear()
+                yield 0
+            return False, None, (Guarantee(1, cells(), 1, 1),)
+
+    grid.add_rule_checked(LazyMetadata(grid, cells=(0,)))
+    with pytest.raises(InvalidSolutionError):
+        validate_solution(grid, ImmutableGrid((1,), 1, 1, 1))
+
+
+def test_validation_checks_parent_after_child_metadata_hooks():
+    grid = Grid(1, 1, max_elem=1)
+
+    class Root(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            class Child(Rule):
+                def __getattribute__(self, name):
+                    if name == "cells" and getattr(self, "armed", False):
+                        candidates[0].clear()
+                    return super().__getattribute__(name)
+
+                def apply(self, known, candidates, guarantees=None):
+                    return False, None, None
+
+            child = Child(grid, cells=(0,))
+            # Construction must not trigger the mutation: it needs to occur
+            # later, when validation reads the emitted child's metadata.
+            child.armed = True
+            return False, (child,), None
+
+    grid.add_rule_checked(Root(grid, cells=(0,)))
+    with pytest.raises(InvalidSolutionError):
+        validate_solution(grid, ImmutableGrid((1,), 1, 1, 1))
+
+
+@pytest.mark.parametrize("emit_guarantee", [False, True])
+def test_valid_lazy_outputs_remain_supported(emit_guarantee):
+    grid = Grid(1, 1, max_elem=1)
+
+    class Valid(Rule):
+        def apply(self, known, candidates, guarantees=None):
+            output = (Guarantee(1, frozenset({0}), 1, 1),) if emit_guarantee else ()
+            return False, iter(()), iter(output)
+
+    grid.add_rule_checked(Valid(grid, cells=(0,)))
+    validate_solution(grid, ImmutableGrid((1,), 1, 1, 1))
+
+
+def test_peek_consumes_only_the_first_item_eagerly():
+    seen = []
+
+    def source():
+        for value in range(3):
+            seen.append(value)
+            yield value
+
+    first, replay = peek(source())
+    assert first == 0
+    assert seen == [0]
+    assert list(replay) == [0, 1, 2]
