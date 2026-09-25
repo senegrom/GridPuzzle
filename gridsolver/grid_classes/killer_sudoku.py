@@ -2,16 +2,11 @@ from collections.abc import Iterable, Mapping
 from numbers import Integral
 from typing import NamedTuple
 
-from gridsolver.abstract_grids.grid import (
-    _load_preprocess_str,
-    _load_preprocess_str_space_sep,
-    _validate_load_options,
-    pairs,
-)
+from gridsolver.abstract_grids.grid import pairs
 from gridsolver.grid_classes.cage_loading import (
     load_cage_layout,
+    load_compact_cages,
     parse_killer_dictionary,
-    split_cage_input,
 )
 from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.sumrules import SumAndElementsAtMostOnce
@@ -62,21 +57,13 @@ class KillerSudoku(Sudoku):
         space_sep: bool = False,
     ) -> None:
         """Load a cage layout followed by a single-character sum dictionary."""
-        row_wise, space_sep = _validate_load_options(row_wise, space_sep)
-        sum_cells, dictionary_text = split_cage_input(sum_cells_and_dic)
-        sum_cells = (
-            _load_preprocess_str_space_sep(sum_cells)
-            if space_sep
-            else _load_preprocess_str(sum_cells)
+        load_compact_cages(
+            self,
+            sum_cells_and_dic,
+            row_wise,
+            space_sep,
+            parse_dictionary=parse_killer_dictionary,
         )
-        # Do not rewrite '.' inside arithmetic targets as a blank zero.
-        dictionary_text = ''.join(dictionary_text.split())
-        definitions = parse_killer_dictionary(
-            dictionary_text,
-            sum_cells,
-            self.max_elem,
-        )
-        self.load_with_dic(sum_cells, definitions, row_wise)
 
     @staticmethod
     def _make_cage_entry(cage_sum: int) -> SumCellPair:

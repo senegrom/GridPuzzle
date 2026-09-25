@@ -3,7 +3,7 @@
    moving OCR and solver integration have their own mandatory suites. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { PHONE, serve, engines, main } = require('./harness.cjs');
+const { PHONE, serve, engines, main, stubCamera } = require('./harness.cjs');
 // The page has handled everything already dispatched to it once a frame has
 // been painted and a following task has run.
 const settled=page=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0))));
@@ -77,15 +77,14 @@ async function preferenceChecks(page, report) {
       for(let n=0;n<=4;n++){ctx.lineWidth=n%2?3:7;ctx.beginPath();ctx.moveTo(50+n*150,50);ctx.lineTo(50+n*150,650);ctx.moveTo(50,50+n*150);ctx.lineTo(650,50+n*150);ctx.stroke();}
       ctx.fillStyle='#000';ctx.font='58px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
       cells.forEach((v,i)=>{if(v!==null)ctx.fillText(String(v),50+(i%4+.5)*150,50+(Math.floor(i/4)+.5)*150);});
-      window.reviewStream?.getVideoTracks().forEach(t=>t.requestFrame?.());
+      window.__camera?.stream?.getVideoTracks().forEach(t=>t.requestFrame?.());
     }
     paint();window.reviewPaint=setInterval(paint,80);
-    const devices=navigator.mediaDevices;
-    Object.defineProperty(devices,'getUserMedia',{configurable:true,value:async()=>{window.reviewStream=paper.captureStream(12);return reviewStream;}});
-    Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:devices});
+    window.__cameraCanvas=paper;
     document.getElementById('auto-capture').checked=true;document.getElementById('auto-solve').checked=false;
     document.getElementById('puzzle-type').value='auto';
   });
+  await stubCamera(page,'canvas');
   await page.click('#camera');
   await page.waitForFunction(()=>!document.getElementById('start-camera').hidden || document.getElementById('video').videoWidth>0);
   if(await page.locator('#start-camera').isVisible())await page.click('#start-camera');
@@ -113,7 +112,7 @@ async function preferenceChecks(page, report) {
   await page.keyboard.press('Escape');assert.equal(await page.locator('#camera-panel').isVisible(),false);
   assert.equal(await page.evaluate(()=>document.activeElement.id),'camera');
   assert.equal(await page.evaluate(()=>!!document.getElementById('solve').closest('[inert]')),false);
-  assert.equal(await page.evaluate(()=>reviewStream.getTracks().every(t=>t.readyState==='ended')),true);
+  assert.equal(await page.evaluate(()=>window.__camera.stream.getTracks().every(t=>t.readyState==='ended')),true);
   await page.evaluate(()=>clearInterval(reviewPaint));
   report.checks.push('real camera UI honours auto-solve off, keeps one OCR reading when toggled, cancels/hides pending and complete solutions, rejects late replies; modal traps focus and restores background/opener on Escape');
 }

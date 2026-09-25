@@ -1,7 +1,13 @@
 """Native tests for the same adapter shipped inside the browser archive."""
 import json
+from pathlib import Path
 import pytest
 from gridsolver.web_api import build_grid, solve_payload, solve_json
+
+# Payloads shared with the browser's own contract tests (input-safety.test.js).
+FIXTURES = json.loads(
+    (Path(__file__).parents[1] / "web/tests/fixtures/payloads.json").read_text(encoding="utf-8")
+)
 
 
 def puzzle(kind='sudoku', rows=4, cols=None, cells=None, **extra):
@@ -167,3 +173,46 @@ def test_escaped_key_error_is_a_solver_error_not_invalid_data(monkeypatch):
     monkeypatch.setattr(web_api, 'build_grid', lookup_bug)
     result = json.loads(solve_json('{"type": "sudoku", "rows": 4, "cols": 4, "cells": ' + json.dumps([None] * 16) + '}'))
     assert result == {'status': 'error', 'message': "KeyError: 'missing'"}
+
+
+@pytest.mark.parametrize("fixture", FIXTURES, ids=lambda f: f["name"])
+def test_shared_payload_contract(fixture):
+    if fixture["solver"]:
+        build_grid(fixture["payload"])
+    else:
+        with pytest.raises(ValueError):
+            build_grid(fixture["payload"])
+
+
+def test_numbered_black_clue_changes_the_solution_count():
+    puzzle = {
+        "version": 1, "type": "str8ts", "rows": 3, "cols": 3,
+        "cells": [1, None, None, None, 3, None, None, None, None],
+        "black": [4],
+    }
+    assert solve_payload(puzzle)["status"] == "unique"
+    puzzle["cells"][4] = "#"
+    assert solve_payload(puzzle)["status"] == "multiple"
+
+
+@pytest.mark.parametrize("operator", [None, "", False, {}, 1])
+def test_explicit_invalid_operator_is_not_the_omitted_sum_default(operator):
+    puzzle = {
+        "type": "kenken", "rows": 2, "cols": 2,
+        "cells": [1, 2, 2, 1],
+        "cages": [{"cells": [i], "target": v, "op": operator}
+                  for i, v in enumerate([1, 2, 2, 1])],
+    }
+    with pytest.raises(ValueError, match="operator"):
+        build_grid(puzzle)
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_sum_default_and_explicit_sum_have_identical_solutions(explicit):
+    puzzle = {
+        "type": "kenken", "rows": 2, "cols": 2,
+        "cells": [1, 2, 2, 1],
+        "cages": [{"cells": [i], "target": v, **({"op": "+"} if explicit else {})}
+                  for i, v in enumerate([1, 2, 2, 1])],
+    }
+    assert solve_payload(puzzle)["status"] == "unique"

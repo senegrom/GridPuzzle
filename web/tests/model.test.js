@@ -5,6 +5,8 @@ import {
   checkShape,
   conflicts,
   demo,
+  fitPlay,
+  playConflicts,
   TYPES,
   classify,
   checkSolveReady,
@@ -233,4 +235,25 @@ test("omitted and explicit sum operators remain accepted", () => {
     p.cages = [1, 2, 2, 1].map((target, i) => ({ cells: [i], target, ...(op === undefined ? {} : { op }) }));
     assert.doesNotThrow(() => checkSolveReady(normalizePuzzle(p)));
   }
+});
+test('Kakuro duplicate and impossible partial sums have immediate feedback while valid answers do not',()=>{
+ const p=demo('kakuro'),play=fitPlay(p,[]);play[5]=1;
+ assert.ok(playConflicts(p,play).has(5));play[5]=2;assert.equal(playConflicts(p,play).size,0);
+ const q=makePuzzle('kakuro',3,3);q.cells=['#','#','#','#',null,null,'#',null,null];q.clues=[{cell:3,across:17}];
+ q.cells[4]=1;assert.ok(conflicts(q).has(4));q.cells[4]=8;assert.equal(conflicts(q).size,0);
+});
+test('Killer cages enforce distinct digits across different rows and boxes',()=>{
+ const p=makePuzzle('killersudoku',4);p.cages=[{cells:[1,2,6],target:6,op:'+'}];p.cells[1]=1;p.cells[2]=4;p.cells[6]=1;
+ assert.ok(conflicts(p).has(6));p.cells[2]=3;p.cells[6]=2;assert.equal(conflicts(p).size,0);
+ p.cells[6]=null;p.cages[0].target=20;assert.ok(conflicts(p).has(1));
+});
+for (const [op,target,invalid,valid] of [['+',3,[1,3],[1,2]],['*',6,[1,2],[2,3]],['-',2,[1,2],[1,3]],['/',3,[2,3],[1,3]]])
+ test(`KenKen ${op} cage arithmetic is checked without changing puzzle data`,()=>{
+  const p=makePuzzle('kenken',4);p.cages=[{cells:[0,1],target,op}];
+  [p.cells[0],p.cells[1]]=invalid;const before=JSON.stringify(p);assert.ok(conflicts(p).has(0));assert.equal(JSON.stringify(p),before);
+  [p.cells[0],p.cells[1]]=valid;assert.equal(conflicts(p).size,0);
+ });
+test('KenKen products use exact integers and do not reject possible partial cages',()=>{
+ const p=makePuzzle('kenken',4);p.cages=[{cells:[0,1],target:6,op:'*'}];p.cells[0]=2;assert.equal(conflicts(p).size,0);
+ p.cells[0]=4;assert.ok(conflicts(p).has(0));
 });

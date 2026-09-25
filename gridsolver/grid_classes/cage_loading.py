@@ -5,12 +5,41 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from functools import lru_cache
 from typing import TypeVar
 
-from gridsolver.abstract_grids.grid import _boolean_option
+from gridsolver.abstract_grids.grid import (
+    _boolean_option,
+    _load_preprocess_str,
+    _load_preprocess_str_space_sep,
+    _validate_load_options,
+)
 
 
 HeaderT = TypeVar("HeaderT")
 DefinitionT = TypeVar("DefinitionT")
 EntryT = TypeVar("EntryT")
+
+
+def load_compact_cages(
+    grid,
+    cage_input,
+    row_wise,
+    space_sep,
+    *,
+    parse_dictionary: Callable[[str, str, int], Mapping],
+) -> None:
+    """Shared ``load`` of Killer Sudoku and KenKen: a cage layout, ``:`` and a
+    compact dictionary, parsed by the family's own dictionary parser and
+    committed through the grid's ``load_with_dic``."""
+    row_wise, space_sep = _validate_load_options(row_wise, space_sep)
+    layout, dictionary_text = split_cage_input(cage_input)
+    layout = (
+        _load_preprocess_str_space_sep(layout)
+        if space_sep
+        else _load_preprocess_str(layout)
+    )
+    # Do not rewrite '.' inside arithmetic targets as a blank zero.
+    dictionary_text = ''.join(dictionary_text.split())
+    definitions = parse_dictionary(dictionary_text, layout, grid.max_elem)
+    grid.load_with_dic(layout, definitions, row_wise)
 
 
 def load_cage_layout(

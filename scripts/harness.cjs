@@ -147,4 +147,31 @@ function main(module_, run) {
   if (require.main === module_) run().catch((error) => { console.error(error); process.exitCode = 1; });
 }
 
-module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep };
+/* The camera the page's getUserMedia hands out, so a suite can test the app's
+   camera wiring without CI camera hardware. Runs in the page. It creates
+   navigator.mediaDevices where the browser has none (WebKit on Windows).
+   `answer` is "denied" (the permission is refused), "tracks" (a stream whose
+   tracks count stop() calls in window.__camera.stopped) or "canvas" (a 12 fps
+   capture of the canvas at window.__cameraCanvas, kept in
+   window.__camera.stream). window.__camera.restore() puts everything back. */
+function installCamera(answer) {
+  const installed = !navigator.mediaDevices;
+  if (installed) Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {} });
+  const media = navigator.mediaDevices, original = Object.getOwnPropertyDescriptor(media, "getUserMedia");
+  const camera = window.__camera = { stopped: 0, stream: null };
+  const answers = {
+    denied: async () => { throw new DOMException("Denied in acceptance test", "NotAllowedError"); },
+    tracks: async () => ({ getTracks: () => [{ stop() { camera.stopped++; } }] }),
+    canvas: async () => (camera.stream = window.__cameraCanvas.captureStream(12)),
+  };
+  Object.defineProperty(media, "getUserMedia", { configurable: true, value: answers[answer] });
+  camera.restore = () => {
+    if (original) Object.defineProperty(media, "getUserMedia", original);
+    else delete media.getUserMedia;
+    if (installed) delete navigator.mediaDevices;
+    delete window.__camera;
+  };
+}
+const stubCamera = (page, answer) => page.evaluate(installCamera, answer);
+
+module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep, stubCamera };
