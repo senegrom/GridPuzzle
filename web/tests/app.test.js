@@ -1,17 +1,46 @@
-// Exercise production view/import handlers with deterministic browser I/O.
-// The same flows run with real DOM/canvas in scanner_repair_regressions.cjs.
-import test from "node:test";
+// app.js and the page it drives: the Play view's photo and solution-only
+// controls, production handler wiring, saved settings, and the HTML/CSS shell.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import test from "node:test";
 import vm from "node:vm";
 import * as model from "../model.js";
 
+const read = (name) =>
+  fs.readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+
+test("production handlers use the shared helpers and solve-ready gate", () => {
+  const source = read("app.js");
+  assert.match(source, /moveIndex\(i, e\.key, state\.puzzle\.rows, state\.puzzle\.cols\)/);
+  assert.match(source, /hasCageRemoval\(state\.puzzle, state\.selected\)/);
+  assert.match(source, /hasInequalityRemoval\(state\.puzzle, state\.selected\)/);
+  assert.ok((source.match(/checkSolveReady\(state\.puzzle\)/g) || []).length >= 2);
+});
+
+test("loading a board keeps the scan type preference; settings persist as v2", () => {
+  const source = read("app.js");
+  assert.equal(source.includes('$("puzzle-type").value = p.type'), false);
+  assert.match(source, /storage\.set\("gridpuzzle-settings-v2"/);
+  assert.match(source, /storage\.get\("gridpuzzle-settings-v2"\)/);
+});
+
+test("core HTML owns the safe-area and security polish without patch files", () => {
+  const html = read("index.html"),
+    css = read("style.css");
+  assert.match(html, /http-equiv="Content-Security-Policy"/);
+  assert.match(html, /name="referrer" content="no-referrer"/);
+  assert.doesNotMatch(html, /accessibility\.js|polish\.css/);
+  assert.match(css, /safe-area-inset-top/);
+});
+
 const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+
 function section(first, last) {
   const start = source.indexOf(first), end = source.indexOf(last, start);
   assert.ok(start >= 0 && end > start, `Missing production section: ${first}`);
   return source.slice(start, end);
 }
+
 function viewHarness() {
   const nodes = new Map();
   const $ = (id) => {
@@ -55,6 +84,7 @@ test("entering Play hides the solved photo and disables solution-only controls",
   assert.equal(h.$("save-photo").hidden, true);
   assert.equal(h.$("next-solution").hidden, true);
 });
+
 test("Play cannot redraw or export a retained full solution through photo controls", () => {
   const h = viewHarness(); h.render(); const before = h.counts();
   h.$("edit-tool").value = "play"; h.$("edit-tool").onchange();
@@ -63,6 +93,7 @@ test("Play cannot redraw or export a retained full solution through photo contro
   assert.equal(h.state.view, "board");
   assert.deepEqual(h.counts(), before);
 });
+
 test("leaving Play can show the retained solution photo again without losing answers", () => {
   const h = viewHarness(); h.state.play = [2];
   const result = h.state.result;

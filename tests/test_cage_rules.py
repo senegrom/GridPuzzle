@@ -1,23 +1,25 @@
-"""Independent oracles for exact cage optimisation and fixed size metadata."""
-import copy
-import pickle
+"""Sum, product and arithmetic cage rules against independent oracles.
+
+Exact partitions (staircase generation, order preserved), Regin matching
+and guarantee deductions, Hall deductions on full-domain cages, product
+feasibility, stack safety on large cages, and the rules' public input
+validation.
+"""
+
 import random
+import sys
 from functools import cached_property
-from itertools import combinations, combinations_with_replacement, product
+from itertools import combinations, combinations_with_replacement
 from math import factorial, prod
 
 import pytest
 
 from gridsolver.abstract_grids.grid import Grid, SolveStatus
 from gridsolver.abstract_grids.gridsize_container import GridSizeContainer
-from gridsolver.abstract_grids.immutable_grid import ImmutableGrid
 from gridsolver.grid_classes.cage_loading import _product_target_is_possible
 from gridsolver.grid_classes.kenken import Kenken
-from gridsolver.grid_classes.slitherlink import Slitherlink
-from gridsolver.grid_classes.sudoku import Sudoku
 from gridsolver.rules.rules import Guarantee, InvalidGrid, RuleAlwaysSatisfied
-from gridsolver.rules.sumrules import ProdRule, SumAndElementsAtMostOnce
-from gridsolver.rules.topology import SingleLoopRule
+from gridsolver.rules.sumrules import DiffRule, DivRule, ProdRule, SumAndElementsAtMostOnce, SumAndElementsAtMostOnce as Cage, SumRule
 from gridsolver.solver.propagation import propagate_basic
 
 
@@ -99,57 +101,6 @@ def test_full_domain_cages_keep_hall_deductions_without_branching(maximum):
                for cell in range(3, maximum))
 
 
-@pytest.mark.parametrize('factory', (
-    lambda: GridSizeContainer(1, 2, 2),
-    lambda: ImmutableGrid([1, 2], 1, 2, 2),
-    lambda: Grid(1, 2, 2),
-    lambda: Sudoku(2, 2, 2, 2),
-    lambda: Slitherlink([[None]]),
-))
-def test_size_metadata_is_write_once_and_not_deletable(factory):
-    original = factory()
-    for value in (original, copy.copy(original), copy.deepcopy(original),
-                  pickle.loads(pickle.dumps(original))):
-        size = (value.rows, value.cols, value.max_elem, value.len)
-        for attribute in ('rows', 'cols', 'max_elem', 'len'):
-            with pytest.raises(AttributeError, match='read-only'):
-                setattr(value, attribute, getattr(value, attribute))
-            with pytest.raises(AttributeError, match='read-only'):
-                setattr(value, attribute, 999)
-            with pytest.raises(AttributeError, match='read-only'):
-                delattr(value, attribute)
-        assert (value.rows, value.cols, value.max_elem, value.len) == size
-        with pytest.raises(AttributeError, match='read-only'):
-            GridSizeContainer.__init__(value, 4, 5, 6)
-        assert (value.rows, value.cols, value.max_elem, value.len) == size
-
-
-@pytest.mark.parametrize('protocol', (0, pickle.DEFAULT_PROTOCOL, pickle.HIGHEST_PROTOCOL))
-def test_solution_hash_and_membership_survive_copy_pickle_and_rejected_mutation(protocol):
-    first = ImmutableGrid([1, 2], 1, 2, 2)
-    equivalent = ImmutableGrid([1, 2], 1, 2, 2)
-    solutions = {first}
-    mapping = {first: 'solution'}
-    before = hash(first)
-    for attribute in ('rows', 'cols', 'max_elem', 'len'):
-        with pytest.raises(AttributeError):
-            setattr(first, attribute, 3)
-    for other in (equivalent, copy.deepcopy(first), pickle.loads(pickle.dumps(first, protocol))):
-        assert first == other and hash(other) == before
-        assert other in solutions and mapping[other] == 'solution'
-        assert len(solutions | {other}) == 1
-
-
-def test_mutable_grid_still_accepts_values_and_trail_rollback():
-    grid = Grid(1, 2, 2)
-    mark = grid.trail_mark()
-    grid[0] = 1
-    grid.trail_undo(mark)
-    assert grid.known == (0, 0)
-    grid.load([1, 2])
-    assert grid.known == (1, 2)
-
-
 @pytest.mark.parametrize('maximum', range(1, 9))
 def test_iterative_product_feasibility_matches_complete_small_oracle(maximum):
     for count in range(5):
@@ -178,43 +129,89 @@ def test_large_valid_product_cages_load_without_recursion(side):
     assert cages[0].len_cells == side * side
 
 
-def _is_cycle(edges):
-    if not edges:
-        return False
-    adjacency = {}
-    for first, second in edges:
-        adjacency.setdefault(first, set()).add(second)
-        adjacency.setdefault(second, set()).add(first)
-    if any(len(neighbours) != 2 for neighbours in adjacency.values()):
-        return False
-    pending = [next(iter(adjacency))]
-    seen = set(pending)
-    while pending:
-        for neighbour in adjacency[pending.pop()]:
-            if neighbour not in seen:
-                seen.add(neighbour)
-                pending.append(neighbour)
-    return len(seen) == len(adjacency)
+# Stack safety on large cages. The partitions themselves are checked against
+# ordered combinations in test_partition_memory.py and by
+# test_staircase_preserves_every_partition_and_its_order above.
+@pytest.mark.parametrize("count", (1000, 2500))
+def test_large_near_extreme_partition_has_no_recursion(count):
+    grid = GridSizeContainer(1, count, max_elem=count + 1)
+    cage = Cage(grid, range(count), count * (count + 1) // 2 + 1)
+    assert cage.sum_candidates == (frozenset((*range(1, count), count + 1)),)
 
 
-def test_single_loop_pruning_preserves_every_small_graph_cycle():
-    edges = tuple(combinations(range(4), 2))
-    size = GridSizeContainer(1, len(edges), 2)
-    rule = SingleLoopRule(size, range(len(edges)), edges)
-    cycles = tuple(frozenset(i for i, value in enumerate(values) if value)
-                   for values in product((False, True), repeat=len(edges))
-                   if _is_cycle([edge for edge, value in zip(edges, values) if value]))
-    for state in product((0, 1, 2), repeat=len(edges)):
-        possible = {i for i, value in enumerate(state) if value != 0}
-        selected = {i for i, value in enumerate(state) if value == 2}
-        completions = tuple(cycle for cycle in cycles if selected <= cycle <= possible)
-        candidates = tuple({1} if value == 0 else {2} if value == 2 else {1, 2} for value in state)
-        try:
-            rule.apply([0] * len(edges), candidates)
-        except InvalidGrid:
-            assert not completions
-            continue
-        except RuleAlwaysSatisfied:
-            assert completions
-        for cycle in completions:
-            assert all((2 if i in cycle else 1) in candidates[i] for i in range(len(edges)))
+def test_full_large_cage_matching_is_stack_safe():
+    # One exact full-domain partition, but candidate edges form an
+    # alternating cycle whose final augmenting path is longer than a
+    # deliberately lowered recursion limit. The former recursive
+    # matcher failed here even though partition generation was iterative.
+    count = 400
+    grid = GridSizeContainer(1, count, max_elem=count)
+    cage = Cage(grid, range(count), count * (count + 1) // 2)
+    values = cage.sum_candidates[0]
+    order = list(values)
+    candidates = tuple(
+        [{order[0], order[-1]}]
+        + [{order[index - 1], order[index]} for index in range(1, count)]
+    )
+    known = [0] * count
+
+    original_limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(250)
+        changed, replacement_rules, guarantees = cage.apply(
+            known,
+            candidates,
+            (),
+        )
+    finally:
+        sys.setrecursionlimit(original_limit)
+
+    assert changed is False
+    assert replacement_rules is None
+    assert len(guarantees) == count
+    assert all(len(possible) == 2 for possible in candidates)
+
+
+def test_arithmetic_rule_targets_and_symmetric_identity_are_canonical():
+    grid_size = GridSizeContainer(1, 2, max_elem=4)
+
+    with pytest.raises(TypeError, match="integers"):
+        SumRule(grid_size, cells=[0, 1], mysum=1.5)
+    with pytest.raises(TypeError, match="integers"):
+        ProdRule(grid_size, cells=[0, 1], target=True)
+    with pytest.raises(TypeError, match="integers"):
+        DiffRule(grid_size, cells=[0, 1], target="1")
+    with pytest.raises(TypeError, match="integers"):
+        DivRule(grid_size, cells=[0, 1], target=2.0)
+    with pytest.raises(ValueError, match="positive"):
+        ProdRule(grid_size, cells=[0, 1], target=0)
+
+    forward_diff = DiffRule(grid_size, cells=[0, 1], target=1)
+    reverse_diff = DiffRule(grid_size, cells=[1, 0], target=1)
+    forward_div = DivRule(grid_size, cells=[0, 1], target=2)
+    reverse_div = DivRule(grid_size, cells=[1, 0], target=2)
+
+    assert forward_diff == reverse_diff
+    assert hash(forward_diff) == hash(reverse_diff)
+    assert forward_div == reverse_div
+    assert hash(forward_div) == hash(reverse_div)
+
+
+def test_division_rule_does_not_accept_a_rounded_float_ratio():
+    base = 2 ** 60
+    almost_three_times = 3 * base + 1
+    rule = DivRule(GridSizeContainer(1, 2, almost_three_times), cells=[0, 1], target=3)
+    candidates = ({almost_three_times}, {base})
+
+    with pytest.raises(InvalidGrid):
+        rule.apply([almost_three_times, base], candidates)
+
+
+def test_arithmetic_rules_validate_public_inputs():
+    grid_size = GridSizeContainer(1, 2, 2)
+    with pytest.raises(ValueError, match="positive"):
+        DivRule(grid_size, cells=[0, 1], target=0)
+    with pytest.raises(ValueError, match="exactly two"):
+        DivRule(grid_size, cells=[0], target=2)
+    with pytest.raises(ValueError, match="non-negative"):
+        DiffRule(grid_size, cells=[0, 1], target=-1)

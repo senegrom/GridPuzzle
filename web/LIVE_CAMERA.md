@@ -466,8 +466,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   unavailable storage and retry budgets; `capture-store` also covers transaction
   rollback, byte-storage round trips, same-context ordering and coordination
   failures.
-- `live-latency.test.js`: retry ownership and scheduling. `review-safety.test.js`:
-  content-change and deletion-ordering boundaries.
+- `live-latency.test.js`: retry ownership and scheduling. `live-content.test.js`:
+  content-change boundaries; `capture-store.test.js`: deletion ordering.
 - `live-registration.test.js`: small translations and rotation, background
   changes, and rejection of changed digits, erasure, fingers, weak labels and
   boundary marks. `live-interior-change.test.js`: small stroke changes in both

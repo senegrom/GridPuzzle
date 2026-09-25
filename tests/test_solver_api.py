@@ -336,3 +336,15 @@ def test_capped_search_does_not_undercount_overlapping_guarantee_branches():
     assert len(exhaustive) == 15
     assert len(capped) == 10
     assert capped <= exhaustive
+
+
+def test_solver_options_are_explicit():
+    with pytest.raises(ValueError, match="max_sols"):
+        solver.solve(Grid(1), max_sols=-2)
+    with pytest.raises(TypeError, match="max_sols"):
+        solver.solve(Grid(1), max_sols=True)
+    with pytest.raises(ValueError, match="processes"):
+        solver.solve(Grid(1), processes=-1)
+    with pytest.raises(TypeError, match="processes"):
+        solver.solve(Grid(1), processes=1.5)
+    assert solver.solve(Grid(1), max_sols=0) == set()

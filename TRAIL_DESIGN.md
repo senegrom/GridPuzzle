@@ -163,7 +163,7 @@ misordered marks, known/rule/guarantee/cache/dirty-state rollback, fish memo
 rollback, pickle and deepcopy coherence, and Nishio, forcing and backtracking
 without per-branch deep copies; `tests/test_stack_safe_search.py` covers the
 explicit-stack driver's depth safety. Sequential/parallel equivalence is in
-`tests/test_basic.py` and `tests/test_regressions.py`, the process pool's root,
+`tests/test_basic.py` and `tests/test_parallel_executor.py`, the process pool's root,
 per-task clones and bounded submission in `tests/test_solver_api.py`, and an
 independent enumeration of the complete 4x4 Sudoku solution space, with
 candidate soundness after a deduction pass, in `tests/test_differential.py`.

@@ -237,3 +237,47 @@ test("preparing the preview solver warms one worker that the first preview reuse
  assert.equal(h.workers[0].messages[1].puzzle,undefined===h.workers[0].messages[1].puzzle?undefined:h.workers[0].messages[1].puzzle);
  h.result(h.workers[0],unique);assert.equal(await pending,unique);
 });
+
+const corners = [{x:0,y:0},{x:299,y:0},{x:299,y:299},{x:0,y:299}];
+
+for (const phase of ["reading", "solving", "solved"]) test(`new pixels retire ${phase} results even when coarse motion misses the change`, async (t) => {
+  const read = deferred(), solve = deferred(); let valid = true, solveCalls = 0;
+  const s = createLiveSession({ read:()=>read.promise, solve:()=>{solveCalls++;return solve.promise;}, cancelRead(){}, cancelSolve(){},
+    onChange(){},onStatus(){},isCurrent:()=>valid,sameScene:()=>true });
+  t.after(()=>s.stop()); s.start();
+  const frame = { key:"2x2",width:300,corners,signature:new Uint8Array(4096).fill(180),sharpness:200 };
+  const puzzle = makePuzzle("latinsquare",2);puzzle.cells[0]=1;
+  s.observe(frame);s.observe(frame);
+  if (phase !== "reading") { read.resolve({puzzle,markedCells:[0]});await tick(); }
+  if (phase === "solved") { solve.resolve({status:"unique",complete:true,solutions:[{cells:[1,2,2,1]}]});await tick();assert.ok(s.preview.result); }
+  valid=false;
+  // Pending callbacks also validate, even before the next motion tick.
+  if (phase === "reading") read.resolve({puzzle,markedCells:[0]});
+  else if (phase === "solving") solve.resolve({status:"unique",complete:true,solutions:[{cells:[1,2,2,1]}]});
+  else s.motion(frame.signature);
+  await tick();assert.equal(s.preview,null);assert.equal(s.busy,false);
+  if (phase === "reading") assert.equal(solveCalls,0);
+});
+
+// --- live-overlay: blocker reasons and balanced context state ------------
+test("the preview blocker names the actual obstacle", () => {
+  const puzzle = makePuzzle("latinsquare", 2);
+  assert.match(previewBlocker({ puzzle, markedCells: [] }), /No printed clues/);
+  puzzle.cells = [1, 1, null, null];
+  assert.match(previewBlocker({ puzzle, markedCells: [0, 1] }), /Conflicting/);
+  puzzle.cells = [1, null, null, null];
+  assert.match(previewBlocker({ puzzle, markedCells: [0, 3] }), /Red \? cells/);
+  assert.equal(previewBlocker({ puzzle, markedCells: [0] }), null);
+  const cage = makePuzzle("kenken", 2);
+  cage.cages = [{ cells: [0, 1], target: 3, op: "+" }];
+  assert.match(previewBlocker({ puzzle: cage, markedCells: [] }), /cage/i);
+  assert.match(previewBlocker({}), /Check the readings/);
+});
+
+test("drawing an invalid guide puzzle leaves the canvas state balanced", () => {
+  let saves = 0, restores = 0;
+  const ctx = { save() { saves++; }, restore() { restores++; }, translate() {}, rotate() {}, fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {} };
+  const puzzle = makePuzzle("sudoku", 9, 6);
+  assert.throws(() => drawLiveOverlay(ctx, 300, 300, [{ x: 0, y: 0 }, { x: 299, y: 0 }, { x: 299, y: 299 }, { x: 0, y: 299 }], { puzzle, markedCells: [] }));
+  assert.equal(saves, restores, "a rejected puzzle shape must not leak a save()");
+});

@@ -7,6 +7,11 @@ import {
   demo,
   TYPES,
   classify,
+  checkSolveReady,
+  hasCageRemoval,
+  hasInequalityRemoval,
+  moveIndex,
+  normalizePuzzle,
 } from "../model.js";
 import {
   homography,
@@ -135,4 +140,97 @@ test("Str8ts black cells can be blank or numbered", () => {
   p.black = [4]; p.cells[4] = 3; assert.equal(checkShape(p), p);
   p.cells[4] = "#"; assert.equal(checkShape(p), p);
   assert.equal(classify({rows:9,cols:9,values:[9,1,4],black:12,blackNumbers:2,triangles:0,boxes:false}).type, "str8ts");
+});
+
+test('automatically identified boxed Sudoku still requires one rules confirmation',()=>{
+  const result=classify({rows:9,cols:9,boxes:true,values:[5,3,7]});
+  assert.equal(result.type,'sudoku');assert.equal(result.review,true);
+});
+
+test('browser validation rejects disconnected/overlapping/bad-arity cages early',()=>{
+  const p=makePuzzle('kenken',4);p.cages=[{cells:[0,2],target:3,op:'+'}];assert.throws(()=>checkShape(p),/connected/);
+  p.cages=[{cells:[0,1],target:3,op:'+'},{cells:[1,2],target:4,op:'+'}];assert.throws(()=>checkShape(p),/overlap/);
+  p.cages=[{cells:[0,1,2],target:1,op:'-'}];assert.throws(()=>checkShape(p),/exactly two/);
+  p.cages=[{cells:[0,1],target:1,op:'='}];assert.throws(()=>checkShape(p),/exactly one/);
+});
+
+test('Kakuro clue objects need at least one direction',()=>{
+  const p=makePuzzle('kakuro',3);p.cells[0]='#';p.clues=[{cell:0}];assert.throws(()=>checkShape(p),/across or down/);
+});
+
+test("board navigation never wraps across rows or columns", () => {
+  assert.equal(moveIndex(8, "ArrowRight", 9, 9), 8);
+  assert.equal(moveIndex(9, "ArrowLeft", 9, 9), 9);
+  assert.equal(moveIndex(4, "ArrowUp", 9, 9), 4);
+  assert.equal(moveIndex(76, "ArrowDown", 9, 9), 76);
+  assert.equal(moveIndex(10, "ArrowRight", 9, 9), 11);
+  assert.equal(moveIndex(10, "ArrowDown", 9, 9), 19);
+  assert.equal(moveIndex(10, "Enter", 9, 9), 10);
+});
+
+test("removal guards depend on puzzle state, not on editor text", () => {
+  const p = { cages: [{ cells: [0, 1] }], inequalities: [{ less: 4, greater: 5 }] };
+  assert.equal(hasCageRemoval(p, []), false);
+  assert.equal(hasCageRemoval(p, [7]), false);
+  assert.equal(hasCageRemoval(p, [1]), true);
+  assert.equal(hasInequalityRemoval(p, [4]), false);
+  assert.equal(hasInequalityRemoval(p, [4, 6]), false);
+  assert.equal(hasInequalityRemoval(p, [4, 5]), true);
+  assert.equal(hasCageRemoval(makePuzzle("sudoku", 4), [0]), false);
+});
+
+test("solve-ready cages require targets and complete coverage", () => {
+  const p = makePuzzle("kenken", 4);
+  p.cages = [{ cells: [0], target: 1, op: "=" }];
+  assert.throws(() => checkSolveReady(p), /cover every cell/);
+  p.cages = Array.from({ length: 16 }, (_, i) => ({
+    cells: [i],
+    target: (i % 4) + 1,
+    op: "=",
+  }));
+  assert.doesNotThrow(() => checkSolveReady(p));
+  p.cages[0].target = null;
+  assert.throws(() => checkSolveReady(p), /target/);
+  assert.doesNotThrow(() => checkSolveReady(makePuzzle("sudoku", 4)));
+});
+
+test("solve-ready Kakuro localizes missing and too-short runs before Python loads", () => {
+  const p = makePuzzle("kakuro", 3);
+  p.cells = ["#", "#", "#", "#", null, null, "#", null, null];
+  p.clues = [
+    { cell: 1, down: 4 },
+    { cell: 2, down: 6 },
+    { cell: 3, across: 3 },
+    { cell: 6, across: 7 },
+  ];
+  assert.doesNotThrow(() => checkSolveReady(p));
+  p.clues = p.clues.filter((q) => q.cell !== 6);
+  assert.throws(() => checkSolveReady(p), /exactly one across and one down run/);
+  const q = makePuzzle("kakuro", 2);
+  q.cells = ["#", null, "#", "#"];
+  q.clues = [{ cell: 0, across: 1 }];
+  assert.throws(() => checkSolveReady(q), /2 to 9/);
+});
+
+// --- model / persistence guards --------------------------------------------
+test("a Str8ts # outside the black list is reported as such, not as an out-of-range value", () => {
+  const p = makePuzzle("str8ts", 3);
+  p.cells[4] = "#";
+  assert.throws(() => checkShape(p), /listed as black/);
+});
+
+for (const op of [null, "", false, {}, 1])
+  test(`invalid cage operator ${JSON.stringify(op)} fails before Python starts`, () => {
+    const p = makePuzzle("kenken", 2);
+    p.cages = [1, 2, 2, 1].map((target, i) => ({ cells: [i], target, op }));
+    assert.throws(() => normalizePuzzle(p), /operator/);
+    assert.throws(() => checkSolveReady(p), /operator/);
+  });
+
+test("omitted and explicit sum operators remain accepted", () => {
+  for (const op of [undefined, "+"]) {
+    const p = makePuzzle("kenken", 2);
+    p.cages = [1, 2, 2, 1].map((target, i) => ({ cells: [i], target, ...(op === undefined ? {} : { op }) }));
+    assert.doesNotThrow(() => checkSolveReady(normalizePuzzle(p)));
+  }
 });
