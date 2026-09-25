@@ -1,6 +1,6 @@
 /* Additional real-browser scanner and input-boundary regressions. */
 const assert = require("node:assert/strict");
-const { SMALL_PHONE, serve, engines, main } = require("./harness.cjs");
+const { SMALL_PHONE, serve, engines, main, stubCamera } = require("./harness.cjs");
 
 // Draw known clues without reading any production OCR output. The perspective
 // fixture is a projective transform of the entire image, not just a CSS tilt.
@@ -459,19 +459,13 @@ async function editorRegressions(page, report) {
 async function installControlledCamera(page) {
   // Controlled media and queued timers exercise the real application's task
   // wiring in both engines, without depending on CI camera hardware.
+  await stubCamera(page, "tracks");
   await page.evaluate(() => {
-    // Some WebKit ports (Windows) expose no media capture at all; give
-    // them the same stub surface so the lifecycle check still runs.
-    const installedMedia = !navigator.mediaDevices;
-    if (installedMedia)
-      Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {} });
-    const video = document.querySelector("#video"), media = navigator.mediaDevices;
-    const original = Object.getOwnPropertyDescriptor(media, "getUserMedia");
+    const video = document.querySelector("#video");
     const timeout = window.setTimeout;
-    const camera = window.cameraTest = { stopped: 0, queued: [] };
-    Object.defineProperty(media, "getUserMedia", { configurable: true, value: async () => ({
-      getTracks: () => [{ stop() { camera.stopped++; } }],
-    }) });
+    const camera = window.cameraTest = { queued: [] };
+    // Stopped tracks are counted by the shared camera stub.
+    Object.defineProperty(camera, "stopped", { get: () => window.__camera.stopped });
     Object.defineProperty(video, "srcObject", { configurable: true, writable: true, value: null });
     Object.defineProperty(video, "play", { configurable: true, value: async () => {} });
     window.setTimeout = (fn, ms, ...args) => {
@@ -492,9 +486,7 @@ async function installControlledCamera(page) {
       window.Worker = NativeWorker;
       delete video.srcObject;
       delete video.play;
-      if (original) Object.defineProperty(media, "getUserMedia", original);
-      else delete media.getUserMedia;
-      if (installedMedia) delete navigator.mediaDevices;
+      window.__camera.restore();
       delete window.cameraTest;
     };
   });

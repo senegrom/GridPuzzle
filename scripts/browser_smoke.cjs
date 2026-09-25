@@ -2,7 +2,7 @@
 const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { serve, sleep } = require("./harness.cjs");
+const { serve, sleep, stubCamera } = require("./harness.cjs");
 // The offline checks stop the origin and start it again: the port is fixed so
 // the service worker's cache still belongs to the same origin.
 const BASE = "http://127.0.0.1:8765/GridPuzzle/",
@@ -424,24 +424,8 @@ async function checkStartupCancellation(browser, image, report) {
       assert.ok(await page.locator("#confirm-dialog").isVisible());
       await page.click("#confirm-back");
       report.checks.push("reload retains unconfirmed recognition flags");
-      await page.evaluate(() => {
-        // Some WebKit ports (Windows) expose no media capture at all; the
-        // app must offer the same fallback for a missing or denied camera.
-        if (!navigator.mediaDevices)
-          Object.defineProperty(navigator, "mediaDevices", {
-            configurable: true,
-            value: {},
-          });
-        Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-          configurable: true,
-          value: async () => {
-            throw new DOMException(
-              "Denied in acceptance test",
-              "NotAllowedError",
-            );
-          },
-        });
-      });
+      // The app must offer the same fallback for a missing or denied camera.
+      await stubCamera(page, "denied");
       await page.click("#camera");
       await page.waitForSelector("#native-camera:not([hidden])");
       report.checks.push("camera permission fallback");
