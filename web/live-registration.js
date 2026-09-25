@@ -1,18 +1,17 @@
-import { homography, project, validQuad } from "./geometry.js";
+import { gray, homography, project, validQuad } from "./geometry.js";
 import { gridContent, integralImage, sameGridContent } from "./live-content.js";
 
 // A bounded, anchored patch registration, not an identity classifier. A good
 // geometric fit is NEVER enough to publish OCR: every original content region
 // must also match. The anchor is never replaced by a chain of similar frames.
 const R = 4, PATCH = (2 * R + 1) ** 2, SEARCH = 8;
-function gray(image) {
+// The shared grayscale conversion, for frames the tracker can register at all:
+// a malformed or out-of-range frame has none.
+function frameGray(image) {
   const { width: w, height: h, data } = image;
   if (!Number.isInteger(w) || !Number.isInteger(h) || w < 16 || h < 16 ||
       w > 1600 || h > 1600 || data?.length !== w * h * 4) return null;
-  const g = new Uint8Array(w * h);
-  for (let i = 0; i < g.length; i++)
-    g[i] = (77 * data[4 * i] + 150 * data[4 * i + 1] + 29 * data[4 * i + 2]) >> 8;
-  return g;
+  return gray(image);
 }
 // What depends on a frame alone: its grayscale pixels and the integral image
 // its content is sampled from. One operation checks several anchors against
@@ -20,7 +19,7 @@ function gray(image) {
 export function trackingFrame(image) {
   let g, integral;
   return {
-    get gray() { if (g === undefined) g = gray(image); return g; },
+    get gray() { if (g === undefined) g = frameGray(image); return g; },
     get integral() { return (integral ??= integralImage(image, this.gray)); },
   };
 }
