@@ -1,12 +1,49 @@
 /* Fixed external corpus replay through automatic detection, tracking and real
    OCR. Reference corners/digits are never passed to the browser pipeline.
-   This records coverage, including no-read/quality rejections and annotation
-   ambiguities, rather than selecting easy successes, and holds every reading
-   to the app's safety contract, as newspaper_regressions does: a wrong,
-   missed or invented clue must be flagged for review. A picture the app
-   declines to read is recorded, not failed. */
+   Every reading must flag wrong, missed or invented clues. Acquisition is a
+   separate contract: two pinned, previously readable photographs must finish
+   a reading in each engine within the existing 25-second observation window.
+   The remaining difficult fixture may still be declined safely.
+
+   Baseline: Scanner quality run 36188868656, live-report artifact 10887403782,
+   2026-09-25, source d5dd9fb37a4c33ac8ac8179d84d2f25067e21fa5. Chromium
+   153.0.8010.12 and WebKit 26.6 both completed one reading of all three images.
+   mqec6cb3dm0d1 read 36/36 printed clues; zhudyie50d0d1 read 50/50. The first
+   image had two flagged discrepancies, so only the two clean images become
+   required acquisition fixtures. These are regression floors, not estimates
+   of real-phone accuracy or speed. No additional fixture or browser job. */
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const {serve,engines,main}=require('./harness.cjs');
+const ACQUISITION_REVISION='733559bafd65b5bdb953e07e5c7e06df0b03008d';
+const REQUIRED_ACQUISITION=Object.freeze({
+ 'images/mqec6cb3dm0d1.webp':'8b67de88afded20e196722183257c57af0b47d04d4580ec26aaba4ffc27bbadd',
+ 'images/zhudyie50d0d1.webp':'1681f73cdaaf0557d47eedf572cf5539a5f8507f8d4a926310b081c8dacb198d',
+});
+function replayFixtures(corpus){
+ const fixtures=corpus.fixtures.slice(0,3);
+ assert.equal(fixtures.length,3);
+ assert.equal(corpus.revision,ACQUISITION_REVISION,'acquisition baseline needs an explicit revision update');
+ for(const [name,sha] of Object.entries(REQUIRED_ACQUISITION)){
+  const matches=fixtures.filter(f=>f.name===name);
+  assert.equal(matches.length,1,`required acquisition fixture missing or duplicated: ${name}`);
+  assert.equal(matches[0].sha256,sha,`acquisition fixture bytes changed: ${name}`);
+ }
+ return fixtures;
+}
+function requireAcquisition(report){
+ const sha=REQUIRED_ACQUISITION[report.source.name];
+ report.acquisitionRequired=!!sha;
+ if(!sha)return;
+ const label=`${report.browser}: ${report.source.name}`;
+ assert.equal(report.source.revision,ACQUISITION_REVISION,`${label}: wrong acquisition revision`);
+ assert.equal(report.source.sha256,sha,`${label}: wrong acquisition image`);
+ assert.equal(report.outcome,'read',`${label}: required photograph had no completed reading within 25 seconds`);
+ const reads=report.result?.reads;
+ assert.ok(Array.isArray(reads)&&reads.length>0,`${label}: no completed OCR result`);
+ assert.equal(reads.at(-1).cells?.length,81,`${label}: incomplete Sudoku transcription`);
+ assert.ok(reads.at(-1).cells.some(value=>Number.isInteger(value)&&value>=1&&value<=9),
+  `${label}: an empty result is not acquisition of this printed puzzle`);
+}
 // Once playback stops, capture() must drop the overlay as soon as the newest
 // presented frame is older than the frame scheduler's freshness limit
 // (web/live-frame-scheduler.js: fresh while now() - lastSeen <= 500); it
@@ -40,8 +77,7 @@ function labels(block){
  const digits=flags.flatMap((flag,i)=>i&&flag?[i]:[]);return{value:flags[0]&&digits.length===1?digits[0]:null,ambiguous:!flags[0]&&digits.length>0};}));
 }
 async function run(){
- const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=corpus.fixtures.slice(0,3),reports=[],failures=[];
- assert.equal(fixtures.length,3);
+ const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[];
  const server=await serve();
  try{
   for(const [i,f] of fixtures.entries()){
@@ -63,6 +99,7 @@ async function run(){
      r.expiredAfter=Date.now()-pausedAt;
      assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
      if(r.score)assert.deepEqual(r.score.unflagged,[],'every wrong, missed or invented clue must be flagged for review');
+     requireAcquisition(r);
     }finally{
      r.closed=await page.evaluate(()=>window.externalReplay?.stop()).catch(()=>null);
      if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}
@@ -72,4 +109,4 @@ async function run(){
  }finally{fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));await server.close();}
  if(failures.length)throw failures[0];
 }
-module.exports={run,labels};main(module,run);
+module.exports={run,labels,replayFixtures,requireAcquisition};main(module,run);
