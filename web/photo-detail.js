@@ -65,7 +65,10 @@ export async function photoDetail(preview, corners, { current = () => true } = {
   if (typeof globalThis.createImageBitmap !== 'function') return fallback(unavailable);
   const previous = decodeQueue;
   let finished, timer = null, bitmap = null, canvas = null;
-  decodeQueue = new Promise((resolve) => { finished = resolve; });
+  const completed = new Promise((resolve) => { finished = resolve; });
+  // A timed-out or superseded waiter releases only its own turn, never an
+  // earlier decode that is still running. Keep that predecessor in the chain.
+  decodeQueue = previous.then(() => completed);
   try {
     const turn = await Promise.race([previous.then(() => true),
       new Promise((resolve) => { timer = setTimeout(resolve, DECODE_WAIT, false); })]);
