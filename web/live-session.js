@@ -257,11 +257,32 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!sample) return;
     best = null; activeSample = sample; pending = true; attempts = sharper ? 1 : attempts + 1;
     lastRead = now(); lastSharpness = Number.isFinite(sample.sharpness) ? sample.sharpness : 0;
-    const owns = () => active && id === generation;
+    // A full retry is a proposal until it completes. Keep the accepted reading
+    // in stored so its anchor stays retained/proved and a failed partial atlas
+    // cannot replace it. First acquisition still publishes partial clues.
+    const base = stored?.readComplete ? stored : null;
+    let reading = true;
+    const owns = () => reading && active && id === generation;
+    const failedRetry = reason => {
+      if (!owns()) return;
+      // Retire this request before cancellation, which can deliver callbacks.
+      reading = false; generation++; clearDeadline(); pending = false;
+      stored = base; release(sample);
+      if (activeSample === sample) activeSample = null;
+      cancelRead();
+      status = reason === "full-retry-timeout"
+        ? "Recognition retry timed out. Keeping the previous reading; capture to review."
+        : "Could not re-read this frame. Keeping the previous reading; capture to review.";
+      onEvent({ stage: "checking", reason, cancelledRead: reason === "full-retry-timeout" });
+      // Retention is not permission to paint: proof(base.sample) still gates
+      // the overlay, and prolonged loss, changed content and Stop still reset.
+      validate();
+    };
     status = "Reading printed clues… Keep the grid in view."; say(status);
     onEvent({ stage: "reading", reason: "full-read" });
     deadline = setTimer(() => {
       if (!owns()) return;
+      if (base) { failedRetry("full-retry-timeout"); return; }
       reset(); say("Recognition timed out. Keep the grid in view to retry, or capture for manual review.");
     }, 90000);
     void (async () => {
@@ -274,7 +295,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
           }, partial => {
             if (!owns()) return;
             checkShape(partial.puzzle);
-            stored = { found: partial, result: null, corners: sample.corners, sample };
+            if (!base) stored = { found: partial, result: null, corners: sample.corners, sample };
             validate();
           });
         } finally { release(sample); if (activeSample === sample) activeSample = null; }
@@ -290,8 +311,9 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         if (blocker) return;
 
       } catch (error) {
-        if (owns() && error?.name !== "AbortError") { status = error.message || "Could not read this frame. Try moving closer."; if (validate()) say(status); }
-      } finally { if (owns()) { clearDeadline(); pending = false; validate(); } }
+        if (base) failedRetry("full-retry-failed");
+        else if (owns() && error?.name !== "AbortError") { status = error.message || "Could not read this frame. Try moving closer."; if (validate()) say(status); }
+      } finally { if (owns()) { reading = false; clearDeadline(); pending = false; validate(); } }
     })();
   }
   return {
