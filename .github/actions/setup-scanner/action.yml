@@ -2,12 +2,15 @@ name: Set up the scanner suites
 description: >-
   Python 3.14, Node 22, the pinned self-hosted runtime built into _site (or
   one already downloaded, with build set to "false") and the repository's
-  Playwright version with Chromium and WebKit. The Playwright version lives
-  here and nowhere else.
+  Playwright version with Chromium and WebKit, or the one engine a
+  per-engine job tests. The Playwright version lives here and nowhere else.
 inputs:
   build:
     description: Build _site with scripts/build_web.py ("true"), or expect it to be present already
     default: "true"
+  browsers:
+    description: The Playwright browsers to install, space-separated
+    default: "chromium webkit"
 runs:
   using: composite
   steps:
@@ -27,21 +30,31 @@ runs:
       with:
         path: ~/.npm
         key: scanner-npm-${{ runner.os }}-${{ hashFiles('scripts/build_web.py', '.github/actions/setup-scanner/action.yml') }}
+    # A job that installs one engine keeps its own cache entry: under the
+    # shared key it would stand in for the full set and never be refreshed.
+    - name: Name the browser set
+      id: browsers
+      shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
+      run: echo "set=$(echo $BROWSERS | tr ' ' '-')" >> "$GITHUB_OUTPUT"
     - name: Restore Playwright browsers
       id: browser-cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ~/.cache/ms-playwright
-        key: scanner-playwright-${{ runner.os }}-${{ hashFiles('.github/actions/setup-scanner/action.yml') }}
+        key: scanner-playwright-${{ runner.os }}-${{ steps.browsers.outputs.set }}-${{ hashFiles('.github/actions/setup-scanner/action.yml') }}
     - name: Build pinned self-hosted runtime
       shell: bash
       run: |
         if [ "${{ inputs.build }}" = "true" ]; then python scripts/build_web.py; else echo "using the _site already present"; fi
     - name: Install repository browser test versions
       shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
       run: |
         npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-        npx playwright install --with-deps chromium webkit
+        npx playwright install --with-deps $BROWSERS
     # Parallel jobs may race to save the same key; the losers only warn.
     - name: Save npm downloads
       if: steps.npm-cache.outputs.cache-hit != 'true' && inputs.build == 'true'

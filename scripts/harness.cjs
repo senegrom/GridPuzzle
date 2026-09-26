@@ -6,7 +6,19 @@ const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { chromium, webkit } = require("playwright");
+
+/* The engines a run covers: BROWSER_ENGINES, a comma- or space-separated
+   subset of chromium and webkit ("webkit" alone in CI's per-engine jobs), or
+   both when it is unset or empty. An unknown name stops the run instead of
+   silently testing nothing. */
+const ENGINES = ["chromium", "webkit"];
+function selectedEngines(value = process.env.BROWSER_ENGINES) {
+  const names = String(value ?? "").split(/[\s,]+/).filter(Boolean);
+  if (!names.length) return [...ENGINES];
+  const unknown = names.filter((name) => !ENGINES.includes(name));
+  if (unknown.length) throw new Error(`BROWSER_ENGINES names no engine ${unknown.join(", ")}; use ${ENGINES.join(" and/or ")}`);
+  return ENGINES.filter((name) => names.includes(name));
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -102,19 +114,24 @@ function baselineSite(commit, files) {
   return { directory, remove: () => { fs.rmSync(directory, { recursive: true, force: true }); temporary.delete(directory); } };
 }
 
-/* Runs `suite(page, report, name, browser)` in Chromium and WebKit, each on
-   a fresh context, and writes the reports to `file` (under browser-artifacts
-   unless it names a directory) after each engine. A page error fails the
-   engine, a failing engine gets a screenshot, and both engines run before the
-   first failure is rethrown. `report` starts as { browser, version, errors };
-   the suite adds what it measures. */
+/* Runs `suite(page, report, name, browser)` in Chromium and WebKit (or the
+   engines BROWSER_ENGINES selects), each on a fresh context, and writes the
+   reports to `file` (under browser-artifacts unless it names a directory)
+   after each engine. A page error fails the engine, a failing engine gets a
+   screenshot, and every engine runs before the first failure is rethrown.
+   `report` starts as { browser, version, errors }; the suite adds what it
+   measures. */
 async function engines(file, suite, { context = PHONE, timeout = 20000, screenshot = path.basename(file, ".json") } = {}) {
+  const selected = selectedEngines();
+  // Loaded here, not at the top, so the engine selection can be tested
+  // without Playwright installed.
+  const playwright = require("playwright");
   const out = file.includes("/") ? file : `browser-artifacts/${file}`;
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.mkdirSync("browser-artifacts", { recursive: true });
   const reports = [], failures = [];
-  for (const [name, engine] of Object.entries({ chromium, webkit })) {
-    const browser = await engine.launch({ headless: true });
+  for (const name of selected) {
+    const browser = await playwright[name].launch({ headless: true });
     const report = { browser: name, version: browser.version(), errors: [] };
     reports.push(report);
     console.log(`${name} ${report.version}`);
@@ -174,4 +191,4 @@ function installCamera(answer) {
 }
 const stubCamera = (page, answer) => page.evaluate(installCamera, answer);
 
-module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep, stubCamera };
+module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep, stubCamera, selectedEngines };
