@@ -366,6 +366,15 @@ small focus fluctuations do not restart OCR. Each retry takes fresh pixels: a
 released frame is never eligible merely because it was sharper, and frames
 observed while OCR was pending do not outrank the next fresh capture.
 
+A full re-read of a completed reading is a proposal until it finishes. The
+completed reading stays in place, with its tracking anchor still verified, and
+partial output from the re-read never replaces it. A re-read that completes
+replaces it only once its own frame verifies, before it is shown or solved. One
+that fails, is cancelled or reaches the 90-second deadline leaves the previous
+reading and its solution in place and says "Keeping the previous reading";
+callbacks it delivers afterwards are ignored. Changed content, prolonged loss,
+settings changes and Stop still reset the reading as before.
+
 ### Targeted retries of uncertain clues
 
 After a complete numeric reading, a substantially clearer cell interior can
@@ -550,7 +559,11 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   corners and values never reach the recognition path. Its report keeps no-read
   and quality rejections, errors, natural uncertainty and cell-level scores, and
   treats ambiguous pencil marks separately from printed givens. It records
-  coverage and is not a gate.
+  coverage, and it is also a gate for acquisition: the two clean pinned
+  photographs (`mqec6cb3dm0d1` and `zhudyie50d0d1`, by hash and dataset
+  revision) must complete an 81-cell reading in each engine within the
+  25-second window, while the third, harder picture may be declined. On the
+  hosted runners they read in 2.6-7.4 seconds.
 - `ocr_latency_regressions.cjs` reads the two newspaper crops five times on one
   Scanner and records cold and warm read times, the time to the first
   provisional reading, worker counts and cache hits; it asserts engine reuse and
