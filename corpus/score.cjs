@@ -1,6 +1,10 @@
 /* Semantic scanner scoring. Independent of Playwright, the corpus and OCR.
    Counts observations, not distinct Map keys: duplicates are extra readings.
-   Topology errors are separate from the printed-clue accuracy denominator. */
+   Topology errors are separate from the printed-clue accuracy denominator.
+   Review flags cost the user a check too: flaggedCorrect counts correctly read
+   clues that carry a flag, flaggedEmpty counts flagged cells that are empty in
+   both the target and the reading (emptyCells is its denominator), so a change
+   cannot lower unflagged errors by flagging everything unnoticed. */
 function cageOperator(cage) {
   const aliases = { "×": "*", x: "*", X: "*", "÷": "/", "−": "-" };
   const op = cage.op || "+", normalized = aliases[op] || op;
@@ -12,7 +16,8 @@ function score(target, reading) {
   const flagged = new Set(reading.uncertain || []);
   const structural = new Set(reading.cageUncertain || []);
   const result = { printed: 0, correct: 0, wrong: 0, missed: 0, invented: 0, unsafe: 0,
-    topologyWrong: 0, topologyUnsafe: 0, shapeErrors: Math.abs(truth.length - read.length) };
+    topologyWrong: 0, topologyUnsafe: 0, shapeErrors: Math.abs(truth.length - read.length),
+    flaggedCorrect: 0, emptyCells: 0, flaggedEmpty: 0 };
   const unflagged = (cells) => !cells.some(cell => flagged.has(cell) || structural.has(cell));
   function compare(wanted, got, key, same, cells) {
     const remaining = new Map();
@@ -27,7 +32,11 @@ function score(target, reading) {
       // Prefer an exact match regardless of observation order. Leave duplicate
       // or contradictory readings in the bucket to be counted as invented.
       const exact = matches.findIndex(candidate => same(item, candidate));
-      if (exact >= 0) { matches.splice(exact, 1); result.correct++; continue; }
+      if (exact >= 0) {
+        matches.splice(exact, 1); result.correct++;
+        if (!unflagged(cells(item))) result.flaggedCorrect++;
+        continue;
+      }
       if (matches.length) { matches.shift(); result.wrong++; } else result.missed++;
       if (unflagged(cells(item))) result.unsafe++;
     }
@@ -63,13 +72,16 @@ function score(target, reading) {
     }
     if (Number.isInteger(value)) {
       result.printed++;
-      if (got === value) { result.correct++; return; }
+      if (got === value) { result.correct++; if (flagged.has(cell)) result.flaggedCorrect++; return; }
       if (got === null || got === undefined) result.missed++; else result.wrong++;
       if (!flagged.has(cell)) result.unsafe++;
     } else if (Number.isInteger(got)) {
       // A digit hallucinated on a blocked cell is still an invented digit.
       result.invented++;
       if (!flagged.has(cell)) result.unsafe++;
+    } else if (!blocked && !readBlocked) {
+      result.emptyCells++;
+      if (flagged.has(cell)) result.flaggedEmpty++;
     }
   });
   if (target.corners && reading.corners) {
@@ -86,4 +98,4 @@ function isPerfect(result) {
   return !result.error && result.printed > 0 && result.correct === result.printed &&
     !result.wrong && !result.missed && !result.invented && !result.topologyWrong && !result.shapeErrors;
 }
-module.exports = { score, isPerfect, SCORE_VERSION: 2 };
+module.exports = { score, isPerfect, SCORE_VERSION: 3 };

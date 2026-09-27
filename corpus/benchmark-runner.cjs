@@ -44,6 +44,7 @@ function summarize(results) {
       printed: sum("printed"), correct: sum("correct"), wrong: sum("wrong"), missed: sum("missed"),
       invented: sum("invented"), unsafe: sum("unsafe"), topologyWrong: sum("topologyWrong"),
       topologyUnsafe: sum("topologyUnsafe"), shapeErrors: sum("shapeErrors"), perfect: ok.filter(isPerfect).length,
+      flaggedCorrect: sum("flaggedCorrect"), emptyCells: sum("emptyCells"), flaggedEmpty: sum("flaggedEmpty"),
       medianCornerError: median(ok.filter(r => r.cornerError !== undefined).map(r => r.cornerError)),
       medianMs: median(ok.map(r => r.total)) };
   });
