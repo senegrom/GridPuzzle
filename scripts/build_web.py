@@ -79,7 +79,7 @@ EXTRA_LICENCES = {
         "tesseract.js-core/giflib-COPYING",
         "tesseract.js-core/libwebp-COPYING",
         "tesseract.js-core/libwebp-PATENTS",
-        "tesseract.js-core/openlibm-LICENSE.md",
+        "tesseract.js-core/openlibm-LICENSE",
         "tesseract.js-core/zlib-README",
         *EMSCRIPTEN_LICENCES,
     ),

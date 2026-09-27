@@ -107,7 +107,7 @@ def test_every_package_ships_its_licence_and_no_unused_core(monkeypatch, tmp_pat
         "zlib-LICENSE", "bzip2-LICENSE", "emscripten-LICENSE", "musl-COPYRIGHT")}
     vendored |= {f"licenses/tesseract.js-core-{name}" for name in (
         "leptonica-license.txt", "libjpeg-README", "libpng-LICENSE", "libtiff-COPYRIGHT", "giflib-COPYING",
-        "libwebp-COPYING", "libwebp-PATENTS", "openlibm-LICENSE.md", "zlib-README",
+        "libwebp-COPYING", "libwebp-PATENTS", "openlibm-LICENSE", "zlib-README",
         "emscripten-LICENSE", "musl-COPYRIGHT")}
     assert vendored <= paths
     # The loaders embed their WebAssembly; the bare binaries are never requested.
@@ -145,6 +145,14 @@ def test_a_missing_bundle_licence_notice_stops_the_build(monkeypatch, tmp_path):
         fake_build(monkeypatch, tmp_path, paths=paths)
 
 
+def test_no_vendored_licence_text_hides_behind_the_documentation_filters():
+    # ci.yml and browser-pages.yml skip changes to **/*.md, so a shipped
+    # licence text named *.md could change without CI or the deploy gate.
+    named_md = [relative for relatives in build_web.EXTRA_LICENCES.values()
+                for relative in relatives if relative.lower().endswith(".md")]
+    assert named_md == []
+
+
 def test_vendored_licence_texts_are_the_expected_licences():
     texts = {
         relative: (build_web.VENDORED_LICENCES / relative).read_text(encoding="utf-8")
@@ -171,7 +179,7 @@ def test_vendored_licence_texts_are_the_expected_licences():
         "tesseract.js-core/giflib-COPYING": "Eric S. Raymond",
         "tesseract.js-core/libwebp-COPYING": "Google Inc",
         "tesseract.js-core/libwebp-PATENTS": "patent",
-        "tesseract.js-core/openlibm-LICENSE.md": "OpenLibm",
+        "tesseract.js-core/openlibm-LICENSE": "OpenLibm",
         "tesseract.js-core/zlib-README": "Jean-loup Gailly",
     }
     for relative, marker in markers.items():

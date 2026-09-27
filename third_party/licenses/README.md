@@ -36,7 +36,7 @@ naptha/tesseract.js-core tag `v6.0.0`.
 | `tesseract.js-core/libtiff-COPYRIGHT` | libtiff 4.3.0. | `COPYRIGHT` at libtiff/libtiff (gitlab.com) commit `b51bb157123264e26d34c09cc673d213aea61fc7` |
 | `tesseract.js-core/giflib-COPYING` | giflib 5.1.4. | `COPYING` at mirrorer/giflib commit `fa37672085ce4b3d62c51627ab3c8cf2dda8009a` |
 | `tesseract.js-core/libwebp-COPYING`, `tesseract.js-core/libwebp-PATENTS` | libwebp 1.2.2, BSD with Google's patent grant. | `COPYING` and `PATENTS` at webmproject/libwebp commit `20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c` |
-| `tesseract.js-core/openlibm-LICENSE.md` | openlibm 0.8.0. | `LICENSE.md` at JuliaMath/openlibm commit `ae2d91698508701c83cab83714d42a1146dccf85` |
+| `tesseract.js-core/openlibm-LICENSE` | openlibm 0.8.0. | `LICENSE.md` at JuliaMath/openlibm commit `ae2d91698508701c83cab83714d42a1146dccf85`, stored without the `.md` extension so that CI's documentation-only path filters do not skip a change to it |
 | `tesseract.js-core/zlib-README` | zlib 1.2.12; that release has no separate licence file, and the README carries the notice. | `README` at madler/zlib commit `21767c654d31d2dccdde4330529775c6c5fd5389` |
 | `emscripten/emscripten-LICENSE`, `emscripten/musl-COPYRIGHT` | The Emscripten runtime and musl libc compiled into both binaries (Emscripten 5.0.3 for Pyodide, 3.1.38 for the Tesseract core); shipped once per package. | `LICENSE` and `system/lib/libc/musl/COPYRIGHT` at the emscripten-core/emscripten tag `5.0.3`; both files are byte-identical at `3.1.38` |
 
