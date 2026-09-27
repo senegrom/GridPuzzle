@@ -334,7 +334,8 @@ def test_parse_checks_fail_when_node_or_find_fails():
     checks = []
     for path in sorted((_GITHUB / "workflows").glob("*.yml")):
         checks += re.findall(r"^.*node --check.*$", path.read_text(encoding="utf-8"), re.M)
-    assert len(checks) == 2
+    # Once, in "Browser branch tests", which every pull request runs.
+    assert len(checks) == 1
     for check in checks:
         assert check.strip().startswith("run: set -o pipefail; find "), check
         assert check.strip().endswith("-print0 | xargs -0 -n1 node --check"), check
@@ -516,6 +517,13 @@ def test_extended_ci_runs_when_what_its_jobs_read_changes():
     }
     assert len(read) > 10
     assert {path for path in read if not _filter_selects(paths, path)} == set()
+    # And nothing else: a push path that no job reads starts every Extended
+    # job for nothing (five renamed test files once did). The jobs import the
+    # solver and read the corpora, so those trees count as read.
+    read |= _files("gridsolver") | _files("Examples")
+    unused = [pattern for pattern in paths if not pattern.startswith("!")
+              and not any(_filter_selects([pattern], path) for path in read)]
+    assert unused == []
 
 
 def test_extended_ci_solves_every_new_family_file_in_exactly_one_shard():

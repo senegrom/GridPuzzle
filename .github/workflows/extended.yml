@@ -13,11 +13,6 @@ on:
       - "tests/test_examples_*.py"
       - "scripts/run_new_family_corpus.py"
       - "benchmarks/corpus_timeout_baseline.json"
-      - "tests/test_corpus_timeout_policy.py"
-      - "tests/test_new_family_corpus_runner.py"
-      - "tests/test_extension_isolation.py"
-      - "tests/test_cage_rules.py"
-      - "tests/test_parallel_executor.py"
       - "tests/test_basic.py"
       - "tests/test_scale.py"
       - "tests/test_stack_safe_search.py"
@@ -77,9 +72,12 @@ jobs:
           # Sudoku enumerations, the blank 32x32 Slitherlink search (the
           # 1024-decision chain in the same file runs on every push) and the
           # 100x100 Sudoku (the smaller sizes also run on every push).
+          # -m slow keeps the fast cases of these files, which the per-push
+          # suite already runs, out of this job.
           - name: Slow deterministic checks
             timeout: 30
             flags: -X dev
+            mark: -m slow
             selection: >-
               tests/test_basic.py::test_parallel_trials_match_sequential
               tests/test_basic.py::test_sudo1
@@ -91,7 +89,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-project
       - name: Run ${{ matrix.name }}
-        run: python ${{ matrix.flags }} -m pytest -q ${{ matrix.selection }} --durations=20
+        run: python ${{ matrix.flags }} -m pytest -q ${{ matrix.selection }} ${{ matrix.mark }} --durations=20
 
   new-family-corpus:
     name: ${{ matrix.family }} corpus shard ${{ matrix.shard }} of ${{ matrix.shards }}

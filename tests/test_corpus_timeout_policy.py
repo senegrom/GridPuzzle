@@ -164,8 +164,17 @@ def test_the_shipped_baseline_is_one_the_weekly_job_will_accept():
     assert allowed, "a baseline with no accepted timeout should be deleted, not shipped empty"
 
 
-@pytest.mark.parametrize("left", [8, 7, 1])
-def test_a_baseline_in_its_last_week_says_so(root, left):
+def test_at_least_two_weekly_runs_warn_before_any_expiry():
+    """Extended CI's schedule runs on Sundays; whatever weekday a baseline
+    expires on, two of those runs fall inside the notice window."""
+    for weekday_offset in range(7):
+        expires = date(2026, 10, 4) + timedelta(days=weekday_offset)
+        warned = [expires - timedelta(days=left) for left in range(1, corpus.EXPIRY_NOTICE_DAYS + 1)]
+        assert sum(day.weekday() == 6 for day in warned) >= 2, expires
+
+
+@pytest.mark.parametrize("left", [15, 14, 8, 1])
+def test_a_baseline_in_its_last_two_weeks_says_so(root, left):
     path, data = _baseline(root)
     expires = date.fromisoformat(data["expires_on"])
     notice = corpus.expiry_notice(path, today=expires - timedelta(days=left))
@@ -177,8 +186,8 @@ def test_a_baseline_in_its_last_week_says_so(root, left):
 
 
 @pytest.mark.parametrize("left", [30, 5])
-def test_main_warns_on_stderr_only_in_the_baselines_last_week(root, monkeypatch, capsys, left):
-    """The weekly job's runs of the last week pass but say the baseline is
+def test_main_warns_on_stderr_only_in_the_baselines_last_weeks(root, monkeypatch, capsys, left):
+    """The weekly job's runs of the last two weeks pass but say the baseline is
     about to expire; stdout keeps carrying nothing but the report."""
     path, data = _baseline(root)
     today = datetime.now(UTC).date()

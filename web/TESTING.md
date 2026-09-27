@@ -47,8 +47,9 @@ The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deploy
 
 The 26 suites under `scripts/` (`harness.cjs` is the shared runner, not a
 suite) and the workflow jobs that run them. `build` is the deployment gate's
-main job in `browser-pages.yml`, `live-acceptance` and `live-camera` its two
-fresh-runner jobs on the built artifact; `recognition` and `live` are the two parallel jobs of
+main job in `browser-pages.yml`; `live-acceptance` and the per-engine
+`live-camera (chromium)` and `live-camera (webkit)` are its three fresh-runner
+jobs on the built artifact; `recognition` and `live` are the two parallel jobs of
 `scan-input.yml` ("Scanner quality"). The camera suites are described in more
 detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 
@@ -59,8 +60,8 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
-| `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; a picture the app declines to read is recorded, not failed | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live-camera` |
+| `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it | `live-acceptance` |
@@ -120,8 +121,13 @@ to be the first step of `build`, which every later job waits for; in its own
 `live-camera` job beside `live-acceptance`, a pull request's gate went from
 732 s (build 520 s, then live-acceptance 201 s) to 590 s (build 308 s, then
 live-camera 271 s alongside live-acceptance 199 s), at about two more billed
-runner minutes per run. `live-camera` is now the longer of the two parallel
-jobs; running its two engines as separate jobs would shorten it further.
+runner minutes per run. Since then each engine has its own job
+(`BROWSER_ENGINES` selects the harness's engine): on the pull request that
+split it (run 36188868585) the stage after `build` took 203 s instead of
+263-307 s, with Chromium's camera job at 112 s, WebKit's at 192 s and
+`live-acceptance` at 203 s. The longest of the three varies between WebKit's
+camera job and `live-acceptance`; splitting `live-acceptance` by engine too
+would save only about ten seconds, so it stays one job.
 
 ## Unit tests by area
 
