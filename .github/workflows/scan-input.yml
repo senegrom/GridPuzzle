@@ -62,9 +62,8 @@ jobs:
         run: |
           mkdir -p scan-input-artifacts
           git rev-parse HEAD > scan-input-artifacts/commit.txt
-      # The browser unit tests run in "Browser branch tests" on every pull request.
-      - name: Every browser module parses
-        run: set -o pipefail; find web -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
+      # The browser unit tests and the parse check of every module run in
+      # "Browser branch tests" on every pull request.
       - name: Newspaper, font and degraded-image quality checks
         run: node scripts/ocr_quality_regressions.cjs
       - name: Damaged-clue checks
