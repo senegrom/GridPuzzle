@@ -63,6 +63,11 @@ export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
     }
   return out;
 }
+// The same quad with its first corner moved `turns` places clockwise: reading
+// through it turns the rectified grid that many quarter turns anticlockwise.
+export function turnCorners(corners, turns) {
+  return corners.map((_, i) => corners[(i + turns) % 4]);
+}
 // The share of set samples of a 0/1 mask inside a rectangle, clipped to the image.
 export function fraction(mask, w, h, x, y, rw, rh) {
   let sum = 0,

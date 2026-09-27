@@ -5,7 +5,7 @@ import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
-import { fraction } from "./geometry.js";
+import { fraction, turnCorners } from "./geometry.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -388,6 +388,22 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     notes: [...new Set(notes)].slice(0, 8),
   };
 }
+// Cells whose digit carries no review flag: what a reading has to offer.
+export function confidentDigits(found) {
+  const uncertain = new Set(found.uncertain ?? []);
+  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && !uncertain.has(cell)).length;
+}
+// Median height/width of single, clue-sized value glyphs (at least half the
+// 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
+// Infinity without six such glyphs, which is no evidence either way.
+export function glyphAspect(values) {
+  const heights = values.map((e) => e.h).sort((a, b) => a - b);
+  if (heights.length < 6) return Infinity;
+  const reference = heights[Math.floor(0.75 * (heights.length - 1))],
+    ratios = values.filter((e) => !(e.glyphCount > 1) && e.h >= 0.5 * reference && e.w >= 0.3 * reference)
+      .map((e) => e.h / e.w).sort((a, b) => a - b);
+  return ratios.length < 6 ? Infinity : ratios[ratios.length >> 1];
+}
 export class Scanner {
   constructor() {
     this.epoch = 0;
@@ -491,16 +507,50 @@ export class Scanner {
     const skipEvidence = Object.fromEntries((found.entries ?? []).filter(e => ["value", "blackvalue"].includes(e.kind)).map(e => [e.cell, e.evidence]));
     return this.read(canvas, corners, type, rows, cols, onProgress, { ...options, cells, skipEvidence });
   }
-  async read(canvas, corners, type, rows, cols, onProgress = () => {}, { onPreview = () => {}, cells = null, skipEvidence = {}, onDiagnostic = () => {} } = {}) {
-    const targetCells = cells === null ? null : validateRetryCells(cells, rows, cols);
+  async read(canvas, corners, type, rows, cols, onProgress = () => {}, options = {}) {
+    const targetCells = (options.cells ?? null) === null ? null : validateRetryCells(options.cells, rows, cols);
     if (targetCells && ['auto', 'kakuro', 'kenken', 'killersudoku'].includes(type))
       throw Error('Structural clues need a full scan and review.');
     this.cancel({ keepEngine: true });
-    const started = performance.now();
     const epoch = this.epoch,
       check = () => {
         if (epoch !== this.epoch) throw aborted();
       };
+    const found = await this.readOnce(canvas, corners, type, rows, cols, onProgress, options, targetCells, check);
+    // Orientation is a property of a still photograph: a live preview keeps
+    // the tracked corners, a targeted re-read keeps its grid's orientation, and
+    // only a square grid reads the same size after a quarter turn.
+    if (targetCells || options.orient === false || rows !== cols) return found;
+    return this.orient(found, canvas, corners, type, rows, cols, onProgress, options, check);
+  }
+  // A photograph can reach the reader a quarter turn off: a phone labels a
+  // page shot flat on a table with whatever way it happened to be held.
+  // Printed clue glyphs are taller than wide, so the turn shows as glyphs
+  // wider than tall, and as a poor reading. Both quarter turns are then read
+  // and one is kept only when it reads clearly more confident digits. A half
+  // turn keeps upright-shaped glyphs, and a poor reading alone is too common
+  // (handwriting, blur) to pay for another read: Rotate covers that case.
+  async orient(found, canvas, corners, type, rows, cols, onProgress, options, check) {
+    const confident = confidentDigits(found),
+      values = found.entries.filter((e) => e.kind === "value");
+    if (!(glyphAspect(values) < 1) || confident >= values.length / 2) return found;
+    let best = { found, confident, turns: 0 };
+    for (const turns of [1, 3]) {
+      onProgress("Checking which way up the photograph is…", null);
+      const turned = await this.readOnce(canvas, turnCorners(corners, turns), type, rows, cols, () => {},
+        { onDiagnostic: options.onDiagnostic }, null, check);
+      const n = confidentDigits(turned);
+      if (n > best.confident) best = { found: turned, confident: n, turns };
+    }
+    if (!best.turns || best.confident < Math.max(8, 2 * confident + 3)) return found;
+    return {
+      ...best.found,
+      turns: best.turns,
+      notes: [`The photograph was read turned a quarter turn ${best.turns === 1 ? "anticlockwise" : "clockwise"}: its digits read clearly better that way, so the crop corners were turned with it. Check the clues against the photograph.`, ...best.found.notes],
+    };
+  }
+  async readOnce(canvas, corners, type, rows, cols, onProgress, { onPreview = () => {}, skipEvidence = {}, onDiagnostic = () => {} }, targetCells, check) {
+    const started = performance.now();
     onDiagnostic({ stage: "preparing", reason: targetCells ? "targeted" : "full-read", targets: targetCells ?? [] });
     onProgress("Straightening the photograph…", null);
     const { image, meta, mask, g, black, entries: regions, contrastAdjusted, unreadCells } = await this.geometry(

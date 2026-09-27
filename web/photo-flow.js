@@ -3,7 +3,7 @@ import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { retainPhotoSource, rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
 import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
-import { validQuad } from "./geometry.js";
+import { turnCorners, validQuad } from "./geometry.js";
 import { sniffDimensions } from "./image-dimensions.js";
 import { createLiveCamera } from "./live-camera.js";
 import { cameraModal } from "./camera-modal.js";
@@ -676,6 +676,9 @@ export function setupPhotoFlow({
         needsReview: found.needsReview || needsBoxReview,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
+        // A reading taken turned (see Scanner.orient) keeps the crop in step,
+        // so handle 1 is the grid's top-left and the photo mapping holds.
+        ...(found.turns ? { corners: turnCorners(corners, found.turns) } : {}),
         puzzleSource: id,
         photoSource: id,
         photoRows: rows,
