@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "case_timeout_seconds": 60,
-  "reviewed_on": "2026-09-18",
-  "expires_on": "2026-10-19",
-  "evidence": "GitHub Actions run 35374583226, commit 1b4decb203e1193d3399accd476c961e70c16bdf (2026-09-18). The four new-family-slitherlink shard artifacts were downloaded and reviewed on 2026-09-18: 75 cases, 70 uniquely solved, 5 timed out, 0 unexpected. Both cases the previous baseline allowed that now finish were examined by their margin: Kakuro-online/15x15-Gen-M#1-L208.clp solves in 36.2 s (36.6 s locally) and was removed; Puzzle-loop/H15x15/4,407,009-L240.clp solves in 48.6 s (45.9 s locally) and was kept, since a fifth of the limit is not enough margin to drop its allowance. These are allowances for searches at or beyond the limit, not timing measurements of master. Review resolved_timeouts and remove recovered cases before renewal.",
+  "reviewed_on": "2026-09-27",
+  "expires_on": "2026-10-28",
+  "evidence": "Extended CI run 36187544792 on master 1d98b1fb30bccd8004c615749328014898b41213 (2026-09-25); nothing under gridsolver/ has changed since. Its seven new-family shard artifacts were downloaded and reviewed on 2026-09-27: 96 cases, 91 uniquely solved, 5 timed out, all five listed below, 0 unexpected. The four Slitherlink shards reported one resolved timeout, Puzzle-loop/H15x15/4,407,009-L240.clp, which solved uniquely in 24.5 s (48.6 s at the previous review); with more than half the limit to spare it was removed. The slowest remaining solved case takes 18.3 s. These are allowances for searches at or beyond the limit, not timing measurements of master. Review resolved_timeouts and remove recovered cases before renewal.",
   "timeouts": [
     {
       "path": "Examples/Slitherlink/Kakuro-online/15x15-Gen-M#2-L206.clp",
@@ -20,10 +20,6 @@
     {
       "path": "Examples/Slitherlink/Puzzle-loop/H15x15/4,364,030-L250.clp",
       "reason": "Retained 15x15 search exceeded the 60-second limit in shard 2 of the cited run."
-    },
-    {
-      "path": "Examples/Slitherlink/Puzzle-loop/H15x15/4,407,009-L240.clp",
-      "reason": "Solved in 48.6 s in the cited run and 45.9 s locally, inside the 60-second limit but with only a fifth of it to spare on a shared runner. Retained as an allowance, not as a claim that it times out; remove it once the margin is comfortable."
     },
     {
       "path": "Examples/Slitherlink/Puzzle-loop/H15x15/9,050,649-L242.clp",

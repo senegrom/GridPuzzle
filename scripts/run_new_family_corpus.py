@@ -27,9 +27,10 @@ FAMILY_DIRECTORIES = {
     "kakuro": "Kakuro",
     "slitherlink": "Slitherlink",
 }
-# A weekly job reads the baseline, so a week's notice reaches at least one of
-# its runs before the expiry fails them all.
-EXPIRY_NOTICE_DAYS = 7
+# A weekly job reads the baseline. Two weeks' notice reaches at least two of
+# its scheduled runs before the expiry fails them all; one week reached a
+# single run, on the day before the expiry.
+EXPIRY_NOTICE_DAYS = 14
 
 
 def classify_unsupported_variant(path: Path) -> str | None:
@@ -113,11 +114,11 @@ def load_timeout_baseline(
 
 
 def expiry_notice(path: Path | None, *, today: date | None = None) -> str | None:
-    """A reminder when a valid timeout baseline expires within a week.
+    """A reminder when a valid timeout baseline expires within EXPIRY_NOTICE_DAYS.
 
     From its expiry date every run that reads the baseline fails at load, and
-    the renewal needs a review of fresh shard reports, so the runs of the week
-    before say so while they still pass.
+    the renewal needs a review of fresh shard reports, so the runs of the two
+    weeks before say so while they still pass.
     """
     if path is None:
         return None
