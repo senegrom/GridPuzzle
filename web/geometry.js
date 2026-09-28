@@ -68,6 +68,24 @@ export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
 export function turnCorners(corners, turns) {
   return corners.map((_, i) => corners[(i + turns) % 4]);
 }
+// Otsu's threshold of a 256-bin gray histogram: the cut that maximises the
+// between-class variance, with values at or below it as ink. 127 when every
+// sample has the same value.
+export function otsuCut(histogram) {
+  let total = 0, sum = 0;
+  for (let v = 0; v < 256; v++) { total += histogram[v]; sum += v * histogram[v]; }
+  let background = 0, backgroundSum = 0, best = -1, cut = 127;
+  for (let v = 0; v < 256; v++) {
+    background += histogram[v];
+    if (!background) continue;
+    const foreground = total - background;
+    if (!foreground) break;
+    backgroundSum += v * histogram[v];
+    const score = background * foreground * (backgroundSum / background - (sum - backgroundSum) / foreground) ** 2;
+    if (score > best) { best = score; cut = v; }
+  }
+  return cut;
+}
 // The share of set samples of a 0/1 mask inside a rectangle, clipped to the image.
 export function fraction(mask, w, h, x, y, rw, rh) {
   let sum = 0,
