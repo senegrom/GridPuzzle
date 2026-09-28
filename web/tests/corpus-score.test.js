@@ -32,6 +32,26 @@ test("flagging suppresses unsafe counts, not errors or imperfect status", () => 
   const result = score({ puzzle: futo }, { read: { ...futo, inequalities: [] }, uncertain: [0, 2] });
   assert.equal(result.missed, 2); assert.equal(result.unsafe, 0); assert.equal(isPerfect(result), false);
 });
+test("review flags on correct clues and on empty cells are counted as flag costs", () => {
+  const target = puzzle("sudoku", { cells: [1, 2, null, null] });
+  const result = score({ puzzle: target }, { read: { ...target, cells: [1, 3, null, 4] }, uncertain: [0, 1, 2, 3] });
+  assert.equal(result.correct, 1); assert.equal(result.flaggedCorrect, 1);
+  // A flagged error is a useful flag, not a cost: neither count takes it.
+  assert.equal(result.wrong, 1); assert.equal(result.invented, 1); assert.equal(result.unsafe, 0);
+  assert.equal(result.emptyCells, 1); assert.equal(result.flaggedEmpty, 1);
+  const clean = evaluate(target);
+  assert.equal(clean.flaggedCorrect, 0); assert.equal(clean.flaggedEmpty, 0); assert.equal(clean.emptyCells, 2);
+});
+test("flags on correct structural clues count, and blocked cells are not empty cells", () => {
+  const signsFlagged = score({ puzzle: futo }, { read: futo, uncertain: [0, 1] });
+  assert.equal(signsFlagged.correct, 3); assert.equal(signsFlagged.flaggedCorrect, 2);
+  assert.equal(signsFlagged.emptyCells, 3); assert.equal(signsFlagged.flaggedEmpty, 1);
+  const cages = puzzle("kenken", { cells: [null, null, null, null], cages: [{ cells: [0, 1], target: 3, op: "+" }] });
+  assert.equal(score({ puzzle: cages }, { read: cages, uncertain: [], cageUncertain: [1] }).flaggedCorrect, 1);
+  const blocked = puzzle("kakuro", { cells: [1, "#", null, null] });
+  const read = score({ puzzle: blocked }, { read: blocked, uncertain: [1, 2] });
+  assert.equal(read.emptyCells, 2); assert.equal(read.flaggedEmpty, 1);
+});
 test("plain singleton labels from the production reader match '=' cage targets", () => {
   const values = [1, 2, 2, 1];
   const target = puzzle("kenken", { cells: [null, null, null, null],
