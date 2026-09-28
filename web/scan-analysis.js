@@ -170,6 +170,17 @@ function numberBounds(mask, w, h) {
   return bounds;
 }
 
+function percentileOf(g, fraction) {
+  const histogram = new Uint32Array(256);
+  for (const value of g) histogram[value]++;
+  let cumulative = 0;
+  for (let value = 0; value < 256; value++) {
+    cumulative += histogram[value];
+    if (cumulative >= g.length * fraction) return value;
+  }
+  return 255;
+}
+
 // Restore faded ink before the fixed ink/solid-black thresholds. Percentiles
 // ignore isolated dust/bright pixels. Keep the white endpoint fixed: stretching
 // paper highlights too aggressively can misclassify gray Sudoku shading.
@@ -196,7 +207,9 @@ export function normalizeScanContrast(g) {
 // Only missed white-cell marks take this path. Work in the cell interior so
 // dark grid lines elsewhere cannot hide a light digit. Preserve original gray
 // pixels for OCR; local thresholding supplies geometry, never a guessed value.
-function lightCellMark(g, width, x, y, w, h) {
+// `paperFloor` is the lightest a cell's paper may be too dark to be paper:
+// 150 on a bright page, lower on a dim photograph (see prepareScan).
+function lightCellMark(g, width, x, y, w, h, paperFloor = 150) {
   const pixels = new Uint8Array(w * h), histogram = new Uint32Array(256);
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
     const value = g[(y + yy) * width + x + xx];
@@ -209,7 +222,7 @@ function lightCellMark(g, width, x, y, w, h) {
     if (cumulative >= pixels.length * .8) { paper = value; break; }
   }
   const contrast = paper - dark;
-  if (paper < 150 || contrast < 16) return null; // Flat paper or shallow noise.
+  if (paper < paperFloor || contrast < 16) return null; // Shaded panel, flat paper or shallow noise.
   const local = thresholdGray(pixels, w, h, Math.max(9, Math.round(h * .55)),
     Math.max(4, contrast * .15), 256);
   let minx = w, miny = h, maxx = -1, maxy = -1, area = 0;
@@ -228,6 +241,19 @@ function lightCellMark(g, width, x, y, w, h) {
   return { part: numberBounds(local, w, h) };
 }
 
+// Printed in colour: the darkest twentieth of the pixels (by their darkest
+// channel) is strongly coloured, as red or blue print is and black ink is not.
+function colourfulInk(data, width, x, y, w, h) {
+  const pixels = [];
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+    const at = 4 * ((y + yy) * width + x + xx), r = data[at], gr = data[at + 1], b = data[at + 2];
+    pixels.push([Math.min(r, gr, b), Math.max(r, gr, b) - Math.min(r, gr, b)]);
+  }
+  pixels.sort((a, b) => a[0] - b[0]);
+  const dark = pixels.slice(0, Math.max(1, Math.floor(pixels.length / 20)));
+  return dark.reduce((sum, [, chroma]) => sum + chroma, 0) / dark.length >= 30;
+}
+
 export function prepareScan(image, type, rows, cols) {
   const w = image.width,
     h = image.height,
@@ -239,7 +265,22 @@ export function prepareScan(image, type, rows, cols) {
     cellBounds = refineCellBounds(g, w, h, rows, cols),
     black = detectBlackCells(g, w, h, rows, cols),
     anyBlack = black.some(Boolean),
-    entries = [], unreadCells = [];
+    entries = [], unreadCells = [],
+    // A dim photograph's paper sits well under the 150 that bright paper
+    // clears, and its faint or coloured digits then fell through every path.
+    // The recovery's paper gate follows the page (three quarters of its 80th
+    // percentile), never rising above 150, so bright pages keep their gate.
+    paperFloor = Math.min(150, 0.75 * percentileOf(g, 0.8));
+  // Coloured print is pale in luminance; its darkest channel is not.
+  let darkest = null;
+  const darkestChannel = () => {
+    if (!darkest) {
+      darkest = new Uint8Array(w * h);
+      for (let i = 0; i < darkest.length; i++)
+        darkest[i] = Math.min(image.data[4 * i], image.data[4 * i + 1], image.data[4 * i + 2]);
+    }
+    return darkest;
+  };
 
   function extractRegion(kind, cell, x, y, rw, rh, invert = false, other = null, bounds = null) {
     if (bounds) {
@@ -297,7 +338,8 @@ export function prepareScan(image, type, rows, cols) {
         }
       }
       if (!part && kind === "value") {
-        const recovered = lightCellMark(g, w, x, y, rw, rh);
+        const recovered = lightCellMark(g, w, x, y, rw, rh, paperFloor) ??
+          (colourfulInk(image.data, w, x, y, rw, rh) ? lightCellMark(darkestChannel(), w, x, y, rw, rh, paperFloor) : null);
         if (recovered) {
           part = recovered.part;
           recoveredMark = true;
