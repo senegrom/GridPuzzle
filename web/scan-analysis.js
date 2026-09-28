@@ -313,6 +313,62 @@ export function readChevron(g, width, kind, x, y, w, h) {
   return horizontal ? (apexFirst ? "<" : ">") : (apexFirst ? "^" : "v");
 }
 
+// Cage borders on the rectified grid. Every interior cell edge is measured by
+// thin strips (2% of a cell, over the edge's middle 60%) parallel to it:
+// - inset style (Killer's dashed outlines, drawn 6-12% inside each cell): a
+//   border when both neighbours show ink in that band (at least 0.2);
+// - thick style (the usual KenKen print): a border when the edge's central 4%
+//   is at most 0.35 of the paper's gray, which a thin grid line never is.
+// Killer boards always use the inset style, since their thick 3 x 3 box lines
+// are not cage borders; a KenKen board is thick style when at least two edges
+// pass the thick test. Measured on the corpus's cage renders (2026-09-28):
+// exact partitions on 359/360 dashed boards and 103/107 thick-bordered ones.
+// Cells joined across non-border edges form the cages.
+export function cagePartition(mask, g, w, h, rows, cols, type) {
+  const cw = w / cols, ch = h / rows, band = Math.max(1, 0.02 * Math.min(cw, ch)), edges = [];
+  const strip = (vertical, r, c, d) => {
+    const x = vertical ? (c + 1) * cw + d * cw - band / 2 : c * cw + 0.2 * cw,
+      y = vertical ? r * ch + 0.2 * ch : (r + 1) * ch + d * ch - band / 2,
+      rw = vertical ? band : 0.6 * cw, rh = vertical ? 0.6 * ch : band;
+    let ink = 0, sum = 0, n = 0;
+    for (let yy = Math.max(0, Math.floor(y)); yy < Math.min(h, y + rh); yy++)
+      for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(w, x + rw); xx++) { ink += mask[yy * w + xx]; sum += g[yy * w + xx]; n++; }
+    return n ? [ink / n, sum / n] : [0, 255];
+  };
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    if (c < cols - 1) edges.push({ a: r * cols + c, b: r * cols + c + 1, vertical: true, r, c });
+    if (r < rows - 1) edges.push({ a: r * cols + c, b: (r + 1) * cols + c, vertical: false, r, c });
+  }
+  const inset = (e) => {
+    const side = (sign) => Math.max(...[0.06, 0.08, 0.1, 0.12].map((d) => strip(e.vertical, e.r, e.c, sign * d)[0]));
+    return Math.min(side(-1), side(1)) >= 0.2;
+  };
+  const thick = (e) => {
+    const centre = [-0.02, 0, 0.02].reduce((s, d) => s + strip(e.vertical, e.r, e.c, d)[1], 0) / 3,
+      paper = Math.max(...[-0.2, -0.15, 0.15, 0.2].map((d) => strip(e.vertical, e.r, e.c, d)[1]));
+    return centre <= 0.35 * paper;
+  };
+  let style = "inset", borders = null;
+  if (type !== "killersudoku") {
+    const heavy = edges.map(thick);
+    if (heavy.filter(Boolean).length >= 2) { style = "thick"; borders = heavy; }
+  }
+  borders ??= edges.map(inset);
+  const parent = Array.from({ length: rows * cols }, (_, i) => i),
+    root = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  edges.forEach((e, k) => { if (!borders[k]) parent[root(e.a)] = root(e.b); });
+  const groups = new Map();
+  for (let i = 0; i < parent.length; i++) {
+    const k = root(i);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(i);
+  }
+  return { areas: [...groups.values()], style };
+}
+// Where a cage's clue is printed, as fractions of its head (top-left) cell:
+// inside the dashed outline for inset style, in the corner for thick style.
+export const CAGE_LABEL_BOX = { inset: [0.11, 0.12, 0.8, 0.44], thick: [0.05, 0.04, 0.75, 0.4] };
+
 export function prepareScan(image, type, rows, cols) {
   const w = image.width,
     h = image.height,
@@ -523,7 +579,8 @@ export function prepareScan(image, type, rows, cols) {
       // Structural probes are expensive and can turn a shadow into false
       // cage/sign evidence. Once a true solid block is present, the black-cell
       // families provide the useful structural signal instead.
-      if ((type === "auto" && !anyBlack) || isCage(type))
+      // An explicit cage type reads one clue per cage, after the partition.
+      if (type === "auto" && !anyBlack)
         region(
           "label",
           i,
@@ -566,7 +623,19 @@ export function prepareScan(image, type, rows, cols) {
       unreadCells.push(entries[i].cell);
       entries.splice(i, 1);
     }
-  return { image, meta: estimateGrid(image, mask), mask, g, black, entries, unreadCells, contrastAdjusted: contrast.adjusted };
+  // Cages: the partition, then one clue region per cage in its head cell,
+  // placed by the print style. Its text is read from a binarized crop.
+  let cageAreas = null;
+  if (isCage(type)) {
+    const { areas, style } = cagePartition(mask, g, w, h, rows, cols, type), [x0, y0, x1, y1] = CAGE_LABEL_BOX[style];
+    cageAreas = areas;
+    for (const cells of areas) {
+      const head = Math.min(...cells), r = Math.floor(head / cols), c = head % cols;
+      entries.push({ kind: "label", cell: head, other: null, x: Math.round((c + x0) * cw), y: Math.round((r + y0) * ch),
+        w: Math.round((x1 - x0) * cw), h: Math.round((y1 - y0) * ch), invert: false, text: "", confidence: 0, cageLabel: true });
+    }
+  }
+  return { image, meta: estimateGrid(image, mask), mask, g, black, entries, unreadCells, cageAreas, contrastAdjusted: contrast.adjusted };
 }
 
 // Value glyphs that look like pencil candidate notes rather than printed
