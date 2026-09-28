@@ -165,6 +165,33 @@ controls, not an accuracy estimate for unseen photographs or handwriting, and
 they do not measure grid detection. Tesseract's own guidance on segmentation
 and preprocessing: https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
 
+## KenKen and Killer cages
+
+An explicit cage type is partitioned in the geometry worker
+(`cagePartition`). Every interior cell edge is measured by thin strips
+parallel to it. A Killer board, or a KenKen board printed in the Killer style,
+splits where both neighbours show dashed-outline ink 6-12% inside the cell; a
+KenKen board with at least two thick lines (the central 4% of the edge at most
+0.35 of the paper's gray) splits at the thick lines instead. Killer's thick
+3 x 3 box lines are never cage borders. Each cage's clue is read from its head
+(top-left) cell: inside the dashed outline, or in the corner of a thick-bordered
+cell, from a crop binarized at its own Otsu threshold, in the atlas. Every cage
+stays under structural review ("check cage"), and an operator impossible for
+the cage's size still drops it with a note.
+
+The corpus gained a thick-bordered KenKen set for this (`janko-kenken-thick`).
+Measured with `scoreVersion: 3` on the four cage sets (Chromium, 2026-09-28),
+cages right before → after: dashed KenKen 0 → 1,108 of 2,508, thick KenKen 4 →
+1,451 of 2,508 (its 13 boards that failed to read now read), janko Sumdoku
+0 → 1,244 of 2,139, generated Killer 0 → 1,961 of 3,234; unflagged errors stay
+0 and every cell of a cage board is highlighted, as before. Partitions alone are
+exact on 359 of 360 dashed boards and 103 of 107 thick ones; the clue reading
+is what is left (clean 69-93%, print 60-85%, perspective photo renders 9-24%),
+with KenKen's "/" often read as "+". Nothing is claimed for real photographs,
+which the corpus does not have for these families. Reading a board costs
+between 80 ms less and 40 ms more than before (median per board, four sets),
+since one clue region per cage replaces one per cell.
+
 ## Unread Futoshiki signs
 
 Tesseract reads few inequality signs: on the corpus's 121 Futoshiki images
