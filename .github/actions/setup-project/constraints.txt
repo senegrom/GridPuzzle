@@ -19,5 +19,5 @@ pluggy==1.6.0
 pygments==2.21.0
 pytest==9.1.1
 rich==15.0.0
-ruff==0.16.8
+ruff==0.16.9
 setuptools==84.0.0
