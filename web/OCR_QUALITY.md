@@ -192,6 +192,28 @@ loses at most 26 in any set. Removing note regions changes the OCR atlas, so
 other cells' votes can change as well; the totals include that. The rule is
 covered by `web/tests/candidate-notes.test.js`.
 
+## Faint and coloured digits on dim photographs
+
+A printed digit that the page-wide ink mask misses gets a second look in its
+own cell, with a local threshold and shape tests, and a mark found there is
+always reviewed (`recoveredMark`). That look used to require the cell's paper
+to be at least 150, which a dim photograph's paper never is, so faint print,
+red or pink print and digits on shaded boxes there fell through as empty cells
+without a flag. The gate now follows the page: three quarters of its
+80th-percentile gray, never above 150, so bright pages (and shaded panels on
+them) keep the old behaviour. When the luminance look finds nothing and the
+cell's darkest pixels are strongly coloured, the same look runs on the darkest
+channel, in which coloured print is dark.
+
+Measured on the whole corpus with `scoreVersion: 3` (Chromium, 2026-09-28, 3,853
+read images): unflagged errors 7,597 → 7,536, missed clues 25,200 → 25,139,
+correct clues 108,003 → 108,018; flagged empty cells 34,335 → 34,343 (23.05% →
+23.06% of empty cells), invented clues and perfect readings unchanged. The new
+atlas regions also change three other cells' votes to agreement on a wrong
+digit. `web/tests/ink-recovery.test.js` covers the dim page, the bright page,
+a shaded panel on a bright page, pale coloured print, and grainy or coloured
+empty cells.
+
 ## Alternatives tried
 
 A 26,731-parameter printed-digit network (two 3x3 convolutions and two dense
