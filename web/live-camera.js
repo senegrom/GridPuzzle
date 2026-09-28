@@ -135,7 +135,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         return found;
       };
       const found = boxed(await reader.read(frame.image, frame.corners, frame.settings.type, frame.rows, frame.cols, progress,
-        { onPreview: (partial) => onPreview(boxed(partial)), onDiagnostic: event => diagnostics?.event(event) }));
+        { onPreview: (partial) => onPreview(boxed(partial)), onDiagnostic: event => diagnostics?.event(event),
+          orient: false }));
       // A live overlay is explicitly a preview. Capturing must not silently
       // confirm inferred rules or accept OCR on behalf of the user.
       found.needsReview = true;

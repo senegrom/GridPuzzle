@@ -34,6 +34,21 @@ separately; corners are inverse-mapped to the oriented source and the extracted
 crop is turned back. No EXIF-blind source crop coordinates are used. The original
 file is not uploaded, persisted in autosave or added to training data.
 
+The EXIF tag is only as good as the phone's guess, and a page shot flat on a
+table is labelled with whichever way the phone happened to be held: the corpus
+holds 18 such photographs (16 a quarter turn off, 2 a half turn). A still
+photograph therefore checks its own reading (`Scanner.orient`): clue glyphs
+are taller than wide, so when the clue-sized single glyphs are wider than tall
+(median height/width under 1) and fewer than half the value regions read as
+confident digits, both quarter turns are read through the same crop with its
+corners turned, and one is kept only when it reads clearly more confident
+digits (at least 8, and at least twice the upright count plus 3). The reading
+then says so in its first note and carries `turns`; the photo flow turns its
+crop corners with it. Half turns keep upright-shaped glyphs and are left to
+Rotate: a poor reading alone is too common (handwriting, blur) to pay for
+another read. The live camera, targeted re-reads and non-square grids keep
+their orientation.
+
 ## Clue-focused live-camera quality
 
 The geometry worker measures the detected grid's cell interiors, excluding the
