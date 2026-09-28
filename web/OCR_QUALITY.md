@@ -186,7 +186,27 @@ unflagged errors 1,187 → 0, flagged empty cells 96 → 1,924 of 3,823, flagged
 correct clues 130 → 264; the median board goes from 0-4% to 48% of its cells
 highlighted (at most 72%), 14-16 of them for signs. Almost all of that marks a
 printed sign that really was not read: only 29 sign regions sit where no sign
-is printed. Reading the signs themselves is the way to lower it.
+is printed.
+
+Each sign region now also gets a geometric reading (`readChevron`, in the
+geometry worker): along the sign's axis the ink's cross-extent grows from the
+apex to the open end, so a least-squares slope gives the apex side, which
+points at the smaller cell. Only clear shapes count (ink at 8 or more
+positions, the open end at least 1.6 times the apex end, a slope of at least
+0.15); a clear chevron reads the sign, otherwise a sign-shaped OCR reading
+does, otherwise the region stays unread. Every sign, read or not, stays a
+proposal in structural review on both of its cells ("check sign"), so no
+reading of a sign is ever unflagged; the note counts the signs read for
+checking and the ones that could not be read. The automatic type still counts
+OCR signs only. On the 120 rendered boards (clean, print and perspective
+photo variants) all 1,293 printed signs are proposed right (the OCR proposed
+82), none wrong or invented; correct clues go from 777 to 1,988 of 1,989
+(the last is a flagged digit misread) and 119 of 120 boards read perfectly,
+while the highlighted share stays at 48% since every sign is still for the
+user to confirm. The corpus's only real Futoshiki photograph has no detected
+grid, so its misplaced regions give 2 right, 2 wrong and 6 invented signs, all
+flagged: nothing is claimed for real photographs yet. 144 `readChevron` calls
+(a 9 x 9 board) take 1-2 ms.
 
 ## Pencil candidate notes
 
