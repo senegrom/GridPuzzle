@@ -62,6 +62,8 @@ function harness(t, failure = "") {
     section('$("save-cage").onclick =', '$("stop").onclick ='),
     section("function drawBoard()", "  focused = Math.min(focused,") + "return { bad, sol }; }",
     section('$("edit-tool").onchange =', '$("clear-selection").onclick ='),
+    'const applyType = $("apply-type");',
+    section("applyType.onclick =", "function openCell("),
     section("function ensureWorker()", '$("next-solution").onclick ='),
     "globalThis.api = { state, tasks, requestSolve, playSolution, hintPlay, checkPlayAnswers, reportPlayProgress, loadPuzzle, drawBoard };",
   ].join("\n").replaceAll("import.meta.url", '"http://localhost/app.js"');
@@ -318,6 +320,43 @@ test("accepted cage edits cancel private requests and ignore stale worker comple
   assert.match(h.text(), /Cage saved/);
 });
 
+
+test("saved signs leave sign review in place, so a chain's unread middle stays highlighted", (t) => {
+  // A-B, B-C and C-D all unread along the top row of a 4 x 4 board.
+  const h = harness(t);
+  h.state.puzzle = model.makePuzzle("futoshiki", 4);
+  h.state.cageUncertain = new Set([0, 1, 2, 3]); h.state.uncertain = new Set([1]);
+  for (const pair of [[0, 1], [3, 2]]) { h.state.selected = pair; h.$("save-inequality").onclick(); }
+  assert.deepEqual(plain(h.state.puzzle.inequalities), [{ less: 0, greater: 1 }, { less: 3, greater: 2 }]);
+  assert.ok(h.state.cageUncertain.has(1) && h.state.cageUncertain.has(2), "B-C still has no sign and must stay visible");
+  assert.deepEqual([...h.state.cageUncertain].sort(), [0, 1, 2, 3]);
+  assert.deepEqual([...h.state.uncertain], [1], "a doubtful digit stays doubtful");
+});
+
+test("re-applying Futoshiki keeps its sign review and notes; another family clears it", (t) => {
+  const h = harness(t);
+  h.state.puzzle = model.makePuzzle("futoshiki", 4);
+  const note = "2 possible inequality signs could not be read. Their cells are highlighted: add each printed sign with Inequality under Editing.";
+  h.state.cageUncertain = new Set([0, 1, 2]); h.state.notes = [note];
+  h.$("puzzle-type").value = "futoshiki"; h.$("apply-type").onclick();
+  assert.equal(h.state.puzzle.type, "futoshiki");
+  assert.deepEqual([...h.state.cageUncertain].sort(), [0, 1, 2]);
+  assert.ok(h.state.notes.includes(note), "the note explaining the kept highlights stays");
+  h.$("puzzle-type").value = "latinsquare"; h.$("apply-type").onclick();
+  assert.equal(h.state.puzzle.type, "latinsquare");
+  assert.deepEqual([...h.state.cageUncertain], []);
+  assert.ok(!h.state.notes.includes(note));
+});
+
+test("cage review survives a change between cage families and nothing else", (t) => {
+  const h = harness(t);
+  h.state.puzzle = model.makePuzzle("kenken", 4);
+  h.state.cageUncertain = new Set([5, 6]);
+  h.$("puzzle-type").value = "kenken"; h.$("apply-type").onclick();
+  assert.deepEqual([...h.state.cageUncertain].sort(), [5, 6]);
+  h.$("puzzle-type").value = "futoshiki"; h.$("apply-type").onclick();
+  assert.deepEqual([...h.state.cageUncertain], [], "cage review means nothing on a Futoshiki board");
+});
 
 test("inequality saves and removals write the draft, never the captured source puzzle", (t) => {
   const h = harness(t);

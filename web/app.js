@@ -1,5 +1,5 @@
 import { setupClueReread } from "./clue-reread.js";
-import { nextReviewCell } from "./model.js";
+import { nextReviewCell, structuralReview } from "./model.js";
 import { createTaskController } from "./task-controller.js";
 import { prepareEdit, restoreEdit, rememberEdit } from "./edit-history.js";
 import { setupPhotoFlow } from "./photo-flow.js";
@@ -353,7 +353,7 @@ function drawBoard() {
           : `${isBlack ? "black clue " : given !== null ? "" : sol ? "solution " : state.hints.has(i) ? "hint " : "your answer "}${value}`;
     const review = [
       state.uncertain.has(i) ? "check reading" : "",
-      state.cageUncertain.has(i) ? "check cage" : "",
+      state.cageUncertain.has(i) ? structuralReview(p.type, 0).label : "",
       entry !== null && !sol && wrong.has(i) ? "wrong" : "",
     ].filter(Boolean);
     const g = svg("g", {
@@ -634,7 +634,7 @@ function render({ replaceDraft = false } = {}) {
     ? `${state.uncertain.size} cells need checking. ${sourceAvailable ? "Tap a highlighted cell to compare it with the photograph." : "Check the highlighted clues against the original puzzle. Photos are not retained after closing the app."}`
     : "Confirm the puzzle type and structural clues.";
   const cageMessage = state.cageUncertain.size
-    ? `${state.cageUncertain.size} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.`
+    ? structuralReview(state.puzzle.type, state.cageUncertain.size).message
     : "";
   $("review-note").textContent = [checkMessage, cageMessage, ...state.notes].filter(Boolean).join("\n");
   // Only the label changes; the decorative arrow stays hidden from readers.
@@ -648,20 +648,26 @@ const boxDefault = boxShape;
 applyType.onclick = () => {
   try {
     const type = $("puzzle-type").value,
+      previous = state.puzzle.type,
       next = changePuzzleType(state.puzzle, type, state.blackReadings),
       // Black-cell readings larger than the board cannot become Str8ts clues;
       // the conversion drops them, so say so rather than claiming every
       // reading was kept.
       dropped = type === "str8ts" && state.puzzle.type !== "str8ts"
         ? state.blackReadings.filter((entry) => entry.value > state.puzzle.rows).length
-        : 0;
+        : 0,
+      // Structural review keeps its meaning from cage family to cage family
+      // and from Futoshiki to Futoshiki (unread signs), and nowhere else.
+      keepStructural = (isCage(previous) && isCage(type)) || (previous === "futoshiki" && type === "futoshiki");
     mutate((draft) => {
       draft.puzzle = next;
-      if (!isCage(type)) draft.cageUncertain.clear();
+      if (!keepStructural) draft.cageUncertain.clear();
       draft.needsReview = draft.needsReview || Boolean(state.photo) || draft.uncertain.size > 0;
       draft.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
         ...(dropped ? [`${dropped} black-cell reading${dropped === 1 ? "" : "s"} exceeded the board size and ${dropped === 1 ? "was" : "were"} not applied; those cells stay highlighted for review.`] : []),
+        // The notes that explain kept highlights stay with them.
+        ...(keepStructural && draft.cageUncertain.size ? draft.notes : []),
       ];
       draft.selected = [];
     });
@@ -1091,6 +1097,8 @@ $("save-inequality").onclick = () => {
           ![less, greater].includes(q.greater),
       );
       draft.puzzle.inequalities.push({ less, greater });
+      // Sign review stays until the transcription is confirmed: a cell can
+      // border another unread sign, and clearing it would hide that one.
       draft.selected = [];
     });
   } catch (e) {

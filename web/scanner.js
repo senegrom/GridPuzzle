@@ -293,7 +293,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
     return v;
   });
-  if (chosen === "futoshiki")
+  if (chosen === "futoshiki") {
     puzzle.inequalities = signs.map((e) => {
       const smallerFirst = ["<", "^"].includes(e.text);
       uncertain.add(e.cell);
@@ -302,6 +302,15 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
         greater: smallerFirst ? e.other : e.cell,
       };
     });
+    // Ink between two cells that did not read as a sign may be a printed
+    // inequality: dropping it silently removes a constraint. Its two cells go
+    // to structural review (the cage channel), not to digit review, since
+    // neither digit is in doubt; the note says what to do.
+    const unreadSigns = entries.filter((e) => ["hsign", "vsign"].includes(e.kind) && !/^[<>^vV]$/.test(e.text));
+    for (const e of unreadSigns) { cageUncertain.add(e.cell); cageUncertain.add(e.other); }
+    if (unreadSigns.length)
+      notes.push(`${unreadSigns.length} possible inequality sign${unreadSigns.length === 1 ? "" : "s"} could not be read. Their cells are highlighted: add each printed sign with Inequality under Editing.`);
+  }
   if (chosen === "kakuro") {
     for (let i = 0; i < puzzle.cells.length; i++)
       if (puzzle.cells[i] === "#") {

@@ -511,6 +511,13 @@ export function classify({ rows, cols, values = [], signs = 0, labels = 0, opera
     return { type:"slitherlink", review:true, reason:"Loop layout suggested. Check the dimensions and clues, including zeroes." };
   return { type:rows===cols?"sudoku":"numbrix", review:true, reason:"The rules are ambiguous from the grid alone. Choose the correct type before solving." };
 }
+// What the structural review channel (cageUncertain) asks of the user: cage
+// checks in the cage families, unread inequality signs in Futoshiki.
+export function structuralReview(type, count) {
+  return type === "futoshiki"
+    ? { label: "check sign", message: `${count} cells border an inequality sign that could not be read. Choose Inequality under Editing to add each printed sign.` }
+    : { label: "check cage", message: `${count} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.` };
+}
 export function nextReviewCell(indices, after = -1) {
   const ordered = [...indices].sort((a, b) => a - b);
   return ordered.find((i) => i > after) ?? ordered[0] ?? null;
