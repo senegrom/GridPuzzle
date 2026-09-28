@@ -199,7 +199,7 @@ function photoHarness(t) {
     puzzleSource: 7, photoSource: 7, photoRows: 2, photoCols: 2,
     uncertain: new Set([0]), cageUncertain: new Set(), blackReadings: [], needsReview: true,
     notes: [], play: fitPlay(puzzle, []), hints: new Set(), selected: [], history: [] };
-  let epoch = 0, capture, found, saved;
+  let epoch = 0, capture, found, saved, detection = null;
   const errors = [], stopTask = () => ++epoch;
   const storage = { set: (_key, value) => { saved = value; }, get: key => key === 'gridpuzzle-session-v1' ? saved : null };
   const setLayout = layout => {
@@ -210,7 +210,7 @@ function photoHarness(t) {
   setLayout(puzzle); $('puzzle-type').value = 'latinsquare'; $('auto-capture').checked = true;
   const flow = setupPhotoFlow({ $, state, scanner: {
     read: async () => found,
-    detect: async () => ({ rows: found.puzzle.rows, cols: found.puzzle.cols, confidence: .99, corners: state.corners }),
+    detect: async () => detection ?? ({ rows: found.puzzle.rows, cols: found.puzzle.cols, confidence: .99, corners: state.corners }),
   }, stopTask, invalidate: stopTask, begin: stopTask, finish() {}, fail: e => errors.push(e.message),
   render() {}, status() {}, remember() {}, persist: () => saveSession(storage, state), drawBoard() {},
   clearPhotoMapping() { state.rectified = state.photoSource = null; }, solveNow() {}, boxDefault: boxShape,
@@ -227,8 +227,61 @@ function photoHarness(t) {
   const diag = (id = 'scan-diagnostics') => Object.fromEntries(
     ['prepare', 'image-toggle', 'preview', 'error', 'image', 'download'].map(key => [key, $(id + '/' + key)]));
   return { $, state, errors, storage, encoded, diag, setLayout,
-    setFound: value => { found = value; }, setCapture: value => { capture = value; } };
+    setFound: value => { found = value; }, setCapture: value => { capture = value; },
+    setDetection: value => { detection = value; } };
 }
+
+// Read on the crop of a detection that asked for manual corners (confidence at
+// most 0.8) must not return clean-looking clues when nobody moved the handles.
+function cleanReading() {
+  const puzzle = makePuzzle('latinsquare', 2); puzzle.cells[0] = 2;
+  return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
+    rectified: canvas(200, 200) };
+}
+const detected = confidence => ({ rows: confidence > 0.8 ? 2 : 0, cols: confidence > 0.8 ? 2 : 0, confidence,
+  corners: [{ x: 10, y: 10 }, { x: 590, y: 10 }, { x: 590, y: 590 }, { x: 10, y: 590 }] });
+async function detectThenRead(h, confidence, adjust = () => {}) {
+  h.setFound(cleanReading()); h.setDetection(detected(confidence));
+  await h.$('detect-photo').onclick();
+  adjust(h.$('crop-canvas'));
+  h.$('read-photo').onclick(); await tick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.cells[0], 2);
+}
+for (const confidence of [0, 0.45, 0.8])
+  test(`a Read on untouched corners from a ${confidence} detection puts every cell under review`, async t => {
+    const h = photoHarness(t); await detectThenRead(h, confidence);
+    assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]);
+    assert.equal(h.state.needsReview, true);
+    assert.match(h.state.notes[0], /corners were not adjusted/);
+    const reloaded = restoreSession(h.storage);
+    assert.deepEqual(reloaded.uncertain.sort(), [0, 1, 2, 3]); assert.equal(reloaded.needsReview, true);
+  });
+const adjustments = {
+  pointer(crop) {
+    crop.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 600 });
+    crop.setPointerCapture = () => {};
+    crop.onpointerdown({ clientX: 12, clientY: 12, pointerId: 1, preventDefault() {} });
+    crop.onpointermove({ clientX: 30, clientY: 25 }); crop.onpointerup();
+  },
+  keyboard(crop) {
+    crop.onkeydown({ key: '3', preventDefault() {} });
+    crop.onkeydown({ key: 'ArrowLeft', shiftKey: true, preventDefault() {} });
+  },
+};
+for (const [how, adjust] of Object.entries(adjustments))
+  test(`moving a corner by ${how} confirms an unconfident crop`, async t => {
+    const h = photoHarness(t); await detectThenRead(h, 0.45, adjust);
+    assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
+    assert.deepEqual(h.state.notes, []);
+  });
+test('confident detections read as before, including after an unconfident one', async t => {
+  const h = photoHarness(t); await detectThenRead(h, 0.45);
+  await detectThenRead(h, 0.81);
+  assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
+  assert.deepEqual(h.state.notes, []);
+  await detectThenRead(h, 0.94);
+  assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
+});
 
 function cageWarnings() {
   const n = 9, cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];

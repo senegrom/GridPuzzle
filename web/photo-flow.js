@@ -37,6 +37,10 @@ export function setupPhotoFlow({
   let stream = null,
     cameraEpoch = 0,
     drag = -1,
+    // Corners from a detection that asked for manual corners (confidence at
+    // most 0.8) and that the user has not moved since: Read may still run on
+    // them, but its reading must come back entirely under review.
+    unconfirmedCorners = false,
     proposedBoxLayout = null,
     live = null,
     pendingPlayback = null,
@@ -443,6 +447,7 @@ export function setupPhotoFlow({
       if (id !== getJobId()) return;
       clearPhotoMapping();
       state.corners = found.corners;
+      unconfirmedCorners = !(found.confidence > 0.8);
       diagnostics.geometry({ ...found, width: canvas.width, height: canvas.height, coordinateSpace: "source-preview" });
       diagnostics.event({stage:"detecting",reason:found.confidence > .8 ? "found" : "manual-corners"});
       finish();
@@ -537,6 +542,7 @@ export function setupPhotoFlow({
       x: Math.max(0, Math.min(state.photo.width - 1, pt.x)),
       y: Math.max(0, Math.min(state.photo.height - 1, pt.y)),
     };
+    unconfirmedCorners = false;
     clearPhotoMapping();
     drawCrop();
   };
@@ -566,6 +572,7 @@ export function setupPhotoFlow({
         0,
         Math.min(state.photo.height - 1, p.y + delta[1] * step),
       );
+      unconfirmedCorners = false;
       clearPhotoMapping();
       drawCrop();
     }
@@ -601,7 +608,11 @@ export function setupPhotoFlow({
     const boxRows = Number($("box-rows").value),
       boxCols = Number($("box-cols").value),
       // Snapshot proposal ownership with the rules, before awaiting OCR.
-      reviewBoxes = sameLayout(proposedBoxLayout, { rows, cols, boxRows, boxCols });
+      reviewBoxes = sameLayout(proposedBoxLayout, { rows, cols, boxRows, boxCols }),
+      // Likewise the crop's standing: a reading from corners nobody confirmed
+      // (the grid was not found and the handles were never moved) can hold
+      // wrong, invented or missing clues anywhere, so every cell is reviewed.
+      reviewAllCells = unconfirmedCorners;
     try {
       if (type !== "auto") {
         const layout = makePuzzle(type, rows, cols);
@@ -653,6 +664,10 @@ export function setupPhotoFlow({
         needsBoxReview = reviewBoxes &&
           ["sudoku", "killersudoku"].includes(found.puzzle.type),
         notes = [...found.notes];
+      if (reviewAllCells)
+        notes.unshift(
+          "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.",
+        );
       if (needsBoxReview)
         notes.push(
           `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
@@ -671,9 +686,10 @@ export function setupPhotoFlow({
         uncertain: new Set([
           ...(found.cellUncertain ?? found.uncertain),
           ...blackReadings.map((entry) => entry.cell),
+          ...(reviewAllCells ? found.puzzle.cells.keys() : []),
         ]),
         cageUncertain: new Set(found.cageUncertain || []),
-        needsReview: found.needsReview || needsBoxReview,
+        needsReview: found.needsReview || needsBoxReview || reviewAllCells,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
         puzzleSource: id,

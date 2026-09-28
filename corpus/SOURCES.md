@@ -188,7 +188,7 @@ block twice had been stored with a doubled grid, and eight Kendoku pages whose
 multi-cell cages print no operator had been read as sums. Every target on disk,
 downloaded sets included, has been re-validated since.
 
-Benchmark JSON now carries `scoreVersion: 2`. Do not compare its percentages
+Benchmark JSON carried `scoreVersion: 2` from 2026-09-14. Do not compare its percentages
 or perfect counts directly with older reports. Every Futoshiki sign is keyed
 by its boundary and checked for direction; duplicate observations are counted
 as extra readings. Cage membership is unordered, operator aliases are normalized,
@@ -202,6 +202,16 @@ as invented clues. `unsafe` counts unflagged errors, not distinct affected cells
 so a cell can contribute a topology error and a clue error. A perfect reading
 requires no topology, shape, missing, wrong or invented-item errors as well as
 all printed clues correct. Review flags never turn an erroneous reading perfect.
+
+`scoreVersion: 3` (2026-09-27) adds what review flags cost, so that fewer
+unflagged errors cannot be bought by flagging everything unnoticed.
+`flaggedCorrect` counts correctly read clues (cells, Kakuro sums, cages,
+inequality signs) that carry a review flag; `flaggedEmpty` counts flagged cells
+that are empty in both the target and the reading, out of `emptyCells`. Blocked
+cells are not empty cells, and a flagged error is a useful flag, counted by
+neither. The accuracy and unflagged counts are unchanged from version 2.
+`corpus/benchmark.cjs --site <dir> --out <file>` benchmarks another build (for
+example a branch's `_site`) with this scorer.
 
 The pure scorer runs in the normal Node gate through
 `web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded
