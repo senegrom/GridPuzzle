@@ -81,6 +81,39 @@ export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeig
   context.putImageData(pixels, 0, 0);
   return canvas;
 }
+// A cage clue as measured on the corpus: the clue box scaled to 40 px high
+// with a 16 px white margin, then binarized at its own Otsu threshold, which
+// read 69-93% of clean and 60-85% of printed rendered clues in the atlas.
+export function cageLabelCrop(entry, rectified) {
+  const height = 40, scale = height / Math.max(1, entry.h), out = document.createElement("canvas");
+  out.width = Math.max(1, Math.round(entry.w * scale)) + 32;
+  out.height = height + 32;
+  const context = out.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, out.width, out.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(rectified, entry.x, entry.y, entry.w, entry.h, 16, 16, out.width - 32, height);
+  const pixels = context.getImageData(0, 0, out.width, out.height), d = pixels.data, histogram = new Uint32Array(256);
+  const lum = (i) => Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+  for (let i = 0; i < d.length; i += 4) histogram[lum(i)]++;
+  const total = d.length / 4;
+  let sum = 0;
+  for (let v = 0; v < 256; v++) sum += v * histogram[v];
+  let background = 0, backgroundSum = 0, best = -1, cut = 127;
+  for (let v = 0; v < 256; v++) {
+    background += histogram[v];
+    if (!background) continue;
+    const foreground = total - background;
+    if (!foreground) break;
+    backgroundSum += v * histogram[v];
+    const score = background * foreground * (backgroundSum / background - (sum - backgroundSum) / foreground) ** 2;
+    if (score > best) { best = score; cut = v; }
+  }
+  for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lum(i) <= cut ? 0 : 255;
+  context.putImageData(pixels, 0, 0);
+  return out;
+}
 const SAMPLE_HEIGHT = 64,
   SAMPLE_PAD = 16,
   SAMPLE_GRAY_LIMIT = 150;
@@ -230,7 +263,7 @@ function componentsForCages(mask, w, h, rows, cols, type) {
   return [...groups.values()];
 }
 // OCR proposals must remain editable without relaxing the import/solver contract.
-export function puzzleFromReadings({ entries, black, meta, mask, width, height, contrastAdjusted = false, unreadCells = [] }, type, rows, cols) {
+export function puzzleFromReadings({ entries, black, meta, mask, width, height, contrastAdjusted = false, unreadCells = [], cageAreas = null }, type, rows, cols) {
   const valueEntries = entries.filter((e) => ["value", "blackvalue"].includes(e.kind)),
     values = Array(rows * cols).fill(null),
     blackValueCells = new Set(),
@@ -332,7 +365,8 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
       }
   }
   if (isCage(chosen)) {
-    const areas = componentsForCages(mask, width, height, rows, cols, chosen);
+    // An explicit cage type arrives partitioned (scan-analysis.js cagePartition).
+    const areas = cageAreas ?? componentsForCages(mask, width, height, rows, cols, chosen);
     puzzle.cages = areas.flatMap((cells) => {
       const matches = labels
           .filter((e) => cells.includes(e.cell))
@@ -565,7 +599,7 @@ export class Scanner {
     const started = performance.now();
     onDiagnostic({ stage: "preparing", reason: targetCells ? "targeted" : "full-read", targets: targetCells ?? [] });
     onProgress("Straightening the photograph…", null);
-    const { image, meta, mask, g, black, entries: regions, contrastAdjusted, unreadCells } = await this.geometry(
+    const { image, meta, mask, g, black, entries: regions, contrastAdjusted, unreadCells, cageAreas } = await this.geometry(
       "prepare",
       {
         image: imageOf(canvas),
@@ -586,7 +620,7 @@ export class Scanner {
       ch = h / rows,
       rectified = canvasOf(image);
     const emptyRetry = () => ({
-      ...puzzleFromReadings({ entries: [], black, meta, mask, width: w, height: h, contrastAdjusted,
+      ...puzzleFromReadings({ entries: [], black, meta, mask, width: w, height: h, contrastAdjusted, cageAreas,
         unreadCells: targetCells }, type, rows, cols),
       entries: [], targetCells, blackLayout: black.flatMap((v,i) => v ? [i] : []), rectified,
       ocrStats: { calls: 0, samples: 0 }, timings: { prepare: prepared - started, total: performance.now() - started },
@@ -624,12 +658,14 @@ export class Scanner {
         // White-on-black triangle and label crops are inverted per pixel by
         // grayCrop: canvas filters are unsupported in shipping Safari, where
         // ctx.filter = "invert(1)" is a silent no-op.
-        cropped = isDigit || e.invert,
+        cropped = isDigit || e.invert || e.cageLabel,
         source = isDigit
           ? digitCrop(e, g, w, h, cw, ch, cols)
-          : e.invert
-            ? grayCrop(e, g, w, h, cw, ch, cols)
-            : bw,
+          : e.cageLabel
+            ? cageLabelCrop(e, rectified)
+            : e.invert
+              ? grayCrop(e, g, w, h, cw, ch, cols)
+              : bw,
         sx = cropped ? 0 : e.x,
         sy = cropped ? 0 : e.y,
         sw = cropped ? source.width : e.w,
@@ -677,7 +713,7 @@ export class Scanner {
       const readings = mapAtlas(atlasData, entries.length, columns, tile);
       const provisional = entries.map((entry, i) => ({ ...entry, text: readings[i].text, confidence: 0 }));
       onPreview({
-        ...puzzleFromReadings({ entries: provisional, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells }, type, rows, cols),
+        ...puzzleFromReadings({ entries: provisional, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells, cageAreas }, type, rows, cols),
         rectified, entries: provisional, refining: true, needsReview: true,
       });
     });
@@ -690,7 +726,7 @@ export class Scanner {
     applyDigitVotes(entries, data.singles);
     onDiagnostic({ stage: "checking", reason: "ocr-complete", regions: entries.length, calls: data.ocrStats?.calls ?? 0 });
     return {
-      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells }, type, rows, cols),
+      ...puzzleFromReadings({ entries, black, meta, mask, width: w, height: h, contrastAdjusted, unreadCells, cageAreas }, type, rows, cols),
       rectified,
       entries,
       ...(targetCells ? { targetCells, blackLayout: black.flatMap((v,i) => v ? [i] : []) } : {}),
