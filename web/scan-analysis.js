@@ -243,15 +243,29 @@ function lightCellMark(g, width, x, y, w, h, paperFloor = 150) {
 
 // Printed in colour: the darkest twentieth of the pixels (by their darkest
 // channel) is strongly coloured, as red or blue print is and black ink is not.
+// Every empty cell asks, so the twentieth comes from a histogram rather than a
+// sort; pixels tied at the cut are taken in scan order, as a stable sort would.
 function colourfulInk(data, width, x, y, w, h) {
-  const pixels = [];
+  const histogram = new Uint32Array(256), count = Math.max(1, Math.floor(w * h / 20));
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
-    const at = 4 * ((y + yy) * width + x + xx), r = data[at], gr = data[at + 1], b = data[at + 2];
-    pixels.push([Math.min(r, gr, b), Math.max(r, gr, b) - Math.min(r, gr, b)]);
+    const at = 4 * ((y + yy) * width + x + xx);
+    histogram[Math.min(data[at], data[at + 1], data[at + 2])]++;
   }
-  pixels.sort((a, b) => a[0] - b[0]);
-  const dark = pixels.slice(0, Math.max(1, Math.floor(pixels.length / 20)));
-  return dark.reduce((sum, [, chroma]) => sum + chroma, 0) / dark.length >= 30;
+  let cut = 0, below = 0;
+  while (cut < 255 && below + histogram[cut] < count) below += histogram[cut++];
+  let atCut = count - below, taken = 0, chroma = 0;
+  for (let yy = 0; yy < h && taken < count; yy++) for (let xx = 0; xx < w; xx++) {
+    const at = 4 * ((y + yy) * width + x + xx), r = data[at], gr = data[at + 1], b = data[at + 2],
+      low = Math.min(r, gr, b);
+    if (low > cut) continue;
+    if (low === cut) {
+      if (!atCut) continue;
+      atCut--;
+    }
+    chroma += Math.max(r, gr, b) - low;
+    taken++;
+  }
+  return taken > 0 && chroma / taken >= 30;
 }
 
 export function prepareScan(image, type, rows, cols) {
