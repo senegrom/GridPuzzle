@@ -5,7 +5,7 @@ import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
-import { fraction, turnCorners } from "./geometry.js";
+import { fraction, turnCorners, otsuCut } from "./geometry.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -25,34 +25,9 @@ function canvasOf(image) {
 }
 function otsuThreshold(g, width, x, y, w, h) {
   const histogram = new Uint32Array(256);
-  let total = 0,
-    sum = 0;
   for (let yy = y; yy < y + h; yy++)
-    for (let xx = x; xx < x + w; xx++) {
-      const value = g[yy * width + xx];
-      histogram[value]++;
-      total++;
-      sum += value;
-    }
-  let background = 0,
-    backgroundSum = 0,
-    best = -1,
-    threshold = 127;
-  for (let value = 0; value < 256; value++) {
-    background += histogram[value];
-    if (!background) continue;
-    const foreground = total - background;
-    if (!foreground) break;
-    backgroundSum += value * histogram[value];
-    const meanBackground = backgroundSum / background,
-      meanForeground = (sum - backgroundSum) / foreground,
-      score = background * foreground * (meanBackground - meanForeground) ** 2;
-    if (score > best) {
-      best = score;
-      threshold = value;
-    }
-  }
-  return threshold;
+    for (let xx = x; xx < x + w; xx++) histogram[g[yy * width + xx]]++;
+  return otsuCut(histogram);
 }
 export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeight, cols) {
   const pad = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.05)),
@@ -97,19 +72,7 @@ export function cageLabelCrop(entry, rectified) {
   const pixels = context.getImageData(0, 0, out.width, out.height), d = pixels.data, histogram = new Uint32Array(256);
   const lum = (i) => Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
   for (let i = 0; i < d.length; i += 4) histogram[lum(i)]++;
-  const total = d.length / 4;
-  let sum = 0;
-  for (let v = 0; v < 256; v++) sum += v * histogram[v];
-  let background = 0, backgroundSum = 0, best = -1, cut = 127;
-  for (let v = 0; v < 256; v++) {
-    background += histogram[v];
-    if (!background) continue;
-    const foreground = total - background;
-    if (!foreground) break;
-    backgroundSum += v * histogram[v];
-    const score = background * foreground * (backgroundSum / background - (sum - backgroundSum) / foreground) ** 2;
-    if (score > best) { best = score; cut = v; }
-  }
+  const cut = otsuCut(histogram);
   for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lum(i) <= cut ? 0 : 255;
   context.putImageData(pixels, 0, 0);
   return out;

@@ -1,7 +1,7 @@
 import { refineCellBounds } from './cell-boundaries.js';
 import { isGridStroke } from "./ocr-map.js";
 import { isCage } from "./model.js";
-import { gray, thresholdGray, estimateGrid, fraction } from "./geometry.js";
+import { gray, thresholdGray, estimateGrid, fraction, otsuCut } from "./geometry.js";
 
 function mean(grayImage, w, h, x, y, rw, rh) {
   let sum = 0,
@@ -278,20 +278,7 @@ function colourfulInk(data, width, x, y, w, h) {
 export function readChevron(g, width, kind, x, y, w, h) {
   const horizontal = kind === "hsign", histogram = new Uint32Array(256);
   for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) histogram[g[yy * width + xx]]++;
-  const total = w * h;
-  let sum = 0;
-  for (let v = 0; v < 256; v++) sum += v * histogram[v];
-  let background = 0, backgroundSum = 0, best = -1, cut = 127;
-  for (let v = 0; v < 256; v++) {
-    background += histogram[v];
-    if (!background) continue;
-    const foreground = total - background;
-    if (!foreground) break;
-    backgroundSum += v * histogram[v];
-    const score = background * foreground * (backgroundSum / background - (sum - backgroundSum) / foreground) ** 2;
-    if (score > best) { best = score; cut = v; }
-  }
-  const points = [], length = horizontal ? w : h, breadth = horizontal ? h : w;
+  const cut = otsuCut(histogram), points = [], length = horizontal ? w : h, breadth = horizontal ? h : w;
   for (let a = 0; a < length; a++) {
     let low = Infinity, high = -Infinity;
     for (let b = 0; b < breadth; b++) {
