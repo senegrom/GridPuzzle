@@ -454,5 +454,29 @@ export function prepareScan(image, type, rows, cols) {
       }
     }
 
+  // A pencil candidate note is not a printed clue: its cell stays under review
+  // with no digit rather than proposing the note as a given.
+  const notes = candidateNotes(entries);
+  for (let i = entries.length - 1; i >= 0; i--)
+    if (notes.has(entries[i])) {
+      unreadCells.push(entries[i].cell);
+      entries.splice(i, 1);
+    }
   return { image, meta: estimateGrid(image, mask), mask, g, black, entries, unreadCells, contrastAdjusted: contrast.adjusted };
+}
+
+// Value glyphs that look like pencil candidate notes rather than printed
+// clues: under 0.4 of the height of the grid's own clues (the 75th percentile
+// of its value glyphs). Relative heights keep small newspaper fonts, and a
+// grid with fewer than four glyphs has no norm. Measured on the corpus, 0.5
+// or an extra small-and-off-centre test also took handwritten answers and
+// clues in misaligned cells; 0.4 loses at most 44 correct clues in any set.
+export function candidateNotes(entries) {
+  const values = entries.filter((entry) => entry.kind === "value");
+  if (values.length < 4) return new Set();
+  const heights = values.map((entry) => entry.h).sort((a, b) => a - b),
+    at = 0.75 * (heights.length - 1),
+    low = Math.floor(at),
+    reference = heights[low] + (heights[Math.min(heights.length - 1, low + 1)] - heights[low]) * (at - low);
+  return new Set(values.filter((entry) => entry.h < 0.4 * reference));
 }
