@@ -165,6 +165,27 @@ controls, not an accuracy estimate for unseen photographs or handwriting, and
 they do not measure grid detection. Tesseract's own guidance on segmentation
 and preprocessing: https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
 
+## Unread Futoshiki signs
+
+Tesseract reads few inequality signs: on the corpus's 121 Futoshiki images
+only 85 of 1,305 printed signs read as `<`, `>`, `^` or `v`; the rest reach the
+reader as a region that reads as nothing, a digit or an operator. Such a region
+used to be dropped, so the puzzle lost a constraint without a flag (1,187
+unflagged errors). Now both cells of every sign region that did not read as a
+sign go to structural review (`cageUncertain`), with a note giving the count;
+Futoshiki readings already need review before solving. Structural review is
+drawn like digit review, blocks Solve behind the same confirmation, and is
+kept by sessions and backups, but it does not call the digits doubtful: the
+guided digit review skips it, the cell reads "check sign", and saving a sign
+with Inequality under Editing clears exactly its two cells.
+
+Measured with `scoreVersion: 3` on all 121 images (Chromium, 2026-09-28):
+unflagged errors 1,187 → 0, flagged empty cells 96 → 1,924 of 3,823, flagged
+correct clues 130 → 264; the median board goes from 0-4% to 48% of its cells
+highlighted (at most 72%), 14-16 of them for signs. Almost all of that marks a
+printed sign that really was not read: only 29 sign regions sit where no sign
+is printed. Reading the signs themselves is the way to lower it.
+
 ## Pencil candidate notes
 
 Screenshots and photographs of puzzles in progress carry pencil candidate
