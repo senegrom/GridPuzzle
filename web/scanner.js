@@ -294,22 +294,25 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     return v;
   });
   if (chosen === "futoshiki") {
-    puzzle.inequalities = signs.map((e) => {
-      const smallerFirst = ["<", "^"].includes(e.text);
-      uncertain.add(e.cell);
-      return {
-        less: smallerFirst ? e.cell : e.other,
-        greater: smallerFirst ? e.other : e.cell,
-      };
+    // Every sign region is a proposal for review, never a confirmed clue: its
+    // two cells go to structural review (the cage channel), not digit review,
+    // since neither digit is in doubt. A clear chevron shape reads the sign
+    // (readChevron: measured right on every rendered sign); otherwise the
+    // OCR reading, if it is a sign; otherwise the region stays unread, since
+    // dropping it would silently remove a printed constraint.
+    const regions = entries.filter((e) => ["hsign", "vsign"].includes(e.kind)),
+      read = (e) => e.chevron ?? (/^[<>^vV]$/.test(e.text) ? e.text : null);
+    puzzle.inequalities = regions.flatMap((e) => {
+      cageUncertain.add(e.cell); cageUncertain.add(e.other);
+      const text = read(e);
+      if (!text) return [];
+      const smallerFirst = ["<", "^"].includes(text);
+      return [{ less: smallerFirst ? e.cell : e.other, greater: smallerFirst ? e.other : e.cell }];
     });
-    // Ink between two cells that did not read as a sign may be a printed
-    // inequality: dropping it silently removes a constraint. Its two cells go
-    // to structural review (the cage channel), not to digit review, since
-    // neither digit is in doubt; the note says what to do.
-    const unreadSigns = entries.filter((e) => ["hsign", "vsign"].includes(e.kind) && !/^[<>^vV]$/.test(e.text));
-    for (const e of unreadSigns) { cageUncertain.add(e.cell); cageUncertain.add(e.other); }
-    if (unreadSigns.length)
-      notes.push(`${unreadSigns.length} possible inequality sign${unreadSigns.length === 1 ? "" : "s"} could not be read. Their cells are highlighted: add each printed sign with Inequality under Editing.`);
+    const unread = regions.filter((e) => !read(e)).length, proposed = regions.length - unread,
+      plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    if (regions.length)
+      notes.push(`${plural(proposed, "inequality sign")} read for checking${unread ? `, ${unread} more could not be read` : ""}. Their cells are highlighted: confirm each sign, and add any missing one with Inequality under Editing.`);
   }
   if (chosen === "kakuro") {
     for (let i = 0; i < puzzle.cells.length; i++)

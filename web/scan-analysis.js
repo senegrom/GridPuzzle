@@ -268,6 +268,51 @@ function colourfulInk(data, width, x, y, w, h) {
   return taken > 0 && chroma / taken >= 30;
 }
 
+// The apex side of a chevron-shaped sign, from its ink alone: along the sign's
+// axis the ink's cross-extent grows from the apex to the open end. Otsu's
+// threshold inside the ink box, a least-squares slope of cross-extent against
+// position, and the mean extent of the first and last quarter. Clear shapes
+// only: ink at 8 or more positions, the open end at least 1.6 times the apex
+// end, and a slope of at least 0.15. The apex points at the smaller cell, so
+// "<"/"^" mean the first (left/upper) cell is smaller. Null otherwise.
+export function readChevron(g, width, kind, x, y, w, h) {
+  const horizontal = kind === "hsign", histogram = new Uint32Array(256);
+  for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) histogram[g[yy * width + xx]]++;
+  const total = w * h;
+  let sum = 0;
+  for (let v = 0; v < 256; v++) sum += v * histogram[v];
+  let background = 0, backgroundSum = 0, best = -1, cut = 127;
+  for (let v = 0; v < 256; v++) {
+    background += histogram[v];
+    if (!background) continue;
+    const foreground = total - background;
+    if (!foreground) break;
+    backgroundSum += v * histogram[v];
+    const score = background * foreground * (backgroundSum / background - (sum - backgroundSum) / foreground) ** 2;
+    if (score > best) { best = score; cut = v; }
+  }
+  const points = [], length = horizontal ? w : h, breadth = horizontal ? h : w;
+  for (let a = 0; a < length; a++) {
+    let low = Infinity, high = -Infinity;
+    for (let b = 0; b < breadth; b++) {
+      const value = horizontal ? g[(y + b) * width + x + a] : g[(y + a) * width + x + b];
+      if (value <= cut) { low = Math.min(low, b); high = Math.max(high, b); }
+    }
+    if (high >= low) points.push([a, high - low + 1]);
+  }
+  if (points.length < 8) return null;
+  const n = points.length, meanA = points.reduce((s, p) => s + p[0], 0) / n,
+    meanE = points.reduce((s, p) => s + p[1], 0) / n,
+    sxx = points.reduce((s, p) => s + (p[0] - meanA) ** 2, 0),
+    slope = sxx ? points.reduce((s, p) => s + (p[0] - meanA) * (p[1] - meanE), 0) / sxx : 0,
+    quarter = Math.max(1, Math.floor(n / 4)),
+    mean = (list) => list.reduce((s, p) => s + p[1], 0) / list.length,
+    start = mean(points.slice(0, quarter)), end = mean(points.slice(n - quarter));
+  if (Math.max(start, end) < 1.6 * Math.max(1, Math.min(start, end)) || Math.abs(slope) < 0.15) return null;
+  const apexFirst = end > start;
+  return horizontal ? (apexFirst ? "<" : ">") : (apexFirst ? "^" : "v");
+}
+
 export function prepareScan(image, type, rows, cols) {
   const w = image.width,
     h = image.height,
@@ -394,6 +439,8 @@ export function prepareScan(image, type, rows, cols) {
       return;
     if (kind === "hsign" && maxx - minx < (maxy - miny) * 0.3) return;
     if (kind === "vsign" && maxy - miny < (maxx - minx) * 0.3) return;
+    const chevron = ["hsign", "vsign"].includes(kind)
+      ? readChevron(g, w, kind, x + minx, y + miny, maxx - minx + 1, maxy - miny + 1) : null;
     return { entry: {
       kind,
       cell,
@@ -405,6 +452,7 @@ export function prepareScan(image, type, rows, cols) {
       invert,
       text: "",
       confidence: 0,
+      ...(chevron ? { chevron } : {}),
       ...(bounds ? { cellBounds: bounds, refinedCell: true } : {}),
       ...(recoveredMark ? { recoveredMark: true } : {}),
       ...(glyphCount > 1 ? { glyphCount } : {}),

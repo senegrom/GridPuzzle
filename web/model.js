@@ -512,10 +512,10 @@ export function classify({ rows, cols, values = [], signs = 0, labels = 0, opera
   return { type:rows===cols?"sudoku":"numbrix", review:true, reason:"The rules are ambiguous from the grid alone. Choose the correct type before solving." };
 }
 // What the structural review channel (cageUncertain) asks of the user: cage
-// checks in the cage families, unread inequality signs in Futoshiki.
+// checks in the cage families, inequality signs to confirm or add in Futoshiki.
 export function structuralReview(type, count) {
   return type === "futoshiki"
-    ? { label: "check sign", message: `${count} cells border an inequality sign that could not be read. Choose Inequality under Editing to add each printed sign.` }
+    ? { label: "check sign", message: `${count} cells border an inequality sign to check. Confirm each sign that was read, and add any missing one with Inequality under Editing.` }
     : { label: "check cage", message: `${count} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.` };
 }
 export function nextReviewCell(indices, after = -1) {
