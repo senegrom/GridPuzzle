@@ -165,6 +165,33 @@ controls, not an accuracy estimate for unseen photographs or handwriting, and
 they do not measure grid detection. Tesseract's own guidance on segmentation
 and preprocessing: https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
 
+## Pencil candidate notes
+
+Screenshots and photographs of puzzles in progress carry pencil candidate
+notes, and the reader proposed them as givens: on the real-photo corpus they
+were the largest source of unflagged errors after detection failures. A value
+glyph under 0.4 of the grid's own clue height (the 75th percentile of its value
+glyphs) is a note: its cell gets no digit and stays under review as an unread
+cell, so a clue in an unusually small hand or font is lost to review, never
+silently. Grids with fewer than four value glyphs have no norm.
+
+Measured on the corpus with `scoreVersion: 3` (Chromium, 2026-09-28):
+
+| | Before | After |
+| --- | ---: | ---: |
+| Unflagged errors | 8,397 | 7,701 |
+| Invented clues | 19,932 | 13,657 |
+| Correct clues | 107,539 | 107,548 |
+| Perfect readings | 1,357 | 1,416 |
+| Flagged empty cells | 28,137 | 34,412 |
+
+The removed inventions become flagged empty cells. Half the clue height, or an
+extra small-and-off-centre test, also took handwritten answers and clues in
+misaligned cells (up to 267 correct clues in one set) and were rejected; 0.4
+loses at most 26 in any set. Removing note regions changes the OCR atlas, so
+other cells' votes can change as well; the totals include that. The rule is
+covered by `web/tests/candidate-notes.test.js`.
+
 ## Alternatives tried
 
 A 26,731-parameter printed-digit network (two 3x3 convolutions and two dense
