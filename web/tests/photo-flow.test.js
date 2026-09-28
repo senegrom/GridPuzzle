@@ -324,6 +324,16 @@ for (const proposed of [false, true]) test(`maximum cage warnings plus photo con
   assert.throws(() => puzzleDefinition(h.state), /review/i);
 });
 
+for (const turns of [0, 1, 3]) test(`a reading taken ${turns} quarter turns off turns the crop corners with it`, async t => {
+  const h = photoHarness(t), puzzle = makePuzzle('latinsquare', 2); puzzle.cells[0] = 2;
+  const before = h.state.corners.map(p => ({ ...p }));
+  h.setFound({ puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
+    rectified: canvas(200, 200), ...(turns ? { turns } : {}) });
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.puzzle.cells[0], 2);
+  assert.deepEqual(h.state.corners, before.map((_, i) => before[(i + turns) % 4]));
+});
+
 test('notes have one bounded session/backup contract without losing flags, pending evidence or Play', t => {
   const h = photoHarness(t), s = h.state; s.puzzle = makePuzzle('hidato', 2); s.puzzle.cells[0] = '#';
   s.blackReadings = [{ cell: 0, value: 7 }]; s.play = [null, 2, null, null]; s.hints = new Set([1]);
