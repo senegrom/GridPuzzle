@@ -51,6 +51,27 @@ def isolated_env(tmp_path):
             "PUZZLE_CORPUS_INDEX": str(tmp_path / "inventory.json")}
 
 
+def test_thick_cage_style_draws_heavy_edges_between_cages_and_no_inset_dashes():
+    # Two cages, top row and bottom row: the horizontal edge between them is a cage border.
+    puzzle = {"version": 1, "type": "kenken", "rows": 2, "cols": 2, "cells": [None] * 4,
+              "cages": [{"cells": [0, 1], "target": 3, "op": "+"}, {"cells": [2, 3], "target": 7, "op": "+"}],
+              "inequalities": [], "clues": []}
+    stream = random.Random(5)
+    cell, margin = stream.choice([52, 60, 68, 76]), stream.choice([28, 40, 56])  # draw_puzzle's first draws
+    images = {style: renderer.draw_puzzle(puzzle, random.Random(5), faces=(None,), cage_style=style)[0].convert("L")
+              for style in ("thick", "dashed")}
+    def dark_run(image, x, y0, y1):
+        return sum(1 for y in range(y0, y1) if image.getpixel((x, y)) < 128)
+    x = margin + cell // 2 + cell  # middle of the right column, clear of the clue
+    border = margin + cell
+    assert dark_run(images["thick"], x, border - 6, border + 7) >= 5
+    assert dark_run(images["dashed"], x, border - 3, border + 4) <= 3, "dashed style keeps a thin grid line there"
+    inset = max(4, cell // 12)
+    column = margin + cell + inset  # where the dashed style draws a cage's inset outline
+    assert dark_run(images["dashed"], column, margin + inset, margin + cell - inset) > 0
+    assert dark_run(images["thick"], column, margin + inset, margin + cell - inset) == 0
+
+
 def test_renderer_cli_writes_three_valid_variants_with_no_system_fonts(tmp_path):
     env = isolated_env(tmp_path)
     result = subprocess.run([sys.executable, "-c",

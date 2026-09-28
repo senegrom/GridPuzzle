@@ -29,7 +29,7 @@ no uniqueness claim is made for generated puzzles or witness-free targets.
 
 ## Contents
 
-3858 images, 400 MiB, 10 families, 22 sets. 2345 are real photographs; 3013
+3978 images, 402 MiB, 10 families, 23 sets. 2345 are real photographs; 3133
 carry grid-corner ground truth.
 
 | Family | Set | Kind | Images | Corners | Solution |
@@ -39,6 +39,7 @@ carry grid-corner ground truth.
 | hidato | janko-hidato | render | 120 | 120 | 120 |
 | kakuro | janko-kakuro | render | 111 | 111 | 111 |
 | kenken | janko-kenken | render | 120 | 120 | 120 |
+| kenken | janko-kenken-thick | render | 120 | 120 | 120 |
 | kenken | janko-killersudoku | render | 120 | 120 | 120 |
 | killersudoku | generated-render | render | 120 | 120 | 120 |
 | latinsquare | generated-render | render | 120 | 120 | 120 |
@@ -137,6 +138,15 @@ PNG), `print` (newsprint tint, ink bleed, grain, JPEG) and `photo` (the print
 variant seen at an angle on a surface, with a lighting gradient). Cell size,
 margin and font vary per puzzle. Only the `photo` variant has non-trivial
 corner ground truth, which is tracked through the perspective transform.
+
+Cages are drawn as dashed outlines inset in their cells, the Killer Sudoku
+convention, in `janko-kenken`, `janko-killersudoku` and the generated Killer
+set. `janko-kenken-thick` (2026-09-28) draws the same janko KenKen puzzles the
+way KenKen is usually printed: thick lines on the cell edges between cages, and
+the clue in the head cell's top-left corner. It is rendered last, from its own
+random stream, so adding it left every earlier set byte-identical (a full
+re-render compared file by file); `render_puzzles.py --set janko-kenken-thick`
+draws it alone, identically.
 
 ## Rebuilding
 
