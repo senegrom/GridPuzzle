@@ -526,6 +526,7 @@ export class Scanner {
         if (epoch !== this.epoch) throw aborted();
       };
     const found = await this.readOnce(canvas, corners, type, rows, cols, onProgress, options, targetCells, check);
+    check();
     // Orientation is a property of a still photograph: a live preview keeps
     // the tracked corners, a targeted re-read keeps its grid's orientation, and
     // only a square grid reads the same size after a quarter turn.
@@ -545,9 +546,23 @@ export class Scanner {
     if (!(glyphAspect(values) < 1) || confident >= values.length / 2) return found;
     let best = { found, confident, turns: 0 };
     for (const turns of [1, 3]) {
+      check();
       onProgress("Checking which way up the photograph is…", null);
-      const turned = await this.readOnce(canvas, turnCorners(corners, turns), type, rows, cols, () => {},
-        { onDiagnostic: options.onDiagnostic }, null, check);
+      check();
+      let turned;
+      try {
+        turned = await this.readOnce(canvas, turnCorners(corners, turns), type, rows, cols, () => {},
+          { onDiagnostic: options.onDiagnostic }, null, check);
+      } catch (error) {
+        // An optional orientation may have no readable clues or a failed
+        // worker. Keep the best completed reading and try the other turn.
+        // Cancellation/supersession, even when reported as an ordinary
+        // error by a retired worker, must never return an obsolete reading.
+        check();
+        if (error?.name === "AbortError") throw error;
+        continue;
+      }
+      check();
       const n = confidentDigits(turned);
       if (n > best.confident) best = { found: turned, confident: n, turns };
     }
