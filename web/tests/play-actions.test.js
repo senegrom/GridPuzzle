@@ -319,6 +319,17 @@ test("accepted cage edits cancel private requests and ignore stale worker comple
 });
 
 
+test("saving a sign clears the structural review of exactly its two cells", (t) => {
+  const h = harness(t);
+  h.state.puzzle = model.makePuzzle("futoshiki", 2);
+  h.state.cageUncertain = new Set([0, 1, 3]); h.state.uncertain = new Set([1]);
+  h.state.selected = [1, 0];
+  h.$("save-inequality").onclick();
+  assert.deepEqual(plain(h.state.puzzle.inequalities), [{ less: 1, greater: 0 }]);
+  assert.deepEqual([...h.state.cageUncertain], [3]);
+  assert.deepEqual([...h.state.uncertain], [1], "a doubtful digit stays doubtful");
+});
+
 test("inequality saves and removals write the draft, never the captured source puzzle", (t) => {
   const h = harness(t);
   h.state.puzzle = model.makePuzzle("futoshiki", 2);

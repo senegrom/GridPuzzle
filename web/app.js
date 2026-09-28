@@ -1,5 +1,5 @@
 import { setupClueReread } from "./clue-reread.js";
-import { nextReviewCell } from "./model.js";
+import { nextReviewCell, structuralReview } from "./model.js";
 import { createTaskController } from "./task-controller.js";
 import { prepareEdit, restoreEdit, rememberEdit } from "./edit-history.js";
 import { setupPhotoFlow } from "./photo-flow.js";
@@ -353,7 +353,7 @@ function drawBoard() {
           : `${isBlack ? "black clue " : given !== null ? "" : sol ? "solution " : state.hints.has(i) ? "hint " : "your answer "}${value}`;
     const review = [
       state.uncertain.has(i) ? "check reading" : "",
-      state.cageUncertain.has(i) ? "check cage" : "",
+      state.cageUncertain.has(i) ? structuralReview(p.type, 0).label : "",
       entry !== null && !sol && wrong.has(i) ? "wrong" : "",
     ].filter(Boolean);
     const g = svg("g", {
@@ -634,7 +634,7 @@ function render({ replaceDraft = false } = {}) {
     ? `${state.uncertain.size} cells need checking. ${sourceAvailable ? "Tap a highlighted cell to compare it with the photograph." : "Check the highlighted clues against the original puzzle. Photos are not retained after closing the app."}`
     : "Confirm the puzzle type and structural clues.";
   const cageMessage = state.cageUncertain.size
-    ? `${state.cageUncertain.size} cells need cage review. Choose Cages under Editing to check their boundaries, targets and operators.`
+    ? structuralReview(state.puzzle.type, state.cageUncertain.size).message
     : "";
   $("review-note").textContent = [checkMessage, cageMessage, ...state.notes].filter(Boolean).join("\n");
   // Only the label changes; the decorative arrow stays hidden from readers.
@@ -1091,6 +1091,8 @@ $("save-inequality").onclick = () => {
           ![less, greater].includes(q.greater),
       );
       draft.puzzle.inequalities.push({ less, greater });
+      // The sign is now entered: its cells need no structural review.
+      [less, greater].forEach((i) => draft.cageUncertain.delete(i));
       draft.selected = [];
     });
   } catch (e) {
