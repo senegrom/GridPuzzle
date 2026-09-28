@@ -13,6 +13,10 @@ worker on a copy of the frame no larger than 640 pixels (the live camera) or
 2. **Lines.** The quad is warped to 540 × 540 and the grid lines are read
    from the warp; the line count gives rows and columns and decides the
    confidence (0.94 with a lattice, 0.45 without, which the callers reject).
+   The photo flow asks for manual corners at 0.8 or below, and a Read on
+   those corners before any handle is moved puts every cell under review
+   (`web/photo-flow.js`), since the crop may hold wrong, invented or missing
+   clues anywhere.
 
 ## The outline stage
 

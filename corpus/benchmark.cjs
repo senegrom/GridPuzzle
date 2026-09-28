@@ -8,12 +8,15 @@
      node corpus/benchmark.cjs --family sudoku --set wichtounet-newspaper --limit 50
      node corpus/benchmark.cjs --variant photo --engine webkit
      node corpus/benchmark.cjs --family kakuro --true-corners
+     node corpus/benchmark.cjs --site ../other/_site --out before.json
 
-   Writes browser-artifacts/corpus-benchmark.json and prints a summary.        */
+   Serves --site (default _site), writes --out (default
+   browser-artifacts/corpus-benchmark.json) and prints a summary.              */
 const { corpusImages, runBenchmark } = require("./benchmark-runner.cjs");
 
 const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
-  family: null, set: null, variant: null, limit: 0, engine: "chromium", trueCorners: false };
+  family: null, set: null, variant: null, limit: 0, engine: "chromium", trueCorners: false,
+  site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
 for (let i = 2; i < process.argv.length; i++) {
   const flag = process.argv[i].replace(/^--/, "");
   if (flag === "true-corners") options.trueCorners = true;
@@ -78,11 +81,12 @@ async function main() {
   const onInt = () => interrupt("SIGINT"), onTerm = () => interrupt("SIGTERM");
   process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
   let report;
-  try { report = await runBenchmark({ items, options, scan, base: BASE, signal: controller.signal }); }
+  try { report = await runBenchmark({ items, options, scan, base: BASE, signal: controller.signal, output: options.out }); }
   finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `
       + `${row.topologyWrong} topology errors, ${row.perfect}/${row.images} perfect, grid found ${row.gridFound}/${row.images}, `
+      + `flags on ${row.flaggedCorrect} correct clues and ${row.flaggedEmpty}/${row.emptyCells} empty cells, `
       + `corner error ${row.medianCornerError ?? "-"}%, ${row.medianMs} ms`);
   }
   if (report.failure) console.error(report.failure);
