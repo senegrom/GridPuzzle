@@ -648,20 +648,26 @@ const boxDefault = boxShape;
 applyType.onclick = () => {
   try {
     const type = $("puzzle-type").value,
+      previous = state.puzzle.type,
       next = changePuzzleType(state.puzzle, type, state.blackReadings),
       // Black-cell readings larger than the board cannot become Str8ts clues;
       // the conversion drops them, so say so rather than claiming every
       // reading was kept.
       dropped = type === "str8ts" && state.puzzle.type !== "str8ts"
         ? state.blackReadings.filter((entry) => entry.value > state.puzzle.rows).length
-        : 0;
+        : 0,
+      // Structural review keeps its meaning from cage family to cage family
+      // and from Futoshiki to Futoshiki (unread signs), and nowhere else.
+      keepStructural = (isCage(previous) && isCage(type)) || (previous === "futoshiki" && type === "futoshiki");
     mutate((draft) => {
       draft.puzzle = next;
-      if (!isCage(type)) draft.cageUncertain.clear();
+      if (!keepStructural) draft.cageUncertain.clear();
       draft.needsReview = draft.needsReview || Boolean(state.photo) || draft.uncertain.size > 0;
       draft.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
         ...(dropped ? [`${dropped} black-cell reading${dropped === 1 ? "" : "s"} exceeded the board size and ${dropped === 1 ? "was" : "were"} not applied; those cells stay highlighted for review.`] : []),
+        // The notes that explain kept highlights stay with them.
+        ...(keepStructural && draft.cageUncertain.size ? draft.notes : []),
       ];
       draft.selected = [];
     });
@@ -1091,8 +1097,8 @@ $("save-inequality").onclick = () => {
           ![less, greater].includes(q.greater),
       );
       draft.puzzle.inequalities.push({ less, greater });
-      // The sign is now entered: its cells need no structural review.
-      [less, greater].forEach((i) => draft.cageUncertain.delete(i));
+      // Sign review stays until the transcription is confirmed: a cell can
+      // border another unread sign, and clearing it would hide that one.
       draft.selected = [];
     });
   } catch (e) {

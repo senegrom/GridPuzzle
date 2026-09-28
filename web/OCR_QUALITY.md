@@ -176,8 +176,10 @@ sign go to structural review (`cageUncertain`), with a note giving the count;
 Futoshiki readings already need review before solving. Structural review is
 drawn like digit review, blocks Solve behind the same confirmation, and is
 kept by sessions and backups, but it does not call the digits doubtful: the
-guided digit review skips it, the cell reads "check sign", and saving a sign
-with Inequality under Editing clears exactly its two cells.
+guided digit review skips it and the cell reads "check sign". The highlights
+stay until the transcription is confirmed, even after a sign is saved with
+Inequality under Editing (a cell can border another unread sign), and they
+survive re-applying Futoshiki; changing to another family clears them.
 
 Measured with `scoreVersion: 3` on all 121 images (Chromium, 2026-09-28):
 unflagged errors 1,187 → 0, flagged empty cells 96 → 1,924 of 3,823, flagged
