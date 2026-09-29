@@ -52,7 +52,7 @@ function harness(t, faults = {}) {
 test("normal runs score all images, checkpoint and close every resource", async t => {
   const h = harness(t, { checkpoint: true }); const report = await h.run();
   assert.equal(report.status, "complete"); assert.equal(report.summary[0].perfect, 3);
-  assert.equal(report.scoreVersion, 3);
+  assert.equal(report.scoreVersion, 4);
   const { flaggedCorrect, emptyCells, flaggedEmpty } = report.summary[0];
   assert.deepEqual([flaggedCorrect, emptyCells, flaggedEmpty], [0, 0, 0]);
   assert.equal(report.completedImages, 3); assert.equal(h.saved().results.length, 3);
