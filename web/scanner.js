@@ -71,7 +71,12 @@ export function cageLabelCrop(entry, rectified) {
   context.drawImage(rectified, entry.x, entry.y, entry.w, entry.h, 16, 16, out.width - 32, height);
   const pixels = context.getImageData(0, 0, out.width, out.height), d = pixels.data, histogram = new Uint32Array(256);
   const lum = (i) => Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-  for (let i = 0; i < d.length; i += 4) histogram[lum(i)]++;
+  // The threshold comes from the clue box alone. Counting the white margin
+  // made it the light class, so a clue on grey paper (a dim photograph)
+  // turned to solid ink, paper and all. The margin stays white, since the
+  // cut is always below 255.
+  for (let y = 16; y < 16 + height; y++)
+    for (let x = 16; x < out.width - 16; x++) histogram[lum(4 * (y * out.width + x))]++;
   const cut = otsuCut(histogram);
   for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lum(i) <= cut ? 0 : 255;
   context.putImageData(pixels, 0, 0);
