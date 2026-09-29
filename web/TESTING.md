@@ -162,10 +162,15 @@ families that no public photograph corpus covers.
 runs the production detector, OCR and voting over a selection and scores it
 against the targets: correct, wrong, missed and invented clues, unflagged
 errors, whether the grid was found, the corner error as a percentage of the
-grid diagonal, and per-image timings. `--true-corners` feeds the target
-outline instead of the detector's, which separates recognition from detection;
-`--engine webkit` switches browser. Results go to
-`browser-artifacts/corpus-benchmark.json`. It is a measurement, not a gate.
+grid diagonal, and per-image timings. It reads each photograph as the photo
+flow does: at most 1600 px on its long side (a larger original is read from its
+detail, as `photoDetail` does), through the corners the detector
+proposes at any confidence, with every cell flagged when those corners would
+still need confirming (confidence 0.8 or less); see `scoreVersion: 4` in
+`corpus/SOURCES.md`. `--true-corners` feeds the target outline instead of the
+detector's, which separates recognition from detection; `--engine webkit`
+switches browser. Results go to `browser-artifacts/corpus-benchmark.json`. It
+is a measurement, not a gate.
 
 `node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
 detector alone over every corpus image with corner ground truth, at the live

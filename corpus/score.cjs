@@ -98,4 +98,6 @@ function isPerfect(result) {
   return !result.error && result.printed > 0 && result.correct === result.printed &&
     !result.wrong && !result.missed && !result.invented && !result.topologyWrong && !result.shapeErrors;
 }
-module.exports = { score, isPerfect, SCORE_VERSION: 3 };
+// 4 (2026-09-29): the same scoring as 3, over readings taken as the photo flow
+// takes them (benchmark.cjs), so its reports do not compare with version 3's.
+module.exports = { score, isPerfect, SCORE_VERSION: 4 };

@@ -231,15 +231,33 @@ neither. The accuracy and unflagged counts are unchanged from version 2.
 `corpus/benchmark.cjs --site <dir> --out <file>` benchmarks another build (for
 example a branch's `_site`) with this scorer.
 
+`scoreVersion: 4` (2026-09-29) scores as version 3 did, but over readings taken
+the way the photo flow takes them, so do not compare its reports with older
+ones. `corpus/benchmark.cjs` decodes each photograph as the flow does, straight
+to a preview on white with its long side at most 1600 px (it used the full size,
+and 249 corpus images are larger), detects on that preview, and reads through
+the corners the detector proposes at any confidence (it used the whole frame
+below 0.5, which the app never does). Like the flow it keeps the original file
+and reads through `photoDetail` (web/photo-detail.js): a photograph larger than
+the preview, and at most 16 MP, is read from the original's grid region at up to
+1800 px; each result records whether it was (`detail`). Where the detector's
+confidence is 0.8 or less the photo flow asks for the corners to be set and,
+read through them unchanged, highlights every cell, so every cell of such a
+reading counts as flagged: these images no longer contribute unflagged errors,
+and their cost shows as flags instead. `--true-corners` pulls a target outline
+that lies on or past the frame's edge onto it, as a user dragging the handles
+there would; such readings used to fail. Reports record the settings under
+`harness`, and each result says whether its corners were `unconfirmed`.
+
 This recognition benchmark supplies the **reference puzzle type and row/column
 counts** to the Scanner. It does not test fully automatic family/size inference.
-By default the crop comes from detection, falling back to the full image. With
-`--true-corners`, available reference corners replace that crop; a target without
-corners still uses detection or the full image. Reference clue values stay in
-the scorer and are not sent to the recognition page. JSON reports record this
-contract in `recognition`, and each successful reading records its actual
-`geometrySource` (`reference`, `detected`, or `full-frame`). Keep these configured
-scores separate from the detection-only and automatic live-camera gates.
+By default the crop is the detector's proposal, at any confidence as described
+above. With `--true-corners`, available reference corners replace that crop;
+a target without corners still uses the detector's proposal. Reference clue
+values stay in the scorer and are not sent to the recognition page. JSON reports
+record this contract in `recognition`, and each reading records `geometrySource`
+(`reference` or `detector-proposal`). Keep these configured scores separate from
+the detection-only and automatic live-camera gates.
 
 The pure scorer runs in the normal Node gate through
 `web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded

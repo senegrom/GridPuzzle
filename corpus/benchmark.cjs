@@ -1,95 +1,65 @@
-/* Score the production scanner against the local puzzle corpus.
+/* Score the production scanner against the local puzzle corpus, reading each
+   photograph the way the photo flow does.
 
    Runs the real detector, OCR and voting in a browser over images selected
    from the corpus, and compares the reading with each image's target file:
    printed clues per cell, and the grid corners where the target has them.
-   Recognition is configured with the reference type and grid dimensions,
-   and --true-corners also supplies reference corners when available. Printed
-   clue values never reach the Scanner. This is not a fully automatic scan.
+   The reference type and row/column counts configure recognition, so this is
+   not an automatic family/size benchmark. Reference clue values stay in the
+   scorer; reference corners are supplied only with --true-corners.
+
+   As in web/photo-flow.js, the photograph is decoded to a preview on white with
+   its long side at most 1600 px, the grid is detected on that preview, and it is
+   read through the corners the detector proposes, however confident, and
+   through photoDetail: a larger original's grid region at up to 1800 px. When that confidence is 0.8 or less, the flow asks for the
+   corners to be set and, read unchanged, highlights every cell, so every cell
+   of such a reading counts as flagged. --true-corners reads through the
+   target's outline instead, pulled onto the frame where it lies on or past
+   the edge, as a user dragging the handles there would.
 
      node corpus/benchmark.cjs --family sudoku --set wichtounet-newspaper --limit 50
      node corpus/benchmark.cjs --variant photo --engine webkit
      node corpus/benchmark.cjs --family kakuro --true-corners
      node corpus/benchmark.cjs --site ../other/_site --out before.json
+     node corpus/benchmark.cjs --list names.txt   (one "set/name" per line)
 
    Serves --site (default _site), writes --out (default
    browser-artifacts/corpus-benchmark.json) and prints a summary.              */
-const { corpusImages, runBenchmark } = require("./benchmark-runner.cjs");
+const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata } = require("./benchmark-runner.cjs");
 
-const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
-  family: null, set: null, variant: null, limit: 0, engine: "chromium", trueCorners: false,
-  site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
-for (let i = 2; i < process.argv.length; i++) {
-  const flag = process.argv[i].replace(/^--/, "");
-  if (flag === "true-corners") options.trueCorners = true;
-  else if (flag in options) options[flag] = /^(limit)$/.test(flag) ? Number(process.argv[++i]) : process.argv[++i];
-}
 const BASE = "http://127.0.0.1:8780/";
-
-function entries() {
-  const found = [];
-  for (const item of corpusImages(options.corpus)) {
-    if (options.family && item.family !== options.family) continue;
-    if (options.set && item.set !== options.set) continue;
-    if (options.variant && !item.name.includes(`-${options.variant}.`)) continue;
-    found.push(item);
+function parseOptions(args) {
+  const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
+    family: null, set: null, variant: null, list: null, limit: 0, engine: "chromium", trueCorners: false,
+    site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i].replace(/^--/, "");
+    if (flag === "true-corners") options.trueCorners = true;
+    else if (flag in options) options[flag] = flag === "limit" ? Number(args[++i]) : args[++i];
   }
-  return options.limit ? found.slice(0, options.limit) : found;
+  return options;
 }
 
-// Runs in the page: the production Scanner, one warm instance for the whole run.
-async function scan({ data, mime, puzzle, corners, useTrue }) {
-  const { Scanner } = await import("./scanner.js");
-  window.benchScanner ??= new Scanner();
-  const scanner = window.benchScanner;
-  const image = new Image();
-  image.src = `data:${mime};base64,${data}`;
-  await image.decode();
-  const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  canvas.getContext("2d").drawImage(image, 0, 0);
-  const started = performance.now();
-  let detection = null;
-  try { detection = await scanner.detect(canvas); } catch (error) { return { error: `detect: ${error.message}` }; }
-  const detected = performance.now() - started;
-  const frame = [{ x: 0, y: 0 }, { x: canvas.width - 1, y: 0 },
-    { x: canvas.width - 1, y: canvas.height - 1 }, { x: 0, y: canvas.height - 1 }];
-  const found = detection?.confidence >= 0.5 && detection.corners ? detection.corners : null;
-  const used = useTrue && corners ? corners.map(([x, y]) => ({ x, y })) : (found ?? frame);
-  try {
-    const result = await scanner.read(canvas, used, puzzle.type, puzzle.rows, puzzle.cols);
-    return { detected, total: performance.now() - started, confidence: detection?.confidence ?? null,
-      grid: Boolean(found), fell_back: !found && !(useTrue && corners),
-      geometrySource: useTrue && corners ? "reference" : found ? "detected" : "full-frame",
-      read: { cells: result.puzzle.cells, cages: result.puzzle.cages || [],
-        clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [],
-        black: result.puzzle.black || [] },
-      uncertain: result.uncertain, cageUncertain: result.cageUncertain || [],
-      corners: found ? found.map((p) => [p.x, p.y]) : null,
-      ocr: result.timings ? Math.round(result.timings.ocr) : null };
-  } catch (error) {
-    return { detected, error: `read: ${error.message}`, confidence: detection?.confidence ?? null };
-  }
-}
-
-
-async function main() {
-  const items = entries();
+async function main(args = process.argv.slice(2)) {
+  const options = parseOptions(args), items = selectImages(options);
   if (!items.length) { console.error("no matching images under", options.corpus); return 2; }
   if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
   console.log(`${items.length} images from ${options.corpus}`);
-  console.log(`Recognition: reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detected corners or full-frame fallback"}. Not fully automatic.`);
+  console.log(`Recognition uses reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detector proposals"}. Not fully automatic.`);
   const controller = new AbortController();
   const interrupt = name => controller.abort(Error(`Benchmark interrupted by ${name}`));
   const onInt = () => interrupt("SIGINT"), onTerm = () => interrupt("SIGTERM");
   process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
   let report;
-  try { report = await runBenchmark({ items, options, scan, base: BASE, signal: controller.signal, output: options.out }); }
-  finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
+  try {
+    report = await runBenchmark({ items, options, base: BASE, signal: controller.signal, output: options.out,
+      measure: (page, item) => photoFlowMeasure(page, item, options),
+      reportMetadata: photoFlowMetadata(options) });
+  } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `
-      + `${row.topologyWrong} topology errors, ${row.perfect}/${row.images} perfect, grid found ${row.gridFound}/${row.images}, `
+      + `${row.topologyWrong} topology errors, ${row.perfect}/${row.images} perfect, `
+      + `grid found ${row.gridFound}/${row.images} (${row.unconfirmed} read through unconfirmed corners), `
       + `flags on ${row.flaggedCorrect} correct clues and ${row.flaggedEmpty}/${row.emptyCells} empty cells, `
       + `corner error ${row.medianCornerError ?? "-"}%, ${row.medianMs} ms`);
   }
@@ -99,3 +69,4 @@ async function main() {
 }
 if (require.main === module) main().then(code => { process.exitCode = code; })
   .catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { parseOptions, main };
