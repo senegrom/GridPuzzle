@@ -148,6 +148,14 @@ random stream, so adding it left every earlier set byte-identical (a full
 re-render compared file by file); `render_puzzles.py --set janko-kenken-thick`
 draws it alone, identically.
 
+The two KenKen sets also print their operators differently. The
+`janko-kenken` images on disk were drawn before cage labels switched to ASCII
+(see Rebuilding), so their clues carry the mathematical signs −, × and ÷;
+`janko-kenken-thick`, drawn by today's renderer, prints `-`, `x` and `/`.
+Printed puzzles use both conventions, so the pair covers both, but the OCR
+reads them differently (a clean ÷ mostly as `+`, a clean `/` as `/`), and a
+fresh render of `janko-kenken` would switch that set to ASCII.
+
 ## Rebuilding
 
 ```bash
@@ -272,7 +280,8 @@ python corpus/render_puzzles.py --font-dir /path/to/fonts --only kenken
 
 Use `.[corpus]` to install Pillow with FreeType and NumPy. Cage labels use ASCII
 `-`, `x` and `/`, so missing mathematical-symbol glyphs cannot turn operators
-into replacement boxes. Fonts change regenerated pixels, and a fixed seed alone
+into replacement boxes (since September 14, 2026; `janko-kenken` on disk
+predates this and prints −, × and ÷). Fonts change regenerated pixels, and a fixed seed alone
 does not make outputs portable: supply the same font files when comparing
 renderer output between machines.
 
