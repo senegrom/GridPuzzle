@@ -6,24 +6,24 @@ import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
 // already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
-const { selectImages, photoSize, readingCorners, photoFlowReview, photoFlowMeasure } =
+const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure } =
   createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
-test("photographs are read at the photo flow's size: the long side at most 1600 px, never enlarged", () => {
-  assert.deepEqual(photoSize(3264, 2448), { width: 1600, height: 1200, scale: 1600 / 3264 });
-  assert.deepEqual(photoSize(2448, 3264), { width: 1200, height: 1600, scale: 1600 / 3264 });
-  assert.deepEqual(photoSize(640, 480), { width: 640, height: 480, scale: 1 });
+test("the preview's scale from the original's pixels is its side ratio, whichever way it was turned", () => {
+  assert.deepEqual(previewSize({ width: 1600, height: 1200, natural: { width: 3264, height: 2448 } }), { width: 1600, height: 1200, scale: 1600 / 3264 });
+  assert.deepEqual(previewSize({ width: 1200, height: 1600, natural: { width: 3264, height: 2448 } }), { width: 1200, height: 1600, scale: 1600 / 3264 });
+  assert.deepEqual(previewSize({ width: 640, height: 480, natural: { width: 640, height: 480 } }), { width: 640, height: 480, scale: 1 });
 });
 
 test("readings go through the detector's corners at any confidence, unconfirmed at 0.8 or below", () => {
-  const corners = [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }], size = photoSize(100, 100);
+  const corners = [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }], size = { width: 100, height: 100, scale: 1 };
   for (const [confidence, unconfirmed] of [[0.94, false], [0.81, false], [0.8, true], [0.45, true], [0, true]])
     assert.deepEqual(readingCorners({ detection: { corners, confidence }, truth: null, size, trueCorners: false }),
       { corners, unconfirmed }, `confidence ${confidence}`);
 });
 
 test("true corners are scaled with the photograph and pulled onto the frame where they lie past it", () => {
-  const size = photoSize(3200, 1600); // 1600 x 800
+  const size = previewSize({ width: 1600, height: 800, natural: { width: 3200, height: 1600 } });
   const { corners, unconfirmed } = readingCorners({ detection: { corners: [], confidence: 0 }, size, trueCorners: true,
     truth: [[-4, 10], [3200, 0], [3300, 1700], [100, 1500]] });
   assert.equal(unconfirmed, false);
@@ -46,21 +46,24 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   fs.writeFileSync(target, JSON.stringify({ puzzle: { type: "latinsquare", rows: 2, cols: 2, cells: [1, 2, 2, 1] },
     corners: [[100, 100], [3100, 100], [3100, 3100], [100, 3100]] }));
   const proposal = [{ x: 50, y: 50 }, { x: 1550, y: 50 }, { x: 1550, y: 1550 }, { x: 50, y: 1550 }];
-  const run = async (confidence, options = {}) => {
+  const run = async (confidence, options = {}, detail = true) => {
     const calls = [];
     const page = { async evaluate(fn, args) {
       calls.push([fn.name, args]);
-      if (fn.name === "decodeImage") return { width: 3200, height: 3200 };
+      if (fn.name === "loadPhoto") return { width: 1600, height: 1600, natural: { width: 3200, height: 3200 } };
       if (fn.name === "detectGrid") return { detected: 5, detection: { corners: proposal, confidence, rows: 2, cols: 2 } };
-      // One cell misread: 2 read as 9.
-      return { ms: 10, read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] }, uncertain: [], cageUncertain: [], ocr: 7 };
+      // Read through the original's detail (or not); one cell misread: 2 read as 9.
+      return { ms: 10, detail, detailNote: detail ? "Clues read from the original photo detail." : null,
+        read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] }, uncertain: [], cageUncertain: [], ocr: 7 };
     } };
     const row = await photoFlowMeasure(page, { file, target, mime: "image/png" }, options);
     return { row, calls };
   };
   const found = await run(0.94);
-  assert.deepEqual(found.calls[1][1], { width: 1600, height: 1600, scale: 0.5 });
+  assert.deepEqual([found.calls[0][0], found.calls[0][1].maxSide, found.calls[1][0], found.calls[2][0]], ["loadPhoto", 1600, "detectGrid", "readGrid"]);
+  // The page maps the preview corners onto the original's detail, as the photo flow does.
   assert.equal(found.calls[2][1].corners, proposal);
+  assert.deepEqual([found.row.detail, found.row.detailNote], [true, "Clues read from the original photo detail."]);
   assert.deepEqual([found.row.grid, found.row.unconfirmed, found.row.correct, found.row.wrong, found.row.unsafe], [true, false, 3, 1, 1]);
   assert.equal(found.row.cornerError, 0);
   const missed = await run(0.45);
@@ -68,6 +71,8 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   assert.deepEqual([missed.row.grid, missed.row.unconfirmed, missed.row.wrong, missed.row.unsafe, missed.row.flaggedCorrect],
     [false, true, 1, 0, 3]);
   assert.equal(missed.row.cornerError, undefined);
+  const preview = await run(0.94, {}, false);
+  assert.deepEqual([preview.row.detail, "detailNote" in preview.row], [false, false]);
   const truth = await run(0.45, { trueCorners: true });
   assert.deepEqual(truth.calls[2][1].corners, [{ x: 50, y: 50 }, { x: 1550, y: 50 }, { x: 1550, y: 1550 }, { x: 50, y: 1550 }]);
   assert.deepEqual([truth.row.unconfirmed, truth.row.unsafe], [false, 1]);

@@ -307,54 +307,65 @@ empty cells.
 
 The corpus benchmark used to read each image at full size and, when detection
 was below 0.5, through the whole frame. The app does neither. The photo flow
-scales a photograph to at most 1600 px on its long side, pre-places the
-detector's corners whatever its confidence, and at 0.8 or less asks for the
-corners to be set; read through them unchanged, it highlights every cell.
-`corpus/benchmark.cjs` now reads the same way (`scoreVersion: 4` in
+decodes a photograph to a preview of at most 1600 px on its long side, detects
+the grid there, pre-places the detector's corners whatever its confidence, and
+at 0.8 or less asks for the corners to be set; read through them unchanged, it
+highlights every cell. It reads a larger original from its grid region at up to
+1800 px (`photoDetail`). `corpus/benchmark.cjs` now reads the same way, through
+the production `retainPhotoSource` and `photoDetail` (`scoreVersion: 4` in
 `corpus/SOURCES.md`), so its unflagged errors are ones a user can meet, and a
 detection miss shows its real cost: a reading with every cell to check.
 
-The master baseline under this harness (Chromium, 2026-09-29, 1bf5e21, all
-3,978 images; 5 Kakuro photo renders read no clues):
+The master baseline under this harness (Chromium, 2026-09-29, 1bf5e21, all 3,978
+images; the 249 images larger than the preview all read through the original's
+detail):
 
-| set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners |
-|---|---:|---:|---:|---:|---:|---:|
-| futoshiki/janko-futoshiki | 120 | 1,988 / 1,989 | 0 | 119 | 120 | 0 |
-| futoshiki/newspaper-photo | 1 | 4 / 15 | 0 | 0 | 0 | 1 |
-| hidato/janko-hidato | 120 | 3,090 / 3,162 | 14 | 106 | 120 | 0 |
-| kakuro/janko-kakuro | 111 | 3,351 / 5,315 | 123 | 19 | 106 | 0 |
-| kenken/janko-kenken | 120 | 1,571 / 2,508 | 0 | 1 | 120 | 0 |
-| kenken/janko-kenken-thick | 120 | 1,968 / 2,508 | 0 | 7 | 120 | 0 |
-| kenken/janko-killersudoku | 120 | 1,572 / 2,139 | 0 | 21 | 120 | 0 |
-| killersudoku/generated-render | 120 | 2,510 / 3,234 | 0 | 29 | 120 | 0 |
-| latinsquare/generated-render | 120 | 1,815 / 1,818 | 0 | 117 | 120 | 0 |
-| numbrix/generated-render | 120 | 1,429 / 1,449 | 9 | 117 | 120 | 0 |
-| slitherlink/janko-slitherlink | 111 | 6,941 / 8,691 | 0 | 85 | 91 | 20 |
-| str8ts/janko-str8ts | 120 | 1,578 / 1,587 | 0 | 111 | 120 | 0 |
-| sudoku/generated-render | 120 | 2,704 / 2,706 | 0 | 118 | 120 | 0 |
-| sudoku/janko-sudoku | 111 | 4,507 / 4,509 | 0 | 109 | 111 | 0 |
-| sudoku/kuleuven-assistant | 83 | 2,061 / 3,851 | 120 | 9 | 39 | 44 |
-| sudoku/lexski-mixed | 1398 | 49,247 / 59,831 | 573 | 399 | 1139 | 259 |
-| sudoku/rozet-handwritten | 400 | 15,435 / 17,821 | 141 | 89 | 388 | 12 |
-| sudoku/rozet-newspaper | 9 | 246 / 250 | 0 | 5 | 9 | 0 |
-| sudoku/rozet-render | 100 | 2,285 / 2,498 | 12 | 57 | 100 | 0 |
-| sudoku/wichtounet-newspaper | 203 | 4,577 / 5,902 | 64 | 44 | 194 | 9 |
-| sudoku/wichtounet-originals | 46 | 1,257 / 1,328 | 9 | 33 | 45 | 1 |
-| sudoku/wichtounet-solved | 200 | 9,122 / 16,200 | 108 | 0 | 155 | 45 |
-| sudoku/wichtounet-solved-extra | 5 | 253 / 361 | 2 | 0 | 4 | 1 |
-| all | 3,978 | 119,511 / 149,672 | 1,175 | 1,595 | 3,581 | 392 |
+| set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners | failed to read |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| futoshiki/janko-futoshiki | 120 | 1,988 / 1,989 | 0 | 119 | 120 | 0 |  |
+| futoshiki/newspaper-photo | 1 | 4 / 15 | 0 | 0 | 0 | 1 |  |
+| hidato/janko-hidato | 120 | 3,090 / 3,162 | 14 | 106 | 120 | 0 |  |
+| kakuro/janko-kakuro | 111 | 3,381 / 5,315 | 123 | 19 | 106 | 0 | 5 |
+| kenken/janko-kenken | 120 | 1,571 / 2,508 | 0 | 1 | 120 | 0 |  |
+| kenken/janko-kenken-thick | 120 | 1,968 / 2,508 | 0 | 7 | 120 | 0 |  |
+| kenken/janko-killersudoku | 120 | 1,572 / 2,139 | 0 | 21 | 120 | 0 |  |
+| killersudoku/generated-render | 120 | 2,510 / 3,234 | 0 | 29 | 120 | 0 |  |
+| latinsquare/generated-render | 120 | 1,815 / 1,818 | 0 | 117 | 120 | 0 |  |
+| numbrix/generated-render | 120 | 1,429 / 1,449 | 9 | 117 | 120 | 0 |  |
+| slitherlink/janko-slitherlink | 111 | 6,940 / 8,691 | 0 | 85 | 91 | 20 |  |
+| str8ts/janko-str8ts | 120 | 1,578 / 1,587 | 0 | 111 | 120 | 0 |  |
+| sudoku/generated-render | 120 | 2,704 / 2,706 | 0 | 118 | 120 | 0 |  |
+| sudoku/janko-sudoku | 111 | 4,507 / 4,509 | 0 | 109 | 111 | 0 |  |
+| sudoku/kuleuven-assistant | 83 | 2,061 / 3,851 | 120 | 9 | 39 | 44 |  |
+| sudoku/lexski-mixed | 1398 | 49,225 / 59,731 | 565 | 398 | 1139 | 257 | 2 |
+| sudoku/rozet-handwritten | 400 | 15,435 / 17,821 | 141 | 89 | 388 | 12 |  |
+| sudoku/rozet-newspaper | 9 | 246 / 250 | 0 | 5 | 9 | 0 |  |
+| sudoku/rozet-render | 100 | 2,285 / 2,498 | 12 | 57 | 100 | 0 |  |
+| sudoku/wichtounet-newspaper | 203 | 4,577 / 5,902 | 64 | 44 | 194 | 9 |  |
+| sudoku/wichtounet-originals | 46 | 1,260 / 1,302 | 7 | 32 | 45 | 0 | 1 |
+| sudoku/wichtounet-solved | 200 | 9,122 / 16,200 | 108 | 0 | 155 | 45 |  |
+| sudoku/wichtounet-solved-extra | 5 | 253 / 361 | 2 | 0 | 4 | 1 |  |
+| all | 3,978 | 119,521 / 149,546 | 1,165 | 1,593 | 3,581 | 389 | 8 |
+
+Eight readings fail. Five Kakuro photo renders read no clues. Three photographs
+larger than the preview (two lexski, one of wichtounet's originals) stop with
+"Keep the four crop corners clockwise without crossing": their detected corner
+lies on the frame's edge, and `photoDetail` maps it half a pixel outside the
+detail image, so the app fails on them the same way.
 
 On the 587 images the change can affect (a long side over 1600 px, or detection
 at 0.8 or less), the old and new harness read the same build: clues right 13,544
-→ 16,228 of 29,746 and perfect 96 → 94, while unflagged errors fell 5,259 → 85
-and flags on correct clues rose 4,372 → 9,267 (flagged empty cells 6,144 →
-13,118). That fall is the harness now counting the photo flow's all-cell review
-(#104) of a read through unconfirmed corners, not a better reader. The unflagged
-errors left are on lexski photographs above 1600 px whose grid is found (76) and
-wichtounet's originals (9). On 100 other images, chosen at random, the two
-harnesses agree image for image except one Hidato render whose OCR returned 2 of
-its 27 clues in the new run; it reads all 27, perfectly, in two further reads
-under each harness, so that was a transient OCR failure, not the harness.
+→ 16,238 and perfect 96 → 92, while unflagged errors fell 5,259 → 75 and flags
+on correct clues rose 4,372 → 9,278. That fall is the harness now counting the
+photo flow's all-cell review (#104) of a read through unconfirmed corners, not a
+better reader. The unflagged errors left are on lexski photographs above 1600 px
+whose grid is found (68) and wichtounet's originals (7). Reading through the
+original's detail instead of the preview changes the 249 larger images from
+9,309 to 9,319 correct clues and 85 to 75 unflagged errors, three of them
+failing as above. On 100 other images, chosen at random, the two harnesses agree
+image for image except one Hidato render whose OCR returned 2 of its 27 clues in
+the first run; it reads all 27, perfectly, in every further read under each
+harness, so that was a transient OCR failure, not the harness.
 
 ## Alternatives tried
 

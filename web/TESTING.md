@@ -163,7 +163,8 @@ runs the production detector, OCR and voting over a selection and scores it
 against the targets: correct, wrong, missed and invented clues, unflagged
 errors, whether the grid was found, the corner error as a percentage of the
 grid diagonal, and per-image timings. It reads each photograph as the photo
-flow does: at most 1600 px on its long side, through the corners the detector
+flow does: at most 1600 px on its long side (a larger original is read from its
+detail, as `photoDetail` does), through the corners the detector
 proposes at any confidence, with every cell flagged when those corners would
 still need confirming (confidence 0.8 or less); see `scoreVersion: 4` in
 `corpus/SOURCES.md`. `--true-corners` feeds the target outline instead of the

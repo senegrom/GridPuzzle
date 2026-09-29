@@ -6,9 +6,10 @@
    printed clues per cell, and the grid corners where the target has them.
    Nothing from the target reaches recognition unless --true-corners is set.
 
-   As in web/photo-flow.js, the photograph is drawn on white with its long side
-   at most 1600 px and read through the corners the detector proposes, however
-   confident. When that confidence is 0.8 or less, the flow asks for the
+   As in web/photo-flow.js, the photograph is decoded to a preview on white with
+   its long side at most 1600 px, the grid is detected on that preview, and it is
+   read through the corners the detector proposes, however confident, and
+   through photoDetail: a larger original's grid region at up to 1800 px. When that confidence is 0.8 or less, the flow asks for the
    corners to be set and, read unchanged, highlights every cell, so every cell
    of such a reading counts as flagged. --true-corners reads through the
    target's outline instead, pulled onto the frame where it lies on or past
@@ -52,7 +53,7 @@ async function main(args = process.argv.slice(2)) {
     report = await runBenchmark({ items, options, base: BASE, signal: controller.signal, output: options.out,
       measure: (page, item) => photoFlowMeasure(page, item, options),
       reportMetadata: { scoreVersion: SCORE_VERSION, harness: { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED,
-        corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence" } } });
+        corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" } } });
   } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `

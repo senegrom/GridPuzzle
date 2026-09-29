@@ -233,10 +233,14 @@ example a branch's `_site`) with this scorer.
 
 `scoreVersion: 4` (2026-09-29) scores as version 3 did, but over readings taken
 the way the photo flow takes them, so do not compare its reports with older
-ones. `corpus/benchmark.cjs` draws each photograph on white with its long side
-at most 1600 px (it used the full size, and 228 corpus photographs are larger),
-and reads it through the corners the detector proposes at any confidence (it
-used the whole frame below 0.5, which the app never does). Where the detector's
+ones. `corpus/benchmark.cjs` decodes each photograph as the flow does, straight
+to a preview on white with its long side at most 1600 px (it used the full size,
+and 249 corpus images are larger), detects on that preview, and reads through
+the corners the detector proposes at any confidence (it used the whole frame
+below 0.5, which the app never does). Like the flow it keeps the original file
+and reads through `photoDetail` (web/photo-detail.js): a photograph larger than
+the preview, and at most 16 MP, is read from the original's grid region at up to
+1800 px; each result records whether it was (`detail`). Where the detector's
 confidence is 0.8 or less the photo flow asks for the corners to be set and,
 read through them unchanged, highlights every cell, so every cell of such a
 reading counts as flagged: these images no longer contribute unflagged errors,

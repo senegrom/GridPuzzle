@@ -180,12 +180,6 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
 // confidence above which its corners need no confirmation (unconfirmedCorners).
 const PHOTO_MAX_SIDE = 1600, CONFIRMED = 0.8;
 
-// The photo flow's working size for a photograph (photo-flow.js fit()).
-function photoSize(width, height) {
-  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(width, height));
-  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), scale };
-}
-
 // The corners a reading goes through, in the scaled photograph, and whether
 // the photo flow would hold them unconfirmed.
 function readingCorners({ detection, truth, size, trueCorners }) {
@@ -202,57 +196,95 @@ function photoFlowReview(reading, unconfirmed) {
   return { ...reading, uncertain: [...new Set([...(reading.uncertain || []), ...reading.read.cells.keys()])] };
 }
 
-// In the page, in three steps so that the corners are chosen in Node: decode,
-// draw at the photo flow's size and detect, read.
-async function decodeImage({ data, mime }) {
-  const image = new Image();
-  image.src = `data:${mime};base64,${data}`;
-  await image.decode();
-  window.benchImage = image;
-  return { width: image.naturalWidth, height: image.naturalHeight };
+// In the page, in three steps so that the corners are chosen in Node.
+// Load as the photo flow's decodeFile does (web/photo-flow.js, which does not
+// export it): dimensions sniffed from the file's head, a decode straight to the
+// working size, drawn on white, and the original file retained with
+// retainPhotoSource. Detect on that preview. Read as readPhoto does, through
+// photoDetail: the original's grid region at up to 1800 px when the original is
+// larger than the preview and at most 16 MP, and otherwise the preview.
+async function loadPhoto({ data, mime, maxSide }) {
+  const { sniffDimensions } = await import("./image-dimensions.js"), { retainPhotoSource } = await import("./photo-detail.js");
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)), file = new Blob([bytes], { type: mime }),
+    dimensions = sniffDimensions(bytes.subarray(0, 512 * 1024), file.size);
+  if (!dimensions) return { error: "load: the photo's dimensions could not be checked" };
+  const fit = (width, height) => {
+      const scale = Math.min(1, maxSide / Math.max(width, height));
+      return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
+    },
+    draw = (source, width, height) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "white";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(source, 0, 0, width, height);
+      return canvas;
+    };
+  let bitmap = null, preview = null;
+  try {
+    bitmap = await createImageBitmap(file, { resizeWidth: fit(dimensions.width, dimensions.height)[0], resizeQuality: "high", imageOrientation: "from-image" });
+  } catch { bitmap = null; }
+  if (bitmap) try { preview = draw(bitmap, ...fit(bitmap.width, bitmap.height)); } finally { bitmap.close?.(); }
+  else {
+    const url = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      preview = draw(image, ...fit(image.naturalWidth, image.naturalHeight));
+    } finally { URL.revokeObjectURL(url); }
+  }
+  window.benchCanvas = retainPhotoSource(preview, file, dimensions);
+  return { width: preview.width, height: preview.height, natural: { width: dimensions.width, height: dimensions.height } };
 }
-async function detectGrid({ width, height }) {
+async function detectGrid() {
   const { Scanner } = await import("./scanner.js");
   window.benchScanner ??= new Scanner();
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, width, height);
-  context.drawImage(window.benchImage, 0, 0, width, height);
-  window.benchCanvas = canvas;
   const started = performance.now();
   try {
-    const found = await window.benchScanner.detect(canvas);
+    const found = await window.benchScanner.detect(window.benchCanvas);
     return { detected: performance.now() - started,
       detection: { corners: found.corners, confidence: found.confidence, rows: found.rows, cols: found.cols } };
   } catch (error) { return { error: `detect: ${error.message}` }; }
 }
 async function readGrid({ corners, type, rows, cols }) {
+  const { photoDetail } = await import("./photo-detail.js");
   const started = performance.now();
+  let detail = null;
   try {
-    const result = await window.benchScanner.read(window.benchCanvas, corners, type, rows, cols);
-    return { ms: performance.now() - started,
+    detail = await photoDetail(window.benchCanvas, corners);
+    const result = await window.benchScanner.read(detail.image, detail.corners, type, rows, cols);
+    return { ms: performance.now() - started, detail: detail.enhanced, detailNote: detail.note || null,
       read: { cells: result.puzzle.cells, cages: result.puzzle.cages || [],
         clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [],
         black: result.puzzle.black || [] },
       uncertain: result.uncertain, cageUncertain: result.cageUncertain || [],
       ocr: result.timings ? Math.round(result.timings.ocr) : null };
-  } catch (error) { return { error: `read: ${error.message}` }; }
+  } catch (error) { return { error: `read: ${error.message}`, detail: detail?.enhanced ?? null }; }
+  finally { detail?.release(); }
+}
+
+// The preview's size, and its scale from the original's pixels (the side
+// ratio, which a quarter turn from EXIF orientation leaves unchanged).
+function previewSize(loaded) {
+  return { width: loaded.width, height: loaded.height,
+    scale: Math.max(loaded.width, loaded.height) / Math.max(loaded.natural.width, loaded.natural.height) };
 }
 
 async function photoFlowMeasure(page, item, options) {
   const target = JSON.parse(fs.readFileSync(item.target, "utf8")), { puzzle } = target;
-  const natural = await page.evaluate(decodeImage, { data: fs.readFileSync(item.file).toString("base64"), mime: item.mime });
-  const size = photoSize(natural.width, natural.height), found = await page.evaluate(detectGrid, size);
+  const loaded = await page.evaluate(loadPhoto, { data: fs.readFileSync(item.file).toString("base64"), mime: item.mime, maxSide: PHOTO_MAX_SIDE });
+  if (loaded.error) return { error: loaded.error };
+  const size = previewSize(loaded), found = await page.evaluate(detectGrid);
   if (found.error) return { error: found.error };
   const { detection } = found,
     { corners, unconfirmed } = readingCorners({ detection, truth: target.corners, size, trueCorners: options.trueCorners });
   const reading = await page.evaluate(readGrid, { corners, type: puzzle.type, rows: puzzle.rows, cols: puzzle.cols });
   const row = { confidence: detection.confidence, grid: detection.confidence > CONFIRMED, unconfirmed,
-    width: size.width, height: size.height, detected: Math.round(found.detected),
-    total: Math.round(found.detected + (reading.ms || 0)) };
+    width: size.width, height: size.height, detail: reading.detail ?? null, ...(reading.detailNote ? { detailNote: reading.detailNote } : {}),
+    detected: Math.round(found.detected), total: Math.round(found.detected + (reading.ms || 0)) };
   if (reading.error) return { ...row, error: reading.error };
   // Corner error is scored for a found grid, in the target's own pixels.
   const reported = row.grid ? detection.corners.map((p) => [p.x / size.scale, p.y / size.scale]) : null;
@@ -274,4 +306,4 @@ function selectImages(options) {
 }
 
 module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
-  photoSize, readingCorners, photoFlowReview, photoFlowMeasure, PHOTO_MAX_SIDE, CONFIRMED };
+  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, PHOTO_MAX_SIDE, CONFIRMED };
