@@ -107,10 +107,12 @@ test("a cage clue on grey paper keeps its ink, and its paper and margin stay whi
     const source = fakeCanvas(200, 100);
     source.rgba = new Uint8ClampedArray(200 * 100 * 4).fill(paper);
     for (let y = 25; y < 55; y++) for (let x = 30; x < 36; x++) source.rgba.fill(60, 4 * (y * 200 + x), 4 * (y * 200 + x) + 3);
-    const out = cageLabelCrop({ x: 20, y: 20, w: 80, h: 40 }, source), at = (x, y) => out.rgba[4 * (y * out.width + x)];
+    const { canvas: out, ink } = cageLabelCrop({ x: 20, y: 20, w: 80, h: 40 }, source), at = (x, y) => out.rgba[4 * (y * out.width + x)];
     assert.deepEqual([out.width, out.height], [112, 72]);
     assert.equal(at(16 + 12, 16 + 20), 0, `stroke on paper ${paper}`);
     assert.equal(at(16 + 60, 16 + 30), 255, `paper ${paper}`);
     assert.equal(at(4, 4), 255, `margin on paper ${paper}`);
+    // The ink handed to the operator reader is the same picture, 1 for ink.
+    assert.deepEqual([ink[(16 + 20) * 112 + 16 + 12], ink[(16 + 30) * 112 + 16 + 60], ink[4 * 112 + 4]], [1, 0, 0]);
   }
 });

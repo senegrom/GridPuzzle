@@ -199,6 +199,18 @@ the four sets from 461 to 1,767 of 3,463 (13% → 51%) and on the print renders
 from 2,461 to 2,594, left the clean renders level (2,842 → 2,840), and kept
 unflagged errors at 0.
 
+The OCR then still read a clean ÷ as "+" in 94 of 116 division clues and
+dropped the hyphen in 61 of 148 clean subtraction clues, and a clue without an
+operator counts as a sum. A KenKen clue's operator now comes from the shape of
+its last glyph (`cage-operator.js`): two crossing strokes, two diagonals, one
+short bar, a dot, a bar and a dot, or one long diagonal, read only close behind
+a digit, with a blurred ÷ recognised where the ink's darker half parts its dots;
+anything unclear leaves the OCR's operator. Operators right on the two KenKen
+sets rose from 3,865 to 4,547 of 5,008 clues (683 fixed, 1 broken), cages right
+from 3,118 to 3,539 of 5,016, while Sumdoku, all sums, lost one cage of 2,139
+(two clues misread on photo renders) and Killer Sudoku, whose clues are never
+shape-read, is unchanged. It costs a KenKen board about 2-5 ms.
+
 ## Unread Futoshiki signs
 
 Tesseract reads few inequality signs: on the corpus's 121 Futoshiki images
