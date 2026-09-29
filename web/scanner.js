@@ -6,6 +6,7 @@ import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
 import { fraction, turnCorners, otsuCut } from "./geometry.js";
+import { readOperator } from "./cage-operator.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -59,6 +60,8 @@ export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeig
 // A cage clue as measured on the corpus: the clue box scaled to 40 px high
 // with a 16 px white margin, then binarized at its own Otsu threshold, which
 // read 69-93% of clean and 60-85% of printed rendered clues in the atlas.
+// Returns the binarized canvas for the atlas, and the clue's ink (1 per ink
+// pixel) with its darker half, for reading the operator's shape.
 export function cageLabelCrop(entry, rectified) {
   const height = 40, scale = height / Math.max(1, entry.h), out = document.createElement("canvas");
   out.width = Math.max(1, Math.round(entry.w * scale)) + 32;
@@ -78,9 +81,20 @@ export function cageLabelCrop(entry, rectified) {
   for (let y = 16; y < 16 + height; y++)
     for (let x = 16; x < out.width - 16; x++) histogram[lum(4 * (y * out.width + x))]++;
   const cut = otsuCut(histogram);
-  for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lum(i) <= cut ? 0 : 255;
+  // The darker half of the ink lies below the midpoint of the cut and the
+  // ink's mean: there blur no longer joins a division sign's dots to its bar.
+  let inkCount = 0, inkSum = 0;
+  for (let v = 0; v <= cut; v++) { inkCount += histogram[v]; inkSum += v * histogram[v]; }
+  const darker = inkCount ? (cut + inkSum / inkCount) / 2 : cut,
+    ink = new Uint8Array(out.width * out.height), core = new Uint8Array(out.width * out.height);
+  for (let i = 0, k = 0; i < d.length; i += 4, k++) {
+    const value = lum(i);
+    d[i] = d[i + 1] = d[i + 2] = value <= cut ? 0 : 255;
+    ink[k] = value <= cut ? 1 : 0;
+    core[k] = value <= darker ? 1 : 0;
+  }
   context.putImageData(pixels, 0, 0);
-  return out;
+  return { canvas: out, ink, core };
 }
 const SAMPLE_HEIGHT = 64,
   SAMPLE_PAD = 16,
@@ -341,10 +355,12 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
           .sort((a, b) => a.cell - b.cell),
         text = matches[0]?.text || "",
         target = Number.parseInt(text, 10),
+        // The shape of the clue's ink names the operator before the OCR does:
+        // the OCR reads a division sign as "+" and drops hyphens.
         op =
           chosen === "killersudoku"
             ? "+"
-            : text.match(/[+\-xX*\/÷×=]/)?.[0] || "+";
+            : matches[0]?.operator || text.match(/[+\-xX*\/÷×=]/)?.[0] || "+";
       if (matches.length !== 1)
         notes.push(
           `A cage covering ${cells.length} cells needs its boundary/target checked.`,
@@ -355,7 +371,7 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
           (operator === "=" && cells.length !== 1)) {
         // Do not invent a different operator or partition to make bad OCR
         // valid. Leave these cells uncovered so Solve requires a cage edit.
-        notes.push(`A cage covering ${cells.length} cells has an incompatible “${text}” reading. Check its boundary, target and operator.`);
+        notes.push(`A cage covering ${cells.length} cells has an incompatible “${text.match(/^\d*/)[0]}${op}” reading. Check its boundary, target and operator.`);
         return [];
       }
       return [{
@@ -638,14 +654,15 @@ export class Scanner {
     const crops = new Map();
     entries.forEach((e, i) => {
       const isDigit = ["value", "blackvalue"].includes(e.kind),
+        clue = e.cageLabel ? cageLabelCrop(e, rectified) : null,
         // White-on-black triangle and label crops are inverted per pixel by
         // grayCrop: canvas filters are unsupported in shipping Safari, where
         // ctx.filter = "invert(1)" is a silent no-op.
         cropped = isDigit || e.invert || e.cageLabel,
         source = isDigit
           ? digitCrop(e, g, w, h, cw, ch, cols)
-          : e.cageLabel
-            ? cageLabelCrop(e, rectified)
+          : clue
+            ? clue.canvas
             : e.invert
               ? grayCrop(e, g, w, h, cw, ch, cols)
               : bw,
@@ -660,6 +677,9 @@ export class Scanner {
         y = Math.floor(i / columns) * tile + (tile - dh) / 2;
       ctx.drawImage(source, sx, sy, sw, sh, x, y, dw, dh);
       if (isDigit) crops.set(i, source);
+      // A KenKen clue's operator comes from the shape of its ink, which tells
+      // a division sign and a hyphen from "+" (Killer clues are all sums).
+      if (clue && type === "kenken") e.operator = readOperator(clue.ink, clue.canvas.width, clue.canvas.height, clue.core);
     });
     const singles = digitSamples(entries, crops, g, w, h, cw, ch, cols);
     const evidence = new Map();
