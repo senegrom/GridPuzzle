@@ -1,0 +1,21 @@
+name: Review source snapshot
+on:
+  push:
+    branches: [fix/repo-review-20260929]
+    paths: [.github/workflows/review-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d2a6d7e99a337e350cce79d3d91f1621e757066c
+      - run: git archive HEAD -o /tmp/review-master.tar
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: review-master
+          path: /tmp/review-master.tar
+          retention-days: 1
