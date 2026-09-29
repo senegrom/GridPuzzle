@@ -347,11 +347,18 @@ detail):
 | sudoku/wichtounet-solved-extra | 5 | 253 / 361 | 2 | 0 | 4 | 1 |  |
 | all | 3,978 | 119,521 / 149,546 | 1,165 | 1,593 | 3,581 | 389 | 8 |
 
-Eight readings fail. Five Kakuro photo renders read no clues. Three photographs
-larger than the preview (two lexski, one of wichtounet's originals) stop with
-"Keep the four crop corners clockwise without crossing": their detected corner
-lies on the frame's edge, and `photoDetail` maps it half a pixel outside the
-detail image, so the app fails on them the same way.
+Eight readings failed there. Five Kakuro photo renders read no clues. Three
+photographs larger than the preview (two lexski, one of wichtounet's originals)
+stopped with "Keep the four crop corners clockwise without crossing": their
+detected corner lies on the frame's edge, and `photoDetail` mapped it up to half
+a pixel outside the scaled-down detail image, so the app failed on them the same
+way. `detailPlan` now keeps the corners inside the detail, and the three read:
+lexski val-mmabi8yfe8yc1 2 of 58 clues through unconfirmed corners (every cell
+highlighted), lexski val-yv5yemlk4ncc1 14 of 42 with 4 unflagged errors (found
+at 0.94 with its corners off by 5% of the grid's diagonal), and wichtounet's
+image1000 all 26, perfectly. The other 246 larger photographs read exactly as
+before, so the totals become 119,563 of 149,672 clues right, 1,169 unflagged
+errors, 1,594 perfect readings and five failures.
 
 On the 587 images the change can affect (a long side over 1600 px, or detection
 at 0.8 or less), the old and new harness read the same build: clues right 13,544
