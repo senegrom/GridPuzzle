@@ -231,6 +231,20 @@ neither. The accuracy and unflagged counts are unchanged from version 2.
 `corpus/benchmark.cjs --site <dir> --out <file>` benchmarks another build (for
 example a branch's `_site`) with this scorer.
 
+`scoreVersion: 4` (2026-09-29) scores as version 3 did, but over readings taken
+the way the photo flow takes them, so do not compare its reports with older
+ones. `corpus/benchmark.cjs` draws each photograph on white with its long side
+at most 1600 px (it used the full size, and 228 corpus photographs are larger),
+and reads it through the corners the detector proposes at any confidence (it
+used the whole frame below 0.5, which the app never does). Where the detector's
+confidence is 0.8 or less the photo flow asks for the corners to be set and,
+read through them unchanged, highlights every cell, so every cell of such a
+reading counts as flagged: these images no longer contribute unflagged errors,
+and their cost shows as flags instead. `--true-corners` pulls a target outline
+that lies on or past the frame's edge onto it, as a user dragging the handles
+there would; such readings used to fail. Reports record the settings under
+`harness`, and each result says whether its corners were `unconfirmed`.
+
 The pure scorer runs in the normal Node gate through
 `web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded
 Killer witnesses at sizes 4, 6 and 9, plus validation of dense and compact target

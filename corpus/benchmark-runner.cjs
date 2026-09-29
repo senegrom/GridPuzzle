@@ -40,7 +40,7 @@ function summarize(results) {
     const sum = field => ok.reduce((n, r) => n + (r[field] || 0), 0);
     const median = values => values.length ? values.sort((a, b) => a - b)[Math.floor(values.length / 2)] : null;
     return { set: key, images: rows.length, failed: rows.length - ok.length,
-      gridFound: ok.filter(r => r.grid).length,
+      gridFound: ok.filter(r => r.grid).length, unconfirmed: ok.filter(r => r.unconfirmed).length,
       printed: sum("printed"), correct: sum("correct"), wrong: sum("wrong"), missed: sum("missed"),
       invented: sum("invented"), unsafe: sum("unsafe"), topologyWrong: sum("topologyWrong"),
       topologyUnsafe: sum("topologyUnsafe"), shapeErrors: sum("shapeErrors"), perfect: ok.filter(isPerfect).length,
