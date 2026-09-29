@@ -4,8 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-const { parseOptions, entries, photoSize, readingCorners, photoFlowReview, measure } =
-  createRequire(import.meta.url)("../../corpus/benchmark.cjs");
+// The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
+// already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
+const { selectImages, photoSize, readingCorners, photoFlowReview, photoFlowMeasure } =
+  createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
 test("photographs are read at the photo flow's size: the long side at most 1600 px, never enlarged", () => {
   assert.deepEqual(photoSize(3264, 2448), { width: 1600, height: 1200, scale: 1600 / 3264 });
@@ -53,7 +55,7 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
       // One cell misread: 2 read as 9.
       return { ms: 10, read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] }, uncertain: [], cageUncertain: [], ocr: 7 };
     } };
-    const row = await measure(page, { file, target, mime: "image/png" }, options);
+    const row = await photoFlowMeasure(page, { file, target, mime: "image/png" }, options);
     return { row, calls };
   };
   const found = await run(0.94);
@@ -71,11 +73,6 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   assert.deepEqual([truth.row.unconfirmed, truth.row.unsafe], [false, 1]);
 });
 
-test("options parse from the command line", () => {
-  const options = parseOptions(["--family", "sudoku", "--limit", "5", "--true-corners", "--site", "x"]);
-  assert.deepEqual([options.family, options.limit, options.trueCorners, options.site], ["sudoku", 5, true, "x"]);
-});
-
 test("a list of set/name lines selects exactly those images", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-corpus-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -86,6 +83,6 @@ test("a list of set/name lines selects exactly those images", (t) => {
   }
   const list = path.join(root, "names.txt");
   fs.writeFileSync(list, "one/b.png\r\ntwo/a.png\n");
-  assert.deepEqual(entries(parseOptions(["--corpus", root, "--list", list])).map((i) => `${i.set}/${i.name}`), ["one/b.png", "two/a.png"]);
-  assert.equal(entries(parseOptions(["--corpus", root])).length, 3);
+  assert.deepEqual(selectImages({ corpus: root, list }).map((i) => `${i.set}/${i.name}`), ["one/b.png", "two/a.png"]);
+  assert.equal(selectImages({ corpus: root }).length, 3);
 });

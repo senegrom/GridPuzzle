@@ -169,4 +169,109 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   }
   return report();
 }
-module.exports = { corpusImages, runBenchmark, summarize, writeReport };
+/* Reading a corpus photograph the way the photo flow reads it (web/photo-flow.js),
+   for corpus/benchmark.cjs: drawn on white with its long side at most 1600 px,
+   read through the corners the detector proposes at any confidence, and with
+   every cell flagged when that confidence is 0.8 or less, since the flow then
+   asks for the corners to be set and highlights every cell of a reading
+   through them unchanged. --true-corners reads through the target's outline,
+   pulled onto the frame where it lies on or past the edge. */
+// photo-flow.js: the photograph's longest side (MAX_SIDE), and the detector
+// confidence above which its corners need no confirmation (unconfirmedCorners).
+const PHOTO_MAX_SIDE = 1600, CONFIRMED = 0.8;
+
+// The photo flow's working size for a photograph (photo-flow.js fit()).
+function photoSize(width, height) {
+  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), scale };
+}
+
+// The corners a reading goes through, in the scaled photograph, and whether
+// the photo flow would hold them unconfirmed.
+function readingCorners({ detection, truth, size, trueCorners }) {
+  if (trueCorners && truth)
+    return { unconfirmed: false, corners: truth.map(([x, y]) => ({
+      x: Math.min(size.width - 1, Math.max(0, x * size.scale)),
+      y: Math.min(size.height - 1, Math.max(0, y * size.scale)) })) };
+  return { unconfirmed: !(detection.confidence > CONFIRMED), corners: detection.corners };
+}
+
+// A reading through unconfirmed corners has every cell highlighted.
+function photoFlowReview(reading, unconfirmed) {
+  if (!unconfirmed) return reading;
+  return { ...reading, uncertain: [...new Set([...(reading.uncertain || []), ...reading.read.cells.keys()])] };
+}
+
+// In the page, in three steps so that the corners are chosen in Node: decode,
+// draw at the photo flow's size and detect, read.
+async function decodeImage({ data, mime }) {
+  const image = new Image();
+  image.src = `data:${mime};base64,${data}`;
+  await image.decode();
+  window.benchImage = image;
+  return { width: image.naturalWidth, height: image.naturalHeight };
+}
+async function detectGrid({ width, height }) {
+  const { Scanner } = await import("./scanner.js");
+  window.benchScanner ??= new Scanner();
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "white";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(window.benchImage, 0, 0, width, height);
+  window.benchCanvas = canvas;
+  const started = performance.now();
+  try {
+    const found = await window.benchScanner.detect(canvas);
+    return { detected: performance.now() - started,
+      detection: { corners: found.corners, confidence: found.confidence, rows: found.rows, cols: found.cols } };
+  } catch (error) { return { error: `detect: ${error.message}` }; }
+}
+async function readGrid({ corners, type, rows, cols }) {
+  const started = performance.now();
+  try {
+    const result = await window.benchScanner.read(window.benchCanvas, corners, type, rows, cols);
+    return { ms: performance.now() - started,
+      read: { cells: result.puzzle.cells, cages: result.puzzle.cages || [],
+        clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [],
+        black: result.puzzle.black || [] },
+      uncertain: result.uncertain, cageUncertain: result.cageUncertain || [],
+      ocr: result.timings ? Math.round(result.timings.ocr) : null };
+  } catch (error) { return { error: `read: ${error.message}` }; }
+}
+
+async function photoFlowMeasure(page, item, options) {
+  const target = JSON.parse(fs.readFileSync(item.target, "utf8")), { puzzle } = target;
+  const natural = await page.evaluate(decodeImage, { data: fs.readFileSync(item.file).toString("base64"), mime: item.mime });
+  const size = photoSize(natural.width, natural.height), found = await page.evaluate(detectGrid, size);
+  if (found.error) return { error: found.error };
+  const { detection } = found,
+    { corners, unconfirmed } = readingCorners({ detection, truth: target.corners, size, trueCorners: options.trueCorners });
+  const reading = await page.evaluate(readGrid, { corners, type: puzzle.type, rows: puzzle.rows, cols: puzzle.cols });
+  const row = { confidence: detection.confidence, grid: detection.confidence > CONFIRMED, unconfirmed,
+    width: size.width, height: size.height, detected: Math.round(found.detected),
+    total: Math.round(found.detected + (reading.ms || 0)) };
+  if (reading.error) return { ...row, error: reading.error };
+  // Corner error is scored for a found grid, in the target's own pixels.
+  const reported = row.grid ? detection.corners.map((p) => [p.x / size.scale, p.y / size.scale]) : null;
+  return { ...row, ocr: reading.ocr, ...score(target, photoFlowReview({ ...reading, corners: reported }, unconfirmed)) };
+}
+
+// The corpus images a benchmark reads: by family, set and variant, a --list file
+// of "set/name" lines, and a limit.
+function selectImages(options) {
+  const found = [], listed = options.list ? new Set(fs.readFileSync(options.list, "utf8").split(/\r?\n/).filter(Boolean)) : null;
+  for (const item of corpusImages(options.corpus)) {
+    if (listed && !listed.has(`${item.set}/${item.name}`)) continue;
+    if (options.family && item.family !== options.family) continue;
+    if (options.set && item.set !== options.set) continue;
+    if (options.variant && !item.name.includes(`-${options.variant}.`)) continue;
+    found.push(item);
+  }
+  return options.limit ? found.slice(0, options.limit) : found;
+}
+
+module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
+  photoSize, readingCorners, photoFlowReview, photoFlowMeasure, PHOTO_MAX_SIDE, CONFIRMED };
