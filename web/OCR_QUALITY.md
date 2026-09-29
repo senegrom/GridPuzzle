@@ -175,7 +175,8 @@ KenKen board with at least two thick lines (the central 4% of the edge at most
 0.35 of the paper's gray) splits at the thick lines instead. Killer's thick
 3 x 3 box lines are never cage borders. Each cage's clue is read from its head
 (top-left) cell: inside the dashed outline, or in the corner of a thick-bordered
-cell, from a crop binarized at its own Otsu threshold, in the atlas. Every cage
+cell, from a crop binarized at the Otsu threshold of its clue box, in the
+atlas. Every cage
 stays under structural review ("check cage"), and an operator impossible for
 the cage's size still drops it with a note.
 
@@ -186,11 +187,17 @@ cages right before → after: dashed KenKen 0 → 1,108 of 2,508, thick KenKen 4
 0 → 1,244 of 2,139, generated Killer 0 → 1,961 of 3,234; unflagged errors stay
 0 and every cell of a cage board is highlighted, as before. Partitions alone are
 exact on 359 of 360 dashed boards and 103 of 107 thick ones; the clue reading
-is what is left (clean 69-93%, print 60-85%, perspective photo renders 9-24%),
-with KenKen's "/" often read as "+". Nothing is claimed for real photographs,
-which the corpus does not have for these families. Reading a board costs
-between 80 ms less and 40 ms more than before (median per board, four sets),
-since one clue region per cage replaces one per cell.
+is what is left, with the dashed set's ÷ mostly read as "+". Nothing is claimed
+for real photographs, which the corpus does not have for these families.
+Reading a board costs between 80 ms less and 40 ms more than before (median per
+board, four sets), since one clue region per cage replaces one per cell.
+
+The clue crop was at first thresholded with its white margin counted, which
+turned a clue on grey paper to solid ink, paper and all. Thresholding the clue
+box alone (2026-09-29) raised cages right on the perspective photo renders of
+the four sets from 461 to 1,767 of 3,463 (13% → 51%) and on the print renders
+from 2,461 to 2,594, left the clean renders level (2,842 → 2,840), and kept
+unflagged errors at 0.
 
 ## Unread Futoshiki signs
 

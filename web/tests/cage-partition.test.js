@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { cagePartition, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
-import { puzzleFromReadings } from "../scanner.js";
+import { cageLabelCrop, puzzleFromReadings } from "../scanner.js";
 
 // A 4 x 4 board of 100 px cells: thin grid lines, then cage borders in the chosen style.
 function board({ style = "inset", thickBoxes = false, borders = [["h", 1]], stray = false } = {}) {
@@ -74,4 +74,43 @@ test("cages come from the partition; each takes its head's clue and stays under 
   assert.deepEqual(found.puzzle.cages, [{ cells: halves[0], target: 12, op: "+" }, { cells: halves[1], target: null, op: "+" }]);
   assert.deepEqual([...found.cageUncertain].sort((a, b) => a - b), [...Array(16).keys()]);
   assert.ok(found.notes.some((note) => /needs its boundary\/target checked/.test(note)));
+});
+
+// Just enough 2D canvas for cageLabelCrop: white fills, nearest-neighbour
+// drawImage from another fake canvas, and whole-canvas pixel access.
+function fakeCanvas(width = 0, height = 0) {
+  const canvas = { width, height, rgba: null };
+  const rgba = () => (canvas.rgba ??= new Uint8ClampedArray(canvas.width * canvas.height * 4));
+  const context = {
+    fillRect(x, y, w, h) {
+      for (let yy = y; yy < y + h; yy++) rgba().fill(255, 4 * (yy * canvas.width + x), 4 * (yy * canvas.width + x + w));
+    },
+    drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh) {
+      for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) {
+        const from = 4 * ((sy + Math.floor((y * sh) / dh)) * source.width + sx + Math.floor((x * sw) / dw));
+        rgba().set(source.rgba.subarray(from, from + 4), 4 * ((dy + y) * canvas.width + dx + x));
+      }
+    },
+    getImageData: () => ({ data: rgba().slice() }),
+    putImageData(image) { rgba().set(image.data); },
+  };
+  canvas.getContext = () => context;
+  return canvas;
+}
+test("a cage clue on grey paper keeps its ink, and its paper and margin stay white", (t) => {
+  const previous = globalThis.document;
+  globalThis.document = { createElement: () => fakeCanvas() };
+  t.after(() => { globalThis.document = previous; });
+  // An 80 x 40 clue box (so no scaling) holding a stroke of ink at 60, on
+  // the paper of a dim photograph (170) and of a clean print (245).
+  for (const paper of [170, 245]) {
+    const source = fakeCanvas(200, 100);
+    source.rgba = new Uint8ClampedArray(200 * 100 * 4).fill(paper);
+    for (let y = 25; y < 55; y++) for (let x = 30; x < 36; x++) source.rgba.fill(60, 4 * (y * 200 + x), 4 * (y * 200 + x) + 3);
+    const out = cageLabelCrop({ x: 20, y: 20, w: 80, h: 40 }, source), at = (x, y) => out.rgba[4 * (y * out.width + x)];
+    assert.deepEqual([out.width, out.height], [112, 72]);
+    assert.equal(at(16 + 12, 16 + 20), 0, `stroke on paper ${paper}`);
+    assert.equal(at(16 + 60, 16 + 30), 255, `paper ${paper}`);
+    assert.equal(at(4, 4), 255, `margin on paper ${paper}`);
+  }
 });
