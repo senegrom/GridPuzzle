@@ -231,6 +231,16 @@ neither. The accuracy and unflagged counts are unchanged from version 2.
 `corpus/benchmark.cjs --site <dir> --out <file>` benchmarks another build (for
 example a branch's `_site`) with this scorer.
 
+This recognition benchmark supplies the **reference puzzle type and row/column
+counts** to the Scanner. It does not test fully automatic family/size inference.
+By default the crop comes from detection, falling back to the full image. With
+`--true-corners`, available reference corners replace that crop; a target without
+corners still uses detection or the full image. Reference clue values stay in
+the scorer and are not sent to the recognition page. JSON reports record this
+contract in `recognition`, and each successful reading records its actual
+`geometrySource` (`reference`, `detected`, or `full-frame`). Keep these configured
+scores separate from the detection-only and automatic live-camera gates.
+
 The pure scorer runs in the normal Node gate through
 `web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded
 Killer witnesses at sizes 4, 6 and 9, plus validation of dense and compact target

@@ -7,7 +7,7 @@ const bytesEqual = (a, b) => a?.length === b?.length && a.every((v, i) => v === 
 // into the puzzle. Only the editor's ordinary Save path confirms the clue.
 export function setupClueReread({ $, getSelection, makeReader, setTimer = setTimeout, clearTimer = clearTimeout }) {
   const panel = $('reread-clue-panel'), button = $('reread-clue'), use = $('use-reread'), message = $('reread-status');
-  let reader = null, generation = 0, current = null, proposal = null, deadline = null;
+  let reader = null, generation = 0, current = null, proposal = null, deadline = null, idle = null;
   const cache = new WeakMap(); // An old photo cannot be kept alive by cached proposals.
   const draft = () => JSON.stringify([$('cell-value').value, $('blocked-cell').checked,
     $('across-value').value, $('down-value').value]);
@@ -26,12 +26,25 @@ export function setupClueReread({ $, getSelection, makeReader, setTimer = setTim
       $('cell-dialog').open && draft() === job.draft;
   }
   function clearDeadline() { clearTimer(deadline); deadline = null; }
-  function cancel() {
-    generation++; current = proposal = null; clearDeadline(); reader?.cancel();
+  function clearIdle() { clearTimer(idle); idle = null; }
+  function releaseReader() {
+    clearIdle();
+    reader?.cancel(); reader = null;
+  }
+  function armIdle() {
+    clearIdle();
+    if (reader) idle = setTimer(releaseReader, 30000);
+  }
+  function cancel(keepEngine = true) {
+    generation++; current = proposal = null; clearDeadline();
+    if (keepEngine) { reader?.cancel({ keepEngine: true }); armIdle(); }
+    else releaseReader();
     button.disabled = false; use.hidden = true;
   }
+  const dispose = () => cancel(false);
   function open() {
-    cancel(); panel.hidden = !selection();
+    panel.hidden = !selection();
+    cancel(!panel.hidden);
     message.textContent = panel.hidden ? '' : 'Re-read only this unconfirmed numeric clue. The current field will not change automatically.';
   }
   function present(job, value, cached = false) {
@@ -43,12 +56,12 @@ export function setupClueReread({ $, getSelection, makeReader, setTimer = setTim
   button.onclick = async () => {
     const s = selection();
     if (!s || !panel || panel.hidden || current?.busy) return;
-    cancel();
+    cancel(); clearIdle();
     const job = { id: generation, image: s.image, signature: signature(s), draft: draft(), busy: true };
     current = job; button.disabled = true;
     const fail = () => {
       if (!owns(job)) return;
-      cancel(); message.textContent = 'Re-reading timed out. The current clue and draft are unchanged.';
+      dispose(); message.textContent = 'Re-reading timed out. The current clue and draft are unchanged.';
     };
     deadline = setTimer(fail, 90000);
     try {
@@ -86,7 +99,7 @@ export function setupClueReread({ $, getSelection, makeReader, setTimer = setTim
     } catch (error) {
       if (owns(job)) message.textContent = error?.name === 'AbortError' ? 'Re-read cancelled. Your clue is unchanged.' : 'Could not re-read this clue. Your clue and draft are unchanged; try adjusting the scan.';
     } finally {
-      if (job.id === generation) { job.busy = false; clearDeadline(); button.disabled = false; }
+      if (job.id === generation) { job.busy = false; clearDeadline(); button.disabled = false; armIdle(); }
     }
   };
   use.onclick = () => {
@@ -98,14 +111,14 @@ export function setupClueReread({ $, getSelection, makeReader, setTimer = setTim
   };
   for (const id of ['cell-value', 'blocked-cell', 'across-value', 'down-value']) {
     $(id).addEventListener('input', () => { cancel(); message.textContent = 'Draft edited. Re-read proposals will not overwrite it.'; });
-    $(id).addEventListener('change', cancel);
+    $(id).addEventListener('change', () => cancel());
   }
   $('cell-dialog').addEventListener('close', () => {
     // Native close events are queued. Save & next may already have reopened
     // this dialog; open() retired the old OCR job, not the new clue's context.
     if ($('cell-dialog').open) return;
-    cancel(); panel.hidden = true;
+    dispose(); panel.hidden = true;
   });
-  $('cell-dialog').addEventListener('cancel', cancel);
-  return { open, cancel };
+  $('cell-dialog').addEventListener('cancel', dispose);
+  return { open, cancel: () => cancel(), dispose };
 }

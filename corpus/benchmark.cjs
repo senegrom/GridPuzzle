@@ -3,7 +3,9 @@
    Runs the real detector, OCR and voting in a browser over images selected
    from the corpus, and compares the reading with each image's target file:
    printed clues per cell, and the grid corners where the target has them.
-   Nothing from the target reaches recognition.
+   Recognition is configured with the reference type and grid dimensions,
+   and --true-corners also supplies reference corners when available. Printed
+   clue values never reach the Scanner. This is not a fully automatic scan.
 
      node corpus/benchmark.cjs --family sudoku --set wichtounet-newspaper --limit 50
      node corpus/benchmark.cjs --variant photo --engine webkit
@@ -58,7 +60,8 @@ async function scan({ data, mime, puzzle, corners, useTrue }) {
   try {
     const result = await scanner.read(canvas, used, puzzle.type, puzzle.rows, puzzle.cols);
     return { detected, total: performance.now() - started, confidence: detection?.confidence ?? null,
-      grid: Boolean(found), fell_back: !found && !useTrue,
+      grid: Boolean(found), fell_back: !found && !(useTrue && corners),
+      geometrySource: useTrue && corners ? "reference" : found ? "detected" : "full-frame",
       read: { cells: result.puzzle.cells, cages: result.puzzle.cages || [],
         clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [],
         black: result.puzzle.black || [] },
@@ -76,6 +79,7 @@ async function main() {
   if (!items.length) { console.error("no matching images under", options.corpus); return 2; }
   if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
   console.log(`${items.length} images from ${options.corpus}`);
+  console.log(`Recognition: reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detected corners or full-frame fallback"}. Not fully automatic.`);
   const controller = new AbortController();
   const interrupt = name => controller.abort(Error(`Benchmark interrupted by ${name}`));
   const onInt = () => interrupt("SIGINT"), onTerm = () => interrupt("SIGTERM");

@@ -97,14 +97,19 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   const measureItem = measure || (async (page, item) => {
     const target = JSON.parse(fs.readFileSync(item.target, "utf8"));
     const reading = await page.evaluate(scan, { data: fs.readFileSync(item.file).toString("base64"),
-      mime: item.mime, puzzle: target.puzzle, corners: target.corners || null, useTrue: options.trueCorners });
-    return { confidence: reading.confidence, grid: reading.grid,
+      mime: item.mime, puzzle: { type: target.puzzle.type, rows: target.puzzle.rows, cols: target.puzzle.cols },
+      corners: options.trueCorners ? target.corners || null : null, useTrue: options.trueCorners });
+    return { confidence: reading.confidence, grid: reading.grid, geometrySource: reading.geometrySource,
       total: Math.round(reading.total || 0), detected: Math.round(reading.detected || 0), error: reading.error,
       ...(!reading.error ? score(target, reading) : {}) };
   });
   const results = [], cleanupErrors = [];
   let browser, context, server, serverError, failure = null, closing = false, status = "running";
-  const report = () => ({ ...reportMetadata, options, status, totalImages: items.length,
+  const report = () => ({ ...reportMetadata,
+    ...(!measure ? { recognition: { type: "reference", dimensions: "reference",
+      corners: options.trueCorners ? "reference-when-available" : "detected-or-full-frame",
+      clueValues: "not-supplied" } } : {}),
+    options, status, totalImages: items.length,
     completedImages: results.length, failure, cleanupErrors, summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());

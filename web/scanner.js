@@ -456,38 +456,21 @@ export class Scanner {
       this.geometryWorker.terminate(); this.geometryWorker = null; this.geometryBusy = false;
     }
   }
-  _request(path, payload, onProgress = () => {}, type = "module") {
+  geometry(op, options) {
+    const payload = { op, ...options };
     return new Promise((resolve, reject) => {
-      const geometry = path === "geometry-worker.js";
-      const worker = geometry && this.geometryWorker && !this.geometryBusy
-        ? this.geometryWorker : new Worker(new URL(path, import.meta.url), { type });
-      if (geometry && !this.geometryWorker) this.geometryWorker = worker;
+      const worker = this.geometryWorker && !this.geometryBusy
+        ? this.geometryWorker : new Worker(new URL("geometry-worker.js", import.meta.url), { type: "module" });
+      if (!this.geometryWorker) this.geometryWorker = worker;
       if (this.geometryWorker === worker) this.geometryBusy = true;
       let settled = false;
-      const end = (error, result, cancel = false) => {
+      const end = (error, result) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
         this.jobs.delete(job);
-        worker.onmessage = worker.onerror = null;
-        if (cancel && type === "classic") {
-          // The host can terminate its raw child even while createWorker is
-          // still awaiting engine/language initialization. Bound host cleanup
-          // too, including a stalled importScripts before any child exists.
-          const kill = setTimeout(() => worker.terminate(), 100);
-          worker.onmessage = ({ data }) => {
-            if (!data?.cancelled) return; // Ignore progress queued before Stop.
-            clearTimeout(kill);
-            worker.terminate();
-          };
-          try {
-            worker.postMessage({ cancel: true });
-          } catch {
-            clearTimeout(kill);
-            worker.terminate();
-          }
-        } else if (geometry && !error && !cancel && this.geometryWorker === worker) {
-          // A finished geometry request leaves an idle, reusable worker.
+        worker.onmessage = worker.onerror = worker.onmessageerror = null;
+        if (!error && this.geometryWorker === worker) {
           this.geometryBusy = false;
         } else {
           worker.terminate();
@@ -495,36 +478,20 @@ export class Scanner {
         }
         error ? reject(error) : resolve(result);
       };
-      const job = { cancel: () => end(aborted(), null, true) };
-      const timeout = setTimeout(
-        () =>
-          end(
-            Error("Image processing timed out. Go online and retry."),
-            null,
-            true,
-          ),
-        180000,
-      );
+      const job = { cancel: () => end(aborted()) };
+      const timeout = setTimeout(() => end(Error("Image processing timed out. Go online and retry.")), 180000);
       this.jobs.add(job);
       worker.onmessage = ({ data }) => {
-        if (data.type === "progress") {
-          onProgress(data.message, data.progress);
-          return;
-        }
+        if (!data || typeof data !== "object" || !("result" in data || "error" in data)) return;
         end("error" in data ? Error(data.error || "Image processing failed") : null, data.result);
       };
-      worker.onerror = (e) =>
-        end(Error(e.message || "Image processing failed"), null, true);
+      worker.onerror = e => end(Error(e.message || "Image processing failed"));
+      worker.onmessageerror = () => end(Error("Could not receive image processing results."));
       try {
         // Pixel buffers are fresh per request: transfer them instead of copying.
         worker.postMessage(payload, payload.image?.data?.buffer ? [payload.image.data.buffer] : []);
-      } catch (error) {
-        end(error, null, true);
-      }
+      } catch (error) { end(error); }
     });
-  }
-  geometry(op, options) {
-    return this._request("geometry-worker.js", { op, ...options });
   }
   // `thorough` runs the last-resort readings (inverted screens, continuous
   // runs, dot lattices). They cost a still photograph a fraction of a second

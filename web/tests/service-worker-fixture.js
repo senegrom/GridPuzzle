@@ -43,7 +43,7 @@ export function memoryCaches() {
 export async function activateWorker({ build, caches, fetch, clients = () => [], beforeActivation }) {
   const listeners = {};
   vm.runInNewContext(source.replace("__BUILD_ID__", build), {
-    URL, Request, Response, Uint8Array, crypto: webcrypto, caches, fetch,
+    URL, Request, Response, Uint8Array, AbortController, setTimeout, clearTimeout, crypto: webcrypto, caches, fetch,
     self: {
       registration: { scope }, location: { origin: new URL(scope).origin },
       clients: { claim: async () => {}, matchAll: async () => clients() },

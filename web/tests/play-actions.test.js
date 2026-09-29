@@ -384,3 +384,29 @@ test("cage removal commits a detached editable board and invalidates the old sol
   assert.equal(h.state.result, null);
   assert.equal(h.state.history.length, 1);
 });
+
+
+test("the maximum legal KenKen target survives import, save unchanged and undo", t => {
+  const h = harness(t), p = model.makePuzzle("kenken", 25), cells = [];
+  p.cells = Array.from({ length: 625 }, (_, i) => (16 * (i % 25 - Math.floor(i / 25)) + 2509) % 25 + 1);
+  for (let r = 0; r < 12; r++) { cells.push(r * 25 + r); if (r < 11) cells.push(r * 25 + r + 1); }
+  assert.equal(cells.reduce((n, i) => n * BigInt(p.cells[i]), 1n), 1000000000000n);
+  p.cages = [{ cells, target: 1e12, op: "*" }, ...p.cells.flatMap((v, i) => cells.includes(i) ? [] : [{ cells: [i], target: v, op: "=" }])];
+  h.loadPuzzle(JSON.parse(JSON.stringify(p)));
+  const before = plain(h.state.puzzle);
+  h.state.selected = cells.slice(); h.$("cage-target").value = "1000000000000"; h.$("cage-op").value = "*";
+  h.$("save-cage").onclick();
+  assert.match(h.text(), /Cage saved/);
+  assert.equal(h.state.puzzle.cages.find(c => c.cells.length > 1).target, 1e12);
+  model.checkSolveReady(h.state.puzzle); assert.equal(model.conflicts(h.state.puzzle).size, 0);
+  h.$("undo").onclick(); assert.deepEqual(plain(h.state.puzzle), before);
+});
+for (const text of ["1000000000001", "9007199254740992", "1.5", "1e12", "0", "-1"])
+  test(`invalid cage target ${text} leaves the accepted board and history untouched`, t => {
+    const h = harness(t); h.loadPuzzle(model.makePuzzle("kenken", 2));
+    h.state.selected = [0]; h.$("cage-target").value = text; h.$("cage-op").value = "=";
+    const before = plain(h.state.puzzle), history = h.state.history.length;
+    h.$("save-cage").onclick();
+    assert.deepEqual(plain(h.state.puzzle), before); assert.equal(h.state.history.length, history);
+    assert.doesNotMatch(h.text(), /Cage saved/);
+  });
