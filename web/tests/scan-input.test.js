@@ -5,6 +5,7 @@ import { refineCellBounds, numericCropBounds } from '../cell-boundaries.js';
 import { prepareScan } from '../scan-analysis.js';
 import { applyDigitVotes, puzzleFromReadings } from '../scanner.js';
 import { detailPlan, turnPoint, retainPhotoSource, rotatePhotoSource, photoDetail, DETAIL_PIXEL_LIMIT } from '../photo-detail.js';
+import { validQuad } from '../geometry.js';
 const quad = (w, h) => [{ x: 0, y: 0 }, { x: w - 1, y: 0 }, { x: w - 1, y: h - 1 }, { x: 0, y: h - 1 }];
 function raster(w = 400, h = 400) {
   const data = new Uint8ClampedArray(w * h * 4).fill(255);
@@ -109,6 +110,18 @@ for (const turns of [0, 1, 2, 3]) test(`original detail coordinates survive ${tu
   assert.ok(plan); assert.ok(plan.width > 995 && plan.width < 1010); assert.ok(plan.height > 995 && plan.height < 1010);
   assert.ok(plan.corners[0].x < 5 && plan.corners[0].y < 5);
   assert.ok(plan.corners[2].x > plan.width - 6 && plan.corners[2].y > plan.height - 6);
+});
+for (const turns of [0, 1, 2, 3]) test(`a corner on the photograph's edge stays inside a scaled-down detail after ${turns} quarter-turns`, () => {
+  // Detected on a 1600 x 1200 preview with a corner on each edge of the
+  // frame; the 4000 x 3000 original's grid region is scaled down to fit the
+  // 1800 px detail, which put those corners just outside it.
+  const w = 1600, h = 1200, original = [{ x: 0, y: 0 }, { x: 1599, y: 40 }, { x: 1560, y: 1199 }, { x: 30, y: 1130 }];
+  const rotated = original.map((p) => turnPoint(p, w, h, turns));
+  const corners = rotated.slice(4 - turns).concat(rotated.slice(0, 4 - turns));
+  const plan = detailPlan({ width: turns % 2 ? h : w, height: turns % 2 ? w : h }, corners, 4000, 3000, turns);
+  assert.ok(plan.outWidth < plan.w, 'the detail is scaled down');
+  assert.ok(plan.corners.every((p) => p.x >= 0 && p.y >= 0 && p.x <= plan.width - 1 && p.y <= plan.height - 1), JSON.stringify(plan.corners));
+  assert.ok(validQuad(plan.corners, plan.width, plan.height));
 });
 test('detail working canvas and original decode are independently bounded', () => {
   const plan = detailPlan({ width: 1600, height: 1200 }, quad(1600, 1200), 4000, 3000);
