@@ -61,8 +61,9 @@ export function digitCrop(entry, g, imageWidth, imageHeight, cellWidth, cellHeig
 // with a 16 px white margin, then binarized at its own Otsu threshold, which
 // read 69-93% of clean and 60-85% of printed rendered clues in the atlas.
 // Returns the binarized canvas for the atlas, and the clue's ink (1 per ink
-// pixel) with its darker half, for reading the operator's shape.
-export function cageLabelCrop(entry, rectified) {
+// pixel) with its darker half, only when the caller needs an operator shape.
+// Killer Sudoku uses the same binarized crop, but needs neither ink array.
+export function cageLabelCrop(entry, rectified, withOperator = true) {
   const height = 40, scale = height / Math.max(1, entry.h), out = document.createElement("canvas");
   out.width = Math.max(1, Math.round(entry.w * scale)) + 32;
   out.height = height + 32;
@@ -83,15 +84,21 @@ export function cageLabelCrop(entry, rectified) {
   const cut = otsuCut(histogram);
   // The darker half of the ink lies below the midpoint of the cut and the
   // ink's mean: there blur no longer joins a division sign's dots to its bar.
-  let inkCount = 0, inkSum = 0;
-  for (let v = 0; v <= cut; v++) { inkCount += histogram[v]; inkSum += v * histogram[v]; }
-  const darker = inkCount ? (cut + inkSum / inkCount) / 2 : cut,
-    ink = new Uint8Array(out.width * out.height), core = new Uint8Array(out.width * out.height);
+  let ink = null, core = null, darker = cut;
+  if (withOperator) {
+    let inkCount = 0, inkSum = 0;
+    for (let v = 0; v <= cut; v++) { inkCount += histogram[v]; inkSum += v * histogram[v]; }
+    darker = inkCount ? (cut + inkSum / inkCount) / 2 : cut;
+    ink = new Uint8Array(out.width * out.height);
+    core = new Uint8Array(out.width * out.height);
+  }
   for (let i = 0, k = 0; i < d.length; i += 4, k++) {
     const value = lum(i);
     d[i] = d[i + 1] = d[i + 2] = value <= cut ? 0 : 255;
-    ink[k] = value <= cut ? 1 : 0;
-    core[k] = value <= darker ? 1 : 0;
+    if (withOperator) {
+      ink[k] = value <= cut ? 1 : 0;
+      core[k] = value <= darker ? 1 : 0;
+    }
   }
   context.putImageData(pixels, 0, 0);
   return { canvas: out, ink, core };
@@ -456,38 +463,21 @@ export class Scanner {
       this.geometryWorker.terminate(); this.geometryWorker = null; this.geometryBusy = false;
     }
   }
-  _request(path, payload, onProgress = () => {}, type = "module") {
+  geometry(op, options) {
+    const payload = { op, ...options };
     return new Promise((resolve, reject) => {
-      const geometry = path === "geometry-worker.js";
-      const worker = geometry && this.geometryWorker && !this.geometryBusy
-        ? this.geometryWorker : new Worker(new URL(path, import.meta.url), { type });
-      if (geometry && !this.geometryWorker) this.geometryWorker = worker;
+      const worker = this.geometryWorker && !this.geometryBusy
+        ? this.geometryWorker : new Worker(new URL("geometry-worker.js", import.meta.url), { type: "module" });
+      if (!this.geometryWorker) this.geometryWorker = worker;
       if (this.geometryWorker === worker) this.geometryBusy = true;
       let settled = false;
-      const end = (error, result, cancel = false) => {
+      const end = (error, result) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
         this.jobs.delete(job);
-        worker.onmessage = worker.onerror = null;
-        if (cancel && type === "classic") {
-          // The host can terminate its raw child even while createWorker is
-          // still awaiting engine/language initialization. Bound host cleanup
-          // too, including a stalled importScripts before any child exists.
-          const kill = setTimeout(() => worker.terminate(), 100);
-          worker.onmessage = ({ data }) => {
-            if (!data?.cancelled) return; // Ignore progress queued before Stop.
-            clearTimeout(kill);
-            worker.terminate();
-          };
-          try {
-            worker.postMessage({ cancel: true });
-          } catch {
-            clearTimeout(kill);
-            worker.terminate();
-          }
-        } else if (geometry && !error && !cancel && this.geometryWorker === worker) {
-          // A finished geometry request leaves an idle, reusable worker.
+        worker.onmessage = worker.onerror = worker.onmessageerror = null;
+        if (!error && this.geometryWorker === worker) {
           this.geometryBusy = false;
         } else {
           worker.terminate();
@@ -495,36 +485,20 @@ export class Scanner {
         }
         error ? reject(error) : resolve(result);
       };
-      const job = { cancel: () => end(aborted(), null, true) };
-      const timeout = setTimeout(
-        () =>
-          end(
-            Error("Image processing timed out. Go online and retry."),
-            null,
-            true,
-          ),
-        180000,
-      );
+      const job = { cancel: () => end(aborted()) };
+      const timeout = setTimeout(() => end(Error("Image processing timed out. Go online and retry.")), 180000);
       this.jobs.add(job);
       worker.onmessage = ({ data }) => {
-        if (data.type === "progress") {
-          onProgress(data.message, data.progress);
-          return;
-        }
+        if (!data || typeof data !== "object" || !("result" in data || "error" in data)) return;
         end("error" in data ? Error(data.error || "Image processing failed") : null, data.result);
       };
-      worker.onerror = (e) =>
-        end(Error(e.message || "Image processing failed"), null, true);
+      worker.onerror = e => end(Error(e.message || "Image processing failed"));
+      worker.onmessageerror = () => end(Error("Could not receive image processing results."));
       try {
         // Pixel buffers are fresh per request: transfer them instead of copying.
         worker.postMessage(payload, payload.image?.data?.buffer ? [payload.image.data.buffer] : []);
-      } catch (error) {
-        end(error, null, true);
-      }
+      } catch (error) { end(error); }
     });
-  }
-  geometry(op, options) {
-    return this._request("geometry-worker.js", { op, ...options });
   }
   // `thorough` runs the last-resort readings (inverted screens, continuous
   // runs, dot lattices). They cost a still photograph a fraction of a second
@@ -639,22 +613,26 @@ export class Scanner {
     const ctx = atlas.getContext("2d");
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, atlas.width, atlas.height);
-    const bw = canvasOf({
-        width: w,
-        height: h,
-        data: new Uint8ClampedArray(image.data.length),
-      }),
-      bd = bw.getContext("2d").createImageData(w, h);
-    for (let i = 0; i < mask.length; i++) {
-      const v = mask[i] ? 0 : 255;
-      bd.data[4 * i] = bd.data[4 * i + 1] = bd.data[4 * i + 2] = v;
-      bd.data[4 * i + 3] = 255;
-    }
-    bw.getContext("2d").putImageData(bd, 0, 0);
+    // Numeric, inverted and cage-label entries have independent crops. Only
+    // structural entries without those crops need a whole-grid binary image.
+    let bw = null;
+    const binaryCanvas = () => {
+      if (bw) return bw;
+      bw = document.createElement("canvas");
+      bw.width = w; bw.height = h;
+      const context = bw.getContext("2d"), pixels = context.createImageData(w, h);
+      for (let i = 0; i < mask.length; i++) {
+        const v = mask[i] ? 0 : 255;
+        pixels.data[4 * i] = pixels.data[4 * i + 1] = pixels.data[4 * i + 2] = v;
+        pixels.data[4 * i + 3] = 255;
+      }
+      context.putImageData(pixels, 0, 0);
+      return bw;
+    };
     const crops = new Map();
     entries.forEach((e, i) => {
       const isDigit = ["value", "blackvalue"].includes(e.kind),
-        clue = e.cageLabel ? cageLabelCrop(e, rectified) : null,
+        clue = e.cageLabel ? cageLabelCrop(e, rectified, type === "kenken") : null,
         // White-on-black triangle and label crops are inverted per pixel by
         // grayCrop: canvas filters are unsupported in shipping Safari, where
         // ctx.filter = "invert(1)" is a silent no-op.
@@ -665,7 +643,7 @@ export class Scanner {
             ? clue.canvas
             : e.invert
               ? grayCrop(e, g, w, h, cw, ch, cols)
-              : bw,
+              : binaryCanvas(),
         sx = cropped ? 0 : e.x,
         sy = cropped ? 0 : e.y,
         sw = cropped ? source.width : e.w,

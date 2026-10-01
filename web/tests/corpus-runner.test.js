@@ -14,7 +14,7 @@ function harness(t, faults = {}) {
   const puzzle = { type: "latinsquare", rows: 2, cols: 2, cells: [1, 2, 2, 1] };
   const items = Array.from({ length: 3 }, (_, n) => {
     const file = path.join(dir, `${n}.png`), target = path.join(dir, `${n}.json`);
-    fs.writeFileSync(file, "image bytes"); fs.writeFileSync(target, JSON.stringify({ puzzle }));
+    fs.writeFileSync(file, "image bytes"); fs.writeFileSync(target, JSON.stringify({ puzzle, corners: [[0, 0], [9, 0], [9, 9], [0, 9]] }));
     return { file, target, name: `${n}.png`, mime: "image/png", family: "latinsquare", set: "fixture" };
   });
   let calls = 0, connected = true;
@@ -22,7 +22,9 @@ function harness(t, faults = {}) {
   const page = {
     setDefaultTimeout() {}, async goto() { if (faults.goto) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected,
-    async evaluate() {
+    async evaluate(_scan, input) {
+      assert.deepEqual(Object.keys(input.puzzle).sort(), ["cols", "rows", "type"]);
+      assert.deepEqual(input.corners, input.useTrue ? [[0, 0], [9, 0], [9, 9], [0, 9]] : null, "reference corners are opt-in");
       calls++;
       if (calls === 2 && faults.checkpoint) {
         const saved = JSON.parse(fs.readFileSync(output));
@@ -32,7 +34,7 @@ function harness(t, faults = {}) {
       if (calls === 2 && faults.disconnect) { connected = false; throw Error("browser crashed"); }
       if (calls === 2 && faults.decode) throw Error("image decode rejected");
       return { read: { ...puzzle, black: [], cages: [], clues: [], inequalities: [] },
-        uncertain: [], total: 12, detected: 1, grid: true };
+        uncertain: [], total: 12, detected: 1, grid: true, geometrySource: "detected" };
     },
   };
   const context = { async newPage() { return page; }, async close() {
@@ -44,7 +46,7 @@ function harness(t, faults = {}) {
   const deps = { startServer() { events.push("server started"); if (faults.spawn) throw Error("spawn failed"); return server; },
     async waitForServer() { if (faults.server) throw Error("server unavailable"); },
     async launch() { if (faults.launch) throw Error("launch failed"); return browser; }, log() {} };
-  const run = () => runBenchmark({ items, options: { engine: "chromium" }, scan() {}, output, signal: controller.signal }, deps);
+  const run = (options = {}) => runBenchmark({ items, options: { engine: "chromium", ...options }, scan() {}, output, signal: controller.signal }, deps);
   return { items, output, events, controller, deps, run, get calls() { return calls; },
     saved: () => JSON.parse(fs.readFileSync(output)) };
 }
@@ -53,6 +55,10 @@ test("normal runs score all images, checkpoint and close every resource", async 
   const h = harness(t, { checkpoint: true }); const report = await h.run();
   assert.equal(report.status, "complete"); assert.equal(report.summary[0].perfect, 3);
   assert.equal(report.scoreVersion, 4);
+  assert.deepEqual(report.recognition, { type: "reference", dimensions: "reference",
+    corners: "detected-or-full-frame", clueValues: "not-supplied" });
+  assert.deepEqual(h.saved().recognition, report.recognition);
+  assert.equal(report.results[0].geometrySource, "detected");
   const { flaggedCorrect, emptyCells, flaggedEmpty } = report.summary[0];
   assert.deepEqual([flaggedCorrect, emptyCells, flaggedEmpty], [0, 0, 0]);
   assert.equal(report.completedImages, 3); assert.equal(h.saved().results.length, 3);
@@ -123,4 +129,12 @@ test("checkpoint write errors still trigger cleanup and a final diagnostic write
 test("unwritable initial report allocates no browser or server", async t => {
   const h = harness(t); h.deps.writeReport = () => { throw Error("output denied"); };
   await assert.rejects(h.run(), /output denied/); assert.deepEqual(h.events, []);
+});
+
+
+test("reference-corner benchmark mode declares its supplied geometry without passing clue values", async t => {
+  const h = harness(t), report = await h.run({ trueCorners: true });
+  assert.equal(report.status, "complete"); assert.equal(h.calls, 3);
+  assert.equal(report.recognition.corners, "reference-when-available");
+  assert.equal(report.recognition.clueValues, "not-supplied");
 });
