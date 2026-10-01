@@ -46,7 +46,7 @@ function photoImports(t) {
     async choose(id = "photo-file", wait = true) {
       const request = { started: deferred(), decode: deferred() };
       queue.push(request);
-      const input = { files: [new Blob([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,16,0,0,0,16])])], value: "photo" };
+      const input = { files: [new Blob([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,16,0,0,0,16,8,2,0,0,0,0,0,0,0,0,0,0,0,73,69,78,68,0,0,0,0])])], value: "photo" };
       const completed = $(id).onchange({ target: input });
       if (wait) await request.started.promise;
       return { completed, started: request.started.promise, reject: request.decode.reject, input };

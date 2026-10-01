@@ -202,47 +202,17 @@ function photoFlowReview(reading, unconfirmed) {
 }
 
 // In the page, in three steps so that the corners are chosen in Node.
-// Load as the photo flow's decodeFile does (web/photo-flow.js, which does not
-// export it): dimensions sniffed from the file's head, a decode straight to the
-// working size, drawn on white, and the original file retained with
-// retainPhotoSource. Detect on that preview. Read as readPhoto does, through
-// photoDetail: the original's grid region at up to 1800 px when the original is
-// larger than the preview and at most 16 MP, and otherwise the preview.
+// Use the production bounded importer, including EXIF sizing and safe fallbacks.
+// Detect on that preview, then read through photoDetail as the app does.
 async function loadPhoto({ data, mime, maxSide }) {
-  const { sniffDimensions } = await import("./image-dimensions.js"), { retainPhotoSource } = await import("./photo-detail.js");
-  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)), file = new Blob([bytes], { type: mime }),
-    dimensions = sniffDimensions(bytes.subarray(0, 512 * 1024), file.size);
-  if (!dimensions) return { error: "load: the photo's dimensions could not be checked" };
-  const fit = (width, height) => {
-      const scale = Math.min(1, maxSide / Math.max(width, height));
-      return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
-    },
-    draw = (source, width, height) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      context.fillStyle = "white";
-      context.fillRect(0, 0, width, height);
-      context.drawImage(source, 0, 0, width, height);
-      return canvas;
-    };
-  let bitmap = null, preview = null;
+  const { importPhoto } = await import("./photo-import.js");
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)), file = new Blob([bytes], { type: mime });
   try {
-    bitmap = await createImageBitmap(file, { resizeWidth: fit(dimensions.width, dimensions.height)[0], resizeQuality: "high", imageOrientation: "from-image" });
-  } catch { bitmap = null; }
-  if (bitmap) try { preview = draw(bitmap, ...fit(bitmap.width, bitmap.height)); } finally { bitmap.close?.(); }
-  else {
-    const url = URL.createObjectURL(file);
-    try {
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-      preview = draw(image, ...fit(image.naturalWidth, image.naturalHeight));
-    } finally { URL.revokeObjectURL(url); }
-  }
-  window.benchCanvas = retainPhotoSource(preview, file, dimensions);
-  return { width: preview.width, height: preview.height, natural: { width: dimensions.width, height: dimensions.height } };
+    const { image, dimensions } = await importPhoto(file, { maxSide });
+    if (window.benchCanvas) window.benchCanvas.width = window.benchCanvas.height = 0;
+    window.benchCanvas = image;
+    return { width: image.width, height: image.height, natural: dimensions };
+  } catch (error) { return { error: `load: ${error.message}` }; }
 }
 async function detectGrid() {
   const { Scanner } = await import("./scanner.js");

@@ -62,10 +62,14 @@ export function detailPlan(preview, corners, width, height, turns = 0) {
     h = Math.min(height, Math.ceil(Math.max(...original.map((p) => p.y))) + 3) - y,
     scale = Math.min(1, DETAIL_SIDE / Math.max(w, h)),
     outWidth = Math.max(2, Math.round(w * scale)), outHeight = Math.max(2, Math.round(h * scale));
+  // A corner on the photograph's edge maps up to half a pixel outside a
+  // scaled-down detail, where the reader would refuse the quad: keep it on
+  // the detail's edge.
+  const inside = (value, size) => Math.min(size - 1, Math.max(0, value));
   return { x, y, w, h, outWidth, outHeight,
     width: turns % 2 ? outHeight : outWidth, height: turns % 2 ? outWidth : outHeight,
-    corners: original.map((p) => turnPoint({ x: (p.x - x + .5) * outWidth / w - .5,
-      y: (p.y - y + .5) * outHeight / h - .5 }, outWidth, outHeight, turns)) };
+    corners: original.map((p) => turnPoint({ x: inside((p.x - x + .5) * outWidth / w - .5, outWidth),
+      y: inside((p.y - y + .5) * outHeight / h - .5, outHeight) }, outWidth, outHeight, turns)) };
 }
 
 // Decode once, after the user selects the grid. Limit the INPUT as well as the

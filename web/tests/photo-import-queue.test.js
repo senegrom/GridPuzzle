@@ -7,8 +7,8 @@ import { makePuzzle, boxShape } from '../model.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; }
 function imageFile(name, header) {
-  const bytes = new Uint8Array(24); bytes.set([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82]);
-  const view = new DataView(bytes.buffer); view.setUint32(16,4000); view.setUint32(20,3000);
+  const bytes = new Uint8Array(45); bytes.set([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82]);
+  const view = new DataView(bytes.buffer); view.setUint32(16,4000); view.setUint32(20,3000); bytes.set([73,69,78,68],37);
   const file = new Blob([bytes], {type:'image/png'}); file.name = name;
   if (header) file.slice = () => ({arrayBuffer: () => header.promise});
   return {file, bytes:bytes.buffer};

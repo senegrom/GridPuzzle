@@ -9,13 +9,22 @@ export const source = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf
 export const scope = "https://example.test/GridPuzzle/";
 
 // One cache. A URL string and a Request for it key the same entry, and
-// responses are cloned on the way in and out, as the real store does.
+// Cache.put consumes the supplied body; Cache.match gets fresh independent
+// bytes. Keeping live Response clone/tee chains is not durable cache storage.
 export function memoryCache() {
   const entries = new Map(), key = (request) => typeof request === "string" ? request : request.url;
   return {
     entries,
-    async match(request) { return entries.get(key(request))?.clone(); },
-    async put(request, response) { entries.set(key(request), response.clone()); },
+    async match(request) {
+      const stored = entries.get(key(request));
+      if (!stored) return undefined;
+      return new Response(stored.bytes?.slice() ?? null, stored.init);
+    },
+    async put(request, response) {
+      const init = { status: response.status, statusText: response.statusText, headers: [...response.headers] };
+      const bytes = response.body === null ? null : new Uint8Array(await Response.prototype.arrayBuffer.call(response));
+      entries.set(key(request), { bytes, init });
+    },
     async delete(request) { return entries.delete(key(request)); },
     async keys() { return [...entries.keys()].map((url) => new Request(url)); },
   };
