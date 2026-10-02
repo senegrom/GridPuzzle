@@ -5,7 +5,7 @@ import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
-import { fraction, turnCorners, otsuCut } from "./geometry.js";
+import { fraction, turnCorners, otsuCut, clueHeight } from "./geometry.js";
 import { readOperator } from "./cage-operator.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
@@ -308,6 +308,16 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
     return v;
   });
+  // A digit far shorter than the grid's own clues is most likely a candidate
+  // note the player wrote, one that candidateNotes, cutting at 0.4 before the
+  // OCR, let through: keep the digit but highlight its cell. The clue height
+  // comes from the digits read, which unread regions cannot skew, and needs
+  // six of them.
+  const digits = entries.filter((e) => e.kind === "value" && Number.isInteger(puzzle.cells[e.cell]));
+  if (digits.length >= 6) {
+    const reference = clueHeight(digits);
+    for (const e of digits) if (e.h < 0.54 * reference) uncertain.add(e.cell);
+  }
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
     // two cells go to structural review (the cage channel), not digit review,
