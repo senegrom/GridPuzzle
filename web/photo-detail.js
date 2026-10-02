@@ -30,8 +30,8 @@ export async function withPhotoDecode(work, current = () => true) {
     finished();
   }
 }
-export function retainPhotoSource(preview, file, dimensions) {
-  if (preview && file && dimensions) sources.set(preview, { file, dimensions, turns: 0 });
+export function retainPhotoSource(preview, file, dimensions, { turns = 0, mirrored = false } = {}) {
+  if (preview && file && dimensions) sources.set(preview, { file, dimensions, turns, mirrored });
   return preview;
 }
 export const hasPhotoSource = (preview) => sources.has(preview);
@@ -46,15 +46,23 @@ export function turnPoint({ x, y }, width, height, turns) {
   }
   return { x, y };
 }
-export function detailPlan(preview, corners, width, height, turns = 0) {
+// Apply raw horizontal mirroring before clockwise rotation. Import and detail
+// must use the same transform; do not rotate an already-oriented bitmap twice.
+export function transformPhotoContext(ctx, width, height, turns, mirrored = false) {
+  if (turns === 1) { ctx.translate(height, 0); ctx.rotate(Math.PI / 2); }
+  if (turns === 2) { ctx.translate(width, height); ctx.rotate(Math.PI); }
+  if (turns === 3) { ctx.translate(0, width); ctx.rotate(-Math.PI / 2); }
+  if (mirrored) { ctx.translate(width, 0); ctx.scale(-1, 1); }
+}
+export function detailPlan(preview, corners, width, height, turns = 0, mirrored = false) {
   if (!validQuad(corners, preview.width, preview.height) ||
       ![width, height].every((n) => Number.isInteger(n) && n > 1) ||
-      width * height > DETAIL_PIXEL_LIMIT || !Number.isInteger(turns) || turns < 0 || turns > 3) return null;
+      width * height > DETAIL_PIXEL_LIMIT || !Number.isInteger(turns) || turns < 0 || turns > 3 || typeof mirrored !== 'boolean') return null;
   const original = corners.map((p) => {
     const pt = turnPoint(p, preview.width, preview.height, (4 - turns) % 4),
       pw = turns % 2 ? preview.height : preview.width,
       ph = turns % 2 ? preview.width : preview.height;
-    return { x: pt.x * (width - 1) / (pw - 1), y: pt.y * (height - 1) / (ph - 1) };
+    return { x: (mirrored ? pw - 1 - pt.x : pt.x) * (width - 1) / (pw - 1), y: pt.y * (height - 1) / (ph - 1) };
   });
   const x = Math.max(0, Math.floor(Math.min(...original.map((p) => p.x))) - 2),
     y = Math.max(0, Math.floor(Math.min(...original.map((p) => p.y))) - 2),
@@ -68,8 +76,11 @@ export function detailPlan(preview, corners, width, height, turns = 0) {
   const inside = (value, size) => Math.min(size - 1, Math.max(0, value));
   return { x, y, w, h, outWidth, outHeight,
     width: turns % 2 ? outHeight : outWidth, height: turns % 2 ? outWidth : outHeight,
-    corners: original.map((p) => turnPoint({ x: inside((p.x - x + .5) * outWidth / w - .5, outWidth),
-      y: inside((p.y - y + .5) * outHeight / h - .5, outHeight) }, outWidth, outHeight, turns)) };
+    corners: original.map((p) => {
+      const px = inside((p.x - x + .5) * outWidth / w - .5, outWidth);
+      return turnPoint({ x: mirrored ? outWidth - 1 - px : px,
+        y: inside((p.y - y + .5) * outHeight / h - .5, outHeight) }, outWidth, outHeight, turns);
+    }) };
 }
 
 // Decode once, after the user selects the grid. Limit the INPUT as well as the
@@ -91,16 +102,14 @@ export async function photoDetail(preview, corners, { current = () => true } = {
       try {
         bitmap = await createImageBitmap(source.file, { imageOrientation: 'from-image' });
         if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
-        const plan = detailPlan(preview, corners, bitmap.width, bitmap.height, source.turns);
+        const plan = detailPlan(preview, corners, bitmap.width, bitmap.height, source.turns, source.mirrored);
         if (!plan) return fallback('Original photo dimensions could not be checked; recognition uses the preview.');
         canvas = document.createElement('canvas');
         canvas.width = plan.width; canvas.height = plan.height;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-        if (source.turns === 1) { ctx.translate(plan.outHeight, 0); ctx.rotate(Math.PI / 2); }
-        if (source.turns === 2) { ctx.translate(plan.outWidth, plan.outHeight); ctx.rotate(Math.PI); }
-        if (source.turns === 3) { ctx.translate(0, plan.outWidth); ctx.rotate(-Math.PI / 2); }
+        transformPhotoContext(ctx, plan.outWidth, plan.outHeight, source.turns, source.mirrored);
         ctx.drawImage(bitmap, plan.x, plan.y, plan.w, plan.h, 0, 0, plan.outWidth, plan.outHeight);
         const result = canvas;
         canvas = null;
