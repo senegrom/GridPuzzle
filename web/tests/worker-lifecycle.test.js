@@ -62,7 +62,7 @@ test("scan cancellation rejects a pending worker request immediately", async () 
   };
   try {
     const scanner = new Scanner(),
-      promise = scanner._request("ocr-host-worker.js", {}, () => {}, "classic");
+      promise = scanner.ocr.recognize({});
     scanner.cancel();
     await assert.rejects(promise, { name: "AbortError" });
     assert.equal(scanner.jobs.size, 0);
@@ -102,7 +102,7 @@ test("late OCR progress is not a cancellation acknowledgement", async () => {
   };
   try {
     const scanner = new Scanner(),
-      promise = scanner._request("ocr-host-worker.js", {}, () => {}, "classic");
+      promise = scanner.ocr.recognize({});
     scanner.cancel();
     await assert.rejects(promise, { name: "AbortError" });
     instance.onmessage({ data: { type: "progress", progress: 0.5 } });
@@ -131,7 +131,7 @@ test("postMessage failure cannot retain workers or mask the original error", asy
   try {
     const scanner = new Scanner();
     await assert.rejects(
-      scanner._request("ocr-host-worker.js", {}, () => {}, "classic"),
+      scanner.ocr.recognize({}),
       (e) => e === original,
     );
     assert.equal(scanner.jobs.size, 0);
@@ -140,3 +140,30 @@ test("postMessage failure cannot retain workers or mask the original error", asy
     globalThis.Worker = old;
   }
 });
+
+for (const failure of ['error', 'messageerror', 'timeout', 'post', 'constructor']) {
+  test(`geometry ${failure} releases owned work and can retry without the obsolete dispatch path`, async t => {
+    const old = globalThis.Worker, workers = [];
+    let broken = true;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    globalThis.Worker = class {
+      constructor() { if (failure === 'constructor' && broken) throw Error('constructor failed'); workers.push(this); }
+      postMessage() { if (failure === 'post' && broken) throw Error('post failed'); }
+      terminate() { this.stopped = true; }
+    };
+    const scanner = new Scanner();
+    t.after(() => { scanner.cancel(); globalThis.Worker = old; });
+    const pending = scanner.geometry('detect', {}), rejected = assert.rejects(pending);
+    if (failure === 'error') workers[0].onerror({ message: 'worker error' });
+    if (failure === 'messageerror') workers[0].onmessageerror();
+    if (failure === 'timeout') t.mock.timers.tick(180000);
+    await rejected; assert.equal(scanner.jobs.size, 0); assert.equal(scanner.geometryBusy, false);
+    assert.ok(workers.every(w => w.stopped));
+    broken = false;
+    const next = scanner.geometry('detect', {}), worker = workers.at(-1);
+    worker.onmessage({ data: { type: 'progress' } });
+    assert.equal(scanner.jobs.size, 1, 'stray progress does not finish geometry');
+    worker.onmessage({ data: { result: { rows: 2 } } });
+    assert.deepEqual(await next, { rows: 2 }); assert.equal(scanner.jobs.size, 0);
+  });
+}

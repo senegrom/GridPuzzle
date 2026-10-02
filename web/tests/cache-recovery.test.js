@@ -97,7 +97,7 @@ test("root navigation ignores query strings but not subpaths", () => {
 });
 test("verified readiness evicts a poisoned asset; preparation refetches it once", async () => {
   const h = harness();
-  h.entries.set(h.key, new Response("wrong version"));
+  await h.cache.put(h.key, new Response("wrong version"));
   assert.equal(
     await h.offlineReadyFast(h.cache, [h.asset]),
     true,
@@ -118,7 +118,7 @@ test("verified readiness evicts a poisoned asset; preparation refetches it once"
 });
 test("ordinary reads trust stored bytes; verified reads repair them without a status check first", async () => {
   const h = harness();
-  h.entries.set(h.key, new Response("bad"));
+  await h.cache.put(h.key, new Response("bad"));
   assert.equal(await (await h.verifiedAsset(h.cache, h.asset)).text(), "bad");
   assert.equal(h.calls.length, 0);
   assert.equal(

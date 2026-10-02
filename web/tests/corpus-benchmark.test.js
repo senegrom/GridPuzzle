@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
 // already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
-const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure } =
+const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowMetadata } =
   createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
 test("the preview's scale from the original's pixels is its side ratio, whichever way it was turned", () => {
@@ -62,7 +62,10 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   const found = await run(0.94);
   assert.deepEqual([found.calls[0][0], found.calls[0][1].maxSide, found.calls[1][0], found.calls[2][0]], ["loadPhoto", 1600, "detectGrid", "readGrid"]);
   // The page maps the preview corners onto the original's detail, as the photo flow does.
-  assert.equal(found.calls[2][1].corners, proposal);
+  assert.deepEqual(found.calls[0][1], { data: Buffer.from("image bytes").toString("base64"), mime: "image/png", maxSide: 1600 });
+  assert.equal(found.calls[1][1], undefined);
+  assert.deepEqual(found.calls[2][1], { corners: proposal, type: "latinsquare", rows: 2, cols: 2 });
+  assert.equal(found.row.geometrySource, "detector-proposal");
   assert.deepEqual([found.row.detail, found.row.detailNote], [true, "Clues read from the original photo detail."]);
   assert.deepEqual([found.row.grid, found.row.unconfirmed, found.row.correct, found.row.wrong, found.row.unsafe], [true, false, 3, 1, 1]);
   assert.equal(found.row.cornerError, 0);
@@ -75,7 +78,14 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   assert.deepEqual([preview.row.detail, "detailNote" in preview.row], [false, false]);
   const truth = await run(0.45, { trueCorners: true });
   assert.deepEqual(truth.calls[2][1].corners, [{ x: 50, y: 50 }, { x: 1550, y: 50 }, { x: 1550, y: 1550 }, { x: 50, y: 1550 }]);
-  assert.deepEqual([truth.row.unconfirmed, truth.row.unsafe], [false, 1]);
+  assert.deepEqual([truth.row.unconfirmed, truth.row.unsafe, truth.row.geometrySource], [false, 1, "reference"]);
+  assert.deepEqual(Object.keys(truth.calls[2][1]).sort(), ["cols", "corners", "rows", "type"]);
+  const noOutline = JSON.parse(fs.readFileSync(target, "utf8"));
+  delete noOutline.corners; fs.writeFileSync(target, JSON.stringify(noOutline));
+  const fallback = await run(0.45, { trueCorners: true });
+  assert.equal(fallback.calls[2][1].corners, proposal);
+  assert.equal(fallback.row.geometrySource, "detector-proposal");
+  assert.equal(fallback.row.unconfirmed, true);
 });
 
 test("a list of set/name lines selects exactly those images", (t) => {
@@ -90,4 +100,16 @@ test("a list of set/name lines selects exactly those images", (t) => {
   fs.writeFileSync(list, "one/b.png\r\ntwo/a.png\n");
   assert.deepEqual(selectImages({ corpus: root, list }).map((i) => `${i.set}/${i.name}`), ["one/b.png", "two/a.png"]);
   assert.equal(selectImages({ corpus: root }).length, 3);
+});
+
+
+test("photo-flow reports retain v4 harness settings and declare reference-supplied configuration", () => {
+  for (const trueCorners of [false, true]) {
+    const meta = photoFlowMetadata({ trueCorners });
+    assert.equal(meta.scoreVersion, 4);
+    assert.deepEqual(meta.harness, { maxSide: 1600, confirmedAbove: 0.8,
+      corners: trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" });
+    assert.deepEqual(meta.recognition, { type: "reference", dimensions: "reference",
+      corners: trueCorners ? "reference-when-available" : "detector-proposal", clueValues: "not-supplied" });
+  }
 });

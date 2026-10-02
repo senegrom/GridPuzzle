@@ -730,12 +730,15 @@ function blockInputs() {
     state.puzzle.type !== "kakuro" || !$("blocked-cell").checked;
 }
 $("blocked-cell").onchange = blockInputs;
-function numberInput(id) {
+function numberInput(id, max = 625, min = 0) {
   const text = $(id).value.trim();
   if (!text) return null;
-  if (!/^\d{1,12}$/.test(text))
+  if (!/^\d+$/.test(text))
     throw Error("Use a whole number, or leave the field blank.");
-  return Number(text);
+  const value = Number(text);
+  if (!Number.isSafeInteger(value) || value < min || value > max)
+    throw Error(`Use a whole number from ${min} to ${max}, or leave the field blank.`);
+  return value;
 }
 function saveCell(advance = false) {
   if (playEditing) return savePlayCell();
@@ -751,13 +754,8 @@ function saveCell(advance = false) {
     } else next.cells[editing] = blocked ? "#" : entered;
     next.clues = next.clues.filter((q) => q.cell !== editing);
     if (blocked && next.type === "kakuro") {
-      const across = numberInput("across-value"),
-        down = numberInput("down-value");
-      if (
-        (across !== null && (across < 1 || across > 45)) ||
-        (down !== null && (down < 1 || down > 45))
-      )
-        throw Error("Kakuro targets must be from 1 to 45.");
+      const across = numberInput("across-value", 45, 1),
+        down = numberInput("down-value", 45, 1);
       if (across !== null || down !== null)
         next.clues.push({ cell: editing, across, down });
     }
@@ -1044,7 +1042,7 @@ $("clear-selection").onclick = () => {
 };
 $("save-cage").onclick = () => {
   try {
-    const target = numberInput("cage-target");
+    const target = numberInput("cage-target", 1e12, 1);
     if (!target || !state.selected.length)
       throw Error("Select cage cells and enter a positive target.");
     const cells = [...state.selected],
@@ -1530,6 +1528,7 @@ const { stopCamera } = setupPhotoFlow({
 window.addEventListener("pagehide", () => {
   stopCamera();
   stopTask();
+  clueReread.dispose();
   if (worker) {
     worker.terminate();
     worker = null;

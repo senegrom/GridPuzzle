@@ -4,7 +4,9 @@
    Runs the real detector, OCR and voting in a browser over images selected
    from the corpus, and compares the reading with each image's target file:
    printed clues per cell, and the grid corners where the target has them.
-   Nothing from the target reaches recognition unless --true-corners is set.
+   The reference type and row/column counts configure recognition, so this is
+   not an automatic family/size benchmark. Reference clue values stay in the
+   scorer; reference corners are supplied only with --true-corners.
 
    As in web/photo-flow.js, the photograph is decoded to a preview on white with
    its long side at most 1600 px, the grid is detected on that preview, and it is
@@ -23,8 +25,7 @@
 
    Serves --site (default _site), writes --out (default
    browser-artifacts/corpus-benchmark.json) and prints a summary.              */
-const { runBenchmark, selectImages, photoFlowMeasure, PHOTO_MAX_SIDE, CONFIRMED } = require("./benchmark-runner.cjs");
-const { SCORE_VERSION } = require("./score.cjs");
+const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata } = require("./benchmark-runner.cjs");
 
 const BASE = "http://127.0.0.1:8780/";
 function parseOptions(args) {
@@ -44,6 +45,7 @@ async function main(args = process.argv.slice(2)) {
   if (!items.length) { console.error("no matching images under", options.corpus); return 2; }
   if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
   console.log(`${items.length} images from ${options.corpus}`);
+  console.log(`Recognition uses reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detector proposals"}. Not fully automatic.`);
   const controller = new AbortController();
   const interrupt = name => controller.abort(Error(`Benchmark interrupted by ${name}`));
   const onInt = () => interrupt("SIGINT"), onTerm = () => interrupt("SIGTERM");
@@ -52,8 +54,7 @@ async function main(args = process.argv.slice(2)) {
   try {
     report = await runBenchmark({ items, options, base: BASE, signal: controller.signal, output: options.out,
       measure: (page, item) => photoFlowMeasure(page, item, options),
-      reportMetadata: { scoreVersion: SCORE_VERSION, harness: { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED,
-        corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" } } });
+      reportMetadata: photoFlowMetadata(options) });
   } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `

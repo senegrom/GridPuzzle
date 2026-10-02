@@ -5,15 +5,33 @@ import { validQuad } from './geometry.js';
 const sources = new WeakMap();
 export const DETAIL_PIXEL_LIMIT = 16_000_000;
 const DETAIL_SIDE = 1800;
-// One original-resolution decode at a time bounds memory. A read queues behind
-// an earlier decode instead of degrading to the preview: a superseded read's
-// decode cannot be cancelled, but its bitmap is closed as soon as it arrives,
-// and a read superseded while it waits never decodes at all. A decoder that
-// never answers only costs a later read DECODE_WAIT, then the preview.
+// Imports and original-detail reads share one native decode owner. A timed-out
+// waiter may leave the queue, but must never release an unfinished decoder.
 let decodeQueue = Promise.resolve();
 const DECODE_WAIT = 15000;
-export function retainPhotoSource(preview, file, dimensions) {
-  if (preview && file && dimensions) sources.set(preview, { file, dimensions, turns: 0 });
+export async function withPhotoDecode(work, current = () => true) {
+  const check = () => { if (!current()) throw new DOMException('Scan cancelled', 'AbortError'); };
+  check();
+  const previous = decodeQueue;
+  let finished, timer;
+  const completed = new Promise(resolve => { finished = resolve; });
+  decodeQueue = previous.then(() => completed);
+  try {
+    const turn = await Promise.race([previous.then(() => true),
+      new Promise(resolve => { timer = setTimeout(resolve, DECODE_WAIT, false); })]);
+    clearTimeout(timer);
+    check();
+    if (!turn) throw Error('Another photo is still decoding. Wait a moment and retry.');
+    // Keep ownership until the native operation actually settles, even when
+    // its selection is obsolete. The caller closes any late bitmap in finally.
+    return await work();
+  } finally {
+    clearTimeout(timer);
+    finished();
+  }
+}
+export function retainPhotoSource(preview, file, dimensions, { turns = 0, mirrored = false } = {}) {
+  if (preview && file && dimensions) sources.set(preview, { file, dimensions, turns, mirrored });
   return preview;
 }
 export const hasPhotoSource = (preview) => sources.has(preview);
@@ -28,15 +46,23 @@ export function turnPoint({ x, y }, width, height, turns) {
   }
   return { x, y };
 }
-export function detailPlan(preview, corners, width, height, turns = 0) {
+// Apply raw horizontal mirroring before clockwise rotation. Import and detail
+// must use the same transform; do not rotate an already-oriented bitmap twice.
+export function transformPhotoContext(ctx, width, height, turns, mirrored = false) {
+  if (turns === 1) { ctx.translate(height, 0); ctx.rotate(Math.PI / 2); }
+  if (turns === 2) { ctx.translate(width, height); ctx.rotate(Math.PI); }
+  if (turns === 3) { ctx.translate(0, width); ctx.rotate(-Math.PI / 2); }
+  if (mirrored) { ctx.translate(width, 0); ctx.scale(-1, 1); }
+}
+export function detailPlan(preview, corners, width, height, turns = 0, mirrored = false) {
   if (!validQuad(corners, preview.width, preview.height) ||
       ![width, height].every((n) => Number.isInteger(n) && n > 1) ||
-      width * height > DETAIL_PIXEL_LIMIT || !Number.isInteger(turns) || turns < 0 || turns > 3) return null;
+      width * height > DETAIL_PIXEL_LIMIT || !Number.isInteger(turns) || turns < 0 || turns > 3 || typeof mirrored !== 'boolean') return null;
   const original = corners.map((p) => {
     const pt = turnPoint(p, preview.width, preview.height, (4 - turns) % 4),
       pw = turns % 2 ? preview.height : preview.width,
       ph = turns % 2 ? preview.width : preview.height;
-    return { x: pt.x * (width - 1) / (pw - 1), y: pt.y * (height - 1) / (ph - 1) };
+    return { x: (mirrored ? pw - 1 - pt.x : pt.x) * (width - 1) / (pw - 1), y: pt.y * (height - 1) / (ph - 1) };
   });
   const x = Math.max(0, Math.floor(Math.min(...original.map((p) => p.x))) - 2),
     y = Math.max(0, Math.floor(Math.min(...original.map((p) => p.y))) - 2),
@@ -50,8 +76,11 @@ export function detailPlan(preview, corners, width, height, turns = 0) {
   const inside = (value, size) => Math.min(size - 1, Math.max(0, value));
   return { x, y, w, h, outWidth, outHeight,
     width: turns % 2 ? outHeight : outWidth, height: turns % 2 ? outWidth : outHeight,
-    corners: original.map((p) => turnPoint({ x: inside((p.x - x + .5) * outWidth / w - .5, outWidth),
-      y: inside((p.y - y + .5) * outHeight / h - .5, outHeight) }, outWidth, outHeight, turns)) };
+    corners: original.map((p) => {
+      const px = inside((p.x - x + .5) * outWidth / w - .5, outWidth);
+      return turnPoint({ x: mirrored ? outWidth - 1 - px : px,
+        y: inside((p.y - y + .5) * outHeight / h - .5, outHeight) }, outWidth, outHeight, turns);
+    }) };
 }
 
 // Decode once, after the user selects the grid. Limit the INPUT as well as the
@@ -67,42 +96,33 @@ export async function photoDetail(preview, corners, { current = () => true } = {
   if (Math.max(source.dimensions.width, source.dimensions.height) <= Math.max(preview.width, preview.height)) return fallback();
   const unavailable = 'Original-detail decoding is unavailable; recognition uses the preview.';
   if (typeof globalThis.createImageBitmap !== 'function') return fallback(unavailable);
-  const previous = decodeQueue;
-  let finished, timer = null, bitmap = null, canvas = null;
-  const completed = new Promise((resolve) => { finished = resolve; });
-  // A timed-out or superseded waiter releases only its own turn, never an
-  // earlier decode that is still running. Keep that predecessor in the chain.
-  decodeQueue = previous.then(() => completed);
   try {
-    const turn = await Promise.race([previous.then(() => true),
-      new Promise((resolve) => { timer = setTimeout(resolve, DECODE_WAIT, false); })]);
-    if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
-    if (!turn) return fallback(unavailable);
-    bitmap = await createImageBitmap(source.file, { imageOrientation: 'from-image' });
-    if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
-    const plan = detailPlan(preview, corners, bitmap.width, bitmap.height, source.turns);
-    if (!plan) return fallback('Original photo dimensions could not be checked; recognition uses the preview.');
-    canvas = document.createElement('canvas');
-    canvas.width = plan.width; canvas.height = plan.height;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-    if (source.turns === 1) { ctx.translate(plan.outHeight, 0); ctx.rotate(Math.PI / 2); }
-    if (source.turns === 2) { ctx.translate(plan.outWidth, plan.outHeight); ctx.rotate(Math.PI); }
-    if (source.turns === 3) { ctx.translate(0, plan.outWidth); ctx.rotate(-Math.PI / 2); }
-    ctx.drawImage(bitmap, plan.x, plan.y, plan.w, plan.h, 0, 0, plan.outWidth, plan.outHeight);
-    const result = canvas;
-    canvas = null;
-    return { image: result, corners: plan.corners, enhanced: true,
-      note: 'Clues read from the original photo detail; the crop preview and saved photograph are unchanged.',
-      release() { result.width = result.height = 0; } };
+    return await withPhotoDecode(async () => {
+      let bitmap = null, canvas = null;
+      try {
+        bitmap = await createImageBitmap(source.file, { imageOrientation: 'from-image' });
+        if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
+        const plan = detailPlan(preview, corners, bitmap.width, bitmap.height, source.turns, source.mirrored);
+        if (!plan) return fallback('Original photo dimensions could not be checked; recognition uses the preview.');
+        canvas = document.createElement('canvas');
+        canvas.width = plan.width; canvas.height = plan.height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        transformPhotoContext(ctx, plan.outWidth, plan.outHeight, source.turns, source.mirrored);
+        ctx.drawImage(bitmap, plan.x, plan.y, plan.w, plan.h, 0, 0, plan.outWidth, plan.outHeight);
+        const result = canvas;
+        canvas = null;
+        return { image: result, corners: plan.corners, enhanced: true,
+          note: 'Clues read from the original photo detail; the crop preview and saved photograph are unchanged.',
+          release() { result.width = result.height = 0; } };
+      } finally {
+        bitmap?.close?.();
+        if (canvas) canvas.width = canvas.height = 0;
+      }
+    }, current);
   } catch (error) {
     if (!current() || error?.name === 'AbortError') throw new DOMException('Scan cancelled', 'AbortError');
     return fallback('Original-detail decoding failed; recognition uses the preview.');
-  } finally {
-    clearTimeout(timer);
-    bitmap?.close?.();
-    if (canvas) canvas.width = canvas.height = 0;
-    finished();
   }
 }
