@@ -1,6 +1,6 @@
 // Synthetic lossless 3200x800 colour quadrants, not a user photograph.
 const assert = require('node:assert/strict');
-const fixture = 'UklGRjABAABXRUJQVlA4TCMBAAAvf8zHAB8gICEs8T/bDBIIEErECNcmEEhi2x9hmPkPPSc4YKZtm5EcyZEchlyO6P8EbI6fI//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH//xH/9h2eU4OfIf//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//Ef//EflgEA';
+const fixture = 'UklGRjABAABXRUJQVlA4TCMBAAAvf8zHAB8gICEs8T/bDBIIEErECNcmEEhi2x9hmPkPPSc4YKZtm5EcyZEchlyO6P8EbI6fI' + '//xH'.repeat(38) + '/9h2eU4OfI' + 'f//E'.repeat(38) + 'flgEA';
 async function webpProbe(encoded) {
   const { importPhoto } = await import('./photo-import.js');
   const { photoDetail, rotatePhotoSource } = await import('./photo-detail.js');
