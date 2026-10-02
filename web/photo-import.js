@@ -1,5 +1,5 @@
 import { sniffDimensions } from './image-dimensions.js';
-import { retainPhotoSource, withPhotoDecode } from './photo-detail.js';
+import { retainPhotoSource, withPhotoDecode, transformPhotoContext } from './photo-detail.js';
 
 export const PHOTO_MAX_SIDE = 1600;
 const HEADER_LIMIT = 512 * 1024;
@@ -42,9 +42,9 @@ async function orientation(file, head, check) {
       const value = entries.getUint16(i + 8, little);
       if (entries.getUint16(i + 2, little) !== 3 || entries.getUint32(i + 4, little) !== 1 || value < 1 || value > 8)
         throw orientationError();
-      return value;
+      return { value, offset: at + 2 + i + 8, little };
     }
-    return 1;
+    return { value: 1 };
   }
   const jpeg = head[0] === 0xff && head[1] === 0xd8, png = head[0] === 137;
   const end = jpeg || png ? file.size : view(head).getUint32(4, true) + 8;
@@ -53,7 +53,7 @@ async function orientation(file, head, check) {
     if (jpeg) {
       const marker = await read(at, 2);
       if (marker[0] !== 0xff) throw orientationError();
-      if (marker[1] === 0xda || marker[1] === 0xd9) return 1;
+      if (marker[1] === 0xda || marker[1] === 0xd9) return { value: 1 };
       if (marker[1] === 0xff) { at++; continue; }
       if (marker[1] === 0x01 || (marker[1] >= 0xd0 && marker[1] <= 0xd8)) { at += 2; continue; }
       const length = view(await read(at + 2, 2)).getUint16(0), next = at + 2 + length;
@@ -66,12 +66,12 @@ async function orientation(file, head, check) {
         kind = text(header.subarray(png ? 4 : 0, png ? 8 : 4)), next = at + 8 + length + (png ? 4 : length % 2);
       if (next > end) throw orientationError();
       if (kind === (png ? 'eXIf' : 'EXIF')) return tiff(at + 8, at + 8 + length);
-      if (png && (kind === 'IDAT' || kind === 'IEND')) return 1;
+      if (png && (kind === 'IDAT' || kind === 'IEND')) return { value: 1 };
       at = next;
     }
   }
   if (at !== end) throw orientationError();
-  return 1;
+  return { value: 1 };
 }
 
 // Shared by photo-file, native-file and the corpus photo-flow benchmark. Bounds
@@ -91,19 +91,35 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
     const scale = Math.min(1, maxSide / Math.max(width, height));
     return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
   };
+  const meta = await orientation(file, head, check);
+  check();
+  let decodeFile = file, turns = 0, mirrored = false;
+  const webp = head[0] === 82 && head[1] === 73; // sniffDimensions validated RIFF/WEBP.
+  if (webp && meta.value !== 1) {
+    // WebP decoders differ in whether they apply EXIF. Neutralize ONLY that
+    // primary orientation tag, without decoding/re-encoding or copying pixels,
+    // then apply the declared transform exactly once. Retain the same encoded
+    // source and transform for original-detail reads and subsequent user turns.
+    const normal = new Uint8Array(meta.little ? [1, 0] : [0, 1]);
+    decodeFile = new Blob([file.slice(0, meta.offset), normal, file.slice(meta.offset + 2)], { type: 'image/webp' });
+    turns = [0, 0, 0, 2, 2, 3, 1, 1, 3][meta.value];
+    mirrored = [2, 4, 5, 7].includes(meta.value);
+  }
   const draw = (source, width = source.width, height = source.height) => {
     if (!width || !height) throw Error('The image is empty.');
     const canvas = document.createElement('canvas');
-    [canvas.width, canvas.height] = fit(width, height);
+    const [w, h] = fit(width, height);
+    [canvas.width, canvas.height] = turns % 2 ? [h, w] : [w, h];
     try {
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-      return { image: retainPhotoSource(canvas, file, dimensions), dimensions };
+      transformPhotoContext(ctx, w, h, turns, mirrored);
+      ctx.drawImage(source, 0, 0, w, h);
+      return { image: retainPhotoSource(canvas, decodeFile, dimensions, { turns, mirrored }), dimensions };
     } catch (error) { canvas.width = canvas.height = 0; throw error; }
   };
-  const turned = await orientation(file, head, check) >= 5;
+  const turned = !webp && meta.value >= 5;
   check();
   return withPhotoDecode(async () => {
     if (typeof createImageBitmap === 'function') {
@@ -111,13 +127,13 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
       // using encoded width alone could enlarge a 1600x400 image to 1600x6400.
       const [resizeWidth, resizeHeight] = turned ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
       let bitmap = null;
-      try { bitmap = await createImageBitmap(file, { resizeWidth, resizeHeight, resizeQuality: 'high', imageOrientation: 'from-image' }); }
+      try { bitmap = await createImageBitmap(decodeFile, { resizeWidth, resizeHeight, resizeQuality: 'high', imageOrientation: 'from-image' }); }
       catch { /* A bounded full decode remains available on older browsers. */ }
       if (bitmap) try { check(); return draw(bitmap); } finally { bitmap.close?.(); }
     }
     check();
     if (pixels > 24e6) throw Error('This browser cannot downscale this large photo safely. Crop it in your photo app first, then try again.');
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(decodeFile);
     try {
       const image = new Image();
       image.src = url;
