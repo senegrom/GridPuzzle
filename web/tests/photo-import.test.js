@@ -26,7 +26,7 @@ function webp(w,h,exif){const extended=Buffer.alloc(10);extended[0]=8;extended.w
 function harness(t,{fallback=false,failBitmap=false}={}){
  const calls=[],canvases=[],bitmaps=[],urls=[];
  for(const key of ['document','Image','createImageBitmap']){const d=Object.getOwnPropertyDescriptor(globalThis,key);t.after(()=>d?Object.defineProperty(globalThis,key,d):delete globalThis[key]);}
- const context={fillRect(){this.white=this.fillStyle;},drawImage(){}};
+ const context={fillRect(){this.white=this.fillStyle;},drawImage(){},translate(){},rotate(){},scale(){}};
  globalThis.document={createElement(){const c={width:0,height:0,getContext:()=>({...context})};canvases.push(c);return c;}};
  globalThis.createImageBitmap=fallback?undefined:async(file,options)=>{calls.push(options);if(failBitmap)throw Error('decoder failed');
   const bitmap={width:options.resizeWidth,height:options.resizeHeight,close(){this.closed=true;}};bitmaps.push(bitmap);return bitmap;};
@@ -48,7 +48,9 @@ for(const little of [false,true])for(const value of [1,2,3,4,5,6,7,8])
 for(const make of [png,(w,h,meta)=>webp(w,h,meta),(w,h,meta)=>webp(w,h,concat('Exif\0\0',meta))])
  test(`EXIF in ${make===png?'PNG':'WebP'} uses bounded metadata reads, including after a large bitstream`,async t=>{
   const h=harness(t),file=new Blob([make(1600,400,tiff(6,true))]),slice=file.slice.bind(file),ranges=[];
-  file.slice=(a,b)=>{ranges.push([a,b]);return slice(a,b);};
+  file.slice=(a,b)=>{const part=slice(a,b),read=part.arrayBuffer.bind(part);
+    // Blob slices used for the normalized encoded source are not metadata reads.
+    part.arrayBuffer=()=>{ranges.push([a,b??file.size]);return read();};return part;};
   const {image}=await importPhoto(file);assert.deepEqual([image.width,image.height],[400,1600]);
   assert.ok(ranges.reduce((n,[a,b])=>n+b-a,0)<530000,'skip rather than read the full bitstream');
   assert.equal(h.calls.length,1);
