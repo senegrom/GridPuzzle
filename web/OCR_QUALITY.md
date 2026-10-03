@@ -286,20 +286,31 @@ covered by `web/tests/candidate-notes.test.js`.
 Candidate notes just above that cut are read, confidently, as clues: on app
 screenshots they were the largest class of unflagged errors left under
 `scoreVersion: 4`. After the OCR, the reader now highlights a value digit
-shorter than 0.54 of the grid's clue height and keeps the digit. The clue height
-here is the 75th percentile of the digits read (the value regions whose cell
-holds a digit after the range check, at least six of them). Taken over every
-value region before the OCR, regions that read nothing and note-heavy grids
-skew it, and the same cut cost about 60% more false flags.
+shorter than 0.54 of the grid's clue height and keeps the digit, and a review
+note says such digits may be pencil or app notes. The clue height here is the
+75th percentile of the digits read (the value regions whose cell holds a digit
+after the range check, at least six of them). Taken over every value region
+before the OCR, regions that read nothing and note-heavy grids skew it: the same
+cut flags 49 correct clues instead of 39 and catches 260 errors instead of 266.
+A digit highlighted only for its size still counts as read clearly when
+`Scanner.orient` weighs a quarter turn.
 
-Measured on the whole corpus with `scoreVersion: 4` (Chromium, 2026-10-02,
-against master 7f6269a), 3,965 of the 3,978 images read exactly as before, and
-on them the flags change exactly as predicted from the per-cell records, except
-for one photograph that failed to read when the records were taken. The other
-13 are of two kinds. Eleven EXIF-rotated photographs have baseline rows from
-before the benchmark decoded photographs as the photo flow does; they read the
-same with and without the flag. The other two are Hidato 266 renders, whose
-known transient OCR failure moved from one variant to another.
+Measured on the whole corpus with `scoreVersion: 4` (Chromium, 2026-10-02),
+against master 7f6269a: the baseline above with #118's re-reads of
+val-mmabi8yfe8yc1, val-yv5yemlk4ncc1 and image1000.original. 3,965 of the 3,978
+images read exactly as before. On them, the flags change exactly as predicted
+from the per-cell records, except for val-yv5yemlk4ncc1, which failed to read
+when the records were taken. The other 13 images are of two kinds:
+
+- Eleven EXIF-rotated photographs have baseline rows from before the benchmark
+  decoded photographs as the photo flow does. They read the same with and
+  without the flag.
+- Two are Hidato 266 renders, whose known transient OCR failure moved from one
+  variant to another. Re-read three times on each build, every variant reads all
+  27 clues.
+
+Unflagged errors fall from 1,169 to 901. Like for like, it is 1,167 to 901: two
+of the 1,169 are in the eleven stale rows.
 
 The flag catches 266 unflagged errors: 257 note-sized inventions, 8 wrong
 digits and 1 digit read from a neighbouring clue. 263 of them are in
@@ -314,24 +325,32 @@ lexski-mixed, that is, app screenshots and photographs of app screens. It flags
 | Photographs, other sets | 3 | 20 | 0.18% |
 | Renders | 0 | 3 | 0.01% |
 
-The false flags fall where the detected corners are off. In the per-cell
+Most false flags fall where the detected corners are off. In the per-cell
 records, boards within 0.1 cell of the target outline have 2 false flags in
 55,985 correct clues, boards 0.1-0.2 cell off have 11 in 3,066, and boards
-further off have 17 in 431. The photograph read since #118, 0.6 cell off, adds
-the 40th. Of 38 false flags viewed by eye, 21 sit on misaligned grids, 8 on
-broken glyphs, 7 on handwritten answers and 2 on small printed clues. No
-perfect Sudoku or Latin square reading without a flag gains one, so no
-automatic solve is lost.
+further off have 17 in 431. The exception is 9 false flags on boards without
+target corners: 8 are on wichtounet-solved, handwritten answers or faint print
+on aligned grids, and 1 is on rozet-handwritten. val-yv5yemlk4ncc1, 0.6 cell
+off, adds the 40th. 26 of the 40 were viewed by eye: 18 sit on misaligned grids
+and 8 on broken glyphs. No perfect Sudoku or Latin square reading without a
+flag gains one, so no automatic solve is lost.
 
 0.54 is the cut chosen on held-out halves of the corpus: over 1,000 random
 splits in each direction, a 0.01 grid picks 0.53 or 0.54 in 1,761 of 2,000. A
 cut of 0.55 catches 3 more for 10 more false flags. A cut of 0.6 catches 15 more
 for 59 more, mostly on photographs.
 
-The rule misses two kinds of error. Player entries drawn at clue size (23
-unflagged inventions) are left: no colour, weight or size rule separated them
-cheaply. The 554 unflagged missed clues have no region to judge. The rule is
-covered by `web/tests/candidate-notes.test.js`.
+The rule misses two kinds of error:
+
+- **23 unflagged inventions drawn at clue size.**
+  - 7 are whole-cell regions on Kakuro and Hidato renders.
+  - 4 sit on two rozet-handwritten photographs whose targets are swapped.
+  - The other 12 are mostly player entries. No colour, weight or size rule
+    separated them cheaply.
+- **554 unflagged missed clues**, which have no region to judge.
+
+The rule is covered by `web/tests/candidate-notes.test.js`, and its effect on
+the turn by `web/tests/photo-orientation.test.js`.
 
 ## Faint and coloured digits on dim photographs
 
