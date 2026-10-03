@@ -313,10 +313,11 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
   // OCR, let through: keep the digit but highlight its cell. The clue height
   // comes from the digits read, which unread regions cannot skew, and needs
   // six of them.
-  const digits = entries.filter((e) => e.kind === "value" && Number.isInteger(puzzle.cells[e.cell]));
+  const digits = entries.filter((e) => e.kind === "value" && Number.isInteger(puzzle.cells[e.cell])),
+    small = new Set();
   if (digits.length >= 6) {
     const reference = clueHeight(digits);
-    for (const e of digits) if (e.h < 0.54 * reference) uncertain.add(e.cell);
+    for (const e of digits) if (e.h < 0.54 * reference) small.add(e.cell);
   }
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
@@ -392,6 +393,14 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     });
   }
   conflicts(puzzle).forEach((i) => uncertain.add(i));
+  // Only now, after every other flag: the cells highlighted for their size
+  // alone, which say nothing about how well the grid was read (confidentDigits).
+  const noteSized = [...small].filter((cell) => !uncertain.has(cell) && !cageUncertain.has(cell));
+  small.forEach((cell) => uncertain.add(cell));
+  if (small.size)
+    notes.push(small.size === 1
+      ? "1 highlighted digit is much smaller than the grid's other clues, so it may be a pencil or app note. Clear it if it is not a printed clue."
+      : `${small.size} highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues.`);
   const needsReview =
     contrastAdjusted ||
     (type === "auto" && suggested.review) ||
@@ -424,14 +433,16 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     uncertain: [...new Set([...uncertain, ...cageUncertain])],
     cellUncertain: [...uncertain],
     cageUncertain: [...cageUncertain],
+    noteSized,
     needsReview,
     notes: [...new Set(notes)].slice(0, 8),
   };
 }
-// Cells whose digit carries no review flag: what a reading has to offer.
+// Cells whose digit carries no review flag: what a reading has to offer. A
+// digit highlighted only for its size still counts, since it was read clearly.
 export function confidentDigits(found) {
-  const uncertain = new Set(found.uncertain ?? []);
-  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && !uncertain.has(cell)).length;
+  const uncertain = new Set(found.uncertain ?? []), noteSized = new Set(found.noteSized ?? []);
+  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && (!uncertain.has(cell) || noteSized.has(cell))).length;
 }
 // Median height/width of single, clue-sized value glyphs (at least half the
 // 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
