@@ -5,7 +5,7 @@ import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
-import { fraction, turnCorners, otsuCut } from "./geometry.js";
+import { fraction, turnCorners, otsuCut, clueHeight } from "./geometry.js";
 import { readOperator } from "./cage-operator.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
@@ -308,6 +308,17 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     if (black[i] && ["hidato", "kakuro"].includes(chosen)) return "#";
     return v;
   });
+  // A digit far shorter than the grid's own clues is most likely a candidate
+  // note the player wrote, one that candidateNotes, cutting at 0.4 before the
+  // OCR, let through: keep the digit but highlight its cell. The clue height
+  // comes from the digits read, which unread regions cannot skew, and needs
+  // six of them.
+  const digits = entries.filter((e) => e.kind === "value" && Number.isInteger(puzzle.cells[e.cell])),
+    small = new Set();
+  if (digits.length >= 6) {
+    const reference = clueHeight(digits);
+    for (const e of digits) if (e.h < 0.54 * reference) small.add(e.cell);
+  }
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
     // two cells go to structural review (the cage channel), not digit review,
@@ -382,6 +393,14 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     });
   }
   conflicts(puzzle).forEach((i) => uncertain.add(i));
+  // Only now, after every other flag: the cells highlighted for their size
+  // alone, which say nothing about how well the grid was read (confidentDigits).
+  const noteSized = [...small].filter((cell) => !uncertain.has(cell) && !cageUncertain.has(cell));
+  small.forEach((cell) => uncertain.add(cell));
+  if (small.size)
+    notes.push(small.size === 1
+      ? "1 highlighted digit is much smaller than the grid's other clues, so it may be a pencil or app note. Clear it if it is not a printed clue."
+      : `${small.size} highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues.`);
   const needsReview =
     contrastAdjusted ||
     (type === "auto" && suggested.review) ||
@@ -414,14 +433,16 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     uncertain: [...new Set([...uncertain, ...cageUncertain])],
     cellUncertain: [...uncertain],
     cageUncertain: [...cageUncertain],
+    noteSized,
     needsReview,
     notes: [...new Set(notes)].slice(0, 8),
   };
 }
-// Cells whose digit carries no review flag: what a reading has to offer.
+// Cells whose digit carries no review flag: what a reading has to offer. A
+// digit highlighted only for its size still counts, since it was read clearly.
 export function confidentDigits(found) {
-  const uncertain = new Set(found.uncertain ?? []);
-  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && !uncertain.has(cell)).length;
+  const uncertain = new Set(found.uncertain ?? []), noteSized = new Set(found.noteSized ?? []);
+  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && (!uncertain.has(cell) || noteSized.has(cell))).length;
 }
 // Median height/width of single, clue-sized value glyphs (at least half the
 // 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
