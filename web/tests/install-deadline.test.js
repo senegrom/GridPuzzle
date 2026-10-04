@@ -14,13 +14,18 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
 
 async function harness(t, stage = null, fault = 'stall', storage = memoryCaches()) {
   const timers = new Map(), listeners = {}, signals = [], operations = [];
-  const held = deferred(); let reached = false, serial = 0, claims = 0;
+  const held = deferred(); let reached = false, serial = 0, claims = 0, late = Promise.resolve();
   const enter = async (name, work) => {
     operations.push(name);
     if (stage === name) {
       reached = true;
       if (fault === 'reject') throw Error(`failed ${name}`);
       await held.promise;
+      // The released stage's own work, so a test can wait for it to settle
+      // instead of guessing how many turns its continuation needs.
+      const result = Promise.resolve().then(work);
+      late = result.then(() => {}, () => {});
+      return result;
     }
     return work();
   };
@@ -74,7 +79,7 @@ async function harness(t, stage = null, fault = 'stall', storage = memoryCaches(
     while (!predicate() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 2));
     assert.ok(predicate(), `did not reach ${stage}; operations: ${operations}`);
   };
-  return { storage, timers, signals, operations, held, settled, until,
+  return { storage, timers, signals, operations, held, settled, until, get late() { return late; },
     get reached() { return reached; }, get outcome() { return outcome; }, get claims() { return claims; } };
 }
 
@@ -96,7 +101,10 @@ for (const stage of ['manifest-fetch', 'manifest-body', 'content-open', 'cache-m
     assert.ok(h.signals.length && h.signals.every(signal => signal.aborted));
     assert.equal(h.timers.size, 0);
     const atFailure = [...h.operations];
-    h.held.resolve(); for (let i = 0; i < 20; i++) await tick();
+    // One turn lets the released stage start its work (h.late is replaced
+    // then); awaiting that work leaves its continuation no room to escape.
+    h.held.resolve(); await tick(); await h.late;
+    for (let i = 0; i < 20; i++) await tick();
     assert.match(h.outcome.message, /App update stalled/, 'a late native completion cannot certify installation');
     assert.deepEqual(h.operations, atFailure, 'no subsequent phase or cache write after failure');
     assert.equal(h.claims, 0);
