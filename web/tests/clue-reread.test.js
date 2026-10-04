@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import { setupClueReread } from '../clue-reread.js';
 import { makePuzzle } from '../model.js';
 function harness() {
@@ -167,4 +169,25 @@ for (const reason of ['timeout', 'unsupported', 'dispose']) test(`review ${reaso
   h.message({ cancelled: true }); assert.ok(h.workers[0].terminated);
   assert.equal(h.$('use-reread').hidden, true); assert.equal(h.$('cell-value').value, '1');
   assert.ok(h.s.uncertain.has(0)); assert.equal(h.timers.size, 0);
+});
+// The production pagehide handler and the stopTask it calls, run against the
+// real engine: stopTask alone keeps the engine warm and re-arms its idle timer.
+function productionPagehide(clueReread) {
+  const app = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const stopTask = app.match(/^const stopTask = .*$/m)?.[0];
+  const start = app.indexOf('window.addEventListener("pagehide",'), end = app.indexOf('setupOffline($);', start);
+  assert.ok(stopTask && start > 0 && end > start, 'production pagehide handler not found');
+  const handlers = {};
+  vm.runInNewContext(`${stopTask}\n${app.slice(start, end)}`, { clueReread, worker: null, state: {},
+    tasks: { stop() {} }, stopCamera() {}, window: { addEventListener: (type, fn) => { handlers[type] = fn; } } });
+  return () => handlers.pagehide({ type: 'pagehide', persisted: true });
+}
+for (const inFlight of [false, true]) test(`pagehide releases the OCR host while the clue dialog is open; read in flight ${inFlight}`, async t => {
+  const h = await engineHarness(t), pagehide = productionPagehide(h.api), done = h.read();
+  if (!inFlight) { h.finish(); await done; }
+  assert.equal(h.$('cell-dialog').open, true); assert.equal(h.workers.length, 1);
+  pagehide(); await done;
+  assert.equal(h.workers[0].messages.at(-1).cancel, true, 'leaving the page cancels the host outright');
+  assert.ok(![...h.timers.values()].some(timer => timer.ms === 30000), 'no idle timer outlives the page');
+  h.message({ cancelled: true }); assert.equal(h.workers[0].terminated, true);
 });
