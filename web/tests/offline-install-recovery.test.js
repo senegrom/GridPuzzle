@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupOffline } from '../offline.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function harness(t, {failRegister=false, active=false, missing=false, redundant=false}={}) {
+const prefix="Failed to register a ServiceWorker for scope ('https://example.test/') with script ('https://example.test/sw.js'): ";
+async function harness(t, {failRegister=false, registerError=null, active=false, missing=false, redundant=false}={}) {
   const nodes=new Map(), timers=new Map(), requests=[]; let serial=0,reloads=0,ready;
   const $=id=>{if(!nodes.has(id))nodes.set(id,{textContent:'',hidden:true,disabled:false});return nodes.get(id);};
   $('prepare-offline').textContent='Download offline assets'; $('prepare-offline').disabled=true;
@@ -11,7 +12,8 @@ async function harness(t, {failRegister=false, active=false, missing=false, redu
   const installing=worker(), old=worker(); old.state='activated'; if(redundant)installing.state='redundant';
   const registration=Object.assign(new EventTarget(),{active:active?old:null,waiting:null,installing:missing?null:installing});
   const serviceWorker=Object.assign(new EventTarget(),{controller:active?old:null,
-    register:async()=>{if(failRegister)throw Error('denied');return registration;},
+    register:async()=>{if(registerError)throw registerError;
+      if(failRegister)throw new TypeError('An unknown error occurred when fetching the script.');return registration;},
     ready:active?Promise.resolve(registration):new Promise(r=>{ready=r;})});
   for(const key of ['navigator','location','MessageChannel','setTimeout','clearTimeout']) {
     const descriptor=Object.getOwnPropertyDescriptor(globalThis,key);
@@ -51,4 +53,20 @@ test('failed replacement install leaves the existing active version usable',asyn
  assert.equal(h.$('prepare-offline').textContent,'Download offline assets');assert.equal(h.$('prepare-offline').disabled,false);
  assert.doesNotMatch(h.$('offline-state').textContent,/failed/);await h.$('prepare-offline').onclick();
  assert.deepEqual(h.requests,['OFFLINE_STATUS','PREPARE_OFFLINE']);assert.equal(h.reloads,0);
+});
+// Chromium rejects register() with NotSupportedError while site data is blocked,
+// on every reload; there localStorage fails too, so a reload loses the puzzle.
+for(const [name,message] of [['NotSupportedError','The user denied permission to use Service Worker.'],['SecurityError','The operation is insecure.']])
+  test(`a registration refusal that repeats on every reload (${name}) offers no reload`,async t=>{
+    const h=await harness(t,{registerError:new DOMException(prefix+message,name)});
+    assert.equal(h.$('prepare-offline').disabled,true);assert.equal(h.$('prepare-offline').textContent,'Download offline assets');
+    assert.equal(h.$('prepare-offline').onclick,undefined);assert.equal(h.reloads,0);
+    assert.match(h.$('offline-state').textContent,/^Offline caching unavailable: /);
+    assert.doesNotMatch(h.$('offline-state').textContent,/reload|\.\./i);
+  });
+test('a failed script fetch still offers the reload, with one full stop',async t=>{
+  const h=await harness(t,{registerError:new TypeError(prefix+'An unknown error occurred when fetching the script.')});
+  assert.equal(h.$('prepare-offline').disabled,false);assert.match(h.$('prepare-offline').textContent,/Reload.*retry/);
+  assert.doesNotMatch(h.$('offline-state').textContent,/\.\./);
+  h.$('prepare-offline').onclick();assert.equal(h.reloads,1);
 });

@@ -212,7 +212,14 @@ export function setupOffline($) {
         }
       })
       .catch((e) => {
-        offerReload(`Offline caching unavailable: ${e.message}. Go online and reload to retry.`);
+        // A failed script fetch can succeed after a reload. A refusal (site data
+        // blocked, insecure or unsupported context) repeats on every reload.
+        const reason = `Offline caching unavailable: ${String(e?.message ?? e).replace(/\.+$/, "")}.`;
+        if (e?.name === "TypeError" || ["NetworkError", "AbortError", "InvalidStateError"].includes(e?.name))
+          return offerReload(`${reason} Go online and reload to retry.`);
+        prepareButton.textContent = prepareLabel;
+        prepareButton.disabled = true;
+        $("offline-state").textContent = reason;
       });
   } else {
     $("prepare-offline").disabled = true;
