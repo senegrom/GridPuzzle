@@ -351,9 +351,10 @@ def test_every_event_runs_the_browser_unit_tests_once():
     """Browser branch tests runs them on pull requests; the deployment's
     build job runs them on every other event, manual runs included."""
     assert _event_settings(_workflow("browser-tests.yml"), "push") is None
-    unit = _step(_jobs(_workflow("browser-tests.yml"))["unit"], "node --test web/tests/*.test.js")
+    command = "node --test --test-timeout=60000 web/tests/*.test.js"
+    unit = _step(_jobs(_workflow("browser-tests.yml"))["unit"], command)
     assert "if:" not in unit
-    build = _step(_jobs(_workflow("browser-pages.yml"))["build"], "node --test web/tests/*.test.js")
+    build = _step(_jobs(_workflow("browser-pages.yml"))["build"], command)
     assert "if: github.event_name != 'pull_request'\n" in build
 
 

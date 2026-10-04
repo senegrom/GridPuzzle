@@ -131,8 +131,11 @@ would save only about ten seconds, so it stays one job.
 
 ## Unit tests by area
 
-`node --test web/tests/*.test.js` runs every browser unit test; the Python
-side is in the bounded pytest suite.
+`node --test --test-timeout=60000 web/tests/*.test.js` runs every browser
+unit test; the Python side is in the bounded pytest suite. With the timeout, a
+regression that leaves a test waiting for ever (a decode queue that is never
+released, say) fails that test by name after a minute instead of hanging the
+run until CI's job limit.
 
 - **Camera and live tracking:** listed under "Tests" in [LIVE_CAMERA.md](LIVE_CAMERA.md). `camera-lifecycle.test.js` also covers cancellation while permission, video playback or grid detection is pending, and editing and solving stopping capture.
 - **Recognition:** [OCR_QUALITY.md](OCR_QUALITY.md) names each mechanism's tests. `fragmented-clues.test.js` covers complete fragmented crops in both ink polarities and trailing digits, rejected speckles, unchanged connected glyphs, and review or red unknown status before any solver-backed blue entry.

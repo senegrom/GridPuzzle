@@ -13,7 +13,7 @@ Requirements: Python 3.14+, Node.js 22+, and network access while building the p
 ```sh
 python -m pip install -e '.[dev]'
 python -m pytest -q tests -m 'not slow'
-node --test web/tests/*.test.js
+node --test --test-timeout=60000 web/tests/*.test.js
 python scripts/build_web.py
 python -m http.server 8000 --directory _site
 ```
