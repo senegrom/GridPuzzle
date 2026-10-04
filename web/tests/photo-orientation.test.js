@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scanner, glyphAspect, confidentDigits } from "../scanner.js";
+import { Scanner, glyphAspect, confidentDigits, puzzleFromReadings } from "../scanner.js";
 import { turnCorners } from "../geometry.js";
 
 const glyphs = (n, w, h, extra = {}) => Array.from({ length: n }, (_, cell) => ({ kind: "value", cell, x: 0, y: 0, w, h, ...extra }));
@@ -44,6 +44,17 @@ test("a turn that is not clearly better keeps the upright reading", async () => 
     assert.equal(fake.calls.length, 3); assert.equal(found.turns, undefined);
     assert.equal(confidentDigits(found), upright);
   }
+});
+test("a digit highlighted only for its size still counts toward a turn", async () => {
+  // Read a quarter turn round: eight clear digits, exactly the bar of
+  // max(8, 2 x 0 + 3), one of them half the height of the others.
+  const entries = [50, 50, 50, 50, 50, 50, 50, 25].map((h, i) =>
+      ({ kind: "value", cell: 10 * i, x: 0, y: 0, w: 34, h, text: String(i + 1), confidence: 99 })),
+    turned = { ...puzzleFromReadings({ entries, black: Array(81).fill(false), meta: { boxes: true, rows: 9, cols: 9 },
+      mask: null, width: 900, height: 900 }, "sudoku", 9, 9), entries };
+  assert.ok(turned.uncertain.includes(70), "the short digit stays highlighted");
+  const found = await read(reader([reading(20, 0, [50, 34]), turned, reading(20, 0)]));
+  assert.equal(found.turns, 1); assert.equal(confidentDigits(found), 8);
 });
 test("upright-shaped glyphs or a good reading never pay for a turned read", async () => {
   for (const first of [reading(20, 2), reading(20, 12, [50, 34])]) {
