@@ -55,10 +55,16 @@ for(const make of [png,(w,h,meta)=>webp(w,h,meta),(w,h,meta)=>webp(w,h,concat('E
   assert.ok(ranges.reduce((n,[a,b])=>n+b-a,0)<530000,'skip rather than read the full bitstream');
   assert.equal(h.calls.length,1);
  });
-for(const kind of ['value','type','count','offset','truncated'])test(`malformed EXIF ${kind} never reaches either native decoder`,async t=>{
+for(const kind of ['value','type','count'])test(`an orientation entry the engines ignore (${kind}) imports as stored`,async t=>{
  const h=harness(t),meta=tiff(6);
- if(kind==='value')meta.writeUInt16BE(9,18);if(kind==='type')meta.writeUInt16BE(4,12);
- if(kind==='count')meta.writeUInt32BE(2,14);if(kind==='offset')meta.writeUInt32BE(0xfffffff0,4);
+ if(kind==='value')meta.writeUInt16BE(9,18);if(kind==='type')meta.writeUInt16BE(4,12);if(kind==='count')meta.writeUInt32BE(2,14);
+ const {image}=await importPhoto(new Blob([jpeg(1600,400,meta)]));
+ assert.equal(h.calls.length,1);assert.deepEqual([h.calls[0].resizeWidth,h.calls[0].resizeHeight],[1600,400]);
+ assert.deepEqual([image.width,image.height],[1600,400]);
+});
+for(const kind of ['offset','truncated'])test(`malformed EXIF ${kind} never reaches either native decoder`,async t=>{
+ const h=harness(t),meta=tiff(6);
+ if(kind==='offset')meta.writeUInt32BE(0xfffffff0,4);
  await assert.rejects(importPhoto(new Blob([jpeg(1600,400,kind==='truncated'?meta.subarray(0,17):meta)])),/orientation/);
  assert.deepEqual(h.calls,[]);assert.equal(h.canvases.length,0);
 });

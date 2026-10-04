@@ -4,7 +4,7 @@ import { retainPhotoSource, withPhotoDecode, transformPhotoContext } from './pho
 export const PHOTO_MAX_SIDE = 1600;
 const HEADER_LIMIT = 512 * 1024;
 const cancelled = () => new DOMException('Scan cancelled', 'AbortError');
-const orientationError = () => Error('The photo orientation could not be checked safely. Export it as JPEG, PNG or WebP, then try again.');
+const orientationError = () => Error('The photo orientation could not be checked safely. Save a copy from your photo app, then try again.');
 
 // Only the primary image's TIFF orientation is needed, never its thumbnail or
 // other EXIF data. JPEG/PNG metadata precedes the pixel stream; WebP may put it
@@ -40,8 +40,9 @@ async function orientation(file, head, check) {
     for (let i = 0; i < count * 12; i += 12) {
       if (entries.getUint16(i, little) !== 0x0112) continue;
       const value = entries.getUint16(i + 8, little);
+      // Chromium, Firefox and WebKit ignore an unusable entry and show the image as stored.
       if (entries.getUint16(i + 2, little) !== 3 || entries.getUint32(i + 4, little) !== 1 || value < 1 || value > 8)
-        throw orientationError();
+        continue;
       return { value, offset: at + 2 + i + 8, little };
     }
     return { value: 1 };
