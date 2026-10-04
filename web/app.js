@@ -730,14 +730,17 @@ function blockInputs() {
     state.puzzle.type !== "kakuro" || !$("blocked-cell").checked;
 }
 $("blocked-cell").onchange = blockInputs;
-function numberInput(id, max = 625, min = 0) {
+// A range is opt-in: clue and answer fields keep their callers' own range
+// messages ("Answers must be from 1 to 9."), and a field that must not be
+// blank gets no advice to leave it blank.
+function numberInput(id, { min = 0, max = Number.MAX_SAFE_INTEGER, blank = true } = {}) {
   const text = $(id).value.trim();
   if (!text) return null;
-  if (!/^\d+$/.test(text))
-    throw Error("Use a whole number, or leave the field blank.");
-  const value = Number(text);
-  if (!Number.isSafeInteger(value) || value < min || value > max)
-    throw Error(`Use a whole number from ${min} to ${max}, or leave the field blank.`);
+  const value = /^\d+$/.test(text) ? Number(text) : NaN,
+    or = blank ? ", or leave the field blank" : "";
+  if (!Number.isSafeInteger(value)) throw Error(`Use a whole number${or}.`);
+  if (value < min || value > max)
+    throw Error(`Use a whole number from ${min} to ${max}${or}.`);
   return value;
 }
 function saveCell(advance = false) {
@@ -745,7 +748,9 @@ function saveCell(advance = false) {
   try {
     const next = clone(state.puzzle),
       blocked = !$("block-option").hidden && $("blocked-cell").checked;
-    const entered = numberInput("cell-value");
+    // A blocked cell's value field is disabled (except Str8ts), so a stale
+    // value there cannot prevent saving the block.
+    const entered = blocked && next.type !== "str8ts" ? null : numberInput("cell-value");
     if (next.type === "str8ts") {
       next.black = (next.black || []).filter((i) => i !== editing);
       if (blocked) next.black.push(editing);
@@ -754,8 +759,8 @@ function saveCell(advance = false) {
     } else next.cells[editing] = blocked ? "#" : entered;
     next.clues = next.clues.filter((q) => q.cell !== editing);
     if (blocked && next.type === "kakuro") {
-      const across = numberInput("across-value", 45, 1),
-        down = numberInput("down-value", 45, 1);
+      const across = numberInput("across-value", { min: 1, max: 45 }),
+        down = numberInput("down-value", { min: 1, max: 45 });
       if (across !== null || down !== null)
         next.clues.push({ cell: editing, across, down });
     }
@@ -1042,7 +1047,7 @@ $("clear-selection").onclick = () => {
 };
 $("save-cage").onclick = () => {
   try {
-    const target = numberInput("cage-target", 1e12, 1);
+    const target = numberInput("cage-target", { min: 1, max: 1e12, blank: false });
     if (!target || !state.selected.length)
       throw Error("Select cage cells and enter a positive target.");
     const cells = [...state.selected],
