@@ -86,6 +86,18 @@ test("a read digit about half the grid's clue height is highlighted and kept, an
   assert.deepEqual(two.noteSized, [70, 80]);
   assert.deepEqual(two.notes, ["2 highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues."]);
 });
+test("the size note is kept when a cage puzzle's other notes reach the eight-note limit", () => {
+  // Eight unlabelled cages of different sizes give eight different cage notes,
+  // and the experimental-cage note makes nine: rows 0-6 open with runs of 1-7
+  // cells, and the rest joins up through the right-hand columns.
+  const runs = [0, 1, 2, 3, 4, 5, 6].map((r) => Array.from({ length: r + 1 }, (_, c) => r * 9 + c)),
+    taken = new Set(runs.flat()),
+    cageAreas = [...runs, Array.from({ length: 81 }, (_, cell) => cell).filter((cell) => !taken.has(cell))];
+  const found = puzzleFromReadings({ entries: [...clues(8), read(80, 25)], black: Array(81).fill(false),
+    meta: { boxes: false, rows: 9, cols: 9 }, mask: null, width: 900, height: 900, cageAreas }, "killersudoku", 9, 9);
+  assert.equal(found.notes.length, 8);
+  assert.ok(found.notes.some((note) => /much smaller than the grid's other clues/.test(note)), found.notes.join(" | "));
+});
 test("a read digit 0.6 of the grid's clue height is not highlighted", () => {
   for (const ratio of [0.545, 0.6]) {
     const found = latin([...clues(8), read(80, 50 * ratio)]);

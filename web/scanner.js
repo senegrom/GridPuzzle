@@ -319,6 +319,12 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     const reference = clueHeight(digits);
     for (const e of digits) if (e.h < 0.54 * reference) small.add(e.cell);
   }
+  // Ahead of the per-sign and per-cage notes, which the eight-note limit
+  // would otherwise let push it out.
+  if (small.size)
+    notes.push(small.size === 1
+      ? "1 highlighted digit is much smaller than the grid's other clues, so it may be a pencil or app note. Clear it if it is not a printed clue."
+      : `${small.size} highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues.`);
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
     // two cells go to structural review (the cage channel), not digit review,
@@ -397,10 +403,6 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
   // alone, which say nothing about how well the grid was read (confidentDigits).
   const noteSized = [...small].filter((cell) => !uncertain.has(cell) && !cageUncertain.has(cell));
   small.forEach((cell) => uncertain.add(cell));
-  if (small.size)
-    notes.push(small.size === 1
-      ? "1 highlighted digit is much smaller than the grid's other clues, so it may be a pencil or app note. Clear it if it is not a printed clue."
-      : `${small.size} highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues.`);
   const needsReview =
     contrastAdjusted ||
     (type === "auto" && suggested.review) ||
