@@ -16,10 +16,12 @@ function harness(t) {
   t.after(() => descriptor ? Object.defineProperty(globalThis, "document", descriptor) : delete globalThis.document);
   globalThis.document = { addEventListener() {} };
   const nodes = new Map(), events = [], requests = [], errors = [];
+  // Undo of a photo Read redraws the crop editor, as in the app.
+  const context = new Proxy({}, { get: (target, key) => target[key] ?? (() => {}) });
   const $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
       value: "", checked: false, hidden: false, disabled: false, style: {},
-      scrollIntoView() {}, setAttribute() {},
+      scrollIntoView() {}, setAttribute() {}, getContext: () => context,
     });
     return nodes.get(id);
   };
