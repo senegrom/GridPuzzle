@@ -96,7 +96,10 @@ The archive is not fetched automatically; download it into the cache as
 and are skipped by the duplicate check; what remains is nine modern newspaper
 photographs (several with neighbouring puzzles in frame, which makes grid
 detection hard), 400 hand-drawn grids and 100 clean renders. No licence is
-stated in the repository.
+stated in the repository. Two of the hand-drawn grids are labelled with each
+other's digits: `handwritten/sudoku_0270.dat` describes `sudoku_0271.jpg` and
+`sudoku_0271.dat` describes `sudoku_0270.jpg`, in every cell. The collector
+pairs those two crosswise (`ROZET_ANNOTATIONS` in `corpus/build_corpus.py`).
 
 **sam-watts/futoshiki-solver** — a single webcam photograph of a newspaper
 Futoshiki, `screens/input_puzzle.jpg`. The only photograph of a printed

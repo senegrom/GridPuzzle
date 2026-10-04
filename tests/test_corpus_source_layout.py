@@ -117,6 +117,31 @@ def test_rozet_selected_folder_is_required(registered_corpus, folder, slug):
     assert snapshot() == before
 
 
+def test_rozet_handwritten_pairs_its_two_swapped_labels_crosswise(registered_corpus):
+    cache, run, _ = registered_corpus
+    folder = cache / "sudoku/resources/images/handwritten"
+    folder.mkdir(parents=True)
+    grids = {}
+    for n, name in enumerate(("sudoku_0001", "sudoku_0270", "sudoku_0271")):
+        grids[name] = [n + 1 if cell == n else 0 for cell in range(81)]
+        # Distinct bytes, or the duplicate check would keep one photograph.
+        (folder / f"{name}.jpg").write_bytes(PNG + name.encode())
+        (folder / f"{name}.dat").write_text(
+            "".join(" ".join(map(str, grids[name][r * 9:r * 9 + 9])) + "\n" for r in range(9)), encoding="utf-8")
+    assert run("rozet-handwritten") == 0
+
+    def target(name):
+        path = builder.CORPUS / "sudoku/rozet-handwritten" / f"{name}.json"
+        return json.loads(path.read_text(encoding="utf-8"))["puzzle"]["cells"]
+
+    def cells(name):
+        return [value or None for value in grids[name]]
+
+    assert target("sudoku_0001") == cells("sudoku_0001")
+    assert target("sudoku_0270") == cells("sudoku_0271")
+    assert target("sudoku_0271") == cells("sudoku_0270")
+
+
 @pytest.mark.parametrize("missing", ["metadata.jsonl", "grid.png"])
 def test_lexski_requires_each_split_metadata_and_referenced_image(registered_corpus, missing):
     cache, run, snapshot = registered_corpus

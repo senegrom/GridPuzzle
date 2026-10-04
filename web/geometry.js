@@ -97,6 +97,15 @@ export function fraction(mask, w, h, x, y, rw, rh) {
     }
   return sum / Math.max(1, n);
 }
+// The height of a grid's own clues: the 75th percentile of its glyphs'
+// heights, interpolated. Candidate notes are measured against it, before the
+// OCR (scan-analysis.js candidateNotes) and after it (scanner.js).
+export function clueHeight(glyphs) {
+  const heights = glyphs.map((glyph) => glyph.h).sort((a, b) => a - b),
+    at = 0.75 * (heights.length - 1),
+    low = Math.floor(at);
+  return heights[low] + (heights[Math.min(heights.length - 1, low + 1)] - heights[low]) * (at - low);
+}
 function polygonArea(p) {
   return (
     Math.abs(

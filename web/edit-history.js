@@ -1,4 +1,10 @@
 import { clone, checkShape, fitPlay, fitBlackReadings } from "./model.js";
+// Effects belong to a real undo of a particular snapshot on its owner, not
+// to editable-data staging. A WeakMap keeps them out of drafts and backups.
+const undoEffects = new WeakMap();
+export function onEditUndo(state, snapshot, restore) {
+  undoEffects.set(snapshot, { state, restore });
+}
 export function captureEdit(state) {
   return {
     puzzle: clone(state.puzzle),
@@ -28,6 +34,11 @@ export function restoreEdit(state, snapshot) {
     (snapshot.hints || []).filter((i) => Number.isInteger(state.play[i])),
   );
   state.playFeedback = null;
+  const effect = undoEffects.get(snapshot);
+  if (effect?.state === state) {
+    undoEffects.delete(snapshot);
+    effect.restore();
+  }
 }
 export function rememberEdit(state) {
   state.history.push(captureEdit(state));
