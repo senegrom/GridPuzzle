@@ -23,9 +23,11 @@ function harness(t, faults = {}) {
     setDefaultTimeout() {}, async goto() { if (faults.goto) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected,
     async evaluate(_scan, input) {
+      // Count first: a failed assertion below must not leave the stalled-scan
+      // test waiting for a second call for ever.
+      calls++;
       assert.deepEqual(Object.keys(input.puzzle).sort(), ["cols", "rows", "type"]);
       assert.deepEqual(input.corners, input.useTrue ? [[0, 0], [9, 0], [9, 9], [0, 9]] : null, "reference corners are opt-in");
-      calls++;
       if (calls === 2 && faults.checkpoint) {
         const saved = JSON.parse(fs.readFileSync(output));
         assert.equal(saved.status, "running"); assert.equal(saved.results.length, 1);
