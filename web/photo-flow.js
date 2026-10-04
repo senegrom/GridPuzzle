@@ -83,7 +83,10 @@ export function setupPhotoFlow({
         cropRevision = before.revision;
       } else {
         if (state.photo) setLayout(currentLayout());
-        unconfirmedCorners = true;
+        // A later crop of the same photograph carries its own confirmation
+        // (a corner move or a detection). Only another photograph's crop was
+        // never confirmed in this editor.
+        if (photoOwner() !== owner) unconfirmedCorners = true;
       }
       // Results/cell crops belong to the undone read, not to its predecessor.
       // Nothing here revives an old photo, solver result or image consent.

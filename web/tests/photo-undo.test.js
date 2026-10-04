@@ -128,8 +128,9 @@ for(const change of ['keyboard','pointer','detect'])test(`${change} crop changes
  h.undo();assert.deepEqual(h.state.corners,corners);assert.deepEqual(h.state.layout,layout);
  assert.equal(h.state.rectified,null);assert.equal(h.state.photoSource,null);
  h.setReader(async()=>({...copyReading(h),needsReview:false,cellUncertain:[],uncertain:[]}));await readPhoto(h);
- assert.equal(h.state.needsReview,true);assert.equal(h.state.uncertain.size,36);
- assert.match(h.state.notes.join(' '),/corners were not adjusted/);
+ // The newer crop was confirmed by a corner move or a confident detection.
+ assert.equal(h.state.needsReview,false);assert.equal(h.state.uncertain.size,0);
+ assert.doesNotMatch(h.state.notes.join(' '),/corners were not adjusted/);
 });
 
 test('a newer photograph keeps its crop and controls, never receives an old photo undo',async t=>{
