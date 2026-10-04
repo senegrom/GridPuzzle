@@ -122,10 +122,12 @@ def source_file(path: Path) -> Path:
     return path
 
 
-def paired_dat_images(folder: Path, corners: dict | None = None) -> Iterator[Item]:
+def paired_dat_images(folder: Path, corners: dict | None = None, annotations: dict | None = None) -> Iterator[Item]:
+    """Each photograph with the .dat of the same name, or the one `annotations`
+    names for it."""
     files = source_files(folder)
     for image in (p for suffix in (".jpg", ".png") for p in files if p.suffix == suffix):
-        dat = image.with_suffix(".dat")
+        dat = image.with_name((annotations or {}).get(image.name, image.with_suffix(".dat").name))
         if not dat.exists():
             continue
         try:
@@ -186,9 +188,16 @@ def wichtounet_originals(repo: Path) -> Iterator[Item]:
                    extra={"device": device} if device else {})
 
 
+# francois-rozet/sudoku labels two handwritten photographs with each other's
+# grids: sudoku_0270.dat describes sudoku_0271.jpg, and sudoku_0271.dat
+# describes sudoku_0270.jpg, in all 81 cells of each (still so at the
+# repository's last commit, 2022-03-12). Pair them crosswise.
+ROZET_ANNOTATIONS = {"handwritten": {"sudoku_0270.jpg": "sudoku_0271.dat", "sudoku_0271.jpg": "sudoku_0270.dat"}}
+
+
 def rozet(folder: str):
     def collect(repo: Path) -> Iterator[Item]:
-        yield from paired_dat_images(repo / "resources" / "images" / folder)
+        yield from paired_dat_images(repo / "resources" / "images" / folder, annotations=ROZET_ANNOTATIONS.get(folder))
 
     return collect
 

@@ -1,7 +1,7 @@
 import { refineCellBounds } from './cell-boundaries.js';
 import { isGridStroke } from "./ocr-map.js";
 import { isCage } from "./model.js";
-import { gray, thresholdGray, estimateGrid, fraction, otsuCut } from "./geometry.js";
+import { gray, thresholdGray, estimateGrid, fraction, otsuCut, clueHeight } from "./geometry.js";
 
 function mean(grayImage, w, h, x, y, rw, rh) {
   let sum = 0,
@@ -634,9 +634,6 @@ export function prepareScan(image, type, rows, cols) {
 export function candidateNotes(entries) {
   const values = entries.filter((entry) => entry.kind === "value");
   if (values.length < 4) return new Set();
-  const heights = values.map((entry) => entry.h).sort((a, b) => a - b),
-    at = 0.75 * (heights.length - 1),
-    low = Math.floor(at),
-    reference = heights[low] + (heights[Math.min(heights.length - 1, low + 1)] - heights[low]) * (at - low);
+  const reference = clueHeight(values);
   return new Set(values.filter((entry) => entry.h < 0.4 * reference));
 }

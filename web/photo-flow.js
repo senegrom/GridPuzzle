@@ -1,3 +1,4 @@
+import { onEditUndo } from "./edit-history.js";
 import { fitReviewNotes } from "./session.js";
 import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
@@ -54,6 +55,52 @@ export function setupPhotoFlow({
     // The page's idle interpreter while the camera opens: the live previews
     // take it over once they start, and it goes back if they never do.
     parkedSolver = null;
+  // Photo undo stores geometry/review metadata, never canvases or decoded
+  // pixels. Each crop change has a distinct token, so an undo cannot rewind
+  // a later detection or manual adjustment, even on the same photograph.
+  const photoOwners = new WeakMap();
+  let cropRevision = {};
+  function photoOwner() {
+    if (!state.photo) return null;
+    if (!photoOwners.has(state.photo)) photoOwners.set(state.photo, {});
+    return photoOwners.get(state.photo);
+  }
+  function rememberPhotoRead() {
+    const owner = photoOwner(), before = {
+      corners: state.corners.map((p) => ({ ...p })),
+      proposedBoxLayout: proposedBoxLayout && { ...proposedBoxLayout },
+      unconfirmedCorners, revision: cropRevision,
+    }, after = {};
+    const previous = state.history?.at(-1);
+    remember();
+    cropRevision = after;
+    const snapshot = state.history?.at(-1);
+    if (!snapshot || snapshot === previous) return;
+    onEditUndo(state, snapshot, () => {
+      // restoreEdit has restored the board/layout; the controls still show
+      // the current photo layout until render. Preserve that layout if a
+      // newer photograph/crop owns it instead of imposing this old one.
+      if (photoOwner() === owner && cropRevision === after) {
+        state.corners = before.corners.map((p) => ({ ...p }));
+        proposedBoxLayout = before.proposedBoxLayout && { ...before.proposedBoxLayout };
+        unconfirmedCorners = before.unconfirmedCorners;
+        cropRevision = before.revision;
+      } else {
+        if (state.photo) setLayout(currentLayout());
+        // A later crop of the same photograph carries its own confirmation
+        // (a corner move or a detection). Only another photograph's crop was
+        // never confirmed in this editor.
+        if (photoOwner() !== owner) unconfirmedCorners = true;
+      }
+      // Results/cell crops belong to the undone read, not to its predecessor.
+      // Nothing here revives an old photo, solver result or image consent.
+      clearPhotoMapping();
+      drag = -1;
+      diagnostics.begin("photo", { ...(state.layout || state.puzzle), type: $("puzzle-type").value,
+        autoSolve: $("auto-solve").checked });
+      drawCrop();
+    });
+  }
   const returnSolver = (worker) => (adoptSolver ? adoptSolver(worker) : worker.terminate());
   const diagnostics = createScanDiagnostics();
   setupDiagnosticsUI({ $, diagnostics, getSource: () => diagnostics.snapshot().source === "live"
@@ -271,6 +318,7 @@ export function setupPhotoFlow({
       };
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
+      cropRevision = {};
       // Its corners come from the live tracker, at the size it read: no
       // earlier detection's size applies to them.
       detectedLayout = null;
@@ -436,6 +484,7 @@ export function setupPhotoFlow({
     state.history = [];
     state.puzzleSource = null;
     state.photo = canvas;
+    cropRevision = {};
     clearPhotoMapping();
     state.corners = null;
     state.result = null;
@@ -454,6 +503,7 @@ export function setupPhotoFlow({
       if (id !== getJobId()) return;
       clearPhotoMapping();
       state.corners = found.corners;
+      cropRevision = {};
       unconfirmedCorners = !(found.confidence > 0.8);
       detectedLayout = found.rows && found.cols ? { rows: found.rows, cols: found.cols } : null;
       diagnostics.geometry({ ...found, width: canvas.width, height: canvas.height, coordinateSpace: "source-preview" });
@@ -551,6 +601,7 @@ export function setupPhotoFlow({
       y: Math.max(0, Math.min(state.photo.height - 1, pt.y)),
     };
     unconfirmedCorners = false;
+    cropRevision = {};
     detectedLayout = null;
     clearPhotoMapping();
     drawCrop();
@@ -582,6 +633,7 @@ export function setupPhotoFlow({
         Math.min(state.photo.height - 1, p.y + delta[1] * step),
       );
       unconfirmedCorners = false;
+      cropRevision = {};
       detectedLayout = null;
       clearPhotoMapping();
       drawCrop();
@@ -723,7 +775,7 @@ export function setupPhotoFlow({
         selected: [],
       };
       finish();
-      remember();
+      rememberPhotoRead();
       clearPhotoMapping();
       Object.assign(state, next);
       if (quarterTurn) {
