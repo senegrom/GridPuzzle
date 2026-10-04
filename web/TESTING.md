@@ -166,7 +166,8 @@ grid diagonal, and per-image timings. It reads each photograph as the photo
 flow does: at most 1600 px on its long side (a larger original is read from its
 detail, as `photoDetail` does), through the corners the detector
 proposes at any confidence, with every cell flagged when those corners would
-still need confirming (confidence 0.8 or less); see `scoreVersion: 4` in
+still need confirming: at a confidence of 0.8 or less, or when the detector
+found a lattice of another size than the one read. See `scoreVersion: 5` in
 `corpus/SOURCES.md`. `--true-corners` feeds the target outline instead of the
 detector's, which separates recognition from detection; `--engine webkit`
 switches browser. Results go to `browser-artifacts/corpus-benchmark.json`. It

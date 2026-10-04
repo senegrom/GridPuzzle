@@ -283,6 +283,48 @@ test('confident detections read as before, including after an unconfident one', 
   assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
 });
 
+// A confident detection proposes its own size. Read at another size through
+// its corners, unmoved, the cells need not be the grid's: every one is reviewed.
+async function detectThenReadAs(h, rows, cols, adjust = () => {}, confidence = 0.94) {
+  h.setFound(cleanReading()); h.setDetection({ ...detected(confidence), rows, cols });
+  await h.$('detect-photo').onclick();
+  h.$('rows').value = h.$('cols').value = '2';
+  adjust(h.$('crop-canvas'));
+  h.$('read-photo').onclick(); await tick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.cells[0], 2);
+}
+for (const [rows, cols] of [[2, 3], [3, 2]])
+  test(`a Read at another size than the ${rows} x ${cols} the detector found puts every cell under review`, async t => {
+    const h = photoHarness(t); await detectThenReadAs(h, rows, cols);
+    assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.needsReview, true);
+    assert.equal(h.state.notes[0], `The grid was found with ${rows} × ${cols} cells and read as 2 × 2 through the same corners, so every cell is highlighted. Check that the corners sit on the grid's outer edge and read again, or check each cell against the photograph.`);
+  });
+for (const [how, adjust] of Object.entries(adjustments))
+  test(`moving a corner by ${how} confirms a crop read at another size`, async t => {
+    const h = photoHarness(t); await detectThenReadAs(h, 3, 3, adjust);
+    assert.deepEqual([...h.state.uncertain], []); assert.deepEqual(h.state.notes, []);
+  });
+test('an unconfident detection read at another size keeps the note about unconfirmed corners', async t => {
+  const h = photoHarness(t); await detectThenReadAs(h, 3, 3, () => {}, 0.8);
+  assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]);
+  assert.match(h.state.notes[0], /not found automatically/);
+});
+test('the size goes with the latest detection, and a lattice found along one axis proposes none', async t => {
+  const h = photoHarness(t); await detectThenReadAs(h, 3, 3);
+  await detectThenReadAs(h, 2, 2);
+  assert.deepEqual([...h.state.uncertain], []); assert.deepEqual(h.state.notes, []);
+  await detectThenReadAs(h, 3, 0);
+  assert.deepEqual([...h.state.uncertain], []);
+});
+test('a reviewed live capture keeps its own corners, whatever size an earlier photograph was found at', async t => {
+  const h = photoHarness(t); await detectThenReadAs(h, 3, 3);
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { puzzle: makePuzzle('latinsquare', 2), notes: [], rectified: canvas(200, 200), cellUncertain: [], cageUncertain: [], needsReview: false } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  h.$('read-photo').onclick(); await tick();
+  assert.deepEqual(h.errors, []); assert.deepEqual([...h.state.uncertain], []); assert.deepEqual(h.state.notes, []);
+});
+
 function cageWarnings() {
   const n = 9, cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];
   let serial = 0;

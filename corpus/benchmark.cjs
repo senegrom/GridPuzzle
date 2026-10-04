@@ -11,7 +11,9 @@
    read through the corners the detector proposes, however confident, and
    through photoDetail: a larger original's grid region at up to 1800 px. When that confidence is 0.8 or less, the flow asks for the
    corners to be set and, read unchanged, highlights every cell, so every cell
-   of such a reading counts as flagged. --true-corners reads through the
+   of such a reading counts as flagged. So does every cell of a reading at the
+   target's size when the detector found a lattice of another size, which the
+   flow holds unconfirmed the same way. --true-corners reads through the
    target's outline instead, pulled onto the frame where it lies on or past
    the edge, as a user dragging the handles there would.
 
@@ -53,6 +55,7 @@ async function main(args = process.argv.slice(2)) {
     report = await runBenchmark({ items, options, base: BASE, signal: controller.signal, output: options.out,
       measure: (page, item) => photoFlowMeasure(page, item, options),
       reportMetadata: { scoreVersion: SCORE_VERSION, harness: { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED,
+        otherSize: "unconfirmed",
         corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" } } });
   } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
