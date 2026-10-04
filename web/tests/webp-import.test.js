@@ -105,3 +105,30 @@ for(const mirrored of [false,true])test(`asymmetric original-detail crop inverts
     assert.equal(plan.h,Math.ceil(320*799/399)+3-plan.y);
   }
 });
+// Where the detail corners land, checked against the recorded canvas transforms
+// rather than the production corner math: each corner must show the same raw
+// photo point in the detail as in the preview, for every orientation (the
+// mirrored 2, 4, 5 and 7 included) and user turn. Pixel centres sit at +0.5.
+const RAW=[{x:400,y:100},{x:2800,y:150},{x:2600,y:700},{x:500,y:650}];
+const apply=(m,{x,y})=>({x:m[0]*x+m[2]*y+m[4],y:m[1]*x+m[3]*y+m[5]});
+const pixel=(m,x,y)=>{const p=apply(m,{x:x+.5,y:y+.5});return {x:p.x-.5,y:p.y-.5};};
+const area=q=>q.reduce((s,a,i)=>{const b=q[(i+1)%4];return s+a.x*b.y-b.x*a.y;},0);
+for(let value=1;value<=8;value++)test(`WebP EXIF ${value}: detail corners show the preview corners' raw points after 0-3 user turns`,async t=>{
+  harness(t);
+  const {image}=await importPhoto(fixture(value).file),imported=image.draws.at(-1),[,,bw,bh]=imported.args;
+  const shown=RAW.map(r=>pixel(imported.m,(r.x+.5)*bw/3200-.5,(r.y+.5)*bh/800-.5));
+  let preview=image;
+  for(let turns=0;turns<4;turns++) {
+    const points=shown.map(p=>turnPoint(p,image.width,image.height,turns));
+    // Keep the quad clockwise, remembering which raw point each corner shows.
+    const order=area(points)<0?[0,3,2,1]:[0,1,2,3],result=await photoDetail(preview,order.map(i=>points[i]));
+    assert.equal(result.enhanced,true);
+    const {args:[sx,sy,sw,sh,,,dw,dh],m}=result.image.draws.at(-1);
+    order.forEach((i,k)=>{
+      const want=pixel(m,(RAW[i].x+.5-sx)*dw/sw-.5,(RAW[i].y+.5-sy)*dh/sh-.5),got=result.corners[k];
+      assert.ok(Math.hypot(got.x-want.x,got.y-want.y)<1,`turns ${turns}, corner ${k}: detail (${got.x.toFixed(1)}, ${got.y.toFixed(1)}) but its raw point is at (${want.x.toFixed(1)}, ${want.y.toFixed(1)})`);
+    });
+    result.release();
+    const next={width:preview.height,height:preview.width};rotatePhotoSource(preview,next);preview=next;
+  }
+});
