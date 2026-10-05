@@ -14,8 +14,12 @@ const UNKNOWN = { value: 1, unknown: true };
 // other EXIF data. JPEG/PNG metadata precedes the pixel stream; WebP may put it
 // after the bitstream, so skip chunk payloads rather than loading the whole file.
 // `primary` marks a usable SHORT in IFD0 behind a standard identifier, which
-// every engine reads in a JPEG. Only a segment or chunk that runs past the end
-// of its container is still refused.
+// every engine reads in a JPEG. The walk ends at the EXIF block, a JPEG's
+// start of scan or a PNG's first IDAT, whose length is not checked: a PNG cut
+// short in its image data reaches the decoder. Before that it refuses a JPEG
+// segment whose length is 0 or 1 and any segment or chunk that runs past the
+// end of the file (a WebP's RIFF container); a WebP's EXIF follows its
+// bitstream, so a WebP cut short there is refused.
 // PNG ordering: https://www.w3.org/TR/png-3/#5ChunkOrdering
 // WebP layout: https://developers.google.com/speed/webp/docs/riff_container
 async function orientation(file, head, check) {
@@ -97,9 +101,11 @@ async function orientation(file, head, check) {
     } else {
       const header = await read(at, 8), v = view(header), length = v.getUint32(png ? 0 : 4, !png),
         kind = text(header.subarray(png ? 4 : 0, png ? 8 : 4)), next = at + 8 + length + (png ? 4 : length % 2);
+      // Before the length check: a PNG cut short inside its image data reaches
+      // the decoder, as it did before this walk.
+      if (png && (kind === 'IDAT' || kind === 'IEND')) return { value: 1 };
       if (next > end) throw orientationError();
       if (kind === (png ? 'eXIf' : 'EXIF')) return tiff(at + 8, at + 8 + length);
-      if (png && (kind === 'IDAT' || kind === 'IEND')) return { value: 1 };
       at = next;
     }
   }

@@ -244,3 +244,12 @@ for (const [label, file] of [['PNG eXIf', stretch(png(tiff({ orientation: 6 })),
     await assert.rejects(importPhoto(new Blob([file])), refusal);
     assert.equal(calls.length, 0);
   });
+// The walk stops at the first IDAT before checking its length, so a PNG cut
+// short inside its image data is left to the decoder, as before the walk.
+test('a PNG cut short inside its only IDAT chunk still reaches the decoder', async (t) => {
+  const calls = engine(t), whole = png(), blob = new Blob([whole.subarray(0, whole.indexOf('IDAT') + 4 + 8)]);
+  const { image } = await importPhoto(blob);
+  assert.deepEqual(calls.map((c) => c.request), [[1600, 1200]]);
+  assert.equal(calls[0].file, blob, 'the original file is decoded');
+  assert.deepEqual([image.width, image.height], [1600, 1200]);
+});
