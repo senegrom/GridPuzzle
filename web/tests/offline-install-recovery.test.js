@@ -70,3 +70,12 @@ test('a failed script fetch still offers the reload, with one full stop',async t
   assert.doesNotMatch(h.$('offline-state').textContent,/\.\./);
   h.$('prepare-offline').onclick();assert.equal(h.reloads,1);
 });
+// A network, abort or invalid-state error can pass on a reload as well, so it
+// offers the reload as a failed script fetch does.
+for(const [name,message] of [['NetworkError','A network error occurred.'],['AbortError','The operation was aborted.'],['InvalidStateError','The object is in an invalid state.']])
+  test(`a registration that failed with ${name} offers the reload`,async t=>{
+    const h=await harness(t,{registerError:new DOMException(prefix+message,name)});
+    assert.equal(h.$('prepare-offline').disabled,false);assert.equal(h.$('prepare-offline').textContent,'Reload to retry offline setup');
+    assert.equal(h.$('offline-state').textContent,`Offline caching unavailable: ${prefix}${message} Go online and reload to retry.`);
+    h.$('prepare-offline').onclick();assert.equal(h.reloads,1);
+  });
