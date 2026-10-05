@@ -162,6 +162,12 @@ const agreements = [
   // A flip or half turn keeps the axes whether or not the decoder applies it.
   ['PNG eXIf Orientation 3, a half turn', png(tiff({ orientation: 3 })), 3],
   ['JPEG Orientation 2 only in the ExifIFD, a flip', jpeg({ app1: [exifApp1(tiff({ exif: { orientation: 2 } }))] }), 2],
+  // So do 1..4 behind a repeated or added identifier, which some engines read
+  // and others ignore.
+  ...[1, 2, 3, 4].flatMap((value) => [
+    [`PNG eXIf Orientation ${value} behind an "Exif\\0\\0" prefix`, png(exifApp1(tiff({ orientation: value }))), value],
+    [`JPEG APP1 whose "Exif\\0\\0" identifier is repeated, Orientation ${value}`, jpeg({ app1: [exifApp1(exifApp1(tiff({ orientation: value })))] }), value],
+  ]),
 ];
 for (const [label, file, orientation] of agreements)
   test(`${label}: both bounded dimensions at full size`, async (t) => {

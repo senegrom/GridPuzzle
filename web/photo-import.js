@@ -36,9 +36,12 @@ async function orientation(file, head, check) {
   const jpeg = head[0] === 0xff && head[1] === 0xd8, png = head[0] === 137;
   async function tiff(start, end) {
     // WebP encoders use both bare TIFF and the JPEG "Exif\0\0" prefix. JPEG APP1
-    // and PNG eXIf data must start with the TIFF header: the engines ignore a
-    // repeated or prefixed identifier there, and so does this parser.
-    if (!jpeg && !png && end - start >= 6 && text(await read(start, 6)) === 'Exif\0\0') start += 6;
+    // data (after its identifier) and PNG eXIf data should start with the TIFF
+    // header: behind a repeated or added identifier, some engines read the
+    // block and others ignore it (Skia in a JPEG; Chromium, Firefox and libpng
+    // in a PNG), so a value found there is not primary.
+    let standard = true;
+    if (end - start >= 6 && text(await read(start, 6)) === 'Exif\0\0') { start += 6; standard = !jpeg && !png; }
     if (end - start < 8) return UNKNOWN;
     const header = view(await read(start, 8)), order = header.getUint16(0), little = order === 0x4949;
     if ((!little && order !== 0x4d4d) || header.getUint16(2, little) !== 42) return UNKNOWN;
@@ -64,7 +67,7 @@ async function orientation(file, head, check) {
         // Chromium, Firefox and WebKit ignore a SHORT outside 1..8 (Android
         // writes 0, 9 or 65535) and show the image as stored.
         if (value < 1 || value > 8) continue;
-        return { value, offset: at + 2 + i + 8, little, primary };
+        return { value, offset: at + 2 + i + 8, little, primary: primary && standard };
       }
       return exifIfd === null ? { value: 1 } : ifd(exifIfd, false);
     }
@@ -149,11 +152,13 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
       return { image: retainPhotoSource(canvas, decodeFile, dimensions, { turns, mirrored }), dimensions };
     } catch (error) { canvas.width = canvas.height = 0; throw error; }
   };
-  // A flip or half turn (2..4) keeps the photo's axes, whoever applies it. A
-  // quarter turn (5..8) is known only where every engine agrees: a WebP decoded
-  // as stored after neutralizing, or a primary IFD0 SHORT in a JPEG. Engines
-  // differ on damaged EXIF, on PNG eXIf (WebKitGTK ignores it) and on an
-  // ExifIFD-only orientation. There, request one width that fits maxSide
+  // No orientation, a flip or a half turn (1..4) keeps the photo's axes,
+  // whoever applies it, wherever the value was found. A quarter turn (5..8) is
+  // known only where every engine agrees: a WebP decoded as stored after
+  // neutralizing, or a primary IFD0 SHORT in a JPEG. Engines differ on PNG eXIf
+  // (WebKitGTK ignores it), on a block behind a repeated or added identifier
+  // and on an ExifIFD-only orientation, and an unknown value (damaged EXIF, an
+  // unusual entry) could be either. There, request one width that fits maxSide
   // whichever way the engine turns the photo, so the bitmap keeps the engine's
   // own aspect ratio, and let draw() fit it.
   let size;
