@@ -197,3 +197,17 @@ test('a JPEG segment that runs past the end of the file is still refused before 
   await assert.rejects(importPhoto(new Blob([file])), refusal);
   assert.equal(calls.length, 0);
 });
+// A PNG eXIf or WebP EXIF chunk whose length field claims 64 KB more than the
+// file holds; the WebP's RIFF container ends with the file.
+function stretch(file, kind, png) {
+  const b = Buffer.from(file), at = b.indexOf(kind) + (png ? -4 : 4);
+  if (png) b.writeUInt32BE(b.readUInt32BE(at) + 0x10000, at); else b.writeUInt32LE(b.readUInt32LE(at) + 0x10000, at);
+  return b;
+}
+for (const [label, file] of [['PNG eXIf', stretch(png(tiff({ orientation: 6 })), 'eXIf', true)],
+  ['WebP EXIF', stretch(webp(tiff({ orientation: 6 })), 'EXIF', false)]])
+  test(`a ${label} chunk that runs past the end of the file is refused before any decoder`, async (t) => {
+    const calls = engine(t);
+    await assert.rejects(importPhoto(new Blob([file])), refusal);
+    assert.equal(calls.length, 0);
+  });
