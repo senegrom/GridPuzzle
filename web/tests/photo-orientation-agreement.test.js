@@ -13,7 +13,8 @@ const W = 4000, H = 3000;
 const bytes = (text) => Buffer.from(text, 'binary');
 const seg = (marker, body) => { const b = Buffer.alloc(4); b[0] = 0xff; b[1] = marker; b.writeUInt16BE(body.length + 2, 2); return Buffer.concat([b, body]); };
 // A camera-style TIFF block: Make, Model, an optional Orientation, XResolution
-// as a RATIONAL and an optional ExifIFD pointer in IFD0; the ExifIFD holds an
+// as a RATIONAL and an optional ExifIFD pointer in IFD0 (a LONG with count 1
+// unless exif.type and exif.count say otherwise); the ExifIFD holds an
 // optional Orientation, ExposureTime and PixelXDimension.
 function tiff({ little = false, orientation = null, exif = null, ifdOffset = 8, magic = 42, order = little ? 'II' : 'MM' } = {}) {
   const b = Buffer.alloc(256), u16 = (v, p) => little ? b.writeUInt16LE(v, p) : b.writeUInt16BE(v, p),
@@ -23,7 +24,7 @@ function tiff({ little = false, orientation = null, exif = null, ifdOffset = 8, 
   const ifd0 = [[0x010f, 2, 6, 'Phone\0'], [0x0110, 2, 6, 'Model\0'], ...orient(orientation), [0x011a, 5, 1, 72]];
   const exifAt = 8 + 2 + (ifd0.length + (exif ? 1 : 0)) * 12 + 4;
   const sub = exif ? [...orient(exif.orientation ?? null), [0x829a, 5, 1, 1], [0xa002, 4, 1, W]] : [];
-  if (exif) ifd0.push([0x8769, 4, 1, exif.offset ?? exifAt]);
+  if (exif) ifd0.push([0x8769, exif.type ?? 4, exif.count ?? 1, exif.offset ?? exifAt]);
   let data = exifAt + (exif ? 2 + sub.length * 12 + 4 : 0);
   const write = (at, entries) => {
     u16(entries.length, at);
@@ -188,6 +189,24 @@ for (const little of [false, true])
     assert.deepEqual(calls[0].bytes, normalized, 'only the ExifIFD orientation value changes');
     assert.deepEqual([image.width, image.height], [1200, 1600]);
   });
+
+// An ExifIFD pointer is a LONG or an IFD (type 13) with count 1; with any
+// other count the entry is not followed. Followed, the ExifIFD's Orientation 6
+// turns a WebP (neutralized, then turned once) and gives a JPEG the single
+// width (WebKit reads IFD0 only); not followed, both import as stored.
+for (const [label, type, count, followed] of [['an IFD (type 13) with count 1', 13, 1, true], ['a LONG with count 2', 4, 2, false]]) {
+  test(`WebP: an ExifIFD pointer that is ${label} is ${followed ? '' : 'not '}followed`, async (t) => {
+    const calls = engine(t);
+    const { image } = await importPhoto(new Blob([webp(tiff({ exif: { orientation: 6, type, count } }))]));
+    assert.deepEqual(calls.map((c) => c.request), [[1600, 1200]], 'decoded as stored');
+    assert.deepEqual([image.width, image.height], followed ? [1200, 1600] : [1600, 1200]);
+  });
+  test(`JPEG: an ExifIFD pointer that is ${label} is ${followed ? '' : 'not '}followed`, async (t) => {
+    const calls = engine(t);
+    await importPhoto(new Blob([jpeg({ app1: [exifApp1(tiff({ exif: { orientation: 6, type, count } }))] })]));
+    assert.deepEqual(calls.map((c) => c.request), [followed ? [1200, undefined] : [1600, 1200]]);
+  });
+}
 
 // The refusal advises re-saving the photo, not exporting it as JPEG: the
 // file is already a JPEG, PNG or WebP.
