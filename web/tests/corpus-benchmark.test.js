@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
 // already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
-const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure } =
+const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness } =
   createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
 test("the preview's scale from the original's pixels is its side ratio, whichever way it was turned", () => {
@@ -33,6 +33,16 @@ test("a reading at another size than the lattice the detector found is unconfirm
   assert.equal(at(9, 0), false); assert.equal(at(0, 9), false);
   // The target's outline stands for corners the user set.
   assert.equal(at(10, 9, { trueCorners: true, truth: [[1, 1], [9, 1], [9, 9], [1, 9]] }), false);
+  // Rows are rows: a 9 x 12 lattice read at 9 x 12 is confirmed, a 12 x 9 one is not.
+  assert.equal(at(9, 12, { puzzle: { rows: 9, cols: 12 } }), false);
+  assert.equal(at(12, 9, { puzzle: { rows: 9, cols: 12 } }), true);
+});
+
+test("a report records the size rule only for readings through the detector's corners", () => {
+  assert.deepEqual(photoFlowHarness({ trueCorners: false }),
+    { maxSide: 1600, confirmedAbove: 0.8, otherSize: "unconfirmed", corners: "detector, any confidence", read: "photoDetail" });
+  assert.deepEqual(photoFlowHarness({ trueCorners: true }),
+    { maxSide: 1600, confirmedAbove: 0.8, corners: "target, pulled onto the frame", read: "photoDetail" });
 });
 
 test("true corners are scaled with the photograph and pulled onto the frame where they lie past it", () => {

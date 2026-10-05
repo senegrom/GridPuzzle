@@ -293,12 +293,29 @@ async function detectThenReadAs(h, rows, cols, adjust = () => {}, confidence = 0
   h.$('read-photo').onclick(); await tick();
   assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.cells[0], 2);
 }
+const resizedNote = (found, read) => `The grid was found with ${found} cells and read as ${read} through the same corners, so every cell is highlighted. Adjust the corners onto the grid's outer edge (moving any corner confirms them, even if they already sit there) and read again, or check each cell against the photograph.`;
 for (const [rows, cols] of [[2, 3], [3, 2]])
-  test(`a Read at another size than the ${rows} x ${cols} the detector found puts every cell under review`, async t => {
+  test(`a Read at another size than the ${rows} x ${cols} the detector found puts every cell under review, Read after Read`, async t => {
     const h = photoHarness(t); await detectThenReadAs(h, rows, cols);
     assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.needsReview, true);
-    assert.equal(h.state.notes[0], `The grid was found with ${rows} × ${cols} cells and read as 2 × 2 through the same corners, so every cell is highlighted. Check that the corners sit on the grid's outer edge and read again, or check each cell against the photograph.`);
+    assert.equal(h.state.notes[0], resizedNote(`${rows} × ${cols}`, '2 × 2'));
+    // Reading again without moving a corner confirms nothing.
+    h.$('read-photo').onclick(); await tick();
+    assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.notes[0], resizedNote(`${rows} × ${cols}`, '2 × 2'));
   });
+test('rows and columns are compared as rows and columns', async t => {
+  const h = photoHarness(t), puzzle = makePuzzle('numbrix', 2, 3); puzzle.cells[0] = 2;
+  h.$('puzzle-type').value = 'numbrix';
+  h.setFound({ ...cleanReading(), puzzle });
+  for (const [rows, cols, review] of [[2, 3, false], [3, 2, true]]) {
+    h.setDetection({ ...detected(0.94), rows, cols });
+    await h.$('detect-photo').onclick();
+    h.$('rows').value = '2'; h.$('cols').value = '3';
+    h.$('read-photo').onclick(); await tick();
+    assert.deepEqual(h.errors, []);
+    assert.equal(h.state.uncertain.size, review ? 6 : 0, `found ${rows} x ${cols}, read 2 x 3`);
+  }
+});
 for (const [how, adjust] of Object.entries(adjustments))
   test(`moving a corner by ${how} confirms a crop read at another size`, async t => {
     const h = photoHarness(t); await detectThenReadAs(h, 3, 3, adjust);
@@ -316,13 +333,19 @@ test('the size goes with the latest detection, and a lattice found along one axi
   await detectThenReadAs(h, 3, 0);
   assert.deepEqual([...h.state.uncertain], []);
 });
-test('a reviewed live capture keeps its own corners, whatever size an earlier photograph was found at', async t => {
-  const h = photoHarness(t); await detectThenReadAs(h, 3, 3);
+test('a reviewed live capture is confirmed at its own size, whatever an earlier photograph left', async t => {
+  // An earlier photograph whose grid was not found, read through untouched corners.
+  const h = photoHarness(t); await detectThenRead(h, 0.45);
+  assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]);
   h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
     found: { puzzle: makePuzzle('latinsquare', 2), notes: [], rectified: canvas(200, 200), cellUncertain: [], cageUncertain: [], needsReview: false } });
   await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
   h.$('read-photo').onclick(); await tick();
   assert.deepEqual(h.errors, []); assert.deepEqual([...h.state.uncertain], []); assert.deepEqual(h.state.notes, []);
+  // The live tracker read it at 2 x 2: another size through its corners is reviewed.
+  h.$('rows').value = h.$('cols').value = '3';
+  h.$('read-photo').onclick(); await tick();
+  assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.notes[0], resizedNote('2 × 2', '3 × 3'));
 });
 
 function cageWarnings() {

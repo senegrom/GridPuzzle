@@ -25,7 +25,7 @@
 
    Serves --site (default _site), writes --out (default
    browser-artifacts/corpus-benchmark.json) and prints a summary.              */
-const { runBenchmark, selectImages, photoFlowMeasure, PHOTO_MAX_SIDE, CONFIRMED } = require("./benchmark-runner.cjs");
+const { runBenchmark, selectImages, photoFlowMeasure, photoFlowHarness } = require("./benchmark-runner.cjs");
 const { SCORE_VERSION } = require("./score.cjs");
 
 const BASE = "http://127.0.0.1:8780/";
@@ -54,9 +54,7 @@ async function main(args = process.argv.slice(2)) {
   try {
     report = await runBenchmark({ items, options, base: BASE, signal: controller.signal, output: options.out,
       measure: (page, item) => photoFlowMeasure(page, item, options),
-      reportMetadata: { scoreVersion: SCORE_VERSION, harness: { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED,
-        otherSize: "unconfirmed",
-        corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" } } });
+      reportMetadata: { scoreVersion: SCORE_VERSION, harness: photoFlowHarness(options) } });
   } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `

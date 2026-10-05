@@ -194,6 +194,14 @@ function readingCorners({ detection, truth, size, trueCorners, puzzle }) {
   return { unconfirmed: !(detection.confidence > CONFIRMED) || resized, corners: detection.corners };
 }
 
+// The reading rules a report records. True corners stand for the user's own
+// crop, confirmed at any size (an image without a target outline still reads
+// through the detector's corners, under its rules).
+function photoFlowHarness(options) {
+  return { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED, ...(options.trueCorners ? {} : { otherSize: "unconfirmed" }),
+    corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" };
+}
+
 // A reading through unconfirmed corners has every cell highlighted.
 function photoFlowReview(reading, unconfirmed) {
   if (!unconfirmed) return reading;
@@ -311,4 +319,4 @@ function selectImages(options) {
 }
 
 module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
-  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, PHOTO_MAX_SIDE, CONFIRMED };
+  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, PHOTO_MAX_SIDE, CONFIRMED };

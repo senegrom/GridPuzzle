@@ -319,9 +319,11 @@ export function setupPhotoFlow({
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
       cropRevision = {};
-      // Its corners come from the live tracker, at the size it read: no
-      // earlier detection's size applies to them.
-      detectedLayout = null;
+      // Its corners are the live tracker's, which reads only a confident
+      // lattice with both axes, at the size it read: confirmed for that size,
+      // whatever an earlier photograph's crop was.
+      unconfirmedCorners = false;
+      detectedLayout = { rows: found.puzzle.rows, cols: found.puzzle.cols };
       // The crop editor may still show an earlier import; this capture is
       // reviewed on the board.
       $("photo-panel").hidden = true;
@@ -738,7 +740,7 @@ export function setupPhotoFlow({
         notes = [...found.notes];
       if (reviewAllCells)
         notes.unshift(resized
-          ? `The grid was found with ${resized.rows} × ${resized.cols} cells and read as ${rows} × ${cols} through the same corners, so every cell is highlighted. Check that the corners sit on the grid's outer edge and read again, or check each cell against the photograph.`
+          ? `The grid was found with ${resized.rows} × ${resized.cols} cells and read as ${rows} × ${cols} through the same corners, so every cell is highlighted. Adjust the corners onto the grid's outer edge (moving any corner confirms them, even if they already sit there) and read again, or check each cell against the photograph.`
           : "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.",
         );
       if (needsBoxReview)

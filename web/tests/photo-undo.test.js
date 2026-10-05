@@ -188,6 +188,31 @@ test('an unconfirmed crop remains unconfirmed after read and undo',async t=>{
  assert.match(h.state.notes.join(' '),/corners were not adjusted/);
 });
 
+// A confident 6 x 7 lattice read at 6 x 6 through its own corners: the crop
+// stays unconfirmed for that size after an Undo, by the crop's own record or
+// by a later detection's.
+const resized=/The grid was found with 6 × 7 cells and read as 6 × 6 through the same corners/;
+const readAs6=async h=>{h.setLayout({rows:6,cols:6,boxRows:3,boxCols:2});await readPhoto(h);};
+for(const turns of [0,1,3])test(`a Read at another size stays reviewed after its Undo: ${turns}`,async t=>{
+ const h=photoHarness(t,6,turns);
+ h.setDetection({rows:6,cols:7,corners:structuredClone(h.corners),confidence:.99});
+ await h.$('detect-photo').onclick();await readAs6(h);
+ assert.equal(h.state.uncertain.size,36);assert.match(h.state.notes.join(' '),resized);
+ h.undo();assert.deepEqual(h.state.corners,h.corners);
+ h.setReader(async()=>({...copyReading(h,turns),needsReview:false}));await readAs6(h);
+ assert.equal(h.state.uncertain.size,36);assert.match(h.state.notes.join(' '),resized);
+});
+test('a Read at another size stays reviewed when its Undo meets a later detection of the crop',async t=>{
+ const h=photoHarness(t,6,0);
+ h.setDetection({rows:6,cols:7,corners:structuredClone(h.corners),confidence:.99});
+ await h.$('detect-photo').onclick();await readAs6(h);
+ h.setDetection({rows:6,cols:7,confidence:.99,corners:h.corners.map(p=>({x:p.x*.9+5,y:p.y*.9+5}))});
+ await h.$('detect-photo').onclick();h.setLayout({rows:6,cols:6,boxRows:3,boxCols:2});
+ h.undo();
+ h.setReader(async()=>({...copyReading(h),needsReview:false}));await readAs6(h);
+ assert.equal(h.state.uncertain.size,36);assert.match(h.state.notes.join(' '),resized);
+});
+
 test('undo snapshots remain data-only and do not retain a canvas',async t=>{
  const h=photoHarness(t,6,1);await readPhoto(h);
  const snapshot=h.state.history.at(-1),copy=structuredClone(snapshot);
