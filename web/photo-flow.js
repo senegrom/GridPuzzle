@@ -42,6 +42,10 @@ export function setupPhotoFlow({
     // most 0.8) and that the user has not moved since: Read may still run on
     // them, but its reading must come back entirely under review.
     unconfirmedCorners = false,
+    // The size of the lattice the detector found through the corners, until
+    // a corner moves: a Read at another size reads cells that are not the
+    // grid's, and comes back entirely under review too.
+    detectedLayout = null,
     proposedBoxLayout = null,
     live = null,
     pendingPlayback = null,
@@ -315,6 +319,11 @@ export function setupPhotoFlow({
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
       cropRevision = {};
+      // Its corners are the live tracker's, which reads only a confident
+      // lattice with both axes, at the size it read: confirmed for that size,
+      // whatever an earlier photograph's crop was.
+      unconfirmedCorners = false;
+      detectedLayout = { rows: found.puzzle.rows, cols: found.puzzle.cols };
       // The crop editor may still show an earlier import; this capture is
       // reviewed on the board.
       $("photo-panel").hidden = true;
@@ -498,6 +507,7 @@ export function setupPhotoFlow({
       state.corners = found.corners;
       cropRevision = {};
       unconfirmedCorners = !(found.confidence > 0.8);
+      detectedLayout = found.rows && found.cols ? { rows: found.rows, cols: found.cols } : null;
       diagnostics.geometry({ ...found, width: canvas.width, height: canvas.height, coordinateSpace: "source-preview" });
       diagnostics.event({stage:"detecting",reason:found.confidence > .8 ? "found" : "manual-corners"});
       finish();
@@ -594,6 +604,7 @@ export function setupPhotoFlow({
     };
     unconfirmedCorners = false;
     cropRevision = {};
+    detectedLayout = null;
     clearPhotoMapping();
     drawCrop();
   };
@@ -625,6 +636,7 @@ export function setupPhotoFlow({
       );
       unconfirmedCorners = false;
       cropRevision = {};
+      detectedLayout = null;
       clearPhotoMapping();
       drawCrop();
     }
@@ -664,7 +676,11 @@ export function setupPhotoFlow({
       // Likewise the crop's standing: a reading from corners nobody confirmed
       // (the grid was not found and the handles were never moved) can hold
       // wrong, invented or missing clues anywhere, so every cell is reviewed.
-      reviewAllCells = unconfirmedCorners;
+      // So can a reading at another size through the untouched corners of a
+      // lattice the detector found: they need not bound this grid.
+      resized = !unconfirmedCorners && detectedLayout &&
+        (rows !== detectedLayout.rows || cols !== detectedLayout.cols) ? { ...detectedLayout } : null,
+      reviewAllCells = unconfirmedCorners || Boolean(resized);
     try {
       if (type !== "auto") {
         const layout = makePuzzle(type, rows, cols);
@@ -723,8 +739,9 @@ export function setupPhotoFlow({
           ["sudoku", "killersudoku"].includes(found.puzzle.type),
         notes = [...found.notes];
       if (reviewAllCells)
-        notes.unshift(
-          "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.",
+        notes.unshift(resized
+          ? `The grid was found with ${resized.rows} × ${resized.cols} cells and read as ${rows} × ${cols} through the same corners, so every cell is highlighted. Adjust the corners onto the grid's outer edge (moving any corner confirms them, even if they already sit there) and read again, or check each cell against the photograph.`
+          : "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.",
         );
       if (needsBoxReview)
         notes.push(
