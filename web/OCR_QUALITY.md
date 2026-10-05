@@ -387,6 +387,13 @@ the production `retainPhotoSource` and `photoDetail` (`scoreVersion: 4` in
 `corpus/SOURCES.md`), so its unflagged errors are ones a user can meet, and a
 detection miss shows its real cost: a reading with every cell to check.
 
+Since PR #121 the runner also decodes each photograph through the app's own
+import (`importPhoto` in `web/photo-import.js`, with its EXIF sizing) instead of
+its own loader. That changes 94 previews from the baseline below: the 19
+EXIF-rotated JPEGs are read at 4/3 of their earlier preview size (11 of them no
+longer from the original's detail), and 75 images shift by one pixel. The
+scorer and `scoreVersion` are unchanged.
+
 The master baseline under this harness (Chromium, 2026-09-29, 1bf5e21, all 3,978
 images; the 249 images larger than the preview all read through the original's
 detail):
