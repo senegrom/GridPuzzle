@@ -452,14 +452,17 @@ flow adopts it. Sometimes the user corrects the size, or the puzzle type cannot
 take the size found, and the grid is then read at another size through the same
 corners. When the detector's frame is off, as with a 10 x 9 or 8 x 8 lattice
 found on a 9 x 9 grid, the cell windows miss their digits and come back as
-confident blanks. Under `scoreVersion: 4` such boards held 403 of the 554
-unflagged missed clues. The photo flow now highlights every cell of a reading at
-another size through corners nobody moved, as for unconfirmed corners, and a
-note names both sizes. `scoreVersion: 5` models this (`corpus/SOURCES.md`).
+confident blanks. Under `scoreVersion: 4`, with the corrected rozet-handwritten
+targets of #123, such boards held 403 of the 518 unflagged missed clues. The
+photo flow now highlights every cell of a reading at another size through
+corners nobody moved, as for unconfirmed corners. A note names both sizes and
+says that moving any corner confirms the crop. A live capture reviewed on the
+board counts as found at the size the live camera read it. `scoreVersion: 5`
+models this (`corpus/SOURCES.md`).
 
 Measured on the whole corpus with `scoreVersion: 5` (Chromium, 2026-10-04,
-master 6bcdcc8 with this change), against the same build's readings under
-version 4:
+master 6bcdcc8 with this change). The comparison is with the same readings under
+version 4: #122's full-corpus run, with the two rozet photographs re-scored.
 - Every reading is the same, except one known transient OCR failure: Hidato 266
   read 2 of its clues on the version 4 side and all 27 here.
 - Flags change only on the 64 boards where the detector's lattice has another
@@ -479,8 +482,9 @@ The cost is 216 correct clues and 1,438 empty cells newly flagged:
 | Photographs, other sets | 26 | 239 | 44 | 0.40% | 419 |
 | Renders | 11 | 144 | 0 | 0% | 646 |
 
-50 of the 64 boards held unflagged errors before. Four carry cost and no gain:
-their frame is right and only the count is wrong.
+50 of the 64 boards held unflagged errors before. Of the other 14, 11 carry cost
+and no gain: 115 correct clues and 589 empty cells newly flagged. On four of
+them the frame is right and only the count is wrong:
 - The clean, photo and print renders of janko-kakuro-0152: 14 x 23 found for
   14 x 24, with 515 empty cells newly flagged.
 - lexski val-gcini43qtm8c1: 3 x 3 found on a 9 x 9, with 60 correct clues and 19

@@ -259,7 +259,9 @@ now has every cell highlighted, as for unconfirmed corners. The benchmark always
 reads at the target's size, so such an image counts as `unconfirmed` whenever
 the detector's lattice, with both axes, has another size. Each result records
 that size (`detectedRows`, `detectedCols`), and the report's `harness` says
-`otherSize: "unconfirmed"`.
+`otherSize: "unconfirmed"`. A `--true-corners` run leaves it out: the target's
+outline stands for corners the user set, confirmed at any size. An image without
+an outline is still read through the detector's corners, under the rule.
 
 The pure scorer runs in the normal Node gate through
 `web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded
