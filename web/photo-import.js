@@ -5,8 +5,9 @@ export const PHOTO_MAX_SIDE = 1600;
 const HEADER_LIMIT = 512 * 1024;
 const cancelled = () => new DOMException('Scan cancelled', 'AbortError');
 const orientationError = () => Error('The photo orientation could not be checked safely. Save a copy from your photo app, then try again.');
-// Damaged or out-of-reach EXIF: the browser shows the photo as stored or as it
-// reads it, so the import must fit either way round instead of refusing.
+// Damaged or out-of-reach EXIF, or an Orientation entry an engine may read its
+// own way: the browser shows the photo as stored or as it reads it, so the
+// import must fit either way round instead of refusing.
 const UNKNOWN = { value: 1, unknown: true };
 
 // Only the primary image's TIFF orientation is needed, never its thumbnail or
@@ -55,9 +56,14 @@ async function orientation(file, head, check) {
         if (primary && tag === 0x8769 && exifIfd === null && (type === 4 || type === 13) && n === 1)
           exifIfd = entries.getUint32(i + 8, little);
         if (tag !== 0x0112) continue;
+        // Not a SHORT with count 1 (a LONG 6, two SHORTs): Safari decodes with
+        // ImageIO, whose reading of such an entry is unverified, and a squeeze
+        // would be visible, so fit either way round.
+        if (type !== 3 || n !== 1) return UNKNOWN;
         const value = entries.getUint16(i + 8, little);
-        // Chromium, Firefox and WebKit ignore an unusable entry and show the image as stored.
-        if (type !== 3 || n !== 1 || value < 1 || value > 8) continue;
+        // Chromium, Firefox and WebKit ignore a SHORT outside 1..8 (Android
+        // writes 0, 9 or 65535) and show the image as stored.
+        if (value < 1 || value > 8) continue;
         return { value, offset: at + 2 + i + 8, little, primary };
       }
       return exifIfd === null ? { value: 1 } : ifd(exifIfd, false);

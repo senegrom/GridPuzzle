@@ -1,7 +1,9 @@
-// An Orientation entry that every engine ignores (SHORT 0 or 9, LONG, count 2)
-// imports the photo as stored, as Chromium, Firefox and WebKit show it.
-// Camera-style IFD0s (Make and Model before Orientation) and EXIF-less JPEGs
-// pin the IFD entry walk and the stop at the start of scan.
+// A SHORT Orientation outside 1..8 (0, 9, 65535) imports the photo as stored,
+// as Chromium, Firefox and WebKit show it. An entry that is not a SHORT with
+// count 1 (a LONG, two SHORTs) gets the single width that fits either way
+// round: Safari's ImageIO reading of it is unverified. Camera-style IFD0s
+// (Make and Model before Orientation) and EXIF-less JPEGs pin the IFD entry
+// walk and the stop at the start of scan.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { importPhoto } from '../photo-import.js';
@@ -58,14 +60,22 @@ function harness(t) {
   };
   return calls;
 }
-const ignored = [['SHORT 0', 0, {}], ['SHORT 9', 9, {}], ['SHORT 65535', 65535, {}], ['LONG 6', 6, { type: 4 }], ['SHORT count 2', 6, { count: 2 }]];
+const ignored = [['SHORT 0', 0], ['SHORT 9', 9], ['SHORT 65535', 65535]];
+const unverified = [['LONG 6', 6, { type: 4 }], ['LONG 1', 1, { type: 4 }], ['SHORT count 2', 6, { count: 2 }], ['SHORT count 0', 6, { count: 0 }]];
 for (const little of [false, true]) {
-  for (const [label, value, opts] of ignored)
+  for (const [label, value] of ignored)
     test(`JPEG Orientation ${label} (engines ignore it), little-endian ${little}: imports as stored`, async t => {
       const calls = harness(t);
-      const { image } = await importPhoto(new Blob([jpeg(4000, 3000, cameraTiff(value, little, opts))]));
+      const { image } = await importPhoto(new Blob([jpeg(4000, 3000, cameraTiff(value, little))]));
       assert.deepEqual(calls.map((c) => c.size), [[1600, 1200]]);
       assert.deepEqual([image.width, image.height], [1600, 1200]);
+    });
+  for (const [label, value, opts] of unverified)
+    test(`JPEG Orientation ${label} (unverified in ImageIO), little-endian ${little}: one width that fits either way round`, async t => {
+      const calls = harness(t);
+      const { image } = await importPhoto(new Blob([jpeg(4000, 3000, cameraTiff(value, little, opts))]));
+      assert.deepEqual(calls.map((c) => c.size), [[1200, undefined]]);
+      assert.deepEqual([image.width, image.height], [1200, 900]);
     });
   for (const value of [1, 3, 6, 8])
     test(`camera-style IFD0 (Make, Model before Orientation ${value}), little-endian ${little}`, async t => {

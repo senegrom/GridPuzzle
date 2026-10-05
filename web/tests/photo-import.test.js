@@ -59,12 +59,20 @@ for(const make of [png,(w,h,meta)=>webp(w,h,meta),(w,h,meta)=>webp(w,h,concat('E
   assert.ok(ranges.reduce((n,[a,b])=>n+b-a,0)<530000,'skip rather than read the full bitstream');
   assert.equal(h.calls.length,1);
  });
-for(const kind of ['value','type','count'])test(`an orientation entry the engines ignore (${kind}) imports as stored`,async t=>{
- const h=harness(t),meta=tiff(6);
- if(kind==='value')meta.writeUInt16BE(9,18);if(kind==='type')meta.writeUInt16BE(4,12);if(kind==='count')meta.writeUInt32BE(2,14);
+test('an orientation value the engines ignore imports as stored',async t=>{
+ const h=harness(t),meta=tiff(6);meta.writeUInt16BE(9,18);
  const {image}=await importPhoto(new Blob([jpeg(1600,400,meta)]));
  assert.equal(h.calls.length,1);assert.deepEqual([h.calls[0].resizeWidth,h.calls[0].resizeHeight],[1600,400]);
  assert.deepEqual([image.width,image.height],[1600,400]);
+});
+// Safari's ImageIO reading of an entry that is not a SHORT with count 1 is
+// unverified: one width that fits 1600 either way round.
+for(const kind of ['type','count'])test(`an orientation entry of another ${kind} imports through one width that fits either way round`,async t=>{
+ const h=harness(t,{natural:[3200,800]}),meta=tiff(6);
+ if(kind==='type')meta.writeUInt16BE(4,12);if(kind==='count')meta.writeUInt32BE(2,14);
+ const {image}=await importPhoto(new Blob([jpeg(3200,800,meta)]));
+ assert.deepEqual(h.calls.map(c=>[c.resizeWidth,c.resizeHeight]),[[400,undefined]]);
+ assert.deepEqual([image.width,image.height],[400,100]);
 });
 // The decoders show damaged EXIF as stored or as they read it: one width that
 // fits 1600 either way round, never a squeezed pair of dimensions.

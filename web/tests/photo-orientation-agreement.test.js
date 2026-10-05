@@ -12,16 +12,17 @@ import { importPhoto } from '../photo-import.js';
 const W = 4000, H = 3000;
 const bytes = (text) => Buffer.from(text, 'binary');
 const seg = (marker, body) => { const b = Buffer.alloc(4); b[0] = 0xff; b[1] = marker; b.writeUInt16BE(body.length + 2, 2); return Buffer.concat([b, body]); };
-// A camera-style TIFF block: Make, Model, an optional Orientation, XResolution
+// A camera-style TIFF block: Make, Model, an optional Orientation (a SHORT
+// with count 1 unless entry.type and entry.count say otherwise), XResolution
 // as a RATIONAL and an optional ExifIFD pointer in IFD0 (a LONG with count 1
 // unless exif.type and exif.count say otherwise); the ExifIFD holds an
 // optional Orientation, ExposureTime and PixelXDimension.
-function tiff({ little = false, orientation = null, exif = null, ifdOffset = 8, magic = 42, order = little ? 'II' : 'MM' } = {}) {
+function tiff({ little = false, orientation = null, entry = {}, exif = null, ifdOffset = 8, magic = 42, order = little ? 'II' : 'MM' } = {}) {
   const b = Buffer.alloc(256), u16 = (v, p) => little ? b.writeUInt16LE(v, p) : b.writeUInt16BE(v, p),
     u32 = (v, p) => little ? b.writeUInt32LE(v >>> 0, p) : b.writeUInt32BE(v >>> 0, p);
   b.write(order, 'binary'); u16(magic, 2); u32(ifdOffset, 4);
-  const orient = (value) => value === null ? [] : [[0x0112, 3, 1, value]];
-  const ifd0 = [[0x010f, 2, 6, 'Phone\0'], [0x0110, 2, 6, 'Model\0'], ...orient(orientation), [0x011a, 5, 1, 72]];
+  const orient = (value, { type = 3, count = 1 } = {}) => value === null ? [] : [[0x0112, type, count, value]];
+  const ifd0 = [[0x010f, 2, 6, 'Phone\0'], [0x0110, 2, 6, 'Model\0'], ...orient(orientation, entry), [0x011a, 5, 1, 72]];
   const exifAt = 8 + 2 + (ifd0.length + (exif ? 1 : 0)) * 12 + 4;
   const sub = exif ? [...orient(exif.orientation ?? null), [0x829a, 5, 1, 1], [0xa002, 4, 1, W]] : [];
   if (exif) ifd0.push([0x8769, exif.type ?? 4, exif.count ?? 1, exif.offset ?? exifAt]);
@@ -99,6 +100,11 @@ const disagreements = [
   ['JPEG APP1 whose "Exif\\0\\0" identifier is repeated, which Skia ignores', jpeg({ app1: [exifApp1(exifApp1(tiff({ orientation: 6 })))] })],
   ['JPEG Orientation 6 only in the ExifIFD, which WebKit ignores', jpeg({ app1: [exifApp1(tiff({ exif: { orientation: 6 } }))] })],
   ['JPEG "Exif\\0" with a non-zero sixth byte, which Firefox ignores', jpeg({ app1: [exifApp1(tiff({ orientation: 6 }), 'Exif\0\xff')] })],
+  // Safari decodes with ImageIO, whose reading of an Orientation that is not
+  // a SHORT with count 1 is unverified.
+  ['JPEG Orientation 6 as a big-endian LONG, unverified in ImageIO', jpeg({ app1: [exifApp1(tiff({ orientation: 6, entry: { type: 4 } }))] })],
+  ['JPEG Orientation 6 as a little-endian LONG, unverified in ImageIO', jpeg({ app1: [exifApp1(tiff({ orientation: 6, entry: { type: 4 }, little: true }))] })],
+  ['JPEG Orientation 6 as a SHORT with count 2, unverified in ImageIO', jpeg({ app1: [exifApp1(tiff({ orientation: 6, entry: { count: 2 } }))] })],
 ];
 for (const [label, file] of disagreements) for (const orientation of [6, 1])
   test(`${label}: undistorted when the decoder ${orientation === 6 ? 'turns it' : 'shows it as stored'}`, async (t) => {
@@ -148,6 +154,8 @@ const agreements = [
   ['camera-style IFD0 JPEG, Orientation 8, little-endian', jpeg({ app1: [exifApp1(tiff({ orientation: 8, little: true }))] }), 8],
   ['camera-style IFD0 JPEG, Orientation 6 in IFD0 and 1 in the ExifIFD', jpeg({ app1: [exifApp1(tiff({ orientation: 6, exif: { orientation: 1 } }))] }), 6],
   ['camera-style JPEG with an ExifIFD and no Orientation anywhere', jpeg({ app1: [exifApp1(tiff({ exif: {} }))] }), 1],
+  // A SHORT outside 1..8, as Android writes 0, is shown as stored.
+  ['camera-style IFD0 JPEG, Orientation SHORT 0', jpeg({ app1: [exifApp1(tiff({ orientation: 0 }))] }), 1],
   ['JFIF JPEG without EXIF', jpeg(), 1],
   ['PNG without eXIf', png(), 1],
   ['PNG eXIf Orientation 1', png(tiff({ orientation: 1 })), 1],
