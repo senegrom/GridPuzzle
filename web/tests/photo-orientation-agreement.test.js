@@ -92,27 +92,36 @@ function assertUndistorted(image, call) {
   assert.ok(Math.abs(sx / sy - 1) < 0.002, `${image.width}x${image.height} preview of a ${ow}x${oh} photo: x scale ${sx.toFixed(3)}, y scale ${sy.toFixed(3)}`);
 }
 
-// Each case under an engine that turns the photo by orientation 6 and one that
-// shows it as stored: no squeeze either way, from a single safe width.
+// Each case under an engine that turns the photo by its orientation (6 unless
+// the case gives 5) and one that shows it as stored: no squeeze either way,
+// from a single safe width.
 const disagreements = [
   ['PNG eXIf Orientation 6, which WebKitGTK ignores', png(tiff({ orientation: 6 }))],
   ['PNG eXIf behind an "Exif\\0\\0" prefix, which Chromium, Firefox and libpng ignore', png(exifApp1(tiff({ orientation: 6 })))],
   ['JPEG APP1 whose "Exif\\0\\0" identifier is repeated, which Skia ignores', jpeg({ app1: [exifApp1(exifApp1(tiff({ orientation: 6 })))] })],
   ['JPEG Orientation 6 only in the ExifIFD, which WebKit ignores', jpeg({ app1: [exifApp1(tiff({ exif: { orientation: 6 } }))] })],
+  // Like Chromium, the walk skips an IFD0 Orientation SHORT outside 1..8
+  // (Android writes 0) and falls back to the ExifIFD, which WebKit never reads.
+  ['JPEG Orientation SHORT 0 in IFD0 and 6 in the ExifIFD, which WebKit ignores', jpeg({ app1: [exifApp1(tiff({ orientation: 0, exif: { orientation: 6 } }))] })],
   ['JPEG "Exif\\0" with a non-zero sixth byte, which Firefox ignores', jpeg({ app1: [exifApp1(tiff({ orientation: 6 }), 'Exif\0\xff')] })],
   // Safari decodes with ImageIO, whose reading of an Orientation that is not
   // a SHORT with count 1 is unverified.
   ['JPEG Orientation 6 as a big-endian LONG, unverified in ImageIO', jpeg({ app1: [exifApp1(tiff({ orientation: 6, entry: { type: 4 } }))] })],
   ['JPEG Orientation 6 as a little-endian LONG, unverified in ImageIO', jpeg({ app1: [exifApp1(tiff({ orientation: 6, entry: { type: 4 }, little: true }))] })],
   ['JPEG Orientation 6 as a SHORT with count 2, unverified in ImageIO', jpeg({ app1: [exifApp1(tiff({ orientation: 6, entry: { count: 2 } }))] })],
+  // A transpose (5) swaps the axes as 6 to 8 do, so it too gets the single
+  // width; 1 to 4 keep both dimensions (see the agreements below).
+  ['PNG eXIf Orientation 5, which WebKitGTK ignores', png(tiff({ orientation: 5 })), 5],
+  ['JPEG APP1 whose "Exif\\0\\0" identifier is repeated, Orientation 5, which Skia ignores', jpeg({ app1: [exifApp1(exifApp1(tiff({ orientation: 5 })))] }), 5],
+  ['JPEG Orientation 5 only in the ExifIFD, which WebKit ignores', jpeg({ app1: [exifApp1(tiff({ exif: { orientation: 5 } }))] }), 5],
 ];
-for (const [label, file] of disagreements) for (const orientation of [6, 1])
-  test(`${label}: undistorted when the decoder ${orientation === 6 ? 'turns it' : 'shows it as stored'}`, async (t) => {
+for (const [label, file, turned = 6] of disagreements) for (const orientation of [turned, 1])
+  test(`${label}: undistorted when the decoder ${orientation === 1 ? 'shows it as stored' : 'turns it'}`, async (t) => {
     const calls = engine(t, { orientation });
     const { image } = await importPhoto(new Blob([file]));
     assert.deepEqual(calls.map((c) => c.request), [[1200, undefined]], 'one width that fits 1600 either way round');
     assertUndistorted(image, calls[0]);
-    assert.deepEqual([image.width, image.height], orientation === 6 ? [1200, 1600] : [1200, 900]);
+    assert.deepEqual([image.width, image.height], orientation === 1 ? [1200, 900] : [1200, 1600]);
   });
 
 const cut = (block, length) => block.subarray(0, length);
@@ -205,10 +214,12 @@ for (const little of [false, true])
   });
 
 // An ExifIFD pointer is a LONG or an IFD (type 13) with count 1; with any
-// other count the entry is not followed. Followed, the ExifIFD's Orientation 6
-// turns a WebP (neutralized, then turned once) and gives a JPEG the single
-// width (WebKit reads IFD0 only); not followed, both import as stored.
-for (const [label, type, count, followed] of [['an IFD (type 13) with count 1', 13, 1, true], ['a LONG with count 2', 4, 2, false]]) {
+// other type (a SHORT: Skia follows only a LONG) or count the entry is not
+// followed. Followed, the ExifIFD's Orientation 6 turns a WebP (neutralized,
+// then turned once) and gives a JPEG the single width (WebKit reads IFD0
+// only); not followed, both import as stored.
+for (const [label, type, count, followed] of [['an IFD (type 13) with count 1', 13, 1, true], ['a LONG with count 2', 4, 2, false],
+  ['a SHORT with count 1', 3, 1, false]]) {
   test(`WebP: an ExifIFD pointer that is ${label} is ${followed ? '' : 'not '}followed`, async (t) => {
     const calls = engine(t);
     const { image } = await importPhoto(new Blob([webp(tiff({ exif: { orientation: 6, type, count } }))]));
