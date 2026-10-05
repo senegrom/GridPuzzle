@@ -5,10 +5,16 @@ export const PHOTO_MAX_SIDE = 1600;
 const HEADER_LIMIT = 512 * 1024;
 const cancelled = () => new DOMException('Scan cancelled', 'AbortError');
 const orientationError = () => Error('The photo orientation could not be checked safely. Save a copy from your photo app, then try again.');
+// Damaged or out-of-reach EXIF: the browser shows the photo as stored or as it
+// reads it, so the import must fit either way round instead of refusing.
+const UNKNOWN = { value: 1, unknown: true };
 
 // Only the primary image's TIFF orientation is needed, never its thumbnail or
 // other EXIF data. JPEG/PNG metadata precedes the pixel stream; WebP may put it
 // after the bitstream, so skip chunk payloads rather than loading the whole file.
+// `primary` marks a usable SHORT in IFD0 behind a standard identifier, which
+// every engine reads in a JPEG. Only a segment or chunk that runs past the end
+// of its container is still refused.
 // PNG ordering: https://www.w3.org/TR/png-3/#5ChunkOrdering
 // WebP layout: https://developers.google.com/speed/webp/docs/riff_container
 async function orientation(file, head, check) {
@@ -26,41 +32,58 @@ async function orientation(file, head, check) {
   };
   const view = bytes => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const text = bytes => String.fromCharCode(...bytes);
-  async function tiff(start, end) {
-    // WebP encoders use both bare TIFF and the JPEG "Exif\0\0" prefix.
-    if (end - start >= 6 && text(await read(start, 6)) === 'Exif\0\0') start += 6;
-    if (end - start < 8) throw orientationError();
-    const header = view(await read(start, 8)), order = header.getUint16(0), little = order === 0x4949;
-    if ((!little && order !== 0x4d4d) || header.getUint16(2, little) !== 42) throw orientationError();
-    const offset = header.getUint32(4, little), at = start + offset;
-    if (offset < 8 || at + 2 > end) throw orientationError();
-    const count = view(await read(at, 2)).getUint16(0, little);
-    if (count > 4096 || at + 2 + count * 12 > end) throw orientationError();
-    const entries = view(await read(at + 2, count * 12));
-    for (let i = 0; i < count * 12; i += 12) {
-      if (entries.getUint16(i, little) !== 0x0112) continue;
-      const value = entries.getUint16(i + 8, little);
-      // Chromium, Firefox and WebKit ignore an unusable entry and show the image as stored.
-      if (entries.getUint16(i + 2, little) !== 3 || entries.getUint32(i + 4, little) !== 1 || value < 1 || value > 8)
-        continue;
-      return { value, offset: at + 2 + i + 8, little };
-    }
-    return { value: 1 };
-  }
   const jpeg = head[0] === 0xff && head[1] === 0xd8, png = head[0] === 137;
+  async function tiff(start, end) {
+    // WebP encoders use both bare TIFF and the JPEG "Exif\0\0" prefix. JPEG APP1
+    // and PNG eXIf data must start with the TIFF header: the engines ignore a
+    // repeated or prefixed identifier there, and so does this parser.
+    if (!jpeg && !png && end - start >= 6 && text(await read(start, 6)) === 'Exif\0\0') start += 6;
+    if (end - start < 8) return UNKNOWN;
+    const header = view(await read(start, 8)), order = header.getUint16(0), little = order === 0x4949;
+    if ((!little && order !== 0x4d4d) || header.getUint16(2, little) !== 42) return UNKNOWN;
+    // IFD0 first. Like Chromium and Firefox, fall back to the ExifIFD (one level)
+    // when IFD0 has no usable entry; WebKit does not, so that value is not primary.
+    async function ifd(offset, primary) {
+      const at = start + offset;
+      if (offset < 8 || at + 2 > end) return UNKNOWN;
+      const count = view(await read(at, 2)).getUint16(0, little);
+      if (count > 4096 || at + 2 + count * 12 > end) return UNKNOWN;
+      const entries = view(await read(at + 2, count * 12));
+      let exifIfd = null;
+      for (let i = 0; i < count * 12; i += 12) {
+        const tag = entries.getUint16(i, little), type = entries.getUint16(i + 2, little), n = entries.getUint32(i + 4, little);
+        if (primary && tag === 0x8769 && exifIfd === null && (type === 4 || type === 13) && n === 1)
+          exifIfd = entries.getUint32(i + 8, little);
+        if (tag !== 0x0112) continue;
+        const value = entries.getUint16(i + 8, little);
+        // Chromium, Firefox and WebKit ignore an unusable entry and show the image as stored.
+        if (type !== 3 || n !== 1 || value < 1 || value > 8) continue;
+        return { value, offset: at + 2 + i + 8, little, primary };
+      }
+      return exifIfd === null ? { value: 1 } : ifd(exifIfd, false);
+    }
+    return ifd(header.getUint32(4, little), true);
+  }
   const end = jpeg || png ? file.size : view(head).getUint32(4, true) + 8;
   let at = jpeg ? 2 : png ? 8 : 12;
   for (let chunks = 0; at < end && chunks < 4096; chunks++) {
     if (jpeg) {
       const marker = await read(at, 2);
-      if (marker[0] !== 0xff) throw orientationError();
+      // libjpeg skips stray bytes between segments, and an orientation could follow.
+      if (marker[0] !== 0xff) return UNKNOWN;
       if (marker[1] === 0xda || marker[1] === 0xd9) return { value: 1 };
       if (marker[1] === 0xff) { at++; continue; }
       if (marker[1] === 0x01 || (marker[1] >= 0xd0 && marker[1] <= 0xd8)) { at += 2; continue; }
       const length = view(await read(at + 2, 2)).getUint16(0), next = at + 2 + length;
       if (length < 2 || next > end) throw orientationError();
-      if (marker[1] === 0xe1 && length >= 8 && text(await read(at + 4, 6)) === 'Exif\0\0')
-        return tiff(at + 10, next);
+      if (marker[1] === 0xe1 && length >= 8) {
+        // Chromium and WebKit accept any sixth identifier byte; Firefox needs "Exif\0\0".
+        const id = await read(at + 4, 6);
+        if (text(id.subarray(0, 5)) === 'Exif\0') {
+          const meta = await tiff(at + 10, next);
+          return id[5] === 0 ? meta : { ...meta, primary: false };
+        }
+      }
       at = next;
     } else {
       const header = await read(at, 8), v = view(header), length = v.getUint32(png ? 0 : 4, !png),
@@ -71,8 +94,8 @@ async function orientation(file, head, check) {
       at = next;
     }
   }
-  if (at !== end) throw orientationError();
-  return { value: 1 };
+  // Only the 4096 segment or chunk cap stops short of the end; an orientation could follow.
+  return at < end ? UNKNOWN : { value: 1 };
 }
 
 // Shared by photo-file, native-file and the corpus photo-flow benchmark. Bounds
@@ -97,8 +120,8 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
   let decodeFile = file, turns = 0, mirrored = false;
   const webp = head[0] === 82 && head[1] === 73; // sniffDimensions validated RIFF/WEBP.
   if (webp && meta.value !== 1) {
-    // WebP decoders differ in whether they apply EXIF. Neutralize ONLY that
-    // primary orientation tag, without decoding/re-encoding or copying pixels,
+    // WebP decoders differ in whether they apply EXIF. Neutralize ONLY the
+    // orientation tag that was read, without decoding/re-encoding or copying pixels,
     // then apply the declared transform exactly once. Retain the same encoded
     // source and transform for original-detail reads and subsequent user turns.
     const normal = new Uint8Array(meta.little ? [1, 0] : [0, 1]);
@@ -120,15 +143,28 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
       return { image: retainPhotoSource(canvas, decodeFile, dimensions, { turns, mirrored }), dimensions };
     } catch (error) { canvas.width = canvas.height = 0; throw error; }
   };
-  const turned = !webp && meta.value >= 5;
+  // A flip or half turn (2..4) keeps the photo's axes, whoever applies it. A
+  // quarter turn (5..8) is known only where every engine agrees: a WebP decoded
+  // as stored after neutralizing, or a primary IFD0 SHORT in a JPEG. Engines
+  // differ on damaged EXIF, on PNG eXIf (WebKitGTK ignores it) and on an
+  // ExifIFD-only orientation. There, request one width that fits maxSide
+  // whichever way the engine turns the photo, so the bitmap keeps the engine's
+  // own aspect ratio, and let draw() fit it.
+  let size;
+  if (!meta.unknown && (meta.value < 5 || webp || (head[0] === 0xff && meta.primary))) {
+    // Resizing uses the EXIF-oriented axes. Request BOTH bounded dimensions:
+    // using encoded width alone could enlarge a 1600x400 image to 1600x6400.
+    const [resizeWidth, resizeHeight] = !webp && meta.value >= 5 ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
+    size = { resizeWidth, resizeHeight };
+  } else {
+    const long = Math.max(dimensions.width, dimensions.height);
+    size = long > maxSide ? { resizeWidth: Math.max(1, Math.round(maxSide * Math.min(dimensions.width, dimensions.height) / long)) } : {};
+  }
   check();
   return withPhotoDecode(async () => {
     if (typeof createImageBitmap === 'function') {
-      // Resizing uses the EXIF-oriented axes. Request BOTH bounded dimensions:
-      // using encoded width alone could enlarge a 1600x400 image to 1600x6400.
-      const [resizeWidth, resizeHeight] = turned ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
       let bitmap = null;
-      try { bitmap = await createImageBitmap(decodeFile, { resizeWidth, resizeHeight, resizeQuality: 'high', imageOrientation: 'from-image' }); }
+      try { bitmap = await createImageBitmap(decodeFile, { ...size, resizeQuality: 'high', imageOrientation: 'from-image' }); }
       catch { /* A bounded full decode remains available on older browsers. */ }
       if (bitmap) try { check(); return draw(bitmap); } finally { bitmap.close?.(); }
     }

@@ -51,7 +51,11 @@ function harness(t) {
     t.after(() => d ? Object.defineProperty(globalThis, key, d) : delete globalThis[key]);
   }
   globalThis.document = { createElement() { return { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, translate() {}, rotate() {}, scale() {} }) }; } };
-  globalThis.createImageBitmap = async (file, o) => { calls.push({ file, size: [o.resizeWidth, o.resizeHeight] }); return { width: o.resizeWidth, height: o.resizeHeight, close() {} }; };
+  // A missing height follows the 4000x3000 photo shown as stored, as the HTML spec says.
+  globalThis.createImageBitmap = async (file, o) => {
+    calls.push({ file, size: [o.resizeWidth, o.resizeHeight] });
+    return { width: o.resizeWidth, height: o.resizeHeight ?? Math.ceil(3000 * o.resizeWidth / 4000), close() {} };
+  };
   return calls;
 }
 const ignored = [['SHORT 0', 0, {}], ['SHORT 9', 9, {}], ['SHORT 65535', 65535, {}], ['LONG 6', 6, { type: 4 }], ['SHORT count 2', 6, { count: 2 }]];
@@ -85,9 +89,10 @@ test('a 4000x3000 JPEG without EXIF imports upright through one bounded decode',
   assert.deepEqual(calls.map((c) => c.size), [[1600, 1200]]);
   assert.deepEqual([image.width, image.height], [1600, 1200]);
 });
-test('structural EXIF damage is still refused before any decoder', async t => {
+test('structural EXIF damage imports as stored through one width that fits either way round', async t => {
   const calls = harness(t), meta = cameraTiff(6, false);
   meta.writeUInt32BE(0xfffffff0, 4);
-  await assert.rejects(importPhoto(new Blob([jpeg(4000, 3000, meta)])), /orientation/);
-  assert.equal(calls.length, 0);
+  const { image } = await importPhoto(new Blob([jpeg(4000, 3000, meta)]));
+  assert.deepEqual(calls.map((c) => c.size), [[1200, undefined]]);
+  assert.deepEqual([image.width, image.height], [1200, 900]);
 });

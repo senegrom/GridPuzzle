@@ -23,13 +23,16 @@ function png(w,h,exif=null){const head=Buffer.alloc(13);head.writeUInt32BE(w);he
 function webp(w,h,exif){const extended=Buffer.alloc(10);extended[0]=8;extended.writeUIntLE(w-1,4,3);extended.writeUIntLE(h-1,7,3);
  const chunks=concat(chunk('VP8X',extended),chunk('VP8 ',Buffer.alloc(700001)),chunk('EXIF',exif));
  const head=Buffer.from('RIFF\0\0\0\0WEBP');head.writeUInt32LE(chunks.length+4,4);return concat(head,chunks);}
-function harness(t,{fallback=false,failBitmap=false}={}){
+// `natural` is the photo as the decoder turns it; a missing resize dimension
+// follows its aspect ratio, as the HTML spec says.
+function harness(t,{fallback=false,failBitmap=false,natural=[640,480]}={}){
  const calls=[],canvases=[],bitmaps=[],urls=[];
  for(const key of ['document','Image','createImageBitmap']){const d=Object.getOwnPropertyDescriptor(globalThis,key);t.after(()=>d?Object.defineProperty(globalThis,key,d):delete globalThis[key]);}
  const context={fillRect(){this.white=this.fillStyle;},drawImage(){},translate(){},rotate(){},scale(){}};
  globalThis.document={createElement(){const c={width:0,height:0,getContext:()=>({...context})};canvases.push(c);return c;}};
  globalThis.createImageBitmap=fallback?undefined:async(file,options)=>{calls.push(options);if(failBitmap)throw Error('decoder failed');
-  const bitmap={width:options.resizeWidth,height:options.resizeHeight,close(){this.closed=true;}};bitmaps.push(bitmap);return bitmap;};
+  const [w,h]=natural,{resizeWidth:rw,resizeHeight:rh}=options;
+  const bitmap={width:rw??(rh?Math.ceil(w*rh/h):w),height:rh??(rw?Math.ceil(h*rw/w):h),close(){this.closed=true;}};bitmaps.push(bitmap);return bitmap;};
  globalThis.Image=class{naturalWidth=640;naturalHeight=480;width=10;height=10;async decode(){calls.push('full decode');}};
  t.mock.method(URL,'createObjectURL',()=>{urls.push('created');return 'blob:test';});t.mock.method(URL,'revokeObjectURL',()=>urls.push('revoked'));
  return {calls,canvases,bitmaps,urls};
@@ -47,7 +50,8 @@ for(const little of [false,true])for(const value of [1,2,3,4,5,6,7,8])
  });
 for(const make of [png,(w,h,meta)=>webp(w,h,meta),(w,h,meta)=>webp(w,h,concat('Exif\0\0',meta))])
  test(`EXIF in ${make===png?'PNG':'WebP'} uses bounded metadata reads, including after a large bitstream`,async t=>{
-  const h=harness(t),file=new Blob([make(1600,400,tiff(6,true))]),slice=file.slice.bind(file),ranges=[];
+  // A decoder that applies the PNG eXIf; the WebP is neutralized and turned by the app.
+  const h=harness(t,{natural:[400,1600]}),file=new Blob([make(1600,400,tiff(6,true))]),slice=file.slice.bind(file),ranges=[];
   file.slice=(a,b)=>{const part=slice(a,b),read=part.arrayBuffer.bind(part);
     // Blob slices used for the normalized encoded source are not metadata reads.
     part.arrayBuffer=()=>{ranges.push([a,b??file.size]);return read();};return part;};
@@ -62,11 +66,14 @@ for(const kind of ['value','type','count'])test(`an orientation entry the engine
  assert.equal(h.calls.length,1);assert.deepEqual([h.calls[0].resizeWidth,h.calls[0].resizeHeight],[1600,400]);
  assert.deepEqual([image.width,image.height],[1600,400]);
 });
-for(const kind of ['offset','truncated'])test(`malformed EXIF ${kind} never reaches either native decoder`,async t=>{
- const h=harness(t),meta=tiff(6);
+// The decoders show damaged EXIF as stored or as they read it: one width that
+// fits 1600 either way round, never a squeezed pair of dimensions.
+for(const kind of ['offset','truncated'])test(`malformed EXIF ${kind} imports as stored through one width that fits either way round`,async t=>{
+ const h=harness(t,{natural:[4000,3000]}),meta=tiff(6);
  if(kind==='offset')meta.writeUInt32BE(0xfffffff0,4);
- await assert.rejects(importPhoto(new Blob([jpeg(1600,400,kind==='truncated'?meta.subarray(0,17):meta)])),/orientation/);
- assert.deepEqual(h.calls,[]);assert.equal(h.canvases.length,0);
+ const {image}=await importPhoto(new Blob([jpeg(4000,3000,kind==='truncated'?meta.subarray(0,17):meta)]));
+ assert.deepEqual(h.calls.map(c=>[c.resizeWidth,c.resizeHeight]),[[1200,undefined]]);
+ assert.deepEqual([image.width,image.height],[1200,900]);assert.ok(h.bitmaps.at(-1).closed);
 });
 for(const failBitmap of [false,true])test(`shared fallback keeps the 24MP limit, bitmap rejection ${failBitmap}`,async t=>{
  const h=harness(t,{fallback:!failBitmap,failBitmap});
