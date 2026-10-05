@@ -6,8 +6,9 @@ import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
 // already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
-const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowMetadata } =
+const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata } =
   createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
+const { SCORE_VERSION } = createRequire(import.meta.url)("../../corpus/score.cjs");
 
 test("the preview's scale from the original's pixels is its side ratio, whichever way it was turned", () => {
   assert.deepEqual(previewSize({ width: 1600, height: 1200, natural: { width: 3264, height: 2448 } }), { width: 1600, height: 1200, scale: 1600 / 3264 });
@@ -20,6 +21,29 @@ test("readings go through the detector's corners at any confidence, unconfirmed 
   for (const [confidence, unconfirmed] of [[0.94, false], [0.81, false], [0.8, true], [0.45, true], [0, true]])
     assert.deepEqual(readingCorners({ detection: { corners, confidence }, truth: null, size, trueCorners: false }),
       { corners, unconfirmed }, `confidence ${confidence}`);
+});
+
+test("a reading at another size than the lattice the detector found is unconfirmed too", () => {
+  const corners = [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }], size = { width: 100, height: 100, scale: 1 },
+    puzzle = { rows: 9, cols: 9 },
+    at = (rows, cols, extra = {}) => readingCorners({ detection: { corners, confidence: 0.94, rows, cols }, truth: null, size,
+      trueCorners: false, puzzle, ...extra }).unconfirmed;
+  assert.equal(at(9, 9), false);
+  for (const [rows, cols] of [[10, 9], [9, 8], [3, 3]]) assert.equal(at(rows, cols), true, `${rows} x ${cols}`);
+  // A lattice along one axis proposes no size, in the photo flow either.
+  assert.equal(at(9, 0), false); assert.equal(at(0, 9), false);
+  // The target's outline stands for corners the user set.
+  assert.equal(at(10, 9, { trueCorners: true, truth: [[1, 1], [9, 1], [9, 9], [1, 9]] }), false);
+  // Rows are rows: a 9 x 12 lattice read at 9 x 12 is confirmed, a 12 x 9 one is not.
+  assert.equal(at(9, 12, { puzzle: { rows: 9, cols: 12 } }), false);
+  assert.equal(at(12, 9, { puzzle: { rows: 9, cols: 12 } }), true);
+});
+
+test("a report records the size rule only for readings through the detector's corners", () => {
+  assert.deepEqual(photoFlowHarness({ trueCorners: false }), { load: "importPhoto", maxSide: 1600, confirmedAbove: 0.8,
+    otherSize: "unconfirmed", corners: "detector, any confidence", read: "photoDetail" });
+  assert.deepEqual(photoFlowHarness({ trueCorners: true }), { load: "importPhoto", maxSide: 1600, confirmedAbove: 0.8,
+    corners: "target, pulled onto the frame", read: "photoDetail" });
 });
 
 test("true corners are scaled with the photograph and pulled onto the frame where they lie past it", () => {
@@ -46,12 +70,12 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   fs.writeFileSync(target, JSON.stringify({ puzzle: { type: "latinsquare", rows: 2, cols: 2, cells: [1, 2, 2, 1] },
     corners: [[100, 100], [3100, 100], [3100, 3100], [100, 3100]] }));
   const proposal = [{ x: 50, y: 50 }, { x: 1550, y: 50 }, { x: 1550, y: 1550 }, { x: 50, y: 1550 }];
-  const run = async (confidence, options = {}, detail = true) => {
+  const run = async (confidence, options = {}, detail = true, [rows, cols] = [2, 2]) => {
     const calls = [];
     const page = { async evaluate(fn, args) {
       calls.push([fn.name, args]);
       if (fn.name === "loadPhoto") return { width: 1600, height: 1600, natural: { width: 3200, height: 3200 } };
-      if (fn.name === "detectGrid") return { detected: 5, detection: { corners: proposal, confidence, rows: 2, cols: 2 } };
+      if (fn.name === "detectGrid") return { detected: 5, detection: { corners: proposal, confidence, rows, cols } };
       // Read through the original's detail (or not); one cell misread: 2 read as 9.
       return { ms: 10, detail, detailNote: detail ? "Clues read from the original photo detail." : null,
         read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] }, uncertain: [], cageUncertain: [], ocr: 7 };
@@ -68,7 +92,13 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
   assert.equal(found.row.geometrySource, "detector-proposal");
   assert.deepEqual([found.row.detail, found.row.detailNote], [true, "Clues read from the original photo detail."]);
   assert.deepEqual([found.row.grid, found.row.unconfirmed, found.row.correct, found.row.wrong, found.row.unsafe], [true, false, 3, 1, 1]);
+  assert.deepEqual([found.row.detectedRows, found.row.detectedCols], [2, 2]);
   assert.equal(found.row.cornerError, 0);
+  // A lattice of another size: read at the target's size, every cell flagged.
+  const resized = await run(0.94, {}, true, [3, 2]);
+  assert.deepEqual([resized.row.grid, resized.row.unconfirmed, resized.row.detectedRows, resized.row.detectedCols, resized.row.unsafe, resized.row.flaggedCorrect],
+    [true, true, 3, 2, 0, 3]);
+  assert.deepEqual([resized.calls[2][1].rows, resized.calls[2][1].cols], [2, 2]);
   const missed = await run(0.45);
   assert.equal(missed.calls[2][1].corners, proposal);
   assert.deepEqual([missed.row.grid, missed.row.unconfirmed, missed.row.wrong, missed.row.unsafe, missed.row.flaggedCorrect],
@@ -103,12 +133,12 @@ test("a list of set/name lines selects exactly those images", (t) => {
 });
 
 
-test("photo-flow reports retain v4 harness settings and declare reference-supplied configuration", () => {
+test("photo-flow reports record the scorer's version, the harness rules and the reference-supplied configuration", () => {
   for (const trueCorners of [false, true]) {
     const meta = photoFlowMetadata({ trueCorners });
-    assert.equal(meta.scoreVersion, 4);
-    assert.deepEqual(meta.harness, { maxSide: 1600, confirmedAbove: 0.8,
-      corners: trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" });
+    assert.equal(meta.scoreVersion, SCORE_VERSION);
+    // photoFlowHarness is the one place the harness rules are written down.
+    assert.deepEqual(meta.harness, photoFlowHarness({ trueCorners }));
     assert.deepEqual(meta.recognition, { type: "reference", dimensions: "reference",
       corners: trueCorners ? "reference-when-available" : "detector-proposal", clueValues: "not-supplied" });
   }

@@ -252,6 +252,23 @@ that lies on or past the frame's edge onto it, as a user dragging the handles
 there would; such readings used to fail. Reports record the settings under
 `harness`, and each result says whether its corners were `unconfirmed`.
 
+`scoreVersion: 5` (2026-10-04) scores as version 4 did, with one more rule
+from the photo flow. A confident detection proposes the lattice size it found.
+A reading at another size, through the detector's corners left as they were,
+now has every cell highlighted, as for unconfirmed corners. The benchmark always
+reads at the target's size, so such an image counts as `unconfirmed` whenever
+the detector's lattice, with both axes, has another size. Each result records
+that size (`detectedRows`, `detectedCols`), and the report's `harness` says
+`otherSize: "unconfirmed"`. A `--true-corners` run leaves it out: the target's
+outline stands for corners the user set, confirmed at any size. An image without
+an outline is still read through the detector's corners, under the rule.
+
+Since PR #121 the benchmark decodes each photograph through the app's own
+import (`importPhoto` in `web/photo-import.js`) rather than its own copy of the
+flow's loader. That changes some previews (`web/OCR_QUALITY.md` counts them)
+but not the scoring, so the report's `harness` records `load: "importPhoto"`;
+a version 5 report without it was read through the copy.
+
 This recognition benchmark supplies the **reference puzzle type and row/column
 counts** to the Scanner. It does not test fully automatic family/size inference.
 By default the crop is the detector's proposal, at any confidence as described

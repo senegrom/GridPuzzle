@@ -100,4 +100,7 @@ function isPerfect(result) {
 }
 // 4 (2026-09-29): the same scoring as 3, over readings taken as the photo flow
 // takes them (benchmark.cjs), so its reports do not compare with version 3's.
-module.exports = { score, isPerfect, SCORE_VERSION: 4 };
+// 5 (2026-10-04): the same as 4, except that a reading at another size than
+// the lattice the detector found counts as read through unconfirmed corners,
+// every cell flagged, as the photo flow now reads it.
+module.exports = { score, isPerfect, SCORE_VERSION: 5 };

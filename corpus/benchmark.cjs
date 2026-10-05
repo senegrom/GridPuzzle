@@ -13,7 +13,9 @@
    read through the corners the detector proposes, however confident, and
    through photoDetail: a larger original's grid region at up to 1800 px. When that confidence is 0.8 or less, the flow asks for the
    corners to be set and, read unchanged, highlights every cell, so every cell
-   of such a reading counts as flagged. --true-corners reads through the
+   of such a reading counts as flagged. So does every cell of a reading at the
+   target's size when the detector found a lattice of another size, which the
+   flow holds unconfirmed the same way. --true-corners reads through the
    target's outline instead, pulled onto the frame where it lies on or past
    the edge, as a user dragging the handles there would.
 

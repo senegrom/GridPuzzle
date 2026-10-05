@@ -177,22 +177,37 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
 /* Reading a corpus photograph the way the photo flow reads it (web/photo-flow.js),
    for corpus/benchmark.cjs: drawn on white with its long side at most 1600 px,
    read through the corners the detector proposes at any confidence, and with
-   every cell flagged when that confidence is 0.8 or less, since the flow then
-   asks for the corners to be set and highlights every cell of a reading
-   through them unchanged. --true-corners reads through the target's outline,
-   pulled onto the frame where it lies on or past the edge. */
+   every cell flagged when that confidence is 0.8 or less, or when the lattice
+   it found has another size than the target's, since the flow then holds the
+   corners unconfirmed and highlights every cell of a reading through them
+   unchanged. --true-corners reads through the target's outline, pulled onto
+   the frame where it lies on or past the edge. */
 // photo-flow.js: the photograph's longest side (MAX_SIDE), and the detector
 // confidence above which its corners need no confirmation (unconfirmedCorners).
 const PHOTO_MAX_SIDE = 1600, CONFIRMED = 0.8;
 
 // The corners a reading goes through, in the scaled photograph, and whether
-// the photo flow would hold them unconfirmed.
-function readingCorners({ detection, truth, size, trueCorners }) {
+// the photo flow would hold them unconfirmed: at the detector's confidence of
+// 0.8 or less, or at another size than the lattice it found (detectedLayout),
+// which the harness always reads at the target's size and never moves.
+function readingCorners({ detection, truth, size, trueCorners, puzzle }) {
   if (trueCorners && truth)
     return { unconfirmed: false, corners: truth.map(([x, y]) => ({
       x: Math.min(size.width - 1, Math.max(0, x * size.scale)),
       y: Math.min(size.height - 1, Math.max(0, y * size.scale)) })) };
-  return { unconfirmed: !(detection.confidence > CONFIRMED), corners: detection.corners };
+  const resized = Boolean(detection.rows && detection.cols) && (detection.rows !== puzzle.rows || detection.cols !== puzzle.cols);
+  return { unconfirmed: !(detection.confidence > CONFIRMED) || resized, corners: detection.corners };
+}
+
+// The reading rules every photo-flow report records, kept in this one place.
+// `load`: previews come from the app's own import (importPhoto, with its EXIF
+// sizing) and differ for some images from those of the runner's earlier copy
+// of the flow's loader. True corners stand for the user's own crop, confirmed
+// at any size (an image without a target outline still reads through the
+// detector's corners, under its rules).
+function photoFlowHarness(options) {
+  return { load: "importPhoto", maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED, ...(options.trueCorners ? {} : { otherSize: "unconfirmed" }),
+    corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" };
 }
 
 // A reading through unconfirmed corners has every cell highlighted.
@@ -250,9 +265,7 @@ function previewSize(loaded) {
 
 // Configuration and provenance accompany even an interrupted photo-flow run.
 function photoFlowMetadata(options) {
-  return { scoreVersion: SCORE_VERSION,
-    harness: { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED,
-      corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" },
+  return { scoreVersion: SCORE_VERSION, harness: photoFlowHarness(options),
     recognition: { type: "reference", dimensions: "reference",
       corners: options.trueCorners ? "reference-when-available" : "detector-proposal", clueValues: "not-supplied" } };
 }
@@ -264,10 +277,11 @@ async function photoFlowMeasure(page, item, options) {
   const size = previewSize(loaded), found = await page.evaluate(detectGrid);
   if (found.error) return { error: found.error };
   const { detection } = found,
-    { corners, unconfirmed } = readingCorners({ detection, truth: target.corners, size, trueCorners: options.trueCorners });
+    { corners, unconfirmed } = readingCorners({ detection, truth: target.corners, size, trueCorners: options.trueCorners, puzzle });
   const reading = await page.evaluate(readGrid, { corners, type: puzzle.type, rows: puzzle.rows, cols: puzzle.cols });
   const row = { confidence: detection.confidence, grid: detection.confidence > CONFIRMED, unconfirmed,
     geometrySource: options.trueCorners && target.corners ? "reference" : "detector-proposal",
+    detectedRows: detection.rows || 0, detectedCols: detection.cols || 0,
     width: size.width, height: size.height, detail: reading.detail ?? null, ...(reading.detailNote ? { detailNote: reading.detailNote } : {}),
     detected: Math.round(found.detected), total: Math.round(found.detected + (reading.ms || 0)) };
   if (reading.error) return { ...row, error: reading.error };
@@ -291,4 +305,4 @@ function selectImages(options) {
 }
 
 module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
-  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowMetadata, PHOTO_MAX_SIDE, CONFIRMED };
+  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata, PHOTO_MAX_SIDE, CONFIRMED };

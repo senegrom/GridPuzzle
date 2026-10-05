@@ -392,7 +392,8 @@ import (`importPhoto` in `web/photo-import.js`, with its EXIF sizing) instead of
 its own loader. That changes 94 previews from the baseline below: the 19
 EXIF-rotated JPEGs are read at 4/3 of their earlier preview size (11 of them no
 longer from the original's detail), and 75 images shift by one pixel. The
-scorer and `scoreVersion` are unchanged.
+scorer and `scoreVersion` are unchanged by it; a report's `harness` records the
+loader as `load: "importPhoto"`.
 
 The master baseline under this harness (Chromium, 2026-09-29, 1bf5e21, all 3,978
 images; the 249 images larger than the preview all read through the original's
@@ -451,6 +452,91 @@ failing as above. On 100 other images, chosen at random, the two harnesses agree
 image for image except one Hidato render whose OCR returned 2 of its 27 clues in
 the first run; it reads all 27, perfectly, in every further read under each
 harness, so that was a transient OCR failure, not the harness.
+
+## Readings at another size than the detector found
+
+A confident detection proposes the size of the lattice it found, and the photo
+flow adopts it. Sometimes the user corrects the size, or the puzzle type cannot
+take the size found, and the grid is then read at another size through the same
+corners. When the detector's frame is off, as with a 10 x 9 or 8 x 8 lattice
+found on a 9 x 9 grid, the cell windows miss their digits and come back as
+confident blanks. Under `scoreVersion: 4`, with the corrected rozet-handwritten
+targets of #123, such boards held 403 of the 518 unflagged missed clues. The
+photo flow now highlights every cell of a reading at another size through
+corners nobody moved, as for unconfirmed corners. A note names both sizes and
+says that moving any corner confirms the crop. A live capture reviewed on the
+board counts as found at the size the live camera read it. `scoreVersion: 5`
+models this (`corpus/SOURCES.md`).
+
+Measured on the whole corpus with `scoreVersion: 5` (Chromium, 2026-10-04,
+master 6bcdcc8 with this change). The comparison is with the same readings under
+version 4: #122's full-corpus run, with the two rozet photographs re-scored.
+- Every reading is the same, except one known transient OCR failure: Hidato 266
+  read 2 of its clues on the version 4 side and all 27 here.
+- Flags change only on the 64 boards where the detector's lattice has another
+  size than the target's.
+- Those boards held 617 of the 846 unflagged errors. 63 of them have per-cell
+  records, and their 613 errors split into 403 missed clues, 93 wrong or
+  invented digits and 117 Kakuro clue errors.
+- Unflagged errors fall from 846 to 229.
+
+The cost is 216 correct clues and 1,438 empty cells newly flagged:
+
+| Image class | Boards | Unflagged errors caught | Correct clues newly flagged | Share of correct unflagged clues | Empty cells newly flagged |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Light screenshots | 13 | 124 | 75 | 0.23% | 220 |
+| Dark screenshots | 8 | 81 | 29 | 3.68% | 84 |
+| Photographs, lexski-mixed | 6 | 29 | 68 | 2.00% | 69 |
+| Photographs, other sets | 26 | 239 | 44 | 0.40% | 419 |
+| Renders | 11 | 144 | 0 | 0% | 646 |
+
+50 of the 64 boards held unflagged errors before. Of the other 14, 11 carry cost
+and no gain: 115 correct clues and 589 empty cells newly flagged. On four of
+them the frame is right and only the count is wrong:
+- The clean, photo and print renders of janko-kakuro-0152: 14 x 23 found for
+  14 x 24, with 515 empty cells newly flagged.
+- lexski val-gcini43qtm8c1: 3 x 3 found on a 9 x 9, with 60 correct clues and 19
+  empty cells newly flagged.
+
+No perfect Sudoku or Latin square reading without a flag gains one, so no
+automatic solve is lost.
+
+The `scoreVersion: 5` master baseline is below (Chromium, 2026-10-04, all 3,978
+images). It includes the note-sized flag and the corrected rozet-handwritten
+targets of sudoku_0270 and sudoku_0271 (#123). "Grid found" counts confident
+detections. The 64 boards read at another size are also counted as read through
+unconfirmed corners. It was read through the runner's own loader, before
+PR #121's `importPhoto` (its `harness` has no `load`), so the 94 previews
+above differ from a run through the import.
+
+| set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners | failed to read |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| futoshiki/janko-futoshiki | 120 | 1,988 / 1,989 | 0 | 119 | 120 | 0 |  |
+| futoshiki/newspaper-photo | 1 | 4 / 15 | 0 | 0 | 0 | 1 |  |
+| hidato/janko-hidato | 120 | 3,115 / 3,162 | 0 | 107 | 120 | 1 |  |
+| kakuro/janko-kakuro | 111 | 3,381 / 5,315 | 0 | 19 | 106 | 8 | 5 |
+| kenken/janko-kenken | 120 | 1,571 / 2,508 | 0 | 1 | 120 | 0 |  |
+| kenken/janko-kenken-thick | 120 | 1,968 / 2,508 | 0 | 7 | 120 | 0 |  |
+| kenken/janko-killersudoku | 120 | 1,572 / 2,139 | 0 | 21 | 120 | 0 |  |
+| killersudoku/generated-render | 120 | 2,510 / 3,234 | 0 | 29 | 120 | 1 |  |
+| latinsquare/generated-render | 120 | 1,815 / 1,818 | 0 | 117 | 120 | 0 |  |
+| numbrix/generated-render | 120 | 1,429 / 1,449 | 2 | 117 | 120 | 1 |  |
+| slitherlink/janko-slitherlink | 111 | 6,940 / 8,691 | 0 | 85 | 91 | 20 |  |
+| str8ts/janko-str8ts | 120 | 1,578 / 1,587 | 0 | 111 | 120 | 0 |  |
+| sudoku/generated-render | 120 | 2,704 / 2,706 | 0 | 118 | 120 | 0 |  |
+| sudoku/janko-sudoku | 111 | 4,507 / 4,509 | 0 | 109 | 111 | 0 |  |
+| sudoku/kuleuven-assistant | 83 | 2,061 / 3,851 | 1 | 9 | 39 | 56 |  |
+| sudoku/lexski-mixed | 1398 | 49,241 / 59,831 | 72 | 398 | 1140 | 285 |  |
+| sudoku/rozet-handwritten | 400 | 15,519 / 17,821 | 20 | 89 | 388 | 22 |  |
+| sudoku/rozet-newspaper | 9 | 246 / 250 | 0 | 5 | 9 | 0 |  |
+| sudoku/rozet-render | 100 | 2,285 / 2,498 | 12 | 57 | 100 | 0 |  |
+| sudoku/wichtounet-newspaper | 203 | 4,601 / 5,902 | 40 | 44 | 194 | 10 |  |
+| sudoku/wichtounet-originals | 46 | 1,286 / 1,328 | 7 | 33 | 46 | 0 |  |
+| sudoku/wichtounet-solved | 200 | 9,122 / 16,200 | 74 | 0 | 155 | 48 |  |
+| sudoku/wichtounet-solved-extra | 5 | 250 / 361 | 1 | 0 | 4 | 1 |  |
+| all | 3,978 | 119,693 / 149,672 | 229 | 1,595 | 3,583 | 454 | 5 |
+
+The five failures are the Kakuro photo renders that read no clues.
 
 ## Alternatives tried
 

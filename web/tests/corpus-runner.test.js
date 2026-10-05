@@ -56,7 +56,7 @@ function harness(t, faults = {}) {
 test("normal runs score all images, checkpoint and close every resource", async t => {
   const h = harness(t, { checkpoint: true }); const report = await h.run();
   assert.equal(report.status, "complete"); assert.equal(report.summary[0].perfect, 3);
-  assert.equal(report.scoreVersion, 4);
+  assert.equal(report.scoreVersion, 5);
   assert.deepEqual(report.recognition, { type: "reference", dimensions: "reference",
     corners: "detected-or-full-frame", clueValues: "not-supplied" });
   assert.deepEqual(h.saved().recognition, report.recognition);
