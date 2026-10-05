@@ -162,6 +162,19 @@ for (const [label, file, orientation] of agreements)
     assert.deepEqual([image.width, image.height], want);
   });
 
+// The ExifIFD pointer is followed one level only, so a pointer back to IFD0
+// ends the walk there and the photo imports as stored. A parser that followed
+// it again would loop through promise callbacks, where no test timeout can
+// fire, until memory ran out; the import calls `current` before every read,
+// so a budget of 1000 calls ends such a loop as a cancelled import.
+test('an ExifIFD pointer back to IFD0 is followed once, and the photo imports as stored', async (t) => {
+  const calls = engine(t), file = jpeg({ app1: [exifApp1(tiff({ exif: { offset: 8 } }))] });
+  let checks = 0;
+  const { image } = await importPhoto(new Blob([file]), { current: () => ++checks <= 1000 });
+  assert.deepEqual(calls.map((c) => c.request), [[1600, 1200]]);
+  assert.deepEqual([image.width, image.height], [1600, 1200]);
+});
+
 for (const little of [false, true])
   test(`WebP Orientation 6 only in the ExifIFD is neutralized and turned once, little-endian ${little}`, async (t) => {
     const calls = engine(t), meta = tiff({ little, exif: { orientation: 6 } }), file = webp(meta);
