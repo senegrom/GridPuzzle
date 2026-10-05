@@ -21,7 +21,8 @@ export async function withPhotoDecode(work, current = () => true) {
       new Promise(resolve => { timer = setTimeout(resolve, DECODE_WAIT, false); })]);
     clearTimeout(timer);
     check();
-    if (!turn) throw Error('Another photo is still decoding. Wait a moment and retry.');
+    // A TimeoutError means this photo was never decoded, so it did not fail.
+    if (!turn) throw new DOMException('Another photo is still decoding. Wait a moment and retry.', 'TimeoutError');
     // Keep ownership until the native operation actually settles, even when
     // its selection is obsolete. The caller closes any late bitmap in finally.
     return await work();
@@ -123,6 +124,8 @@ export async function photoDetail(preview, corners, { current = () => true } = {
     }, current);
   } catch (error) {
     if (!current() || error?.name === 'AbortError') throw new DOMException('Scan cancelled', 'AbortError');
+    // Waiting behind another photo's decode is not a failed decode.
+    if (error?.name === 'TimeoutError') return fallback(unavailable);
     return fallback('Original-detail decoding failed; recognition uses the preview.');
   }
 }

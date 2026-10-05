@@ -53,11 +53,15 @@ async function harness(t) {
     },
   };
 }
-function assertFallback(read) {
+// A read that only waited behind another decode never tried this photo, so it
+// must not report a failed decode; a decoder that rejected must.
+const UNAVAILABLE = 'Original-detail decoding is unavailable; recognition uses the preview.',
+  FAILED = 'Original-detail decoding failed; recognition uses the preview.';
+function assertFallback(read, note) {
   assert.equal(read.outcome?.result?.enhanced, false);
   assert.equal(read.outcome.result.image, read.preview);
   assert.equal(read.outcome.result.corners, read.corners);
-  assert.match(read.outcome.result.note, /recognition uses the preview/);
+  assert.equal(read.outcome.result.note, note);
 }
 
 for (const cancelled of [false, true]) for (const failure of [false, true]) {
@@ -67,7 +71,7 @@ for (const cancelled of [false, true]) for (const failure of [false, true]) {
     const skipped = h.read(); skipped.current = !cancelled;
     await h.advance(15000);
     if (cancelled) assert.equal(skipped.outcome?.error?.name, 'AbortError');
-    else assertFallback(skipped);
+    else assertFallback(skipped, UNAVAILABLE);
     assert.equal(h.canvases.length, 0);
 
     const next = h.read();
@@ -76,7 +80,7 @@ for (const cancelled of [false, true]) for (const failure of [false, true]) {
     assert.equal(next.outcome, null);
     h.decodes[0].finish(failure ? Error('decoder failed') : undefined);
     await first.done; await settle();
-    if (failure) assertFallback(first);
+    if (failure) assertFallback(first, FAILED);
     else {
       assert.equal(first.outcome.result.enhanced, true);
       assert.equal(h.decodes[0].bitmap.closed, true);
@@ -90,6 +94,19 @@ for (const cancelled of [false, true]) for (const failure of [false, true]) {
   });
 }
 
+test('a Read that waits 15 s behind a busy decode reports the detail unavailable, not a failed decode', async (t) => {
+  const h = await harness(t), busy = h.read();
+  await settle();
+  const waiting = h.read();
+  await h.advance(14999); assert.equal(waiting.outcome, null);
+  await h.advance(1);
+  assertFallback(waiting, UNAVAILABLE);
+  assert.doesNotMatch(waiting.outcome.result.note, /failed/);
+  assert.equal(h.decodes.length, 1, 'the waiting Read never decoded its photo');
+  h.decodes[0].finish(); await busy.done;
+  assert.equal(busy.outcome.result.enhanced, true);
+});
+
 test('a successor already queued when its predecessor times out still waits for the original decode', async (t) => {
   const h = await harness(t), first = h.read();
   await settle();
@@ -97,7 +114,7 @@ test('a successor already queued when its predecessor times out still waits for 
   await h.advance(10000);
   const next = h.read();
   await h.advance(5000);
-  assertFallback(skipped);
+  assertFallback(skipped, UNAVAILABLE);
   assert.equal(next.outcome, null);
   assert.equal(h.decodes.length, 1);
   h.decodes[0].finish(); await first.done; await settle();
@@ -113,7 +130,7 @@ test('repeated waiter timeouts retain the real decode owner and preserve FIFO re
     const skipped = h.read();
     await settle(); assert.equal(h.decodes.length, 1);
     await h.advance(14999); assert.equal(skipped.outcome, null);
-    await h.advance(1); assertFallback(skipped);
+    await h.advance(1); assertFallback(skipped, UNAVAILABLE);
     assert.equal(h.active, 1); assert.equal(h.canvases.length, 0);
   }
   const next = h.read(), last = h.read();
