@@ -189,8 +189,11 @@ for (const little of [false, true])
     assert.deepEqual([image.width, image.height], [1200, 1600]);
   });
 
+// The refusal advises re-saving the photo, not exporting it as JPEG: the
+// file is already a JPEG, PNG or WebP.
+const refusal = { message: 'The photo orientation could not be checked safely. Save a copy from your photo app, then try again.' };
 test('a JPEG segment that runs past the end of the file is still refused before any decoder', async (t) => {
   const calls = engine(t), file = jpeg({ afterSof: [Buffer.from([0xff, 0xfe, 0x40, 0x00])] });
-  await assert.rejects(importPhoto(new Blob([file])), /orientation could not be checked/);
+  await assert.rejects(importPhoto(new Blob([file])), refusal);
   assert.equal(calls.length, 0);
 });
