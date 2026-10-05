@@ -80,6 +80,26 @@ for (const [type, name] of [["hidato", "Hidato"], ["kakuro", "Kakuro"]]) for (co
     assert.equal(h.error(), ""); assert.equal(h.$("cell-dialog").open, false);
     assert.equal(h.state.puzzle.cells[0], "#");
   });
+// A Kakuro run target is a sum of up to nine different digits: 1 to 45.
+function kakuroClue(t, across, down) {
+  const h = harness(t); h.loadPuzzle(model.makePuzzle("kakuro", 3));
+  h.openCell(0); h.$("blocked-cell").checked = true; h.$("blocked-cell").onchange();
+  h.$("across-value").value = across; h.$("down-value").value = down; h.submit();
+  return h;
+}
+for (const [across, down] of [["46", ""], ["", "46"], ["0", ""], ["", "0"]])
+  test(`a Kakuro ${across ? "across" : "down"} target of ${across || down} is refused with the 1 to 45 range`, (t) => {
+    const h = kakuroClue(t, across, down);
+    assert.equal(h.error(), "Use a whole number from 1 to 45, or leave the field blank.");
+    assert.equal(h.$("cell-dialog").open, true);
+    assert.equal(h.state.puzzle.cells[0], null); assert.equal(h.state.puzzle.clues.length, 0);
+  });
+test("Kakuro across and down targets of 45 are saved", (t) => {
+  const h = kakuroClue(t, "45", "45");
+  assert.equal(h.error(), ""); assert.equal(h.$("cell-dialog").open, false);
+  assert.equal(h.state.puzzle.cells[0], "#");
+  assert.equal(JSON.stringify(h.state.puzzle.clues), JSON.stringify([{ cell: 0, across: 45, down: 45 }]));
+});
 test("a KenKen target above the limit names the range without blank advice", (t) => {
   const h = harness(t); h.loadPuzzle(model.makePuzzle("kenken", 2));
   const before = JSON.stringify(h.state.puzzle);
