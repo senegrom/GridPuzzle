@@ -69,15 +69,17 @@ test("a clue above the puzzle's values gets the clue range message", (t) => {
   assert.equal(h.error(), "Cell 1 is outside the allowed range.");
   assert.equal(h.$("cell-dialog").open, true); assert.equal(h.state.puzzle.cells[0], null);
 });
-test("a value left in the disabled field cannot stop a Hidato cell being blocked", (t) => {
-  const h = harness(t); h.loadPuzzle(model.makePuzzle("hidato", 3));
-  h.openCell(0); h.$("cell-value").value = "1000";
-  h.$("blocked-cell").checked = true; h.$("blocked-cell").onchange();
-  assert.equal(h.$("cell-value").disabled, true, "Blocked disables the value field");
-  h.submit();
-  assert.equal(h.error(), ""); assert.equal(h.$("cell-dialog").open, false);
-  assert.equal(h.state.puzzle.cells[0], "#");
-});
+// Values numberInput refuses: a blocked cell's disabled field is not read.
+for (const [type, name] of [["hidato", "Hidato"], ["kakuro", "Kakuro"]]) for (const stale of ["12a", "99999999999999999999"])
+  test(`a value left in the disabled field (${stale}) cannot stop a ${name} cell being blocked`, (t) => {
+    const h = harness(t); h.loadPuzzle(model.makePuzzle(type, 3));
+    h.openCell(0); h.$("cell-value").value = stale;
+    h.$("blocked-cell").checked = true; h.$("blocked-cell").onchange();
+    assert.equal(h.$("cell-value").disabled, true, "Blocked disables the value field");
+    h.submit();
+    assert.equal(h.error(), ""); assert.equal(h.$("cell-dialog").open, false);
+    assert.equal(h.state.puzzle.cells[0], "#");
+  });
 test("a KenKen target above the limit names the range without blank advice", (t) => {
   const h = harness(t); h.loadPuzzle(model.makePuzzle("kenken", 2));
   const before = JSON.stringify(h.state.puzzle);
