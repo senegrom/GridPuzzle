@@ -38,30 +38,64 @@ shares) reads the EXIF orientation itself before any decoder runs, from a
 bounded walk of the file's metadata: the first JPEG APP1 "Exif" block, a PNG
 eXIf chunk before IDAT, or a WebP EXIF chunk (bare TIFF or behind an
 "Exif\0\0" prefix). It takes the Orientation from IFD0, or from the ExifIFD when
-IFD0 has no usable entry, and ignores an entry that is not a SHORT with count 1
-and a value from 1 to 8, as Chromium, Firefox and WebKit do.
+IFD0 has no usable entry, following the ExifIFD pointer (a LONG or IFD with
+count 1) one level only. A SHORT with count 1 whose value is outside 1 to 8
+(Android writes 0, 9 or 65535) is not usable and is ignored, as Chromium,
+Firefox and WebKit ignore it. An Orientation entry of any other type or count
+(a LONG 6, two SHORTs) counts as damaged EXIF below, because our users are on
+iPhone Safari: Safari decodes with ImageIO, whose reading of such an entry is
+unverified, and a squeezed preview would be visible.
 
 - JPEG and PNG are decoded with `imageOrientation: from-image`, so the browser
   applies the orientation. Both bounded resize dimensions, in the oriented
-  axes, are requested only where every engine agrees on the result: no
-  orientation, a flip or half turn (2 to 4, which keep the axes), or a usable
-  IFD0 SHORT behind the standard JPEG identifier. Engines differ on damaged
-  EXIF, on PNG eXIf (WebKitGTK has no PNG EXIF support) and on an orientation
-  found only in the ExifIFD (WebKit's JPEG decoder reads IFD0 only). There the
-  import requests one width that keeps the long side within 1600 whichever way
-  the browser turns the photo, so the preview keeps the browser's own aspect
-  ratio and is never squeezed; the cost is a smaller preview (1200 x 900 for a
-  4:3 photo) when the decoded photo comes out landscape.
+  axes, are requested only where every engine agrees on the axes: no
+  orientation, a flip or a half turn (1 to 4, wherever the value was found),
+  or a quarter turn in a usable IFD0 SHORT behind the standard JPEG
+  identifier. Engines differ on PNG eXIf (WebKitGTK has no PNG EXIF support),
+  on a block behind a repeated JPEG identifier or an "Exif\0\0"-prefixed PNG
+  eXIf (Skia ignores the first; Chromium, Firefox and libpng the second) and
+  on an orientation found only in the ExifIFD (WebKit's JPEG decoder reads
+  IFD0 only), and damaged EXIF has no value to trust. For a quarter turn (5 to
+  8) found there, and for damaged EXIF, the import requests one width that
+  keeps the long side within 1600 whichever way the browser turns the photo,
+  so the preview keeps the browser's own aspect ratio and is never squeezed.
+  The cost is a smaller preview whenever the decoded photo comes out
+  landscape: 1200 x 900 instead of 1600 x 1200 for a 4:3 photo, 900 x 507
+  instead of 1600 x 900 for 16:9, and 400 x 100 instead of 1600 x 400 for
+  4:1. A portrait result keeps its 1600-pixel long side.
 - WebP decoders differ in whether they apply EXIF at all. The import rewrites
   the two bytes of the orientation value to 1 in a copy of the encoded file,
   without decoding or copying pixels, decodes that copy as stored, and applies
   the declared quarter turns and mirroring itself, once.
-- Damaged EXIF (a broken TIFF header, offsets or counts outside the block,
-  stray bytes between JPEG segments, more than 4096 segments or chunks) imports
-  the photo as the browser shows it, through the same single width. The one
-  refusal left is a segment or chunk that runs past the end of the file or its
-  container: "The photo orientation could not be checked safely. Save a copy
-  from your photo app, then try again."
+- Damaged EXIF (a broken TIFF header, offsets or counts outside the block, an
+  Orientation entry of another type or count, stray bytes between JPEG
+  segments, more than 4096 segments or chunks) imports the photo as the
+  browser shows it, through the same single width.
+
+The import refuses a photo only in these cases:
+
+- larger than 30 MB: "Please choose a photo smaller than 30 MB."
+- dimensions not readable from the first 512 KB (another format, or a damaged
+  header): "The photo dimensions could not be checked safely. Export it as
+  JPEG, PNG or WebP, then try again."
+- a width or height of 0: "The image is empty."
+- more than 120 million pixels: "This photo is too large to decode safely on a
+  phone. Use a smaller camera resolution or crop it first."
+- before the metadata walk stops (at the EXIF block, a JPEG's start of scan or
+  a PNG's first IDAT), a JPEG segment whose length is 0 or 1, or a JPEG segment
+  or a PNG or WebP chunk that runs past the end of the file (for a WebP, of its
+  RIFF container): "The photo orientation could not be checked safely. Save a
+  copy from your photo app, then try again." The first IDAT's own length is
+  not checked, so a PNG cut short inside its image data still reaches the
+  decoder, as it did before the walk. A WebP's EXIF follows its bitstream, so
+  a WebP cut short inside its bitstream is refused.
+- no ImageBitmap resizing (missing or failed) for a photo of more than 24
+  million pixels: "This browser cannot downscale this large photo safely. Crop
+  it in your photo app first, then try again."
+- another decode still holding the queue after 15 seconds: "Another photo is
+  still decoding. Wait a moment and retry."
+
+A file the browser itself cannot decode fails with the browser's own error.
 
 The preview keeps its source transform: the retained encoded file (for a WebP,
 the neutralized copy) carries `(turns, mirrored)`, the quarter turns and
