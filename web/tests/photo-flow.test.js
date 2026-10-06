@@ -79,11 +79,19 @@ test("an older native-photo failure cannot replace a newer import error", async 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 // --- photo-flow: captured still, track listeners, Escape -----------------
-async function cameraHarness(t, { capture = null, play = async () => {} } = {}) {
+// The page with a fake live camera: `h.live.freeze()` does what the camera
+// does when it freezes a solved view, and its resume() what Clear asks of it.
+// getUserMedia hands out the same stream again, or a new one per call with
+// `freshStreams`.
+async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false } = {}) {
   const { setupPhotoFlow } = await import("../photo-flow.js");
-  const nodes = new Map(), statuses = [], listeners = {}, tracks = [];
+  const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
+  let flow = null;
+  t.after(() => flow?.stopCamera()); // Before the globals go: it clears the page's timers.
   const $ = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => ({ clearRect() {} }) });
+    if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
+      setAttribute(name, value) { this.attributes[name] = value; },
+      focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => ({ clearRect() {} }) });
     return nodes.get(id);
   };
   for (const key of ["navigator", "document"]) {
@@ -99,18 +107,50 @@ async function cameraHarness(t, { capture = null, play = async () => {} } = {}) 
     },
     removeEventListener(type, fn) { handlers.get(type)?.delete(fn); },
   };
-  const track = { stopped: 0, events: {}, stop() { this.stopped++; }, addEventListener(type, fn) { this.events[type] = fn; } };
-  tracks.push(track);
-  const stream = { getTracks: () => tracks };
-  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { mediaDevices: { getUserMedia: async () => stream } } });
-  $("video").play = play;
+  const makeStream = () => {
+    const track = { stopped: 0, events: {}, enabled: true, readyState: "live", muted: false,
+      stop() { this.stopped++; this.readyState = "ended"; }, addEventListener(type, fn) { this.events[type] = fn; } };
+    tracks.push(track);
+    const own = [track];
+    return { getTracks: () => own };
+  };
+  const stream = makeStream();
+  let requests = 0, refusal = null, playback = play, plays = 0, pauses = 0;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { mediaDevices: { getUserMedia: async () => {
+    requests++;
+    if (refusal) throw refusal;
+    return freshStreams && requests > 1 ? makeStream() : stream;
+  } } } });
+  $("video").play = (...args) => { plays++; return playback(...args); };
+  $("video").pause = () => { pauses++; };
   let liveStarted = 0, liveStopped = 0;
-  const flow = setupPhotoFlow({
+  flow = setupPhotoFlow({
     $, state: {}, scanner: {}, stopTask() {}, status: (...args) => statuses.push(args),
-    savePicture: async () => true,
-    liveFactory: () => ({ start() { liveStarted++; }, stop() { liveStopped++; }, capture: () => capture }),
+    savePicture: async (annotated, createdAt) => { saved.push({ annotated, createdAt }); return true; },
+    liveFactory: (options) => {
+      const live = { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
+        start() { liveStarted++; }, stop() { liveStopped++; }, capture: () => capture,
+        resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; options.onViewChange?.("live"); },
+        freeze() { this.view = "frozen"; options.onViewChange?.("frozen"); } };
+      lives.push(live);
+      return live;
+    },
   });
-  return { $, flow, statuses, listeners, track, get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; } };
+  return { $, flow, statuses, listeners, track: tracks[0], tracks, saved,
+    get live() { return lives.at(-1); },
+    get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; },
+    get requests() { return requests; }, refuse(error) { refusal = error; },
+    get plays() { return plays; }, get pauses() { return pauses; }, setPlay(fn) { playback = fn; },
+    hide() { globalThis.document.hidden = true; listeners.visibilitychange(); globalThis.document.hidden = false; } };
+}
+// Timers the test runs by hand, from here on.
+function manualTimers(t) {
+  const timers = new Map(), oldSet = globalThis.setTimeout, oldClear = globalThis.clearTimeout;
+  let next = 0;
+  t.after(() => { globalThis.setTimeout = oldSet; globalThis.clearTimeout = oldClear; });
+  globalThis.setTimeout = (fn, ms) => { timers.set(++next, { fn, ms }); return next; };
+  globalThis.clearTimeout = (id) => timers.delete(id);
+  return timers;
 }
 
 const stillPicture = () => ({ photo: {}, annotated: {}, found: null, corners: null, createdAt: 1 });
@@ -160,6 +200,204 @@ test("Escape closes the full-screen camera and returns focus to its opener", asy
   assert.equal(h.$("camera").focused, 1);
   h.listeners.keydown({ key: "Escape", preventDefault() {} });
   assert.equal(h.$("camera").focused, 1, "Escape with the panel closed is not ours");
+});
+
+// --- photo-flow: the frozen solution and Clear --------------------------
+test("freezing pauses the video but keeps the camera on; Clear plays it again before scanning resumes", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick();
+  assert.equal(h.$("camera-panel").attributes["data-view"], "live");
+  assert.equal(h.$("clear-freeze").hidden, true);
+  const plays = h.plays, live = h.live;
+  live.freeze();
+  assert.equal(h.$("camera-panel").attributes["data-view"], "frozen");
+  assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("view-state").hidden, false);
+  assert.equal(h.pauses, 1, "the video element stops behind the still");
+  assert.equal(h.plays, plays, "marking a view never plays");
+  assert.equal(h.track.enabled, true); assert.equal(h.track.stopped, 0, "the camera itself stays on");
+  const playback = deferred();
+  h.setPlay(() => playback.promise);
+  const clearing = h.$("clear-freeze").onclick();
+  await tick();
+  assert.equal(h.plays, plays + 1, "Clear plays inside its tap");
+  assert.equal(live.resumed, 0, "the still stays until playback has resumed");
+  assert.equal(h.$("clear-freeze").disabled, true);
+  assert.equal(h.$("clear-freeze").onclick(), undefined, "a second tap meanwhile does nothing");
+  playback.resolve(); await clearing;
+  assert.equal(live.resumed, 1); assert.equal(live.view, "live");
+  assert.equal(h.requests, 1, "a stream that stayed on needs no new getUserMedia");
+  assert.equal(h.$("take-photo").focused, 1, "focus returns to the shutter");
+  assert.equal(h.$("camera-panel").attributes["data-view"], "live");
+  assert.equal(h.$("clear-freeze").hidden, true); assert.equal(h.$("view-state").hidden, true);
+  assert.equal(h.$("clear-freeze").disabled, false);
+  assert.equal(h.liveStopped, 0);
+});
+
+test("freezing starts no timer: the camera is not turned off while frozen", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick();
+  const timers = manualTimers(t);
+  h.live.freeze();
+  assert.equal(timers.size, 0, "nothing releases the stream later");
+  assert.equal(h.track.enabled, true); assert.equal(h.track.stopped, 0);
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.requests, 1, "Clear plays the stream that stayed on");
+  assert.equal(h.live.resumed, 1);
+});
+
+test("Clear whose playback is refused offers Start preview, which plays again and then resumes", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  h.setPlay(async () => { throw Object.assign(Error("Playback needs a tap"), { name: "NotAllowedError" }); });
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.live.view, "frozen", "the solution stays on screen");
+  assert.equal(h.$("start-camera").hidden, false); assert.match(h.$("camera-help").textContent, /Start preview/);
+  assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("clear-freeze").disabled, false);
+  h.setPlay(async () => {});
+  const plays = h.plays;
+  await h.$("start-camera").onclick();
+  assert.equal(h.plays, plays + 1);
+  assert.equal(h.live.resumed, 1); assert.equal(h.live.view, "live");
+  assert.equal(h.$("start-camera").hidden, true);
+});
+
+test("Clear whose playback never starts offers Start preview after eight seconds and keeps the frozen view", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  const timers = manualTimers(t);
+  h.setPlay(() => new Promise(() => {}));
+  const clearing = h.$("clear-freeze").onclick();
+  await tick();
+  assert.deepEqual([...timers.values()].map((timer) => timer.ms), [8000], "the one playback timer");
+  [...timers.values()][0].fn(); await clearing;
+  assert.equal(timers.size, 0);
+  assert.equal(h.$("start-camera").hidden, false);
+  assert.match(h.$("camera-help").textContent, /No camera frame arrived/);
+  assert.equal(h.live.view, "frozen"); assert.equal(h.$("camera-panel").hidden, false);
+  assert.equal(h.live.resumed, 0);
+});
+
+test("closing the camera while Clear waits for playback fences the Clear", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  const live = h.live, playback = deferred();
+  h.setPlay(() => playback.promise);
+  const clearing = h.$("clear-freeze").onclick();
+  await tick();
+  h.listeners.keydown({ key: "Escape", preventDefault() {} });
+  const help = h.$("camera-help").textContent;
+  playback.resolve(); await clearing;
+  assert.equal(live.resumed, 0, "a closed camera is not resumed");
+  assert.equal(h.$("camera-panel").hidden, true);
+  assert.equal(h.$("camera-help").textContent, help);
+  assert.equal(h.$("clear-freeze").disabled, false, "the next frozen view can be cleared");
+});
+
+test("hiding the page while frozen turns the camera off but keeps the solution; Clear asks for the camera again", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.hide();
+  assert.equal(h.track.stopped, 1, "the camera is turned off");
+  assert.equal(h.$("video").srcObject, null);
+  assert.equal(h.$("camera-panel").hidden, false); assert.equal(h.liveStopped, 0);
+  assert.equal(h.live.view, "frozen"); assert.equal(h.$("clear-freeze").hidden, false);
+  assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  h.hide();
+  assert.equal(h.track.stopped, 1, "a released camera is not released twice");
+  const plays = h.plays;
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.requests, 2, "Clear asks for the camera inside its tap");
+  assert.equal(h.$("video").srcObject.getTracks()[0], h.tracks[1]);
+  assert.equal(h.plays, plays + 1); assert.equal(h.live.resumed, 1);
+  assert.equal(typeof h.tracks[1].events.ended, "function", "the new track is watched too");
+});
+
+test("Save picture keeps the frozen solution after the camera was turned off", async (t) => {
+  const frozen = { photo: {}, annotated: { frozen: true }, found: null, corners: null, createdAt: 5, frozen: true };
+  const h = await cameraHarness(t, { capture: frozen });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.hide();
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(h.saved.length, 1); assert.equal(h.saved[0].annotated, frozen.annotated);
+  assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
+  assert.equal(h.$("clear-freeze").hidden, true); assert.equal(h.$("view-state").hidden, true);
+  assert.equal(h.$("use-live-capture").hidden, false); assert.equal(h.liveStopped, 1);
+});
+
+test("a refused camera on Clear keeps the frozen view, says why and leaves Clear available", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze(); h.hide();
+  h.refuse(Object.assign(Error("Permission denied"), { name: "NotAllowedError" }));
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.live.view, "frozen"); assert.equal(h.live.resumed, 0);
+  assert.equal(h.$("camera-help").textContent, "The camera could not turn on: Permission denied. Save picture keeps this solution.");
+  assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("clear-freeze").disabled, false);
+  assert.equal(h.$("start-camera").hidden, true, "Start preview cannot help without a stream");
+  h.refuse(null);
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.live.resumed, 1, "a later Clear can still succeed");
+});
+
+test("a track that ends while frozen turns the camera off instead of closing the panel", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.track.events.ended();
+  assert.equal(h.$("camera-panel").hidden, false); assert.equal(h.liveStopped, 0);
+  assert.equal(h.live.view, "frozen");
+  assert.match(h.$("camera-help").textContent, /^The camera stopped\. Save picture keeps this solution/);
+  assert.equal(h.statuses.some(([text]) => /Camera disconnected/.test(text)), false);
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);
+});
+
+test("Escape closes the camera from the frozen view", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  h.listeners.keydown({ key: "Escape", preventDefault() {} });
+  assert.equal(h.$("camera-panel").hidden, true); assert.equal(h.liveStopped, 1);
+  assert.equal(h.track.stopped, 1);
+  assert.equal(h.$("camera-panel").attributes["data-view"], "closed");
+  assert.equal(h.$("clear-freeze").hidden, true); assert.equal(h.$("view-state").hidden, true);
+  assert.match(h.statuses.at(-1)[0], /Camera closed/);
+});
+
+test("the shutter while frozen shows the captured picture", async (t) => {
+  const h = await cameraHarness(t, { capture: stillPicture() });
+  await h.$("camera").onclick(); h.live.freeze();
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
+  assert.equal(h.$("clear-freeze").hidden, true);
+  assert.equal(h.$("retake-photo").hidden, false); assert.equal(h.track.stopped, 1);
+});
+
+test("a resumed stream that delivers no frame for three seconds offers Start preview", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  const timers = manualTimers(t);
+  await h.$("clear-freeze").onclick();
+  assert.deepEqual([...timers.values()].map((timer) => timer.ms), [3000]);
+  [...timers.values()][0].fn();
+  assert.equal(h.$("start-camera").hidden, false);
+  assert.match(h.$("camera-help").textContent, /No camera frame arrived/);
+  await h.$("start-camera").onclick();
+  assert.equal(h.$("start-camera").hidden, true, "Start preview plays the stream again");
+  assert.equal(h.live.view, "live");
+  h.live.stats.scheduling.observed = 3;
+  const check = [...timers.values()].at(-1);
+  assert.equal(check.ms, 3000); check.fn();
+  assert.equal(h.$("start-camera").hidden, true, "frames arrived: nothing to offer");
+});
+
+test("a retry offered for a silent stream gives way when the view freezes", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  const timers = manualTimers(t);
+  await h.$("clear-freeze").onclick();
+  [...timers.values()][0].fn();
+  assert.equal(h.$("start-camera").hidden, false);
+  h.live.freeze(); // Frames arrived after all, and the grid was solved again.
+  assert.equal(h.$("start-camera").hidden, true, "the frozen row holds only Save picture and Clear");
+  assert.equal(await h.$("start-camera").onclick(), undefined, "no stale retry remains");
 });
 
 function canvas(width = 600, height = 600) {
