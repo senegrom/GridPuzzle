@@ -433,6 +433,7 @@ test("hiding the page while frozen turns the camera off but keeps the solution; 
   assert.equal(h.$("camera-panel").hidden, false); assert.equal(h.liveStopped, 0);
   assert.equal(h.live.view, "frozen"); assert.equal(h.$("clear-freeze").hidden, false);
   assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  assert.match(h.$("camera-help").textContent, /Clear turns it back on, and the phone may ask for camera access again\.$/);
   h.hide();
   assert.equal(h.track.stopped, 1, "a released camera is not released twice");
   const plays = h.plays;
@@ -583,7 +584,7 @@ test("a track that ends while frozen turns the camera off instead of closing the
   h.track.events.ended();
   assert.equal(h.$("camera-panel").hidden, false); assert.equal(h.liveStopped, 0);
   assert.equal(h.live.view, "frozen");
-  assert.match(h.$("camera-help").textContent, /^The camera stopped\. Save picture keeps this solution/);
+  assert.match(h.$("camera-help").textContent, /^The camera stopped\. Save picture keeps this solution.*may ask for camera access again\.$/);
   assert.equal(h.statuses.some(([text]) => /Camera disconnected/.test(text)), false);
   await h.$("clear-freeze").onclick();
   assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);

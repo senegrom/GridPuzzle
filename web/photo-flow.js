@@ -174,10 +174,12 @@ export function setupPhotoFlow({
   }
   // A camera turned off while frozen, by the page being hidden or by the
   // system ending the track, leaves the frozen picture, its reading and Save
-  // picture in place. Clear asks for the camera again.
+  // picture in place. Clear asks for the camera again, which can bring the
+  // permission prompt back (Safari after a while without capture, a
+  // home-screen app in a new session).
   const RELEASED = {
-    hidden: "The camera was turned off while the app was in the background. Save picture keeps this solution; Clear turns it back on.",
-    ended: "The camera stopped. Save picture keeps this solution; Clear tries to turn it back on.",
+    hidden: "The camera was turned off while the app was in the background. Save picture keeps this solution; Clear turns it back on, and the phone may ask for camera access again.",
+    ended: "The camera stopped. Save picture keeps this solution; Clear tries to turn it back on, and the phone may ask for camera access again.",
   };
   function releaseStream(cause) {
     for (const track of stream?.getTracks?.() ?? []) track.stop();
