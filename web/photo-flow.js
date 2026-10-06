@@ -276,11 +276,18 @@ export function setupPhotoFlow({
       // that froze meanwhile: the freeze pauses the video, which rejects a
       // pending play() with an AbortError.
       if (epoch !== cameraEpoch || (owner && stream !== owner) || live?.view !== view) return;
-      if (stream && ["NotAllowedError", "PreviewTimeout"].includes(error.name)) {
+      // With a stream, play() itself failed: refused without a gesture,
+      // silent, or interrupted (WebKit rejects it with an AbortError while a
+      // call or another app holds the media session). The camera is on, so
+      // Start preview retries. Without one, getUserMedia failed.
+      if (stream && ["NotAllowedError", "PreviewTimeout", "AbortError"].includes(error.name)) {
         $("start-camera").hidden = false;
-        $("camera-help").textContent = error.name === "PreviewTimeout"
-          ? error.message : "Tap Start preview to resume the camera.";
-      } else $("camera-help").textContent = `The camera could not turn on: ${error.message || "unavailable"}. Save picture keeps this solution.`;
+        $("camera-help").textContent = error.name === "PreviewTimeout" ? error.message
+          : error.name === "AbortError" ? "Camera playback was interrupted. Tap Start preview to resume the camera."
+          : "Tap Start preview to resume the camera.";
+      } else $("camera-help").textContent = error.name === "NotAllowedError"
+        ? "Camera permission was denied. Save picture keeps this solution; Clear tries again."
+        : `The camera could not turn on: ${String(error.message || "unavailable").replace(/[.\s]+$/, "")}. Save picture keeps this solution.`;
     } finally {
       if (epoch === cameraEpoch) { $("start-camera").disabled = false; $("clear-freeze").disabled = false; }
     }

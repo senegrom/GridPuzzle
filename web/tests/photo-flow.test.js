@@ -364,15 +364,40 @@ test("a camera granted after the app was hidden again is turned off, and the fro
 test("a refused camera on Clear keeps the frozen view, says why and leaves Clear available", async (t) => {
   const h = await cameraHarness(t, { freshStreams: true });
   await h.$("camera").onclick(); h.live.freeze(); h.hide();
-  h.refuse(Object.assign(Error("Permission denied"), { name: "NotAllowedError" }));
+  // Safari's own text ends with a period and names no camera.
+  h.refuse(Object.assign(Error("The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission."), { name: "NotAllowedError" }));
   await h.$("clear-freeze").onclick();
   assert.equal(h.live.view, "frozen"); assert.equal(h.live.resumed, 0);
-  assert.equal(h.$("camera-help").textContent, "The camera could not turn on: Permission denied. Save picture keeps this solution.");
+  assert.equal(h.$("camera-help").textContent, "Camera permission was denied. Save picture keeps this solution; Clear tries again.");
   assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("clear-freeze").disabled, false);
   assert.equal(h.$("start-camera").hidden, true, "Start preview cannot help without a stream");
   h.refuse(null);
   await h.$("clear-freeze").onclick();
   assert.equal(h.live.resumed, 1, "a later Clear can still succeed");
+});
+
+test("a camera that cannot start on Clear is named once, without a doubled period", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze(); h.hide();
+  h.refuse(Object.assign(Error("Could not start video source."), { name: "NotReadableError" }));
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.$("camera-help").textContent, "The camera could not turn on: Could not start video source. Save picture keeps this solution.");
+  assert.equal(h.live.view, "frozen"); assert.equal(h.$("start-camera").hidden, true);
+});
+
+test("a Clear whose playback is interrupted offers Start preview and does not blame the camera", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick(); h.live.freeze();
+  // Current WebKit rejects play() with an AbortError when the media session
+  // cannot begin, during a phone call for one.
+  h.setPlay(async () => { throw Object.assign(Error("The operation was aborted."), { name: "AbortError" }); });
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.$("camera-help").textContent, "Camera playback was interrupted. Tap Start preview to resume the camera.");
+  assert.equal(h.$("start-camera").hidden, false);
+  assert.equal(h.live.view, "frozen"); assert.equal(h.track.stopped, 0, "the camera stays on");
+  h.setPlay(async () => {});
+  await h.$("start-camera").onclick();
+  assert.equal(h.live.resumed, 1); assert.equal(h.$("start-camera").hidden, true);
 });
 
 test("turning the camera off while Start preview is offered leaves Save picture and Clear", async (t) => {
