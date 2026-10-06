@@ -517,8 +517,10 @@ test("turning the camera off while Start preview is offered leaves Save picture 
   h.setPlay(async () => { throw Object.assign(Error("Playback needs a tap"), { name: "NotAllowedError" }); });
   await h.$("clear-freeze").onclick();
   assert.equal(h.$("start-camera").hidden, false);
+  assert.equal(h.$("video").srcObject, h.stream, "the refused Clear attached the stream again");
   h.hide();
   assert.equal(h.$("start-camera").hidden, true, "Clear is the way back");
+  assert.equal(h.$("video").srcObject, null, "the stopped stream is detached");
   h.$("start-camera").onclick();
   assert.equal(h.requests, 1, "no retry is left for the stream that was turned off");
   h.setPlay(async () => {});
