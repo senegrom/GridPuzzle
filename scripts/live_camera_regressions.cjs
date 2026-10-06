@@ -96,7 +96,7 @@ async function cameraLayout(page) {
     help.textContent="Hold the grid steady.";
     const box=selector=>document.querySelector(selector).getBoundingClientRect(), row=document.querySelector(".camera-actions");
     const result={viewfinder:box("#camera-panel .viewfinder").height,row:box(".camera-actions").height,
-      rowOverflow:row.scrollWidth>row.clientWidth,shutter:box("#take-photo"),clear:box("#clear-freeze"),panel:box("#camera-panel")};
+      rowOverflow:row.scrollWidth>row.clientWidth,shutter:box("#take-photo"),clear:box("#clear-freeze"),start:box("#start-camera"),panel:box("#camera-panel")};
     help.textContent=text;
     return JSON.parse(JSON.stringify(result));
   });
@@ -262,9 +262,18 @@ async function run() {
             assert.equal(frozen.viewfinder,live.viewfinder,"freezing does not shrink the viewfinder");
             assert.equal(frozen.row,live.row,"the frozen action row stays one line");assert.equal(frozen.rowOverflow,false);
             assert.equal(frozen.clear.top,frozen.shutter.top);assert.ok(frozen.clear.right<=frozen.panel.right);
+            // A Clear whose playback was refused adds Start preview to the row:
+            // it takes a line of its own, and Save picture and Clear keep size.
+            await page.evaluate(()=>{document.getElementById("start-camera").hidden=false;});
+            const retry=await cameraLayout(page);report.narrowLayout.retry=retry;
+            await page.evaluate(()=>{document.getElementById("start-camera").hidden=true;});
+            assert.equal(retry.rowOverflow,false);
+            for (const key of ["shutter","clear"])
+              assert.deepEqual([retry[key].width,retry[key].height],[frozen[key].width,frozen[key].height],`${key} is not squeezed beside Start preview`);
+            assert.equal(retry.clear.top,retry.shutter.top);assert.ok(retry.start.bottom<=retry.shutter.top,"Start preview has a line of its own");
             await page.click("#close-camera");
           } finally { await page.setViewportSize(size); }
-          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size");
+          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size; Start preview after a refused Clear gets a line of its own");
         });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.
