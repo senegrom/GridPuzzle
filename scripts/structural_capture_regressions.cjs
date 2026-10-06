@@ -77,13 +77,21 @@ async function structuralProbe({ ink = 0, vertical = false, erase = false, hold 
       }
     }clock=end;}
     try {
-      camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
+      const original=video.toDataURL();
+      camera.start();await advance(1000);const before=Number(overlay.dataset.solution),frozen=camera.view==="frozen";
       if(phase==="solved"){await advance(hold);if(reads!==1)throw Error(`Expected one retained read for an unchanged structural board, got ${reads}`);}
       changed=true;video.getContext("2d").drawImage(board(cameraKind,true),0,0);await advance(300);
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
       const capture=camera.capture();
-      const row={phase,before,after:Number(overlay.dataset.solution),metadata:capture.found,rawMatches:capture.photo.toDataURL()===video.toDataURL(),solvesBeforeReread:solves};
-      await advance(1600);row.reads=reads;row.finalAnswers=Number(overlay.dataset.solution);outcomes.push(row);
+      const row={phase,before,frozen,after:Number(overlay.dataset.solution),metadata:capture.found,frozenCapture:capture.frozen===true,
+        rawMatches:capture.photo.toDataURL()===video.toDataURL(),originalMatches:capture.photo.toDataURL()===original,solvesBeforeReread:solves};
+      // A solved view is frozen until Clear, which reads the changed board
+      // from nothing. advance() drains tracking but not detection: wait for
+      // the fresh read, up to 3 s, and look no earlier than the fixed 1.6 s.
+      if(frozen)camera.resume();
+      let waited=0;for(;reads<2&&waited<3000;waited+=100)await advance(100);
+      if(waited<1600)await advance(1600-waited);
+      row.reads=reads;row.finalAnswers=Number(overlay.dataset.solution);outcomes.push(row);
     } finally { camera.stop(); }
   }
   return {ink,vertical,erase,pixels,outcomes};
@@ -235,8 +243,18 @@ async function storageProbe(page) {
 
 function assertStructural(structural) {
   for(const p of structural.pixels){assert.equal(p.changed,false,`${structural.ink}: ${p.kind} change`);assert.equal(p.identical,true);assert.equal(p.light,true,`${p.kind} lighting`);assert.equal(p.jitter,true,`${p.kind} jitter`);}
-  for(const row of structural.outcomes){assert.equal(row.after,0,row.phase);assert.equal(row.metadata,null);assert.equal(row.rawMatches,true);assert.ok(row.reads>=2);assert.equal(row.finalAnswers,0);
-    if(row.phase==="solved")assert.equal(row.before,4);if(row.phase==="reading")assert.equal(row.solvesBeforeReread,0);}
+  for(const row of structural.outcomes){
+    assert.ok(row.reads>=2,row.phase);assert.equal(row.finalAnswers,0,row.phase);
+    if(row.phase==="solved"){
+      // Frozen on the original board until Clear: the change is not shown, and
+      // the shutter keeps the frozen frame and its reading.
+      assert.equal(row.before,4);assert.equal(row.frozen,true);assert.equal(row.after,4);
+      assert.ok(row.metadata);assert.equal(row.frozenCapture,true);assert.equal(row.originalMatches,true);
+    } else {
+      assert.equal(row.frozen,false,row.phase);assert.equal(row.after,0,row.phase);assert.equal(row.metadata,null);assert.equal(row.rawMatches,true);
+      if(row.phase==="reading")assert.equal(row.solvesBeforeReread,0);
+    }
+  }
 }
 // `time(phase, run)` records each phase's wall time (live_camera's timer).
 module.exports=async function structuralCapture(page, time = (phase, run) => run()) {
