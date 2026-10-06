@@ -1,4 +1,11 @@
 export function setupOffline($) {
+  const prepareButton = $("prepare-offline"), prepareLabel = prepareButton.textContent;
+  const offerReload = (message) => {
+    prepareButton.disabled = false;
+    prepareButton.textContent = "Reload to retry offline setup";
+    prepareButton.onclick = () => location.reload();
+    $("offline-state").textContent = message;
+  };
   let generation = 0, pending = null;
   function supersedeOffline() {
     generation++;
@@ -117,11 +124,45 @@ export function setupOffline($) {
           }
         };
         offerUpdate();
-        registration.addEventListener("updatefound", () =>
-          registration.installing?.addEventListener("statechange", offerUpdate),
-        );
+        // Registration can succeed even though its install later fails. ready
+        // never rejects in that case. Keep observing it (a slow install may
+        // still succeed), but always offer an explicit, non-destructive retry.
+        let awaitingFirstInstall = true, startupHelp = false;
+        const installHelp = message => {
+          if (awaitingFirstInstall && !registration.active) { startupHelp = true; offerReload(message); }
+        };
+        const startupTimer = setTimeout(() => installHelp(
+          "Offline setup is taking longer than expected. You can keep waiting, or go online and reload to retry. Your saved puzzle is unchanged.",
+        ), 300000);
+        const watchInstall = () => {
+          const worker = registration.installing;
+          if (!worker) {
+            if (!registration.active && !registration.waiting) {
+              clearTimeout(startupTimer);
+              installHelp("Offline setup did not finish. Go online and reload to retry. Your saved puzzle is unchanged.");
+            }
+            return;
+          }
+          const changed = () => {
+            offerUpdate();
+            if (worker.state === "redundant") {
+              clearTimeout(startupTimer);
+              installHelp("Offline setup failed. Go online and reload to retry. Your saved puzzle is unchanged.");
+            }
+            if (["activated", "redundant"].includes(worker.state)) worker.removeEventListener("statechange", changed);
+          };
+          worker.addEventListener("statechange", changed);
+          changed();
+        };
+        registration.addEventListener("updatefound", watchInstall);
+        watchInstall();
         const ready = await navigator.serviceWorker.ready;
-        $("prepare-offline").disabled = false;
+        awaitingFirstInstall = false;
+        clearTimeout(startupTimer);
+        if (startupHelp && !needsReload) $("offline-state").textContent =
+          "Offline setup recovered. Download the offline assets to prepare this device.";
+        prepareButton.textContent = prepareLabel;
+        prepareButton.disabled = false;
         $("prepare-offline").onclick = async () => {
           // A retained old document must not certify a different build's cache.
           // Updating in another tab never reloads this tab without its consent.
@@ -171,9 +212,14 @@ export function setupOffline($) {
         }
       })
       .catch((e) => {
-        $("prepare-offline").disabled = true;
-        $("offline-state").textContent =
-          `Offline caching unavailable: ${e.message}`;
+        // A failed script fetch can succeed after a reload. A refusal (site data
+        // blocked, insecure or unsupported context) repeats on every reload.
+        const reason = `Offline caching unavailable: ${String(e?.message ?? e).replace(/\.+$/, "")}.`;
+        if (e?.name === "TypeError" || ["NetworkError", "AbortError", "InvalidStateError"].includes(e?.name))
+          return offerReload(`${reason} Go online and reload to retry.`);
+        prepareButton.textContent = prepareLabel;
+        prepareButton.disabled = true;
+        $("offline-state").textContent = reason;
       });
   } else {
     $("prepare-offline").disabled = true;

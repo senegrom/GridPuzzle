@@ -263,6 +263,22 @@ that size (`detectedRows`, `detectedCols`), and the report's `harness` says
 outline stands for corners the user set, confirmed at any size. An image without
 an outline is still read through the detector's corners, under the rule.
 
+Since PR #121 the benchmark decodes each photograph through the app's own
+import (`importPhoto` in `web/photo-import.js`) rather than its own copy of the
+flow's loader. That changes some previews (`web/OCR_QUALITY.md` counts them)
+but not the scoring, so the report's `harness` records `load: "importPhoto"`;
+a version 5 report without it was read through the copy.
+
+This recognition benchmark supplies the **reference puzzle type and row/column
+counts** to the Scanner. It does not test fully automatic family/size inference.
+By default the crop is the detector's proposal, at any confidence as described
+above. With `--true-corners`, available reference corners replace that crop;
+a target without corners still uses the detector's proposal. Reference clue
+values stay in the scorer and are not sent to the recognition page. JSON reports
+record this contract in `recognition`, and each reading records `geometrySource`
+(`reference` or `detector-proposal`). Keep these configured scores separate from
+the detection-only and automatic live-camera gates.
+
 The pure scorer runs in the normal Node gate through
 `web/tests/corpus-score.test.js`. The bounded Python suite includes 150 seeded
 Killer witnesses at sizes 4, 6 and 9, plus validation of dense and compact target

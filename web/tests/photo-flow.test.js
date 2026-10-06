@@ -43,13 +43,13 @@ function photoImports(t) {
   });
   return {
     errors, stopTask,
-    async choose(id = "photo-file") {
+    async choose(id = "photo-file", wait = true) {
       const request = { started: deferred(), decode: deferred() };
       queue.push(request);
-      const input = { files: [new Blob([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,16,0,0,0,16])])], value: "photo" };
+      const input = { files: [new Blob([Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,16,0,0,0,16,8,2,0,0,0,0,0,0,0,0,0,0,0,73,69,78,68,0,0,0,0])])], value: "photo" };
       const completed = $(id).onchange({ target: input });
-      await request.started.promise;
-      return { completed, reject: request.decode.reject, input };
+      if (wait) await request.started.promise;
+      return { completed, started: request.started.promise, reject: request.decode.reject, input };
     },
   };
 }
@@ -68,11 +68,12 @@ test("cancelling a photo decode suppresses its delayed error", async (t) => {
   assert.deepEqual(imports.errors, []);
 });
 test("an older native-photo failure cannot replace a newer import error", async (t) => {
-  const imports = photoImports(t), first = await imports.choose("native-file"), second = await imports.choose();
-  second.reject(Error("Current photo error"));
-  await second.completed;
+  const imports = photoImports(t), first = await imports.choose("native-file"), second = await imports.choose("photo-file", false);
   first.reject(Error("Obsolete camera photo error"));
   await first.completed;
+  await second.started;
+  second.reject(Error("Current photo error"));
+  await second.completed;
   assert.deepEqual(imports.errors, ["Current photo error"]);
 });
 
