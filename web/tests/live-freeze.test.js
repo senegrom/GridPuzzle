@@ -300,7 +300,7 @@ test("a freeze inside a tick does not track or adopt that tick's frame", async (
 // fences are what keeps a late reply out; detections and reads are manual.
 function heldReplies(t) {
   let time = 0, serial = 0, hold = false, core = createTrackingCore();
-  const timers = new Map(), detections = [], readings = [], held = [], renders = [], draws = [], created = [], texts = [], nodes = new Map();
+  const timers = new Map(), detections = [], readings = [], held = [], renders = [], draws = [], created = [], texts = [], events = [], nodes = new Map();
   const context = { drawImage(source) { draws.push(source); }, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText(text) { texts.push(text); }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
@@ -310,12 +310,12 @@ function heldReplies(t) {
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "", hidden: true }); return nodes.get(id); };
   const tracker = {
     anchor: async (task) => core.run({ ...task, op: "anchor" }),
-    verify: (task) => hold ? new Promise((resolve) => held.push({ resolve, result: () => core.run({ ...task, op: "verify" }) }))
+    verify: (task) => hold ? new Promise((resolve, reject) => held.push({ resolve, reject, result: () => core.run({ ...task, op: "verify" }) }))
       : Promise.resolve(core.run({ ...task, op: "verify" })),
     reset() { core = createTrackingCore(); },
   };
   const camera = createLiveCamera({ tracker, $, canvas: view,
-    diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: (value) => renders.push(value) },
+    diagnostics: { event: (value) => events.push(value), configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: (value) => renders.push(value) },
     video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } },
     getSettings: () => ({ type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() {} },
@@ -338,7 +338,7 @@ function heldReplies(t) {
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, view, detections, readings, held, renders, draws, created, texts, advance, result, holdTracking(value) { hold = value; } };
+  return { camera, view, detections, readings, held, renders, draws, created, texts, events, $, advance, result, holdTracking(value) { hold = value; } };
 }
 
 test("replies held across the freeze are fenced: the frozen frame stays and nothing paints", async (t) => {
@@ -361,13 +361,20 @@ test("replies held across the freeze are fenced: the frozen frame stays and noth
   assert.equal(frozenPaint.includes("DELAYED"), false, "the frozen picture is never marked DELAYED");
   assert.equal(h.view.dataset.delayed, "0");
   const raw = h.camera.diagnosticSource().image, paints = h.renders.filter((r) => r.painted).length, draws = h.draws.length;
-  for (const job of h.held) job.resolve(job.result());
+  // One held verification fails late: a worker error from before the freeze
+  // must not reach the frozen view (no failure, message or Restart).
+  const [failing, ...rest] = h.held;
+  failing.reject(Error("late worker failure"));
+  for (const job of rest) job.resolve(job.result());
   for (const job of h.detections) job.resolve({ confidence: 0 });
   await flush(); await h.advance(1000);
   assert.equal(h.camera.diagnosticSource().image, raw, "no late reply replaces the frozen frame");
   assert.equal(h.renders.filter((r) => r.painted).length, paints);
   assert.equal(h.draws.length, draws, "nothing is drawn, not even a copy");
   assert.equal(h.view.dataset.solution, "2");
+  assert.equal(h.events.some((event) => event.reason === "worker-error"), false, "a late failure is fenced");
+  assert.match(h.$("camera-help").textContent, FROZEN);
+  assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.$("restart-live").hidden, true);
   const [scratchA, scratchB] = h.created;
   assert.deepEqual(h.created.filter((c) => c.width !== 0), [scratchA, scratchB, raw],
     "every fenced frame is released; the frozen frame and the two scratch canvases remain");
