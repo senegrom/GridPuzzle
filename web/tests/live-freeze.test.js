@@ -472,6 +472,20 @@ test("a detection in flight at the freeze is abandoned without cancelling its wo
   assert.equal(h.timers.size, 0);
 });
 
+test("a detection candidate still waiting for its verdict at the freeze is discarded", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  // A settled detection's candidate waits for the next frame's verification.
+  assert.ok(await h.until(() => h.camera.stats.candidate === 1, 3000, 10), "a candidate is pending");
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.ok(await h.until(() => frozenNow(h), 500, 10));
+  assert.equal(h.camera.stats.candidate, 0);
+  assert.equal(h.camera.stats.retainedSources, 1, "its frame is not kept beside the frozen one");
+  await h.advance(1000);
+  h.camera.resume();
+  assert.equal(h.camera.stats.candidate, 0, "Clear starts without it");
+});
+
 test("after Clear the help line says when no picture arrives, then gives way", async (t) => {
   const h = simulation(t);
   assert.ok(await h.until(() => frozenNow(h)));
