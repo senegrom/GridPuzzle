@@ -51,6 +51,48 @@ solving run in workers. Closing the camera, backgrounding the page, changing
 settings or losing the stream cancels the matching work, and frames that are
 never explicitly captured are never stored.
 
+### The frozen solution and Clear
+
+The first time the camera shows a complete, unique solution on a verified
+frame, it freezes the view: that frame stays on screen with its clues, the
+blue solution, the outline and the PREVIEW bar, and the heading shows a
+**Frozen** chip. Nothing moves or blinks any more, and **Save picture** stores
+exactly that picture. The freeze happens in the render that first paints the
+solution, on the frame the solution was verified on, never on a later one; a
+solution that arrives while the grid does not verify freezes only once a newer
+frame verifies it. Freezing ends all frame work: no frame is sampled, and no
+detection, tracking, OCR, retry or solve runs, while replies already in flight
+are fenced and dropped. Before, a solved view kept sampling about four frames a
+second; every measured blink of the solution, and both measured captures that
+missed one (2 of 22 solved runs), happened in that phase.
+
+The camera stays on while frozen. The video element is paused and hidden
+behind the still, but the camera track stays enabled and no timer turns it off,
+so Clear resumes at once and never asks for permission again. Only when the app
+is hidden (an app switch, the lock screen) or the system ends the camera track
+is the camera turned off; the frozen picture, its reading and Save picture
+stay, the help line says why, and Clear asks for the camera again.
+
+**Clear** sits beside Save picture while the view is frozen. It plays the
+video again inside the tap and only then discards the frozen picture and its
+reading, so the still stays on screen until live frames can replace it. The
+camera then scans from nothing: the same puzzle still in view is detected,
+read and frozen again after about the usual time to a solution. The reading is
+not kept, because a kept reading would freeze again on the next verified
+frame; the warm OCR engine, the geometry worker and an idle Python interpreter
+are. If playback is refused or stays silent for eight seconds, the frozen view
+stays and **Start preview** retries; a stream that plays but delivers no frame
+for three seconds offers it too, and the camera says when no picture has
+arrived a second after Clear. If the camera cannot be turned back on, the
+frozen view stays with the reason, and Save picture still works.
+
+Freezing has a price. A solution is not improved after it appears (the
+targeted retries of yellow clues end), a change on the paper is not noticed
+until Clear, and a setting changed while frozen takes effect after Clear. A
+unique solution built on a misread yellow clue freezes too: the yellow flag
+stays in the picture and in review, and Clear reads the view again from
+scratch.
+
 ### Warm workers
 
 The page runs one Python interpreter. With automatic solving on, opening the
@@ -109,11 +151,14 @@ for arbitrary photographs or handwriting.
 including the colour legend and PREVIEW label. It is not a fresh, differently
 positioned frame: capture revalidates against the displayed raw frame and its
 verified geometry, the coloured overlay is never fed back into OCR, and capture
-never accepts the clues or rules for the user. The camera stops and the picture
+never accepts the clues or rules for the user. While the solution is frozen it
+stores exactly the frozen picture, its frame and its reading, also after the
+camera was turned off; a capture whose own revalidation shows the solution
+for the first time freezes it and stores that. The camera stops and the picture
 stays on the same screen, also when the page is hidden meanwhile (an app
 switch, the lock screen, a download prompt): only a live camera is released on
 hide, and a captured still holds no camera. Escape closes the camera panel like
-a dialog and returns focus to the Scan button.
+a dialog, also from the frozen view, and returns focus to the Scan button.
 
 The latest captured PNG is saved as exact bytes in this browser's IndexedDB,
 also on WebKit backends that cannot store Blob objects, and appears under
@@ -239,7 +284,8 @@ once the view has stayed unverified for two seconds, because verified replies
 can arrive that far apart; announcing every gap alternated it with the status
 six to eight times every five seconds. A worker that never answers reaches the
 failure, backoff and Restart path (see Recovery). Neither tier promises that
-image copying and rendering are off-thread.
+image copying and rendering are off-thread. A frozen solution is never marked
+DELAYED: it is the frame the solution was verified on, whatever its age.
 
 ### Detection pacing
 
@@ -280,9 +326,11 @@ a detector reply can never sample a stalled video into fresh evidence. Every
 heartbeat still validates freshness and the current solver preferences, but a
 paint is issued only when the raw image, geometry, reading or solution has
 changed; a new frame, a changed proposal, a solution toggle or an expired proof
-invalidates that cache at once. Captures copy the exact displayed image
-synchronously, never a later frame. These are processing intervals, not sensor
-frame rates.
+invalidates that cache at once. The paint that freezes a solution is never
+skipped. Captures copy the exact displayed image synchronously, never a later
+frame. These are processing intervals, not sensor frame rates. While the view
+is frozen the scheduler is stopped: no video-frame callback, heartbeat,
+snapshot or readback runs, and Clear starts it again with new tokens.
 
 ## Noticing changed print
 
@@ -356,15 +404,17 @@ or sub-noise marks remain heuristic.
 
 ### Reading again
 
-Once a complete unique preview is showing, a still scene is not read again
-until the picture or the settings change, or autofocus yields a substantially
-sharper frame. An unresolved scene retries with a doubling interval (3, 6, 12,
-then 24 seconds), so an unreadable page does not keep OCR busy. A sharpness gain
-of both 30 percent and 40 points may retry after one second instead, also on a
-provisional solved scene, since improved focus is new recognition evidence;
-small focus fluctuations do not restart OCR. Each retry takes fresh pixels: a
-released frame is never eligible merely because it was sharper, and frames
-observed while OCR was pending do not outrank the next fresh capture.
+Once a complete unique preview is showing, the view is frozen and nothing is
+read again until Clear. A complete reading without automatic solving is not read
+again until the picture or the settings change, or autofocus yields a
+substantially sharper frame. An unresolved scene retries with a doubling
+interval (3, 6, 12, then 24 seconds), so an unreadable page does not keep OCR
+busy. A sharpness gain of both 30 percent and 40 points may retry after one
+second instead, also on a provisional solved scene, since improved focus is new
+recognition evidence; small focus fluctuations do not restart OCR. Each retry
+takes fresh pixels: a released frame is never eligible merely because it was
+sharper, and frames observed while OCR was pending do not outrank the next fresh
+capture.
 
 A full re-read of a completed reading is a proposal until it finishes. The
 completed reading stays in place, with its tracking anchor still verified, and
@@ -422,18 +472,18 @@ confidence, and nothing comes from a solution.
 ### Tracking failures and Restart
 
 A stalled grid detection has an eight-second deadline and retries while the
-video stays active; a settings change cancels pending geometry work at once.
-A tracking failure backs off for two seconds, then four; the third consecutive
-failure stops automatic tracking and the camera offers **Restart live
-scanning** (`tracking-recovery.js`). One successful message does not clear the
-streak; two seconds of sustained verified work does. Restart retires the prior
-work, fences its replies and starts the callbacks and the worker again. Until
-then the shutter still captures the current frame by hand, and readings the
-camera can no longer verify stay hidden rather than being shown on the wrong
-frame. Start/Stop cycles reset the pipeline, a repeated Start is idempotent,
-and retired detector clean-up or solver errors cannot cancel a newer request.
-Stop releases the scratch canvases and any pending read samples as well as the
-timers and workers.
+video stays active; a settings change cancels pending geometry work at once. A
+tracking failure backs off for two seconds, then four; the third consecutive
+failure stops automatic tracking and the camera offers **Restart live scanning**
+(`tracking-recovery.js`), never while the solution is frozen. One successful
+message does not clear the streak; two seconds of sustained verified work does.
+Restart retires the prior work, fences its replies and starts the callbacks and
+the worker again. Until then the shutter still captures the current frame by
+hand, and readings the camera can no longer verify stay hidden rather than being
+shown on the wrong frame. Start/Stop cycles reset the pipeline, a repeated Start
+is idempotent, and retired detector clean-up or solver errors cannot cancel a
+newer request. Stop releases the scratch canvases and any pending read samples
+as well as the timers and workers.
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -447,12 +497,16 @@ delay.
 ## Diagnostic timings
 
 `scan-metrics.js` keeps bounded numeric windows of the latest 128 samples per
-measurement: painting, frame age, tracking latency, queue work and the time to
-the first completed reading. P50 and P95 describe the window; means, maxima and
-counts describe the session. Render requests are counted separately from
-actual paints, and repeated updates of one frame do not double-count its
-tracking measurement. The export carries numbers only, never images or free
-text. They are app timings, not sensor frame rates or battery estimates.
+measurement: painting, the main-thread time of each sampled camera frame
+(`performance.tick`, including the readbacks for detection and tracking it
+starts), frame age, tracking latency, queue work and the time to the first
+completed reading. The freeze, Clear and a camera turned off while frozen are
+recorded as `frozen`, `cleared` and `camera-released` events. P50 and P95
+describe the window; means, maxima and counts describe the session. Render
+requests are counted separately from actual paints, and repeated updates of one
+frame do not double-count its tracking measurement. The export carries numbers
+only, never images or free text. They are app timings, not sensor frame rates or
+battery estimates.
 
 ## External pictures
 
@@ -487,6 +541,19 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-delayed-tier.test.js`: the two tiers, detection pacing and slow anchors;
   `live-relock.test.js`: re-locking after a jump and one verified anchor per
   settled frame.
+- `live-freeze.test.js`: the frozen solution on the production camera, tracker
+  and tracking core with a fake clock: it freezes on its own verified frame
+  (also inside a tick, without tracking that tick's frame), and only on a
+  verified unique solution, never on a provisional, multiple or unsolvable
+  reading or without automatic solving; nothing is sampled, detected, tracked
+  or painted while frozen, held replies and an abandoned detection are fenced
+  without cancelling the geometry worker, and Restart is hidden; capture keeps
+  the frozen frame and reading; Clear starts from nothing, and thirty Clear
+  cycles leave no timer or canvas behind. `photo-flow.test.js` covers the page:
+  the video paused but the camera kept on while frozen, Clear playing inside
+  its tap before scanning resumes, refused, stalled and silent playback, an app
+  switch or an ended track turning the camera off without closing the panel,
+  getUserMedia again on Clear, and Escape and the shutter from the frozen view.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
   and canvas. `solver-handoff.test.js`: the interpreter handoff.
@@ -503,25 +570,30 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 
 - `live_camera_regressions.cjs` gives a real canvas-backed MediaStream to the
   production camera with Tesseract, Pyodide and real IndexedDB: automatic
-  solving without closing the camera, exact shutter pixels, review gating,
-  reload and delete, motion and uncertain readings. It also runs
+  solving without closing the camera, the frozen solution (video paused and
+  hidden, the camera track still on, the picture unchanged), Clear without a new
+  getUserMedia, an app switch while frozen (camera off, picture kept, Clear
+  asking for the camera again, Save picture without a camera), the frozen action
+  row on a 320-pixel screen, exact shutter pixels, review gating, reload and
+  delete, motion and uncertain readings. It also runs
   `review_safety_regressions.cjs`, which changes and erases clues after solving
-  and during delayed reads and searches in both ink polarities, keeps the jitter
-  and brightness controls, checks faint mixed-contrast clues and verifies a
-  deletion again after reloading, with camera completion callbacks controlled so
-  races reproduce. That suite in turn runs
+  (the frozen view keeps its frame and reading until Clear, which reads the
+  change afresh) and during delayed reads and searches in both ink polarities,
+  keeps the jitter and brightness controls, checks faint mixed-contrast clues
+  and verifies a deletion again after reloading, with camera completion
+  callbacks controlled so races reproduce. That suite in turn runs
   `structural_capture_regressions.cjs`: horizontal and vertical inequality flips
   and erasures, cage labels and walls, lighting and jitter controls, pending and
-  solved overlays, capture metadata, delayed encoding, conversion and database
-  opening, reload after deletion, newer captures with identical timestamps, and
-  two real tabs sharing IndexedDB and Web Locks. It includes 36 grey-sign cases
-  per engine (RGB levels 150, 205 and 210, both orientations, flips and erasures,
-  during reading, solving and solved display), and feeds the two newspaper crops
-  in `Examples/BrowserScanner/Newspaper` as camera frames: a quarter- and
-  half-pixel shift, four levels of noise, both together and a six percent
-  brightness change must read as the same print, while an erased clue, a changed
-  grey sign (also under shift and noise) and an added cage wall must read as
-  changed.
+  solved (frozen until Clear) overlays, capture metadata, delayed encoding,
+  conversion and database opening, reload after deletion, newer captures with
+  identical timestamps, and two real tabs sharing IndexedDB and Web Locks. It
+  includes 36 grey-sign cases per engine (RGB levels 150, 205 and 210, both
+  orientations, flips and erasures, during reading, solving and solved display),
+  and feeds the two newspaper crops in `Examples/BrowserScanner/Newspaper` as
+  camera frames: a quarter- and half-pixel shift, four levels of noise, both
+  together and a six percent brightness change must read as the same print,
+  while an erased clue, a changed grey sign (also under shift and noise) and an
+  added cage wall must read as changed.
 - `live_motion_regressions.cjs` drives a real canvas stream through production
   detection, camera and session logic and Tesseract, with continual jitter and
   an animated background. It uses the 22-clue pattern from a reported screen

@@ -55,13 +55,13 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 
 | Suite | Proves | Runs in |
 | --- | --- | --- |
-| `app_review_regressions.cjs` | file download/import, camera-preference races and modal behaviour in the real UI | `live-acceptance` |
+| `app_review_regressions.cjs` | file download/import, camera-preference races, the frozen solution's Clear (tab order, a setting changed while frozen) and modal behaviour in the real UI | `live-acceptance` |
 | `browser_regressions.cjs` | generated OCR, perspective and review regressions on the production scanner | `build` |
 | `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions, exact shutter pixels, reload and delete | `live-camera`, one job per engine |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: live solutions frozen until Clear (camera kept on; turned off by an app switch), the frozen row at 320 px, exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation; external-picture tracking | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it | `live-acceptance` |
@@ -75,12 +75,12 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `play_safety_regressions.cjs` | scan confirmation for Check and Hint, uniqueness, cancellation and late callbacks | `build` |
 | `recognition_fragments_regressions.cjs` | damaged glyphs stay complete, marked and reviewable | `recognition` |
 | `recognition_segments_regressions.cjs` | paired narrow-number and quality cases against a pinned baseline scanner; no previously correct cell lost | `recognition` |
-| `review_safety_regressions.cjs` | single-clue changes retire overlays; faint clues keep ink evidence; deleted pictures stay deleted | inside `live_camera` |
+| `review_safety_regressions.cjs` | single-clue changes retire overlays (a frozen solution keeps its frame until Clear reads the change); faint clues keep ink evidence; deleted pictures stay deleted | inside `live_camera` |
 | `scan_input_regressions.cjs` | original-detail decoding, EXIF orientation, local cell alignment and end-to-end photo scans against a pinned baseline | `recognition` |
 | `scanner_repair_regressions.cjs` | retained black clues, reload and undo, failed re-detection, import limits, cage-operator validation | `build` |
 | `scanner_settings_regressions.cjs` | dimension and type corrections, undo and the solver with deterministic scanner results | `build` |
 | `solver_update_regressions.cjs` | a two-tab service-worker update while an old solver worker is still initializing | `build` |
-| `structural_capture_regressions.cjs` | changed cage labels, walls and signs invalidate the live view; pictures are owned across tabs | inside `review_safety` |
+| `structural_capture_regressions.cjs` | changed cage labels, walls and signs invalidate the live view (a frozen solution after Clear); pictures are owned across tabs | inside `review_safety` |
 
 Two suites depend on an earlier step in the same job: `recognition_segments`
 and `scan_input` compare against `browser-artifacts/ocr-quality.json`, which
@@ -115,6 +115,15 @@ parent) and prints one line per phase. On the hosted runner (run 36181850845,
 | · · real photographs | 1.2 | 1.2 |
 | · · picture ownership across tabs | 0.6 | 1.4 |
 | total | 72.3 | 140.4 |
+
+Since the solved view freezes until Clear, "moving away and closing" is
+"moving away, Clear and closing", which holds the frozen view for 1.5 s and
+watches the live view for 1.5 s after Clear, and two phases follow it:
+"frozen, camera off" (an app switch while frozen, Clear asking for the camera
+again, a second live solve and a frozen shutter) and "320 px" (a third live
+solve on a 320 × 568 screen). The table predates them; a first local Chromium
+run on a loaded Windows host took 8.9, 5.9 and 2.9 s for the three, where
+"live solve" took 5.2 s.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
