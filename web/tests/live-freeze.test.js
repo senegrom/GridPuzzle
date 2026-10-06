@@ -290,6 +290,14 @@ test("a freeze inside a tick does not track or adopt that tick's frame", async (
   const raw = h.raw(), posts = h.posts.length;
   await h.advance(50);
   assert.equal(h.camera.view, "frozen");
+  // This video has no requestVideoFrameCallback, so the pulse that ran the
+  // freezing tick runs its heartbeat right after it (as it does in browsers
+  // without one, and after the native callback stalls). That heartbeat sees
+  // the scheduler the freeze stopped and must not report a stalled feed or
+  // put "Waiting for a new camera frame" over the frozen help line.
+  assert.match(h.help, FROZEN, "the same pulse's heartbeat leaves the frozen help line");
+  const reasons = h.diagnostics.snapshot().events.map((e) => `${e.stage}:${e.reason}`);
+  assert.equal(reasons.at(-1), "complete:frozen", `nothing follows the freeze: ${reasons.slice(-3).join(" ")}`);
   const sampled = h.created.filter((c) => c.at === h.now);
   assert.equal(sampled.length, 1, "the freezing tick took its snapshot and nothing else");
   assert.equal(sampled[0].canvas.width, 0, "and released it at once");
