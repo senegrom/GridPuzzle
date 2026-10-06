@@ -51,7 +51,7 @@ function reading() {
 // records the images drawn into it and its clears. `solve` is "unique" (an
 // immediate unique solution), "deferred" (h.solveJobs) or a function.
 function simulation(t, { autoSolve = true, solve = "unique", read = null, workerMs = 20 } = {}) {
-  let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, rejectAll = false, holdDetections = false;
+  let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, rejectAll = false, holdDetections = false, failVerify = 0;
   const timers = new Map(), nodes = new Map(), posts = [], draws = [], clears = [], created = [], workers = [];
   const solveJobs = [], heldDetections = [], viewChanges = [];
   const counts = { reads: 0, detects: 0, detectorCancels: 0, solves: 0 };
@@ -80,6 +80,8 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, worker
           if (worker.dead) return;
           let data;
           try {
+            // failVerify(n): the next n verifications fail in the worker.
+            if (failVerify > 0 && message.op === "verify") { failVerify--; throw Error("worker failure"); }
             // rejectVerify: the worker answers, but the printed content no
             // longer matches any anchor (the grid moved away or changed).
             const result = rejectAll && message.op === "verify"
@@ -143,7 +145,8 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, worker
     raw: () => camera.diagnosticSource().image,
     viewDraws: () => draws.filter((d) => d.target === view),
     move(dx, dy) { x += dx; y += dy; }, stall() { frozenTime = time; }, resume() { frozenTime = null; },
-    rejectVerify(value) { rejectAll = value; }, holdDetections(value) { holdDetections = value; } };
+    rejectVerify(value) { rejectAll = value; }, holdDetections(value) { holdDetections = value; },
+    failVerify(count) { failVerify = count; } };
 }
 const frozenNow = (h) => h.camera.view === "frozen";
 
@@ -224,6 +227,7 @@ test("Clear resumes from nothing: a fresh detection, read and solve on a new fra
   assert.deepEqual(h.viewChanges, ["frozen", "live"]);
   assert.equal(h.clears.length, clears + 1); assert.equal(h.clears.at(-1).target, h.view, "the canvas is cleared");
   for (const key of ["recognised", "uncertain", "unknown", "solution", "delayed"]) assert.equal(h.view.dataset[key], "0", key);
+  assert.equal(h.view.attributes["aria-label"], "Live camera preview", "no longer described as the frozen picture");
   assert.equal(old.width, 0, "the frozen frame is released");
   assert.equal(h.camera.stats.retainedSources, 0);
   assert.equal(h.timers.size, 1, "exactly the scheduler's heartbeat");
@@ -388,6 +392,7 @@ test("closing a frozen camera releases everything, and thirty Clear cycles leave
   assert.equal(h.camera.stats.retainedSources, 0); assert.equal(h.timers.size, 0);
   assert.equal(h.camera.view, "live"); assert.equal(h.camera.stats.scratchPixels, 0);
   h.camera.start();
+  assert.equal(h.view.attributes["data-view"], "live", "a camera started on the canvas a frozen one left is live");
   for (let cycle = 0; cycle < 30; cycle++) {
     assert.ok(await h.until(() => frozenNow(h)), `cycle ${cycle} freezes`);
     await h.advance(100);
@@ -431,6 +436,19 @@ test("Restart live scanning is hidden while frozen, even with the scheduler stop
   assert.equal(h.camera.view, "frozen", "Restart does nothing to a frozen view");
   await h.advance(1000);
   assert.equal(h.timers.size, 0, "and starts no scheduler");
+});
+
+test("Clear resets the tracking-failure circuit, as Restart does", async (t) => {
+  const h = simulation(t);
+  h.failVerify(1); // The first verification of the candidate fails in the worker.
+  assert.ok(await h.until(() => h.camera.stats.recovery.failures === 1, 5000, 10), "a tracking failure is counted");
+  assert.ok(await h.until(() => frozenNow(h)), "tracking recovers after its back-off and the grid is solved");
+  // Only two seconds of sustained verified tracking clear a failure; the
+  // freeze came sooner, so the count is still there behind the frozen view.
+  assert.equal(h.camera.stats.recovery.failures, 1);
+  h.camera.resume();
+  assert.equal(h.camera.stats.recovery.failures, 0, "the scan after Clear starts with a clean circuit");
+  assert.equal(h.camera.stats.recovery.retryInMilliseconds, 0);
 });
 
 test("diagnostics: the frozen frame is the verified source, and the freeze and Clear are reported", async (t) => {
