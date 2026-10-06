@@ -7,6 +7,7 @@ import { createBackup, parsePuzzleFile, puzzleDefinition } from "../backup.js";
 import { puzzleFromReadings } from "../scanner.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { retainPhotoSource } from "../photo-detail.js";
+import { createFrameScheduler } from "../live-frame-scheduler.js";
 
 function deferred() {
   let resolve, reject;
@@ -83,8 +84,10 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 // The page with a fake live camera: `h.live.freeze()` does what the camera
 // does when it freezes a solved view, and its resume() what Clear asks of it.
 // getUserMedia hands out the same stream again, or a new one per call with
-// `freshStreams`.
-async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false } = {}) {
+// `freshStreams`. `video` replaces the plain #video node with a model whose
+// own play() and pause() run (counted all the same), and `makeLive(options)`
+// builds the live camera instead of the fake.
+async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false, video = null, makeLive = null } = {}) {
   const { setupPhotoFlow } = await import("../photo-flow.js");
   const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
   let flow = null;
@@ -123,14 +126,17 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     if (refusal) throw refusal;
     return freshStreams && requests > 1 ? makeStream() : stream;
   } } } });
-  $("video").play = (...args) => { plays++; return playback(...args); };
-  $("video").pause = () => { pauses++; };
+  if (video) nodes.set("video", video);
+  // Each play() records the stream attached when it was called.
+  const node = $("video"), ownPlay = video?.play.bind(video), ownPause = video?.pause.bind(video), playedOn = [];
+  node.play = (...args) => { plays++; playedOn.push(node.srcObject); return ownPlay ? ownPlay(...args) : playback(...args); };
+  node.pause = () => { pauses++; ownPause?.(); };
   let liveStarted = 0, liveStopped = 0;
   flow = setupPhotoFlow({
     $, state: {}, scanner: {}, stopTask() {}, status: (...args) => statuses.push(args),
     savePicture: async (annotated, createdAt) => { saved.push({ annotated, createdAt }); return true; },
     liveFactory: (options) => {
-      const live = { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
+      const live = makeLive ? makeLive(options) : { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
         start() { liveStarted++; }, stop() { liveStopped++; }, capture: () => capture,
         resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; options.onViewChange?.("live"); },
         freeze() { this.view = "frozen"; options.onViewChange?.("frozen"); } };
@@ -138,7 +144,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
       return live;
     },
   });
-  return { $, flow, statuses, listeners, track: tracks[0], tracks, saved,
+  return { $, flow, statuses, listeners, track: tracks[0], tracks, saved, stream, playedOn,
     get live() { return lives.at(-1); },
     get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; },
     get requests() { return requests; }, refuse(error) { refusal = error; },
@@ -216,13 +222,15 @@ test("freezing pauses the video but keeps the camera on; Clear plays it again be
   assert.equal(h.$("camera-panel").attributes["data-view"], "frozen");
   assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("view-state").hidden, false);
   assert.equal(h.pauses, 1, "the video element stops behind the still");
+  assert.equal(h.$("video").srcObject, null, "and holds no player: the stream is detached");
   assert.equal(h.plays, plays, "marking a view never plays");
   assert.equal(h.track.enabled, true); assert.equal(h.track.stopped, 0, "the camera itself stays on");
   const playback = deferred();
   h.setPlay(() => playback.promise);
   const clearing = h.$("clear-freeze").onclick();
-  await tick();
   assert.equal(h.plays, plays + 1, "Clear plays inside its tap");
+  assert.equal(h.playedOn.at(-1), h.stream, "on the stream, attached again inside the tap");
+  await tick();
   assert.equal(live.resumed, 0, "the still stays until playback has resumed");
   assert.equal(h.$("clear-freeze").disabled, true);
   assert.equal(h.$("clear-freeze").onclick(), undefined, "a second tap meanwhile does nothing");
@@ -246,6 +254,97 @@ test("freezing starts no timer: the camera is not turned off while frozen", asyn
   await h.$("clear-freeze").onclick();
   assert.equal(h.requests, 1, "Clear plays the stream that stayed on");
   assert.equal(h.live.resumed, 1);
+});
+
+// A <video> after WebKit's MediaStream player. Assigning srcObject makes a
+// new player, which has no picture until its first camera frame. Every frame
+// counts as presented, but a paused player keeps the picture it had for
+// drawing, and play() does not refresh it before the next frame
+// (MediaPlayerPrivateMediaStreamAVFObjC.mm:319-331, 615-643, 1155-1162).
+// A video-frame callback runs at a rendering update once the player has a
+// picture and its count moved since the last callback, paused or not
+// (HTMLVideoElement.cpp:887-935; MediaPlayerPrivateMediaStreamAVFObjC.mm:1271-1291).
+// The camera produces frames whether the element is attached or not.
+function webkitVideo() {
+  let player = null, paused = true, request = null;
+  const waiting = [], abort = (message) => {
+    for (const job of waiting.splice(0)) job.reject(Object.assign(Error(message), { name: "AbortError" }));
+  };
+  const video = {
+    frame: 0, ended: false,
+    get srcObject() { return player?.stream ?? null; },
+    set srcObject(stream) {
+      abort("The play() request was interrupted by a new load request.");
+      if (player) paused = true; // The load algorithm pauses an element that had a source.
+      player = stream ? { stream, count: 0, serviced: 0, picture: null } : null;
+    },
+    get paused() { return paused; },
+    get readyState() { return player?.picture ? 4 : 0; },
+    get videoWidth() { return player?.picture ? 640 : 0; },
+    get videoHeight() { return player?.picture ? 480 : 0; },
+    // What drawImage(video) would draw.
+    get picture() { return player?.picture ?? null; },
+    play() {
+      paused = false;
+      return player?.picture ? Promise.resolve() : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+    },
+    pause() { paused = true; abort("The play() request was interrupted by a call to pause()."); },
+    load() {},
+    requestVideoFrameCallback(callback) { request = callback; return 1; },
+    cancelVideoFrameCallback() { request = null; },
+    cameraFrame() {
+      video.frame++;
+      if (!player) return;
+      player.count++;
+      if (!player.picture || !paused) player.picture = video.frame;
+      if (!paused) for (const job of waiting.splice(0)) job.resolve();
+    },
+    renderingUpdate() {
+      if (!request || !player?.picture || player.count === player.serviced) return;
+      player.serviced = player.count;
+      const callback = request; request = null;
+      callback(0, { presentedFrames: player.count });
+    },
+  };
+  return video;
+}
+// The live camera reduced to its frame scheduler: start, the freeze and Clear
+// start and stop the real scheduler on the video as live-camera.js does, and
+// each frame it hands on records the picture a snapshot would draw.
+function schedulerLive(options, drawn) {
+  let time = 0;
+  const scheduler = createFrameScheduler({ video: options.video, onFrame: () => drawn.push(options.video.picture),
+    now: () => (time += 150), setTimer: () => 0, clearTimer() {} });
+  return { view: "live", resumed: 0, get stats() { return { scheduling: scheduler.stats }; },
+    start() { scheduler.start(); }, stop() { scheduler.stop(); }, capture: () => null,
+    resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; scheduler.start(); options.onViewChange?.("live"); },
+    freeze() { this.view = "frozen"; scheduler.stop(); options.onViewChange?.("frozen"); } };
+}
+
+test("after Clear the camera scans a frame presented after the tap, never the frame of the freeze", async (t) => {
+  const video = webkitVideo(), drawn = [];
+  const h = await cameraHarness(t, { video, makeLive: (options) => schedulerLive(options, drawn) });
+  const opening = h.$("camera").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); await opening; // The first frame lets play() resolve.
+  video.cameraFrame(); video.renderingUpdate();
+  assert.deepEqual(drawn, [2]);
+  h.live.freeze();
+  assert.equal(video.srcObject, null, "no player behind the still");
+  assert.equal(h.track.enabled, true); assert.equal(h.track.stopped, 0, "the camera stays on");
+  for (let i = 0; i < 5; i++) { video.cameraFrame(); video.renderingUpdate(); }
+  assert.deepEqual(drawn, [2], "nothing is scanned while frozen");
+  const tapped = video.frame, plays = h.plays, clearing = h.$("clear-freeze").onclick();
+  assert.equal(h.plays, plays + 1, "play() runs inside the tap");
+  assert.equal(h.playedOn.at(-1), h.stream, "on the stream attached again inside the tap");
+  await tick(); await tick();
+  video.renderingUpdate(); // A rendering update before the camera's next frame.
+  video.cameraFrame(); await tick(); await tick();
+  video.renderingUpdate();
+  await clearing;
+  assert.equal(h.live.view, "live");
+  assert.ok(drawn[1] > tapped, `the first frame scanned after Clear is ${drawn[1]}: the tap came after frame ${tapped}, the freeze at frame 2`);
+  assert.equal(h.requests, 1, "no getUserMedia: the camera stayed on");
 });
 
 test("Clear whose playback is refused offers Start preview, which plays again and then resumes", async (t) => {
