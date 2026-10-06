@@ -463,6 +463,75 @@ test("a retry offered for a silent stream gives way when the view freezes", asyn
   assert.equal(await h.$("start-camera").onclick(), undefined, "no stale retry remains");
 });
 
+// Runs the one pending manual timer of `ms` and forgets it, as a browser does.
+function fire(timers, ms) {
+  const [id, timer] = [...timers.entries()].find(([, entry]) => entry.ms === ms);
+  timers.delete(id); timer.fn();
+}
+// Clear, then three seconds without a frame: Start preview is offered while
+// the view is live.
+async function silentAfterClear(t, h) {
+  await h.$("camera").onclick(); h.live.freeze();
+  const timers = manualTimers(t);
+  await h.$("clear-freeze").onclick();
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, false);
+  return timers;
+}
+
+test("a solution that freezes while Start preview's live retry plays stays frozen", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  const playback = deferred();
+  h.setPlay(() => playback.promise);
+  const retry = h.$("start-camera").onclick();
+  await tick();
+  h.live.freeze(); // Frames came after all, and the grid was solved meanwhile.
+  playback.resolve(); await retry;
+  assert.equal(h.live.view, "frozen", "a retry begun on the live view does not clear a new solution");
+  assert.equal(h.live.resumed, 1, "only the Clear tap resumed");
+  assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("clear-freeze").disabled, false);
+  assert.equal(h.$("start-camera").hidden, true);
+  assert.equal(timers.size, 0, "no frame check runs while frozen");
+});
+
+test("a freeze that aborts Start preview's live retry keeps the frozen help line", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  let pending = null;
+  h.setPlay(() => { pending = deferred(); return pending.promise; });
+  // As in browsers, pause() rejects a pending play() with an AbortError.
+  const video = h.$("video"), pause = video.pause;
+  video.pause = () => {
+    pause();
+    pending?.reject(Object.assign(Error("The play() request was interrupted by a call to pause()."), { name: "AbortError" }));
+    pending = null;
+  };
+  const retry = h.$("start-camera").onclick();
+  await tick();
+  h.live.freeze();
+  h.$("camera-help").textContent = "Solution preview — frozen."; // The camera's line at the freeze.
+  await retry;
+  assert.equal(h.$("camera-help").textContent, "Solution preview — frozen.", "the aborted retry writes nothing");
+  assert.equal(h.live.view, "frozen"); assert.equal(h.live.resumed, 1);
+  assert.equal(h.$("start-camera").hidden, true); assert.equal(h.$("clear-freeze").hidden, false);
+  assert.equal(h.$("clear-freeze").disabled, false);
+  assert.equal(timers.size, 0);
+});
+
+test("frames that arrive after the frame check take its Start preview back", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, false, "still no frame: the offer stands");
+  h.live.stats.scheduling.observed = 2; // Frames after all; nothing freezes (automatic solving off).
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, true, "the retry is taken back");
+  assert.equal(await h.$("start-camera").onclick(), undefined, "and no stale retry remains");
+  assert.equal(timers.size, 0, "the check ends once frames arrive");
+  assert.equal(h.live.view, "live");
+});
+
 function canvas(width = 600, height = 600) {
   const ctx = new Proxy({
     getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),

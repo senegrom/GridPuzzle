@@ -212,15 +212,40 @@ export function setupPhotoFlow({
       if (playbackTimer === timer) playbackTimer = null;
     });
   }
+  // A stream that plays but delivers no frame for three seconds gets Start
+  // preview. Frames that arrive later take that offer back, also with
+  // automatic solving off, where no freeze would ever hide it.
+  function watchFrames(epoch) {
+    clearTimeout(frameCheck);
+    const check = (first) => {
+      frameCheck = null;
+      if (epoch !== cameraEpoch || live?.view !== "live") return;
+      if (live.stats?.scheduling?.observed > 0) {
+        if (!first && pendingPlayback === resumePlayback) { pendingPlayback = null; $("start-camera").hidden = true; }
+        return;
+      }
+      if (first) {
+        pendingPlayback = resumePlayback;
+        $("start-camera").hidden = false;
+        $("camera-help").textContent = "No camera frame arrived. Tap Start preview to retry.";
+      }
+      frameCheck = setTimeout(() => check(false), 500);
+    };
+    frameCheck = setTimeout(() => check(true), 3000);
+  }
   // Clear: play the camera again inside the tap, asking for it first if it
   // was turned off meanwhile, and only then let the live camera scan anew.
   // The frozen picture stays on screen until playback has resumed, and stays
   // (with Save picture) if the camera cannot come back. Start preview calls
-  // this again after a refused or stalled play().
+  // this again after a refused or stalled play(), and also while the view is
+  // live, when the frame check offers it: only a call that began on a frozen
+  // view may clear one, so a solution that freezes during that retry stays.
   async function resumePlayback() {
     const epoch = cameraEpoch;
     if (!live) return;
+    const view = live.view, clearing = view === "frozen";
     pendingPlayback = resumePlayback;
+    clearTimeout(frameCheck); frameCheck = null;
     $("start-camera").disabled = true; $("clear-freeze").disabled = true;
     let owner = null;
     try {
@@ -240,21 +265,17 @@ export function setupPhotoFlow({
       if (epoch !== cameraEpoch || !live || stream !== owner) return;
       pendingPlayback = null;
       $("start-camera").hidden = true;
-      if (live.view === "frozen") live.resume?.();
+      if (clearing && live.view === "frozen") live.resume?.();
+      // A solution that froze while a live retry played stays as it is.
+      if (live.view !== "live") return;
       $("take-photo").focus?.();
-      // A stream that plays but delivers no frame gets Start preview again.
-      clearTimeout(frameCheck);
-      frameCheck = setTimeout(() => {
-        frameCheck = null;
-        if (epoch !== cameraEpoch || live?.view !== "live" || live.stats?.scheduling?.observed > 0) return;
-        pendingPlayback = resumePlayback;
-        $("start-camera").hidden = false;
-        $("camera-help").textContent = "No camera frame arrived. Tap Start preview to retry.";
-      }, 3000);
+      watchFrames(epoch);
     } catch (error) {
       // Closed, captured, or the stream released or replaced meanwhile
-      // (play() then rejects): that path's own text stands.
-      if (epoch !== cameraEpoch || (owner && stream !== owner)) return;
+      // (play() then rejects): that path's own text stands. So does a view
+      // that froze meanwhile: the freeze pauses the video, which rejects a
+      // pending play() with an AbortError.
+      if (epoch !== cameraEpoch || (owner && stream !== owner) || live?.view !== view) return;
       if (stream && ["NotAllowedError", "PreviewTimeout"].includes(error.name)) {
         $("start-camera").hidden = false;
         $("camera-help").textContent = error.name === "PreviewTimeout"
