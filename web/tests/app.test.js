@@ -33,6 +33,29 @@ test("core HTML owns the safe-area and security polish without patch files", () 
   assert.match(css, /safe-area-inset-top/);
 });
 
+// WCAG 2 relative luminance of a #rgb or #rrggbb colour, and the contrast
+// ratio of two colours.
+function luminance(hex) {
+  const digits = hex.length === 4 ? [...hex.slice(1)].map((c) => c + c).join("") : hex.slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16) / 255)
+    .map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrast = (a, b) => {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+};
+
+test("the Frozen chip's text meets WCAG AA contrast for its small bold type", () => {
+  const rule = read("style.css").match(/\.view-state\s*\{([^}]*)\}/)?.[1];
+  assert.ok(rule, "the chip's rule");
+  const colour = (property) => rule.match(new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*(#[0-9a-f]{6}|#[0-9a-f]{3})\\b`, "i"))?.[1];
+  const background = colour("background(?:-color)?"), text = colour("color");
+  assert.ok(background && text, rule);
+  // 0.8rem bold is not large text, so AA asks for 4.5:1.
+  assert.ok(contrast(text, background) >= 4.5, `${text} on ${background} is ${contrast(text, background).toFixed(2)}:1`);
+});
+
 const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
 function section(first, last) {

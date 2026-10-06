@@ -67,8 +67,14 @@ async function frozenState(page) {
   return page.evaluate(()=>{
     const preview=document.getElementById("live-preview"), video=document.getElementById("video"), visible=id=>{
       const node=document.getElementById(id);return !node.hidden&&node.getClientRects().length>0;};
+    // WCAG contrast of the chip's computed text and background colours.
+    const rgb=value=>value.match(/[\d.]+/g).slice(0,3).map(Number), luminance=([r,g,b])=>{
+      const linear=c=>(c/=255)<=.04045?c/12.92:((c+.055)/1.055)**2.4;return .2126*linear(r)+.7152*linear(g)+.0722*linear(b);};
+    const chipStyle=getComputedStyle(document.getElementById("view-state"));
+    const [light,dark]=[luminance(rgb(chipStyle.color)),luminance(rgb(chipStyle.backgroundColor))].sort((a,b)=>b-a);
     return {view:preview.dataset.view, panel:document.getElementById("camera-panel").dataset.view,
       clear:visible("clear-freeze"), chip:visible("view-state"), restart:visible("restart-live"),
+      chipContrast:Math.round((light+.05)/(dark+.05)*100)/100,
       paused:video.paused, visibility:getComputedStyle(video).visibility,
       tracks:video.srcObject?.getTracks().map(t=>({enabled:t.enabled,ready:t.readyState}))??null,
       help:document.getElementById("camera-help").textContent, solution:Number(preview.dataset.solution)};
@@ -130,6 +136,7 @@ async function run() {
         const frozen=await frozenState(page);report.frozen=frozen;
         assert.equal(frozen.view,"frozen");assert.equal(frozen.panel,"frozen");
         assert.equal(frozen.clear,true,"Clear is offered");assert.equal(frozen.chip,true,"the Frozen chip is shown");assert.equal(frozen.restart,false);
+        assert.ok(frozen.chipContrast>=4.5,`the chip's text has AA contrast (${frozen.chipContrast}:1)`);
         assert.equal(frozen.paused,true);assert.equal(frozen.visibility,"hidden","the paused video is hidden behind the still");
         assert.deepEqual(frozen.tracks,[{enabled:true,ready:"live"}],"the camera stays on while frozen");
         assert.match(frozen.help,/frozen/);

@@ -774,7 +774,7 @@ body.camera-open { overflow: hidden; }
    the heading, never over the picture; the paused video behind the still is
    hidden, as it is behind a captured picture. The frozen row stays one line
    down to a 320-px screen, so freezing never shrinks the viewfinder. */
-.view-state { margin-left: auto; padding: .2rem .65rem; border-radius: 999px; background: #3b82f6; color: #fff; font-size: .8rem; font-weight: 700; letter-spacing: .02em; }
+.view-state { margin-left: auto; padding: .2rem .65rem; border-radius: 999px; background: #2563eb; color: #fff; font-size: .8rem; font-weight: 700; letter-spacing: .02em; }
 .camera-actions #clear-freeze { min-height: 58px; min-width: 104px; border-radius: 40px; font-size: 1.1rem; }
 #camera-panel[data-view="frozen"] .camera-actions { flex-wrap: nowrap; }
 #camera-panel[data-view="frozen"] .camera-actions .shutter { min-width: 0; flex: 1 1 auto; }
