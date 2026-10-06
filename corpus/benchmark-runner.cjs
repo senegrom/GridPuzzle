@@ -97,14 +97,19 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   const measureItem = measure || (async (page, item) => {
     const target = JSON.parse(fs.readFileSync(item.target, "utf8"));
     const reading = await page.evaluate(scan, { data: fs.readFileSync(item.file).toString("base64"),
-      mime: item.mime, puzzle: target.puzzle, corners: target.corners || null, useTrue: options.trueCorners });
-    return { confidence: reading.confidence, grid: reading.grid,
+      mime: item.mime, puzzle: { type: target.puzzle.type, rows: target.puzzle.rows, cols: target.puzzle.cols },
+      corners: options.trueCorners ? target.corners || null : null, useTrue: options.trueCorners });
+    return { confidence: reading.confidence, grid: reading.grid, geometrySource: reading.geometrySource,
       total: Math.round(reading.total || 0), detected: Math.round(reading.detected || 0), error: reading.error,
       ...(!reading.error ? score(target, reading) : {}) };
   });
   const results = [], cleanupErrors = [];
   let browser, context, server, serverError, failure = null, closing = false, status = "running";
-  const report = () => ({ ...reportMetadata, options, status, totalImages: items.length,
+  const report = () => ({ ...reportMetadata,
+    ...(!measure ? { recognition: { type: "reference", dimensions: "reference",
+      corners: options.trueCorners ? "reference-when-available" : "detected-or-full-frame",
+      clueValues: "not-supplied" } } : {}),
+    options, status, totalImages: items.length,
     completedImages: results.length, failure, cleanupErrors, summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());
@@ -194,11 +199,14 @@ function readingCorners({ detection, truth, size, trueCorners, puzzle }) {
   return { unconfirmed: !(detection.confidence > CONFIRMED) || resized, corners: detection.corners };
 }
 
-// The reading rules a report records. True corners stand for the user's own
-// crop, confirmed at any size (an image without a target outline still reads
-// through the detector's corners, under its rules).
+// The reading rules every photo-flow report records, kept in this one place.
+// `load`: previews come from the app's own import (importPhoto, with its EXIF
+// sizing) and differ for some images from those of the runner's earlier copy
+// of the flow's loader. True corners stand for the user's own crop, confirmed
+// at any size (an image without a target outline still reads through the
+// detector's corners, under its rules).
 function photoFlowHarness(options) {
-  return { maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED, ...(options.trueCorners ? {} : { otherSize: "unconfirmed" }),
+  return { load: "importPhoto", maxSide: PHOTO_MAX_SIDE, confirmedAbove: CONFIRMED, ...(options.trueCorners ? {} : { otherSize: "unconfirmed" }),
     corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" };
 }
 
@@ -209,47 +217,17 @@ function photoFlowReview(reading, unconfirmed) {
 }
 
 // In the page, in three steps so that the corners are chosen in Node.
-// Load as the photo flow's decodeFile does (web/photo-flow.js, which does not
-// export it): dimensions sniffed from the file's head, a decode straight to the
-// working size, drawn on white, and the original file retained with
-// retainPhotoSource. Detect on that preview. Read as readPhoto does, through
-// photoDetail: the original's grid region at up to 1800 px when the original is
-// larger than the preview and at most 16 MP, and otherwise the preview.
+// Use the production bounded importer, including EXIF sizing and safe fallbacks.
+// Detect on that preview, then read through photoDetail as the app does.
 async function loadPhoto({ data, mime, maxSide }) {
-  const { sniffDimensions } = await import("./image-dimensions.js"), { retainPhotoSource } = await import("./photo-detail.js");
-  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)), file = new Blob([bytes], { type: mime }),
-    dimensions = sniffDimensions(bytes.subarray(0, 512 * 1024), file.size);
-  if (!dimensions) return { error: "load: the photo's dimensions could not be checked" };
-  const fit = (width, height) => {
-      const scale = Math.min(1, maxSide / Math.max(width, height));
-      return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
-    },
-    draw = (source, width, height) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      context.fillStyle = "white";
-      context.fillRect(0, 0, width, height);
-      context.drawImage(source, 0, 0, width, height);
-      return canvas;
-    };
-  let bitmap = null, preview = null;
+  const { importPhoto } = await import("./photo-import.js");
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)), file = new Blob([bytes], { type: mime });
   try {
-    bitmap = await createImageBitmap(file, { resizeWidth: fit(dimensions.width, dimensions.height)[0], resizeQuality: "high", imageOrientation: "from-image" });
-  } catch { bitmap = null; }
-  if (bitmap) try { preview = draw(bitmap, ...fit(bitmap.width, bitmap.height)); } finally { bitmap.close?.(); }
-  else {
-    const url = URL.createObjectURL(file);
-    try {
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-      preview = draw(image, ...fit(image.naturalWidth, image.naturalHeight));
-    } finally { URL.revokeObjectURL(url); }
-  }
-  window.benchCanvas = retainPhotoSource(preview, file, dimensions);
-  return { width: preview.width, height: preview.height, natural: { width: dimensions.width, height: dimensions.height } };
+    const { image, dimensions } = await importPhoto(file, { maxSide });
+    if (window.benchCanvas) window.benchCanvas.width = window.benchCanvas.height = 0;
+    window.benchCanvas = image;
+    return { width: image.width, height: image.height, natural: dimensions };
+  } catch (error) { return { error: `load: ${error.message}` }; }
 }
 async function detectGrid() {
   const { Scanner } = await import("./scanner.js");
@@ -285,6 +263,13 @@ function previewSize(loaded) {
     scale: Math.max(loaded.width, loaded.height) / Math.max(loaded.natural.width, loaded.natural.height) };
 }
 
+// Configuration and provenance accompany even an interrupted photo-flow run.
+function photoFlowMetadata(options) {
+  return { scoreVersion: SCORE_VERSION, harness: photoFlowHarness(options),
+    recognition: { type: "reference", dimensions: "reference",
+      corners: options.trueCorners ? "reference-when-available" : "detector-proposal", clueValues: "not-supplied" } };
+}
+
 async function photoFlowMeasure(page, item, options) {
   const target = JSON.parse(fs.readFileSync(item.target, "utf8")), { puzzle } = target;
   const loaded = await page.evaluate(loadPhoto, { data: fs.readFileSync(item.file).toString("base64"), mime: item.mime, maxSide: PHOTO_MAX_SIDE });
@@ -295,6 +280,7 @@ async function photoFlowMeasure(page, item, options) {
     { corners, unconfirmed } = readingCorners({ detection, truth: target.corners, size, trueCorners: options.trueCorners, puzzle });
   const reading = await page.evaluate(readGrid, { corners, type: puzzle.type, rows: puzzle.rows, cols: puzzle.cols });
   const row = { confidence: detection.confidence, grid: detection.confidence > CONFIRMED, unconfirmed,
+    geometrySource: options.trueCorners && target.corners ? "reference" : "detector-proposal",
     detectedRows: detection.rows || 0, detectedCols: detection.cols || 0,
     width: size.width, height: size.height, detail: reading.detail ?? null, ...(reading.detailNote ? { detailNote: reading.detailNote } : {}),
     detected: Math.round(found.detected), total: Math.round(found.detected + (reading.ms || 0)) };
@@ -319,4 +305,4 @@ function selectImages(options) {
 }
 
 module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
-  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, PHOTO_MAX_SIDE, CONFIRMED };
+  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata, PHOTO_MAX_SIDE, CONFIRMED };

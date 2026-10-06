@@ -45,8 +45,10 @@ The `Build and deploy phone scanner` workflow is the full Chromium/WebKit deploy
 
 ### Suite inventory
 
-The 26 suites under `scripts/` (`harness.cjs` is the shared runner, not a
-suite) and the workflow jobs that run them. `build` is the deployment gate's
+The 26 suites under `scripts/` (`harness.cjs` is the shared runner, and
+`import_safety_checks.cjs` and `webp_import_checks.cjs` are parts of
+`photo_read_regressions.cjs`; none is a suite) and the workflow jobs that run
+them. `build` is the deployment gate's
 main job in `browser-pages.yml`; `live-acceptance` and the per-engine
 `live-camera (chromium)` and `live-camera (webkit)` are its three fresh-runner
 jobs on the built artifact; `recognition` and `live` are the two parallel jobs of
@@ -70,7 +72,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `newspaper_regressions.cjs` | the two real newspaper crops: no wrong, missed or invented clue unflagged | `build` |
 | `ocr_latency_regressions.cjs` | one warm OCR engine is reused across reads; times are reported, not enforced | `build` |
 | `ocr_quality_regressions.cjs` | contrast, resolution, blur and generated-clue quality floors with zero unflagged discrepancies | `recognition`; `build` on pushes and manual runs |
-| `photo_read_regressions.cjs` | a failed, malformed or cancelled photo read preserves the solved board, overlay and session | `build` |
+| `photo_read_regressions.cjs` | a failed, malformed or cancelled photo read preserves the solved board, overlay and session; through the real codecs, JPEG imports with EXIF orientations 1-8 get bounded, correctly turned previews (`import_safety_checks.cjs`), WebP imports with EXIF 1-8, with or without ImageBitmap, are turned once, in the preview and in the original-detail crop after 0-3 user turns (`webp_import_checks.cjs`), and a real failed service-worker install is retried by its Reload button without losing the saved puzzle | `build` |
 | `play_regressions.cjs` | Play mode against the real solver: answers, clashes, checking, hints, completion, reload | `build` |
 | `play_safety_regressions.cjs` | scan confirmation for Check and Hint, uniqueness, cancellation and late callbacks | `build` |
 | `recognition_fragments_regressions.cjs` | damaged glyphs stay complete, marked and reviewable | `recognition` |
@@ -131,13 +133,17 @@ would save only about ten seconds, so it stays one job.
 
 ## Unit tests by area
 
-`node --test web/tests/*.test.js` runs every browser unit test; the Python
-side is in the bounded pytest suite.
+`node --test --test-timeout=60000 web/tests/*.test.js` runs every browser
+unit test; the Python side is in the bounded pytest suite. With the timeout, a
+regression that leaves a test waiting for ever (a decode queue that is never
+released, say) fails that test by name after a minute instead of hanging the
+run until CI's job limit.
 
 - **Camera and live tracking:** listed under "Tests" in [LIVE_CAMERA.md](LIVE_CAMERA.md). `camera-lifecycle.test.js` also covers cancellation while permission, video playback or grid detection is pending, and editing and solving stopping capture.
 - **Recognition:** [OCR_QUALITY.md](OCR_QUALITY.md) names each mechanism's tests. `fragmented-clues.test.js` covers complete fragmented crops in both ink polarities and trailing digits, rejected speckles, unchanged connected glyphs, and review or red unknown status before any solver-backed blue entry.
 - **Play:** `play-actions.test.js` runs the production action and worker handlers with controlled browser I/O: cached-result races, superseded requests, construction and postMessage failures, worker errors and deadlines. `app.test.js` covers Play hiding full-solution photo overlays.
 - **Imports and editing:** `import-lifecycle.test.js` and `photo-read-transactions.test.js` deliver late successes, failures and progress after cancellation or replacement; `input-safety.test.js` and `tests/test_web_api.py` check the shared `web/tests/fixtures/payloads.json` against both the browser's editability and solve-readiness and the native adapter, and `tests/test_web_api.py` covers the rest of the Python data contract.
+- **Photo import and orientation:** `photo-import.test.js`, `photo-orientation-entries.test.js`, `photo-orientation-agreement.test.js` and `webp-import.test.js` import synthetic JPEG, PNG and WebP containers through stub decoders: the bounded metadata walk, the decode request in either orientation, Orientation entries the browsers ignore and entries Safari's ImageIO may read its own way, damaged or engine-dependent EXIF imported without a squeeze, the files the walk refuses or leaves to the decoder, and the WebP neutralize-and-turn path through original-detail reads and user turns. `photo-import-queue.test.js` and `photo-detail-queue.test.js` cover the decode queue that imports and reads share.
 - **Grid detection and layout:** `grid-lines.test.js` pins each rule of the line stage on synthetic warps (thin and light-grey lines, digit columns, a dropped line, a stray line, cage walls, the one-axis fallback); `grid-size-range.test.js` checks rounded large-grid pitches and rectangular counts through `estimateGrid` and `findGrid`; `scan-layout.test.js` and `live-camera-recovery.test.js` keep irrelevant hidden box values from blocking non-boxed families while invalid Sudoku and Killer boxes still block recognition.
 - **Service worker and updates:** `runtime-update.test.js` changes WASM, standard-library and lock-file bytes across builds and checks online and offline routing, the full Python installation, activation races and cache cleanup; `offline-retry.test.js` drives the production service worker with controlled network failures and its own deadline clock; `offline-lifecycle.test.js`, `offline-update.test.js` and `offline-core-choice.test.js` cover preparation, updates and which Tesseract core is stored; `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest coverage without downloading dependencies.
 - **Workers and robustness:** `worker-lifecycle.test.js` covers OCR and scan cancellation and worker cleanup; `solver-worker.test.js` keeps the solver worker's interpreter across Python exceptions and shares one load between a warm-up and the solve that follows; each module's own test file pins its individual fixes from the code reviews (for example `photo-flow.test.js` a captured still surviving page hide and Escape restoring focus, `capture-store.test.js` the saved-picture download reusing its object URL, and `controllers.test.js` a running task disabling Check and Hint).

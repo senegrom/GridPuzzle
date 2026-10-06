@@ -2,10 +2,10 @@ import { onEditUndo } from "./edit-history.js";
 import { fitReviewNotes } from "./session.js";
 import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
-import { retainPhotoSource, rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
+import { rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
 import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { turnCorners, validQuad } from "./geometry.js";
-import { sniffDimensions } from "./image-dimensions.js";
+import { importPhoto } from "./photo-import.js";
 import { createLiveCamera } from "./live-camera.js";
 import { cameraModal } from "./camera-modal.js";
 
@@ -344,79 +344,6 @@ export function setupPhotoFlow({
   };
   $("choose-photo").onclick = () => $("photo-file").click();
   $("native-camera").onclick = () => $("native-file").click();
-  const MAX_SIDE = 1600;
-  function fit(width, height) {
-    const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
-    return [
-      Math.max(1, Math.round(width * scale)),
-      Math.max(1, Math.round(height * scale)),
-    ];
-  }
-  function draw(source, width, height) {
-    const c = document.createElement("canvas");
-    c.width = width;
-    c.height = height;
-    const ctx = c.getContext("2d");
-    // Geometry and OCR consume RGB. Transparent PNG backgrounds should behave
-    // like white paper in both the ImageBitmap and Image decode paths.
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(source, 0, 0, width, height);
-    return c;
-  }
-  async function decodeFile(file) {
-    if (file.size > 30 * 1024 * 1024)
-      throw Error("Please choose a photo smaller than 30 MB.");
-    const head = new Uint8Array(await file.slice(0, 512 * 1024).arrayBuffer()),
-      dimensions = sniffDimensions(head, file.size);
-    if (!dimensions)
-      throw Error("The photo dimensions could not be checked safely. Export it as JPEG, PNG or WebP, then try again.");
-    const pixels = dimensions.width * dimensions.height;
-    if (dimensions && (dimensions.width < 1 || dimensions.height < 1))
-      throw Error("The image is empty.");
-    if (pixels > 120e6)
-      throw Error(
-        "This photo is too large to decode safely on a phone. Use a smaller camera resolution or crop it first.",
-      );
-    if (dimensions && typeof createImageBitmap === "function") {
-      // Decode straight to the working size instead of materializing a
-      // full-resolution phone photograph. Only one side is requested so the
-      // aspect ratio survives EXIF rotation; the final fit happens on canvas.
-      let bitmap = null;
-      try {
-        bitmap = await createImageBitmap(file, {
-          resizeWidth: fit(dimensions.width, dimensions.height)[0],
-          resizeQuality: "high",
-          imageOrientation: "from-image",
-        });
-      } catch {
-        bitmap = null;
-      }
-      if (bitmap)
-        try {
-          return retainPhotoSource(draw(bitmap, ...fit(bitmap.width, bitmap.height)), file, dimensions);
-        } finally {
-          bitmap.close?.();
-        }
-    }
-    // A full decode is the only remaining route; refuse sizes that can
-    // exhaust phone memory instead of crashing the page.
-    if (pixels > 24e6)
-      throw Error(
-        "This browser cannot downscale this large photo safely. Crop it in your photo app first, then try again.",
-      );
-    const url = URL.createObjectURL(file);
-    try {
-      const img = new Image();
-      img.src = url;
-      await img.decode();
-      if (!img.naturalWidth || !img.naturalHeight)
-        throw Error("The image is empty.");
-      return retainPhotoSource(draw(img, ...fit(img.naturalWidth, img.naturalHeight)), file, dimensions);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
   for (const id of ["photo-file", "native-file"])
     $(id).onchange = async (e) => {
       const file = e.target.files[0];
@@ -425,8 +352,9 @@ export function setupPhotoFlow({
       stopTask();
       const epoch = getJobId();
       try {
-        const canvas = await decodeFile(file);
+        const { image: canvas } = await importPhoto(file, { current: () => epoch === getJobId() });
         if (epoch === getJobId()) await acceptPhoto(canvas);
+        else canvas.width = canvas.height = 0;
       } catch (error) {
         if (epoch === getJobId()) fail(error);
       } finally {

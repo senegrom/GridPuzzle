@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import { setupClueReread } from '../clue-reread.js';
 import { makePuzzle } from '../model.js';
 function harness() {
@@ -87,4 +89,105 @@ test('queued close from the previous clue cannot cancel a reopened clue, but gen
   $('cell-dialog').open = false; $('cell-dialog').emit('close');
   assert.equal(cancellations, before + 1); assert.equal($('reread-clue-panel').hidden, true);
   jobs[1].resolve({}); await current; assert.equal($('use-reread').hidden, true);
+});
+
+// Use the production Scanner cancellation and OCR runtime here: a stub reader
+// cannot detect accidentally rebuilding the expensive host between clues.
+async function engineHarness(t) {
+  const { Scanner } = await import('../scanner.js');
+  const { createOCRRuntime } = await import('../ocr-runtime.js');
+  const nodes = new Map(), workers = [], timers = new Map(); let serial = 0;
+  const $ = id => { if (!nodes.has(id)) nodes.set(id, node(id)); return nodes.get(id); };
+  const p = makePuzzle('latinsquare', 2); p.cells = [1, 2, null, null];
+  const s = { puzzle: p, cell: 0, uncertain: new Set([0, 1]), image: canvas(200, 200),
+    source: 1, photoSource: 1, rows: 2, cols: 2 };
+  const setTimer = (fn, ms) => { const id = ++serial; timers.set(id, { fn, ms }); return id; };
+  const clearTimer = id => timers.delete(id);
+  const api = setupClueReread({ $, getSelection: () => s, setTimer, clearTimer, makeReader() {
+    const reader = new Scanner();
+    reader.ocr = createOCRRuntime({ setTimer, clearTimer, makeWorker() {
+      const worker = { messages: [], postMessage(data) { this.messages.push(data); }, terminate() { this.terminated = true; } };
+      workers.push(worker); return worker;
+    } });
+    reader.readOnce = async (_image, _corners, _type, _rows, _cols, progress, _options, cells) =>
+      reader.ocr.recognize({ cell: cells[0] }, progress);
+    return reader;
+  } });
+  const message = (data, worker = workers.at(-1)) => worker.onmessage?.({ data });
+  const finish = (worker = workers.at(-1)) => {
+    const { id, cell } = worker.messages.findLast(m => 'cell' in m);
+    message({ id, result: { puzzle: structuredClone(p), targetCells: [cell],
+      entries: [{ cell, kind: 'value', text: String(p.cells[cell]), confidence: 90 }] } }, worker);
+  };
+  const fire = ms => {
+    const found = [...timers].find(([, timer]) => timer.ms === ms);
+    assert.ok(found, `missing ${ms}ms deadline`);
+    const [id, timer] = found; timers.delete(id); timer.fn();
+  };
+  $('cell-dialog').open = true; $('cell-value').value = '1'; api.open();
+  t.after(() => { api.dispose(); for (const worker of workers) message({ cancelled: true }, worker); });
+  return { $, s, api, workers, timers, message, finish, fire, read: () => $('reread-clue').onclick() };
+}
+
+test('adjacent clue reviews reuse one actual OCR host and a genuine close releases it', async t => {
+  const h = await engineHarness(t), before = structuredClone(h.s.puzzle);
+  let done = h.read(); h.finish(); await done;
+  h.$('use-reread').onclick(); h.s.cell = 1; h.s.uncertain.delete(0);
+  h.$('cell-value').value = '2'; h.api.open();
+  h.$('cell-dialog').emit('close'); // queued close from Save & next, now reopened
+  done = h.read(); assert.equal(h.workers.length, 1); h.finish(); await done;
+  assert.deepEqual(h.s.puzzle, before); assert.ok(h.s.uncertain.has(1));
+  h.$('cell-dialog').open = false; h.$('cell-dialog').emit('close');
+  assert.equal(h.workers[0].messages.at(-1).cancel, true);
+  h.message({ cancelled: true }); assert.equal(h.workers[0].terminated, true); assert.equal(h.timers.size, 0);
+});
+test('idle expiry releases the engine without erasing or confirming an explicit proposal', async t => {
+  const h = await engineHarness(t), done = h.read(); h.finish(); await done;
+  h.fire(30000); h.message({ cancelled: true }); assert.ok(h.workers[0].terminated);
+  assert.equal(h.$('use-reread').hidden, false); h.$('use-reread').onclick();
+  assert.equal(h.$('cell-value').value, '1'); assert.ok(h.s.uncertain.has(0));
+  h.s.cell = 1; h.api.open(); const next = h.read(); h.finish(); await next;
+  assert.equal(h.workers.length, 2);
+});
+test('a superseded in-flight re-read suppresses stale messages without discarding a healthy engine', async t => {
+  const h = await engineHarness(t), old = h.read();
+  h.s.cell = 1; h.$('cell-value').value = '2'; h.api.open(); const next = h.read(); await old;
+  assert.equal(h.workers.length, 1);
+  h.message({ id: 1, type: 'progress', message: 'obsolete' });
+  assert.notEqual(h.$('reread-status').textContent, 'obsolete');
+  h.message({ id: 1, cancelled: true });
+  assert.equal(h.workers[0].messages.at(-1).cell, 1);
+  h.message({ id: 1, result: {} }); assert.equal(h.$('use-reread').hidden, true);
+  h.finish(); await next; assert.equal(h.$('use-reread').hidden, false); assert.ok(h.s.uncertain.has(1));
+});
+for (const reason of ['timeout', 'unsupported', 'dispose']) test(`review ${reason} hard-releases its owned OCR host`, async t => {
+  const h = await engineHarness(t), done = h.read();
+  if (reason === 'timeout') h.fire(90000);
+  else if (reason === 'unsupported') { h.s.play = true; h.api.open(); }
+  else h.api.dispose();
+  await done; assert.equal(h.workers[0].messages.at(-1).cancel, true);
+  h.message({ cancelled: true }); assert.ok(h.workers[0].terminated);
+  assert.equal(h.$('use-reread').hidden, true); assert.equal(h.$('cell-value').value, '1');
+  assert.ok(h.s.uncertain.has(0)); assert.equal(h.timers.size, 0);
+});
+// The production pagehide handler and the stopTask it calls, run against the
+// real engine: stopTask alone keeps the engine warm and re-arms its idle timer.
+function productionPagehide(clueReread) {
+  const app = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const stopTask = app.match(/^const stopTask = .*$/m)?.[0];
+  const start = app.indexOf('window.addEventListener("pagehide",'), end = app.indexOf('setupOffline($);', start);
+  assert.ok(stopTask && start > 0 && end > start, 'production pagehide handler not found');
+  const handlers = {};
+  vm.runInNewContext(`${stopTask}\n${app.slice(start, end)}`, { clueReread, worker: null, state: {},
+    tasks: { stop() {} }, stopCamera() {}, window: { addEventListener: (type, fn) => { handlers[type] = fn; } } });
+  return () => handlers.pagehide({ type: 'pagehide', persisted: true });
+}
+for (const inFlight of [false, true]) test(`pagehide releases the OCR host while the clue dialog is open; read in flight ${inFlight}`, async t => {
+  const h = await engineHarness(t), pagehide = productionPagehide(h.api), done = h.read();
+  if (!inFlight) { h.finish(); await done; }
+  assert.equal(h.$('cell-dialog').open, true); assert.equal(h.workers.length, 1);
+  pagehide(); await done;
+  assert.equal(h.workers[0].messages.at(-1).cancel, true, 'leaving the page cancels the host outright');
+  assert.ok(![...h.timers.values()].some(timer => timer.ms === 30000), 'no idle timer outlives the page');
+  h.message({ cancelled: true }); assert.equal(h.workers[0].terminated, true);
 });

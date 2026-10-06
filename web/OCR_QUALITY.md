@@ -387,6 +387,14 @@ the production `retainPhotoSource` and `photoDetail` (`scoreVersion: 4` in
 `corpus/SOURCES.md`), so its unflagged errors are ones a user can meet, and a
 detection miss shows its real cost: a reading with every cell to check.
 
+Since PR #121 the runner also decodes each photograph through the app's own
+import (`importPhoto` in `web/photo-import.js`, with its EXIF sizing) instead of
+its own loader. That changes 94 previews from the baseline below: the 19
+EXIF-rotated JPEGs are read at 4/3 of their earlier preview size (11 of them no
+longer from the original's detail), and 75 images shift by one pixel. The
+scorer and `scoreVersion` are unchanged by it; a report's `harness` records the
+loader as `load: "importPhoto"`.
+
 The master baseline under this harness (Chromium, 2026-09-29, 1bf5e21, all 3,978
 images; the 249 images larger than the preview all read through the original's
 detail):
@@ -497,7 +505,9 @@ The `scoreVersion: 5` master baseline is below (Chromium, 2026-10-04, all 3,978
 images). It includes the note-sized flag and the corrected rozet-handwritten
 targets of sudoku_0270 and sudoku_0271 (#123). "Grid found" counts confident
 detections. The 64 boards read at another size are also counted as read through
-unconfirmed corners.
+unconfirmed corners. It was read through the runner's own loader, before
+PR #121's `importPhoto` (its `harness` has no `load`), so the 94 previews
+above differ from a run through the import.
 
 | set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners | failed to read |
 |---|---:|---:|---:|---:|---:|---:|---:|

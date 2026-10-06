@@ -34,12 +34,15 @@ function validateManifest(data,build=VERSION){
   return data.assets;
 }
 function assetKey(asset){return url(`.gridpuzzle-cache/${asset.sha256}`);}
-async function digest(response){
+async function digest(response,signal){
+  signal?.throwIfAborted();
   const bytes=await response.clone().arrayBuffer();
+  signal?.throwIfAborted();
   const hash=await crypto.subtle.digest("SHA-256",bytes);
+  signal?.throwIfAborted();
   return [...new Uint8Array(hash)].map(v=>v.toString(16).padStart(2,"0")).join("");
 }
-async function matchesAsset(response,asset){return !!response?.ok&&(await digest(response))===asset.sha256;}
+async function matchesAsset(response,asset,signal){return !!response?.ok&&(await digest(response,signal))===asset.sha256;}
 async function contentCache(){return caches.open(CONTENT);}
 function injectedCache(value){return !!value&&typeof value.match==="function"&&typeof value.put==="function";}
 async function manifest({network=false,signal}={}){
@@ -68,14 +71,17 @@ async function verifiedAsset(cacheOrAsset,assetOrOptions={},maybeOptions={}){
   signal?.throwIfAborted();
   const key=assetKey(asset);
   let response=await cache.match(key);
-  if(response&&verifyStored&&!trustStored&&!(await matchesAsset(response,asset))){signal?.throwIfAborted();await cache.delete(key);response=null;}
+  signal?.throwIfAborted();
+  if(response&&verifyStored&&!trustStored&&!(await matchesAsset(response,asset,signal))){signal?.throwIfAborted();await cache.delete(key);signal?.throwIfAborted();response=null;}
   if(response)return response;
   if(!network)return null;
   response=await fetch(new Request(url(asset.path),{cache:"reload",signal}));
+  signal?.throwIfAborted();
   if(!response.ok)throw diagnostic(`Could not download ${asset.path}. Stay online and retry.`);
-  if(!(await matchesAsset(response,asset)))throw diagnostic(`Asset changed during download: ${asset.path}. Update the app and retry.`);
+  if(!(await matchesAsset(response,asset,signal)))throw diagnostic(`Asset changed during download: ${asset.path}. Update the app and retry.`);
   signal?.throwIfAborted();
   try{await cache.put(key,response.clone());}catch(error){if(requireStorage)throw error;}
+  signal?.throwIfAborted();
   return response;
 }
 async function offlineReadyFast(cacheOrAssets,maybeAssets){
@@ -173,15 +179,22 @@ async function preserveActiveSolvers(){
 }
 
 self.addEventListener("install",event=>event.waitUntil((async()=>{
-  const response=await fetch(new Request(url("assets.json"),{cache:"reload"}));
-  if(!response.ok)throw diagnostic("Could not load the offline manifest.");
-  const assets=validateManifest(await response.clone().json()),meta=await caches.open(META),cache=await contentCache();
-  await meta.put(url("assets.json"),response);
-  // Install the complete Python runtime before this build can control tabs.
-  // It may later be needed by a lazy worker after the origin publishes an
-  // incompatible update. Content addressing reuses identical bytes on updates.
-  const shell=assets.filter(a=>/^vendor\/[a-f0-9]{12}\/pyodide\//.test(a.path)||a.path.startsWith("icons/")||(!a.path.includes("/")&&!a.path.endsWith(".zip"))||(a.path.startsWith("solver.")&&a.path.endsWith(".zip")));
-  for(const asset of shell)await verifiedAsset(cache,asset,{verifyStored:true});
+  const job={controller:new AbortController()},signal=job.controller.signal;
+  const phase=work=>assetPhase(job,work,"App update stalled. Stay online and retry the update.");
+  try{
+    const response=await phase(()=>fetch(new Request(url("assets.json"),{cache:"reload",signal})));
+    if(!response.ok)throw diagnostic("Could not load the offline manifest.");
+    const assets=validateManifest(await phase(()=>response.clone().json()));
+    const cache=await phase(()=>contentCache());
+    // Install the complete Python runtime before this build can control tabs.
+    // Content addressing reuses identical bytes without dropping verification.
+    const shell=assets.filter(a=>/^vendor\/[a-f0-9]{12}\/pyodide\//.test(a.path)||a.path.startsWith("icons/")||(!a.path.includes("/")&&!a.path.endsWith(".zip"))||(a.path.startsWith("solver.")&&a.path.endsWith(".zip")));
+    for(const asset of shell)await phase(()=>verifiedAsset(cache,asset,{verifyStored:true,signal}));
+    const meta=await phase(()=>caches.open(META));
+    // Publish the manifest last. A failed or timed-out phase must not proceed
+    // to later writes, claim clients, or turn a late completion into success.
+    await phase(()=>meta.put(url("assets.json"),response));
+  }catch(error){job.controller.abort(error);throw error;}
 })()));
 let activationReady=Promise.resolve();
 self.addEventListener("activate",event=>event.waitUntil(activationReady=(async()=>{
@@ -235,15 +248,21 @@ self.addEventListener("fetch",event=>{
 // fetch, body verification and storage, and retries can join current progress.
 let offlineJob = null, offlineSerial = 0;
 const OFFLINE_PHASE_MS = 240000;
-function offlinePhase(job, work) {
+function assetPhase(job, work, message = "Offline download stalled. Stay online and retry.") {
   let timer;
   const deadline = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      const error = diagnostic("Offline download stalled. Stay online and retry.");
+      const error = diagnostic(message);
       job.controller.abort(error); reject(error);
     }, OFFLINE_PHASE_MS);
   });
-  return Promise.race([Promise.resolve().then(work), deadline]).finally(() => clearTimeout(timer));
+  return Promise.race([Promise.resolve().then(() => {
+    job.controller.signal.throwIfAborted();
+    return work();
+  }), deadline]).then(result => {
+    job.controller.signal.throwIfAborted();
+    return result;
+  }).finally(() => clearTimeout(timer));
 }
 function offlineNotify(job, message) {
   job.last = { ...message, jobId: job.id };
@@ -261,16 +280,16 @@ function prepareOffline(port, clientId) {
     job.promise = Promise.resolve().then(async () => {
       try {
         const signal = job.controller.signal;
-        const assets = offlineAssets(await offlinePhase(job, () => manifest({ network: true, signal })));
-        const cache = await offlinePhase(job, () => contentCache());
+        const assets = offlineAssets(await assetPhase(job, () => manifest({ network: true, signal })));
+        const cache = await assetPhase(job, () => contentCache());
         for (let i = 0; i < assets.length; i++) {
-          await offlinePhase(job, () => verifiedAsset(cache, assets[i], { verifyStored: true, requireStorage: true, signal }));
+          await assetPhase(job, () => verifiedAsset(cache, assets[i], { verifyStored: true, requireStorage: true, signal }));
           signal.throwIfAborted();
           offlineNotify(job, { progress: i + 1, total: assets.length });
         }
         // Read back stored bytes rather than certifying an attempted cache put.
         for (const asset of assets) {
-          const stored = await offlinePhase(job, () => verifiedAsset(cache, asset, { network: false, verifyStored: true, signal }));
+          const stored = await assetPhase(job, () => verifiedAsset(cache, asset, { network: false, verifyStored: true, signal }));
           if (!stored) throw diagnostic("Offline verification failed. Retry while online.");
         }
         signal.throwIfAborted();
