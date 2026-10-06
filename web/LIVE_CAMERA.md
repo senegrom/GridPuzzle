@@ -66,12 +66,15 @@ are fenced and dropped. Before, a solved view kept sampling about four frames a
 second; every measured blink of the solution, and both measured captures that
 missed one (2 of 22 solved runs), happened in that phase.
 
-The camera stays on while frozen. The video element is paused and hidden
-behind the still, but the camera track stays enabled and no timer turns it off,
-so Clear resumes at once and never asks for permission again. Only when the app
-is hidden (an app switch, the lock screen) or the system ends the camera track
-is the camera turned off; the frozen picture, its reading and Save picture
-stay, the help line says why, and Clear asks for the camera again.
+The camera stays on while frozen, as the user chose: no timer turns it off.
+The video element is paused and hidden behind the still, but the camera track
+stays enabled, so Clear only plays the video again, with no new getUserMedia
+and no permission prompt. Only when the app is hidden (an app switch, the lock
+screen) or the system ends the camera track is the camera turned off; the
+frozen picture, its reading and Save picture stay, the help line says why, the
+action row holds just Save picture and Clear, and Clear asks for the camera
+again inside its tap. Clear also asks for it again when the system muted the
+track meanwhile (a call, or another app taking the camera).
 
 **Clear** sits beside Save picture while the view is frozen. It plays the
 video again inside the tap and only then discards the frozen picture and its
@@ -548,12 +551,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   reading or without automatic solving; nothing is sampled, detected, tracked
   or painted while frozen, held replies and an abandoned detection are fenced
   without cancelling the geometry worker, and Restart is hidden; capture keeps
-  the frozen frame and reading; Clear starts from nothing, and thirty Clear
-  cycles leave no timer or canvas behind. `photo-flow.test.js` covers the page:
-  the video paused but the camera kept on while frozen, Clear playing inside
-  its tap before scanning resumes, refused, stalled and silent playback, an app
-  switch or an ended track turning the camera off without closing the panel,
-  getUserMedia again on Clear, and Escape and the shutter from the frozen view.
+  the frozen frame and reading; Clear starts from nothing (a clean tracking
+  circuit included), and thirty Clear cycles leave no timer or canvas behind.
+  `photo-flow.test.js` covers the page: the video paused but the camera kept on
+  while frozen, with no timer to turn it off, Clear playing inside its tap
+  before scanning resumes, refused, stalled and silent playback, an app switch
+  or an ended track turning the camera off without closing the panel (also
+  while Clear waits for playback), getUserMedia again on Clear after that or
+  after a muted track, and Escape and the shutter from the frozen view.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
   and canvas. `solver-handoff.test.js`: the interpreter handoff.
