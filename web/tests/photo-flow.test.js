@@ -375,6 +375,32 @@ test("a refused camera on Clear keeps the frozen view, says why and leaves Clear
   assert.equal(h.live.resumed, 1, "a later Clear can still succeed");
 });
 
+test("turning the camera off while Start preview is offered leaves Save picture and Clear", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.setPlay(async () => { throw Object.assign(Error("Playback needs a tap"), { name: "NotAllowedError" }); });
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.$("start-camera").hidden, false);
+  h.hide();
+  assert.equal(h.$("start-camera").hidden, true, "Clear is the way back");
+  h.$("start-camera").onclick();
+  assert.equal(h.requests, 1, "no retry is left for the stream that was turned off");
+  h.setPlay(async () => {});
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);
+});
+
+test("Clear asks for the camera again when its track was muted while frozen", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.track.muted = true; // The system took the camera away: a call, or another app.
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.track.stopped, 1, "the muted track is stopped");
+  assert.equal(h.requests, 2, "and the camera asked for inside the tap");
+  assert.equal(h.$("video").srcObject.getTracks()[0], h.tracks[1]);
+  assert.equal(h.live.resumed, 1);
+});
+
 test("a track that ends while frozen turns the camera off instead of closing the panel", async (t) => {
   const h = await cameraHarness(t, { freshStreams: true });
   await h.$("camera").onclick(); h.live.freeze();

@@ -156,6 +156,9 @@ export function setupPhotoFlow({
     for (const track of stream?.getTracks?.() ?? []) track.stop();
     stream = null;
     $("video").srcObject = null;
+    // Clear is the way back, asking for the camera inside its tap. A Start
+    // preview offered for the old stream's playback has nothing left to play.
+    pendingPlayback = null; $("start-camera").hidden = true;
     $("camera-help").textContent = RELEASED[cause];
     diagnostics.event({ stage: "tracking", reason: "camera-released" });
   }
