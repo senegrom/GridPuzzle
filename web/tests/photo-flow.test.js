@@ -295,6 +295,24 @@ test("closing the camera while Clear waits for playback fences the Clear", async
   assert.equal(h.$("clear-freeze").disabled, false, "the next frozen view can be cleared");
 });
 
+test("hiding the page while Clear waits for playback keeps the frozen solution", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  const playback = deferred();
+  h.setPlay(() => playback.promise);
+  const clearing = h.$("clear-freeze").onclick();
+  await tick();
+  h.hide();
+  playback.resolve(); await clearing;
+  assert.equal(h.live.resumed, 0, "a camera turned off meanwhile is not resumed");
+  assert.equal(h.live.view, "frozen");
+  assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  assert.equal(h.$("clear-freeze").disabled, false);
+  h.setPlay(async () => {});
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);
+});
+
 test("hiding the page while frozen turns the camera off but keeps the solution; Clear asks for the camera again", async (t) => {
   const h = await cameraHarness(t, { freshStreams: true });
   await h.$("camera").onclick(); h.live.freeze();
