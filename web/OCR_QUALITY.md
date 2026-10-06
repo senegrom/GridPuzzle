@@ -389,11 +389,12 @@ detection miss shows its real cost: a reading with every cell to check.
 
 Since PR #121 the runner also decodes each photograph through the app's own
 import (`importPhoto` in `web/photo-import.js`, with its EXIF sizing) instead of
-its own loader. That changes 94 previews from the baseline below: the 19
+its own loader. That changes 84 previews from the baseline below: the 19
 EXIF-rotated JPEGs are read at 4/3 of their earlier preview size (11 of them no
-longer from the original's detail), and 75 images shift by one pixel. The
+longer from the original's detail), and 65 images shift by one pixel. The
 scorer and `scoreVersion` are unchanged by it; a report's `harness` records the
-loader as `load: "importPhoto"`.
+loader as `load: "importPhoto"`. Their effect on the version 5 baseline is
+measured further down.
 
 The master baseline under this harness (Chromium, 2026-09-29, 1bf5e21, all 3,978
 images; the 249 images larger than the preview all read through the original's
@@ -501,42 +502,60 @@ them the frame is right and only the count is wrong:
 No perfect Sudoku or Latin square reading without a flag gains one, so no
 automatic solve is lost.
 
-The `scoreVersion: 5` master baseline is below (Chromium, 2026-10-04, all 3,978
-images). It includes the note-sized flag and the corrected rozet-handwritten
-targets of sudoku_0270 and sudoku_0271 (#123). "Grid found" counts confident
-detections. The 64 boards read at another size are also counted as read through
-unconfirmed corners. It was read through the runner's own loader, before
-PR #121's `importPhoto` (its `harness` has no `load`), so the 94 previews
-above differ from a run through the import.
+The `scoreVersion: 5` master baseline is below (Chromium, all 3,978 images). It
+includes the note-sized flag and the corrected rozet-handwritten targets of
+sudoku_0270 and sudoku_0271 (#123). "Grid found" counts confident detections.
+The 64 boards read at another size are also counted as read through unconfirmed
+corners. The whole corpus was read on 2026-10-04 through the runner's own
+loader. The 84 images whose previews PR #121's `importPhoto` changes were then
+read again through the import, on master d0222a4 (2026-10-06), and the table has
+their new rows. The same run read a control of 108 unchanged images, up to five
+from each set, and every one read exactly as before.
 
 | set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners | failed to read |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | futoshiki/janko-futoshiki | 120 | 1,988 / 1,989 | 0 | 119 | 120 | 0 |  |
 | futoshiki/newspaper-photo | 1 | 4 / 15 | 0 | 0 | 0 | 1 |  |
 | hidato/janko-hidato | 120 | 3,115 / 3,162 | 0 | 107 | 120 | 1 |  |
-| kakuro/janko-kakuro | 111 | 3,381 / 5,315 | 0 | 19 | 106 | 8 | 5 |
+| kakuro/janko-kakuro | 111 | 3,378 / 5,315 | 0 | 19 | 106 | 8 | 5 |
 | kenken/janko-kenken | 120 | 1,571 / 2,508 | 0 | 1 | 120 | 0 |  |
 | kenken/janko-kenken-thick | 120 | 1,968 / 2,508 | 0 | 7 | 120 | 0 |  |
 | kenken/janko-killersudoku | 120 | 1,572 / 2,139 | 0 | 21 | 120 | 0 |  |
 | killersudoku/generated-render | 120 | 2,510 / 3,234 | 0 | 29 | 120 | 1 |  |
 | latinsquare/generated-render | 120 | 1,815 / 1,818 | 0 | 117 | 120 | 0 |  |
 | numbrix/generated-render | 120 | 1,429 / 1,449 | 2 | 117 | 120 | 1 |  |
-| slitherlink/janko-slitherlink | 111 | 6,940 / 8,691 | 0 | 85 | 91 | 20 |  |
+| slitherlink/janko-slitherlink | 111 | 6,938 / 8,691 | 0 | 85 | 91 | 20 |  |
 | str8ts/janko-str8ts | 120 | 1,578 / 1,587 | 0 | 111 | 120 | 0 |  |
 | sudoku/generated-render | 120 | 2,704 / 2,706 | 0 | 118 | 120 | 0 |  |
 | sudoku/janko-sudoku | 111 | 4,507 / 4,509 | 0 | 109 | 111 | 0 |  |
 | sudoku/kuleuven-assistant | 83 | 2,061 / 3,851 | 1 | 9 | 39 | 56 |  |
-| sudoku/lexski-mixed | 1398 | 49,241 / 59,831 | 72 | 398 | 1140 | 285 |  |
+| sudoku/lexski-mixed | 1398 | 49,259 / 59,831 | 72 | 400 | 1140 | 285 |  |
 | sudoku/rozet-handwritten | 400 | 15,519 / 17,821 | 20 | 89 | 388 | 22 |  |
 | sudoku/rozet-newspaper | 9 | 246 / 250 | 0 | 5 | 9 | 0 |  |
 | sudoku/rozet-render | 100 | 2,285 / 2,498 | 12 | 57 | 100 | 0 |  |
-| sudoku/wichtounet-newspaper | 203 | 4,601 / 5,902 | 40 | 44 | 194 | 10 |  |
-| sudoku/wichtounet-originals | 46 | 1,286 / 1,328 | 7 | 33 | 46 | 0 |  |
+| sudoku/wichtounet-newspaper | 203 | 4,577 / 5,902 | 41 | 44 | 194 | 10 |  |
+| sudoku/wichtounet-originals | 46 | 1,261 / 1,328 | 7 | 33 | 45 | 1 |  |
 | sudoku/wichtounet-solved | 200 | 9,122 / 16,200 | 74 | 0 | 155 | 48 |  |
-| sudoku/wichtounet-solved-extra | 5 | 250 / 361 | 1 | 0 | 4 | 1 |  |
-| all | 3,978 | 119,693 / 149,672 | 229 | 1,595 | 3,583 | 454 | 5 |
+| sudoku/wichtounet-solved-extra | 5 | 253 / 361 | 2 | 0 | 4 | 1 |  |
+| all | 3,978 | 119,660 / 149,672 | 231 | 1,597 | 3,582 | 455 | 5 |
 
 The five failures are the Kakuro photo renders that read no clues.
+
+Read through the import, the 84 changed images have 33 fewer clues right and 2
+more unflagged errors than through the runner's loader (119,693 and 229 before):
+- The 65 one-pixel shifts change 47 readings: 12 more clues right, no change in
+  unflagged errors, and one more perfect board.
+- The 11 rotated JPEGs no longer read through the original's detail lose 21
+  clues right and gain 2 unflagged errors net. wichtounet-newspaper image1024
+  shows its page sideways even after the EXIF turn. Read straight from its
+  1,280 px preview, it yields 39 value regions instead of 24, 18 of them thin
+  slivers like gridline pieces. Neither quarter turn then reads the 8 confident
+  digits the orientation check needs, so the sideways reading stays: 0 of 24
+  clues right, with 2 unflagged errors.
+- The 8 rotated wichtounet originals, now with a 1,600 px preview instead of a
+  1,200 px one, lose 24 clues right. At the larger size the detector no longer
+  finds the grid of image1036, so its 26 correct clues become a reading with
+  every cell highlighted.
 
 ## Alternatives tried
 
