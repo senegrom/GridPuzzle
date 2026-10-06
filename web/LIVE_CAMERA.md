@@ -66,15 +66,24 @@ are fenced and dropped. Before, a solved view kept sampling about four frames a
 second; every measured blink of the solution, and both measured captures that
 missed one (2 of 22 solved runs), happened in that phase.
 
-The camera stays on while frozen, as the user chose: no timer turns it off.
-The video element is paused and hidden behind the still, but the camera track
-stays enabled, so Clear only plays the video again, with no new getUserMedia
-and no permission prompt. Only when the app is hidden (an app switch, the lock
-screen) or the system ends the camera track is the camera turned off; the
-frozen picture, its reading and Save picture stay, the help line says why, the
-action row holds just Save picture and Clear, and Clear asks for the camera
-again inside its tap. Clear also asks for it again when the system muted the
-track meanwhile (a call, or another app taking the camera).
+The camera stays on while frozen, as the user chose: no timer turns it off, so
+the camera indicator stays on and the phone does not lock itself while frozen
+(WebKit keeps the display awake while a page captures). The video element is
+paused, hidden behind the still and detached from the stream, while the camera
+track stays live and enabled; Clear attaches the stream again and plays it
+inside the tap, with no new getUserMedia and no permission prompt. The detach
+matters on WebKit: a paused MediaStream player keeps the frame it paused on for
+drawing while its count of presented frames runs on, so after a plain play()
+the first video-frame callback could hand the camera the picture of the
+freeze, while a new player calls back only with a frame it has received. Only
+when the app is hidden (an app switch, the lock screen) or the system ends the
+camera track is the camera turned off; the frozen picture, its reading and Save
+picture stay, the help line says why and that the phone may ask for camera
+access again, the action row holds just Save picture and Clear, and Clear asks
+for the camera again inside its tap. A track the system only muted (another app
+or a call holding the camera, Split View, system pressure) is kept, since a new
+one would be muted as well: Clear says that another app or the system is using
+the camera and finishes once the track unmutes.
 
 **Clear** sits beside Save picture while the view is frozen. It plays the
 video again inside the tap and only then discards the frozen picture and its
@@ -83,11 +92,16 @@ camera then scans from nothing: the same puzzle still in view is detected,
 read and frozen again after about the usual time to a solution. The reading is
 not kept, because a kept reading would freeze again on the next verified
 frame; the warm OCR engine, the geometry worker and an idle Python interpreter
-are. If playback is refused or stays silent for eight seconds, the frozen view
-stays and **Start preview** retries; a stream that plays but delivers no frame
-for three seconds offers it too, and the camera says when no picture has
-arrived a second after Clear. If the camera cannot be turned back on, the
-frozen view stays with the reason, and Save picture still works.
+are. If playback is refused, interrupted (WebKit rejects play() while a call
+holds the media session) or stays silent for eight seconds, the frozen view
+stays and **Start preview** retries; on a phone held upright it takes a line of
+its own above Save picture and Clear. A stream that plays but delivers no frame
+for three seconds offers Start preview too, frames that arrive later take it
+back, and the camera says when no picture has arrived a second after Clear.
+Start preview offered while the view is live never clears a solution that
+freezes during its playback. If the camera cannot be turned back on, the frozen
+view stays with the reason (a refused permission in plain words), and Save
+picture still works.
 
 Freezing has a price. A solution is not improved after it appears (the
 targeted retries of yellow clues end), a change on the paper is not noticed
@@ -333,7 +347,9 @@ invalidates that cache at once. The paint that freezes a solution is never
 skipped. Captures copy the exact displayed image synchronously, never a later
 frame. These are processing intervals, not sensor frame rates. While the view
 is frozen the scheduler is stopped: no video-frame callback, heartbeat,
-snapshot or readback runs, and Clear starts it again with new tokens.
+snapshot or readback runs, and Clear starts it again with new tokens on the
+stream it attached again, so its first callback brings a frame received after
+the tap.
 
 ## Noticing changed print
 
@@ -550,15 +566,22 @@ Unit tests (`node --test web/tests/*.test.js`):
   verified unique solution, never on a provisional, multiple or unsolvable
   reading or without automatic solving; nothing is sampled, detected, tracked
   or painted while frozen, held replies and an abandoned detection are fenced
-  without cancelling the geometry worker, and Restart is hidden; capture keeps
-  the frozen frame and reading; Clear starts from nothing (a clean tracking
-  circuit included), and thirty Clear cycles leave no timer or canvas behind.
-  `photo-flow.test.js` covers the page: the video paused but the camera kept on
-  while frozen, with no timer to turn it off, Clear playing inside its tap
-  before scanning resumes, refused, stalled and silent playback, an app switch
-  or an ended track turning the camera off without closing the panel (also
-  while Clear waits for playback), getUserMedia again on Clear after that or
-  after a muted track, and Escape and the shutter from the frozen view.
+  without cancelling the geometry worker, and Restart is hidden; the heartbeat
+  that follows a freeze in the same pulse leaves the frozen help line alone;
+  capture keeps the frozen frame and reading; Clear starts from nothing (a clean
+  tracking circuit included), a camera started again is labelled live, and
+  thirty Clear cycles leave no timer or canvas behind.
+  `photo-flow.test.js` covers the page: the video paused and detached but the
+  camera kept on while frozen, with no timer to turn it off, Clear attaching
+  the stream and playing inside its tap before scanning resumes, and, on a
+  video modelled on WebKit's player with the real frame scheduler, the first
+  frame scanned after Clear presented after the tap; refused, interrupted,
+  stalled and silent playback, Start preview's live retry when a solution
+  freezes meanwhile and its offer taken back when frames come; an app switch or
+  an ended track turning the camera off without closing the panel (also while
+  Clear waits for playback), getUserMedia again on Clear after that, a muted
+  track kept until it unmutes, the failure texts, and Escape and the shutter
+  from the frozen view. `app.test.js` checks the Frozen chip's contrast.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
   and canvas. `solver-handoff.test.js`: the interpreter handoff.
@@ -575,11 +598,12 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 
 - `live_camera_regressions.cjs` gives a real canvas-backed MediaStream to the
   production camera with Tesseract, Pyodide and real IndexedDB: automatic
-  solving without closing the camera, the frozen solution (video paused and
-  hidden, the camera track still on, the picture unchanged), Clear without a new
-  getUserMedia, an app switch while frozen (camera off, picture kept, Clear
-  asking for the camera again, Save picture without a camera), the frozen action
-  row on a 320-pixel screen, exact shutter pixels, review gating, reload and
+  solving without closing the camera, the frozen solution (video paused, hidden
+  and detached, the camera track still on, the picture unchanged, the chip's
+  contrast), Clear without a new getUserMedia, an app switch while frozen
+  (camera off, picture kept, Clear asking for the camera again, Save picture
+  without a camera), the frozen action row on a 320-pixel screen with and
+  without Start preview, exact shutter pixels, review gating, reload and
   delete, motion and uncertain readings. It also runs
   `review_safety_regressions.cjs`, which changes and erases clues after solving
   (the frozen view keeps its frame and reading until Clear, which reads the
