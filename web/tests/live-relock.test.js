@@ -59,12 +59,12 @@ test("a detection from an older frame does not pull a tracked anchor's search ba
 
 // The production camera, tracker and tracking core on a fake clock with a
 // moving printed grid; detection is stubbed to find it where it is.
-function simulation(t) {
+function simulation(t, { autoSolve = false } = {}) {
   let time = 0, serial = 0, x = 120, y = 110;
   const timers = new Map(), nodes = new Map(), verified = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
-  const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
+  const context = { drawImage() {}, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => width === SIZE && height === SIZE ? scene(x, y)
       : { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) } };
@@ -95,7 +95,7 @@ function simulation(t) {
   const camera = createLiveCamera({ tracker, $, canvas: view,
     diagnostics: { event(e) { if (e.reason === "worker-error") counts.failures++; }, configure() {}, geometry() {}, scheduling() {}, rendering() {}, tracking() {} },
     video: { videoWidth: SIZE, videoHeight: SIZE, get currentTime() { return time / 1000; } },
-    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true }),
+    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve }),
     detector: { detect: () => new Promise((resolve) => setTimer(() => resolve({ confidence: .99, rows: 4, cols: 4, sharpness: 200,
       corners: cornersAt(x, y).map(small) }), 50)), cancel() {} },
     reader: { read() {
@@ -127,7 +127,7 @@ test("a reading follows its grid through a jump instead of being lost and read a
   await s.advance(4000);
   assert.equal(s.counts.reads, 1);
   assert.ok(s.camera.diagnosticSource().verified, "the reading is tracked");
-  assert.equal(s.view.dataset.solution, "12", "the solved preview is shown");
+  assert.equal(s.view.dataset.recognised, "4", "the reading is shown");
   s.move(45, 30);
   const states = [];
   for (let elapsed = 0; elapsed < 3000; elapsed += 100) {
@@ -136,7 +136,7 @@ test("a reading follows its grid through a jump instead of being lost and read a
   }
   assert.ok(states.includes(false), "the jump is too far for the search window");
   assert.equal(states.at(-1), true, "the next detection re-locks the reading");
-  assert.equal(s.view.dataset.solution, "12", "and its preview returns");
+  assert.equal(s.view.dataset.recognised, "4", "and its preview returns");
   await s.advance(6000);
   assert.equal(s.writes.filter((text) => /Grid lost/.test(text)).length, 0);
   assert.equal(s.counts.reads, 1, "the same reading is kept, not read again");
@@ -146,7 +146,7 @@ test("a reading follows its grid through a jump instead of being lost and read a
 test("a settled reading verifies only its own anchor on each frame", async (t) => {
   const s = simulation(t);
   await s.advance(4000);
-  assert.equal(s.view.dataset.solution, "12");
+  assert.equal(s.view.dataset.recognised, "4");
   const from = s.verified.length;
   await s.advance(3000);
   const sizes = s.verified.slice(from);

@@ -11,12 +11,12 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 // runs the real tracking core and answers each operation after delay(op)
 // milliseconds, or never when delay(op) is null. Readings never finish unless
 // readMs is given; then each finishes after readMs and solves at once.
-function simulation(t, delay, { readMs = null } = {}) {
+function simulation(t, delay, { readMs = null, autoSolve = true } = {}) {
   let time = 0, serial = 0;
   const timers = new Map(), nodes = new Map();
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
-  const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
+  const context = { drawImage() {}, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
   const canvas = () => ({ width: 700, height: 700, dataset: {}, attributes: {}, getContext: () => context, setAttribute(name, value) { this.attributes[name] = value; } });
@@ -48,7 +48,7 @@ function simulation(t, delay, { readMs = null } = {}) {
     diagnostics: { event(e) { if (e.reason === "worker-error") counts.failures++; }, configure() {}, geometry() {}, scheduling() {}, rendering() {},
       tracking(_stats, info) { if ("stale" in info) counts.adopted++; } },
     video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } },
-    getSettings: () => ({ type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true }),
+    getSettings: () => ({ type: "latinsquare", rows: 2, cols: 2, boxRows: 1, boxCols: 2, enabled: true, autoSolve }),
     // A quick detector; by default readings never finish, since only the display is measured.
     detector: { detect: () => new Promise((resolve) => setTimer(() => resolve(structuredClone(found)), 50)), cancel() {} },
     reader: { read() {
@@ -144,7 +144,8 @@ for (const slow of [8000, 15000])
   });
 
 test("one-second anchors leave a tracked preview live most of the time", async (t) => {
-  const s = simulation(t, (op) => op === "anchor" ? 1000 : 30, { readMs: 1000 });
+  // Without automatic solving the reading never freezes, so tracking goes on.
+  const s = simulation(t, (op) => op === "anchor" ? 1000 : 30, { readMs: 1000, autoSolve: false });
   await s.advance(8000);
   assert.equal(s.counts.reads, 1);
   const states = await s.observe(30000);

@@ -31,7 +31,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }) {
   let time = 0, serial = 0, cancellations = 0;
   const timers = new Map(), detections = [], readings = [], nodes = new Map();
   const previous = globalThis.document;
-  const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
+  const context = { drawImage() {}, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: () => ({ data: new Uint8ClampedArray(64 * 64 * 4).fill(180) }) };
   const canvas = () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} });

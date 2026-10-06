@@ -14,7 +14,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   let time = 0, serial = 0, cancellations = 0, frozenTime = null;
   const timers = new Map(), detections = [], readings = [], nodes = new Map(), renders = [], texts = [];
   const previous = globalThis.document;
-  const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {},
+  const context = { drawImage() {}, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText(text) { texts.push(text); }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
   const canvas = () => ({ width: 700, height: 700, dataset: {}, attributes: {}, getContext: () => context, setAttribute(name, value) { this.attributes[name] = value; } });
@@ -323,7 +323,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 test("a detected grid that does not fit the selected rules shows the reason instead of failing every frame", async (t) => {
   const timers = new Map(); let serial = 0, time = 0;
   const nodes = new Map(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
-  const context = { drawImage() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
+  const context = { drawImage() {}, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (x, y, w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(180) }) };
   const previous = globalThis.document;
   globalThis.document = { createElement: () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} }) };

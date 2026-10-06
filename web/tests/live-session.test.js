@@ -38,3 +38,18 @@ test('turning auto-solve off during OCR never cancels recognition or invokes sol
  const h=live(t,true);h.toggle(false);h.resolve();await flush();assert.equal(h.solves.length,0);assert.equal(h.reads,1);
  assert.equal(h.s.preview.readComplete,true);
 });
+
+test('invalidate retires the reading and reports why: frozen, cleared, or settings and detection by default',async t=>{
+ for(const reason of ['frozen','cleared',undefined]){
+  const events=[];
+  const s=createLiveSession({read:async()=>({puzzle:state().puzzle,markedCells:[0],notes:[]}),solve:()=>new Promise(()=>{}),
+   cancelRead(){},cancelSolve(){},onChange(){},onStatus(){},onEvent:e=>events.push(e),isCurrent:()=>true,sameScene:()=>true});
+  s.start();t.after(()=>s.stop());
+  const corners=[{x:0,y:0},{x:20,y:0},{x:20,y:20},{x:0,y:20}];
+  for(let i=0;i<2;i++)s.observe({key:'2',width:21,height:21,corners,sharpness:200,image:{width:21,height:21}});
+  await flush();assert.ok(s.preview?.found);assert.equal(s.busy,true,'the solve is running');
+  s.invalidate(reason);
+  assert.equal(s.preview,null);assert.equal(s.busy,false);
+  assert.deepEqual(events.at(-1),{stage:'tracking',reason:reason??'settings-or-detection',cancelledRead:false,cancelledSolve:true});
+ }
+});

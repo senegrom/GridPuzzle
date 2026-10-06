@@ -4,7 +4,7 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
   'found','no-grid','small','blur','contrast','full-read','targeted','identical-crops','ocr-complete','read-complete',
   'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
   'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
-  'manual-corners','review-required','auto-solve-off','alignment-rejected']);
+  'manual-corners','review-required','auto-solve-off','alignment-rejected','frozen','cleared','camera-released']);
 const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
@@ -31,6 +31,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
   let started = now(), source = 'none', settings = {}, stage = 'idle', reason = 'ready', reading = null, geometry = null;
   let events = [], timings = {}, stageAt = started, counters = {}, tracking = {}, scheduling = {};
   let paintMetrics = createMetricWindow(), workerMetrics = createMetricWindow(), ageMetrics = createMetricWindow();
+  let tickMetrics = createMetricWindow();
   let paintRequests = 0, lastMetricFrame = -1, firstReading = null;
   const listeners = new Set();
   function notify() { for (const listener of listeners) { try { listener(); } catch { /* Diagnostics cannot interrupt scanning. */ } } }
@@ -63,6 +64,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       started = stageAt = now(); source = ['live','photo'].includes(kind) ? kind : 'none'; settings = settingsOf(value);
       stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {};
       paintMetrics = createMetricWindow(); workerMetrics = createMetricWindow(); ageMetrics = createMetricWindow();
+      tickMetrics = createMetricWindow();
       paintRequests = 0; lastMetricFrame = -1; firstReading = null; notify();
     },
     event,
@@ -81,6 +83,8 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       paintRequests++;
       if (value.painted) paintMetrics.add(value.milliseconds);
     },
+    // Main-thread milliseconds of each camera frame the live camera sampled.
+    ticking(milliseconds) { tickMetrics.add(milliseconds); },
     tracking(stats, frame) {
       if (Number.isSafeInteger(frame.frame) && frame.frame > lastMetricFrame) {
         lastMetricFrame = frame.frame;
@@ -106,7 +110,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         stageMilliseconds: Object.fromEntries(Object.entries({...timings, [stage]: (timings[stage] ?? 0) + now() - stageAt}).map(([k,v]) => [k, number(v)])),
         counters, tracking, scheduling,
         performance: { firstCompletedReadingMilliseconds: firstReading, paintRequests,
-          rendering: paintMetrics.snapshot(), trackingWorker: workerMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
+          rendering: paintMetrics.snapshot(), tick: tickMetrics.snapshot(), trackingWorker: workerMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
         privacy: { includesImage: false, automaticUpload: false, includesSolutions: false } });
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -139,4 +143,7 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   'video-stalled': 'The camera has stopped presenting new frames. Old overlays are hidden; resume the camera or capture for review.',
   'retry-rejected': 'The retry did not match the original puzzle; its readings were not applied.',
   'targeted-complete': 'The selected clue proposals were refreshed. They still require review.',
+  frozen: 'The solution preview is frozen on the verified picture it was found on. Nothing is scanned until Clear.',
+  cleared: 'Clear discarded the frozen solution and its reading; the camera is scanning again.',
+  'camera-released': 'The camera was turned off while the solution was frozen. Clear turns it back on.',
 });
