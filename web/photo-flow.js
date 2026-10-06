@@ -57,7 +57,9 @@ export function setupPhotoFlow({
     parkedSolver = null,
     // A Clear tap in progress, and the check that a resumed stream delivers frames.
     resuming = null,
-    frameCheck = null;
+    frameCheck = null,
+    // The muted camera track a Clear (or a retry) waits on, and that attempt.
+    mutedWait = null;
   // Photo undo stores geometry/review metadata, never canvases or decoded
   // pixels. Each crop change has a distinct token, so an undo cannot rewind
   // a later detection or manual adjustment, even on the same photograph.
@@ -130,8 +132,27 @@ export function setupPhotoFlow({
   // A stream Clear can simply play again: its camera is still on.
   const streamUsable = () => {
     const track = videoTracks()[0];
-    return !!track && track.readyState !== "ended" && track.muted !== true;
+    return !!track && track.readyState !== "ended";
   };
+  // iOS mutes a live camera track while it cannot feed it: another app or a
+  // call holds the camera, Split View, system pressure. A new track would be
+  // muted as well and deliver no frame, so the track is kept, and the
+  // attempt goes on when it unmutes.
+  const BUSY = {
+    frozen: "Another app or the system is using the camera. Save picture keeps this solution; Clear finishes once the camera is free.",
+    live: "Another app or the system is using the camera. The preview resumes once it is free.",
+  };
+  // The latest attempt runs once, and only while the track is still the
+  // page's camera (not closed, turned off or replaced meanwhile).
+  function afterUnmute(track, attempt) {
+    mutedWait = { track, attempt };
+    track.addEventListener?.("unmute", () => {
+      if (mutedWait?.track !== track) return;
+      const wait = mutedWait;
+      mutedWait = null;
+      if (videoTracks()[0] === track) void wait.attempt();
+    }, { once: true });
+  }
   // The live camera froze its solved view, or Clear made it live again. The
   // camera stays on while frozen (the user's choice: no new permission
   // prompt, no start-up delay on Clear): its tracks stay live and enabled.
@@ -255,6 +276,12 @@ export function setupPhotoFlow({
     $("start-camera").disabled = true; $("clear-freeze").disabled = true;
     let owner = null;
     try {
+      const camera = videoTracks()[0];
+      if (camera?.muted === true && camera.readyState !== "ended") {
+        $("camera-help").textContent = clearing ? BUSY.frozen : BUSY.live;
+        afterUnmute(camera, clearing ? clearFrozen : resumePlayback);
+        return;
+      }
       if (!streamUsable()) {
         for (const track of stream?.getTracks?.() ?? []) track.stop();
         stream = null;
@@ -416,11 +443,13 @@ export function setupPhotoFlow({
     if (event.key === "Escape" && !$("camera-panel").hidden) { event.preventDefault?.(); closeCamera(); }
   });
   $("restart-live").onclick = () => live?.restart?.();
-  $("clear-freeze").onclick = () => {
+  // Clear, from its button or once a muted camera is free: one at a time.
+  function clearFrozen() {
     if (live?.view !== "frozen" || resuming) return;
     const attempt = resuming = resumePlayback().finally(() => { if (resuming === attempt) resuming = null; });
     return attempt;
-  };
+  }
+  $("clear-freeze").onclick = clearFrozen;
   $("start-camera").onclick = () => {
     if (!pendingPlayback) return;
     // Reset a stalled element on the user gesture, retaining the granted stream.

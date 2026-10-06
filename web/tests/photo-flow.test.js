@@ -111,9 +111,20 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     },
     removeEventListener(type, fn) { handlers.get(type)?.delete(fn); },
   };
+  // `track.events[type]()` dispatches to every listener of that type, as an
+  // EventTarget does, dropping the `once` ones.
   const makeStream = () => {
+    const listeners = {};
     const track = { stopped: 0, events: {}, enabled: true, readyState: "live", muted: false,
-      stop() { this.stopped++; this.readyState = "ended"; }, addEventListener(type, fn) { this.events[type] = fn; } };
+      stop() { this.stopped++; this.readyState = "ended"; },
+      addEventListener(type, fn, options) {
+        (listeners[type] ??= []).push({ fn, once: options?.once === true });
+        this.events[type] = () => {
+          const all = listeners[type];
+          listeners[type] = all.filter((entry) => !entry.once);
+          for (const entry of all) entry.fn();
+        };
+      } };
     tracks.push(track);
     const own = [track];
     return { getTracks: () => own };
@@ -514,15 +525,56 @@ test("turning the camera off while Start preview is offered leaves Save picture 
   assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);
 });
 
-test("Clear asks for the camera again when its track was muted while frozen", async (t) => {
+test("a camera the system muted while frozen is kept: Clear says so and finishes when it unmutes", async (t) => {
   const h = await cameraHarness(t, { freshStreams: true });
   await h.$("camera").onclick(); h.live.freeze();
-  h.track.muted = true; // The system took the camera away: a call, or another app.
+  h.track.muted = true; // iOS: another app or a call holds the camera, or Split View.
+  const plays = h.plays;
   await h.$("clear-freeze").onclick();
-  assert.equal(h.track.stopped, 1, "the muted track is stopped");
-  assert.equal(h.requests, 2, "and the camera asked for inside the tap");
-  assert.equal(h.$("video").srcObject.getTracks()[0], h.tracks[1]);
-  assert.equal(h.live.resumed, 1);
+  assert.equal(h.track.stopped, 0, "the muted track is kept");
+  assert.equal(h.requests, 1, "no getUserMedia: a new track would be muted too");
+  assert.equal(h.plays, plays, "nothing to play yet");
+  assert.equal(h.live.view, "frozen"); assert.equal(h.$("start-camera").hidden, true);
+  assert.match(h.$("camera-help").textContent, /^Another app or the system is using the camera\. Save picture keeps this solution; Clear finishes/);
+  assert.equal(h.$("clear-freeze").disabled, false);
+  await h.$("clear-freeze").onclick(); // Another tap meanwhile waits on the same track.
+  h.track.muted = false; h.track.events.unmute();
+  await tick(); await tick();
+  assert.equal(h.plays, plays + 1, "the camera is free: the Clear goes on");
+  assert.equal(h.playedOn.at(-1), h.stream); assert.equal(h.live.resumed, 1);
+  assert.equal(h.requests, 1);
+});
+
+test("a camera turned off while Clear waits for it to unmute stays off until the next tap", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.track.muted = true;
+  await h.$("clear-freeze").onclick();
+  h.hide(); // An app switch turns the camera off.
+  const plays = h.plays;
+  h.track.muted = false; h.track.events.unmute(); // A stale event from the stopped track.
+  await tick(); await tick();
+  assert.equal(h.requests, 1, "no getUserMedia outside a tap"); assert.equal(h.plays, plays);
+  assert.equal(h.live.view, "frozen");
+  assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.requests, 2, "Clear asks for the camera inside its tap"); assert.equal(h.live.resumed, 1);
+});
+
+test("Start preview for a silent stream waits for a muted camera as well", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  h.track.muted = true;
+  const plays = h.plays;
+  await h.$("start-camera").onclick();
+  assert.equal(h.$("camera-help").textContent, "Another app or the system is using the camera. The preview resumes once it is free.");
+  assert.equal(h.plays, plays); assert.equal(h.requests, 1); assert.equal(h.track.stopped, 0);
+  await h.$("start-camera").onclick(); // Tapped again while it waits.
+  h.track.muted = false; h.track.events.unmute();
+  await tick(); await tick();
+  assert.equal(h.plays, plays + 1, "one retry once the camera is free"); assert.equal(h.$("start-camera").hidden, true);
+  assert.equal(h.live.view, "live");
+  assert.deepEqual([...timers.values()].map((timer) => timer.ms), [3000], "and checks for frames again");
 });
 
 test("a track that ends while frozen turns the camera off instead of closing the panel", async (t) => {
