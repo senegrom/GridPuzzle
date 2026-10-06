@@ -123,9 +123,10 @@ Since the solved view freezes until Clear, "moving away and closing" is
 watches the live view for 1.5 s after Clear, and two phases follow it:
 "frozen, camera off" (an app switch while frozen, Clear asking for the camera
 again, a second live solve and a frozen shutter) and "320 px" (a third live
-solve on a 320 × 568 screen). The table predates them; a first local Chromium
-run on a loaded Windows host took 8.9, 5.9 and 2.9 s for the three, where
-"live solve" took 5.2 s.
+solve on a 320 × 568 screen). The table predates them; two local Chromium
+runs on a shared Windows host took 5.5 to 8.9, 2.0 to 5.9 and 1.3 to 2.9 s for
+the three, where "live solve" took 5.2 to 5.6 s; the second run took 84 s in
+all.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
