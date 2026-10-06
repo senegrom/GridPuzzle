@@ -115,9 +115,10 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     return { getTracks: () => own };
   };
   const stream = makeStream();
-  let requests = 0, refusal = null, playback = play, plays = 0, pauses = 0;
+  let requests = 0, refusal = null, playback = play, plays = 0, pauses = 0, gate = null;
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { mediaDevices: { getUserMedia: async () => {
     requests++;
+    if (gate) await gate.promise;
     if (refusal) throw refusal;
     return freshStreams && requests > 1 ? makeStream() : stream;
   } } } });
@@ -140,6 +141,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     get live() { return lives.at(-1); },
     get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; },
     get requests() { return requests; }, refuse(error) { refusal = error; },
+    holdRequests() { gate = deferred(); return gate; },
     get plays() { return plays; }, get pauses() { return pauses; }, setPlay(fn) { playback = fn; },
     hide() { globalThis.document.hidden = true; listeners.visibilitychange(); globalThis.document.hidden = false; } };
 }
@@ -322,6 +324,22 @@ test("Save picture keeps the frozen solution after the camera was turned off", a
   assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
   assert.equal(h.$("clear-freeze").hidden, true); assert.equal(h.$("view-state").hidden, true);
   assert.equal(h.$("use-live-capture").hidden, false); assert.equal(h.liveStopped, 1);
+});
+
+test("a camera granted after the app was hidden again is turned off, and the frozen view stays", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze(); h.hide();
+  const request = h.holdRequests();
+  const clearing = h.$("clear-freeze").onclick();
+  await tick();
+  assert.match(h.$("camera-help").textContent, /Turning the camera back on/);
+  globalThis.document.hidden = true; h.listeners.visibilitychange();
+  request.resolve(); await clearing;
+  globalThis.document.hidden = false;
+  assert.equal(h.tracks[1].stopped, 1, "the late stream is stopped at once");
+  assert.equal(h.live.view, "frozen"); assert.equal(h.live.resumed, 0);
+  assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  assert.equal(h.$("clear-freeze").disabled, false);
 });
 
 test("a refused camera on Clear keeps the frozen view, says why and leaves Clear available", async (t) => {

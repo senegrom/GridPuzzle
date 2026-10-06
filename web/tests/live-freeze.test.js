@@ -52,7 +52,7 @@ function reading() {
 // immediate unique solution), "deferred" (h.solveJobs) or a function.
 function simulation(t, { autoSolve = true, solve = "unique", read = null, workerMs = 20 } = {}) {
   let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, rejectAll = false, holdDetections = false;
-  const timers = new Map(), nodes = new Map(), posts = [], draws = [], clears = [], created = [];
+  const timers = new Map(), nodes = new Map(), posts = [], draws = [], clears = [], created = [], workers = [];
   const solveJobs = [], heldDetections = [], viewChanges = [];
   const counts = { reads: 0, detects: 0, detectorCancels: 0, solves: 0 };
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
@@ -93,6 +93,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, worker
       },
       terminate() { worker.dead = true; },
     };
+    workers.push(worker);
     return worker;
   } });
   // The camera hands detection a copy scaled to at most 640 pixels.
@@ -136,7 +137,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, worker
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, view, video, $, counts, timers, posts, draws, clears, created, writes, solveJobs, heldDetections, viewChanges, diagnostics,
+  return { camera, view, video, $, counts, timers, posts, draws, clears, created, writes, workers, solveJobs, heldDetections, viewChanges, diagnostics,
     advance, until, found,
     get now() { return time; }, get help() { return help; },
     raw: () => camera.diagnosticSource().image,
@@ -170,6 +171,7 @@ test("a verified unique solution freezes on its own frame and stops all frame wo
   assert.equal(h.raw(), raw);
   assert.equal(h.counts.reads, 1); assert.equal(h.counts.solves, 1);
   assert.equal(h.camera.stats.retainedSources, 1, "only the frozen frame is retained");
+  assert.ok(h.workers.length > 0 && h.workers.every((worker) => worker.dead), "the tracking worker is terminated");
 });
 
 test("the frozen view ignores scene changes, stalls, slow replies and the loss limit", async (t) => {
@@ -298,9 +300,9 @@ test("a freeze inside a tick does not track or adopt that tick's frame", async (
 // fences are what keeps a late reply out; detections and reads are manual.
 function heldReplies(t) {
   let time = 0, serial = 0, hold = false, core = createTrackingCore();
-  const timers = new Map(), detections = [], readings = [], held = [], renders = [], draws = [], created = [], nodes = new Map();
+  const timers = new Map(), detections = [], readings = [], held = [], renders = [], draws = [], created = [], texts = [], nodes = new Map();
   const context = { drawImage(source) { draws.push(source); }, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
-    fillRect() {}, fillText() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
+    fillRect() {}, fillText(text) { texts.push(text); }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
   const canvas = () => ({ width: 700, height: 700, dataset: {}, attributes: {}, getContext: () => context, setAttribute(name, value) { this.attributes[name] = value; } });
   const previous = globalThis.document;
@@ -336,7 +338,7 @@ function heldReplies(t) {
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, view, detections, readings, held, renders, draws, created, advance, result, holdTracking(value) { hold = value; } };
+  return { camera, view, detections, readings, held, renders, draws, created, texts, advance, result, holdTracking(value) { hold = value; } };
 }
 
 test("replies held across the freeze are fenced: the frozen frame stays and nothing paints", async (t) => {
@@ -344,13 +346,20 @@ test("replies held across the freeze are fenced: the frozen frame stays and noth
   await h.advance(100); await h.result(); await h.advance(700); await h.result();
   assert.equal(h.readings.length, 1);
   // Verifications submitted from now on stay in flight; the last adopted
-  // proofs still verify the reading for up to two seconds.
-  h.holdTracking(true); await h.advance(300);
+  // proofs still verify the reading for up to two seconds, by now on the
+  // delayed tier.
+  h.holdTracking(true); await h.advance(700);
   assert.ok(h.held.length > 0, "verifications are in flight");
+  assert.equal(h.view.dataset.delayed, "1", "the view lags behind the camera");
   const puzzle = makePuzzle("latinsquare", 2); puzzle.cells = [1, null, null, 1];
+  const texts = h.texts.length;
   h.readings[0].resolve({ puzzle, cellUncertain: [], cageUncertain: [], markedCells: [0, 3], needsReview: true, notes: [] });
   await flush(); await h.advance(300);
   assert.equal(h.camera.view, "frozen");
+  const frozenPaint = h.texts.slice(texts);
+  assert.ok(frozenPaint.includes("PREVIEW"));
+  assert.equal(frozenPaint.includes("DELAYED"), false, "the frozen picture is never marked DELAYED");
+  assert.equal(h.view.dataset.delayed, "0");
   const raw = h.camera.diagnosticSource().image, paints = h.renders.filter((r) => r.painted).length, draws = h.draws.length;
   for (const job of h.held) job.resolve(job.result());
   for (const job of h.detections) job.resolve({ confidence: 0 });
