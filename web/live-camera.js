@@ -501,7 +501,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // that fails to construct never holds it.
   if (solverWorker) solver.adopt ? solver.adopt(solverWorker) : solverWorker.terminate();
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
+    // The canvas may still carry a frozen or captured picture's state and
+    // label from the session before (closed, or saved and scanned again).
+    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
     stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = adoptedAt = laggedAt = -Infinity; updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from

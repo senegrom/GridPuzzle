@@ -425,6 +425,8 @@ export function setupPhotoFlow({
       $("camera-panel").hidden = false;
       modal.open();
       markView("captured");
+      // The canvas now holds the stored picture, frozen or live before.
+      $("live-preview").setAttribute?.("data-view", "captured");
       document.body?.classList.add("camera-open");
       $("close-camera").focus?.();
       $("take-photo").hidden = true;

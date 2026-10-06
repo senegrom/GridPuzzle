@@ -427,8 +427,10 @@ test("Escape closes the camera from the frozen view", async (t) => {
 test("the shutter while frozen shows the captured picture", async (t) => {
   const h = await cameraHarness(t, { capture: stillPicture() });
   await h.$("camera").onclick(); h.live.freeze();
+  h.$("live-preview").setAttribute("data-view", "frozen"); // As the camera marks its canvas.
   await h.$("take-photo").onclick(); await tick();
   assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
+  assert.equal(h.$("live-preview").attributes["data-view"], "captured", "the canvas holds the stored picture");
   assert.equal(h.$("clear-freeze").hidden, true);
   assert.equal(h.$("retake-photo").hidden, false); assert.equal(h.track.stopped, 1);
 });
