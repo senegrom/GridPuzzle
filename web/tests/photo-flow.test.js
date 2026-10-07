@@ -86,11 +86,12 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 // getUserMedia hands out the same stream again, or a new one per call with
 // `freshStreams`. `video` replaces the plain #video node with a model whose
 // own play() and pause() run (counted all the same), and `makeLive(options)`
-// builds the live camera instead of the fake.
+// builds the live camera instead of the fake. `h.diagnostics` is the page's
+// own, as handed to the live camera.
 async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false, video = null, makeLive = null } = {}) {
   const { setupPhotoFlow } = await import("../photo-flow.js");
   const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
-  let flow = null;
+  let flow = null, diagnostics = null;
   t.after(() => flow?.stopCamera()); // Before the globals go: it clears the page's timers.
   const $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
@@ -147,6 +148,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     $, state: {}, scanner: {}, stopTask() {}, status: (...args) => statuses.push(args),
     savePicture: async (annotated, createdAt) => { saved.push({ annotated, createdAt }); return true; },
     liveFactory: (options) => {
+      diagnostics = options.diagnostics;
       const live = makeLive ? makeLive(options) : { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
         start() { liveStarted++; }, stop() { liveStopped++; }, capture: () => capture,
         resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; options.onViewChange?.("live"); },
@@ -156,7 +158,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     },
   });
   return { $, flow, statuses, listeners, track: tracks[0], tracks, saved, stream, playedOn,
-    get live() { return lives.at(-1); },
+    get live() { return lives.at(-1); }, get diagnostics() { return diagnostics; },
     get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; },
     get requests() { return requests; }, refuse(error) { refusal = error; },
     holdRequests() { gate = deferred(); return gate; },
@@ -653,6 +655,37 @@ test("a track that ends while frozen turns the camera off instead of closing the
   await h.$("clear-freeze").onclick();
   assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);
 });
+
+test("hiding the page after the camera was turned off keeps the line that says why", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze();
+  h.track.events.ended();
+  const stopped = h.$("camera-help").textContent;
+  assert.match(stopped, /^The camera stopped\./);
+  h.hide();
+  assert.equal(h.$("camera-help").textContent, stopped, "an app switch finds no camera to turn off");
+  // A refused Clear, then a trip to the Settings app to allow the camera.
+  h.refuse(Object.assign(Error("Permission denied"), { name: "NotAllowedError" }));
+  await h.$("clear-freeze").onclick();
+  const denied = h.$("camera-help").textContent;
+  assert.match(denied, /^Camera permission was denied\./);
+  h.hide();
+  assert.equal(h.$("camera-help").textContent, denied);
+  h.refuse(null);
+  await h.$("clear-freeze").onclick();
+  assert.equal(h.live.resumed, 1, "Clear turns the camera back on");
+});
+
+for (const [how, turnOff] of [["an app switch", (h) => h.hide()], ["the track ending", (h) => h.track.events.ended()]])
+  test(`a camera turned off while frozen by ${how} is reported to the diagnostics`, async (t) => {
+    const h = await cameraHarness(t);
+    await h.$("camera").onclick(); h.live.freeze();
+    const reasons = () => h.diagnostics.snapshot().events.map((e) => `${e.stage}:${e.reason}`);
+    assert.equal(reasons().includes("tracking:camera-released"), false);
+    turnOff(h);
+    assert.equal(reasons().at(-1), "tracking:camera-released");
+    assert.equal(h.diagnostics.snapshot().reason, "camera-released", "the reason the diagnostics panel shows");
+  });
 
 test("Escape closes the camera from the frozen view", async (t) => {
   const h = await cameraHarness(t);
