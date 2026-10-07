@@ -127,6 +127,13 @@ async function cameraLayout(page) {
     const box=selector=>document.querySelector(selector).getBoundingClientRect(), row=document.querySelector(".camera-actions");
     const result={viewfinder:box("#camera-panel .viewfinder").height,row:box(".camera-actions").height,
       rowOverflow:row.scrollWidth>row.clientWidth,shutter:box("#take-photo"),clear:box("#clear-freeze"),start:box("#start-camera"),panel:box("#camera-panel")};
+    // The legend as shown (with the reading's counts when there is one) and
+    // bare, with the generated content that shows the counts switched off
+    // through a rule in the app's own style sheet (the CSP forbids a new one).
+    const legend=document.querySelector(".live-legend"),sheet=[...document.styleSheets].find(s=>/style\.css/.test(s.href??""));
+    result.counts=legend.querySelectorAll("[data-count]").length;result.legend=legend.getBoundingClientRect().height;
+    const rule=sheet.insertRule(".live-legend *::after,.live-legend *::before{content:none!important;display:none!important}",sheet.cssRules.length);
+    result.bareLegend=legend.getBoundingClientRect().height;sheet.deleteRule(rule);
     help.textContent=text;
     return JSON.parse(JSON.stringify(result));
   });
@@ -305,6 +312,11 @@ async function run() {
             assert.equal(frozen.viewfinder,live.viewfinder,"freezing does not shrink the viewfinder");
             assert.equal(frozen.row,live.row,"the frozen action row stays one line");assert.equal(frozen.rowOverflow,false);
             assert.equal(frozen.clear.top,frozen.shutter.top);assert.ok(frozen.clear.right<=frozen.panel.right);
+            // The frozen reading's counts show in the legend, each in place of
+            // its colour's name: they take no room of their own, so the legend
+            // (and the viewfinder) is the size it is without them.
+            assert.equal(frozen.counts,4,"the frozen legend counts the reading and its solution");
+            assert.equal(frozen.legend,frozen.bareLegend,"the counts do not enlarge the legend");
             // A Clear whose playback was refused adds Start preview to the row:
             // it takes a line of its own, and Save picture and Clear keep size.
             await page.evaluate(()=>{document.getElementById("start-camera").hidden=false;});
@@ -316,7 +328,7 @@ async function run() {
             assert.equal(retry.clear.top,retry.shutter.top);assert.ok(retry.start.bottom<=retry.shutter.top,"Start preview has a line of its own");
             await page.click("#close-camera");
           } finally { await page.setViewportSize(size); }
-          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size; Start preview after a refused Clear gets a line of its own");
+          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size, and the legend's counts take no room of their own; Start preview after a refused Clear gets a line of its own");
         });
         await time("live capture with automatic solving off",async()=>{
           // Nothing freezes without automatic solving: the playing video stays

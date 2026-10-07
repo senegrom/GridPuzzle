@@ -198,10 +198,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     for (const key of COUNTED) canvas.dataset[key] = String(counts[key]);
     return counts;
   }
-  // The legend below the viewfinder shows the counts (its spans' data-count,
-  // which CSS appends) while a reading is live or frozen: live video carries
-  // no clue digits. The solution is counted only in the frozen picture, since
-  // none is drawn over live video. `null` clears them.
+  // The legend below the viewfinder shows the counts (data-count on each
+  // colour's name, which CSS shows in the name's place) while a reading is
+  // live or frozen: live video carries no clue digits. The solution is
+  // counted only in the frozen picture, since none is drawn over live video.
+  // `null` clears them.
   function showLegend(counts, solved = false) {
     for (const key of COUNTED) {
       const node = $(`legend-${key}`), value = counts && (solved || key !== "solution") ? String(counts[key]) : null;

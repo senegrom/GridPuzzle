@@ -21,7 +21,9 @@ the camera's canvas is transparent and holds only the white outline of the
 grid where the latest verified frame placed it, so during motion the outline
 can trail the video by a verification. The clue numbers are not drawn over the
 moving video, and a solution never is: the legend below the viewfinder counts
-the reading instead (recognised, uncertain and unread clues), the help line
+the reading instead (recognised, uncertain and unread clues), each count in
+place of its colour's name ("14 · recognised"), so the legend and the
+viewfinder above it keep their size whether counts show or not; the help line
 says what the camera is doing, and the canvas's accessible label names the
 outline and the counts, and says when the outline is catching up with the
 camera. Before, the canvas covered the video with snapshots of it, 3 to 8 new
