@@ -88,7 +88,13 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     setAttribute(name, value) { if (name === "data-count") countWrites++; this.attributes[name] = String(value); }, getAttribute(name) { return this.attributes[name] ?? null; },
     removeAttribute(name) { delete this.attributes[name]; } });
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
-  [view.width, view.height] = viewSize;
+  // Assigning a canvas's width or height reallocates and clears its bitmap:
+  // the display canvas counts those assignments.
+  let [viewWidth, viewHeight] = viewSize, sizeWrites = 0;
+  Object.defineProperties(view, {
+    width: { get: () => viewWidth, set(value) { sizeWrites++; viewWidth = value; } },
+    height: { get: () => viewHeight, set(value) { sizeWrites++; viewHeight = value; } },
+  });
   let help = "";
   nodes.set("camera-help", { get textContent() { return help; }, set textContent(value) { help = value; } });
   const tracker = createLiveTracker({ setTimer, clearTimer, makeWorker() {
@@ -165,7 +171,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     stall() { frozenTime = time; }, unstall() { frozenTime = null; },
     hold() { hold = true; }, release() { hold = false; for (const reply of held.splice(0)) reply(); },
     rejectVerify(value) { rejectAll = value; }, jitter(px) { jitter = px; },
-    get held() { return held.length; }, get countWrites() { return countWrites; } };
+    get held() { return held.length; }, get countWrites() { return countWrites; }, get sizeWrites() { return sizeWrites; } };
 }
 
 test("live, the canvas holds only the outline: no camera frame, no digits, no solution", async (t) => {
@@ -483,6 +489,50 @@ test("the canvas takes the adopted frame's size, so the outline's coordinates ar
   const h = simulation(t, { autoSolve: false, viewSize: [300, 150] });
   assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
   assert.deepEqual([h.view.width, h.view.height], [700, 700]);
+});
+
+// Each assignment of a canvas's size reallocates and clears its bitmap, about
+// 7 MB for a 1600 x 1200 frame: the live paints, ten a second, keep the size
+// they have.
+test("the canvas size is assigned only when the adopted frame's differs", async (t) => {
+  const h = simulation(t, { autoSolve: false, viewSize: [300, 150] });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  assert.equal(h.sizeWrites, 2, "once to the frames' 700 x 700");
+  const paints = h.renders.filter((r) => r.painted).length;
+  h.jitter(1); await h.advance(2000);
+  assert.ok(h.renders.filter((r) => r.painted).length >= paints + 4, "the outline was repainted");
+  assert.equal(h.sizeWrites, 2, "at the size the canvas already had");
+});
+
+// After a rotation or a change of stream resolution the settings start over
+// and nothing is drawn until a grid verifies on frames of the new shape; the
+// cleared canvas takes their size with the first one adopted.
+test("a change of stream resolution gives the cleared canvas the new frames' size at once", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
+  h.video.videoHeight = 525; // The stream turns to 4:3.
+  assert.ok(await h.until(() => h.raw()?.height === 525, 1000), "a frame of the new shape is adopted");
+  assert.equal(h.view.dataset.overlay, "none");
+  assert.deepEqual([h.view.width, h.view.height], [700, 525]);
+});
+
+// data-delayed and the label describe the evidence on screen. A stalled feed
+// shows none, so a lagging reply adopted meanwhile, whose proofs still match,
+// marks nothing as catching up.
+test("a lagging reply adopted while nothing is shown does not mark the view as catching up", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  h.hold(); await h.advance(300);
+  assert.ok(h.held >= 1, "a verification is in flight");
+  h.stall();
+  assert.ok(await h.until(() => h.view.dataset.overlay === "none", 1500), "the stalled feed hides the outline");
+  assert.equal(h.view.dataset.delayed, "0");
+  const raw = h.raw();
+  h.release(); await flush();
+  assert.notEqual(h.raw(), raw, "the reply, its frame 0.6 s old, was adopted");
+  assert.equal(h.view.dataset.overlay, "none", "nothing is shown on a stalled feed");
+  assert.equal(h.view.dataset.delayed, "0", "so nothing is catching up");
 });
 
 test("sub-pixel jitter of the proofs does not repaint the outline; a pixel does", async (t) => {

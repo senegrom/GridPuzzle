@@ -642,9 +642,12 @@ Unit tests (`node --test web/tests/*.test.js`):
   repaint and sub-pixel jitter of the proofs does not; the freeze is the one
   camera-frame paint. `data-overlay`, the legend counts (the solution's only
   frozen) and the labels follow; no outline is drawn on a frame of another
-  shape or over a video without one; past the stale limit the snapshot and its
+  shape or over a video without one; the canvas takes the adopted frame's size,
+  also before any outline after a change of stream resolution, and is not
+  resized while that size holds; past the stale limit the snapshot and its
   proofs are dropped and no copy takes their place; `data-delayed` follows the
-  tier; a stalled feed with no adopted frame still offers Restart. The freeze
+  tier of what is shown and marks nothing while nothing is; a stalled feed
+  with no adopted frame still offers Restart. The freeze
   waits for a fresh frame and for the retries of a marked yellow clue, for at
   most three seconds counted from the first solved render across a blink, and
   a yellow clue no retry can read does not hold it. A live capture keeps a
