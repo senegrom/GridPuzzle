@@ -81,7 +81,9 @@ retry of a yellow clue may still change the reading. A retry needs a clearer
 frame of that clue, so with the phone held still on one view, a reading with a
 retryable yellow clue freezes only after the full three seconds. Meanwhile no
 solution is shown and the help line says "Solution found — hold the grid
-steady for a moment…". The three seconds belong to the reading's own frame: a
+steady for a moment…"; Save picture ends the wait, freezing the view at once on
+the solution's own frame, whatever its age, and saving that picture: no retry
+can run after the shutter. The three seconds belong to the reading's own frame: a
 blink of the grid, a merged retry or a new solve keep them running, and only a
 new full reading starts them again. Freezing ends all frame work: no frame is
 sampled, and no detection, tracking, OCR, retry or solve runs, while replies
@@ -196,9 +198,12 @@ for arbitrary photographs or handwriting.
 **Save picture** stores an annotated camera frame, with the colour legend and
 the PREVIEW label, and the panel then shows exactly the stored picture. While
 the solution is frozen it stores exactly the frozen picture, its frame and its
-reading, also after the camera was turned off; a capture whose own
-revalidation freezes the view stores the frozen picture. While live, the
-screen shows the video, so the shutter chooses the frame. The reading's
+reading, also after the camera was turned off. A capture whose own
+revalidation shows a solved reading freezes the view and stores the frozen
+picture, also while the freeze waits for a fresher frame or a retry: the
+help line has said that a solution was found, and the shutter ends the
+camera, so no retry could follow. While live, the screen shows the video, so
+the shutter chooses the frame. The reading's
 corners and clues were proven on the latest verified frame only, so that frame
 is kept, with its reading, outline and bar but without a solution (none was
 shown), while it is at most half a second old and so matches what the user
@@ -659,9 +664,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   waits for a fresh frame and for the retries of a marked yellow clue, for at
   most three seconds counted from the first solved render across a blink, and
   a yellow clue no retry can read does not hold it. A live capture keeps a
-  fresh verified frame with its reading, outline and bar but no solution, also
-  while a solution waits, and otherwise the frame on screen without a reading;
-  right after Clear it waits until a frame reported after Clear was scanned.
+  fresh verified frame with its reading, outline and bar but no solution, and
+  otherwise the frame on screen without a reading; while a solution waits to
+  freeze, the shutter freezes it on its own frame, also one older than half a
+  second, and saves it with the solution; right after Clear it waits until a
+  frame reported after Clear was scanned.
   `live-session.test.js` covers `refining` and the counted status without
   automatic solving, and `photo-flow.test.js` the shutter drawing a live
   capture's stored picture on the panel.

@@ -229,15 +229,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // The live video is the display. Over it this canvas is transparent and
   // holds only the outline of the latest verified proof, which can trail the
   // video by a reply: never clue digits, never a solution. A solved reading
-  // freezes the view instead (readyToFreeze), on its own verified frame.
-  function render() {
+  // freezes the view instead (readyToFreeze), on its own verified frame; at
+  // the shutter (capture) it freezes without waiting.
+  function render(shutter = false) {
     if (view !== "live") return;
     session.validate();
     displayed = session.preview;
     // With a preview the outline follows its corners; guideFrame is then not
     // verified at all (see verifyIds).
     guide = displayed?.corners || (guideFrame && isCurrent(guideFrame)?.corners) || null;
-    if (raw && aspectMatches() && readyToFreeze()) { freezeNow(); return; }
+    if (raw && aspectMatches() && (shutter ? solvedPreview(displayed) : readyToFreeze())) { freezeNow(); return; }
     const mode = guide && aspectMatches() ? "outline" : "none";
     // The evidence's tier, as data-delayed and in the label; only an outline
     // or a reading makes it matter.
@@ -633,9 +634,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // through the render that validates first, which may freeze the view.
     capture() {
       // Never attach stale metadata, even when an async result arrived
-      // mid-tick: validate against the adopted frame first. This render can
-      // itself freeze the view; the frozen picture is then saved.
-      if (view === "live") render();
+      // mid-tick: validate against the adopted frame first. This render
+      // freezes a solved reading also while its freeze waits for a fresher
+      // frame or a retry: the shutter ends that wait, since no retry can run
+      // after it, and the help line has said that a solution was found. The
+      // frozen picture, with the solution, is then saved.
+      if (view === "live") render(true);
       if (view === "frozen") {
         // Exactly the frozen composition and its own frame and reading.
         const { found, corners } = frozen.preview;

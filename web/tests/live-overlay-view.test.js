@@ -259,17 +259,44 @@ test("a live capture keeps a fresh verified frame with its reading and outline, 
   assert.equal(h.camera.capture().found.puzzle.cells[5], null, "each capture owns its copy of the reading");
 });
 
-test("a live capture never draws blue, also while a solved reading waits to freeze", async (t) => {
+// The freeze's wait ends at the shutter: no retry can run after it, and the
+// help line has said that a solution was found. The shutter freezes the
+// solved reading on its own verified frame and saves that frozen picture,
+// with the solution, as when the view freezes by itself.
+test("the shutter freezes a solved reading that waits for a retry and saves its solution", async (t) => {
   // An uncertain marked clue with retries left holds the freeze (see below).
   const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
   assert.ok(await h.until(() => h.help === WAITING, 5000));
-  const shot = h.camera.capture();
-  assert.equal(h.camera.view, "live"); assert.equal(shot.frozen, false);
-  assert.ok(shot.found, "the fresh verified reading is kept");
-  const text = h.on(shot.annotated).filter((o) => o.op === "fillText");
-  assert.ok(text.some((o) => o.style === SCAN_COLOURS.uncertain), "the uncertain clue is yellow");
-  assert.deepEqual(text.filter(blueDigit), [], "no solution was shown, so none is saved");
+  assert.equal(h.camera.view, "live");
+  const raw = h.raw(), from = h.ops.length, shot = h.camera.capture();
+  assert.equal(h.camera.view, "frozen"); assert.equal(shot.frozen, true);
+  assert.equal(h.raw(), raw, "frozen on the frame the solution was verified on");
+  const frozen = h.on(h.view, from), text = frozen.filter((o) => o.op === "fillText");
+  assert.equal(frozen[0].op, "drawImage"); assert.equal(frozen[0].source, raw);
+  assert.equal(text.filter(blueDigit).length, 12, "the picture carries the solution");
+  assert.ok(text.some((o) => o.style === SCAN_COLOURS.uncertain), "and the uncertain clue in yellow");
+  assert.deepEqual(h.on(shot.annotated).map((o) => o.source), [h.view], "the saved picture is the frozen one");
+  assert.equal(shot.found.puzzle.cells[1], 2); assert.equal(h.view.dataset.solution, "12");
+  assert.match(h.help, FROZEN);
+});
+
+// A slow tracker keeps the freeze waiting for a fresher frame (see below); the
+// shutter freezes on the solution's own verified frame all the same, rather
+// than keep a frame without the reading the legend counts.
+test("the shutter freezes a solved reading on a verified frame older than half a second", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.hold(); await h.advance(700);
+  h.solveJobs[0].resolve(unique()); await flush(); await h.advance(300);
+  assert.equal(h.camera.view, "live", "the freeze waits for a fresh frame");
+  assert.equal(h.help, WAITING);
+  const raw = h.raw(), shot = h.camera.capture();
+  assert.equal(shot.frozen, true); assert.equal(h.camera.view, "frozen");
+  assert.equal(h.raw(), raw, "on the frame the solution was verified on, a second old");
+  assert.deepEqual(shot.found.puzzle.cells, reading().puzzle.cells);
+  assert.equal(h.on(h.view).filter(blueDigit).length, 12);
+  assert.equal(h.view.dataset.delayed, "0", "a frozen picture is never marked as catching up");
 });
 
 test("a live capture whose verified frame is older than half a second keeps the frame on screen, without a reading", async (t) => {
