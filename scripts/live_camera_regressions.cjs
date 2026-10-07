@@ -62,7 +62,7 @@ async function solveLive(page) {
   await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)>0,null,{timeout:150000});
 }
 // The solved view is frozen until Clear: a still of the verified frame with
-// its solution, the video paused and hidden behind it but still attached to
+// its solution, the video paused behind it (visible, covered) and still attached to
 // its stream (`attached`),
 // the camera still on (`tracks`: the latest stream getUserMedia gave out).
 async function frozenState(page) {
@@ -139,14 +139,14 @@ async function run() {
         assert.equal(frozen.view,"frozen");assert.equal(frozen.panel,"frozen");
         assert.equal(frozen.clear,true,"Clear is offered");assert.equal(frozen.chip,true,"the Frozen chip is shown");assert.equal(frozen.restart,false);
         assert.ok(frozen.chipContrast>=4.5,`the chip's text has AA contrast (${frozen.chipContrast}:1)`);
-        assert.equal(frozen.paused,true);assert.equal(frozen.visibility,"hidden","the paused video is hidden behind the still");
+        assert.equal(frozen.paused,true);assert.equal(frozen.visibility,"visible","the paused video stays visible behind the opaque still: WebKit gives a new player on an invisible video no frame");
         assert.equal(frozen.attached,true,"and still attached to its stream, ready to play again");
         assert.deepEqual(frozen.tracks,[{enabled:true,ready:"live"}],"the camera stays on while frozen");
         assert.match(frozen.help,/frozen/);
         const still=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
         await sleep(1000);
         assert.equal(await page.locator("#live-preview").evaluate(c=>c.toDataURL()),still,"the frozen picture does not change");
-        report.checks.push("the solved view freezes until Clear: video paused and hidden but still attached, camera track kept on and enabled");
+        report.checks.push("the solved view freezes until Clear: video paused behind the still and still attached, camera track kept on and enabled");
         await page.screenshot({path:`browser-artifacts/${name}-live-camera.png`});
         });
         await time("capture and diagnostics",async()=>{

@@ -69,7 +69,9 @@ missed one (2 of 22 solved runs), happened in that phase.
 The camera stays on while frozen, as the user chose: no timer turns it off, so
 the camera indicator stays on and the phone does not lock itself while frozen
 (WebKit keeps the display awake while a page captures). The video element is
-paused and hidden behind the still but stays attached to its stream, and the
+paused behind the opaque still, which covers it exactly, and stays visible and
+attached to its stream (WebKit gives a new player on an invisible video no
+first frame, which would stall Clear after an app switch), and the
 camera track stays live and enabled; Clear plays it again inside the tap, with
 no new getUserMedia and no permission prompt. A paused WebKit MediaStream
 player keeps the frame it paused on for drawing while its count of presented
@@ -608,8 +610,8 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 
 - `live_camera_regressions.cjs` gives a real canvas-backed MediaStream to the
   production camera with Tesseract, Pyodide and real IndexedDB: automatic
-  solving without closing the camera, the frozen solution (video paused and
-  hidden but attached, the camera track still on, the picture unchanged, the chip's
+  solving without closing the camera, the frozen solution (video paused behind
+  the still and attached, the camera track still on, the picture unchanged, the chip's
   contrast), Clear without a new getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and

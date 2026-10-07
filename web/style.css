@@ -771,8 +771,11 @@ body.camera-open { overflow: hidden; }
 .camera-actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; }
 .camera-actions .shutter { min-height: 58px; min-width: 180px; background: #fff; color: #101820; border: 3px solid #cbd5e1; border-radius: 40px; font-size: 1.1rem; }
 /* A solved view is held as a still until Clear. The chip names that state in
-   the heading, never over the picture; the paused video behind the still is
-   hidden, as it is behind a captured picture. The frozen row stays one line
+   the heading, never over the picture. The paused video stays visible behind
+   the opaque still, which covers it exactly (same frame, same object-fit):
+   WebKit gives a new player on an invisible video no first frame, so Clear's
+   play() on the camera asked for again after an app switch would never
+   resolve. Only a captured picture hides it. The frozen row stays one line
    down to a 320-px screen, so freezing never shrinks the viewfinder. When
    Start preview joins it (a Clear whose playback was refused or stayed
    silent), the row may wrap rather than squeeze three buttons into one
@@ -784,7 +787,7 @@ body.camera-open { overflow: hidden; }
 #camera-panel[data-view="frozen"] .camera-actions .shutter { min-width: 0; flex: 1 1 auto; }
 #camera-panel[data-view="frozen"] .camera-actions #clear-freeze { flex: 0 0 auto; }
 #camera-panel[data-view="frozen"] .camera-actions #start-camera { flex: 0 0 100%; }
-#camera-panel[data-view="frozen"] #video, #camera-panel[data-view="captured"] #video { visibility: hidden; }
+#camera-panel[data-view="captured"] #video { visibility: hidden; }
 .saved-capture { margin: 1rem 0; padding: 1rem; border: 1px solid #d7e3dd; border-radius: 12px; }
 .saved-capture img { display: block; width: 100%; max-height: 360px; object-fit: contain; margin: .65rem 0; }
 @media (orientation: landscape) and (max-height: 520px) {
