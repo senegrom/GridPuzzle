@@ -64,7 +64,7 @@ function reading({ uncertain = [], marked = [] } = {}) {
 // `quality(n)` is the n-th detection's quality report. Every canvas records
 // drawImage, clearRect, stroke and fillText (with its fill colour), in one
 // list of operations; the legend's data-count writes are counted.
-function simulation(t, { autoSolve = true, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20 } = {}) {
+function simulation(t, { autoSolve = true, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20, viewSize = [SIZE, SIZE] } = {}) {
   let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, hold = false, detections = 0, rejectAll = false, jitter = 0, replies = 0, countWrites = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], held = [], solveJobs = [], renders = [];
   const counts = { reads: 0, retries: 0, solves: 0 };
@@ -88,6 +88,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     setAttribute(name, value) { if (name === "data-count") countWrites++; this.attributes[name] = String(value); }, getAttribute(name) { return this.attributes[name] ?? null; },
     removeAttribute(name) { delete this.attributes[name]; } });
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
+  [view.width, view.height] = viewSize;
   let help = "";
   nodes.set("camera-help", { get textContent() { return help; }, set textContent(value) { help = value; } });
   const tracker = createLiveTracker({ setTimer, clearTimer, makeWorker() {
@@ -161,7 +162,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     raw: () => camera.adoptedFrame(), frozen: () => camera.view === "frozen",
     on: (target, from = 0) => ops.slice(from).filter((o) => o.target === target),
     legend: () => Object.fromEntries(["recognised", "uncertain", "unknown", "solution"].map((key) => [key, $(`legend-${key}`).getAttribute("data-count")])),
-    stall() { frozenTime = time; },
+    stall() { frozenTime = time; }, unstall() { frozenTime = null; },
     hold() { hold = true; }, release() { hold = false; for (const reply of held.splice(0)) reply(); },
     rejectVerify(value) { rejectAll = value; }, jitter(px) { jitter = px; },
     get held() { return held.length; }, get countWrites() { return countWrites; } };
@@ -318,6 +319,29 @@ test("data-delayed and the label follow the evidence's tier; the outline trails"
   assert.doesNotMatch(h.view.attributes["aria-label"], /catching up/);
 });
 
+test("after a stall the reading returns only with a newly verified frame", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.stall(); await h.advance(700);
+  assert.equal(h.view.dataset.recognised, "0", "a stalled feed hides the reading");
+  // Frames are presented again, but their verification is held: the proof
+  // from before the stall must not bring the reading back on its own.
+  h.hold(); h.unstall(); await h.advance(300);
+  assert.equal(h.view.dataset.recognised, "0", "presented frames alone do not revive the old proof");
+  assert.equal(h.camera.capture().found, null);
+  h.release(); await h.advance(300);
+  assert.equal(h.view.dataset.recognised, "4", "a newly verified frame does");
+});
+
+test("a camera closed while its outline lagged starts again on the live tier", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.hold(); await h.advance(700);
+  assert.equal(h.view.dataset.delayed, "1");
+  h.camera.stop(); h.release(); h.camera.start();
+  assert.equal(h.view.dataset.delayed, "0", "before its first paint");
+});
+
 test("with no adopted frame a stalled feed still says so and offers Restart", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
@@ -411,6 +435,20 @@ test("the retries of an uncertain clue run before the freeze", async (t) => {
   assert.equal(h.view.dataset.solution, "12");
 });
 
+test("a merged retry keeps the freeze's three seconds running", async (t) => {
+  // One clearer view of cell 1 (the third detection), then none: one retry
+  // lands early and leaves one more, which never comes.
+  const once = (n) => sharper(Math.min(n, 3));
+  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: once,
+    readCells: (found, cells) => Promise.resolve(retryResult(found, cells)) });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now;
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  assert.equal(h.counts.retries, 1, "one retry was read and merged");
+  const waited = h.now - since;
+  assert.ok(waited >= 2800 && waited <= 3300, `froze ${waited} ms after the reading was first shown solved, not three seconds after the merge`);
+});
+
 test("a yellow clue that cannot be retried does not hold the freeze", async (t) => {
   // Flagged but not a marked printed mark: no automatic retry would read it.
   const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [] })),
@@ -419,6 +457,13 @@ test("a yellow clue that cannot be retried does not hold the freeze", async (t) 
   assert.equal(h.view.dataset.uncertain, "1");
   assert.equal(h.counts.retries, 0);
   assert.ok(!h.diagnostics.snapshot().events.some((e) => e.reason === "clearer-frame-needed"), "no retry was waited for");
+});
+
+test("the canvas takes the adopted frame's size, so the outline's coordinates are the video's", async (t) => {
+  // A canvas element starts at 300 x 150; the frames are 700 x 700.
+  const h = simulation(t, { autoSolve: false, viewSize: [300, 150] });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
+  assert.deepEqual([h.view.width, h.view.height], [700, 700]);
 });
 
 test("sub-pixel jitter of the proofs does not repaint the outline; a pixel does", async (t) => {

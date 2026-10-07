@@ -79,7 +79,7 @@ function refiningSession(t,{readCells=true,marked=[0,1],uncertain=[1],autoSolve=
  const found=()=>{const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,2,2,null];
   return {puzzle,cellUncertain:[...uncertain],cageUncertain:[],markedCells:[...marked],uncertain:[...uncertain],needsReview:true,notes:[],
    entries:[{cell:1,kind:'value',text:'2',confidence:0,evidence:'first'}]};};
- const s=createLiveSession({read:()=>{const d=defer();reads.push(d);return d.promise;},
+ const s=createLiveSession({read:(frame,progress,onPreview)=>{const d=defer();reads.push({...d,onPreview});return d.promise;},
   readCells:readCells?(sample,base,cells)=>new Promise(resolve=>retries.push({cells,resolve})):null,
   solve:()=>{const d=defer();solves.push(d);return d.promise;},cancelRead(){},cancelSolve(){},onChange(){},onStatus(){},
   autoSolve:()=>autoSolve,isCurrent:()=>visible,sameScene:()=>true,now:()=>time});
@@ -95,6 +95,9 @@ test('refining holds while a marked uncertain clue has retries left, and ends wh
  assert.equal(h.s.refining,false,'nothing is read yet');
  h.observe(20);h.observe(20);
  assert.equal(h.s.refining,false,'a read in progress is not a complete reading');
+ h.reads[0].onPreview(h.found());
+ assert.ok(h.s.preview?.found,'the provisional reading is shown');
+ assert.equal(h.s.refining,false,'nor is a provisional reading, its read still running');
  h.reads[0].resolve(h.found());await flush();
  assert.equal(h.s.refining,true,'cell 1 has two automatic retries left');
  h.setTime(1600);h.observe(60);assert.equal(h.retries.length,1);
