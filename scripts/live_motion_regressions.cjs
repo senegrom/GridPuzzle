@@ -66,6 +66,10 @@ async function beginMotion(cells) {
     },// Keep the solver pending to isolate OCR retention from the normal
     // multiple-solution retry backoff. No answers are injected.
     solver:{prepare(){},cancel:cancelSolve,invalidate:cancelSolve,solve:()=>new Promise(resolve=>{finishSolve=resolve;})}});
+  // The out-of-grid witness pixel of the frame the camera adopted last, the
+  // frame its proofs verified (the display canvas holds only an outline over
+  // the live video), or null before one is adopted.
+  state.witness = () => { const frame = state.camera.adoptedFrame(); return frame ? Array.from(frame.getContext('2d').getImageData(10, 10, 1, 1).data) : null; };
   // A verified view is transient. Capture and copy its result in one browser
   // task; a later Playwright call may legitimately find the next frame hidden.
   state.snapshot = () => {
@@ -155,13 +159,13 @@ async function run(){
     assert.deepEqual(captured.cells,expected);assert.equal(captured.review,true);assert.equal(captured.refining,false);assert.equal(captured.reads,1);assert.equal(captured.cancels,first.cancels);
     assert.equal(Number(captured.unknown),0);report.reading=captured;report.checks.push('22/22 real OCR clues finish during continual jitter and changing background; one read, no motion cancellation');log('22/22 read under jitter');
     await page.evaluate(()=>{motionState.mode='finger';});
-    await page.waitForFunction(()=>{const p=motionOutput.getContext('2d').getImageData(10,10,1,1).data;return Math.abs(p[0]-172)<3 && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===0;});
+    await page.waitForFunction(()=>{const p=motionState.witness();return p&&Math.abs(p[0]-172)<3 && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===0;});
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found),null,'occluded current frame must not carry old readings');
     await page.evaluate(()=>{motionState.mode='grid';});
     await page.waitForFunction(()=>!motionState.reading && Number(motionOutput.dataset.recognised)+Number(motionOutput.dataset.uncertain)===22);
     assert.equal(await page.evaluate(()=>motionState.reads),1,'brief occlusion reuses verified work');report.checks.push('finger immediately hides metadata; same board returns without starting OCR again');log('occlusion handled');
     await page.evaluate(()=>{motionState.cells[1]=3;});
-    await page.waitForFunction(()=>{const p=motionOutput.getContext('2d').getImageData(10,10,1,1).data;return Math.abs(p[1]-60)<3;});
+    await page.waitForFunction(()=>{const p=motionState.witness();return p&&Math.abs(p[1]-60)<3;});
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'first displayed changed frame cannot show the old clue');
     await page.waitForFunction(()=>motionState.reads>1);
     assert.equal(await page.evaluate(()=>motionState.camera.capture().found?.puzzle.cells[1]===8),false,'changed clue must never retain the old value');
@@ -196,7 +200,7 @@ async function run(){
     }
    }catch(e){
     report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
-      ticks:window.motionState?.ticks,reading:window.motionState?.reading,playback:window.motionState?.playback?.(),witness:window.motionOutput?Array.from(motionOutput.getContext('2d').getImageData(10,10,1,1).data):null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
+      ticks:window.motionState?.ticks,reading:window.motionState?.reading,playback:window.motionState?.playback?.(),witness:window.motionState?.witness?.()??null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
     throw e;
    } finally {
     await page.evaluate(() => window.motionState?.stop?.()).catch(() => {});

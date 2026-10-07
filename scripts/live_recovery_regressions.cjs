@@ -73,7 +73,9 @@ async function begin({ font, race = false }) {
       playback: { started: !!state.started, error: state.startError ?? null, readyState: video.readyState, paused: video.paused,
         width: video.videoWidth, height: video.videoHeight, ticks: state.ticks, currentTime: video.currentTime }, status: document.getElementById('camera-help').textContent };
   };
-  state.changedPresented = () => out.getContext('2d').getImageData(30, 5, 1, 1).data[1] > 200;
+  // The witness of the frame the camera adopted last, the frame its proofs
+  // verified (the display canvas holds only an outline over the video).
+  state.changedPresented = () => { const frame = camera.adoptedFrame(); return !!frame && frame.getContext('2d').getImageData(30, 5, 1, 1).data[1] > 200; };
   state.clear = () => { state.sharp = true; paint(); };
   state.change = () => { state.changed = true; paint(); };
   state.pause = () => video.pause(); state.resume = () => play();

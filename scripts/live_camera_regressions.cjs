@@ -61,6 +61,34 @@ async function solveLive(page) {
   await startLive(page);
   await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)>0,null,{timeout:150000});
 }
+// Every drawImage onto #live-preview, with the canvas's data-view at the time:
+// while live the video is the display and the canvas holds only an outline,
+// so a camera frame reaches it once, at the freeze, or from the shutter.
+async function recordPreviewDraws(page) {
+  await page.evaluate(()=>{
+    const draw=CanvasRenderingContext2D.prototype.drawImage;
+    window.previewDraws=[];
+    CanvasRenderingContext2D.prototype.drawImage=function(...args){
+      if(this.canvas?.id==="live-preview")previewDraws.push({view:this.canvas.dataset.view,source:args[0]?.constructor?.name});
+      return draw.apply(this,args);
+    };
+  });
+}
+// The live capture keeps its reading on a verified frame at most half a
+// second old. Press the shutter just after a verification reply has been
+// adopted, so that the frame is fresh whatever the engine's tick spacing.
+async function shutterAfterVerification(page) {
+  await page.evaluate(()=>new Promise(resolve=>{
+    window.onTrackReply=()=>{window.onTrackReply=null;setTimeout(()=>{document.getElementById("take-photo").click();resolve();},0);};
+  }));
+}
+async function watchTrackReplies(page) {
+  await page.evaluate(()=>{
+    const Native=window.Worker;
+    window.Worker=class extends Native{constructor(url,options){super(url,options);
+      if(/live-tracking-worker/.test(String(url)))this.addEventListener("message",({data})=>{if(data?.result?.proofs)window.onTrackReply?.();});}};
+  });
+}
 // The solved view is frozen until Clear: a still of the verified frame with
 // its solution, the video paused behind it (visible, covered) and still attached to
 // its stream (`attached`),
@@ -125,7 +153,13 @@ async function run() {
       const time=phaseTimer(report,name);
       try {
         await time("live solve",async()=>{
-        await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);await solveLive(page);
+        await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);
+        await recordPreviewDraws(page);await solveLive(page);
+        // The video was the display while aiming and reading: the one camera
+        // frame on the canvas is the frozen one, drawn by the render that froze.
+        const draws=await page.evaluate(()=>previewDraws);report.previewDraws=draws;
+        assert.deepEqual(draws,[{view:"live",source:"HTMLCanvasElement"}],"no camera-frame paint before the freeze, exactly one at it");
+        assert.equal(await page.locator("#live-preview").getAttribute("data-overlay"),"composition");
         assert.equal(await page.locator("#camera-panel").isVisible(),true);
         assert.equal(await page.evaluate(()=>liveTestStream.getTracks()[0].readyState),"live");
         assert.deepEqual(await page.evaluate(()=>liveApp.getState().puzzle),accepted.puzzle);
@@ -161,6 +195,7 @@ async function run() {
         await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
         assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true);
         assert.equal(await page.locator("#live-preview").evaluate(c=>c.toDataURL()),shown);
+        assert.equal(await page.evaluate(()=>previewDraws.length),1,"a frozen capture paints nothing: the canvas is the stored picture");
         assert.equal(await page.locator("#camera-panel").getAttribute("data-view"),"captured");
         assert.equal(await page.locator("#clear-freeze").isVisible(),false);
         const stored=await page.evaluate(async()=>{
@@ -282,6 +317,40 @@ async function run() {
             await page.click("#close-camera");
           } finally { await page.setViewportSize(size); }
           report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size; Start preview after a refused Clear gets a line of its own");
+        });
+        await time("live capture with automatic solving off",async()=>{
+          // Nothing freezes without automatic solving: the playing video stays
+          // the display, with the outline over it and the counts in the legend,
+          // and the shutter keeps a fresh verified frame with its clues, which
+          // the panel then shows exactly as stored.
+          await watchTrackReplies(page);
+          const autoSolve=value=>page.evaluate(value=>{const box=document.getElementById("auto-solve");box.checked=value;box.dispatchEvent(new Event("change",{bubbles:true}));},value);
+          await page.evaluate(()=>{window.liveMode="grid";});await autoSolve(false);
+          try {
+            await startLive(page);
+            await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;return Number(d.recognised)+Number(d.uncertain)===14;},null,{timeout:150000});
+            const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
+              return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
+                legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
+                help:document.getElementById("camera-help").textContent};});
+            report.liveCapture={live};
+            assert.equal(live.view,"live");assert.equal(live.overlay,"outline");assert.equal(live.solution,0);assert.equal(live.paused,false);
+            assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
+            assert.match(live.help,/^Clues read \(\d+ recognised, \d+ uncertain\)\. Automatic solving is off/);
+            await shutterAfterVerification(page);
+            await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
+            const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
+            const stored=await page.evaluate(async()=>{
+              const record=await (await import("./capture-store.js")).loadCapture();
+              return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(record.blob);});
+            });
+            assert.equal(stored,shown,"the panel shows exactly the stored picture");
+            assert.equal(await page.locator("#live-preview").getAttribute("data-view"),"captured");
+            assert.match(await page.textContent("#use-live-capture"),/Review captured clues/,"a fresh verified frame keeps its reading");
+            report.liveCapture.offered=await page.textContent("#use-live-capture");
+            await page.click("#close-camera");
+          } finally { await autoSolve(true); }
+          report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
         });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.
