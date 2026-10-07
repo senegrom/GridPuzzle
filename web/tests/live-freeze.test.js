@@ -343,8 +343,8 @@ function heldReplies(t) {
     }
     time = end; await flush();
   }
-  async function result() {
-    detections.at(-1).resolve({ confidence: .99, rows: 2, cols: 2, sharpness: 200,
+  async function result(sharpness = 200) {
+    detections.at(-1).resolve({ confidence: .99, rows: 2, cols: 2, sharpness,
       corners: [{ x: 0, y: 0 }, { x: 639, y: 0 }, { x: 639, y: 639 }, { x: 0, y: 639 }] });
     await flush(); await advance(100);
   }
@@ -391,6 +391,48 @@ test("replies held across the freeze are fenced: the frozen frame stays and noth
   assert.deepEqual(h.created.filter((c) => c.width !== 0), [scratchA, scratchB, raw],
     "every fenced frame is released; the frozen frame and the two scratch canvases remain");
 });
+
+// The freeze retires the reading, since Clear starts over. A candidate that
+// the reply which freezes also verifies becomes the session's best frame, and
+// one sharp enough starts a re-read of it: neither outlives the freeze, so no
+// frame is held beside the frozen one and no OCR goes on while frozen.
+for (const [kept, sharpness] of [["the frame the reading kept as its best", 200], ["the re-read of a sharper frame", 300]])
+  test(`the freeze retires the reading: ${kept} does not outlive it`, async (t) => {
+    const h = heldReplies(t);
+    await h.advance(100); await h.result(); await h.advance(700); await h.result();
+    assert.equal(h.readings.length, 1, "a read is running");
+    h.holdTracking(true); // From here verifications stay in flight until handed back.
+    const detections = h.detections.length;
+    for (let waited = 0; h.detections.length === detections && waited < 2000; waited += 50) await h.advance(50);
+    assert.equal(h.detections.length, detections + 1, "a tracked detection starts");
+    await h.result(sharpness);
+    assert.equal(h.camera.stats.candidate, 1, "its candidate waits for a held verification");
+    const job = h.held.at(-1);
+    // The read and its solve finish: the solved preview is published, but no
+    // timer has run since, so nothing has painted it.
+    const puzzle = makePuzzle("latinsquare", 2); puzzle.cells = [1, null, null, 1];
+    const read = () => ({ puzzle: structuredClone(puzzle), cellUncertain: [], cageUncertain: [], markedCells: [0, 3], needsReview: true, notes: [] });
+    h.readings[0].resolve(read());
+    await flush();
+    assert.equal(h.camera.view, "live");
+    // The reply that verifies the candidate verifies the reading too: the
+    // session takes the candidate, and the render that follows freezes.
+    job.resolve(job.result()); await flush();
+    assert.equal(h.camera.view, "frozen");
+    assert.equal(h.readings.length, sharpness > 200 ? 2 : 1, sharpness > 200 ? "the sharper frame is being read" : "no re-read");
+    const raw = h.camera.diagnosticSource().image, events = h.events.length;
+    for (const other of h.held) if (other !== job) other.resolve(other.result());
+    for (const detection of h.detections) detection.resolve({ confidence: 0 });
+    await flush(); await h.advance(1000);
+    const [scratchA, scratchB] = h.created;
+    assert.deepEqual(h.created.filter((c) => c.width !== 0), [scratchA, scratchB, raw],
+      "only the frozen frame and the two scratch canvases hold pixels while frozen");
+    for (const reading of h.readings.slice(1)) reading.resolve(read());
+    await flush(); await h.advance(1000);
+    assert.equal(h.camera.view, "frozen");
+    assert.deepEqual(h.events.slice(events), [], "nothing the reading started reports back");
+    assert.match(h.$("camera-help").textContent, FROZEN);
+  });
 
 test("closing a frozen camera releases everything, and thirty Clear cycles leave nothing behind", async (t) => {
   const h = simulation(t);
@@ -448,6 +490,21 @@ test("Restart live scanning is hidden while frozen, even with the scheduler stop
   assert.equal(h.timers.size, 0, "and starts no scheduler");
 });
 
+test("Restart live scanning offered just before the freeze is hidden by the freeze itself", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.rejectVerify(true);
+  assert.ok(await h.until(() => h.$("restart-live").hidden === false, 4000, 10), "three rejected candidates offer Restart");
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.equal(h.camera.view, "live", "an unverified result is not shown");
+  // The reply that verifies again resets the rejected count and freezes in
+  // the same render, before a heartbeat could hide Restart, and no heartbeat
+  // runs while frozen.
+  h.rejectVerify(false);
+  assert.ok(await h.until(() => frozenNow(h), 2000, 10));
+  assert.equal(h.$("restart-live").hidden, true, "the frozen view offers no Restart, which would do nothing");
+});
+
 test("Clear resets the tracking-failure circuit, as Restart does", async (t) => {
   const h = simulation(t);
   h.failVerify(1); // The first verification of the candidate fails in the worker.
@@ -459,6 +516,45 @@ test("Clear resets the tracking-failure circuit, as Restart does", async (t) => 
   h.camera.resume();
   assert.equal(h.camera.stats.recovery.failures, 0, "the scan after Clear starts with a clean circuit");
   assert.equal(h.camera.stats.recovery.retryInMilliseconds, 0);
+});
+
+// Clear starts the detection and lag clocks over too, so the scan after it
+// owes nothing to the one before the freeze.
+test("Clear right after a detection began detects again on the first frame", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.holdDetections(true);
+  const detects = h.counts.detects;
+  assert.ok(await h.until(() => h.counts.detects > detects, 3000, 10), "a detection starts");
+  const started = h.now;
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.ok(await h.until(() => frozenNow(h), 300, 10));
+  h.camera.resume();
+  const before = h.counts.detects;
+  assert.ok(await h.until(() => h.counts.detects > before, 150, 10), "the first frame after Clear starts a detection");
+  assert.ok(h.now - started < 300, `within 300 ms of the last one before the freeze (${h.now - started} ms)`);
+});
+
+test("the first verified view after Clear is not marked DELAYED for a lag before the freeze", async (t) => {
+  const h = heldReplies(t);
+  await h.advance(100); await h.result(); await h.advance(700); await h.result();
+  assert.equal(h.readings.length, 1);
+  h.holdTracking(true); await h.advance(700);
+  assert.equal(h.view.dataset.delayed, "1", "the view lags behind the camera before the freeze");
+  const puzzle = makePuzzle("latinsquare", 2); puzzle.cells = [1, null, null, 1];
+  h.readings[0].resolve({ puzzle, cellUncertain: [], cageUncertain: [], markedCells: [0, 3], needsReview: true, notes: [] });
+  await flush(); await h.advance(300);
+  assert.equal(h.camera.view, "frozen");
+  for (const job of h.held) job.resolve(job.result());
+  h.holdTracking(false); await flush();
+  h.camera.resume();
+  const texts = h.texts.length;
+  await h.advance(100); await h.result(); // A new detection, verified on the next frame.
+  await h.advance(100);
+  assert.equal(h.camera.stats.candidate, 0, "the candidate was verified");
+  assert.ok(h.texts.slice(texts).includes("PREVIEW"), "views were painted after Clear");
+  assert.equal(h.texts.slice(texts).includes("DELAYED"), false, "none of them marked DELAYED");
+  assert.equal(h.view.dataset.delayed, "0");
 });
 
 test("diagnostics: the frozen frame is the verified source, and the freeze and Clear are reported", async (t) => {
