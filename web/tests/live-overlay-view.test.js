@@ -397,6 +397,28 @@ test("an aspect mismatch between the adopted frame and the video draws nothing",
   assert.equal(h.view.dataset.overlay, "outline");
 });
 
+// The paused video stays visible behind the frozen still, so the still must
+// letterbox like it: a solved reading on a reply adopted after the stream
+// changed shape (a rotation), before a heartbeat or tick starts the settings
+// over, does not freeze on that frame of the old shape.
+test("a solved reading on a frame of another shape than the video does not freeze", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.hold();
+  assert.ok(await h.until(() => h.held >= 1, 1000), "a verification is in flight");
+  h.solveJobs[0].resolve(unique()); await flush();
+  h.video.videoHeight = 525;
+  const raw = h.raw();
+  h.release(); await flush();
+  assert.notEqual(h.raw(), raw, "the reply for a square frame was adopted");
+  assert.equal(h.view.dataset.recognised, "4", "its solved reading verifies on it");
+  assert.equal(h.camera.view, "live", "but the view does not freeze on it");
+  assert.equal(h.view.dataset.overlay, "none");
+  await h.advance(1000);
+  assert.equal(h.camera.view, "live", "the settings start over with frames of the new shape");
+  assert.equal(h.view.dataset.recognised, "0");
+});
+
 test("a solved reading on a frame older than half a second freezes on the next fresh frame", async (t) => {
   const h = simulation(t, { solve: "deferred" });
   assert.ok(await h.until(() => h.solveJobs.length === 1));

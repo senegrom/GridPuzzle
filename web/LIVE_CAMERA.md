@@ -323,7 +323,9 @@ coordinates. The canvas has the snapshot's size and letterboxes it in the
 video's box like the video, so those coordinates land on the video; the
 outline is drawn only while the snapshot has the video's shape within half a
 percent, so not between a rotation or a change of stream resolution and the
-settings reset that follows, nor while the video has no size. A verification
+settings reset that follows, nor while the video has no size. The view
+freezes only on such a snapshot too, since the paused video stays visible
+behind the frozen still. A verification
 result is never projected onto a newer frame: during motion the outline
 trails the video by up to one verification. Verified evidence comes in two
 tiers. It is live while the adopted snapshot is at most 500 milliseconds old.
@@ -646,8 +648,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   solution, only a cleared layer with the outline, which half-pixel moves
   repaint and sub-pixel jitter of the proofs does not; the freeze is the one
   camera-frame paint. `data-overlay`, the legend counts (the solution's only
-  frozen) and the labels follow; no outline is drawn on a frame of another
-  shape or over a video without one; the canvas takes the adopted frame's size,
+  frozen) and the labels follow; no outline is drawn, and no solution frozen,
+  on a frame of another shape, nor an outline over a video without one; the
+  canvas takes the adopted frame's size,
   also before any outline after a change of stream resolution, and is not
   resized while that size holds; past the stale limit the snapshot and its
   proofs are dropped and no copy takes their place; `data-delayed` follows the

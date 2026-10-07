@@ -215,7 +215,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // video, so raw coordinates land on the video only while raw has the
   // video's shape: not after a rotation or a change of stream resolution,
   // until syncSettings starts over with frames of the new shape, nor while
-  // the video has no shape at all. Called only with a guide, so with raw.
+  // the video has no shape at all. The outline and the freeze need it (the
+  // paused video stays visible behind the frozen still). Called only with raw.
   function aspectMatches() {
     const ratio = video.videoWidth / video.videoHeight;
     return Number.isFinite(ratio) && Math.abs(raw.width / raw.height - ratio) <= .005 * ratio;
@@ -236,7 +237,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // With a preview the outline follows its corners; guideFrame is then not
     // verified at all (see verifyIds).
     guide = displayed?.corners || (guideFrame && isCurrent(guideFrame)?.corners) || null;
-    if (raw && readyToFreeze()) { freezeNow(); return; }
+    if (raw && aspectMatches() && readyToFreeze()) { freezeNow(); return; }
     const mode = guide && aspectMatches() ? "outline" : "none";
     // The evidence's tier, as data-delayed and in the label; only an outline
     // or a reading makes it matter.
