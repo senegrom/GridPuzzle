@@ -328,7 +328,11 @@ async function run() {
           await page.evaluate(()=>{window.liveMode="grid";});await autoSolve(false);
           try {
             await startLive(page);
-            await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;return Number(d.recognised)+Number(d.uncertain)===14;},null,{timeout:150000});
+            // The complete reading (the provisional atlas reading shows the
+            // same 14 clues earlier, all flagged, while the help line says
+            // "Checking printed clues…").
+            await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;
+              return Number(d.recognised)+Number(d.uncertain)===14&&/Automatic solving is off/.test(document.getElementById("camera-help").textContent);},null,{timeout:150000});
             const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
               return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
                 legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
