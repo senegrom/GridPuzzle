@@ -330,9 +330,12 @@ async function run() {
             await startLive(page);
             // The complete reading (the provisional atlas reading shows the
             // same 14 clues earlier, all flagged, while the help line says
-            // "Checking printed clues…").
+            // "Checking printed clues…"). The help line names the complete
+            // reading's counts as it completes; the canvas and the legend show
+            // them with the next render, up to a heartbeat (100 ms) later.
             await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;
-              return Number(d.recognised)+Number(d.uncertain)===14&&/Automatic solving is off/.test(document.getElementById("camera-help").textContent);},null,{timeout:150000});
+              const help=/^Clues read \((\d+) recognised, (\d+) uncertain\)\. Automatic solving is off/.exec(document.getElementById("camera-help").textContent);
+              return !!help&&d.recognised===help[1]&&d.uncertain===help[2]&&Number(d.recognised)+Number(d.uncertain)===14;},null,{timeout:150000});
             const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
               return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
                 legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
@@ -340,7 +343,8 @@ async function run() {
             report.liveCapture={live};
             assert.equal(live.view,"live");assert.equal(live.overlay,"outline");assert.equal(live.solution,0);assert.equal(live.paused,false);
             assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
-            assert.match(live.help,/^Clues read \(\d+ recognised, \d+ uncertain\)\. Automatic solving is off/);
+            assert.equal(live.help.match(/^Clues read \(\d+ recognised, \d+ uncertain\)\. Automatic solving is off/)?.[0],
+              `Clues read (${live.legend[0]} recognised, ${live.legend[1]} uncertain). Automatic solving is off`,"the legend and the help line give the same counts");
             await shutterAfterVerification(page);
             await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
             const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
