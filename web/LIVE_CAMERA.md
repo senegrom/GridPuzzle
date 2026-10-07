@@ -684,7 +684,8 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and
-  without Start preview, exact shutter pixels, review gating, reload and
+  without Start preview and a legend no larger for its counts, exact shutter
+  pixels, review gating, reload and
   delete, motion and uncertain readings. It also runs
   `review_safety_regressions.cjs`, which changes and erases clues after solving
   (the frozen view keeps its frame and reading until Clear, which reads the
