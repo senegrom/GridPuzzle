@@ -14,21 +14,32 @@ speed-up.
 
 ## What the camera shows
 
-Open **Scan with camera** and hold the whole grid steady. The camera stays open
-while recognition and the local Python solver work in the background; the
-preview needs no second board or confirmation dialog. **Read stable camera
-frames automatically** can pause recognition; it never presses the shutter.
+Open **Scan with camera** and hold the whole grid steady. While the camera aims
+and reads, the screen shows the camera's own live video, which the browser
+presents at the camera's rate whatever the page's scripts are doing. Over it
+the camera's canvas is transparent and holds only the white outline of the
+grid where the latest verified frame placed it, so during motion the outline
+can trail the video by a verification. The clue numbers are not drawn over the
+moving video, and a solution never is: the legend below the viewfinder counts
+the reading instead (recognised, uncertain and unread clues), the help line
+says what the camera is doing, and the canvas's accessible label names the
+outline and the counts, and says when the outline is catching up with the
+camera. Before, the canvas covered the video with snapshots of it, 3 to 8 new
+pictures a second, which looked like a slideshow. The camera stays open while
+recognition and the local Python solver work in the background; the preview
+needs no second board or confirmation dialog. **Read stable camera frames
+automatically** can pause recognition; it never presses the shutter.
 
-Green numbers are recognised printed values, yellow numbers with a question
-mark are uncertain readings, and a red `?` is an unresolved cell, including a
-printed mark OCR could not read. Blue numbers, and blue Slitherlink edges, are
-entries from a completed, unique solution to the current transcription. Blank
-black cells are not answer slots, and a retained unread printed mark is never
-painted over in blue. Before the first reading the camera shows only the
-grid's outline, not a red box per cell: red question marks are reserved for
-observed marks that are unreadable, and solver output cannot hide them.
-Recognition can still fail when the photograph holds too little visible
-evidence; the colours do not guarantee a correct transcription.
+In the frozen and captured pictures, green numbers are recognised printed
+values, yellow numbers with a question mark are uncertain readings, and a red
+`?` is an unresolved cell, including a printed mark OCR could not read. Blue
+numbers, and blue Slitherlink edges, are entries from a completed, unique
+solution to the current transcription; only a frozen picture carries them.
+Blank black cells are not answer slots, and a retained unread printed mark is
+never painted over in blue. Red question marks are reserved for observed marks
+that are unreadable, and solver output cannot hide them. Recognition can still
+fail when the photograph holds too little visible evidence; the colours do not
+guarantee a correct transcription.
 
 Live solutions are **previews**, not confirmation that the photograph or the
 inferred rules are right. Conflicting readings, incomplete structural data,
@@ -53,18 +64,26 @@ never explicitly captured are never stored.
 
 ### The frozen solution and Clear
 
-The first time the camera shows a complete, unique solution on a verified
-frame, it freezes the view: that frame stays on screen with its clues, the
-blue solution, the outline and the PREVIEW bar, and the heading shows a
-**Frozen** chip. Nothing moves or blinks any more, and **Save picture** stores
-exactly that picture. The freeze happens in the render that first paints the
-solution, on the frame the solution was verified on, never on a later one; a
-solution that arrives while the grid does not verify freezes only once a newer
-frame verifies it. Freezing ends all frame work: no frame is sampled, and no
-detection, tracking, OCR, retry or solve runs, while replies already in flight
-are fenced and dropped. Before, a solved view kept sampling about four frames a
-second; every measured blink of the solution, and both measured captures that
-missed one (2 of 22 solved runs), happened in that phase.
+When a reading has a complete, unique solution on a verified frame, the camera
+freezes the view: that frame stays on screen with its clues, the blue
+solution, the outline and the PREVIEW bar, and the heading shows a **Frozen**
+chip. Nothing moves or blinks any more, and **Save picture** stores exactly
+that picture. The freeze paints the one camera frame the canvas shows while
+the camera runs, on the frame the solution was verified on, never on a later
+one; a solution that arrives while the grid does not verify freezes only once
+a newer frame verifies it. It waits for at most three seconds from the first
+render that shows the reading solved: until the verified frame is at most half
+a second old, so the still does not jump back to a framing the user has left
+(a slow phone spends much of its time on older frames), and until no automatic
+retry of a yellow clue may still change the reading. Meanwhile no solution is
+shown and the help line says "Solution found — hold the grid steady for a
+moment…". The three seconds belong to the reading's own frame: a blink of the
+grid, a merged retry or a new solve keep them running, and only a new full
+reading starts them again. Freezing ends all frame work: no frame is sampled,
+and no detection, tracking, OCR, retry or solve runs, while replies already in
+flight are fenced and dropped. Before, a solved view kept sampling about four
+frames a second; every measured blink of the solution, and both measured
+captures that missed one (2 of 22 solved runs), happened in that phase.
 
 The camera stays on while frozen, as the user chose: no timer turns it off, so
 the camera indicator stays on and the phone does not lock itself while frozen
@@ -108,12 +127,12 @@ freezes during its playback. If the camera cannot be turned back on, the frozen
 view stays with the reason (a refused permission in plain words), and Save
 picture still works.
 
-Freezing has a price. A solution is not improved after it appears (the
-targeted retries of yellow clues end), a change on the paper is not noticed
-until Clear, and a setting changed while frozen takes effect after Clear. A
-unique solution built on a misread yellow clue freezes too: the yellow flag
-stays in the picture and in review, and Clear reads the view again from
-scratch.
+Freezing has a price. A solution is not improved after the freeze: the
+targeted retries of yellow clues get the three seconds before it and end with
+it. A change on the paper is not noticed until Clear, and a setting changed
+while frozen takes effect after Clear. A unique solution built on a misread
+yellow clue freezes too: the yellow flag stays in the picture and in review,
+and Clear reads the view again from scratch.
 
 ### Warm workers
 
@@ -169,18 +188,24 @@ for arbitrary photographs or handwriting.
 
 ## Shutter and saved pictures
 
-**Save picture** freezes and stores the exact annotated camera frame on screen,
-including the colour legend and PREVIEW label. It is not a fresh, differently
-positioned frame: capture revalidates against the displayed raw frame and its
-verified geometry, the coloured overlay is never fed back into OCR, and capture
-never accepts the clues or rules for the user. While the solution is frozen it
-stores exactly the frozen picture, its frame and its reading, also after the
-camera was turned off; a capture whose own revalidation shows the solution
-for the first time freezes it and stores that. The camera stops and the picture
-stays on the same screen, also when the page is hidden meanwhile (an app
-switch, the lock screen, a download prompt): only a live camera is released on
-hide, and a captured still holds no camera. Escape closes the camera panel like
-a dialog, also from the frozen view, and returns focus to the Scan button.
+**Save picture** stores an annotated camera frame, with the colour legend and
+the PREVIEW label, and the panel then shows exactly the stored picture. While
+the solution is frozen it stores exactly the frozen picture, its frame and its
+reading, also after the camera was turned off; a capture whose own
+revalidation freezes the view stores the frozen picture. While live, the
+screen shows the video, so the shutter chooses the frame. The reading's
+corners and clues were proven on the latest verified frame only, so that frame
+is kept, with its reading, outline and bar but without a solution (none was
+shown), while it is at most half a second old and so matches what the user
+saw; this gives **Review captured clues**. Otherwise the frame on screen at
+the press is kept without a reading and goes to the editor's crop and read.
+Capture revalidates first, the coloured overlay is never fed back into OCR, and
+capture never accepts the clues or rules for the user. The camera stops and
+the picture stays on the same screen, also when the page is hidden meanwhile
+(an app switch, the lock screen, a download prompt): only a live camera is
+released on hide, and a captured still holds no camera. Escape closes the
+camera panel like a dialog, also from the frozen view, and returns focus to
+the Scan button.
 
 The latest captured PNG is saved as exact bytes in this browser's IndexedDB,
 also on WebKit backends that cannot store Blob objects, and appears under
@@ -284,30 +309,39 @@ available without a synchronous registration fallback.
 
 ### Live and delayed views
 
-A verification result is drawn only with its own source snapshot, never with a
-newer video frame. Verified views come in two tiers. A view is live while the
-snapshot on screen is at most 500 milliseconds old. Once one is older, the view
-is still drawn — marked DELAYED in the preview bar, in the canvas's
-`data-delayed` attribute and in its accessible label — so a device whose
-tracking takes a second per frame gets a lagging overlay rather than none. It
+Over the live video the camera draws only what a verification proved: the
+outline of the grid in the latest adopted snapshot, in that snapshot's
+coordinates. The canvas has the snapshot's size and letterboxes it in the
+video's box like the video, so those coordinates land on the video; the
+outline is drawn only while the snapshot has the video's shape within half a
+percent, so not between a rotation or a change of stream resolution and the
+settings reset that follows, nor while the video has no size. A verification
+result is never projected onto a newer frame: during motion the outline
+trails the video by up to one verification. Verified evidence comes in two
+tiers. It is live while the adopted snapshot is at most 500 milliseconds old.
+Once one is older, the outline still follows it, marked as catching up in the
+canvas's `data-delayed` attribute and its accessible label, so a device whose
+tracking takes a second per frame gets a trailing outline rather than none. It
 returns to live only after snapshots have stayed within 500 milliseconds for
 two seconds: with replies of 300-400 ms, or pauses while an anchor is built,
-the age crosses 500 ms on every reply and the label would otherwise flip with
-it. A reply is adopted while its own snapshot is at most two seconds old and
-newer than the last adopted one, also after the display has fallen back to an
-unverified frame; its snapshot replaces that frame. A new detection waits
-until the pending candidate has been verified or rejected, so with slow replies
-each candidate is verified before the next replaces it, and reads and solves
-run on the delayed tier. A shown snapshot older than two seconds gives way to
-an unverified fresh frame: from about a second per verification the overlay
-alternates with such frames, and near two seconds it is rarely shown. The help
-line does not follow that alternation: it announces "Aligning the grid" only
-once the view has stayed unverified for two seconds, because verified replies
-can arrive that far apart; announcing every gap alternated it with the status
-six to eight times every five seconds. A worker that never answers reaches the
-failure, backoff and Restart path (see Recovery). Neither tier promises that
-image copying and rendering are off-thread. A frozen solution is never marked
-DELAYED: it is the frame the solution was verified on, whatever its age.
+the age crosses 500 ms on every reply and the mark would otherwise flip with
+it. The DELAYED label the snapshot display painted into its bar is gone: live
+video is never delayed. A reply is adopted while its own snapshot is at most
+two seconds old and newer than the last adopted one, also after an older
+snapshot was dropped. A new detection waits until the pending candidate has
+been verified or rejected, so with slow replies each candidate is verified
+before the next replaces it, and reads and solves run on the delayed tier. A
+snapshot older than two seconds is dropped with its proofs, which hides the
+outline and the counts; the unverified copy of a newer frame that used to
+replace it every two seconds is gone, since the video is the display. The
+help line announces "Aligning the grid" only once the view has stayed
+unverified for two seconds, because verified replies can arrive that far
+apart; announcing every gap alternated it with the status six to eight times
+every five seconds. A worker that never answers reaches the failure, backoff
+and Restart path (see Recovery). Neither tier promises that image copying and
+rendering are off-thread. A frozen solution is never marked as catching up: it
+is the frame the solution was verified on, which the freeze takes at most half
+a second old, or after its three-second wait at most two.
 
 ### Detection pacing
 
@@ -345,16 +379,18 @@ latest-frame queue stays bounded. A separate 100 ms heartbeat expires the
 overlay when presentation is over 500 ms old, or the accepted tracking evidence
 is older than the two-second limit above, even if no video callback arrives, so
 a detector reply can never sample a stalled video into fresh evidence. Every
-heartbeat still validates freshness and the current solver preferences, but a
-paint is issued only when the raw image, geometry, reading or solution has
-changed; a new frame, a changed proposal, a solution toggle or an expired proof
-invalidates that cache at once. The paint that freezes a solution is never
-skipped. Captures copy the exact displayed image synchronously, never a later
-frame. These are processing intervals, not sensor frame rates. While the view
-is frozen the scheduler is stopped: no video-frame callback, heartbeat,
-snapshot or readback runs, and Clear starts it again with new tokens, taking
-the first frame the video reports only as a baseline (`discardFirst`), so the
-first frame scanned was presented after the tap.
+heartbeat still validates freshness and the current solver preferences, and
+decides the freeze, but the canvas is repainted only when what it shows
+changes: whether an outline is drawn, the outline itself rounded to half a
+pixel (so sub-pixel jitter of the proofs does not repaint), the reading the
+counts describe, or the tier. A live paint clears the canvas and strokes the
+outline, vector work only; no camera frame is drawn until the freeze. These
+are processing intervals, not sensor frame rates: the browser presents the
+video itself. While the view is frozen the scheduler is stopped: no
+video-frame callback, heartbeat, snapshot or readback runs, and Clear starts
+it again with new tokens, taking the first frame the video reports only as a
+baseline (`discardFirst`), so the first frame scanned was presented after the
+tap.
 
 ## Noticing changed print
 
@@ -428,8 +464,10 @@ or sub-noise marks remain heuristic.
 
 ### Reading again
 
-Once a complete unique preview is showing, the view is frozen and nothing is
-read again until Clear. A complete reading without automatic solving is not read
+Once a complete unique solution is shown, the view is frozen and nothing is
+read again until Clear; before that, during the freeze's wait of at most three
+seconds, targeted retries and a re-read of a much sharper frame can still run.
+A complete reading without automatic solving is not read
 again until the picture or the settings change, or autofocus yields a
 substantially sharper frame. An unresolved scene retries with a doubling
 interval (3, 6, 12, then 24 seconds), so an unreadable page does not keep OCR
@@ -577,8 +615,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   that follows a freeze in the same pulse leaves the frozen help line alone;
   capture keeps the frozen frame and reading; Clear starts from nothing (a clean
   tracking circuit and fresh detection and lag clocks included), a camera
-  started again is labelled live, and thirty Clear cycles leave no timer or
-  canvas behind.
+  started again is labelled live and counts nothing, and thirty Clear cycles
+  leave no timer or canvas behind.
   `photo-flow.test.js` covers the page: the video paused but still attached and
   the camera kept on while frozen, with no timer to turn it off, Clear playing
   the same player inside its tap (loading nothing) before scanning resumes, and, on a
@@ -594,6 +632,24 @@ Unit tests (`node --test web/tests/*.test.js`):
   reopen or an app switch fenced; a muted track kept until it unmutes, the
   failure texts, and Escape and the shutter from the frozen view. `app.test.js`
   checks the Frozen chip's contrast.
+- `live-overlay-view.test.js`: the live view on the production camera, tracker
+  and tracking core with a fake clock, every canvas recording what is drawn
+  into it. While live the camera's canvas gets no camera frame, digit or
+  solution, only a cleared layer with the outline, which half-pixel moves
+  repaint and sub-pixel jitter of the proofs does not; the freeze is the one
+  camera-frame paint. `data-overlay`, the legend counts (the solution's only
+  frozen) and the labels follow; no outline is drawn on a frame of another
+  shape or over a video without one; past the stale limit the snapshot and its
+  proofs are dropped and no copy takes their place; `data-delayed` follows the
+  tier; a stalled feed with no adopted frame still offers Restart. The freeze
+  waits for a fresh frame and for the retries of a marked yellow clue, for at
+  most three seconds counted from the first solved render across a blink, and
+  a yellow clue no retry can read does not hold it. A live capture keeps a
+  fresh verified frame with its reading, outline and bar but no solution, also
+  while a solution waits, and otherwise the frame on screen without a reading.
+  `live-session.test.js` covers `refining` and the counted status without
+  automatic solving, and `photo-flow.test.js` the shutter drawing a live
+  capture's stored picture on the panel.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
   and canvas. `solver-handoff.test.js`: the interpreter handoff.
@@ -610,9 +666,13 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 
 - `live_camera_regressions.cjs` gives a real canvas-backed MediaStream to the
   production camera with Tesseract, Pyodide and real IndexedDB: automatic
-  solving without closing the camera, the frozen solution (video paused behind
-  the still and attached, the camera track still on, the picture unchanged, the chip's
-  contrast), Clear without a new getUserMedia, an app switch while frozen
+  solving without closing the camera, with no camera frame drawn on the canvas
+  before the freeze and exactly one at it, the frozen solution (video paused
+  behind the still and attached, the camera track still on, the picture
+  unchanged, the chip's contrast), a live capture without automatic solving
+  (the playing video, the outline and the legend counts; a fresh verified frame
+  stored with its reading and shown exactly as stored), Clear without a new
+  getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and
   without Start preview, exact shutter pixels, review gating, reload and
@@ -641,8 +701,9 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   failure, rendered independently (the user's photograph is not committed),
   delays real OCR to expose cancellation starvation, waits for completed rather
   than provisional readings, covers and uncovers the grid and changes one clue,
-  and checks captured metadata; out-of-grid pixel witnesses prove that scene
-  changes reached the displayed frame, and a pending cancellable solver stub
+  and checks captured metadata; out-of-grid pixel witnesses in the frame the
+  camera adopted (`adoptedFrame()`) prove that scene changes reached the
+  verified frame, and a pending cancellable solver stub
   isolates retention from repeated-search backoff. It also measures
   static/self and translated-anchor tracking on the twelve Lexski images, which
   is tracking coverage, not detection or digit accuracy.
