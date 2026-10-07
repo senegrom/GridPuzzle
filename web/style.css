@@ -784,7 +784,10 @@ body.camera-open { overflow: hidden; }
 .view-state { margin-left: auto; padding: .2rem .65rem; border-radius: 999px; background: #2563eb; color: #fff; font-size: .8rem; font-weight: 700; letter-spacing: .02em; }
 .camera-actions #clear-freeze { min-height: 58px; min-width: 104px; border-radius: 40px; font-size: 1.1rem; }
 #camera-panel[data-view="frozen"] .camera-actions:not(:has(> #start-camera:not([hidden]))) { flex-wrap: nowrap; }
-#camera-panel[data-view="frozen"] .camera-actions .shutter { min-width: 0; flex: 1 1 auto; }
+#camera-panel[data-view="frozen"] .camera-actions .shutter { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+/* One line each: a wide font (Linux WebKit's) wrapped Save picture beside
+   Clear at 320 px, which grew the row and shrank the viewfinder. */
+#camera-panel[data-view="frozen"] .camera-actions .shutter, #camera-panel[data-view="frozen"] .camera-actions #clear-freeze { white-space: nowrap; padding-inline: 12px; }
 #camera-panel[data-view="frozen"] .camera-actions #clear-freeze { flex: 0 0 auto; }
 #camera-panel[data-view="frozen"] .camera-actions #start-camera { flex: 0 0 100%; }
 #camera-panel[data-view="captured"] #video { visibility: hidden; }
