@@ -680,7 +680,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // (resume()). As for scanning, only a frame reported after Clear counts,
       // so the shutter waits for one rather than store that old picture.
       if (!verified && pausedPicture) throw Error("Wait for a camera frame before capturing.");
-      const image = verified ? raw : videoFrame(video), annotated = document.createElement("canvas");
+      // While no new frame is presented the video may show nothing useful: iOS
+      // paints an interrupted camera (a call, another app, Split View) black.
+      // The last adopted frame, the newest picture scanned, is kept instead.
+      const stalled = !verified && !!raw && !scheduler.fresh;
+      const image = verified ? raw : stalled ? copyCanvas(raw) : videoFrame(video), annotated = document.createElement("canvas");
       annotated.width = image.width; annotated.height = image.height;
       composeView(annotated.getContext("2d"), image, verified ? preview : null, null);
       if (!verified) return { photo: image, annotated, found: null, corners: null, createdAt: Date.now(), frozen: false };

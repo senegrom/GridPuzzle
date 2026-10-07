@@ -365,6 +365,28 @@ test("a capture after the camera stopped leaves the display canvas alone", async
   assert.equal(h.view.dataset.overlay, "outline"); assert.equal(h.view.dataset.recognised, "4");
 });
 
+// With no frame presented the video can show nothing useful: iOS paints an
+// interrupted camera (a call, another app) black. A live capture then keeps
+// the last frame the camera scanned, without its reading, for the editor.
+test("with no frame presented for half a second a live capture keeps the last adopted frame, without its reading", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.stall(); await h.advance(700);
+  assert.match(h.help, /Waiting for a new camera frame/);
+  const raw = h.raw();
+  assert.ok(raw, "the last adopted frame is kept while no frame comes");
+  const shot = h.camera.capture();
+  assert.equal(shot.found, null); assert.equal(shot.frozen, false);
+  assert.deepEqual(h.on(shot.photo).filter((o) => o.op === "drawImage").map((o) => o.source), [raw], "a copy of it, not the video");
+  assert.notEqual(shot.photo, raw);
+  const picture = h.on(shot.annotated);
+  assert.equal(picture[0].source, shot.photo);
+  assert.equal(picture.some((o) => o.op === "stroke"), false, "without the outline");
+  h.unstall(); await h.advance(300);
+  assert.deepEqual(h.on(h.camera.capture().photo).filter((o) => o.op === "drawImage").map((o) => o.source),
+    [h.raw()], "frames again: a fresh verified frame");
+});
+
 test("a live capture without dimensions or before any proof", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.equal(h.camera.capture().found, null, "before anything is verified: the frame on screen");

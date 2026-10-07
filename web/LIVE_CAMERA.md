@@ -211,7 +211,10 @@ corners and clues were proven on the latest verified frame only, so that frame
 is kept, with its reading, outline and bar but without a solution (none was
 shown), while it is at most half a second old and so matches what the user
 saw; this gives **Review captured clues**. Otherwise the frame on screen at
-the press is kept without a reading and goes to the editor's crop and read.
+the press is kept without a reading and goes to the editor's crop and read;
+while no new frame has been presented for half a second ("Waiting for a new
+camera frame"), the video may show nothing useful (iOS paints an interrupted
+camera black), so the last frame the camera scanned is kept instead.
 Right after Clear the shutter instead says "Wait for a camera frame before
 capturing." until a frame the video reported after Clear has been scanned:
 the paused player can still draw the picture of the freeze (see Clear above),
@@ -682,7 +685,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   a yellow clue no retry can read does not hold it; meanwhile the help line
   holds only the wait's text, also across a blink. A live capture keeps a
   fresh verified frame with its reading, outline and bar but no solution, and
-  otherwise the frame on screen without a reading; while a solution waits to
+  otherwise the frame on screen without a reading, or the last frame scanned
+  while no frame is presented; while a solution waits to
   freeze, the shutter freezes it on its own frame, also one older than half a
   second, and saves it with the solution; right after Clear it waits until a
   frame reported after Clear was scanned, in that camera session only. A frame
