@@ -424,6 +424,25 @@ test("hiding the page while Clear waits for playback keeps the frozen solution",
   assert.equal(h.requests, 2); assert.equal(h.live.resumed, 1);
 });
 
+// Browsers reject a pending play() with an AbortError once its stream is
+// detached, as the camera-off does (here WebKit's player model).
+test("a Clear whose playback the camera-off interrupts keeps the camera-off line", async (t) => {
+  const video = webkitVideo();
+  const h = await cameraHarness(t, { video, freshStreams: true });
+  const opening = h.$("camera").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); await opening;
+  h.live.freeze();
+  const clearing = h.$("clear-freeze").onclick(); // play() waits for the new player's first frame.
+  await tick();
+  h.hide();
+  await clearing;
+  assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  assert.equal(h.$("start-camera").hidden, true, "no retry for a camera that was turned off");
+  assert.equal(h.live.view, "frozen"); assert.equal(h.live.resumed, 0);
+  assert.equal(h.$("clear-freeze").disabled, false);
+});
+
 test("hiding the page while frozen turns the camera off but keeps the solution; Clear asks for the camera again", async (t) => {
   const h = await cameraHarness(t, { freshStreams: true });
   await h.$("camera").onclick(); h.live.freeze();
@@ -436,9 +455,10 @@ test("hiding the page while frozen turns the camera off but keeps the solution; 
   assert.match(h.$("camera-help").textContent, /Clear turns it back on, and the phone may ask for camera access again\.$/);
   h.hide();
   assert.equal(h.track.stopped, 1, "a released camera is not released twice");
-  const plays = h.plays;
-  await h.$("clear-freeze").onclick();
-  assert.equal(h.requests, 2, "Clear asks for the camera inside its tap");
+  const plays = h.plays, clearing = h.$("clear-freeze").onclick();
+  // Synchronously, so that a browser that prompts again sees the tap's gesture.
+  assert.equal(h.requests, 2, "Clear asks for the camera inside its tap, before it awaits anything");
+  await clearing;
   assert.equal(h.$("video").srcObject.getTracks()[0], h.tracks[1]);
   assert.equal(h.plays, plays + 1); assert.equal(h.live.resumed, 1);
   assert.equal(typeof h.tracks[1].events.ended, "function", "the new track is watched too");
@@ -470,6 +490,48 @@ test("a camera granted after the app was hidden again is turned off, and the fro
   assert.equal(h.live.view, "frozen"); assert.equal(h.live.resumed, 0);
   assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
   assert.equal(h.$("clear-freeze").disabled, false);
+});
+
+test("a camera granted after the panel was closed is turned off and touches nothing", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze(); h.hide();
+  // A permission prompt, or the camera's start-up, outlasts the panel.
+  const request = h.holdRequests();
+  const clearing = h.$("clear-freeze").onclick();
+  await tick();
+  h.listeners.keydown({ key: "Escape", preventDefault() {} });
+  const help = h.$("camera-help").textContent;
+  request.resolve(); await clearing;
+  assert.equal(h.tracks[1].stopped, 1, "the stream granted after the close is stopped at once");
+  assert.equal(h.$("video").srcObject, null, "and never attached");
+  assert.equal(h.$("camera-help").textContent, help, "the closed panel's line is left alone");
+  assert.equal(h.$("camera-panel").hidden, true);
+});
+
+test("an old Clear that fails after the camera was reopened and froze again leaves the new view alone", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick(); h.live.freeze(); h.hide();
+  const old = h.holdRequests();
+  const oldClear = h.$("clear-freeze").onclick();
+  await tick();
+  h.listeners.keydown({ key: "Escape", preventDefault() {} });
+  const fresh = h.holdRequests(); // The reopened camera's own request.
+  const reopening = h.$("camera").onclick();
+  fresh.resolve(); await reopening;
+  const live = h.live;
+  assert.equal(h.liveStarted, 2);
+  live.freeze();
+  h.setPlay(() => new Promise(() => {})); // The new Clear's playback is still pending.
+  void h.$("clear-freeze").onclick();
+  await tick();
+  assert.equal(h.$("clear-freeze").disabled, true);
+  const help = h.$("camera-help").textContent;
+  h.refuse(Object.assign(Error("Permission denied"), { name: "NotAllowedError" }));
+  old.resolve(); await oldClear;
+  assert.equal(h.$("camera-help").textContent, help, "the old Clear writes nothing into the new view");
+  assert.equal(h.$("start-camera").hidden, true, "and offers no retry there");
+  assert.equal(h.$("clear-freeze").disabled, true, "nor re-enables the new Clear while it waits");
+  assert.equal(live.view, "frozen");
 });
 
 test("a refused camera on Clear keeps the frozen view, says why and leaves Clear available", async (t) => {
