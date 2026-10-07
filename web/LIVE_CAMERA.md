@@ -21,8 +21,8 @@ the camera's canvas is transparent and holds only the white outline of the
 grid where the latest verified frame placed it, so during motion the outline
 can trail the video by a verification. The outline is 2.5 CSS pixels wide with
 a thin dark edge, so it shows on white paper whatever the frame's size (at the
-frame's own scale it was under a CSS pixel on a phone). The clue numbers are not drawn over the
-moving video, and a solution never is: the legend below the viewfinder counts
+frame's own scale it was under a CSS pixel on a phone). The clue numbers are
+not drawn over the moving video, and a solution never is: the legend below the viewfinder counts
 the reading instead (recognised, uncertain and unread clues), each count in
 place of its colour's name ("14 · recognised"), so the legend and the
 viewfinder above it keep their size whether counts show or not; the help line
@@ -86,9 +86,10 @@ frame of that clue, so with the phone held still on one view, a reading with a
 retryable yellow clue freezes only after the full three seconds. Meanwhile no
 solution is shown and the help line says "Solution found — hold the grid
 steady for a moment…", from the moment the solved reading is published, also
-when it returns after a blink; Save picture ends the wait, freezing the view at once on
-the solution's own frame, whatever its age, and saving that picture: no retry
-can run after the shutter. The three seconds belong to the reading's own frame: a
+when it returns after a blink; Save picture ends the wait, freezing the view
+at once on the solution's own frame, whatever its age, and saving that
+picture: no retry can run after the shutter. The three seconds belong to the
+reading's own frame: a
 blink of the grid, a merged retry or a new solve keep them running, and only a
 new full reading starts them again. Freezing ends all frame work: no frame is
 sampled, and no detection, tracking, OCR, retry or solve runs, while replies
@@ -106,7 +107,8 @@ first frame, which would stall Clear after an app switch), and the
 camera track stays live and enabled; Clear plays it again inside the tap, with
 no new getUserMedia and no permission prompt. The page always plays the video
 itself; the element has no `autoplay` attribute, for which WebKit shows its
-native playback controls over the video while Low Power Mode is on. A paused WebKit MediaStream
+native playback controls over the video while Low Power Mode is on. A paused
+WebKit MediaStream
 player keeps the frame it paused on for drawing while its count of presented
 frames runs on, so the first video-frame callback after Clear could hand the
 camera the picture of the freeze: the scheduler discards that first frame and
@@ -210,7 +212,7 @@ the solution is frozen it stores exactly the frozen picture, its frame and its
 reading, also after the camera was turned off. A capture whose own
 revalidation shows a solved reading freezes the view and stores the frozen
 picture, also while the freeze waits for a fresher frame or a retry: the
-help line has said that a solution was found, and the shutter ends the
+help line has said that a solution was found, and the shutter stops the
 camera, so no retry could follow. While live, the screen shows the video, so
 the shutter chooses the frame. The reading's
 corners and clues were proven on the latest verified frame only, so that frame
