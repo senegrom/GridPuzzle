@@ -19,7 +19,9 @@ and reads, the screen shows the camera's own live video, which the browser
 presents at the camera's rate whatever the page's scripts are doing. Over it
 the camera's canvas is transparent and holds only the white outline of the
 grid where the latest verified frame placed it, so during motion the outline
-can trail the video by a verification. The clue numbers are not drawn over the
+can trail the video by a verification. The outline is 2.5 CSS pixels wide with
+a thin dark edge, so it shows on white paper whatever the frame's size (at the
+frame's own scale it was under a CSS pixel on a phone). The clue numbers are not drawn over the
 moving video, and a solution never is: the legend below the viewfinder counts
 the reading instead (recognised, uncertain and unread clues), each count in
 place of its colour's name ("14 · recognised"), so the legend and the
@@ -655,8 +657,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   and tracking core with a fake clock, every canvas recording what is drawn
   into it, square frames and a phone's portrait 3:4 ones. While live the
   camera's canvas gets no camera frame, digit or solution, only a cleared
-  layer with the outline: closed, white and a 500th of the frame wide (at
-  least two pixels), on the verified corners, following the candidate's
+  layer with the outline: closed, white, 2.5 CSS pixels wide through the
+  canvas's contain scale with a dark halo (a canvas not laid out, and the
+  frozen picture, keep a 500th of the frame, at least two pixels), on the
+  verified corners, following the candidate's
   current proof before a reading; a move along either axis or a zoom about a
   corner repaints it, sub-pixel jitter of the proofs does not. The freeze is
   the one camera-frame paint, timed like the others, and the frozen and

@@ -230,6 +230,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     const ratio = video.videoWidth / video.videoHeight;
     return Number.isFinite(ratio) && Math.abs(raw.width / raw.height - ratio) <= .005 * ratio;
   }
+  // At the frame's own scale (two pixels, or a 500th of a 1200- to 1600-pixel
+  // frame) the outline would be under a CSS pixel wide on a phone, whose
+  // viewfinder shows the frame at a third of its size or less. Over live video
+  // it is the only thing drawn, so there it is sized in CSS pixels through the
+  // canvas's contain scale, with a dark halo for white paper; the frozen and
+  // saved pictures keep the frame's scale, as does a canvas not laid out.
+  const LIVE_LINE = 2.5, LIVE_HALO = 1;
+  function liveStroke(width, height) {
+    const scale = Math.min(canvas.clientWidth / width, canvas.clientHeight / height);
+    return scale > 0 && Number.isFinite(scale) ? { line: LIVE_LINE / scale, halo: LIVE_HALO / scale } : {};
+  }
   function liveLabel(mode, delayed, counts) {
     if (mode === "none") return "Live camera preview";
     const reading = displayed ? `; reading: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread clues` : "";
@@ -268,7 +279,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (canvas.height !== height) canvas.height = height;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, width, height);
-    if (mode === "outline") drawGuide(ctx, guide, width);
+    if (mode === "outline") drawGuide(ctx, guide, width, liveStroke(width, height));
     const counts = countCells(displayed?.found, null);
     showLegend(displayed ? counts : null);
     canvas.dataset.overlay = mode;

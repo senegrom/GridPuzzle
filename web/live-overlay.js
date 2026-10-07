@@ -51,10 +51,13 @@ export function previewBlocker(found) {
 }
 
 // The grid outline: over live video the latest verified proof's, in the frozen
-// and captured pictures their reading's.
-export function drawGuide(ctx, corners, width) {
-  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, width / 500);
-  ctx.beginPath(); corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+// and captured pictures their reading's. White and `line` wide, by default two
+// pixels or a 500th of the frame's `width`; a dark `halo` that wide on either
+// side keeps it visible on white paper.
+export function drawGuide(ctx, corners, width, { line = Math.max(2, width / 500), halo = 0 } = {}) {
+  ctx.beginPath(); corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+  if (halo > 0) { ctx.strokeStyle = "#101820b3"; ctx.lineWidth = line + 2 * halo; ctx.stroke(); }
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = line; ctx.stroke();
 }
 
 // The bar of a frozen or captured picture, kept in the saved PNG: PREVIEW and

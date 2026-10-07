@@ -711,6 +711,21 @@ test("on a portrait frame the live outline lies on the verified grid, closed, wh
   assert.deepEqual([h.view.width, h.view.height], [h.W, h.H], "in the frame's own coordinates");
 });
 
+// A phone's viewfinder shows the frame at a third of its size or less, so over
+// live video the outline is sized in CSS pixels through the canvas's contain
+// scale, 2.5 wide with a dark pixel either side; the frozen and saved
+// pictures keep the frame's own scale.
+test("over live video the outline is 2.5 CSS pixels wide with a dark halo; the frozen picture keeps the frame's scale", async (t) => {
+  const h = simulation(t);
+  Object.assign(h.view, { clientWidth: 350, clientHeight: 500 }); // A contain scale of min(350, 500) / 700 = 0.5.
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
+  const live = h.outline(h.view);
+  assert.deepEqual(live.strokes, [{ style: "#101820b3", width: 9 }, { style: "#ffffff", width: 5 }]);
+  near(live.points, h.corners, 2, "on the grid");
+  assert.ok(await h.until(() => h.frozen()));
+  assert.deepEqual(h.outline(h.view).strokes, [{ style: "#ffffff", width: 2 }], "frozen: white, two pixels or a 500th of the frame");
+});
+
 test("the frozen picture of a portrait frame carries the clues, the solution and the outline on the grid", async (t) => {
   const h = simulation(t, PORTRAIT);
   assert.ok(await h.until(() => h.frozen()));
