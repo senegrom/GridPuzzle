@@ -289,6 +289,25 @@ test("a live capture without dimensions or before any proof", async (t) => {
   assert.throws(() => h.camera.capture(), /not ready yet/);
 });
 
+// The video stays attached while frozen, and after Clear its paused player can
+// still draw the picture of the freeze (WebKit). As for scanning, which
+// discards the first frame reported after Clear, a live capture waits for a
+// frame that was scanned; at the start of a session there is no such picture.
+test("a live capture right after Clear waits for a frame reported after Clear", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.frozen()));
+  h.camera.resume();
+  assert.throws(() => h.camera.capture(), /Wait for a camera frame/, "no frame reported since Clear");
+  await h.advance(100); // The first report after Clear: a baseline only.
+  assert.equal(h.camera.stats.scheduling.discarded, 1);
+  assert.throws(() => h.camera.capture(), /Wait for a camera frame/, "nor from the discarded one");
+  await h.advance(100);
+  assert.equal(h.camera.stats.scheduling.processed, 1, "a frame reported after Clear was scanned");
+  const shot = h.camera.capture();
+  assert.equal(shot.found, null); assert.equal(shot.frozen, false);
+  assert.deepEqual(h.on(shot.photo).filter((o) => o.op === "drawImage").map((o) => o.source), [h.video], "the frame on screen now");
+});
+
 test("past the stale limit the adopted frame and its proofs are dropped, with no copy in their place", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));

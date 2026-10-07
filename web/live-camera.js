@@ -47,7 +47,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // sampled, detected, tracked, read or solved until resume() (Clear) or
   // stop(). `seenFrame`: a frame was processed since start() or resume(),
   // which `startedAt` dates, so a camera that delivers none can say so.
-  let view = "live", frozen = null, seenFrame = false, startedAt = -Infinity, awaitingFirstFrame = false;
+  // `pausedPicture`: Clear played the player paused at the freeze again
+  // (resume()), and no frame it reported since has been processed: drawing
+  // the video can still give the picture of the freeze (WebKit), so a live
+  // capture waits.
+  let view = "live", frozen = null, seenFrame = false, pausedPicture = false, startedAt = -Infinity, awaitingFirstFrame = false;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, adoptedAt = -Infinity, sampledAt = -Infinity, laggedAt = -Infinity, retryTrackingAt = 0;
   // The freeze's wait (readyToFreeze): since when the reading whose sample
@@ -529,7 +533,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   });
   function tick() {
     if (!active || view !== "live") return;
-    seenFrame = true;
+    seenFrame = true; pausedPicture = false;
     const started = now();
     let image, sampled = false;
     try {
@@ -576,21 +580,22 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   return {
     // The canvas may still carry a frozen or captured picture's state and
     // label from the session before (closed, or saved and scanned again).
-    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
-    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
+    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
+    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from
     // nothing. The OCR engine, the geometry workers and an idle interpreter
     // stay warm; the page has already resumed the video. A double tap or a
     // call while live is a no-op. The first frame the video reports after
     // its pause is discarded: WebKit can still draw the picture of the freeze.
+    // For the same reason a live capture waits for a frame that was scanned.
     resume() {
       if (!active || view !== "frozen") return;
       view = "live"; frozen = null; epoch++;
       release(raw); raw = displayed = guide = guideFrame = solvedReading = null; dropProofs(); lastPaint = null;
       lastDetect = trackAfter = ownVerifiedAt = -Infinity; sampledAt = adoptedAt = laggedAt = -Infinity;
       recovery.reset(); retryTrackingAt = 0; unmatchedCandidates = 0;
-      seenFrame = awaitingFirstFrame = false; startedAt = now();
+      seenFrame = awaitingFirstFrame = false; pausedPicture = true; startedAt = now();
       session.invalidate("cleared");
       canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
       countCells(null, null); showLegend(null);
@@ -644,6 +649,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // goes to the editor's crop and read. The page shows the returned
       // picture, which is what is stored.
       const preview = displayed, verified = !!(preview?.sample && raw && sampleAge() <= FRESH_TRACK_AGE);
+      // Right after Clear the video can still draw the picture of the freeze
+      // (resume()). As for scanning, only a frame reported after Clear counts,
+      // so the shutter waits for one rather than store that old picture.
+      if (!verified && pausedPicture) throw Error("Wait for a camera frame before capturing.");
       const image = verified ? raw : videoFrame(video), annotated = document.createElement("canvas");
       annotated.width = image.width; annotated.height = image.height;
       composeView(annotated.getContext("2d"), image, verified ? preview : null, null);

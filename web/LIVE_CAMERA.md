@@ -199,7 +199,10 @@ is kept, with its reading, outline and bar but without a solution (none was
 shown), while it is at most half a second old and so matches what the user
 saw; this gives **Review captured clues**. Otherwise the frame on screen at
 the press is kept without a reading and goes to the editor's crop and read.
-Capture revalidates first, the coloured overlay is never fed back into OCR, and
+Right after Clear the shutter instead says "Wait for a camera frame before
+capturing." until a frame the video reported after Clear has been scanned:
+the paused player can still draw the picture of the freeze (see Clear above),
+which is why scanning discards that first frame too. Capture revalidates first, the coloured overlay is never fed back into OCR, and
 capture never accepts the clues or rules for the user. The camera stops and
 the picture stays on the same screen, also when the page is hidden meanwhile
 (an app switch, the lock screen, a download prompt): only a live camera is
@@ -646,7 +649,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   most three seconds counted from the first solved render across a blink, and
   a yellow clue no retry can read does not hold it. A live capture keeps a
   fresh verified frame with its reading, outline and bar but no solution, also
-  while a solution waits, and otherwise the frame on screen without a reading.
+  while a solution waits, and otherwise the frame on screen without a reading;
+  right after Clear it waits until a frame reported after Clear was scanned.
   `live-session.test.js` covers `refining` and the counted status without
   automatic solving, and `photo-flow.test.js` the shutter drawing a live
   capture's stored picture on the panel.
