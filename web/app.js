@@ -119,7 +119,7 @@ const prefs = storage.get("gridpuzzle-settings-v2");
 if (prefs) {
   if (prefs.type === "auto" || Object.hasOwn(TYPES, prefs.type))
     $("puzzle-type").value = prefs.type;
-  for (const id of ["auto-capture", "auto-solve"])
+  for (const id of ["auto-capture", "auto-solve", "freeze-wait"])
     if (typeof prefs[id] === "boolean") $(id).checked = prefs[id];
   if (["0", "30", "90", "300"].includes(prefs.limit))
     $("time-limit").value = prefs.limit;
@@ -130,11 +130,12 @@ function savePrefs() {
     type: $("puzzle-type").value,
     "auto-capture": $("auto-capture").checked,
     "auto-solve": $("auto-solve").checked,
+    "freeze-wait": $("freeze-wait").checked,
     limit: $("time-limit").value,
     editing: $("edit-tool").value === "play" ? "play" : "value",
   });
 }
-for (const id of ["puzzle-type", "auto-capture", "auto-solve", "time-limit", "edit-tool"])
+for (const id of ["puzzle-type", "auto-capture", "auto-solve", "freeze-wait", "time-limit", "edit-tool"])
   $(id).addEventListener("change", savePrefs);
 const layoutFields = {
   rows: "rows", cols: "cols", boxRows: "box-rows", boxCols: "box-cols",

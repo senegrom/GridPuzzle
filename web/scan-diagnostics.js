@@ -10,7 +10,7 @@ const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.f
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
 const settingsOf = value => {
   const out = {};
-  for (const key of ['type','rows','cols','boxRows','boxCols','enabled','autoSolve']) {
+  for (const key of ['type','rows','cols','boxRows','boxCols','enabled','autoSolve','freezeWait']) {
     const v = value?.[key];
     if (key === 'type') { if (typeof v === 'string' && /^[a-z]{1,24}$/.test(v)) out[key] = v; }
     else if (typeof v === 'boolean' || (Number.isInteger(v) && v >= 0 && v <= 25)) out[key] = v;

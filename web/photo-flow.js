@@ -397,7 +397,8 @@ export function setupPhotoFlow({
           pendingPlayback = null;
           $("start-camera").hidden = true;
           status("Camera ready.", "Hold a clear grid steady; the shutter saves the view.");
-          diagnostics.begin("live", { type: $("puzzle-type").value, rows: Number($("rows").value), cols: Number($("cols").value), autoSolve: $("auto-solve").checked });
+          diagnostics.begin("live", { type: $("puzzle-type").value, rows: Number($("rows").value), cols: Number($("cols").value),
+            autoSolve: $("auto-solve").checked, freezeWait: $("freeze-wait").checked === true });
           live = liveFactory({ $, video, canvas: $("live-preview"), diagnostics,
             getSettings: () => ({
               type: $("puzzle-type").value,
@@ -405,6 +406,8 @@ export function setupPhotoFlow({
               boxRows: Number($("box-rows").value), boxCols: Number($("box-cols").value),
               enabled: $("auto-capture").checked,
               autoSolve: $("auto-solve").checked,
+              // The freeze's wait for clearer clues (off unless ticked).
+              freezeWait: $("freeze-wait").checked === true,
             }),
             solverWorker: parkedSolver,
             onSolverReleased: returnSolver,

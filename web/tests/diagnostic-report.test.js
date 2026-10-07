@@ -41,6 +41,16 @@ test('background detections cannot replace the foreground OCR stage or stale set
  d.configure({type:'sudoku',rows:4,cols:4});assert.equal(d.snapshot().settings.rows,4);assert.equal(d.snapshot().lastReading,null);
 });
 
+// The live camera's settings: automatic solving and the freeze's wait for
+// clearer clues are recorded as booleans, and only as booleans.
+test('the settings record automatic solving and the freeze wait, as booleans only',()=>{
+ const d=createScanDiagnostics();d.begin('live',{type:'sudoku',rows:9,cols:9,autoSolve:true,freezeWait:true});
+ assert.equal(d.snapshot().settings.autoSolve,true);assert.equal(d.snapshot().settings.freezeWait,true);
+ d.configure({type:'sudoku',rows:9,cols:9,autoSolve:true,freezeWait:false});assert.equal(d.snapshot().settings.freezeWait,false);
+ d.begin('live',{freezeWait:'PRIVATE'});assert.equal(Object.hasOwn(d.snapshot().settings,'freezeWait'),false);
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+});
+
 test('diagnostic geometry declares its pixel coordinate space and bounds metadata',()=>{
  const d=createScanDiagnostics();d.begin('photo',{});
  d.geometry({rows:9,cols:9,width:600,height:800,coordinateSpace:'source-preview',corners:[{x:1,y:2},{x:599,y:2},{x:599,y:799},{x:1,y:799}],filename:'PRIVATE'});

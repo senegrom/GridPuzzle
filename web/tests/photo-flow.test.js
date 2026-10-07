@@ -91,7 +91,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false, video = null, makeLive = null } = {}) {
   const { setupPhotoFlow } = await import("../photo-flow.js");
   const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
-  let flow = null, diagnostics = null;
+  let flow = null, diagnostics = null, liveOptions = null;
   t.after(() => flow?.stopCamera()); // Before the globals go: it clears the page's timers.
   // A node's 2D context records what is drawn into it.
   const $ = (id) => {
@@ -152,7 +152,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     $, state: {}, scanner: {}, stopTask() {}, status: (...args) => statuses.push(args),
     savePicture: async (annotated, createdAt) => { saved.push({ annotated, createdAt }); return true; },
     liveFactory: (options) => {
-      diagnostics = options.diagnostics;
+      diagnostics = options.diagnostics; liveOptions = options;
       const live = makeLive ? makeLive(options) : { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
         start() { liveStarted++; }, stop() { liveStopped++; }, capture: () => capture,
         resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; options.onViewChange?.("live"); },
@@ -162,7 +162,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     },
   });
   return { $, flow, statuses, listeners, track: tracks[0], tracks, saved, stream, playedOn,
-    get live() { return lives.at(-1); }, get diagnostics() { return diagnostics; },
+    get live() { return lives.at(-1); }, get diagnostics() { return diagnostics; }, get liveOptions() { return liveOptions; },
     get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; },
     get requests() { return requests; }, refuse(error) { refusal = error; },
     holdRequests() { gate = deferred(); return gate; },
@@ -226,6 +226,30 @@ test("Escape closes the full-screen camera and returns focus to its opener", asy
   assert.equal(h.$("camera").focused, 1);
   h.listeners.keydown({ key: "Escape", preventDefault() {} });
   assert.equal(h.$("camera").focused, 1, "Escape with the panel closed is not ours");
+});
+
+// "Wait up to 3 s for clearer clues before freezing" (#freeze-wait): the
+// camera reads the box at each call, so a change applies to the reading on
+// screen, off unless ticked; the diagnostics record it with the live scan's
+// settings, as they record automatic solving.
+test("the live camera takes the freeze's wait from its checkbox, off unless ticked", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick();
+  const settings = h.liveOptions.getSettings;
+  assert.equal(settings().freezeWait, false, "an unticked box");
+  assert.equal(h.diagnostics.snapshot().settings.freezeWait, false, "recorded with the scan's settings");
+  h.$("freeze-wait").checked = true;
+  assert.equal(settings().freezeWait, true, "read at each call");
+  h.$("freeze-wait").checked = false;
+  assert.equal(settings().freezeWait, false);
+});
+test("a camera opened with the freeze's wait ticked records it in the diagnostics", async (t) => {
+  const h = await cameraHarness(t);
+  h.$("freeze-wait").checked = true; h.$("auto-solve").checked = true;
+  await h.$("camera").onclick();
+  assert.equal(h.liveOptions.getSettings().freezeWait, true);
+  const { settings } = h.diagnostics.snapshot();
+  assert.equal(settings.freezeWait, true); assert.equal(settings.autoSolve, true);
 });
 
 // --- photo-flow: the frozen solution and Clear --------------------------
