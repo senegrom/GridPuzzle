@@ -78,6 +78,21 @@ test("changing live settings immediately replaces a pending grid detection", asy
   assert.equal(h.readings.length, 1, "the replacement detector must continue into OCR");
 });
 
+// Automatic solving and the freeze's wait for clearer clues apply to the
+// reading on screen: changing either starts nothing over.
+test("changing automatic solving or the freeze's wait leaves a pending grid detection alone", async (t) => {
+  const h = harness(t, undefined, { autoSolve: true, freezeWait: false }); await h.advance(100);
+  assert.equal(h.detections.length, 1);
+  const before = h.cancellations;
+  h.settings.freezeWait = true; await h.advance(100);
+  h.settings.autoSolve = false; await h.advance(100);
+  h.settings.freezeWait = false; await h.advance(100);
+  assert.equal(h.cancellations, before, "nothing was cancelled");
+  assert.equal(h.detections.length, 1, "nor started again");
+  await h.result(); await h.advance(700); await h.result();
+  assert.equal(h.readings.length, 1, "the detection continues into OCR");
+});
+
 test("a stalled detector is bounded and retries without closing the camera", async (t) => {
   const h = harness(t); await h.advance(9000);
   assert.ok(h.detections.length >= 2, "grid detection must not stay locked indefinitely");

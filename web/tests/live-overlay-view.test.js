@@ -1,6 +1,7 @@
 // The live view: the video is the display, and over it the camera's canvas is
 // transparent with only the outline of the latest verified proof; a solved
-// reading freezes on its own verified frame once that frame is fresh and no
+// reading freezes on its own verified frame once that frame is fresh and,
+// with the setting "Wait up to 3 s for clearer clues before freezing" on, no
 // retry of an uncertain clue may change it, or after three seconds; a live
 // capture keeps the reading only on a fresh verified frame. The production
 // camera, tracker and tracking core run on a fake clock with a printed 4x4
@@ -75,11 +76,13 @@ function reading({ uncertain = [], marked = [] } = {}) {
 // down, and `warp(fn)` maps them with fn(corners, n) for the n-th reply.
 // `solve` is "unique", "deferred" (h.solveJobs) or a function; `read`
 // replaces the 500-ms reader; `readCells` adds the reader's targeted retry;
-// `quality(n)` is the n-th detection's quality report. Every canvas records
-// drawImage, clearRect, fillRect, fillText (with the fill colour) and the
-// outline's path and stroke (colour and width), in one list of operations;
-// the legend's data-count writes are counted.
-function simulation(t, { autoSolve = true, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20,
+// `quality(n)` is the n-th detection's quality report. `freezeWait` is the
+// setting "Wait up to 3 s for clearer clues before freezing" (unset: off, the
+// default), which `h.settings` changes while the camera runs. Every canvas
+// records drawImage, clearRect, fillRect, fillText (with the fill colour) and
+// the outline's path and stroke (colour and width), in one list of
+// operations; the legend's data-count writes are counted.
+function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20,
   frame: [W, H] = [SIZE, SIZE], grid: [x, y] = [120, 110], viewSize = [W, H] } = {}) {
   let time = 0, serial = 0, frozenTime = null, hold = false, detections = 0, rejectAll = false, jitter = 0, warp = null, replies = 0, countWrites = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], held = [], solveJobs = [], renders = [];
@@ -159,8 +162,11 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
   }, cancel() {} };
   // Scanner.readCells(image, corners, found, cells, progress, options).
   if (readCells) reader.readCells = (...args) => { counts.retries++; return readCells(args[2], args[3], time); };
+  // Without `freezeWait` the settings carry no such key: off is the default.
+  const settings = { type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve,
+    ...(freezeWait === undefined ? {} : { freezeWait }) };
   const camera = createLiveCamera({ tracker, $, canvas: view, diagnostics, video,
-    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve }),
+    getSettings: () => ({ ...settings }),
     detector: { detect() {
       const n = ++detections;
       return new Promise((resolve) => setTimer(() => resolve({ confidence: .99, rows: 4, cols: 4, sharpness: 200,
@@ -199,7 +205,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, view, video, $, counts, ops, created, renders, solveJobs, diagnostics, advance, until, writes, outline,
+  return { camera, view, video, $, counts, ops, created, renders, solveJobs, diagnostics, advance, until, writes, outline, settings,
     W, H, corners: cornersAt(x, y),
     get now() { return time; }, get help() { return help; },
     raw: () => camera.adoptedFrame(), frozen: () => camera.view === "frozen",
@@ -301,8 +307,9 @@ test("a live capture keeps a fresh verified frame with its reading and outline, 
 // solved reading on its own verified frame and saves that frozen picture,
 // with the solution, as when the view freezes by itself.
 test("the shutter freezes a solved reading that waits for a retry and saves its solution", async (t) => {
-  // An uncertain marked clue with retries left holds the freeze (see below).
-  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+  // With the setting on, an uncertain marked clue with retries left holds the
+  // freeze (see below).
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
   assert.ok(await h.until(() => h.help === WAITING, 5000));
   assert.equal(h.camera.view, "live");
@@ -560,8 +567,8 @@ const retryResult = (found, cells) => {
     ocrStats: { calls: 1 }, rectified: null };
 };
 
-test("a solved reading with a retryable uncertain clue freezes after its retries or three seconds, not before", async (t) => {
-  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+test("with the wait on, a solved reading with a retryable uncertain clue freezes after its retries or three seconds, not before", async (t) => {
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
   // The wait's text holds from the reading's publication; the canvas shows
   // the reading with the next render.
@@ -575,9 +582,9 @@ test("a solved reading with a retryable uncertain clue freezes after its retries
   assert.equal(h.view.dataset.solution, "12"); assert.equal(h.view.dataset.uncertain, "1", "the yellow clue stays flagged in the picture");
 });
 
-test("the retries of an uncertain clue run before the freeze", async (t) => {
+test("with the wait on, the retries of an uncertain clue run before the freeze", async (t) => {
   const retried = [];
-  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
     readCells: (found, cells, at) => { retried.push(at); return Promise.resolve(retryResult(found, cells)); } });
   assert.ok(await h.until(() => h.help === WAITING, 5000));
   const since = h.now;
@@ -592,7 +599,7 @@ test("a merged retry keeps the freeze's three seconds running", async (t) => {
   // One clearer view of cell 1 (the third detection), then none: one retry
   // lands early and leaves one more, which never comes.
   const once = (n) => sharper(Math.min(n, 3));
-  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: once,
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: once,
     readCells: (found, cells) => Promise.resolve(retryResult(found, cells)) });
   assert.ok(await h.until(() => h.help === WAITING, 5000));
   const since = h.now;
@@ -620,6 +627,86 @@ test("a yellow clue that cannot be retried does not hold the freeze", async (t) 
   assert.equal(h.view.dataset.uncertain, "1");
   assert.equal(h.counts.retries, 0);
   assert.ok(!h.diagnostics.snapshot().events.some((e) => e.reason === "clearer-frame-needed"), "no retry was waited for");
+});
+
+// The setting "Wait up to 3 s for clearer clues before freezing" is off by
+// default: a solved reading then freezes on the first fresh verified frame,
+// as with PR 1, also with a yellow clue a retry could still read. The help
+// line keeps what it said until the frozen help replaces it: neither the
+// wait's text nor the session's text for a solution on screen is written.
+const RETRYABLE = { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), readCells: () => new Promise(() => {}) };
+test("by default a solved reading with a retryable yellow clue freezes on the next fresh frame, without the wait's text", async (t) => {
+  const h = simulation(t, { solve: "deferred", ...RETRYABLE });
+  assert.ok(await h.until(() => h.solveJobs.length === 1 && h.view.dataset.uncertain === "1"), "the reading, with its yellow clue, is being solved");
+  const line = h.help, from = h.writes.length;
+  assert.match(line, /^Finding a solution/);
+  h.solveJobs[0].resolve(unique()); await flush();
+  const solved = h.now;
+  assert.equal(h.help, line, "the solved reading keeps the line as it stands");
+  assert.ok(await h.until(() => h.frozen(), 200));
+  assert.ok(h.now - solved <= 100, `frozen ${h.now - solved} ms after the solution, at the next render`);
+  assert.deepEqual(h.writes.slice(from).filter((w) => w.view === "live"), [], "nothing is written to the help line before the freeze");
+  assert.match(h.help, FROZEN);
+  assert.equal(h.view.dataset.uncertain, "1", "the yellow clue stays flagged in the frozen picture");
+  assert.equal(h.view.dataset.solution, "12");
+  assert.equal(h.counts.retries, 0);
+});
+
+// With the setting on, the yellow clue's retries hold the freeze (the tests
+// above); a reading with nothing left to retry still freezes at once, and so
+// says nothing about a wait.
+test("with the wait on, a solved reading with nothing to retry freezes on the next fresh frame, without the wait's text", async (t) => {
+  const h = simulation(t, { freezeWait: true, solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  const from = h.writes.length, solved = h.now;
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.ok(await h.until(() => h.frozen(), 200));
+  assert.ok(h.now - solved <= 100, `frozen ${h.now - solved} ms after the solution`);
+  assert.deepEqual(h.writes.slice(from).filter((w) => w.view === "live"), []);
+});
+
+// The setting applies to the reading on screen at its next freeze decision
+// and resets nothing: it is not part of the reading's identity, as automatic
+// solving is not. The diagnostics' settings are configured only when a
+// setting that is part of it changes.
+function countConfigures(h) {
+  const counter = { calls: 0 }, configure = h.diagnostics.configure;
+  h.diagnostics.configure = (value) => { counter.calls++; configure(value); };
+  return counter;
+}
+test("turning the wait off while a solved reading waits freezes it at the next render, on the same reading", async (t) => {
+  const h = simulation(t, { freezeWait: true, ...RETRYABLE });
+  assert.ok(await h.until(() => h.help === WAITING && h.view.dataset.uncertain === "1", 5000));
+  await h.advance(1000);
+  assert.equal(h.camera.view, "live", "a second into the wait");
+  const configures = countConfigures(h);
+  h.settings.freezeWait = false;
+  const toggled = h.now;
+  assert.ok(await h.until(() => h.frozen(), 200));
+  assert.ok(h.now - toggled <= 100, `frozen ${h.now - toggled} ms after the change`);
+  assert.equal(configures.calls, 0, "the settings did not start over");
+  assert.equal(h.counts.reads, 1, "nor did the reading");
+  assert.equal(h.view.dataset.uncertain, "1"); assert.equal(h.view.dataset.solution, "12");
+});
+
+test("turning the wait on while a solved reading waits for a fresh frame keeps it waiting for the retries", async (t) => {
+  const h = simulation(t, { freezeWait: false, solve: "deferred", ...RETRYABLE });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.hold(); await h.advance(700); // The verified frame ages past half a second.
+  h.solveJobs[0].resolve(unique()); await flush(); await h.advance(100);
+  assert.equal(h.camera.view, "live", "the wait for a fresh frame holds whatever the setting");
+  assert.equal(h.help, WAITING, "and asks the user to hold steady");
+  const configures = countConfigures(h);
+  h.settings.freezeWait = true;
+  const toggled = h.now;
+  h.release(); await h.advance(300);
+  const age = h.now - h.created.find((c) => c.canvas === h.raw()).at;
+  assert.ok(age <= 500, `a fresh frame verified (${age} ms old)`);
+  assert.equal(h.camera.view, "live", "but the yellow clue's retries are now waited for");
+  assert.ok(await h.until(() => h.frozen(), 3000));
+  assert.ok(h.now - toggled >= 2800, `frozen ${h.now - toggled} ms after the change: three seconds from the first solved render`);
+  assert.equal(configures.calls, 0, "the settings did not start over");
+  assert.equal(h.counts.reads, 1); assert.equal(h.counts.solves, 1, "one reading, solved once");
 });
 
 test("the canvas takes the adopted frame's size, so the outline's coordinates are the video's", async (t) => {
@@ -693,7 +780,7 @@ test("a video without dimensions gets no outline", async (t) => {
 });
 
 test("the freeze's three seconds run from the first render of the solved reading, across a blink", async (t) => {
-  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
   assert.ok(await h.until(() => h.help === WAITING, 5000));
   const since = h.now;
@@ -717,7 +804,7 @@ test("the freeze's three seconds run from the first render of the solved reading
 // the reading returns after a blink. The wait's text holds from the moment
 // the reading is published solved.
 test("while a solved reading waits to freeze the help line keeps the wait's text, also across a blink", async (t) => {
-  const h = simulation(t, { solve: "deferred", read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+  const h = simulation(t, { freezeWait: true, solve: "deferred", read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
   assert.ok(await h.until(() => h.solveJobs.length === 1));
   const from = h.writes.length;
@@ -896,7 +983,7 @@ test("a solved reading freezes on a verified frame exactly half a second old", a
 });
 
 test("a solved reading held by a retryable clue freezes exactly three seconds after its first render", async (t) => {
-  const h = simulation(t, { solve: "deferred", read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+  const h = simulation(t, { freezeWait: true, solve: "deferred", read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
   assert.ok(await h.until(() => h.solveJobs.length === 1));
   // Between two pulses and after the last reply: the next pulse renders the

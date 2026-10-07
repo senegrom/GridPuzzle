@@ -345,6 +345,9 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       if (message === null) { if (released) lastStatus = ""; return; }
       if (lastStatus !== message) { lastStatus = message; onStatus(message); }
     },
+    // A hold of the line as it stands: nothing is written, and the status
+    // stays off the help line until the next hold, release or note.
+    keep() { held = lastStatus; },
     suspend: hide, motion, observe, validate,
     get preview() { return preview; },
     get busy() { return pending; },

@@ -71,6 +71,29 @@ test('the status of a complete reading without automatic solving names its count
  assert.equal(statuses.at(-1),'Clues read (1 recognised, 1 uncertain). Automatic solving is off; capture to review or play.');
 });
 
+// keep(): the camera holds the help line as it stands while a solved reading
+// is about to freeze, so that neither the session's statuses nor a text of
+// its own reach the polite live region meanwhile.
+test('keep holds the line as it stands: nothing is written until a hold, a release or a note',async t=>{
+ const statuses=[],d=defer();
+ const s=createLiveSession({read:()=>d.promise,solve:()=>new Promise(()=>{}),cancelRead(){},cancelSolve(){},
+  onChange(){},onStatus:m=>statuses.push(m),isCurrent:()=>true,sameScene:()=>true});
+ const corners=[{x:0,y:0},{x:20,y:0},{x:20,y:20},{x:0,y:20}];
+ s.start();t.after(()=>s.stop());
+ for(let i=0;i<2;i++)s.observe({key:'2',width:21,height:21,corners,sharpness:200,image:{width:21,height:21}});
+ assert.deepEqual(statuses,['Reading printed clues… Keep the grid in view.']);
+ s.keep();
+ d.resolve({puzzle:state().puzzle,markedCells:[0],notes:[]});await flush();
+ assert.equal(s.busy,true,'the reading completed and its solve started');
+ s.validate();
+ assert.equal(statuses.length,1,'no status is written while the line is kept');
+ s.hold('Held.');assert.equal(statuses.at(-1),'Held.','a hold replaces it');
+ s.keep();s.validate();assert.equal(statuses.length,2,'keeping a held line writes nothing either');
+ s.hold(null);s.validate();
+ assert.equal(statuses.at(-1),'Finding a solution on this device…','released, the status returns');
+ s.keep();s.notify('Noted.');assert.equal(statuses.at(-1),'Noted.','a note is written over a kept line');
+});
+
 // refining: whether a complete reading may still change, which the camera's
 // freeze waits for. Cell 1 is a marked, uncertain clue with two automatic
 // retries; each retry needs a clearer frame and 1.5 s since the last.

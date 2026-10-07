@@ -31,7 +31,8 @@ const solvedPreview = (preview) => preview?.result?.status === "unique" && previ
 // The help line while a solved reading waits to freeze (readyToFreeze).
 const SOLVED_WAITING = "Solution found — hold the grid steady for a moment…";
 // The longest the freeze waits, from the first render that shows a reading
-// solved, for a fresh frame and for retries of its uncertain clues.
+// solved, for a fresh frame and, with the setting "Wait up to 3 s for clearer
+// clues before freezing" (freezeWait), for retries of its uncertain clues.
 const REFINE_WAIT = 3000;
 const COUNTED = ["recognised", "uncertain", "unknown", "solution"];
 const frozenLabel = (counts) => `Frozen picture of the solved puzzle: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread, ${counts.solution} solution entries. Live results are not confirmed.`;
@@ -187,13 +188,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Realignment retires answers, not an idle interpreter; older/injected
     // solvers keep the cancel contract. Closing the camera goes to retireSolver.
     cancelSolve: () => !active ? retireSolver() : solver.invalidate ? solver.invalidate() : solver.cancel(),
-    // A solved reading is never shown live: it freezes, or waits to (see the
-    // heartbeat). Holding the wait's text from its publication on keeps the
-    // session's text for a solution on screen ("Solution preview — check…")
-    // off the help line, a polite live region, until the next heartbeat, also
-    // when the reading returns after a blink. Only a hold, never a render:
-    // validate() publishes on every call (render → validate → onChange).
-    onChange: (preview) => { if (active && view === "live" && solvedPreview(preview)) session.hold(SOLVED_WAITING); },
+    // A solved reading is never shown live: it freezes, or waits to. Its hold
+    // (holdSolved), from its publication on, keeps the session's text for a
+    // solution on screen ("Solution preview — check…") off the help line, a
+    // polite live region, also when the reading returns after a blink. Only a
+    // hold, never a render: validate() publishes on every call (render →
+    // validate → onChange).
+    onChange: (preview) => { if (active && view === "live" && solvedPreview(preview)) holdSolved(); },
     onStatus: message => { $("camera-help").textContent = message; },
     // No verification runs while the worker builds an anchor.
     lossPaused: () => detection?.anchoring === true,
@@ -292,15 +293,30 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // validation, so a solved one freezes on its own pixels. The freeze waits,
   // for at most REFINE_WAIT from the first render that showed this reading
   // solved, until raw is at most FRESH old, so the still does not jump back to
-  // a framing the user has left, and until no retry may still change an
-  // uncertain clue. The wait is keyed to the reading's sample frame, which a
-  // blink, a merged retry and a re-solve keep and a new full reading replaces.
-  // STALE still bounds the frame's age (the preview needs a current proof).
+  // a framing the user has left, and, with the setting on (refineWait), until
+  // no retry may still change an uncertain clue. The wait is keyed to the
+  // reading's sample frame, which a blink, a merged retry and a re-solve keep
+  // and a new full reading replaces. STALE still bounds the frame's age (the
+  // preview needs a current proof).
   function readyToFreeze() {
     if (!solvedPreview(displayed)) return false;
     if (displayed.sample !== solvedReading) { solvedReading = displayed.sample; solvedSince = now(); }
     if (now() - solvedSince >= REFINE_WAIT) return true;
-    return sampleAge() <= FRESH_TRACK_AGE && !session.refining;
+    return sampleAge() <= FRESH_TRACK_AGE && !(refineWait() && session.refining);
+  }
+  // "Wait up to 3 s for clearer clues before freezing", off by default. Read
+  // at every freeze decision and kept out of the reading's identity
+  // (syncSettings), so a change applies to the reading on screen at its next
+  // render and resets nothing.
+  function refineWait() { return getSettings()?.freezeWait === true; }
+  // The help line for a solved reading that is not frozen yet. While the
+  // freeze waits (readyToFreeze), for a fresh frame or, with the setting on,
+  // for a retry, it asks the user to hold the grid steady; a reading that
+  // this render or the next freezes keeps the line as it stands until the
+  // frozen help replaces it.
+  function holdSolved() {
+    if (sampleAge() > FRESH_TRACK_AGE || (refineWait() && session.refining)) session.hold(SOLVED_WAITING);
+    else session.keep();
   }
   // The frozen, captured and saved picture: the frame, its reading with the
   // given result, the outline and the bar with PREVIEW and the legend.
@@ -504,7 +520,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function syncSettings(width, height) {
     const next = getSettings(), identitySettings = { ...next };
-    delete identitySettings.autoSolve;
+    // Neither changes what is read: automatic solving and the freeze's wait
+    // apply to the reading on screen.
+    delete identitySettings.autoSolve; delete identitySettings.freezeWait;
     const key = JSON.stringify([identitySettings, width, height]);
     if (key !== settingsKey) {
       epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;
@@ -540,9 +558,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     else if (firstFrame) session.hold('Waiting for the camera to deliver a picture…');
     else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
-    // A solved reading that is not frozen yet waits for a fresh frame or a
-    // retry (readyToFreeze); no solution is shown over live video meanwhile.
-    else if (solvedPreview(session.preview)) session.hold(SOLVED_WAITING);
+    // A solved reading that is not frozen yet keeps its hold (holdSolved): the
+    // wait's text while it waits for a fresh frame or a retry (readyToFreeze).
+    // No solution is shown over live video meanwhile.
+    else if (solvedPreview(session.preview)) holdSolved();
     else { session.hold(null); if (awaitingFirstFrame) say(aiming()); }
     awaitingFirstFrame = firstFrame && !recovery.blocked;
     render(); updateRestartControl();
