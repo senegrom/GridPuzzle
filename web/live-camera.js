@@ -241,7 +241,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // freezes the view instead (readyToFreeze), on its own verified frame; at
   // the shutter (capture) it freezes without waiting.
   function render(shutter = false) {
-    if (view !== "live") return;
+    // A stopped camera paints nothing: the page may show a captured picture.
+    if (!active || view !== "live") return;
     session.validate();
     displayed = session.preview;
     // With a preview the outline follows its corners; guideFrame is then not

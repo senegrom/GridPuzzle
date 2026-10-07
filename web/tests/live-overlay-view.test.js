@@ -319,6 +319,19 @@ test("a live capture whose verified frame is older than half a second keeps the 
   assert.ok(h.camera.capture().found, "a fresh verified frame keeps the reading again");
 });
 
+// The page draws a captured picture onto the canvas after the camera stopped;
+// a capture of the stopped camera must not clear or relabel it.
+test("a capture after the camera stopped leaves the display canvas alone", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4" && h.view.dataset.overlay === "outline"));
+  h.camera.stop();
+  const from = h.ops.length, label = h.view.attributes["aria-label"];
+  assert.equal(h.camera.capture().found, null);
+  assert.deepEqual(h.on(h.view, from), [], "nothing is cleared or drawn");
+  assert.equal(h.view.attributes["aria-label"], label);
+  assert.equal(h.view.dataset.overlay, "outline"); assert.equal(h.view.dataset.recognised, "4");
+});
+
 test("a live capture without dimensions or before any proof", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.equal(h.camera.capture().found, null, "before anything is verified: the frame on screen");
