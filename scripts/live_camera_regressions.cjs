@@ -139,11 +139,14 @@ async function cameraLayout(page) {
   });
 }
 // The boxes of the video and of the canvas over it, which draws the outline in
-// the frame's coordinates and letterboxes the frame like the video.
+// the frame's coordinates and letterboxes the frame like the video, and the
+// element a touch in the viewfinder's centre reaches.
 async function viewfinderLayers(page) {
   return page.evaluate(()=>{
     const box=id=>{const b=document.getElementById(id).getBoundingClientRect();return [b.x,b.y,b.width,b.height].map(v=>Math.round(v*10)/10);};
-    return {video:box("video"),canvas:box("live-preview")};
+    const finder=document.querySelector("#camera-panel .viewfinder").getBoundingClientRect();
+    return {video:box("video"),canvas:box("live-preview"),videoPointer:getComputedStyle(document.getElementById("video")).pointerEvents,
+      touched:document.elementFromPoint(finder.x+finder.width/2,finder.y+finder.height/2)?.id??null};
   });
 }
 // Wall time per phase and engine, in the report and the log, so that a split
@@ -179,10 +182,14 @@ async function run() {
               await page.waitForFunction(()=>document.getElementById("video").videoWidth>0);
               const layers=await viewfinderLayers(page);report.viewfinderLayers[`${width}x${height}`]=layers;
               assert.deepEqual(layers.canvas,layers.video,`at ${width} x ${height} the canvas has the video's box`);
+              // The canvas takes touches, as when it showed snapshots: VoiceOver
+              // finds its label there, and the video's native controls get none.
+              assert.equal(layers.touched,"live-preview","a touch on the picture reaches the canvas, not the video");
+              assert.equal(layers.videoPointer,"none","nor any touch the video's box alone has");
               await page.click("#close-camera");
             }
           } finally { await page.setViewportSize(size); }
-          report.checks.push("the video and the canvas over it share one box on a phone, a tablet and a desktop screen, so the outline lands on the video");
+          report.checks.push("the video and the canvas over it share one box on a phone, a tablet and a desktop screen, so the outline lands on the video; touches reach the canvas, not the video");
         });
         await time("live solve",async()=>{
         await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);

@@ -767,8 +767,12 @@ body.camera-open { overflow: hidden; }
    viewfinder rule's 65vh cap must not shorten the video on a tall screen. */
 #camera-panel video, #live-preview { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: contain; }
 /* While live the video is the display and this canvas a transparent layer over
-   it with the grid outline; frozen or captured it holds the opaque picture. */
-#live-preview { z-index: 1; pointer-events: none; }
+   it with the grid outline; frozen or captured it holds the opaque picture.
+   The canvas takes the touches, as when it showed snapshots: VoiceOver's touch
+   exploration finds its label there, and none reach the video, on which
+   WebKit can show native playback controls. */
+#live-preview { z-index: 1; }
+#camera-panel video { pointer-events: none; }
 .live-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem 1rem; font-size: .8rem; font-weight: 650; }
 /* The counts of the live or frozen reading, which the camera sets on each
    colour's name: a count takes the name's place in the same box ("14 ·

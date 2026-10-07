@@ -337,7 +337,9 @@ outline of the grid in the latest adopted snapshot, in that snapshot's
 coordinates. The canvas has the snapshot's size and letterboxes it in the
 video's box like the video (both fill the viewfinder: the general 65vh cap on
 videos, which made the video's box shorter than the canvas's on tablets and
-desktop screens, does not apply), so those coordinates land on the video; the
+desktop screens, does not apply), so those coordinates land on the video. The
+canvas takes the touches, as it did when it showed snapshots: VoiceOver's touch
+exploration finds its label there, and no touch reaches the video. The
 outline is drawn only while the snapshot has the video's shape within half a
 percent, so not between a rotation or a change of stream resolution and the
 settings reset that follows, nor while the video has no size. The view
@@ -719,7 +721,7 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 - `live_camera_regressions.cjs` gives a real canvas-backed MediaStream to the
   production camera with Tesseract, Pyodide and real IndexedDB: the video and
   the canvas over it sharing one box on a phone, a tablet and a desktop
-  screen; automatic
+  screen, with touches reaching the canvas, not the video; automatic
   solving without closing the camera, with no camera frame drawn on the canvas
   before the freeze and exactly one at it, the frozen solution (video paused
   behind the still and attached, the camera track still on, the picture
