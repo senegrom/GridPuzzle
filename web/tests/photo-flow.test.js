@@ -235,14 +235,14 @@ test("freezing pauses the video but keeps the camera on; Clear plays it again be
   assert.equal(h.$("camera-panel").attributes["data-view"], "frozen");
   assert.equal(h.$("clear-freeze").hidden, false); assert.equal(h.$("view-state").hidden, false);
   assert.equal(h.pauses, 1, "the video element stops behind the still");
-  assert.equal(h.$("video").srcObject, null, "and holds no player: the stream is detached");
+  assert.equal(h.$("video").srcObject, h.stream, "and keeps the stream attached, ready to play again");
   assert.equal(h.plays, plays, "marking a view never plays");
   assert.equal(h.track.enabled, true); assert.equal(h.track.stopped, 0, "the camera itself stays on");
   const playback = deferred();
   h.setPlay(() => playback.promise);
   const clearing = h.$("clear-freeze").onclick();
   assert.equal(h.plays, plays + 1, "Clear plays inside its tap");
-  assert.equal(h.playedOn.at(-1), h.stream, "on the stream, attached again inside the tap");
+  assert.equal(h.playedOn.at(-1), h.stream, "on the stream that stayed attached");
   await tick();
   assert.equal(live.resumed, 0, "the still stays until playback has resumed");
   assert.equal(h.$("clear-freeze").disabled, true);
@@ -286,7 +286,9 @@ function webkitVideo() {
   const video = {
     frame: 0, ended: false,
     get srcObject() { return player?.stream ?? null; },
+    loads: 0,
     set srcObject(stream) {
+      video.loads++;
       abort("The play() request was interrupted by a new load request.");
       if (player) paused = true; // The load algorithm pauses an element that had a source.
       player = stream ? { stream, count: 0, serviced: 0, picture: null } : null;
@@ -322,15 +324,16 @@ function webkitVideo() {
   return video;
 }
 // The live camera reduced to its frame scheduler: start, the freeze and Clear
-// start and stop the real scheduler on the video as live-camera.js does, and
-// each frame it hands on records the picture a snapshot would draw.
+// start and stop the real scheduler on the video as live-camera.js does (Clear
+// with discardFirst), and each frame it hands on records the picture a
+// snapshot would draw.
 function schedulerLive(options, drawn) {
   let time = 0;
   const scheduler = createFrameScheduler({ video: options.video, onFrame: () => drawn.push(options.video.picture),
     now: () => (time += 150), setTimer: () => 0, clearTimer() {} });
   return { view: "live", resumed: 0, get stats() { return { scheduling: scheduler.stats }; },
     start() { scheduler.start(); }, stop() { scheduler.stop(); }, capture: () => null,
-    resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; scheduler.start(); options.onViewChange?.("live"); },
+    resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; scheduler.start({ discardFirst: true }); options.onViewChange?.("live"); },
     freeze() { this.view = "frozen"; scheduler.stop(); options.onViewChange?.("frozen"); } };
 }
 
@@ -343,13 +346,16 @@ test("after Clear the camera scans a frame presented after the tap, never the fr
   video.cameraFrame(); video.renderingUpdate();
   assert.deepEqual(drawn, [2]);
   h.live.freeze();
-  assert.equal(video.srcObject, null, "no player behind the still");
+  assert.equal(video.srcObject, h.stream, "the stream stays attached"); assert.equal(video.paused, true);
   assert.equal(h.track.enabled, true); assert.equal(h.track.stopped, 0, "the camera stays on");
   for (let i = 0; i < 5; i++) { video.cameraFrame(); video.renderingUpdate(); }
   assert.deepEqual(drawn, [2], "nothing is scanned while frozen");
-  const tapped = video.frame, plays = h.plays, clearing = h.$("clear-freeze").onclick();
+  const tapped = video.frame, plays = h.plays, loads = video.loads, clearing = h.$("clear-freeze").onclick();
   assert.equal(h.plays, plays + 1, "play() runs inside the tap");
-  assert.equal(h.playedOn.at(-1), h.stream, "on the stream attached again inside the tap");
+  assert.equal(h.playedOn.at(-1), h.stream, "on the stream that stayed attached");
+  // Assigning the same stream again makes a new player, which WebKit (CI's
+  // WebKitGTK) left without a frame, so that Clear timed out.
+  assert.equal(video.loads, loads, "Clear loads nothing: it plays the player that stayed attached");
   await tick(); await tick();
   video.renderingUpdate(); // A rendering update before the camera's next frame.
   video.cameraFrame(); await tick(); await tick();
@@ -427,17 +433,17 @@ test("hiding the page while Clear waits for playback keeps the frozen solution",
 });
 
 // Browsers reject a pending play() with an AbortError once its stream is
-// detached, as the camera-off does (here WebKit's player model).
+// detached, as the camera-off does.
 test("a Clear whose playback the camera-off interrupts keeps the camera-off line", async (t) => {
-  const video = webkitVideo();
-  const h = await cameraHarness(t, { video, freshStreams: true });
-  const opening = h.$("camera").onclick();
-  await tick(); await tick();
-  video.cameraFrame(); await opening;
+  const h = await cameraHarness(t, { freshStreams: true });
+  await h.$("camera").onclick();
   h.live.freeze();
-  const clearing = h.$("clear-freeze").onclick(); // play() waits for the new player's first frame.
+  const playback = deferred();
+  h.setPlay(() => playback.promise); // play() is still pending when the app is hidden.
+  const clearing = h.$("clear-freeze").onclick();
   await tick();
   h.hide();
+  playback.reject(Object.assign(Error("The play() request was interrupted by a new load request."), { name: "AbortError" }));
   await clearing;
   assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
   assert.equal(h.$("start-camera").hidden, true, "no retry for a camera that was turned off");
@@ -581,7 +587,7 @@ test("turning the camera off while Start preview is offered leaves Save picture 
   h.setPlay(async () => { throw Object.assign(Error("Playback needs a tap"), { name: "NotAllowedError" }); });
   await h.$("clear-freeze").onclick();
   assert.equal(h.$("start-camera").hidden, false);
-  assert.equal(h.$("video").srcObject, h.stream, "the refused Clear attached the stream again");
+  assert.equal(h.$("video").srcObject, h.stream, "the stream stays attached through the refused Clear");
   h.hide();
   assert.equal(h.$("start-camera").hidden, true, "Clear is the way back");
   assert.equal(h.$("video").srcObject, null, "the stopped stream is detached");

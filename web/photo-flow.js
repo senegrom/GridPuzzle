@@ -155,18 +155,17 @@ export function setupPhotoFlow({
   }
   // The live camera froze its solved view, or Clear made it live again. The
   // camera stays on while frozen (the user's choice: no new permission
-  // prompt, no start-up delay on Clear): its tracks stay live and enabled.
-  // The video element is paused and detached from the stream, so no player
-  // works behind the still, and Clear attaches the stream again inside its
-  // tap. A new player calls back only with a frame it received: WebKit's
-  // paused one keeps the frame of the freeze to draw while its presented
-  // count runs on, so after a plain play() the first video-frame callback
-  // could hand the camera that old picture.
+  // prompt, no start-up delay on Clear): its tracks stay live and enabled,
+  // and the video element stays attached, paused behind the still, so Clear
+  // only plays it again inside its tap. Detaching it and attaching the same
+  // stream again left WebKit's new player without a frame, so Clear timed
+  // out. A paused WebKit player keeps drawing the picture of the freeze
+  // while its presented count runs on: the live camera discards the first
+  // frame after Clear for that.
   function onViewChange(view) {
     markView(view);
     if (view !== "frozen") return;
-    const video = $("video");
-    video.pause?.(); video.srcObject = null;
+    $("video").pause?.();
     // Frames arrived after all: a retry offered for a silent stream is moot,
     // and the frozen row holds only Save picture and Clear.
     clearTimeout(frameCheck); frameCheck = null;
@@ -299,7 +298,7 @@ export function setupPhotoFlow({
           if (epoch === cameraEpoch) $("camera-help").textContent = RELEASED.hidden;
           return;
         }
-      } else attachVideo(); // The stream the freeze detached, inside the tap, before play().
+      } else if ($("video").srcObject !== stream) attachVideo(); // Inside the tap, before play().
       owner = stream;
       await playWithTimeout($("video"));
       // Closed, captured or released meanwhile: that path's own state stands.

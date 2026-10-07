@@ -509,7 +509,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Clear: discard the frozen picture and its reading and scan again from
     // nothing. The OCR engine, the geometry workers and an idle interpreter
     // stay warm; the page has already resumed the video. A double tap or a
-    // call while live is a no-op.
+    // call while live is a no-op. The first frame the video reports after
+    // its pause is discarded: WebKit can still draw the picture of the freeze.
     resume() {
       if (!active || view !== "frozen") return;
       view = "live"; frozen = null; epoch++;
@@ -525,7 +526,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       canvas.setAttribute?.("aria-label", "Live camera preview");
       diagnostics?.event({ stage: "detecting", reason: "cleared" });
       say(aiming());
-      scheduler.start(); updateRestartControl();
+      scheduler.start({ discardFirst: true }); updateRestartControl();
       onViewChange?.("live");
     },
     restart() {

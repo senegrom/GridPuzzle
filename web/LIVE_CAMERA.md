@@ -69,13 +69,15 @@ missed one (2 of 22 solved runs), happened in that phase.
 The camera stays on while frozen, as the user chose: no timer turns it off, so
 the camera indicator stays on and the phone does not lock itself while frozen
 (WebKit keeps the display awake while a page captures). The video element is
-paused, hidden behind the still and detached from the stream, while the camera
-track stays live and enabled; Clear attaches the stream again and plays it
-inside the tap, with no new getUserMedia and no permission prompt. The detach
-matters on WebKit: a paused MediaStream player keeps the frame it paused on for
-drawing while its count of presented frames runs on, so after a plain play()
-the first video-frame callback could hand the camera the picture of the
-freeze, while a new player calls back only with a frame it has received. Only
+paused and hidden behind the still but stays attached to its stream, and the
+camera track stays live and enabled; Clear plays it again inside the tap, with
+no new getUserMedia and no permission prompt. A paused WebKit MediaStream
+player keeps the frame it paused on for drawing while its count of presented
+frames runs on, so the first video-frame callback after Clear could hand the
+camera the picture of the freeze: the scheduler discards that first frame and
+scans from the next. Detaching the stream at the freeze and attaching it
+again on Clear would avoid that too, but WebKit (WebKitGTK in CI) left the new
+player without a frame, so Clear timed out. Only
 when the app is hidden (an app switch, the lock screen) or the system ends the
 camera track is the camera turned off; the frozen picture, its reading and Save
 picture stay, the help line says why and that the phone may ask for camera
@@ -348,9 +350,9 @@ invalidates that cache at once. The paint that freezes a solution is never
 skipped. Captures copy the exact displayed image synchronously, never a later
 frame. These are processing intervals, not sensor frame rates. While the view
 is frozen the scheduler is stopped: no video-frame callback, heartbeat,
-snapshot or readback runs, and Clear starts it again with new tokens on the
-stream it attached again, so its first callback brings a frame received after
-the tap.
+snapshot or readback runs, and Clear starts it again with new tokens, taking
+the first frame the video reports only as a baseline (`discardFirst`), so the
+first frame scanned was presented after the tap.
 
 ## Noticing changed print
 
@@ -575,9 +577,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   tracking circuit and fresh detection and lag clocks included), a camera
   started again is labelled live, and thirty Clear cycles leave no timer or
   canvas behind.
-  `photo-flow.test.js` covers the page: the video paused and detached but the
-  camera kept on while frozen, with no timer to turn it off, Clear attaching
-  the stream and playing inside its tap before scanning resumes, and, on a
+  `photo-flow.test.js` covers the page: the video paused but still attached and
+  the camera kept on while frozen, with no timer to turn it off, Clear playing
+  the same player inside its tap (loading nothing) before scanning resumes, and, on a
   video modelled on WebKit's player with the real frame scheduler, the first
   frame scanned after Clear presented after the tap; refused, interrupted,
   stalled and silent playback, Start preview's live retry when a solution
@@ -606,8 +608,8 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 
 - `live_camera_regressions.cjs` gives a real canvas-backed MediaStream to the
   production camera with Tesseract, Pyodide and real IndexedDB: automatic
-  solving without closing the camera, the frozen solution (video paused, hidden
-  and detached, the camera track still on, the picture unchanged, the chip's
+  solving without closing the camera, the frozen solution (video paused and
+  hidden but attached, the camera track still on, the picture unchanged, the chip's
   contrast), Clear without a new getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and

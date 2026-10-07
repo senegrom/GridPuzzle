@@ -519,8 +519,10 @@ test("Clear resets the tracking-failure circuit, as Restart does", async (t) => 
 });
 
 // Clear starts the detection and lag clocks over too, so the scan after it
-// owes nothing to the one before the freeze.
-test("Clear right after a detection began detects again on the first frame", async (t) => {
+// owes nothing to the one before the freeze. The first frame the paused
+// video reports after Clear is discarded (it can be the picture of the
+// freeze), so the first frame scanned is the second.
+test("Clear right after a detection began detects again on the first frame it scans", async (t) => {
   const h = simulation(t, { solve: "deferred" });
   assert.ok(await h.until(() => h.solveJobs.length === 1));
   h.holdDetections(true);
@@ -528,11 +530,27 @@ test("Clear right after a detection began detects again on the first frame", asy
   assert.ok(await h.until(() => h.counts.detects > detects, 3000, 10), "a detection starts");
   const started = h.now;
   h.solveJobs[0].resolve(unique()); await flush();
-  assert.ok(await h.until(() => frozenNow(h), 300, 10));
+  h.camera.capture(); // Its render freezes the solved view at once.
+  assert.ok(frozenNow(h));
   h.camera.resume();
   const before = h.counts.detects;
-  assert.ok(await h.until(() => h.counts.detects > before, 150, 10), "the first frame after Clear starts a detection");
+  assert.ok(await h.until(() => h.camera.stats.scheduling.processed > 0, 300, 10), "a frame is scanned after Clear");
+  assert.equal(h.camera.stats.scheduling.discarded, 1, "after the first one, discarded");
+  assert.ok(h.counts.detects > before, "the first frame scanned after Clear starts a detection");
   assert.ok(h.now - started < 300, `within 300 ms of the last one before the freeze (${h.now - started} ms)`);
+});
+
+test("Clear discards the first frame the paused video reports, which can be the picture of the freeze", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => frozenNow(h)));
+  await h.advance(500);
+  h.camera.resume();
+  const ticks = h.camera.stats.scheduling.processed;
+  await h.advance(100); // The first report after Clear: a baseline only.
+  assert.equal(h.camera.stats.scheduling.discarded, 1);
+  assert.equal(h.camera.stats.scheduling.processed, ticks, "nothing is scanned from it");
+  await h.advance(100);
+  assert.equal(h.camera.stats.scheduling.processed, ticks + 1, "the next frame is scanned");
 });
 
 test("the first verified view after Clear is not marked DELAYED for a lag before the freeze", async (t) => {
