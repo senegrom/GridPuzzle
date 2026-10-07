@@ -741,7 +741,9 @@ test("a retry offered for a silent stream gives way when the view freezes", asyn
 
 // Runs the one pending manual timer of `ms` and forgets it, as a browser does.
 function fire(timers, ms) {
-  const [id, timer] = [...timers.entries()].find(([, entry]) => entry.ms === ms);
+  const pending = [...timers.entries()].find(([, entry]) => entry.ms === ms);
+  assert.ok(pending, `a ${ms}-ms timer is pending`);
+  const [id, timer] = pending;
   timers.delete(id); timer.fn();
 }
 // Clear, then three seconds without a frame: Start preview is offered while
@@ -806,6 +808,43 @@ test("frames that arrive after the frame check take its Start preview back", asy
   assert.equal(await h.$("start-camera").onclick(), undefined, "and no stale retry remains");
   assert.equal(timers.size, 0, "the check ends once frames arrive");
   assert.equal(h.live.view, "live");
+});
+
+test("a live retry that times out takes its Start preview back once frames arrive", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  h.setPlay(() => new Promise(() => {}));
+  const retry = h.$("start-camera").onclick();
+  await tick();
+  fire(timers, 8000); await retry;
+  assert.equal(h.$("start-camera").hidden, false, "the retry offers Start preview again");
+  assert.match(h.$("camera-help").textContent, /No camera frame arrived/);
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, false, "still no frame: the offer stands");
+  h.live.stats.scheduling.observed = 2; // The video plays after all; nothing freezes (automatic solving off).
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, true, "frames take the offer back, as they take the frame check's own");
+  assert.equal(await h.$("start-camera").onclick(), undefined, "and no stale retry remains");
+  assert.equal(timers.size, 0);
+  assert.equal(h.live.view, "live");
+});
+
+// No frame check runs while a retry waits: one could take back the offer
+// that the retry's own timeout then makes again, with nothing left to retry.
+test("frames that arrive as a live retry times out still take its Start preview back", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  h.setPlay(() => new Promise(() => {}));
+  const retry = h.$("start-camera").onclick();
+  await tick();
+  h.live.stats.scheduling.observed = 2; // Frames come in the retry's last moments...
+  for (const [id, timer] of [...timers.entries()]) if (timer.ms === 500) { timers.delete(id); timer.fn(); }
+  fire(timers, 8000); await retry; // ...too late for its play().
+  assert.equal(h.$("start-camera").hidden, false, "the timed-out retry offers Start preview");
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, true, "the frames take the offer back");
+  assert.equal(await h.$("start-camera").onclick(), undefined, "and no stale retry remains");
+  assert.equal(timers.size, 0);
 });
 
 function canvas(width = 600, height = 600) {

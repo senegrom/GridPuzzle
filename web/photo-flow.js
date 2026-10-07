@@ -243,8 +243,10 @@ export function setupPhotoFlow({
   }
   // A stream that plays but delivers no frame for three seconds gets Start
   // preview. Frames that arrive later take that offer back, also with
-  // automatic solving off, where no freeze would ever hide it.
-  function watchFrames(epoch) {
+  // automatic solving off, where no freeze would ever hide it. `offered`:
+  // a live retry failed and offered Start preview again, so the check only
+  // waits for frames to take it back.
+  function watchFrames(epoch, offered = false) {
     clearTimeout(frameCheck);
     const check = (first) => {
       frameCheck = null;
@@ -260,7 +262,7 @@ export function setupPhotoFlow({
       }
       frameCheck = setTimeout(() => check(false), 500);
     };
-    frameCheck = setTimeout(() => check(true), 3000);
+    frameCheck = setTimeout(() => check(!offered), offered ? 500 : 3000);
   }
   // Clear: play the camera again inside the tap, asking for it first if it
   // was turned off meanwhile, and only then let the live camera scan anew.
@@ -269,6 +271,9 @@ export function setupPhotoFlow({
   // this again after a refused or stalled play(), and also while the view is
   // live, when the frame check offers it: only a call that began on a frozen
   // view may clear one, so a solution that freezes during that retry stays.
+  // No frame check runs while a call waits, so none can take back an offer
+  // that the call's failure then makes again; a live retry that fails
+  // watches for frames to take its own offer back.
   async function resumePlayback() {
     const epoch = cameraEpoch;
     if (!live) return;
@@ -320,6 +325,7 @@ export function setupPhotoFlow({
         $("camera-help").textContent = error.name === "PreviewTimeout" ? error.message
           : error.name === "AbortError" ? "Camera playback was interrupted. Tap Start preview to resume the camera."
           : "Tap Start preview to resume the camera.";
+        if (view === "live") watchFrames(epoch, true);
       } else $("camera-help").textContent = error.name === "NotAllowedError"
         ? "Camera permission was denied. Save picture keeps this solution; Clear tries again."
         : `The camera could not turn on: ${String(error.message || "unavailable").replace(/[.\s]+$/, "")}. Save picture keeps this solution.`;
