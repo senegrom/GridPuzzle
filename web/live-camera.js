@@ -28,6 +28,9 @@ function copyCanvas(source) {
 // result under which blue cells and Slitherlink edges are drawn (live-overlay.js).
 const FROZEN_HELP = "Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.";
 const solvedPreview = (preview) => preview?.result?.status === "unique" && preview.result.complete === true;
+// The longest the freeze waits, from the first render that shows a reading
+// solved, for a fresh frame and for retries of its uncertain clues.
+const REFINE_WAIT = 3000;
 const COUNTED = ["recognised", "uncertain", "unknown", "solution"];
 const frozenLabel = (counts) => `Frozen picture of the solved puzzle: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread, ${counts.solution} solution entries. Live results are not confirmed.`;
 
@@ -47,6 +50,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   let view = "live", frozen = null, seenFrame = false, startedAt = -Infinity, awaitingFirstFrame = false;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, adoptedAt = -Infinity, sampledAt = -Infinity, laggedAt = -Infinity, retryTrackingAt = 0;
+  // The freeze's wait (readyToFreeze): since when the reading whose sample
+  // frame is `solvedReading` has been shown solved.
+  let solvedSince = -Infinity, solvedReading = null;
   // Two tiers of verified evidence. `raw` is the adopted snapshot, the frame
   // the latest proofs verified; the video on screen is newer. The evidence is
   // live while that snapshot is at most FRESH old. Once one is older, the
@@ -59,7 +65,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // is adopted while its own snapshot is within STALE; beyond that the snapshot
   // and its proofs are dropped, and a worker that never answers reaches the
   // failure path. FRESH also bounds the frame a live capture keeps its reading
-  // on.
+  // on and, for REFINE_WAIT, the frame the view freezes on.
   const FRESH_TRACK_AGE = 500, LIVE_SETTLE = 2000, STALE_TRACK_AGE = MAX_VERIFIED_TRACK_AGE;
   const recovery = createTrackingRecovery({ now });
   let lastPaint = null, solverPrepared = false, unmatchedCandidates = 0;
@@ -255,9 +261,18 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     diagnostics?.rendering?.({ painted: true, milliseconds: now() - paintStarted });
   }
   // A preview is published only when its frame verifies on `raw` in this very
-  // validation, so a solved one freezes on its own pixels.
+  // validation, so a solved one freezes on its own pixels. The freeze waits,
+  // for at most REFINE_WAIT from the first render that showed this reading
+  // solved, until raw is at most FRESH old, so the still does not jump back to
+  // a framing the user has left, and until no retry may still change an
+  // uncertain clue. The wait is keyed to the reading's sample frame, which a
+  // blink, a merged retry and a re-solve keep and a new full reading replaces.
+  // STALE still bounds the frame's age (the preview needs a current proof).
   function readyToFreeze() {
-    return solvedPreview(displayed);
+    if (!solvedPreview(displayed)) return false;
+    if (displayed.sample !== solvedReading) { solvedReading = displayed.sample; solvedSince = now(); }
+    if (now() - solvedSince >= REFINE_WAIT) return true;
+    return sampleAge() <= FRESH_TRACK_AGE && !session.refining;
   }
   // The frozen, captured and saved picture: the frame, its reading with the
   // given result, the outline and the bar with PREVIEW and the legend.
@@ -307,7 +322,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   function enterFrozen() {
     view = "frozen"; frozen = { preview: displayed };
     epoch++; scheduler.stop(); abandonDetection(); discardCandidate(); tracker.reset();
-    dropProofs(); guideFrame = null; lastPaint = null;
+    dropProofs(); guideFrame = null; lastPaint = null; solvedReading = null;
     session.invalidate("frozen"); // The OCR engine and an idle interpreter are kept.
     canvas.setAttribute?.("data-view", "frozen");
     diagnostics?.event({ stage: "complete", reason: "frozen" });
@@ -497,6 +512,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     else if (firstFrame) session.hold('Waiting for the camera to deliver a picture…');
     else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
+    // A solved reading that is not frozen yet waits for a fresh frame or a
+    // retry (readyToFreeze); no solution is shown over live video meanwhile.
+    else if (solvedPreview(session.preview)) session.hold("Solution found — hold the grid steady for a moment…");
     else { session.hold(null); if (awaitingFirstFrame) say(aiming()); }
     awaitingFirstFrame = firstFrame && !recovery.blocked;
     render(); updateRestartControl();
@@ -559,7 +577,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // The canvas may still carry a frozen or captured picture's state and
     // label from the session before (closed, or saved and scanned again).
     start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); canvas.dataset.overlay = "none"; showLegend(null); session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
-    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
+    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from
     // nothing. The OCR engine, the geometry workers and an idle interpreter
@@ -569,7 +587,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     resume() {
       if (!active || view !== "frozen") return;
       view = "live"; frozen = null; epoch++;
-      release(raw); raw = displayed = guide = guideFrame = null; dropProofs(); lastPaint = null;
+      release(raw); raw = displayed = guide = guideFrame = solvedReading = null; dropProofs(); lastPaint = null;
       lastDetect = trackAfter = ownVerifiedAt = -Infinity; sampledAt = adoptedAt = laggedAt = -Infinity;
       recovery.reset(); retryTrackingAt = 0; unmatchedCandidates = 0;
       seenFrame = awaitingFirstFrame = false; startedAt = now();

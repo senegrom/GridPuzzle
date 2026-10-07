@@ -1,7 +1,8 @@
 // The live view: the video is the display, and over it the camera's canvas is
 // transparent with only the outline of the latest verified proof; a solved
-// reading freezes on its own verified frame; a live capture keeps the reading
-// only on a fresh verified frame. The production
+// reading freezes on its own verified frame once that frame is fresh and no
+// retry of an uncertain clue may change it, or after three seconds; a live
+// capture keeps the reading only on a fresh verified frame. The production
 // camera, tracker and tracking core run on a fake clock with a printed 4x4
 // grid, and every canvas records what is drawn into it.
 import test from "node:test";
@@ -22,7 +23,7 @@ function deferred() {
 const SIZE = 700, GRID = 440, CELLS = 4;
 const SOLUTION = [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1];
 const unique = () => ({ status: "unique", complete: true, solutions: [{ cells: [...SOLUTION] }] });
-const FROZEN = /^Solution preview — frozen\./;
+const FROZEN = /^Solution preview — frozen\./, WAITING = "Solution found — hold the grid steady for a moment…";
 // A solution digit (the bar's own "Solution" label is blue too).
 const blueDigit = (o) => o.op === "fillText" && o.style === SCAN_COLOURS.solution && /^\d+$/.test(o.text);
 
@@ -234,6 +235,19 @@ test("a live capture keeps a fresh verified frame with its reading and outline, 
   assert.equal(h.camera.capture().found.puzzle.cells[5], null, "each capture owns its copy of the reading");
 });
 
+test("a live capture never draws blue, also while a solved reading waits to freeze", async (t) => {
+  // An uncertain marked clue with retries left holds the freeze (see below).
+  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const shot = h.camera.capture();
+  assert.equal(h.camera.view, "live"); assert.equal(shot.frozen, false);
+  assert.ok(shot.found, "the fresh verified reading is kept");
+  const text = h.on(shot.annotated).filter((o) => o.op === "fillText");
+  assert.ok(text.some((o) => o.style === SCAN_COLOURS.uncertain), "the uncertain clue is yellow");
+  assert.deepEqual(text.filter(blueDigit), [], "no solution was shown, so none is saved");
+});
+
 test("a live capture whose verified frame is older than half a second keeps the frame on screen, without a reading", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
@@ -312,6 +326,79 @@ test("an aspect mismatch between the adopted frame and the video draws nothing",
   // Within half a percent the shapes match (rounding of the snapshot size).
   h.video.videoHeight = 702; h.camera.capture();
   assert.equal(h.view.dataset.overlay, "outline");
+});
+
+test("a solved reading on a frame older than half a second freezes on the next fresh frame", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.hold(); await h.advance(700);
+  h.solveJobs[0].resolve(unique()); await flush(); await h.advance(300);
+  assert.equal(h.camera.view, "live", "no freeze on a frame a second old");
+  assert.equal(h.view.dataset.solution, "0", "and no solution over the live video");
+  assert.equal(h.help, WAITING);
+  assert.deepEqual(h.on(h.view).filter((o) => o.op === "fillText"), []);
+  const old = h.raw();
+  h.release(); // That old reply, then one for the latest frame.
+  assert.ok(await h.until(() => h.frozen(), 300));
+  assert.notEqual(h.raw(), old, "frozen on the fresh frame");
+  assert.equal(h.on(h.view).filter((o) => o.op === "drawImage").at(-1).source, h.raw());
+  assert.match(h.help, FROZEN);
+});
+
+test("with every verified frame older than half a second the freeze comes three seconds after the solution", async (t) => {
+  const h = simulation(t, { replyMs: 600 });
+  assert.ok(await h.until(() => h.help === WAITING, 15000));
+  const since = h.now;
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  const waited = h.now - since;
+  assert.ok(waited >= 2800 && waited <= 3200, `froze ${waited} ms after the solution was first rendered`);
+  assert.equal(h.view.dataset.solution, "12");
+});
+
+// Targeted retries need a clearer view of the uncertain cell: the n-th
+// detection reports it ever sharper. A retry reads the same value.
+const sharper = (n) => ({ assessable: true, score: 150, contrast: 90, cellPixels: 110, reason: null,
+  cells: [{ cell: 1, score: 10 * 2 ** n, contrast: 90 }] });
+const retryResult = (found, cells) => {
+  const puzzle = structuredClone(found.puzzle);
+  return { puzzle, targetCells: cells, entries: cells.map((cell) => ({ cell, kind: "value", text: String(puzzle.cells[cell]), evidence: `retry-${cell}-${Math.random()}` })),
+    ocrStats: { calls: 1 }, rectified: null };
+};
+
+test("a solved reading with a retryable uncertain clue freezes after its retries or three seconds, not before", async (t) => {
+  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now;
+  assert.equal(h.view.dataset.uncertain, "1"); assert.equal(h.view.dataset.solution, "0");
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  const waited = h.now - since;
+  assert.ok(waited >= 2800 && waited <= 3200, `no clearer frame came: froze after ${waited} ms`);
+  assert.equal(h.counts.retries, 0);
+  assert.equal(h.view.dataset.solution, "12"); assert.equal(h.view.dataset.uncertain, "1", "the yellow clue stays flagged in the picture");
+});
+
+test("the retries of an uncertain clue run before the freeze", async (t) => {
+  const retried = [];
+  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
+    readCells: (found, cells, at) => { retried.push(at); return Promise.resolve(retryResult(found, cells)); } });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now;
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  assert.ok(retried.length >= 1, "a clearer frame was retried");
+  assert.ok(retried.every((at) => at < h.now), `the retries at ${retried.map((at) => at - since)} ms came before the freeze at ${h.now - since} ms`);
+  assert.ok(retried.length === 2 || h.now - since >= 2800, "it froze once both retries were spent or the wait was over");
+  assert.equal(h.view.dataset.solution, "12");
+});
+
+test("a yellow clue that cannot be retried does not hold the freeze", async (t) => {
+  // Flagged but not a marked printed mark: no automatic retry would read it.
+  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.frozen(), 5000));
+  assert.equal(h.view.dataset.uncertain, "1");
+  assert.equal(h.counts.retries, 0);
+  assert.ok(!h.diagnostics.snapshot().events.some((e) => e.reason === "clearer-frame-needed"), "no retry was waited for");
 });
 
 test("adoptedFrame is the adopted snapshot itself, or null", async (t) => {
