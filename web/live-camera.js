@@ -28,6 +28,8 @@ function copyCanvas(source) {
 // result under which blue cells and Slitherlink edges are drawn (live-overlay.js).
 const FROZEN_HELP = "Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.";
 const solvedPreview = (preview) => preview?.result?.status === "unique" && preview.result.complete === true;
+// The help line while a solved reading waits to freeze (readyToFreeze).
+const SOLVED_WAITING = "Solution found — hold the grid steady for a moment…";
 // The longest the freeze waits, from the first render that shows a reading
 // solved, for a fresh frame and for retries of its uncertain clues.
 const REFINE_WAIT = 3000;
@@ -185,7 +187,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // Realignment retires answers, not an idle interpreter; older/injected
     // solvers keep the cancel contract. Closing the camera goes to retireSolver.
     cancelSolve: () => !active ? retireSolver() : solver.invalidate ? solver.invalidate() : solver.cancel(),
-    onChange: () => {}, onStatus: message => { $("camera-help").textContent = message; },
+    // A solved reading is never shown live: it freezes, or waits to (see the
+    // heartbeat). Holding the wait's text from its publication on keeps the
+    // session's text for a solution on screen ("Solution preview — check…")
+    // off the help line, a polite live region, until the next heartbeat, also
+    // when the reading returns after a blink. Only a hold, never a render:
+    // validate() publishes on every call (render → validate → onChange).
+    onChange: (preview) => { if (active && view === "live" && solvedPreview(preview)) session.hold(SOLVED_WAITING); },
+    onStatus: message => { $("camera-help").textContent = message; },
     // No verification runs while the worker builds an anchor.
     lossPaused: () => detection?.anchoring === true,
     isCurrent, sameScene, now, setTimer, clearTimer,
@@ -521,7 +530,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
     // A solved reading that is not frozen yet waits for a fresh frame or a
     // retry (readyToFreeze); no solution is shown over live video meanwhile.
-    else if (solvedPreview(session.preview)) session.hold("Solution found — hold the grid steady for a moment…");
+    else if (solvedPreview(session.preview)) session.hold(SOLVED_WAITING);
     else { session.hold(null); if (awaitingFirstFrame) say(aiming()); }
     awaitingFirstFrame = firstFrame && !recovery.blocked;
     render(); updateRestartControl();

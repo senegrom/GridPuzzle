@@ -95,8 +95,11 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     width: { get: () => viewWidth, set(value) { sizeWrites++; viewWidth = value; } },
     height: { get: () => viewHeight, set(value) { sizeWrites++; viewHeight = value; } },
   });
-  let help = "";
-  nodes.set("camera-help", { get textContent() { return help; }, set textContent(value) { help = value; } });
+  // The help line is a polite live region: every write is announced, so each
+  // is logged with the camera's view at the time.
+  let help = "", viewNow = () => null;
+  const writes = [];
+  nodes.set("camera-help", { get textContent() { return help; }, set textContent(value) { help = value; writes.push({ text: value, at: time, view: viewNow() }); } });
   const tracker = createLiveTracker({ setTimer, clearTimer, makeWorker() {
     const core = createTrackingCore(), worker = {
       postMessage(message) {
@@ -148,6 +151,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
       return typeof solve === "function" ? solve() : Promise.resolve(unique());
     }, cancel() {}, invalidate() {} },
     now: () => time, setTimer, clearTimer });
+  viewNow = () => camera.view;
   async function advance(ms) {
     const end = time + ms;
     for (;;) {
@@ -163,7 +167,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, view, video, $, counts, ops, created, renders, solveJobs, diagnostics, advance, until,
+  return { camera, view, video, $, counts, ops, created, renders, solveJobs, diagnostics, advance, until, writes,
     get now() { return time; }, get help() { return help; },
     raw: () => camera.adoptedFrame(), frozen: () => camera.view === "frozen",
     on: (target, from = 0) => ops.slice(from).filter((o) => o.target === target),
@@ -486,9 +490,11 @@ const retryResult = (found, cells) => {
 test("a solved reading with a retryable uncertain clue freezes after its retries or three seconds, not before", async (t) => {
   const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
     readCells: () => new Promise(() => {}) });
-  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  // The wait's text holds from the reading's publication; the canvas shows
+  // the reading with the next render.
+  assert.ok(await h.until(() => h.help === WAITING && h.view.dataset.uncertain === "1", 5000));
   const since = h.now;
-  assert.equal(h.view.dataset.uncertain, "1"); assert.equal(h.view.dataset.solution, "0");
+  assert.equal(h.view.dataset.solution, "0");
   assert.ok(await h.until(() => h.frozen(), 4000));
   const waited = h.now - since;
   assert.ok(waited >= 2800 && waited <= 3200, `no clearer frame came: froze after ${waited} ms`);
@@ -619,6 +625,30 @@ test("the freeze's three seconds run from the first render of the solved reading
   const waited = h.now - since;
   assert.ok(waited >= 2800 && waited <= 3300, `froze ${waited} ms after the reading was first shown solved, not three seconds after the blink`);
   assert.equal(h.counts.reads, 1, "one reading throughout");
+});
+
+// No solution is shown live, so the session's text for one on screen
+// ("Solution preview — check the clues and rules. Tap the shutter…") must not
+// reach the help line, a polite live region, while the reading waits to
+// freeze: neither as the solve finishes, until the next heartbeat, nor when
+// the reading returns after a blink. The wait's text holds from the moment
+// the reading is published solved.
+test("while a solved reading waits to freeze the help line keeps the wait's text, also across a blink", async (t) => {
+  const h = simulation(t, { solve: "deferred", read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  const from = h.writes.length;
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.equal(h.help, WAITING, "as soon as the solved reading is published");
+  await h.advance(1000);
+  h.rejectVerify(true);
+  assert.ok(await h.until(() => h.view.dataset.uncertain === "0", 1000), "a blink hides the reading");
+  await h.advance(300);
+  h.rejectVerify(false);
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  const live = h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text);
+  assert.deepEqual([...new Set(live)], [WAITING], "only the wait's text while live");
+  assert.match(h.help, FROZEN);
 });
 
 test("adoptedFrame is the adopted snapshot itself, or null", async (t) => {

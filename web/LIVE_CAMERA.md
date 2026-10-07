@@ -81,7 +81,8 @@ retry of a yellow clue may still change the reading. A retry needs a clearer
 frame of that clue, so with the phone held still on one view, a reading with a
 retryable yellow clue freezes only after the full three seconds. Meanwhile no
 solution is shown and the help line says "Solution found — hold the grid
-steady for a moment…"; Save picture ends the wait, freezing the view at once on
+steady for a moment…", from the moment the solved reading is published, also
+when it returns after a blink; Save picture ends the wait, freezing the view at once on
 the solution's own frame, whatever its age, and saving that picture: no retry
 can run after the shutter. The three seconds belong to the reading's own frame: a
 blink of the grid, a merged retry or a new solve keep them running, and only a
@@ -663,7 +664,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   with no adopted frame still offers Restart. The freeze
   waits for a fresh frame and for the retries of a marked yellow clue, for at
   most three seconds counted from the first solved render across a blink, and
-  a yellow clue no retry can read does not hold it. A live capture keeps a
+  a yellow clue no retry can read does not hold it; meanwhile the help line
+  holds only the wait's text, also across a blink. A live capture keeps a
   fresh verified frame with its reading, outline and bar but no solution, and
   otherwise the frame on screen without a reading; while a solution waits to
   freeze, the shutter freezes it on its own frame, also one older than half a
