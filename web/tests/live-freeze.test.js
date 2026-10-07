@@ -576,8 +576,13 @@ test("the first verified view after Clear is not marked as catching up for a lag
   for (const job of h.held) job.resolve(job.result());
   h.holdTracking(false); await flush();
   h.camera.resume();
-  const paints = h.renders.filter((r) => r.painted).length;
-  await h.advance(100); await h.result(); // A new detection, verified on the next frame.
+  const paints = h.renders.filter((r) => r.painted).length, detections = h.detections.length;
+  // The first frame the video reports after Clear is a baseline only
+  // (discardFirst); the next one starts a new detection, which is resolved
+  // here and verified on the frame after.
+  await h.advance(200);
+  assert.equal(h.detections.length, detections + 1, "the first frame scanned after Clear starts a detection");
+  await h.result();
   await h.advance(100);
   assert.equal(h.camera.stats.candidate, 0, "the candidate was verified");
   assert.ok(h.renders.filter((r) => r.painted).length > paints, "views were painted after Clear");
