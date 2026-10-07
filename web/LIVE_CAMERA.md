@@ -199,7 +199,9 @@ for arbitrary photographs or handwriting.
 ## Shutter and saved pictures
 
 **Save picture** stores an annotated camera frame, with the colour legend and
-the PREVIEW label, and the panel then shows exactly the stored picture. While
+the PREVIEW label, and the panel then shows exactly the stored picture, whose
+accessible label and counts then describe it ("Saved picture: 14 recognised,
+…", or "Saved picture without a reading"). While
 the solution is frozen it stores exactly the frozen picture, its frame and its
 reading, also after the camera was turned off. A capture whose own
 revalidation shows a solved reading freezes the view and stores the frozen
@@ -694,7 +696,7 @@ Unit tests (`node --test web/tests/*.test.js`):
   freeze's wait ends at exactly three seconds.
   `live-session.test.js` covers `refining` and the counted status without
   automatic solving, and `photo-flow.test.js` the shutter drawing a live
-  capture's stored picture on the panel.
+  capture's stored picture on the panel, with that picture's label and counts.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
   and canvas. `solver-handoff.test.js`: the interpreter handoff.

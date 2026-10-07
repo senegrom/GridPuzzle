@@ -736,6 +736,28 @@ test("a live shutter shows the stored picture on the canvas", async (t) => {
   assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
 });
 
+// The live view's label and counts described an outline and a reading; the
+// stored picture replaces them with its own, which may have none.
+test("a live shutter labels and counts the stored picture, with or without a reading", async (t) => {
+  const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells = [1, 2, 3, 4, ...Array(12).fill(null)];
+  const found = { puzzle, cellUncertain: [1], markedCells: [0, 1, 2, 3, 5], notes: [] };
+  const reading = { photo: {}, annotated: { width: 640, height: 480 }, found, corners: [], createdAt: 4, frozen: false };
+  const h = await cameraHarness(t, { capture: reading });
+  await h.$("camera").onclick();
+  const view = h.$("live-preview");
+  for (const [key, value] of Object.entries({ "aria-label": "Live camera. Grid outline shown; reading: 9 recognised, 0 uncertain, 0 unread clues.",
+    "data-recognised": "9", "data-uncertain": "0", "data-unknown": "0", "data-delayed": "1" })) view.setAttribute(key, value);
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(view.attributes["aria-label"], "Saved picture: 3 recognised, 1 uncertain, 1 unread clues. Live results are not confirmed.");
+  assert.deepEqual(["recognised", "uncertain", "unknown", "solution", "delayed"].map((key) => view.attributes[`data-${key}`]), ["3", "1", "1", "0", "0"]);
+  await h.$("retake-photo").onclick();
+  h.live.capture = () => ({ photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 5, frozen: false });
+  view.setAttribute("data-recognised", "9");
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(view.attributes["aria-label"], "Saved picture without a reading. Crop and read it in the editor.");
+  assert.equal(view.attributes["data-recognised"], "0");
+});
+
 test("a frozen shutter draws nothing: the canvas already holds the stored picture", async (t) => {
   const picture = { photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 3, frozen: true };
   const h = await cameraHarness(t, { capture: picture });

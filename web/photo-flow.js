@@ -7,6 +7,7 @@ import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./mode
 import { turnCorners, validQuad } from "./geometry.js";
 import { importPhoto } from "./photo-import.js";
 import { createLiveCamera } from "./live-camera.js";
+import { overlayCells } from "./live-overlay.js";
 import { cameraModal } from "./camera-modal.js";
 
 export function setupPhotoFlow({
@@ -465,11 +466,20 @@ export function setupPhotoFlow({
     video.pause?.(); video.srcObject = stream; video.load?.();
     return pendingPlayback();
   };
-  // The picture is opaque (a camera frame), so it covers the outline.
-  function showPicture(canvas, picture) {
+  // The picture is opaque (a camera frame), so it covers the outline. Its
+  // counts and accessible label replace the live view's, which described an
+  // outline and a reading the picture may not have.
+  function showPicture(canvas, picture, found) {
     if (canvas.width !== picture.width) canvas.width = picture.width;
     if (canvas.height !== picture.height) canvas.height = picture.height;
     canvas.getContext("2d").drawImage(picture, 0, 0);
+    const counts = { recognised: 0, uncertain: 0, unknown: 0, solution: 0 };
+    for (const cell of found ? overlayCells(found) : []) counts[cell.kind]++;
+    for (const [key, value] of Object.entries(counts)) canvas.setAttribute?.(`data-${key}`, String(value));
+    canvas.setAttribute?.("data-delayed", "0");
+    canvas.setAttribute?.("aria-label", found
+      ? `Saved picture: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread clues. Live results are not confirmed.`
+      : "Saved picture without a reading. Crop and read it in the editor.");
   }
   async function takePhoto() {
     if (!live || saving) return;
@@ -479,10 +489,11 @@ export function setupPhotoFlow({
       stopCamera();
       captured = picture;
       // The panel shows exactly the picture that is stored. A frozen one is
-      // already on the canvas; while live the screen showed the video, with
-      // at most an outline on the canvas, so the picture is drawn there.
+      // already on the canvas, with its own counts and label; while live the
+      // screen showed the video, with at most an outline on the canvas, so the
+      // picture is drawn there.
       const preview = $("live-preview");
-      if (!picture.frozen) showPicture(preview, picture.annotated);
+      if (!picture.frozen) showPicture(preview, picture.annotated, picture.found);
       $("camera-panel").hidden = false;
       modal.open();
       markView("captured");
