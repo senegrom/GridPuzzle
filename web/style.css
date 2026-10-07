@@ -762,7 +762,10 @@ body.camera-open { overflow: hidden; }
 .camera-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .camera-heading h2 { margin: 0; color: #fff; font-size: 1.2rem; }
 #camera-panel .viewfinder { flex: 1 1 auto; min-height: 160px; position: relative; background: #000; border-radius: .75rem; aspect-ratio: auto; overflow: hidden; }
-#camera-panel video, #live-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+/* The video and the canvas over it share one box and letterbox alike, so the
+   outline drawn in the frame's coordinates lands on the video: the general
+   viewfinder rule's 65vh cap must not shorten the video on a tall screen. */
+#camera-panel video, #live-preview { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: contain; }
 /* While live the video is the display and this canvas a transparent layer over
    it with the grid outline; frozen or captured it holds the opaque picture. */
 #live-preview { z-index: 1; pointer-events: none; }

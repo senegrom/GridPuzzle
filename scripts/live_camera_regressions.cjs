@@ -138,6 +138,14 @@ async function cameraLayout(page) {
     return JSON.parse(JSON.stringify(result));
   });
 }
+// The boxes of the video and of the canvas over it, which draws the outline in
+// the frame's coordinates and letterboxes the frame like the video.
+async function viewfinderLayers(page) {
+  return page.evaluate(()=>{
+    const box=id=>{const b=document.getElementById(id).getBoundingClientRect();return [b.x,b.y,b.width,b.height].map(v=>Math.round(v*10)/10);};
+    return {video:box("video"),canvas:box("live-preview")};
+  });
+}
 // Wall time per phase and engine, in the report and the log, so that a split
 // of this long suite can be decided from measurements. A nested phase is part
 // of its parent's time; entries keep the order in which the phases started.
@@ -159,6 +167,23 @@ async function run() {
       report.checks=[];
       const time=phaseTimer(report,name);
       try {
+        await time("viewfinder layers",async()=>{
+          // A phone and screens taller than the general viewfinder rule's 65vh
+          // cap on videos: the canvas and the video share one box at each.
+          await idlePage(page,server.base);await fixture(page);
+          const size=page.viewportSize();report.viewfinderLayers={};
+          try {
+            for (const [width,height] of [[430,932],[820,1180],[1920,1080]]) {
+              await page.setViewportSize({width,height});
+              await startLive(page);
+              await page.waitForFunction(()=>document.getElementById("video").videoWidth>0);
+              const layers=await viewfinderLayers(page);report.viewfinderLayers[`${width}x${height}`]=layers;
+              assert.deepEqual(layers.canvas,layers.video,`at ${width} x ${height} the canvas has the video's box`);
+              await page.click("#close-camera");
+            }
+          } finally { await page.setViewportSize(size); }
+          report.checks.push("the video and the canvas over it share one box on a phone, a tablet and a desktop screen, so the outline lands on the video");
+        });
         await time("live solve",async()=>{
         await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);
         await recordPreviewDraws(page);await solveLive(page);
