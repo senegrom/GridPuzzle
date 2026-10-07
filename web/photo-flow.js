@@ -245,13 +245,14 @@ export function setupPhotoFlow({
   // preview. Frames that arrive later take that offer back, also with
   // automatic solving off, where no freeze would ever hide it. `offered`:
   // a live retry failed and offered Start preview again, so the check only
-  // waits for frames to take it back.
-  function watchFrames(epoch, offered = false) {
+  // waits for frames to take it back. `since`: the frame count when that
+  // retry began, so frames seen before its tap cannot take its offer back.
+  function watchFrames(epoch, offered = false, since = 0) {
     clearTimeout(frameCheck);
     const check = (first) => {
       frameCheck = null;
       if (epoch !== cameraEpoch || live?.view !== "live") return;
-      if (live.stats?.scheduling?.observed > 0) {
+      if (live.stats?.scheduling?.observed > since) {
         if (!first && pendingPlayback === resumePlayback) { pendingPlayback = null; $("start-camera").hidden = true; }
         return;
       }
@@ -277,7 +278,7 @@ export function setupPhotoFlow({
   async function resumePlayback() {
     const epoch = cameraEpoch;
     if (!live) return;
-    const view = live.view, clearing = view === "frozen";
+    const view = live.view, clearing = view === "frozen", seen = live.stats?.scheduling?.observed ?? 0;
     pendingPlayback = resumePlayback;
     clearTimeout(frameCheck); frameCheck = null;
     $("start-camera").disabled = true; $("clear-freeze").disabled = true;
@@ -325,7 +326,7 @@ export function setupPhotoFlow({
         $("camera-help").textContent = error.name === "PreviewTimeout" ? error.message
           : error.name === "AbortError" ? "Camera playback was interrupted. Tap Start preview to resume the camera."
           : "Tap Start preview to resume the camera.";
-        if (view === "live") watchFrames(epoch, true);
+        if (view === "live") watchFrames(epoch, true, seen);
       } else $("camera-help").textContent = error.name === "NotAllowedError"
         ? "Camera permission was denied. Save picture keeps this solution; Clear tries again."
         : `The camera could not turn on: ${String(error.message || "unavailable").replace(/[.\s]+$/, "")}. Save picture keeps this solution.`;

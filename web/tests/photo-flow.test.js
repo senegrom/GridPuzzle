@@ -847,6 +847,25 @@ test("frames that arrive as a live retry times out still take its Start preview 
   assert.equal(timers.size, 0);
 });
 
+// Only frames since the retry's tap count: frames seen just before it (inside
+// the frame check's 500-ms take-back window) say nothing about its playback.
+test("frames seen before a live retry that then times out leave its new offer standing", async (t) => {
+  const h = await cameraHarness(t);
+  const timers = await silentAfterClear(t, h);
+  h.live.stats.scheduling.observed = 2; // Frames, and the tap comes before the take-back check.
+  h.setPlay(() => new Promise(() => {}));
+  const retry = h.$("start-camera").onclick();
+  await tick();
+  fire(timers, 8000); await retry; // The retry's own playback times out.
+  assert.equal(h.$("start-camera").hidden, false, "the timed-out retry offers Start preview");
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, false, "no frame since the retry: its offer stands");
+  h.live.stats.scheduling.observed = 3; // A frame after the retry.
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, true, "a frame since the retry takes the offer back");
+  assert.equal(timers.size, 0);
+});
+
 function canvas(width = 600, height = 600) {
   const ctx = new Proxy({
     getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
