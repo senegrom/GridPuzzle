@@ -263,10 +263,15 @@ for (const phase of ["reading", "solving", "solved"]) test(`new pixels retire ${
 test("the preview blocker names the actual obstacle", () => {
   const puzzle = makePuzzle("latinsquare", 2);
   assert.match(previewBlocker({ puzzle, markedCells: [] }), /No printed clues/);
+  // The live video shows no clue digits: the cells meant are named by their
+  // legend entry, never by a colour on screen.
   puzzle.cells = [1, 1, null, null];
-  assert.match(previewBlocker({ puzzle, markedCells: [0, 1] }), /Conflicting/);
+  const conflict = previewBlocker({ puzzle, markedCells: [0, 1] });
+  assert.match(conflict, /^Conflicting readings \(uncertain \? in the legend\)/);
   puzzle.cells = [1, null, null, null];
-  assert.match(previewBlocker({ puzzle, markedCells: [0, 3] }), /Red \? cells/);
+  const unread = previewBlocker({ puzzle, markedCells: [0, 3] });
+  assert.match(unread, /could not be read \(unread clue \? in the legend\)/);
+  for (const text of [conflict, unread]) assert.doesNotMatch(text, /\b(red|yellow|green|blue)\b/i);
   assert.equal(previewBlocker({ puzzle, markedCells: [0] }), null);
   const cage = makePuzzle("kenken", 2);
   cage.cages = [{ cells: [0, 1], target: 3, op: "+" }];

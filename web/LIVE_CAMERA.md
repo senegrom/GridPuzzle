@@ -26,7 +26,9 @@ moving video, and a solution never is: the legend below the viewfinder counts
 the reading instead (recognised, uncertain and unread clues), each count in
 place of its colour's name ("14 · recognised"), so the legend and the
 viewfinder above it keep their size whether counts show or not; the help line
-says what the camera is doing, and the canvas's accessible label names the
+says what the camera is doing, naming unread or uncertain clues by their
+legend entry ("unread clue ?", "uncertain ?") rather than by a colour that is
+not on screen, and the canvas's accessible label names the
 outline and the counts, and says when the outline is catching up with the
 camera. Before, the canvas covered the video with snapshots of it, 3 to 8 new
 pictures a second, which looked like a slideshow. The camera stays open while

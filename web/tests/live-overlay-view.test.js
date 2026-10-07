@@ -597,6 +597,16 @@ test("a merged retry keeps the freeze's three seconds running", async (t) => {
   assert.ok(waited >= 2800 && waited <= 3300, `froze ${waited} ms after the reading was first shown solved, not three seconds after the merge`);
 });
 
+// The live video shows no clue digits, so the help line names the unclear
+// clues by the legend entry that counts them.
+test("waiting for a clearer frame of an uncertain clue, the help line points to its legend entry", async (t) => {
+  const h = simulation(t, { autoSolve: false, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => /^Waiting for a clearer frame/.test(h.help), 5000));
+  assert.match(h.help, /^Waiting for a clearer frame of the unclear clues \(uncertain \? in the legend\)\./);
+  assert.equal(h.legend().uncertain, "1");
+});
+
 test("a yellow clue that cannot be retried does not hold the freeze", async (t) => {
   // Flagged but not a marked printed mark: no automatic retry would read it.
   const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [] })),

@@ -32,14 +32,16 @@ export function overlayCells(found, result = null) {
 
 // Why a reading cannot carry a solution preview yet, or null when it can. The
 // message names the actual obstacle instead of blaming red cells for everything.
-const UNREAD = "Red ? cells are printed marks that could not be read. Move closer for a clearer read.";
+// The live video shows no clue digits, so the cells meant are named by the
+// legend entry that counts them, not by a colour on screen.
+const UNREAD = "Some printed marks could not be read (unread clue ? in the legend). Move closer for a clearer read.";
 export function previewBlocker(found) {
   try {
     const p = found.puzzle;
     checkSolveReady(p);
     if (!p.cells.some(Number.isInteger) && !p.cages.length && !p.clues.length && !p.inequalities.length)
       return "No printed clues were read yet. Move closer for a clearer read.";
-    if (conflicts(p).size) return "Conflicting readings (yellow) must be corrected before a solution can be shown.";
+    if (conflicts(p).size) return "Conflicting readings (uncertain ? in the legend) must be corrected before a solution can be shown.";
     const marked = new Set(found.markedCells ?? []);
     for (const cell of Array.isArray(found.markedCells) ? [] : found.cellUncertain ?? found.uncertain ?? [])
       if (p.cells[cell] === null) return UNREAD;

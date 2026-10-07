@@ -250,7 +250,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       }
       const cells = clearerCells(stored.found, recoveryQuality, best?.quality, recoveryAttempts);
       if (!cells.length || now() - lastRecovery < 1500) {
-        status = 'Waiting for a clearer frame of the unclear clues. Capture to review them manually.';
+        status = 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.';
         say(status); onEvent({ stage: 'checking', reason: 'clearer-frame-needed', targets }); return;
       }
       if (best && proof(stored.sample) && matches(stored.sample, best)) startRecovery(best, cells);
