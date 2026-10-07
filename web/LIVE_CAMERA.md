@@ -77,15 +77,18 @@ a newer frame verifies it. It waits for at most three seconds from the first
 render that shows the reading solved: until the verified frame is at most half
 a second old, so the still does not jump back to a framing the user has left
 (a slow phone spends much of its time on older frames), and until no automatic
-retry of a yellow clue may still change the reading. Meanwhile no solution is
-shown and the help line says "Solution found — hold the grid steady for a
-moment…". The three seconds belong to the reading's own frame: a blink of the
-grid, a merged retry or a new solve keep them running, and only a new full
-reading starts them again. Freezing ends all frame work: no frame is sampled,
-and no detection, tracking, OCR, retry or solve runs, while replies already in
-flight are fenced and dropped. Before, a solved view kept sampling about four
-frames a second; every measured blink of the solution, and both measured
-captures that missed one (2 of 22 solved runs), happened in that phase.
+retry of a yellow clue may still change the reading. A retry needs a clearer
+frame of that clue, so with the phone held still on one view, a reading with a
+retryable yellow clue freezes only after the full three seconds. Meanwhile no
+solution is shown and the help line says "Solution found — hold the grid
+steady for a moment…". The three seconds belong to the reading's own frame: a
+blink of the grid, a merged retry or a new solve keep them running, and only a
+new full reading starts them again. Freezing ends all frame work: no frame is
+sampled, and no detection, tracking, OCR, retry or solve runs, while replies
+already in flight are fenced and dropped. Before, a solved view kept sampling
+about four frames a second; every measured blink of the solution, and both
+measured captures that missed one (2 of 22 solved runs), happened in that
+phase.
 
 The camera stays on while frozen, as the user chose: no timer turns it off, so
 the camera indicator stays on and the phone does not lock itself while frozen
