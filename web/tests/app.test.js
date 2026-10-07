@@ -33,6 +33,18 @@ test("core HTML owns the safe-area and security polish without patch files", () 
   assert.match(css, /safe-area-inset-top/);
 });
 
+// The page plays the camera's video itself whenever it starts or resumes it
+// (opening, Start preview, Clear). On a video with the autoplay attribute
+// WebKit forces its native controls while Low Power Mode keeps its gesture
+// restriction, and the live video is visible and tappable: the canvas over
+// it is a transparent layer.
+test("the camera's video plays muted and inline, without the autoplay attribute", () => {
+  const video = read("index.html").match(/<video id="video"[^>]*>/)?.[0];
+  assert.ok(video, "the camera's video element");
+  assert.doesNotMatch(video, /\sautoplay\b/);
+  assert.match(video, /\smuted\b/); assert.match(video, /\splaysinline\b/);
+});
+
 // WCAG 2 relative luminance of a #rgb or #rrggbb colour, and the contrast
 // ratio of two colours.
 function luminance(hex) {

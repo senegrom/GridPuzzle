@@ -102,7 +102,9 @@ paused behind the opaque still, which covers it exactly, and stays visible and
 attached to its stream (WebKit gives a new player on an invisible video no
 first frame, which would stall Clear after an app switch), and the
 camera track stays live and enabled; Clear plays it again inside the tap, with
-no new getUserMedia and no permission prompt. A paused WebKit MediaStream
+no new getUserMedia and no permission prompt. The page always plays the video
+itself; the element has no `autoplay` attribute, for which WebKit shows its
+native playback controls over the video while Low Power Mode is on. A paused WebKit MediaStream
 player keeps the frame it paused on for drawing while its count of presented
 frames runs on, so the first video-frame callback after Clear could hand the
 camera the picture of the freeze: the scheduler discards that first frame and
@@ -657,7 +659,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   called inside its tap, with a grant or failure that arrives after a close, a
   reopen or an app switch fenced; a muted track kept until it unmutes, the
   failure texts, and Escape and the shutter from the frozen view. `app.test.js`
-  checks the Frozen chip's contrast.
+  checks the Frozen chip's contrast and that the camera's video has no
+  `autoplay` attribute.
 - `live-overlay-view.test.js`: the live view on the production camera, tracker
   and tracking core with a fake clock, every canvas recording what is drawn
   into it, square frames and a phone's portrait 3:4 ones. While live the
