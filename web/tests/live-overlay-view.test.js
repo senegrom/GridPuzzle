@@ -513,6 +513,11 @@ test("a solved reading on a frame of another shape than the video does not freez
   assert.equal(h.view.dataset.recognised, "4", "its solved reading verifies on it");
   assert.equal(h.camera.view, "live", "but the view does not freeze on it");
   assert.equal(h.view.dataset.overlay, "none");
+  // Nor does the shutter: it keeps the fresh verified reading as a live
+  // capture, which never carries a solution.
+  const shot = h.camera.capture();
+  assert.equal(shot.frozen, false); assert.equal(h.camera.view, "live"); assert.ok(shot.found);
+  assert.deepEqual(h.on(shot.annotated).filter(blueDigit), [], "no solution in a live capture");
   await h.advance(1000);
   assert.equal(h.camera.view, "live", "the settings start over with frames of the new shape");
   assert.equal(h.view.dataset.recognised, "0");
@@ -725,7 +730,7 @@ test("while a solved reading waits to freeze the help line keeps the wait's text
   h.rejectVerify(false);
   assert.ok(await h.until(() => h.frozen(), 4000));
   const live = h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text);
-  assert.deepEqual([...new Set(live)], [WAITING], "only the wait's text while live");
+  assert.deepEqual(live, [WAITING, WAITING], "only the wait's text while live, written as the solve finished and as the reading returned, never again on a heartbeat");
   assert.match(h.help, FROZEN);
 });
 
