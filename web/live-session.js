@@ -1,5 +1,5 @@
 import { recoveryCells, clearerCells, mergeRecoveredClues } from "./clue-recovery.js";
-import { previewBlocker } from "./live-overlay.js";
+import { previewBlocker, overlayCells } from "./live-overlay.js";
 import { clone, checkShape } from "./model.js";
 
 // Drops a canvas's pixels without waiting for the collector. Plain test
@@ -14,6 +14,17 @@ export function releaseImage(image) {
 // a view hidden for less than ALIGN_NOTICE is not announced: announcing every
 // such gap made the help line alternate with the status on each reply.
 const LOSS_LIMIT = 5000, ALIGN_NOTICE = 2000;
+
+// The status of a complete reading without automatic solving. Live video shows
+// no clue digits, so the line names the counts the legend shows too.
+function solvingOff(found) {
+  let recognised = 0, uncertain = 0;
+  for (const { kind } of overlayCells(found)) {
+    if (kind === "recognised") recognised++;
+    else if (kind === "uncertain") uncertain++;
+  }
+  return `Clues read (${recognised} recognised, ${uncertain} uncertain). Automatic solving is off; capture to review or play.`;
+}
 
 // OCR ownership and overlay visibility are deliberately separate. Motion may
 // hide a result, but only changed rules/content, a timeout or Stop retires work.
@@ -91,8 +102,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!autoSolve()) {
       if (solving) { solveGeneration++; solving = false; pending = false; cancelSolve(); }
       if (stored) {
-        if (stored.result || stored.solveFinished)
-          status = "Clues read. Automatic solving is off; capture to review or play.";
+        if (stored.result || stored.solveFinished) status = solvingOff(stored.found);
         stored.result = null; stored.solveFinished = false;
       }
     }
@@ -305,8 +315,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         recoveryQuality = sample.quality; recoveryAttempts.clear();
         onEvent({ stage: 'checking', reason: 'read-complete', found });
         const blocker = previewBlocker(found);
-        status = blocker ?? (autoSolve() ? "Clues read — checking the current grid…"
-          : "Clues read. Automatic solving is off; capture to review or play.");
+        status = blocker ?? (autoSolve() ? "Clues read — checking the current grid…" : solvingOff(found));
         validate();
         if (blocker) return;
 
@@ -340,6 +349,14 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     get preview() { return preview; },
     get busy() { return pending; },
     get settled() { return !!stored?.readComplete && !pending && !pendingRecovery; },
+    // Whether the complete reading may still change: a read, solve or retry is
+    // running or waiting to be applied, or an uncertain marked clue has an
+    // automatic retry left. The camera holds a freeze for it, briefly.
+    get refining() {
+      if (!stored?.readComplete || !readCells) return false;
+      if (pending || pendingRecovery) return true;
+      return recoveryCells(stored.found).some(cell => (recoveryAttempts.get(cell) ?? 0) < 2);
+    },
     // Every frame whose anchor the tracker must retain and compare new
     // detections with.
     get trackingFrames() { return [stored?.sample, reference, challenger, best, activeSample].filter(Boolean); },
