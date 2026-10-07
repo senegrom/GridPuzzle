@@ -97,7 +97,8 @@ holds the media session) or stays silent for eight seconds, the frozen view
 stays and **Start preview** retries; on a phone held upright it takes a line of
 its own above Save picture and Clear. A stream that plays but delivers no frame
 for three seconds offers Start preview too, frames that arrive later take it
-back, and the camera says when no picture has arrived a second after Clear.
+back (also after a failed retry), and the camera says when no picture has
+arrived a second after Clear.
 Start preview offered while the view is live never clears a solution that
 freezes during its playback. If the camera cannot be turned back on, the frozen
 view stays with the reason (a refused permission in plain words), and Save
@@ -564,24 +565,31 @@ Unit tests (`node --test web/tests/*.test.js`):
   and tracking core with a fake clock: it freezes on its own verified frame
   (also inside a tick, without tracking that tick's frame), and only on a
   verified unique solution, never on a provisional, multiple or unsolvable
-  reading or without automatic solving; nothing is sampled, detected, tracked
-  or painted while frozen, held replies and an abandoned detection are fenced
-  without cancelling the geometry worker, and Restart is hidden; the heartbeat
+  reading or without automatic solving; nothing is sampled, detected, tracked,
+  read or painted while frozen: held replies and an abandoned detection are
+  fenced without cancelling the geometry worker, and the reading is retired
+  (neither a frame it kept nor a re-read it began outlives the freeze);
+  Restart is hidden, also when offered just before the freeze; the heartbeat
   that follows a freeze in the same pulse leaves the frozen help line alone;
   capture keeps the frozen frame and reading; Clear starts from nothing (a clean
-  tracking circuit included), a camera started again is labelled live, and
-  thirty Clear cycles leave no timer or canvas behind.
+  tracking circuit and fresh detection and lag clocks included), a camera
+  started again is labelled live, and thirty Clear cycles leave no timer or
+  canvas behind.
   `photo-flow.test.js` covers the page: the video paused and detached but the
   camera kept on while frozen, with no timer to turn it off, Clear attaching
   the stream and playing inside its tap before scanning resumes, and, on a
   video modelled on WebKit's player with the real frame scheduler, the first
   frame scanned after Clear presented after the tap; refused, interrupted,
   stalled and silent playback, Start preview's live retry when a solution
-  freezes meanwhile and its offer taken back when frames come; an app switch or
-  an ended track turning the camera off without closing the panel (also while
-  Clear waits for playback), getUserMedia again on Clear after that, a muted
-  track kept until it unmutes, the failure texts, and Escape and the shutter
-  from the frozen view. `app.test.js` checks the Frozen chip's contrast.
+  freezes meanwhile, and its offer taken back when frames come, also after the
+  retry itself failed; an app switch or an ended track turning the camera off
+  without closing the panel (also while Clear waits for playback, whose
+  interrupted play() then blames nothing), reported to the diagnostics, with a
+  later app switch keeping the line that says why; getUserMedia again on Clear,
+  called inside its tap, with a grant or failure that arrives after a close, a
+  reopen or an app switch fenced; a muted track kept until it unmutes, the
+  failure texts, and Escape and the shutter from the frozen view. `app.test.js`
+  checks the Frozen chip's contrast.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
   and canvas. `solver-handoff.test.js`: the interpreter handoff.
