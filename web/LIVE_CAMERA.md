@@ -337,7 +337,10 @@ trails the video by up to one verification. Verified evidence comes in two
 tiers. It is live while the adopted snapshot is at most 500 milliseconds old.
 Once one is older, the outline still follows it, marked as catching up in the
 canvas's `data-delayed` attribute and its accessible label, so a device whose
-tracking takes a second per frame gets a trailing outline rather than none. It
+tracking takes a second per frame gets a trailing outline rather than none.
+`data-delayed` marks the tier of whatever verified evidence is shown, the
+outline or the reading the legend counts, so also while a frame of another
+shape leaves no outline to draw; with neither shown it marks nothing. It
 returns to live only after snapshots have stayed within 500 milliseconds for
 two seconds: with replies of 300-400 ms, or pauses while an anchor is built,
 the age crosses 500 ms on every reply and the mark would otherwise flip with
@@ -650,17 +653,25 @@ Unit tests (`node --test web/tests/*.test.js`):
   checks the Frozen chip's contrast.
 - `live-overlay-view.test.js`: the live view on the production camera, tracker
   and tracking core with a fake clock, every canvas recording what is drawn
-  into it. While live the camera's canvas gets no camera frame, digit or
-  solution, only a cleared layer with the outline, which half-pixel moves
-  repaint and sub-pixel jitter of the proofs does not; the freeze is the one
-  camera-frame paint. `data-overlay`, the legend counts (the solution's only
-  frozen) and the labels follow; no outline is drawn, and no solution frozen,
-  on a frame of another shape, nor an outline over a video without one; the
+  into it, square frames and a phone's portrait 3:4 ones. While live the
+  camera's canvas gets no camera frame, digit or solution, only a cleared
+  layer with the outline: closed, white and a 500th of the frame wide (at
+  least two pixels), on the verified corners, following the candidate's
+  current proof before a reading; a move along either axis or a zoom about a
+  corner repaints it, sub-pixel jitter of the proofs does not. The freeze is
+  the one camera-frame paint, timed like the others, and the frozen and
+  captured pictures carry the clues, the solution (frozen only), the outline
+  and the bar on its dark backing, on portrait frames too. `data-overlay`,
+  the legend counts (the solution's only frozen) and the labels follow; no
+  outline is drawn, and no solution frozen, on a frame of another shape (1 %
+  off; 0.4 % is rounding), nor an outline over a video without one; the
   canvas takes the adopted frame's size,
   also before any outline after a change of stream resolution, and is not
   resized while that size holds; past the stale limit the snapshot and its
   proofs are dropped and no copy takes their place; `data-delayed` follows the
-  tier of what is shown and marks nothing while nothing is; a stalled feed
+  tier of the verified evidence shown, the outline or the reading the legend
+  counts (also when a frame of another shape leaves no outline to draw), and
+  marks nothing while neither is; a stalled feed
   with no adopted frame still offers Restart. The freeze
   waits for a fresh frame and for the retries of a marked yellow clue, for at
   most three seconds counted from the first solved render across a blink, and
@@ -670,7 +681,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   otherwise the frame on screen without a reading; while a solution waits to
   freeze, the shutter freezes it on its own frame, also one older than half a
   second, and saves it with the solution; right after Clear it waits until a
-  frame reported after Clear was scanned.
+  frame reported after Clear was scanned, in that camera session only. A frame
+  exactly half a second old is fresh, for the capture and the freeze, and the
+  freeze's wait ends at exactly three seconds.
   `live-session.test.js` covers `refining` and the counted status without
   automatic solving, and `photo-flow.test.js` the shutter drawing a live
   capture's stored picture on the panel.

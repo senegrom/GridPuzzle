@@ -21,20 +21,32 @@ function deferred() {
   return { promise, resolve, reject };
 }
 const SIZE = 700, GRID = 440, CELLS = 4;
+// A phone's portrait frame (3:4) whose grid reaches below y = 600, where a
+// reading drawn against the frame's width and height swapped is rejected.
+const PORTRAIT = { frame: [600, 800], grid: [80, 300] };
 const SOLUTION = [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1];
 const unique = () => ({ status: "unique", complete: true, solutions: [{ cells: [...SOLUTION] }] });
 const FROZEN = /^Solution preview — frozen\./, WAITING = "Solution found — hold the grid steady for a moment…";
 // A solution digit (the bar's own "Solution" label is blue too).
 const blueDigit = (o) => o.op === "fillText" && o.style === SCAN_COLOURS.solution && /^\d+$/.test(o.text);
+// The digits drawn in one colour, in drawing order.
+const digits = (ops, colour) => ops.filter((o) => o.op === "fillText" && o.style === colour && /^\d+$/.test(o.text)).map((o) => o.text);
+// The operations that draw an outline.
+const PATH = new Set(["beginPath", "moveTo", "lineTo", "closePath", "stroke"]);
+function near(points, expected, tolerance, message) {
+  assert.equal(points.length, expected.length, `${message}: ${points.length} points`);
+  points.forEach((p, i) => assert.ok(Math.hypot(p.x - expected[i].x, p.y - expected[i].y) <= tolerance,
+    `${message}: point ${i} at ${JSON.stringify(p)}, expected ${JSON.stringify(expected[i])}`));
+}
 
 // A printed 4x4 grid with a different glyph in every cell, its top-left grid
-// corner at (x, y) of a SIZE x SIZE frame (as in live-relock.test.js).
-function scene(x, y) {
-  const data = new Uint8ClampedArray(SIZE * SIZE * 4).fill(255);
+// corner at (x, y) of a W x H frame (as in live-relock.test.js).
+function scene(W, H, x, y) {
+  const data = new Uint8ClampedArray(W * H * 4).fill(255);
   const rect = (left, top, w, h, value) => {
-    for (let yy = Math.max(0, top); yy < Math.min(SIZE, top + h); yy++)
-      for (let xx = Math.max(0, left); xx < Math.min(SIZE, left + w); xx++) {
-        const at = 4 * (yy * SIZE + xx); data[at] = data[at + 1] = data[at + 2] = value;
+    for (let yy = Math.max(0, top); yy < Math.min(H, top + h); yy++)
+      for (let xx = Math.max(0, left); xx < Math.min(W, left + w); xx++) {
+        const at = 4 * (yy * W + xx); data[at] = data[at + 1] = data[at + 2] = value;
       }
   };
   const cell = GRID / CELLS;
@@ -45,7 +57,7 @@ function scene(x, y) {
     if ((r + c) % 2) rect(left + 22, top + 21, 8, 29, 30);
     if (r % 2) rect(left, top + 42, 30, 8, 30);
   }
-  return { width: SIZE, height: SIZE, data };
+  return { width: W, height: H, data };
 }
 const cornersAt = (x, y) => [{ x, y }, { x: x + GRID, y }, { x: x + GRID, y: y + GRID }, { x, y: y + GRID }];
 // The top row read; `uncertain` and `marked` as the reader flags them.
@@ -54,30 +66,38 @@ function reading({ uncertain = [], marked = [] } = {}) {
   return { puzzle, cellUncertain: [...uncertain], markedCells: [...marked], notes: [] };
 }
 
-// The production camera, tracker and tracking core on a fake clock. The fake
-// tracking worker runs the real core and answers after `replyMs`; while held
-// (`hold()`), it keeps its operation until `release()`; with
-// `rejectVerify(true)` the printed content matches no anchor any more; and
+// The production camera, tracker and tracking core on a fake clock, with the
+// grid's top-left corner at `grid` of a `frame` (W x H) the video delivers.
+// The fake tracking worker runs the real core and answers after `replyMs`;
+// while held (`hold()`), it keeps its operation until `release()`; with
+// `rejectVerify(true)` the printed content matches no anchor any more;
 // `jitter(px)` moves every proof's corners by that much, alternately up and
-// down. `solve` is "unique", "deferred" (h.solveJobs) or a function; `read`
+// down, and `warp(fn)` maps them with fn(corners, n) for the n-th reply.
+// `solve` is "unique", "deferred" (h.solveJobs) or a function; `read`
 // replaces the 500-ms reader; `readCells` adds the reader's targeted retry;
 // `quality(n)` is the n-th detection's quality report. Every canvas records
-// drawImage, clearRect, stroke and fillText (with its fill colour), in one
-// list of operations; the legend's data-count writes are counted.
-function simulation(t, { autoSolve = true, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20, viewSize = [SIZE, SIZE] } = {}) {
-  let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, hold = false, detections = 0, rejectAll = false, jitter = 0, replies = 0, countWrites = 0;
+// drawImage, clearRect, fillRect, fillText (with the fill colour) and the
+// outline's path and stroke (colour and width), in one list of operations;
+// the legend's data-count writes are counted.
+function simulation(t, { autoSolve = true, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20,
+  frame: [W, H] = [SIZE, SIZE], grid: [x, y] = [120, 110], viewSize = [W, H] } = {}) {
+  let time = 0, serial = 0, frozenTime = null, hold = false, detections = 0, rejectAll = false, jitter = 0, warp = null, replies = 0, countWrites = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], held = [], solveJobs = [], renders = [];
   const counts = { reads: 0, retries: 0, solves: 0 };
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
   function canvas() {
-    const c = { width: SIZE, height: SIZE, dataset: {}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
+    const c = { width: W, height: H, dataset: {}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
     const record = (op, extra = {}) => ops.push({ target: c, op, at: time, ...extra });
-    const ctx = { canvas: c, fillStyle: "#000",
+    const ctx = { canvas: c, fillStyle: "#000", strokeStyle: "#000", lineWidth: 1,
       drawImage(source) { record("drawImage", { source }); }, clearRect() { record("clearRect"); },
-      fillText(text) { record("fillText", { text: String(text), style: this.fillStyle }); }, stroke() { record("stroke"); },
-      fillRect() {}, save() {}, restore() {}, translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
-      getImageData: (_x, _y, width, height) => width === SIZE && height === SIZE ? scene(x, y)
+      fillText(text) { record("fillText", { text: String(text), style: this.fillStyle }); },
+      fillRect(left, top, width, height) { record("fillRect", { x: left, y: top, w: width, h: height, style: this.fillStyle }); },
+      beginPath() { record("beginPath"); }, moveTo(px, py) { record("moveTo", { x: px, y: py }); },
+      lineTo(px, py) { record("lineTo", { x: px, y: py }); }, closePath() { record("closePath"); },
+      stroke() { record("stroke", { style: this.strokeStyle, width: this.lineWidth }); },
+      save() {}, restore() {}, translate() {}, rotate() {},
+      getImageData: (_x, _y, width, height) => width === W && height === H ? scene(W, H, x, y)
         : { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) } };
     c.getContext = () => ctx;
     return c;
@@ -110,9 +130,10 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
             let result = core.run(message);
             if (message.op === "verify" && rejectAll) result = { proofs: Object.fromEntries(message.anchors.map((id) => [id, null])),
               rejections: Object.fromEntries(message.anchors.map((id) => [id, { reason: "cell-content", region: 0 }])) };
-            else if (message.op === "verify" && jitter) {
-              const d = ++replies % 2 ? jitter : -jitter;
-              for (const proof of Object.values(result.proofs)) if (proof) proof.corners = proof.corners.map((p) => ({ x: p.x + d, y: p.y + d }));
+            else if (message.op === "verify" && (jitter || warp)) {
+              const n = ++replies, d = n % 2 ? jitter : -jitter;
+              for (const proof of Object.values(result.proofs)) if (proof)
+                proof.corners = warp ? warp(proof.corners, n) : proof.corners.map((p) => ({ x: p.x + d, y: p.y + d }));
             }
             data = { id: message.id, result, milliseconds: 20 };
           } catch (error) { data = { id: message.id, error: error.message }; }
@@ -125,11 +146,12 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     return worker;
   } });
   // Detection is handed a copy scaled to at most 640 pixels.
-  const small = (p) => ({ x: p.x * 639 / (SIZE - 1), y: p.y * 639 / (SIZE - 1) });
+  const scale = Math.min(1, 640 / Math.max(W, H)), sw = Math.round(W * scale), sh = Math.round(H * scale);
+  const small = (p) => ({ x: p.x * (sw - 1) / (W - 1), y: p.y * (sh - 1) / (H - 1) });
   const diagnostics = createScanDiagnostics({ now: () => time }), rendering = diagnostics.rendering;
   diagnostics.rendering = (value) => { renders.push({ ...value, at: time }); rendering(value); };
   diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4, autoSolve });
-  const video = { videoWidth: SIZE, videoHeight: SIZE, get currentTime() { return (frozenTime ?? time) / 1000; } };
+  const video = { videoWidth: W, videoHeight: H, get currentTime() { return (frozenTime ?? time) / 1000; } };
   const reader = { read(...args) {
     counts.reads++;
     if (read) return read(args[6].onPreview, setTimer);
@@ -165,16 +187,27 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     for (let waited = 0; !predicate() && waited < limit; waited += step) await advance(step);
     return predicate();
   }
+  // The outline last stroked on a canvas: its points, whether it was closed,
+  // the last stroke's colour and width, and every stroke of that path.
+  function outline(target, from = 0) {
+    const mine = ops.slice(from).filter((o) => o.target === target), end = mine.findLastIndex((o) => o.op === "stroke");
+    if (end < 0) return null;
+    const path = mine.slice(mine.slice(0, end).findLastIndex((o) => o.op === "beginPath") + 1, end + 1);
+    return { points: path.filter((o) => o.op === "moveTo" || o.op === "lineTo").map((o) => ({ x: o.x, y: o.y })),
+      closed: path.some((o) => o.op === "closePath"), style: mine[end].style, width: mine[end].width,
+      strokes: path.filter((o) => o.op === "stroke").map((o) => ({ style: o.style, width: o.width })) };
+  }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { camera, view, video, $, counts, ops, created, renders, solveJobs, diagnostics, advance, until, writes,
+  return { camera, view, video, $, counts, ops, created, renders, solveJobs, diagnostics, advance, until, writes, outline,
+    W, H, corners: cornersAt(x, y),
     get now() { return time; }, get help() { return help; },
     raw: () => camera.adoptedFrame(), frozen: () => camera.view === "frozen",
     on: (target, from = 0) => ops.slice(from).filter((o) => o.target === target),
     legend: () => Object.fromEntries(["recognised", "uncertain", "unknown", "solution"].map((key) => [key, $(`legend-${key}`).getAttribute("data-count")])),
     stall() { frozenTime = time; }, unstall() { frozenTime = null; },
     hold() { hold = true; }, release() { hold = false; for (const reply of held.splice(0)) reply(); },
-    rejectVerify(value) { rejectAll = value; }, jitter(px) { jitter = px; },
+    rejectVerify(value) { rejectAll = value; }, jitter(px) { jitter = px; }, warp(fn) { warp = fn; },
     get held() { return held.length; }, get countWrites() { return countWrites; }, get sizeWrites() { return sizeWrites; } };
 }
 
@@ -197,7 +230,7 @@ test("live, the canvas holds only the outline: no camera frame, no digits, no so
   const painted = h.renders.filter((r) => r.painted).length, clears = live.filter((o) => o.op === "clearRect").length;
   assert.ok(painted > 1); assert.equal(clears, painted, "one clear per paint");
   assert.equal(live[0].op, "clearRect");
-  live.forEach((o, i) => { if (o.op === "stroke") assert.equal(live[i - 1].op, "clearRect", "an outline only on a cleared canvas"); });
+  live.forEach((o, i) => { if (o.op === "stroke") assert.equal(live.slice(0, i).findLast((p) => !PATH.has(p.op)).op, "clearRect", "an outline only on a cleared canvas"); });
   assert.ok(live.some((o) => o.op === "stroke"), "the outline is drawn");
   assert.equal(h.view.dataset.overlay, "outline");
   assert.equal(h.view.dataset.solution, "0");
@@ -257,7 +290,7 @@ test("a live capture keeps a fresh verified frame with its reading and outline, 
   assert.deepEqual(shot.found.puzzle.cells, reading().puzzle.cells);
   assert.equal(shot.corners.length, 4);
   for (const [i, p] of cornersAt(120, 110).entries()) assert.ok(Math.hypot(shot.corners[i].x - p.x, shot.corners[i].y - p.y) < 2, JSON.stringify(shot.corners[i]));
-  assert.deepEqual(h.on(h.view, from).filter((o) => o.op !== "clearRect" && o.op !== "stroke"), [], "nothing is drawn on the display canvas");
+  assert.deepEqual(h.on(h.view, from).filter((o) => o.op !== "clearRect" && !PATH.has(o.op)), [], "nothing is drawn on the display canvas");
   assert.equal(h.view.attributes["aria-label"], preview);
   shot.found.puzzle.cells[5] = 9;
   assert.equal(h.camera.capture().found.puzzle.cells[5], null, "each capture owns its copy of the reading");
@@ -662,6 +695,198 @@ test("while a solved reading waits to freeze the help line keeps the wait's text
   const live = h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text);
   assert.deepEqual([...new Set(live)], [WAITING], "only the wait's text while live");
   assert.match(h.help, FROZEN);
+});
+
+// Where the outline lands and how it is drawn. Phones deliver portrait frames
+// (3:4 here), whose width and height are easy to swap unnoticed on a square.
+test("on a portrait frame the live outline lies on the verified grid, closed, white, a 500th of the frame wide", async (t) => {
+  const h = simulation(t, { autoSolve: false, ...PORTRAIT });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  assert.equal(h.view.dataset.overlay, "outline", "the outline is shown on a 3:4 frame");
+  const line = h.outline(h.view);
+  near(line.points, h.corners, 2, "the outline follows the grid's verified corners");
+  assert.equal(line.closed, true, "all four sides");
+  assert.equal(line.style, "#ffffff"); assert.equal(line.width, Math.max(2, h.W / 500));
+  assert.deepEqual([h.view.width, h.view.height], [h.W, h.H], "in the frame's own coordinates");
+});
+
+test("the frozen picture of a portrait frame carries the clues, the solution and the outline on the grid", async (t) => {
+  const h = simulation(t, PORTRAIT);
+  assert.ok(await h.until(() => h.frozen()));
+  const ops = h.on(h.view), at = ops.findIndex((o) => o.op === "drawImage");
+  const frozen = ops.slice(at);
+  assert.deepEqual(digits(frozen, SCAN_COLOURS.recognised), ["1", "2", "3", "4"], "the clues");
+  assert.equal(digits(frozen, SCAN_COLOURS.solution).length, 12, "the solution");
+  near(h.outline(h.view, h.ops.indexOf(ops[at])).points, h.corners, 2, "the frozen outline");
+});
+
+test("a live capture of a portrait frame keeps its clues and outline on the verified frame", async (t) => {
+  const h = simulation(t, { autoSolve: false, ...PORTRAIT });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  const shot = h.camera.capture();
+  assert.ok(shot.found);
+  assert.deepEqual(digits(h.on(shot.annotated), SCAN_COLOURS.recognised), ["1", "2", "3", "4"], "the clues on the saved picture");
+  near(h.outline(shot.annotated).points, h.corners, 2, "its outline");
+});
+
+// The bar of the frozen and saved picture: PREVIEW and the legend on a dark
+// backing across the bottom, so they read on white paper.
+test("the frozen picture's bar lies on its dark backing across the bottom", async (t) => {
+  const h = simulation(t, PORTRAIT);
+  assert.ok(await h.until(() => h.frozen()));
+  const backing = h.on(h.view).filter((o) => o.op === "fillRect" && o.style === "#101820e8");
+  assert.equal(backing.length, 1, "one bar");
+  const [bar] = backing;
+  assert.deepEqual([bar.x, bar.w], [0, h.W]); assert.ok(Math.abs(bar.y + bar.h - h.H) < 1e-9, "at the bottom edge");
+  const text = h.on(h.view).filter((o) => o.op === "fillText" && o.text === "PREVIEW");
+  assert.equal(text.length, 1);
+  assert.ok(h.ops.indexOf(bar) < h.ops.indexOf(text[0]), "under its text");
+});
+
+// The paint key holds the whole outline: a move along either axis, and a
+// zoom about any corner, repaints it.
+test("a vertical move of the verified grid repaints the outline where the grid is", async (t) => {
+  const h = simulation(t, { autoSolve: false, ...PORTRAIT });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  h.warp((corners, n) => corners.map((p) => ({ x: p.x, y: p.y + (n % 2 ? 1.5 : -1.5) })));
+  const paints = h.renders.filter((r) => r.painted).length;
+  await h.advance(2000);
+  assert.ok(h.renders.filter((r) => r.painted).length >= paints + 4, "each 3-px vertical step repaints");
+  const line = h.outline(h.view);
+  near(line.points, h.corners, 3.5, "near the grid");
+  assert.ok(line.points.every((p, i) => Math.abs(Math.abs(p.y - h.corners[i].y) - 1.5) < 1), "at the moved height");
+});
+
+test("a zoom about the outline's first corner repaints it", async (t) => {
+  const h = simulation(t, { autoSolve: false, ...PORTRAIT });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  h.warp((corners, n) => {
+    const [o] = corners, k = n % 2 ? 1.01 : .99;
+    return corners.map((p) => ({ x: o.x + (p.x - o.x) * k, y: o.y + (p.y - o.y) * k }));
+  });
+  const paints = h.renders.filter((r) => r.painted).length;
+  await h.advance(2000);
+  assert.ok(h.renders.filter((r) => r.painted).length >= paints + 4, "the far corners move 4 px with each verification");
+});
+
+test("before a reading the outline follows the candidate's current proof, not where it was detected", async (t) => {
+  // The read never finishes: there is no preview, and the outline is the
+  // verified guide's.
+  const h = simulation(t, { autoSolve: false, read: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
+  assert.equal(h.view.dataset.recognised, "0", "no reading yet");
+  h.warp((corners) => corners.map((p) => ({ x: p.x + 6, y: p.y + 6 })));
+  await h.advance(500);
+  assert.equal(h.view.dataset.overlay, "outline");
+  near(h.outline(h.view).points, h.corners.map((p) => ({ x: p.x + 6, y: p.y + 6 })), 2, "the outline moved with the proof");
+});
+
+test("the freeze's paint is reported to the paint timings", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.frozen()));
+  const painted = h.renders.filter((r) => r.painted), clears = h.on(h.view).filter((o) => o.op === "clearRect").length;
+  assert.equal(painted.length, clears + 1, "every live paint clears once, and the freeze's composition is reported too");
+  assert.equal(typeof painted.at(-1).milliseconds, "number");
+});
+
+test("an aspect mismatch of 1 % draws nothing; 0.4 % is rounding", async (t) => {
+  const h = simulation(t, { autoSolve: false, ...PORTRAIT });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  for (const [width, overlay] of [[606, "none"], [602, "outline"]]) {
+    h.hold();
+    assert.ok(await h.until(() => h.held >= 1, 1000), "a verification is in flight");
+    // The stream's shape changes before a heartbeat or tick resets the
+    // settings: the reply for the old shape is adopted and rendered.
+    h.video.videoWidth = width;
+    h.release(); await flush();
+    assert.equal(h.view.dataset.recognised, "4", "its reading verifies");
+    assert.equal(h.view.dataset.overlay, overlay, `video ${width} x ${h.H} against a ${h.W} x ${h.H} frame`);
+    h.video.videoWidth = h.W;
+    assert.ok(await h.until(() => h.view.dataset.recognised === "4" && h.view.dataset.overlay === "outline", 3000));
+  }
+});
+
+// The exact boundaries: a frame exactly FRESH (500 ms) old is fresh, for the
+// live capture and for the freeze, and the freeze's wait ends at exactly
+// three seconds. Renders run on the 100-ms pulses (tick and heartbeat) and
+// 20 ms later (the verification reply).
+test("a live capture keeps its reading on a frame exactly half a second old, not one millisecond older", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  h.hold(); await h.advance(30); // A reply already on its way still lands.
+  const raw = h.raw(), at = h.created.find((c) => c.canvas === raw).at;
+  assert.ok(h.now - at < 500);
+  await h.advance(at + 500 - h.now);
+  assert.equal(h.raw(), raw, "no newer frame was adopted");
+  assert.ok(h.camera.capture().found, "500 ms old: still fresh");
+  await h.advance(1);
+  assert.equal(h.camera.capture().found, null, "501 ms old: not");
+});
+
+test("a solved reading freezes on a verified frame exactly half a second old", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.hold(); await h.advance(30);
+  const raw = h.raw(), at = h.created.find((c) => c.canvas === raw).at;
+  await h.advance(at + 450 - h.now);
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.equal(h.camera.view, "live", "not rendered yet");
+  await h.advance(50); // The pulse at exactly half a second renders it first.
+  assert.equal(h.now - at, 500);
+  assert.equal(h.camera.view, "frozen", "a frame exactly half a second old is fresh");
+  assert.equal(h.raw(), raw);
+});
+
+test("a solved reading held by a retryable clue freezes exactly three seconds after its first render", async (t) => {
+  const h = simulation(t, { solve: "deferred", read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  // Between two pulses and after the last reply: the next pulse renders the
+  // solved reading first.
+  await h.advance((150 - h.now % 100) % 100);
+  h.solveJobs[0].resolve(unique()); await flush();
+  await h.advance(50);
+  assert.equal(h.view.dataset.uncertain, "1", "the solved reading is shown");
+  await h.advance(2999);
+  assert.equal(h.camera.view, "live", "not before three seconds");
+  await h.advance(1);
+  assert.equal(h.camera.view, "frozen", "at three seconds");
+});
+
+// data-delayed is the tier of the verified evidence the view shows: the
+// outline, or the reading the legend counts, which stays shown when a frame
+// of another shape leaves no outline to draw.
+test("under an aspect mismatch data-delayed still reports the lagging tier of the reading", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  h.hold(); await h.advance(700);
+  assert.equal(h.view.dataset.delayed, "1");
+  assert.ok(h.held >= 1);
+  h.video.videoHeight = 525; // 4:3 before a heartbeat or tick resets the settings
+  h.release(); await flush();
+  assert.equal(h.view.dataset.recognised, "4", "the adopted reply's reading verifies");
+  assert.equal(h.view.dataset.overlay, "none", "nothing is drawn on a frame of another shape");
+  assert.equal(h.view.dataset.delayed, "1", "the reading's evidence is still on the delayed tier");
+});
+
+// The wait for a frame reported after Clear belongs to that camera session:
+// a camera stopped and started again captures at once.
+test("a camera stopped right after Clear and started again does not wait for a frame reported after Clear", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.frozen()));
+  h.camera.resume();
+  assert.throws(() => h.camera.capture(), /Wait for a camera frame/, "right after Clear it waits");
+  h.camera.stop(); h.camera.start();
+  const shot = h.camera.capture();
+  assert.equal(shot.found, null, "a new session captures the frame on screen at once");
+  assert.equal(shot.frozen, false);
 });
 
 test("adoptedFrame is the adopted snapshot itself, or null", async (t) => {
