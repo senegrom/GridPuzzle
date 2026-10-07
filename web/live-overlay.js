@@ -50,6 +50,24 @@ export function previewBlocker(found) {
   }
 }
 
+// The grid outline: over live video the latest verified proof's, in the frozen
+// and captured pictures their reading's.
+export function drawGuide(ctx, corners, width) {
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, width / 500);
+  ctx.beginPath(); corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+}
+
+// The bar of a frozen or captured picture, kept in the saved PNG: PREVIEW and
+// the meaning of the colours. Live video gets none.
+export function drawPreviewBar(ctx, width, height) {
+  const font = Math.max(13, Math.round(width / 55)), bar = font * 2.1;
+  ctx.fillStyle = "#101820e8"; ctx.fillRect(0, height - bar, width, bar);
+  ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.fillStyle = "#fff"; ctx.fillText("PREVIEW", font * .6, height - bar / 2);
+  const labels = [["recognised", "Read"], ["uncertain", "Check ?"], ["unknown", "Unread ?"], ["solution", "Solution"]];
+  labels.forEach(([kind, label], i) => { ctx.fillStyle = SCAN_COLOURS[kind]; ctx.fillText(label, width * (.18 + i * .205), height - bar / 2); });
+}
+
 export function drawLiveOverlay(ctx, width, height, corners, found, result = null) {
   if (!validQuad(corners, width, height) || !found?.puzzle) return;
   const { rows, cols } = found.puzzle, m = homography(corners);

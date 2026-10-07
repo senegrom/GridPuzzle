@@ -93,10 +93,14 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
   const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
   let flow = null, diagnostics = null;
   t.after(() => flow?.stopCamera()); // Before the globals go: it clears the page's timers.
+  // A node's 2D context records what is drawn into it.
   const $ = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
-      setAttribute(name, value) { this.attributes[name] = value; },
-      focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => ({ clearRect() {} }) });
+    if (!nodes.has(id)) {
+      const context = { draws: [], clearRect() {}, drawImage(source) { this.draws.push(source); } };
+      nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
+        setAttribute(name, value) { this.attributes[name] = value; },
+        focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => context });
+    }
     return nodes.get(id);
   };
   for (const key of ["navigator", "document"]) {
@@ -713,6 +717,33 @@ test("the shutter while frozen shows the captured picture", async (t) => {
   assert.equal(h.$("live-preview").attributes["data-view"], "captured", "the canvas holds the stored picture");
   assert.equal(h.$("clear-freeze").hidden, true);
   assert.equal(h.$("retake-photo").hidden, false); assert.equal(h.track.stopped, 1);
+});
+
+// While live the screen shows the video, with at most an outline on the
+// canvas: the shutter draws the stored picture there, so the panel shows
+// exactly what is saved. A frozen capture is the canvas already.
+test("a live shutter shows the stored picture on the canvas", async (t) => {
+  const picture = { photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 2, frozen: false };
+  const h = await cameraHarness(t, { capture: picture });
+  await h.$("camera").onclick();
+  const view = h.$("live-preview");
+  view.width = 700; view.height = 700;
+  await h.$("take-photo").onclick(); await tick();
+  assert.deepEqual(view.getContext("2d").draws, [picture.annotated]);
+  assert.deepEqual([view.width, view.height], [640, 480], "at the picture's own size");
+  assert.equal(view.attributes["data-view"], "captured"); assert.equal(view.attributes["data-overlay"], "composition");
+  assert.equal(h.saved.length, 1); assert.equal(h.saved[0].annotated, picture.annotated, "the picture shown is the one stored");
+  assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
+});
+
+test("a frozen shutter draws nothing: the canvas already holds the stored picture", async (t) => {
+  const picture = { photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 3, frozen: true };
+  const h = await cameraHarness(t, { capture: picture });
+  await h.$("camera").onclick(); h.live.freeze();
+  await h.$("take-photo").onclick(); await tick();
+  assert.deepEqual(h.$("live-preview").getContext("2d").draws, []);
+  assert.equal(h.$("live-preview").attributes["data-overlay"], "composition");
+  assert.equal(h.saved[0].annotated, picture.annotated);
 });
 
 test("a resumed stream that delivers no frame for three seconds offers Start preview", async (t) => {

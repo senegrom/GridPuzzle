@@ -465,6 +465,14 @@ export function setupPhotoFlow({
     video.pause?.(); video.srcObject = stream; video.load?.();
     return pendingPlayback();
   };
+  function showPicture(canvas, picture) {
+    const ctx = canvas.getContext?.("2d");
+    if (!ctx || !picture) return;
+    if (canvas.width !== picture.width) canvas.width = picture.width;
+    if (canvas.height !== picture.height) canvas.height = picture.height;
+    ctx.clearRect?.(0, 0, canvas.width, canvas.height);
+    ctx.drawImage?.(picture, 0, 0);
+  }
   async function takePhoto() {
     if (!live || saving) return;
     let owner = cameraEpoch;
@@ -472,11 +480,16 @@ export function setupPhotoFlow({
       const picture = live.capture();
       stopCamera();
       captured = picture;
+      // The panel shows exactly the picture that is stored. A frozen one is
+      // already on the canvas; while live the screen showed the video, with
+      // at most an outline on the canvas, so the picture is drawn there.
+      const preview = $("live-preview");
+      if (!picture.frozen) showPicture(preview, picture.annotated);
       $("camera-panel").hidden = false;
       modal.open();
       markView("captured");
-      // The canvas now holds the stored picture, frozen or live before.
-      $("live-preview").setAttribute?.("data-view", "captured");
+      preview.setAttribute?.("data-view", "captured");
+      preview.setAttribute?.("data-overlay", "composition");
       document.body?.classList.add("camera-open");
       $("close-camera").focus?.();
       $("take-photo").hidden = true;

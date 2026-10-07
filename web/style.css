@@ -763,8 +763,15 @@ body.camera-open { overflow: hidden; }
 .camera-heading h2 { margin: 0; color: #fff; font-size: 1.2rem; }
 #camera-panel .viewfinder { flex: 1 1 auto; min-height: 160px; position: relative; background: #000; border-radius: .75rem; aspect-ratio: auto; overflow: hidden; }
 #camera-panel video, #live-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-#live-preview { z-index: 1; }
+/* While live the video is the display and this canvas a transparent layer over
+   it with the grid outline; frozen or captured it holds the opaque picture. */
+#live-preview { z-index: 1; pointer-events: none; }
 .live-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem 1rem; font-size: .8rem; font-weight: 650; }
+/* The counts of the live or frozen reading, set by the camera. Each span keeps
+   room for its count, so a count that appears or goes never rewraps the
+   legend, which would resize the viewfinder and the video in it. */
+.live-legend span::after { content: ""; display: inline-block; min-width: 2.2em; margin-left: .3em; text-align: left; font-variant-numeric: tabular-nums; }
+.live-legend span[data-count]::after { content: attr(data-count); }
 .live-green { color: #22c55e; } .live-yellow { color: #facc15; } .live-red { color: #ef4444; } .live-blue { color: #3b82f6; }
 #camera-help { margin: 0; color: #fff; font-size: .95rem; min-height: 2.6em; text-align: center; }
 .live-warning { margin: 0; color: #bdc8d1; font-size: .75rem; text-align: center; }
