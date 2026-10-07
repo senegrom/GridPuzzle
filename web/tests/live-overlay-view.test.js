@@ -56,13 +56,16 @@ function reading({ uncertain = [], marked = [] } = {}) {
 
 // The production camera, tracker and tracking core on a fake clock. The fake
 // tracking worker runs the real core and answers after `replyMs`; while held
-// (`hold()`), it keeps its operation until `release()`. `solve` is "unique",
-// "deferred" (h.solveJobs) or a function; `read` replaces the 500-ms reader;
-// `readCells` adds the reader's targeted retry; `quality(n)` is the n-th
-// detection's quality report. Every canvas records drawImage, clearRect,
-// stroke and fillText (with its fill colour), in one list of operations.
+// (`hold()`), it keeps its operation until `release()`; with
+// `rejectVerify(true)` the printed content matches no anchor any more; and
+// `jitter(px)` moves every proof's corners by that much, alternately up and
+// down. `solve` is "unique", "deferred" (h.solveJobs) or a function; `read`
+// replaces the 500-ms reader; `readCells` adds the reader's targeted retry;
+// `quality(n)` is the n-th detection's quality report. Every canvas records
+// drawImage, clearRect, stroke and fillText (with its fill colour), in one
+// list of operations; the legend's data-count writes are counted.
 function simulation(t, { autoSolve = true, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20 } = {}) {
-  let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, hold = false, detections = 0;
+  let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, hold = false, detections = 0, rejectAll = false, jitter = 0, replies = 0, countWrites = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], held = [], solveJobs = [], renders = [];
   const counts = { reads: 0, retries: 0, solves: 0 };
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
@@ -82,7 +85,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
   const previous = globalThis.document;
   globalThis.document = { createElement: () => { const c = canvas(); created.push({ canvas: c, at: time }); return c; } };
   const element = () => ({ textContent: "", hidden: true, attributes: {},
-    setAttribute(name, value) { this.attributes[name] = String(value); }, getAttribute(name) { return this.attributes[name] ?? null; },
+    setAttribute(name, value) { if (name === "data-count") countWrites++; this.attributes[name] = String(value); }, getAttribute(name) { return this.attributes[name] ?? null; },
     removeAttribute(name) { delete this.attributes[name]; } });
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
   let help = "";
@@ -93,7 +96,16 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
         const reply = () => {
           if (worker.dead) return;
           let data;
-          try { data = { id: message.id, result: core.run(message), milliseconds: 20 }; } catch (error) { data = { id: message.id, error: error.message }; }
+          try {
+            let result = core.run(message);
+            if (message.op === "verify" && rejectAll) result = { proofs: Object.fromEntries(message.anchors.map((id) => [id, null])),
+              rejections: Object.fromEntries(message.anchors.map((id) => [id, { reason: "cell-content", region: 0 }])) };
+            else if (message.op === "verify" && jitter) {
+              const d = ++replies % 2 ? jitter : -jitter;
+              for (const proof of Object.values(result.proofs)) if (proof) proof.corners = proof.corners.map((p) => ({ x: p.x + d, y: p.y + d }));
+            }
+            data = { id: message.id, result, milliseconds: 20 };
+          } catch (error) { data = { id: message.id, error: error.message }; }
           worker.onmessage?.({ data });
         };
         if (hold) held.push(reply); else setTimer(reply, replyMs);
@@ -151,7 +163,8 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, readCe
     legend: () => Object.fromEntries(["recognised", "uncertain", "unknown", "solution"].map((key) => [key, $(`legend-${key}`).getAttribute("data-count")])),
     stall() { frozenTime = time; },
     hold() { hold = true; }, release() { hold = false; for (const reply of held.splice(0)) reply(); },
-    get held() { return held.length; } };
+    rejectVerify(value) { rejectAll = value; }, jitter(px) { jitter = px; },
+    get held() { return held.length; }, get countWrites() { return countWrites; } };
 }
 
 test("live, the canvas holds only the outline: no camera frame, no digits, no solution", async (t) => {
@@ -159,6 +172,10 @@ test("live, the canvas holds only the outline: no camera frame, no digits, no so
   assert.equal(h.view.dataset.overlay, "none");
   assert.equal(h.view.attributes["aria-label"], "Live camera preview");
   assert.deepEqual(h.legend(), { recognised: null, uncertain: null, unknown: null, solution: null }, "no counts before a reading");
+  await h.advance(100);
+  assert.ok(h.raw(), "the first frame is adopted");
+  assert.equal(h.view.dataset.overlay, "none"); assert.equal(h.view.attributes["aria-label"], "Live camera preview");
+  assert.deepEqual(h.legend(), { recognised: null, uncertain: null, unknown: null, solution: null }, "nor once a frame is shown without one");
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
   await h.advance(3000);
   const live = h.on(h.view);
@@ -289,8 +306,11 @@ test("data-delayed and the label follow the evidence's tier; the outline trails"
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
   await h.advance(500);
   assert.equal(h.view.dataset.delayed, "0");
+  const writes = h.countWrites, paints = h.renders.filter((r) => r.painted).length;
   h.hold(); await h.advance(700);
   assert.equal(h.view.dataset.delayed, "1");
+  assert.ok(h.renders.filter((r) => r.painted).length > paints, "the tier change repaints");
+  assert.equal(h.countWrites, writes, "and leaves the unchanged legend counts alone");
   assert.equal(h.view.dataset.overlay, "outline", "the outline of the last proof stays");
   assert.equal(h.view.attributes["aria-label"], "Live camera. Grid outline shown; reading: 4 recognised, 0 uncertain, 0 unread clues. The overlay is catching up with the camera.");
   h.release(); await h.advance(2500);
@@ -399,6 +419,43 @@ test("a yellow clue that cannot be retried does not hold the freeze", async (t) 
   assert.equal(h.view.dataset.uncertain, "1");
   assert.equal(h.counts.retries, 0);
   assert.ok(!h.diagnostics.snapshot().events.some((e) => e.reason === "clearer-frame-needed"), "no retry was waited for");
+});
+
+test("sub-pixel jitter of the proofs does not repaint the outline; a pixel does", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(500);
+  h.jitter(.2); await h.advance(300);
+  const paints = h.renders.filter((r) => r.painted).length;
+  await h.advance(2000);
+  assert.equal(h.renders.filter((r) => r.painted).length, paints, "0.2 px either way rounds to the same half pixel");
+  h.jitter(1); await h.advance(2000);
+  assert.ok(h.renders.filter((r) => r.painted).length >= paints + 4, "a pixel either way repaints with each verification");
+});
+
+test("a video without dimensions gets no outline", async (t) => {
+  const h = simulation(t, { autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline" && h.view.dataset.recognised === "4"));
+  h.video.videoHeight = 0; await h.advance(100);
+  assert.equal(h.view.dataset.overlay, "none", "no shape to align the outline with");
+});
+
+test("the freeze's three seconds run from the first render of the solved reading, across a blink", async (t) => {
+  const h = simulation(t, { read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })),
+    readCells: () => new Promise(() => {}) });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now;
+  await h.advance(1000);
+  h.rejectVerify(true);
+  assert.ok(await h.until(() => h.view.dataset.uncertain === "0", 1000), "the grid stops verifying: the reading is hidden");
+  await h.advance(300);
+  h.rejectVerify(false);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "3" && h.view.dataset.uncertain === "1", 1000), "and verifies again, the same reading");
+  assert.equal(h.camera.view, "live");
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  const waited = h.now - since;
+  assert.ok(waited >= 2800 && waited <= 3300, `froze ${waited} ms after the reading was first shown solved, not three seconds after the blink`);
+  assert.equal(h.counts.reads, 1, "one reading throughout");
 });
 
 test("adoptedFrame is the adopted snapshot itself, or null", async (t) => {

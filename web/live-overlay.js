@@ -62,7 +62,7 @@ export function drawGuide(ctx, corners, width) {
 export function drawPreviewBar(ctx, width, height) {
   const font = Math.max(13, Math.round(width / 55)), bar = font * 2.1;
   ctx.fillStyle = "#101820e8"; ctx.fillRect(0, height - bar, width, bar);
-  ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = "middle";
   ctx.fillStyle = "#fff"; ctx.fillText("PREVIEW", font * .6, height - bar / 2);
   const labels = [["recognised", "Read"], ["uncertain", "Check ?"], ["unknown", "Unread ?"], ["solution", "Solution"]];
   labels.forEach(([kind, label], i) => { ctx.fillStyle = SCAN_COLOURS[kind]; ctx.fillText(label, width * (.18 + i * .205), height - bar / 2); });

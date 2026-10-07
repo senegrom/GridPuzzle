@@ -451,6 +451,8 @@ test("closing a frozen camera releases everything, and thirty Clear cycles leave
   h.camera.start();
   assert.equal(h.view.attributes["data-view"], "live", "a camera started on the canvas a frozen one left is live");
   assert.equal(h.view.attributes["aria-label"], "Live camera preview", "and no longer described as the frozen picture");
+  assert.deepEqual([h.view.dataset.recognised, h.view.dataset.solution, h.view.dataset.overlay, h.view.dataset.delayed], ["0", "0", "none", "0"],
+    "nor counted as it, before its first paint");
   for (let cycle = 0; cycle < 30; cycle++) {
     assert.ok(await h.until(() => frozenNow(h)), `cycle ${cycle} freezes`);
     await h.advance(100);

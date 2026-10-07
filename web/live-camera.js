@@ -209,11 +209,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // The canvas letterboxes its bitmap (raw's size) in the video's box like the
   // video, so raw coordinates land on the video only while raw has the
   // video's shape: not after a rotation or a change of stream resolution,
-  // until syncSettings starts over with frames of the new shape.
+  // until syncSettings starts over with frames of the new shape, nor while
+  // the video has no shape at all. Called only with a guide, so with raw.
   function aspectMatches() {
-    if (!raw || !video.videoWidth || !video.videoHeight) return true;
     const ratio = video.videoWidth / video.videoHeight;
-    return Math.abs(raw.width / raw.height - ratio) <= .005 * ratio;
+    return Number.isFinite(ratio) && Math.abs(raw.width / raw.height - ratio) <= .005 * ratio;
   }
   function liveLabel(mode, delayed, counts) {
     if (mode === "none") return "Live camera preview";
@@ -576,7 +576,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   return {
     // The canvas may still carry a frozen or captured picture's state and
     // label from the session before (closed, or saved and scanned again).
-    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); canvas.dataset.overlay = "none"; showLegend(null); session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
+    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
     stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from

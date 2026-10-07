@@ -465,13 +465,11 @@ export function setupPhotoFlow({
     video.pause?.(); video.srcObject = stream; video.load?.();
     return pendingPlayback();
   };
+  // The picture is opaque (a camera frame), so it covers the outline.
   function showPicture(canvas, picture) {
-    const ctx = canvas.getContext?.("2d");
-    if (!ctx || !picture) return;
     if (canvas.width !== picture.width) canvas.width = picture.width;
     if (canvas.height !== picture.height) canvas.height = picture.height;
-    ctx.clearRect?.(0, 0, canvas.width, canvas.height);
-    ctx.drawImage?.(picture, 0, 0);
+    canvas.getContext("2d").drawImage(picture, 0, 0);
   }
   async function takePhoto() {
     if (!live || saving) return;
