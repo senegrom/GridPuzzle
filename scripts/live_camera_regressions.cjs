@@ -261,6 +261,9 @@ async function run() {
           await page.setViewportSize({width:320,height:568});
           try {
             await page.evaluate(()=>{window.liveMode="grid";});await startLive(page);
+            // WebKit offers Start preview until its tap starts playback (startLive
+            // taps it): measure the live row once the button has gone.
+            await page.waitForFunction(()=>document.getElementById("start-camera").hidden&&document.getElementById("video").videoWidth>0);
             const live=await cameraLayout(page);
             await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
             const frozen=await cameraLayout(page);report.narrowLayout={live,frozen};
