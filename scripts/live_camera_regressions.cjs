@@ -61,6 +61,48 @@ async function solveLive(page) {
   await startLive(page);
   await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)>0,null,{timeout:150000});
 }
+// The solved view is frozen until Clear: a still of the verified frame with
+// its solution, the video paused behind it (visible, covered) and still attached to
+// its stream (`attached`),
+// the camera still on (`tracks`: the latest stream getUserMedia gave out).
+async function frozenState(page) {
+  return page.evaluate(()=>{
+    const preview=document.getElementById("live-preview"), video=document.getElementById("video"), visible=id=>{
+      const node=document.getElementById(id);return !node.hidden&&node.getClientRects().length>0;};
+    // WCAG contrast of the chip's computed text and background colours.
+    const rgb=value=>value.match(/[\d.]+/g).slice(0,3).map(Number), luminance=([r,g,b])=>{
+      const linear=c=>(c/=255)<=.04045?c/12.92:((c+.055)/1.055)**2.4;return .2126*linear(r)+.7152*linear(g)+.0722*linear(b);};
+    const chipStyle=getComputedStyle(document.getElementById("view-state"));
+    const [light,dark]=[luminance(rgb(chipStyle.color)),luminance(rgb(chipStyle.backgroundColor))].sort((a,b)=>b-a);
+    return {view:preview.dataset.view, panel:document.getElementById("camera-panel").dataset.view,
+      clear:visible("clear-freeze"), chip:visible("view-state"), restart:visible("restart-live"),
+      chipContrast:Math.round((light+.05)/(dark+.05)*100)/100,
+      paused:video.paused, visibility:getComputedStyle(video).visibility, attached:!!video.srcObject,
+      tracks:window.liveTestStream?.getTracks().map(t=>({enabled:t.enabled,ready:t.readyState}))??null,
+      help:document.getElementById("camera-help").textContent, solution:Number(preview.dataset.solution)};
+  });
+}
+// The page as an app switch leaves it: document.hidden and a visibilitychange.
+async function hidePage(page) {
+  await page.evaluate(()=>{
+    Object.defineProperty(document,"hidden",{configurable:true,get:()=>true});
+    document.dispatchEvent(new Event("visibilitychange"));
+    delete document.hidden;
+  });
+}
+// Viewfinder and action-row geometry, with the help line pinned to one text
+// for the measurement so that only the action row can change the viewfinder.
+async function cameraLayout(page) {
+  return page.evaluate(()=>{
+    const help=document.getElementById("camera-help"), text=help.textContent;
+    help.textContent="Hold the grid steady.";
+    const box=selector=>document.querySelector(selector).getBoundingClientRect(), row=document.querySelector(".camera-actions");
+    const result={viewfinder:box("#camera-panel .viewfinder").height,row:box(".camera-actions").height,
+      rowOverflow:row.scrollWidth>row.clientWidth,shutter:box("#take-photo"),clear:box("#clear-freeze"),start:box("#start-camera"),panel:box("#camera-panel")};
+    help.textContent=text;
+    return JSON.parse(JSON.stringify(result));
+  });
+}
 // Wall time per phase and engine, in the report and the log, so that a split
 // of this long suite can be decided from measurements. A nested phase is part
 // of its parent's time; entries keep the order in which the phases started.
@@ -85,7 +127,7 @@ async function run() {
         await time("live solve",async()=>{
         await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);await solveLive(page);
         assert.equal(await page.locator("#camera-panel").isVisible(),true);
-        assert.equal(await page.evaluate(()=>document.getElementById("video").srcObject.getTracks()[0].readyState),"live");
+        assert.equal(await page.evaluate(()=>liveTestStream.getTracks()[0].readyState),"live");
         assert.deepEqual(await page.evaluate(()=>liveApp.getState().puzzle),accepted.puzzle);
         assert.equal(await page.evaluate(()=>liveApp.getState().result),null,"live solving must not accept or reveal the editor puzzle");
         const counts=await page.locator("#live-preview").evaluate(c=>({...c.dataset}));
@@ -93,6 +135,18 @@ async function run() {
         assert.match(await page.textContent("#camera-help"),/preview/i);
         const panel=await page.locator("#camera-panel").boundingBox();assert.ok(panel.height<=934&&panel.width<=432);
         report.checks.push("real streamed 4x4 Sudoku is detected, recognised and solved over the live view without accepting the editor state");
+        const frozen=await frozenState(page);report.frozen=frozen;
+        assert.equal(frozen.view,"frozen");assert.equal(frozen.panel,"frozen");
+        assert.equal(frozen.clear,true,"Clear is offered");assert.equal(frozen.chip,true,"the Frozen chip is shown");assert.equal(frozen.restart,false);
+        assert.ok(frozen.chipContrast>=4.5,`the chip's text has AA contrast (${frozen.chipContrast}:1)`);
+        assert.equal(frozen.paused,true);assert.equal(frozen.visibility,"visible","the paused video stays visible behind the opaque still: WebKit gives a new player on an invisible video no frame");
+        assert.equal(frozen.attached,true,"and still attached to its stream, ready to play again");
+        assert.deepEqual(frozen.tracks,[{enabled:true,ready:"live"}],"the camera stays on while frozen");
+        assert.match(frozen.help,/frozen/);
+        const still=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
+        await sleep(1000);
+        assert.equal(await page.locator("#live-preview").evaluate(c=>c.toDataURL()),still,"the frozen picture does not change");
+        report.checks.push("the solved view freezes until Clear: video paused behind the still and still attached, camera track kept on and enabled");
         await page.screenshot({path:`browser-artifacts/${name}-live-camera.png`});
         });
         await time("capture and diagnostics",async()=>{
@@ -107,6 +161,8 @@ async function run() {
         await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
         assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true);
         assert.equal(await page.locator("#live-preview").evaluate(c=>c.toDataURL()),shown);
+        assert.equal(await page.locator("#camera-panel").getAttribute("data-view"),"captured");
+        assert.equal(await page.locator("#clear-freeze").isVisible(),false);
         const stored=await page.evaluate(async()=>{
           const record=await (await import("./capture-store.js")).loadCapture();
           return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(record.blob);});
@@ -150,12 +206,82 @@ async function run() {
         assert.equal(await page.evaluate(async()=>(await (await import("./capture-store.js")).loadCapture())??null),null);
         report.checks.push("saved PNG survives reload; explicit deletion persists");
         });
-        await time("moving away and closing",async()=>{
+        await time("moving away, Clear and closing",async()=>{
         await page.evaluate(async()=>{window.liveApp=await import("./app.js");});await fixture(page);await solveLive(page);
+        const calls=await page.evaluate(()=>liveGetUserMediaCalls);
         await page.evaluate(()=>{window.liveMode="blank";});
-        await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)===0,null,{timeout:10000});
+        await sleep(1500);
+        assert.ok(Number(await page.locator("#live-preview").getAttribute("data-solution"))>0,"moving away keeps the frozen solution");
+        await page.click("#clear-freeze");
+        await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="live");
+        await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)===0);
+        const live=await frozenState(page);
+        assert.equal(live.panel,"live");assert.equal(live.clear,false);assert.equal(live.chip,false);
+        assert.equal(live.paused,false);assert.equal(live.visibility,"visible");
+        assert.equal(live.attached,true,"Clear plays the stream that stayed attached");
+        assert.deepEqual(live.tracks,[{enabled:true,ready:"live"}]);
+        assert.equal(await page.evaluate(()=>liveGetUserMediaCalls),calls,"Clear plays the camera that stayed on");
+        assert.equal(await page.evaluate(()=>document.activeElement.id),"take-photo");
+        await sleep(1500);
+        assert.equal(Number(await page.locator("#live-preview").getAttribute("data-solution")),0,"the old solution does not return");
         await page.click("#close-camera");assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true);
-        report.checks.push("moving away removes blue entries and closing the camera stops the stream");
+        report.checks.push("moving away keeps the frozen solution; Clear returns to the live camera without a new permission request; closing stops the stream");
+        });
+        await time("frozen, camera off",async()=>{
+        await page.evaluate(()=>{window.liveMode="grid";});await solveLive(page);
+        const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL()), calls=await page.evaluate(()=>liveGetUserMediaCalls);
+        await hidePage(page);
+        assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true,"hiding the app turns the camera off");
+        const off=await frozenState(page);
+        assert.equal(off.view,"frozen");assert.equal(off.clear,true);assert.equal(off.attached,false);
+        assert.deepEqual(off.tracks,[{enabled:true,ready:"ended"}]);
+        assert.match(off.help,/turned off while the app was in the background/);
+        assert.equal(await page.locator("#camera-panel").isVisible(),true);
+        assert.equal(await page.locator("#live-preview").evaluate(c=>c.toDataURL()),shown,"the frozen picture stays");
+        await page.click("#clear-freeze");
+        await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="live");
+        assert.equal(await page.evaluate(()=>liveGetUserMediaCalls),calls+1,"Clear asks for the camera again");
+        assert.deepEqual((await frozenState(page)).tracks,[{enabled:true,ready:"live"}]);
+        // The same grid is read and frozen again; Save picture keeps that
+        // frozen picture although the camera was turned off meanwhile.
+        await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+        await hidePage(page);
+        const frozen=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
+        await page.click("#take-photo");
+        await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
+        const stored=await page.evaluate(async()=>{
+          const record=await (await import("./capture-store.js")).loadCapture();
+          return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(record.blob);});
+        });assert.equal(stored,frozen,"the stored PNG is the frozen picture");
+        await page.click("#close-camera");
+        report.checks.push("hiding the app while frozen turns the camera off but keeps the solution; Clear asks for the camera again; Save picture keeps a frozen picture without a camera");
+        });
+        await time("320 px",async()=>{
+          const size=page.viewportSize();
+          await page.setViewportSize({width:320,height:568});
+          try {
+            await page.evaluate(()=>{window.liveMode="grid";});await startLive(page);
+            // WebKit offers Start preview until its tap starts playback (startLive
+            // taps it): measure the live row once the button has gone.
+            await page.waitForFunction(()=>document.getElementById("start-camera").hidden&&document.getElementById("video").videoWidth>0);
+            const live=await cameraLayout(page);
+            await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+            const frozen=await cameraLayout(page);report.narrowLayout={live,frozen};
+            assert.equal(frozen.viewfinder,live.viewfinder,"freezing does not shrink the viewfinder");
+            assert.equal(frozen.row,live.row,"the frozen action row stays one line");assert.equal(frozen.rowOverflow,false);
+            assert.equal(frozen.clear.top,frozen.shutter.top);assert.ok(frozen.clear.right<=frozen.panel.right);
+            // A Clear whose playback was refused adds Start preview to the row:
+            // it takes a line of its own, and Save picture and Clear keep size.
+            await page.evaluate(()=>{document.getElementById("start-camera").hidden=false;});
+            const retry=await cameraLayout(page);report.narrowLayout.retry=retry;
+            await page.evaluate(()=>{document.getElementById("start-camera").hidden=true;});
+            assert.equal(retry.rowOverflow,false);
+            for (const key of ["shutter","clear"])
+              assert.deepEqual([retry[key].width,retry[key].height],[frozen[key].width,frozen[key].height],`${key} is not squeezed beside Start preview`);
+            assert.equal(retry.clear.top,retry.shutter.top);assert.ok(retry.start.bottom<=retry.shutter.top,"Start preview has a line of its own");
+            await page.click("#close-camera");
+          } finally { await page.setViewportSize(size); }
+          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size; Start preview after a refused Clear gets a line of its own");
         });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.

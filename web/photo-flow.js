@@ -54,7 +54,12 @@ export function setupPhotoFlow({
     saving = false,
     // The page's idle interpreter while the camera opens: the live previews
     // take it over once they start, and it goes back if they never do.
-    parkedSolver = null;
+    parkedSolver = null,
+    // A Clear tap in progress, and the check that a resumed stream delivers frames.
+    resuming = null,
+    frameCheck = null,
+    // The muted camera track a Clear (or a retry) waits on, and that attempt.
+    mutedWait = null;
   // Photo undo stores geometry/review metadata, never canvases or decoded
   // pixels. Each crop change has a distinct token, so an undo cannot rewind
   // a later detection or manual adjustment, even on the same photograph.
@@ -107,6 +112,227 @@ export function setupPhotoFlow({
     ? (live?.diagnosticSource?.() ?? { image: null, verified: false })
     : { image: state.photo, verified: !!state.photoSource && state.photoSource === state.puzzleSource } });
   const modal = cameraModal($("camera-panel"), $("camera"));
+  const CONSTRAINTS = {
+    audio: false,
+    video: {
+      facingMode: { ideal: "environment" },
+      width: { ideal: 1920 },
+      height: { ideal: 1440 },
+    },
+  };
+  // The panel's state: live, frozen (a solved picture held until Clear),
+  // captured or closed. Marking only: it never plays or pauses, and harness
+  // nodes may lack dataset or setAttribute.
+  function markView(view) {
+    $("camera-panel").setAttribute?.("data-view", view);
+    $("clear-freeze").hidden = view !== "frozen";
+    $("view-state").hidden = view !== "frozen";
+  }
+  const videoTracks = () => stream ? (stream.getVideoTracks?.() ?? stream.getTracks?.() ?? []) : [];
+  // A stream Clear can simply play again: its camera is still on.
+  const streamUsable = () => {
+    const track = videoTracks()[0];
+    return !!track && track.readyState !== "ended";
+  };
+  // iOS mutes a live camera track while it cannot feed it: another app or a
+  // call holds the camera, Split View, system pressure. A new track would be
+  // muted as well and deliver no frame, so the track is kept, and the
+  // attempt goes on when it unmutes.
+  const BUSY = {
+    frozen: "Another app or the system is using the camera. Save picture keeps this solution; Clear finishes once the camera is free.",
+    live: "Another app or the system is using the camera. The preview resumes once it is free.",
+  };
+  // The latest attempt runs once, and only while the track is still the
+  // page's camera (not closed, turned off or replaced meanwhile).
+  function afterUnmute(track, attempt) {
+    mutedWait = { track, attempt };
+    track.addEventListener?.("unmute", () => {
+      if (mutedWait?.track !== track) return;
+      const wait = mutedWait;
+      mutedWait = null;
+      if (videoTracks()[0] === track) void wait.attempt();
+    }, { once: true });
+  }
+  // The live camera froze its solved view, or Clear made it live again. The
+  // camera stays on while frozen (the user's choice: no new permission
+  // prompt, no start-up delay on Clear): its tracks stay live and enabled,
+  // and the video element stays attached, paused behind the still, so Clear
+  // only plays it again inside its tap. Detaching it and attaching the same
+  // stream again left WebKit's new player without a frame, so Clear timed
+  // out. A paused WebKit player keeps drawing the picture of the freeze
+  // while its presented count runs on: the live camera discards the first
+  // frame after Clear for that.
+  function onViewChange(view) {
+    markView(view);
+    if (view !== "frozen") return;
+    $("video").pause?.();
+    // Frames arrived after all: a retry offered for a silent stream is moot,
+    // and the frozen row holds only Save picture and Clear.
+    clearTimeout(frameCheck); frameCheck = null;
+    pendingPlayback = null; $("start-camera").hidden = true;
+  }
+  // A camera turned off while frozen, by the page being hidden or by the
+  // system ending the track, leaves the frozen picture, its reading and Save
+  // picture in place. Clear asks for the camera again, which can bring the
+  // permission prompt back (Safari after a while without capture, a
+  // home-screen app in a new session).
+  const RELEASED = {
+    hidden: "The camera was turned off while the app was in the background. Save picture keeps this solution; Clear turns it back on, and the phone may ask for camera access again.",
+    ended: "The camera stopped. Save picture keeps this solution; Clear tries to turn it back on, and the phone may ask for camera access again.",
+  };
+  function releaseStream(cause) {
+    for (const track of stream?.getTracks?.() ?? []) track.stop();
+    stream = null;
+    $("video").srcObject = null;
+    // Clear is the way back, asking for the camera inside its tap. A Start
+    // preview offered for the old stream's playback has nothing left to play.
+    pendingPlayback = null; $("start-camera").hidden = true;
+    $("camera-help").textContent = RELEASED[cause];
+    diagnostics.event({ stage: "tracking", reason: "camera-released" });
+  }
+  // Listen before playback starts: a track can end while the browser is
+  // still deciding whether to play, and a dead stream must not sit behind
+  // a "Start preview" button.
+  function watchTracks(acquired, epoch) {
+    for (const track of acquired.getTracks())
+      track.addEventListener?.("ended", () => {
+        if (epoch !== cameraEpoch || stream !== acquired) return;
+        if (live?.view === "frozen") releaseStream("ended");
+        else { stopCamera(); status("Camera disconnected.", "Your saved pictures and puzzle are unchanged.", "warning"); }
+      }, { once: true });
+  }
+  // Set the properties as well as the HTML attributes before assigning a
+  // MediaStream. WebKit can require explicit muted inline playback.
+  function attachVideo() {
+    const video = $("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    return video;
+  }
+  // The camera again after it was turned off while frozen, asked for inside
+  // the Clear tap so that a browser that prompts again can.
+  async function attachStream(epoch) {
+    const acquired = await navigator.mediaDevices.getUserMedia(CONSTRAINTS);
+    if (epoch !== cameraEpoch || document.hidden) {
+      acquired.getTracks().forEach((t) => t.stop());
+      return false;
+    }
+    stream = acquired;
+    watchTracks(acquired, epoch);
+    attachVideo();
+    return true;
+  }
+  // A playback promise can remain pending when a browser has connected a
+  // stream but received no frame. Offer a recoverable explicit retry.
+  function playWithTimeout(video) {
+    let timer = null;
+    return Promise.race([
+      video.play(),
+      new Promise((_, reject) => {
+        timer = playbackTimer = setTimeout(() => reject(Object.assign(
+          Error("No camera frame arrived. Tap Start preview to retry."),
+          { name: "PreviewTimeout" },
+        )), 8000);
+      }),
+    ]).finally(() => {
+      clearTimeout(timer);
+      if (playbackTimer === timer) playbackTimer = null;
+    });
+  }
+  // A stream that plays but delivers no frame for three seconds gets Start
+  // preview. Frames that arrive later take that offer back, also with
+  // automatic solving off, where no freeze would ever hide it. `offered`:
+  // a live retry failed and offered Start preview again, so the check only
+  // waits for frames to take it back. `since`: the frame count when that
+  // retry began, so frames seen before its tap cannot take its offer back.
+  function watchFrames(epoch, offered = false, since = 0) {
+    clearTimeout(frameCheck);
+    const check = (first) => {
+      frameCheck = null;
+      if (epoch !== cameraEpoch || live?.view !== "live") return;
+      if (live.stats?.scheduling?.observed > since) {
+        if (!first && pendingPlayback === resumePlayback) { pendingPlayback = null; $("start-camera").hidden = true; }
+        return;
+      }
+      if (first) {
+        pendingPlayback = resumePlayback;
+        $("start-camera").hidden = false;
+        $("camera-help").textContent = "No camera frame arrived. Tap Start preview to retry.";
+      }
+      frameCheck = setTimeout(() => check(false), 500);
+    };
+    frameCheck = setTimeout(() => check(!offered), offered ? 500 : 3000);
+  }
+  // Clear: play the camera again inside the tap, asking for it first if it
+  // was turned off meanwhile, and only then let the live camera scan anew.
+  // The frozen picture stays on screen until playback has resumed, and stays
+  // (with Save picture) if the camera cannot come back. Start preview calls
+  // this again after a refused or stalled play(), and also while the view is
+  // live, when the frame check offers it: only a call that began on a frozen
+  // view may clear one, so a solution that freezes during that retry stays.
+  // No frame check runs while a call waits, so none can take back an offer
+  // that the call's failure then makes again; a live retry that fails
+  // watches for frames to take its own offer back.
+  async function resumePlayback() {
+    const epoch = cameraEpoch;
+    if (!live) return;
+    const view = live.view, clearing = view === "frozen", seen = live.stats?.scheduling?.observed ?? 0;
+    pendingPlayback = resumePlayback;
+    clearTimeout(frameCheck); frameCheck = null;
+    $("start-camera").disabled = true; $("clear-freeze").disabled = true;
+    let owner = null;
+    try {
+      const camera = videoTracks()[0];
+      if (camera?.muted === true && camera.readyState !== "ended") {
+        $("camera-help").textContent = clearing ? BUSY.frozen : BUSY.live;
+        afterUnmute(camera, clearing ? clearFrozen : resumePlayback);
+        return;
+      }
+      if (!streamUsable()) {
+        for (const track of stream?.getTracks?.() ?? []) track.stop();
+        stream = null;
+        $("video").srcObject = null;
+        $("camera-help").textContent = "Turning the camera back on…";
+        if (!(await attachStream(epoch))) {
+          if (epoch === cameraEpoch) $("camera-help").textContent = RELEASED.hidden;
+          return;
+        }
+      } else if ($("video").srcObject !== stream) attachVideo(); // Inside the tap, before play().
+      owner = stream;
+      await playWithTimeout($("video"));
+      // Closed, captured or released meanwhile: that path's own state stands.
+      if (epoch !== cameraEpoch || !live || stream !== owner) return;
+      pendingPlayback = null;
+      $("start-camera").hidden = true;
+      if (clearing && live.view === "frozen") live.resume?.();
+      // A solution that froze while a live retry played stays as it is.
+      if (live.view !== "live") return;
+      $("take-photo").focus?.();
+      watchFrames(epoch);
+    } catch (error) {
+      // Closed, captured, or the stream released or replaced meanwhile
+      // (play() then rejects): that path's own text stands. So does a view
+      // that froze meanwhile: the freeze pauses the video, which rejects a
+      // pending play() with an AbortError.
+      if (epoch !== cameraEpoch || (owner && stream !== owner) || live?.view !== view) return;
+      // With a stream, play() itself failed: refused without a gesture,
+      // silent, or interrupted (WebKit rejects it with an AbortError while a
+      // call or another app holds the media session). The camera is on, so
+      // Start preview retries. Without one, getUserMedia failed.
+      if (stream && ["NotAllowedError", "PreviewTimeout", "AbortError"].includes(error.name)) {
+        $("start-camera").hidden = false;
+        $("camera-help").textContent = error.name === "PreviewTimeout" ? error.message
+          : error.name === "AbortError" ? "Camera playback was interrupted. Tap Start preview to resume the camera."
+          : "Tap Start preview to resume the camera.";
+        if (view === "live") watchFrames(epoch, true, seen);
+      } else $("camera-help").textContent = error.name === "NotAllowedError"
+        ? "Camera permission was denied. Save picture keeps this solution; Clear tries again."
+        : `The camera could not turn on: ${String(error.message || "unavailable").replace(/[.\s]+$/, "")}. Save picture keeps this solution.`;
+    } finally {
+      if (epoch === cameraEpoch) { $("start-camera").disabled = false; $("clear-freeze").disabled = false; }
+    }
+  }
   function stopCamera() {
     cameraEpoch++;
     live?.stop();
@@ -118,6 +344,10 @@ export function setupPhotoFlow({
     }
     pendingPlayback = null;
     clearTimeout(playbackTimer); playbackTimer = null;
+    clearTimeout(frameCheck); frameCheck = null;
+    // A Clear cut short by the close must not leave its button disabled.
+    resuming = null; $("clear-freeze").disabled = false;
+    markView("closed");
     $("start-camera").hidden = true;
     document.body?.classList.remove("camera-open");
     if (stream) for (const track of stream.getTracks()) track.stop();
@@ -144,51 +374,24 @@ export function setupPhotoFlow({
       if (!navigator.mediaDevices?.getUserMedia)
         throw Error("Live camera access needs HTTPS and a compatible browser.");
       status("Opening camera…", "Please allow camera access.");
-      const acquired = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1440 },
-        },
-      });
+      const acquired = await navigator.mediaDevices.getUserMedia(CONSTRAINTS);
       if (epoch !== cameraEpoch) {
         acquired.getTracks().forEach((t) => t.stop());
         return;
       }
       stream = acquired;
-      // Listen before playback starts: a track can end while the browser is
-      // still deciding whether to play, and a dead stream must not sit behind
-      // a "Start preview" button.
-      for (const track of acquired.getTracks())
-        track.addEventListener?.("ended", () => {
-          if (epoch === cameraEpoch) { stopCamera(); status("Camera disconnected.", "Your saved pictures and puzzle are unchanged.", "warning"); }
-        }, { once: true });
+      watchTracks(acquired, epoch);
       $("camera-panel").hidden = false;
       modal.open();
+      markView("live");
       $("close-camera").focus?.();
-      // Set the properties as well as the HTML attributes before assigning a
-      // MediaStream. WebKit can require explicit muted inline playback.
-      const video = $("video");
-      video.muted = true;
-      video.playsInline = true;
-      video.srcObject = stream;
+      const video = attachVideo();
       document.body?.classList.add("camera-open");
       const startPreview = async () => {
         if (epoch !== cameraEpoch || live) return;
         $("start-camera").disabled = true;
         try {
-          // A playback promise can remain pending when a browser has connected
-          // a stream but received no frame. Offer a recoverable explicit retry.
-          await Promise.race([
-            video.play(),
-            new Promise((_, reject) => {
-              playbackTimer = setTimeout(() => reject(Object.assign(
-                Error("No camera frame arrived. Tap Start preview to retry."),
-                { name: "PreviewTimeout" },
-              )), 8000);
-            }),
-          ]);
+          await playWithTimeout(video);
           if (epoch !== cameraEpoch) return;
           pendingPlayback = null;
           $("start-camera").hidden = true;
@@ -204,6 +407,7 @@ export function setupPhotoFlow({
             }),
             solverWorker: parkedSolver,
             onSolverReleased: returnSolver,
+            onViewChange,
           });
           parkedSolver = null;
           live.start();
@@ -220,10 +424,7 @@ export function setupPhotoFlow({
           stopCamera();
           status("Camera preview could not start.", error.message || "Please retry the camera.", "warning");
         } finally {
-          if (epoch === cameraEpoch) {
-            clearTimeout(playbackTimer); playbackTimer = null;
-            $("start-camera").disabled = false;
-          }
+          if (epoch === cameraEpoch) $("start-camera").disabled = false;
         }
       };
       pendingPlayback = startPreview;
@@ -250,6 +451,13 @@ export function setupPhotoFlow({
     if (event.key === "Escape" && !$("camera-panel").hidden) { event.preventDefault?.(); closeCamera(); }
   });
   $("restart-live").onclick = () => live?.restart?.();
+  // Clear, from its button or once a muted camera is free: one at a time.
+  function clearFrozen() {
+    if (live?.view !== "frozen" || resuming) return;
+    const attempt = resuming = resumePlayback().finally(() => { if (resuming === attempt) resuming = null; });
+    return attempt;
+  }
+  $("clear-freeze").onclick = clearFrozen;
   $("start-camera").onclick = () => {
     if (!pendingPlayback) return;
     // Reset a stalled element on the user gesture, retaining the granted stream.
@@ -266,6 +474,9 @@ export function setupPhotoFlow({
       captured = picture;
       $("camera-panel").hidden = false;
       modal.open();
+      markView("captured");
+      // The canvas now holds the stored picture, frozen or live before.
+      $("live-preview").setAttribute?.("data-view", "captured");
       document.body?.classList.add("camera-open");
       $("close-camera").focus?.();
       $("take-photo").hidden = true;
@@ -744,10 +955,14 @@ export function setupPhotoFlow({
   }
   $("read-photo").onclick = () => void readPhoto();
   document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) return;
+    // A frozen solution stays on screen with its reading, and Save picture
+    // still keeps it, but its camera is turned off; Clear asks for it again.
+    if (live?.view === "frozen") { if (stream) releaseStream("hidden"); return; }
     // Release the camera when the page is hidden. A captured still holds no
     // camera resource, and its review path must survive an app switch, the
     // lock screen or a download prompt.
-    if (document.hidden && !(captured && !stream && !live)) stopCamera();
+    if (!(captured && !stream && !live)) stopCamera();
   });
 
   return { stopCamera };

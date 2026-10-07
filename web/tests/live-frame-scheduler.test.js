@@ -90,3 +90,19 @@ test('old independent advances cannot manufacture freshness later at the fallbac
  assert.equal(h.scheduler.stats.fallbacks,0);assert.equal(h.scheduler.fresh,false);
  count++;h.advance(100);assert.equal(h.scheduler.stats.fallbacks,1);h.scheduler.stop();
 });
+test('discardFirst takes the first frame reported after a restart as a baseline only',()=>{
+ // A paused WebKit camera player can report the picture it paused on first.
+ const h=harness();h.scheduler.start();h.present(1);h.scheduler.stop();
+ h.scheduler.start({discardFirst:true});h.present(9);
+ assert.equal(h.frames.length,1,'the possibly stale report is not processed');assert.equal(h.scheduler.stats.discarded,1);
+ assert.equal(h.scheduler.fresh,false,'nor does it make the view fresh');assert.equal(h.scheduler.stats.observed,0);
+ h.advance(100);h.present(10);assert.equal(h.frames.length,2,'the next frame is processed');assert.equal(h.scheduler.stats.observed,1);
+ h.scheduler.stop();
+});
+test('discardFirst applies to the fallback clock too, and a plain start discards nothing',()=>{
+ const h=harness(false);h.scheduler.start({discardFirst:true});h.advance(100);
+ assert.equal(h.frames.length,0);assert.equal(h.scheduler.stats.discarded,1);
+ h.video.currentTime=.5;h.advance(100);assert.equal(h.frames.length,1);h.scheduler.stop();
+ h.scheduler.start();h.video.currentTime=1;h.advance(100);assert.equal(h.frames.length,2);assert.equal(h.scheduler.stats.discarded,0);
+ h.scheduler.stop();
+});

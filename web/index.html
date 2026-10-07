@@ -64,7 +64,7 @@
           <div class="section-heading"><span class="step">02</span><div><h2 id="board-title">Your puzzle</h2><p id="board-meta" class="muted"></p></div><button id="undo" class="compact" disabled>Undo</button></div>
           <div id="status" class="status" role="status" aria-live="polite"><strong id="status-text">Ready when you are.</strong><span id="status-detail">Scan a puzzle, load an example, or tap a cell to enter clues.</span><progress id="progress" max="1" aria-labelledby="status-text" hidden></progress></div>
           <section id="camera-panel" role="dialog" aria-label="Live puzzle scanner" tabindex="-1" hidden>
-            <div class="camera-heading"><h2>Live scan & solve</h2><button id="close-camera" type="button" aria-label="Close camera">✕</button></div>
+            <div class="camera-heading"><h2>Live scan & solve</h2><span id="view-state" class="view-state" aria-hidden="true" hidden>Frozen</span><button id="close-camera" type="button" aria-label="Close camera">✕</button></div>
             <div class="viewfinder"><video id="video" autoplay muted playsinline aria-hidden="true"></video><canvas id="live-preview" role="img" aria-label="Live camera preview"></canvas></div>
             <div class="live-legend" role="group" aria-label="Scan colours"><span class="live-green">Green · recognised</span><span class="live-yellow">Yellow · uncertain ?</span><span class="live-red">Red · unread clue ?</span><span class="live-blue">Blue · solution</span></div>
             <p id="camera-help" role="status" aria-live="polite">Hold the whole grid steady. Recognition and solution appear here.</p>
@@ -79,7 +79,7 @@
             <p data-diagnostic="error" role="alert"></p>
             <div class="inline-buttons"><button type="button" data-diagnostic="download" disabled>Download diagnostic JSON</button><button type="button" data-diagnostic="clear">Clear preview</button></div>
           </details>
-            <div class="camera-actions"><button id="start-camera" type="button" hidden>Start preview</button><button id="restart-live" type="button" hidden>Restart live scanning</button><button id="take-photo" class="shutter" type="button" aria-label="Capture and save this picture">▣ <span>Save picture</span></button><button id="retake-photo" type="button" hidden>Scan another</button><button id="download-live-capture" type="button" hidden>Download PNG</button><button id="use-live-capture" type="button" hidden>Review captured clues</button></div>
+            <div class="camera-actions"><button id="start-camera" type="button" hidden>Start preview</button><button id="restart-live" type="button" hidden>Restart live scanning</button><button id="take-photo" class="shutter" type="button" aria-label="Capture and save this picture">▣ <span>Save picture</span></button><button id="clear-freeze" type="button" hidden aria-label="Clear the solution and return to the live camera">↺ <span>Clear</span></button><button id="retake-photo" type="button" hidden>Scan another</button><button id="download-live-capture" type="button" hidden>Download PNG</button><button id="use-live-capture" type="button" hidden>Review captured clues</button></div>
           </section>
           <details id="scan-diagnostics" class="scan-diagnostics"><summary>Why isn’t this working?</summary>
             <strong data-diagnostic="summary">Ready</strong><p data-diagnostic="reason" class="muted"></p>

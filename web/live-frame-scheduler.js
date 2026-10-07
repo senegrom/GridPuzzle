@@ -4,9 +4,9 @@
 export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
   interval = () => 100, onError = () => {}, now = () => performance.now(),
   setTimer = setTimeout, clearTimer = clearTimeout }) {
-  let running = false, generation = 0, callback = null, heartbeat = null;
+  let running = false, generation = 0, callback = null, heartbeat = null, discard = false;
   let native = false, lastNative = -Infinity, probeToken = null, probeAdvances = 0, fallbacks = 0, token = null, lastSeen = -Infinity, lastProcessed = -Infinity;
-  let observed = 0, processed = 0, skipped = 0, duplicates = 0;
+  let observed = 0, processed = 0, skipped = 0, duplicates = 0, discarded = 0;
   const boundedInterval = () => {
     const value = interval();
     return Number.isFinite(value) ? Math.max(100, Math.min(300, value)) : 100;
@@ -28,7 +28,12 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
     if (!video.videoWidth || !video.videoHeight || video.readyState === 0 || video.paused === true || video.ended === true || value === null) return;
     const [kind, count] = value.split(':'), [previousKind, previous] = (token ?? '').split(':');
     if (kind === previousKind && Number(count) <= Number(previous)) { duplicates++; return; }
-    token = value; lastSeen = now(); observed++;
+    token = value;
+    // A paused WebKit camera player keeps the picture it paused on for drawing
+    // while its presented count runs on, so after a restart the first frame
+    // reported can be that old picture: it only sets the baseline.
+    if (discard) { discard = false; discarded++; return; }
+    lastSeen = now(); observed++;
     if (lastSeen - lastProcessed < boundedInterval()) { skipped++; return; }
     lastProcessed = lastSeen; processed++;
     try { onFrame({ at: lastSeen }); } catch (error) { onError(error); }
@@ -79,11 +84,12 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
     if (running && owner === generation) heartbeat = setTimer(() => pulse(owner), 100);
   }
   return {
-    start() {
+    // `discardFirst`: the video was paused, so its first frame may be stale.
+    start({ discardFirst = false } = {}) {
       if (running) return;
       running = true; const owner = ++generation;
       token = null; lastSeen = lastProcessed = -Infinity;
-      observed = processed = skipped = duplicates = fallbacks = 0;
+      observed = processed = skipped = duplicates = fallbacks = discarded = 0; discard = discardFirst;
       lastNative = now(); probeToken = null; probeAdvances = 0;
       native = typeof video.requestVideoFrameCallback === 'function' && typeof video.cancelVideoFrameCallback === 'function';
       request(owner); heartbeat = setTimer(() => pulse(owner), 100);
@@ -95,7 +101,7 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
       callback = null; lastSeen = -Infinity;
     },
     get fresh() { return running && now() - lastSeen <= 500; },
-    get stats() { return { mode: native ? 'video-frame' : 'fallback', observed, processed, skipped, duplicates,
+    get stats() { return { mode: native ? 'video-frame' : 'fallback', observed, processed, skipped, duplicates, discarded,
       intervalMilliseconds: boundedInterval(), fallbacks, callbackStalled: native && now() - lastNative >= 1000, fresh: running && now() - lastSeen <= 500 }; },
   };
 }

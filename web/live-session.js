@@ -319,7 +319,9 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   return {
     start() { if (active) return; active = true; reset("started"); },
     stop() { active = false; reset("stopped"); lastStatus = ""; held = null; },
-    invalidate() { reset("settings-or-detection"); },
+    // The reason goes into the reset's diagnostics event: the camera retires
+    // a reading at the freeze ("frozen") and at Clear ("cleared") too.
+    invalidate(reason = "settings-or-detection") { reset(reason); },
     // One-off guidance from the camera through the same writer, so the next
     // status is not skipped as a repeat of a line that was overwritten.
     notify(message) { lastStatus = message; onStatus(message); },

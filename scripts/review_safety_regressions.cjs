@@ -69,12 +69,17 @@ async function cameraContentProbe() {
       }
     }clock=end;}
     try {
-      camera.start();await advance(1000);const before=Number(overlay.dataset.solution);
+      const original=video.toDataURL();
+      camera.start();await advance(1000);const before=Number(overlay.dataset.solution),frozen=camera.view==="frozen";
       if(phase==="solved") {await advance(12000); if(reads!==1)throw Error(`Expected one retained read for an unchanged solved board, got ${reads}`);}
       first=phase==="erased"?null:6;video.getContext("2d").drawImage(board(first),0,0);await advance(300);
       if(release){release();await new Promise(resolve=>setTimeout(resolve,0));await advance(100);}
-      const shot=camera.capture();outcomes.push({phase,before,after:Number(overlay.dataset.solution),
-        capturedClue:shot.found?.puzzle.cells[0]??null,rawMatches:shot.photo.toDataURL()===video.toDataURL()});
+      const shot=camera.capture();outcomes.push({phase,before,frozen,after:Number(overlay.dataset.solution),
+        capturedClue:shot.found?.puzzle.cells[0]??null,rawMatches:shot.photo.toDataURL()===video.toDataURL(),
+        originalMatches:shot.photo.toDataURL()===original});
+      // A solved view is frozen: the change is noticed only after Clear,
+      // which reads the board from nothing.
+      if(frozen)camera.resume();
       // advance() drains the tracking worker but not detection, so the fake time
       // a fresh read takes depends on real scheduling: wait for it, up to 3 s,
       // and look at the overlay no earlier than the fixed 1.4 s used to.
@@ -135,8 +140,16 @@ module.exports = async function reviewSafety(page, time = (phase, run) => run())
   for(const comparison of camera.comparisons)assert.equal(comparison.contentSame,false,`changed ${comparison.value} must invalidate content`);
   assert.deepEqual(camera.controls,[true,true],"small brightness and sub-cell jitter controls");
   for(const p of camera.polarity)assert.equal(p.same,false,"white-on-black changes must invalidate");
-  for(const result of camera.outcomes){assert.equal(result.after,0);assert.equal(result.capturedClue,null);assert.equal(result.rawMatches,true);
-    if(["solved","erased"].includes(result.phase))assert.equal(result.before,51);}
+  for(const result of camera.outcomes){
+    if(["solved","erased"].includes(result.phase)){
+      // The solution froze on the original board: until Clear the change is
+      // not shown, and the shutter keeps the frozen frame and its reading.
+      assert.equal(result.before,51);assert.equal(result.frozen,true);assert.equal(result.after,51);
+      assert.equal(result.capturedClue,5);assert.equal(result.originalMatches,true);
+    } else {
+      assert.equal(result.frozen,false);assert.equal(result.after,0);assert.equal(result.capturedClue,null);assert.equal(result.rawMatches,true);
+    }
+  }
   return camera;
   });
   const storage=await time("capture ordering",async()=>{

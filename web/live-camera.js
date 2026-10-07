@@ -24,13 +24,25 @@ function copyCanvas(source) {
   canvas.getContext("2d").drawImage(source, 0, 0);
   return canvas;
 }
+// The help line while the view is frozen, and the condition for freezing: the
+// result under which blue cells and Slitherlink edges are drawn (live-overlay.js).
+const FROZEN_HELP = "Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.";
+const solvedPreview = (preview) => preview?.result?.status === "unique" && preview.result.complete === true;
+
 export function createLiveCamera({ $, video, canvas, getSettings,
   detector = new Scanner(), reader = new Scanner(), solver = createLiveSolver(), tracker = createLiveTracker(),
-  diagnostics = null, solverWorker = null, onSolverReleased = null,
+  diagnostics = null, solverWorker = null, onSolverReleased = null, onViewChange = null,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, detection = null, epoch = 0, lastDetect = -Infinity, trackAfter = -Infinity, anchorMs = 0;
   let ownVerifiedAt = -Infinity;
   let raw = null, guide = null, guideFrame = null, displayed = null;
+  // "live" while frames are sampled, tracked and read. The first render that
+  // shows a verified, unique and complete solution freezes the view: the
+  // canvas keeps that composition on its own frame (`raw`), and nothing is
+  // sampled, detected, tracked, read or solved until resume() (Clear) or
+  // stop(). `seenFrame`: a frame was processed since start() or resume(),
+  // which `startedAt` dates, so a camera that delivers none can say so.
+  let view = "live", frozen = null, seenFrame = false, startedAt = -Infinity, awaitingFirstFrame = false;
   let settingsKey = "", setting = null, proofs = {}, pendingCandidate = null;
   let frameSerial = 0, adoptedAt = -Infinity, sampledAt = -Infinity, laggedAt = -Infinity, retryTrackingAt = 0;
   // Two tiers of verified display. A view is live while the snapshot on screen
@@ -110,9 +122,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function isCurrent(frame) {
     if (!raw || !frame?.anchor || !scheduler.fresh || sampleAge() > STALE_TRACK_AGE) return false;
-    const view = proofs[frame.anchor.id];
-    return view ? { corners: view.corners.map(p => ({
-      x: p.x * (raw.width - 1) / (view.width - 1), y: p.y * (raw.height - 1) / (view.height - 1),
+    const proof = proofs[frame.anchor.id];
+    return proof ? { corners: proof.corners.map(p => ({
+      x: p.x * (raw.width - 1) / (proof.width - 1), y: p.y * (raw.height - 1) / (proof.height - 1),
     })), stale: delayedTier() } : false;
   }
   function sameScene(a, b) {
@@ -122,6 +134,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // camera's guidance goes through it too, and a later status is not skipped
   // as a repeat of a line that was overwritten in between.
   const say = (message) => { if (active) session.notify(message); };
+  const aiming = () => getSettings()?.enabled === false
+    ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor."
+    : "Hold the grid steady. Recognition and solution appear here automatically.";
   // Detector guidance (no grid, a timeout, rules the grid contradicts) ends a
   // streak of rejected candidates: the alignment message the heartbeat holds
   // describes a grid that is still being found, and must not hide this one.
@@ -159,7 +174,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     isCurrent, sameScene, now, setTimer, clearTimer,
   });
   function render() {
-    if (!raw) return;
+    if (!raw || view !== "live") return;
     if (canvas.width !== raw.width) canvas.width = raw.width;
     if (canvas.height !== raw.height) canvas.height = raw.height;
     session.validate();
@@ -168,14 +183,18 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // With a preview the outline follows its corners; guideFrame is then not
     // verified at all (see verifyIds).
     guide = preview?.corners || (guideFrame && isCurrent(guideFrame)?.corners) || null;
+    // A preview is published only when its frame verifies on `raw` in this
+    // very validation, so a solved one freezes on its own pixels. Its paint
+    // is never skipped and never marked DELAYED: it is the picture that stays.
+    const solved = solvedPreview(displayed);
     // A verified view in the delayed tier is drawn as delayed; only an
     // overlay or guide makes the distinction visible.
-    const delayed = !!(guide || displayed) && delayedTier();
+    const delayed = !solved && !!(guide || displayed) && delayedTier();
     // Validation still runs on every heartbeat. Only painting is deduplicated:
     // a freshness loss, solve toggle, tier change or new proposal repaints immediately.
     const visual = { raw, found: displayed?.found, result: displayed?.result, delayed,
       geometry: JSON.stringify([guide, displayed?.corners]) };
-    if (lastPaint && Object.keys(visual).every(key => lastPaint[key] === visual[key])) {
+    if (!solved && lastPaint && Object.keys(visual).every(key => lastPaint[key] === visual[key])) {
       diagnostics?.rendering?.({ painted: false }); return;
     }
     const paintStarted = now(), ctx = canvas.getContext("2d"); ctx.drawImage(raw, 0, 0);
@@ -199,15 +218,43 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     for (const cell of displayed ? overlayCells(displayed.found, displayed.result) : []) counts[cell.kind]++;
     for (const [key, count] of Object.entries(counts)) canvas.dataset[key] = String(count);
     canvas.dataset.delayed = delayed ? "1" : "0";
-    canvas.setAttribute("aria-label", `Camera preview: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unknown, ${counts.solution} solution entries.${delayed ? " The overlay is delayed behind the camera." : ""} Live results are not confirmed.`);
+    canvas.setAttribute("aria-label", solved
+      ? `Frozen picture of the solved puzzle: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread, ${counts.solution} solution entries. Live results are not confirmed.`
+      : `Camera preview: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unknown, ${counts.solution} solution entries.${delayed ? " The overlay is delayed behind the camera." : ""} Live results are not confirmed.`);
     lastPaint = visual;
     diagnostics?.rendering?.({ painted: true, milliseconds: now() - paintStarted });
+    if (solved) enterFrozen();
   }
   function cancelDetection() {
     const job = detection;
     detection = null;
     if (job) clearTimer(job.deadline);
     detector.cancel();
+  }
+  // The freeze abandons a detection in flight rather than cancelling it:
+  // cancelling an in-flight request terminates the detector's warm geometry
+  // worker, which Clear would then start again. locate's current() fences the
+  // reply by epoch and identity, and its finally releases the frame.
+  function abandonDetection() {
+    const job = detection;
+    detection = null;
+    if (job) clearTimer(job.deadline);
+  }
+  // Keep the solved composition: no frame is sampled and no detection,
+  // tracking, OCR, retry or solve runs until Clear. The epoch fences every
+  // continuation in flight, and the view fences the tick that froze (its
+  // epoch is already the new one). The reading itself is retired: Clear
+  // starts over, since a kept reading would refreeze on the next verified frame.
+  function enterFrozen() {
+    view = "frozen"; frozen = { preview: displayed };
+    epoch++; scheduler.stop(); abandonDetection(); discardCandidate(); tracker.reset();
+    proofs = {}; guideFrame = null; lastPaint = null;
+    session.invalidate("frozen"); // The OCR engine and an idle interpreter are kept.
+    canvas.setAttribute?.("data-view", "frozen");
+    diagnostics?.event({ stage: "complete", reason: "frozen" });
+    say(FROZEN_HELP);
+    updateRestartControl();
+    onViewChange?.("frozen");
   }
   async function locate(image, settings, key, owner) {
     const job = {};
@@ -309,15 +356,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
       // Fence by snapshot time: a reply is adopted while its own snapshot is
       // within STALE and newer than the last adopted one, even if an
-      // unverified fallback picture is on screen meanwhile.
-      if (!active || owner !== epoch || key !== settingsKey || at <= adoptedAt || now() - at > STALE_TRACK_AGE) return;
+      // unverified fallback picture is on screen meanwhile. A frozen view
+      // keeps its frame.
+      if (!active || view !== "live" || owner !== epoch || key !== settingsKey || at <= adoptedAt || now() - at > STALE_TRACK_AGE) return;
       // Display this operation's actual source snapshot, never project a late
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
       if (raw !== image) release(raw);
       raw = image; adopted = true; sampledAt = adoptedAt = at;
-      proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, view]) =>
-        [anchor, view ? { ...view, width, height } : null]));
+      proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, proof]) =>
+        [anchor, proof ? { ...proof, width, height } : null]));
       if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
       // Whether the reading's own frame still verifies. A rejection means the
       // grid moved away or its content changed, which only a new detection can
@@ -328,9 +376,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const candidate = pendingCandidate;
       if (candidate && Object.hasOwn(result.proofs, candidate.anchor.id)) {
         pendingCandidate = null;
-        const view = isCurrent(candidate);
-        if (view) {
-          guideFrame = { ...candidate, image: null }; guide = view.corners;
+        const match = isCurrent(candidate);
+        if (match) {
+          guideFrame = { ...candidate, image: null }; guide = match.corners;
           if (!candidate.settings.enabled) {
             session.invalidate(); release(candidate.image);
             say("Automatic reading is paused (Grid size & settings). Capture to crop and read in the editor.");
@@ -365,10 +413,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function updateRestartControl() {
     const button = $("restart-live");
-    if (button) button.hidden = !active || (!recovery.blocked && unmatchedCandidates < 3 && (scheduler.fresh || !raw));
+    if (button) button.hidden = !active || view !== "live" ||
+      (!recovery.blocked && unmatchedCandidates < 3 && (scheduler.fresh || !seenFrame));
   }
   function heartbeat() {
-    if (!active) return;
+    if (!active || view !== "live") return;
     if (video.videoWidth && video.videoHeight) {
       const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
       syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
@@ -376,17 +425,22 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) {
       proofs = {}; guide = null;
       session.suspend();
-      if (!scheduler.fresh && raw) {
+      if (!scheduler.fresh && seenFrame) {
         diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
       }
     }
     prepareSolver();
-    // Conditions the camera owns take the help line while they last.
+    // Conditions the camera owns take the help line while they last. A
+    // camera that has delivered no frame a second after start or Clear says
+    // so; the line gives way to the aiming text when the first one arrives.
+    const firstFrame = !seenFrame && now() - startedAt >= 1000;
     if (recovery.blocked) session.hold('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
-    else if (!scheduler.fresh && raw) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    else if (!scheduler.fresh && seenFrame) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
+    else if (firstFrame) session.hold('Waiting for the camera to deliver a picture…');
     else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
-    else session.hold(null);
+    else { session.hold(null); if (awaitingFirstFrame) say(aiming()); }
+    awaitingFirstFrame = firstFrame && !recovery.blocked;
     render(); updateRestartControl();
     diagnostics?.scheduling?.(scheduler.stats);
   }
@@ -398,10 +452,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       Math.min(300, (tracker.stats?.milliseconds ?? 0) * 1.5)),
   });
   function tick() {
-    if (!active) return;
-    let image;
+    if (!active || view !== "live") return;
+    seenFrame = true;
+    const started = now();
+    let image, sampled = false;
     try {
-      image = videoFrame(video);
+      image = videoFrame(video); sampled = true;
       syncSettings(image.width, image.height);
       // On a stalled/unsupported worker the UI and manual shutter still work,
       // but no old proof or captured clue metadata survives the age deadline.
@@ -413,6 +469,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         // snapshot is still within STALE is shown instead, on its own pixels.
         session.suspend(); render();
       } else { session.validate(); render(); }
+      // The render may have frozen the view. This tick's frame must then not
+      // be tracked or adopted: its epoch is already the frozen one.
+      if (view !== "live") return;
       if (!recovery.blocked && now() >= retryTrackingAt) {
         // One candidate at a time: a new detection waits until a reply has
         // verified or rejected the pending one. Replacing it every 300 ms
@@ -429,7 +488,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         void track(image, settingsKey, epoch); image = null;
       }
     } catch (error) { say(error.message || "Waiting for the camera…"); }
-    finally { release(image); }
+    finally {
+      release(image);
+      // Main-thread time of a tick that took a snapshot, including the
+      // synchronous readbacks for detection and tracking it started.
+      if (sampled) diagnostics?.ticking?.(now() - started);
+    }
   }
   // One Python interpreter per page: the one the page already started serves
   // the previews instead of a second download and start-up, and closing the
@@ -437,10 +501,36 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // that fails to construct never holds it.
   if (solverWorker) solver.adopt ? solver.adopt(solverWorker) : solverWorker.terminate();
   return {
-    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(getSettings()?.enabled === false ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor." : "Hold the grid steady. Recognition and solution appear here automatically."); scheduler.start(); },
-    stop() { active = false; epoch++; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = adoptedAt = laggedAt = -Infinity; updateRestartControl(); },
+    // The canvas may still carry a frozen or captured picture's state and
+    // label from the session before (closed, or saved and scanned again).
+    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
+    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = null; settingsKey = ""; setting = null; proofs = {}; sampledAt = adoptedAt = laggedAt = -Infinity; updateRestartControl(); },
+    get view() { return view; },
+    // Clear: discard the frozen picture and its reading and scan again from
+    // nothing. The OCR engine, the geometry workers and an idle interpreter
+    // stay warm; the page has already resumed the video. A double tap or a
+    // call while live is a no-op. The first frame the video reports after
+    // its pause is discarded: WebKit can still draw the picture of the freeze.
+    resume() {
+      if (!active || view !== "frozen") return;
+      view = "live"; frozen = null; epoch++;
+      release(raw); raw = displayed = guide = guideFrame = null; proofs = {}; lastPaint = null;
+      lastDetect = trackAfter = ownVerifiedAt = -Infinity; sampledAt = adoptedAt = laggedAt = -Infinity;
+      recovery.reset(); retryTrackingAt = 0; unmatchedCandidates = 0;
+      seenFrame = awaitingFirstFrame = false; startedAt = now();
+      session.invalidate("cleared");
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      for (const key of ["recognised", "uncertain", "unknown", "solution"]) canvas.dataset[key] = "0";
+      canvas.dataset.delayed = "0";
+      canvas.setAttribute?.("data-view", "live");
+      canvas.setAttribute?.("aria-label", "Live camera preview");
+      diagnostics?.event({ stage: "detecting", reason: "cleared" });
+      say(aiming());
+      scheduler.start({ discardFirst: true }); updateRestartControl();
+      onViewChange?.("live");
+    },
     restart() {
-      if (!active) return;
+      if (!active || view !== "live") return;
       epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();
       session.invalidate(); proofs = {}; guide = guideFrame = null; lastDetect = trackAfter = ownVerifiedAt = -Infinity;
       recovery.reset(); retryTrackingAt = 0; sampledAt = adoptedAt = laggedAt = -Infinity; unmatchedCandidates = 0;
@@ -449,22 +539,33 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       say('Restarting live scanning. Waiting for a fresh verified frame…');
     },
     // Numeric lifecycle counters only; no image or retained puzzle data.
-    get stats() { return { active, detection: detection ? 1 : 0, candidate: pendingCandidate ? 1 : 0,
+    get stats() { return { active, view, detection: detection ? 1 : 0, candidate: pendingCandidate ? 1 : 0,
       retainedSources: Number(!!raw) + Number(!!pendingCandidate?.image),
       scratchPixels: contentCanvas.width * contentCanvas.height + detectCanvas.width * detectCanvas.height,
       tracking: tracker.stats, scheduling: scheduler.stats, recovery: recovery.stats }; },
-    diagnosticSource() { return { image: raw, verified: !!isCurrent(session.anchorFrame) }; },
+    // The frozen frame is the verified frame of the frozen reading.
+    diagnosticSource() { return { image: raw, verified: view === "frozen" || !!isCurrent(session.anchorFrame) }; },
     capture() {
-      if (!raw) throw Error("Wait for a camera frame before capturing.");
-      // Validate the displayed raw frame, not a later camera frame. Never attach
-      // stale metadata to a capture even when an async result arrived mid-tick.
-      session.validate(); render();
+      if (view === "live") {
+        if (!raw) throw Error("Wait for a camera frame before capturing.");
+        // Validate the displayed raw frame, not a later camera frame. Never attach
+        // stale metadata to a capture even when an async result arrived mid-tick.
+        // This render can itself freeze the view; the frozen picture is then saved.
+        session.validate(); render();
+      }
+      if (view === "frozen") {
+        // Exactly the frozen composition and its own frame and reading.
+        const { found, corners } = frozen.preview;
+        return { photo: copyCanvas(raw), annotated: copyCanvas(canvas),
+          found: { ...found, puzzle: structuredClone(found.puzzle) }, corners: corners.map((p) => ({ ...p })),
+          createdAt: Date.now(), frozen: true };
+      }
       // Do not grab a different video frame here: preserve precisely the pixels
       // and overlay the user was looking at when pressing the shutter.
       return { photo: copyCanvas(raw), annotated: copyCanvas(canvas),
         found: displayed?.sample ? { ...displayed.found, puzzle: structuredClone(displayed.found.puzzle) } : null,
         corners: displayed?.corners?.map((p) => ({ ...p })) ?? null,
-        createdAt: Date.now() };
+        createdAt: Date.now(), frozen: false };
     },
   };
 }

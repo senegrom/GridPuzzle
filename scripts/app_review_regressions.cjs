@@ -106,15 +106,31 @@ async function preferenceChecks(page, report) {
     result:{status:'unique',complete:true,solutions:[{cells:[1,2,3,4,3,4,1,2,2,1,4,3,4,3,2,1]}]}}});},index);
   await reply(0);await settled(page);assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),0,'a solve reply for a retired request is ignored');
   await reply(1);await page.waitForFunction(()=>Number(document.getElementById('live-preview').dataset.solution)===2);
-  await toggle(false);await page.waitForFunction(()=>Number(document.getElementById('live-preview').dataset.solution)===0);
+  // The solved view is frozen until Clear, which joins the tab order.
+  assert.equal(await page.locator('#live-preview').getAttribute('data-view'),'frozen');
+  assert.equal(await page.locator('#camera-panel').getAttribute('data-view'),'frozen');
+  assert.equal(await page.locator('#clear-freeze').isVisible(),true);
+  await page.locator('#close-camera').focus();await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'clear-freeze');
+  // A setting changed while frozen takes effect after Clear.
+  await toggle(false);await settled(page);
+  assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),2,'the frozen solution stays until Clear');
   assert.equal(await page.evaluate(()=>reviewReads),1);
+  await page.click('#clear-freeze');
+  await page.waitForFunction(()=>document.getElementById('live-preview').dataset.view==='live');
+  assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),0);
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'take-photo');
+  await page.waitForFunction(()=>/Automatic solving is off/.test(document.getElementById('camera-help').textContent));
+  assert.equal(await page.evaluate(()=>reviewReads),2,'Clear reads the grid afresh');
+  assert.equal(await page.evaluate(()=>reviewSolves.length),2,'with automatic solving off nothing is solved');
+  assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),0);
   await page.screenshot({path:`browser-artifacts/${report.browser}-review-camera.png`});
   await page.keyboard.press('Escape');assert.equal(await page.locator('#camera-panel').isVisible(),false);
   assert.equal(await page.evaluate(()=>document.activeElement.id),'camera');
   assert.equal(await page.evaluate(()=>!!document.getElementById('solve').closest('[inert]')),false);
   assert.equal(await page.evaluate(()=>window.__camera.stream.getTracks().every(t=>t.readyState==='ended')),true);
   await page.evaluate(()=>clearInterval(reviewPaint));
-  report.checks.push('real camera UI honours auto-solve off, keeps one OCR reading when toggled, cancels/hides pending and complete solutions, rejects late replies; modal traps focus and restores background/opener on Escape');
+  report.checks.push('real camera UI honours auto-solve off, keeps one OCR reading when toggled, cancels/hides pending solutions, rejects late replies, freezes a solved view until Clear (which is in the tab order and reads afresh); modal traps focus and restores background/opener on Escape');
 }
 async function run() {
   const server = await serve();

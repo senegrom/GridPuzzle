@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createScanDiagnostics } from '../scan-diagnostics.js';
+import { createScanDiagnostics, REASON_LABELS } from '../scan-diagnostics.js';
 import { diagnosticImage } from '../diagnostics-ui.js';
 import { makePuzzle } from '../model.js';
 test('diagnostics export an allowlist, not arbitrary input, photos, notes, answers or stacks',()=>{
@@ -48,4 +48,17 @@ test('diagnostic geometry declares its pixel coordinate space and bounds metadat
  assert.deepEqual(g.corners[2],{x:599,y:799});assert.doesNotMatch(JSON.stringify(g),/PRIVATE/);
  d.geometry({width:NaN,height:Infinity,coordinateSpace:'PRIVATE'});
  assert.equal(d.snapshot().geometry.coordinateSpace,null);assert.equal(d.snapshot().geometry.width,null);
+});
+
+test('the frozen view, Clear and a released camera are reported, and tick times are a bounded window',()=>{
+ let time=0;const d=createScanDiagnostics({now:()=>time});d.begin('live',{});
+ for(const [stage,reason] of [['tracking','frozen'],['complete','frozen'],['tracking','cleared'],['detecting','cleared'],['tracking','camera-released']])
+  d.event({stage,reason});
+ assert.deepEqual(d.snapshot().events.map(e=>`${e.stage}:${e.reason}`),
+  ['tracking:frozen','complete:frozen','tracking:cleared','detecting:cleared','tracking:camera-released']);
+ for(const reason of ['frozen','cleared','camera-released'])assert.equal(typeof REASON_LABELS[reason],'string',reason);
+ for(const ms of [4,8,200000,-1,NaN])d.ticking(ms);
+ const tick=d.snapshot().performance.tick;
+ assert.equal(tick.count,2);assert.equal(tick.maximumMilliseconds,8);assert.equal(tick.p50Milliseconds,4);
+ d.begin('photo',{});assert.equal(d.snapshot().performance.tick.count,0,'a new scan starts a new window');
 });
