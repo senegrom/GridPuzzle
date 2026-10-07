@@ -645,8 +645,15 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       retainedSources: Number(!!raw) + Number(!!pendingCandidate?.image),
       scratchPixels: contentCanvas.width * contentCanvas.height + detectCanvas.width * detectCanvas.height,
       tracking: tracker.stats, scheduling: scheduler.stats, recovery: recovery.stats }; },
-    // The frozen frame is the verified frame of the frozen reading.
-    diagnosticSource() { return { image: raw, verified: view === "frozen" || !!isCurrent(session.anchorFrame) }; },
+    // The frozen frame is the verified frame of the frozen reading. Without an
+    // adopted frame (none yet, or dropped past the stale limit, as while
+    // tracking is paused after failures) the diagnostics get the video's
+    // current frame, unverified and transient: the diagnostics UI releases it
+    // once encoded. The suites' pixel witnesses use adoptedFrame() instead.
+    diagnosticSource() {
+      if (raw) return { image: raw, verified: view === "frozen" || !!isCurrent(session.anchorFrame) };
+      try { return { image: videoFrame(video), verified: false, transient: true }; } catch { return { image: null, verified: false }; }
+    },
     // The adopted snapshot itself (the frame the latest proofs verified, or
     // the frozen frame), or null: the browser suites' witness of the scene the
     // camera has seen, now that the display canvas holds only an outline.

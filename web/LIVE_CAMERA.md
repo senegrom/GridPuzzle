@@ -706,7 +706,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   capture's stored picture on the panel, with that picture's label and counts.
 - `live-camera-recovery.test.js`: settings changes, the detection deadline,
   Start/Stop cycles and retired completions, with a controlled detector, clock
-  and canvas. `solver-handoff.test.js`: the interpreter handoff.
+  and canvas, and the diagnostics' picture while tracking is paused (the
+  video's current frame, unverified; `diagnostic-retirement.test.js` checks
+  that the report releases such a frame once encoded).
+  `solver-handoff.test.js`: the interpreter handoff.
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
   tracking worker and targeted retries; `clue-reread.test.js`: the editor's

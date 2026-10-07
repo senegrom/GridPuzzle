@@ -35,8 +35,9 @@ export function setupDiagnosticsUI({ $, diagnostics, getSource }) {
     }
     function freeze() {
       error.textContent = '';
+      let source = null;
       try {
-        const source = getSource();
+        source = getSource();
         frozen = diagnostics.snapshot();
         frozen.imageDescription = 'Optional current source preview, resized to at most 1600 pixels; not the original file.';
         frozen.readingVerifiedForImage = !!source.verified;
@@ -48,6 +49,9 @@ export function setupDiagnosticsUI({ $, diagnostics, getSource }) {
         const display = { ...frozen, ...(attachment ? {image: {...attachment, dataUrl: '[The image shown below is included in the download]'}} : {}) };
         preview.textContent = JSON.stringify(display, null, 2); preview.hidden = false; download.disabled = false;
       } catch (e) { frozen = null; download.disabled = true; image.removeAttribute('src'); image.hidden = true; error.textContent = e.message; }
+      // A transient source (a frame drawn only for this report) is released
+      // once encoded rather than left to the collector.
+      finally { if (source?.transient && source.image) source.image.width = source.image.height = 0; }
     }
     node('prepare').onclick = () => { include.checked = false; freeze(); };
     include.onchange = freeze;

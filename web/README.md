@@ -210,4 +210,7 @@ attached before downloading. That attachment is a re-encoded source preview,
 limited to 1600 pixels, not the original file or its EXIF metadata. It can still
 show surroundings: review it before sharing. Closing or clearing the preview
 removes the attachment. A report identifies whether its readings were verified
-for the shown image; stale/hidden live readings are not labelled current.
+for the shown image; stale/hidden live readings are not labelled current. In
+the live camera the picture is the frame the latest verification adopted (the
+frozen frame while frozen); without one, as while tracking is paused after
+failures, it is the video's current frame, marked unverified.
