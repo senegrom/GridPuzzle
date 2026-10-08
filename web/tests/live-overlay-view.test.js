@@ -825,6 +825,30 @@ test("while a solved reading waits to freeze the help line keeps the wait's text
   assert.match(h.help, FROZEN);
 });
 
+// By default (the setting off) only the wait for a fresh frame shows the
+// wait's text. A blink meanwhile releases its hold, and the heartbeat forgets
+// the line (the session's last status is then empty). A reading that returns
+// on a fresh frame freezes at once, and the line it keeps is that empty one:
+// keeping it must still hold the session's text for a solution on screen
+// ("Solution preview — check…") off the help line before the frozen text.
+test("by default a solved reading that blinks while it waits for a fresh frame freezes on its return without the session's solution text", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.hold(); await h.advance(700); // The verified frame ages past half a second.
+  const from = h.writes.length;
+  h.solveJobs[0].resolve(unique()); await flush(); await h.advance(100);
+  assert.equal(h.camera.view, "live", "the freeze waits for a fresh frame");
+  assert.equal(h.help, WAITING);
+  h.rejectVerify(true); h.release();
+  assert.ok(await h.until(() => h.view.dataset.recognised === "0", 1000), "a blink hides the reading");
+  await h.advance(300);
+  h.rejectVerify(false);
+  assert.ok(await h.until(() => h.frozen(), 1000), "it returns on a fresh frame and freezes");
+  assert.deepEqual(h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text), [WAITING],
+    "only the wait's text while live");
+  assert.match(h.help, FROZEN);
+});
+
 // Where the outline lands and how it is drawn. Phones deliver portrait frames
 // (3:4 here), whose width and height are easy to swap unnoticed on a square.
 test("on a portrait frame the live outline lies on the verified grid, closed, white, a 500th of the frame wide", async (t) => {
