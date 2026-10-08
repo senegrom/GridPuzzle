@@ -194,6 +194,35 @@ test("with nothing tracked detection gets the snapshot itself; with a grid track
   }
 });
 
+test("the scratch canvases' sizes are assigned only when they change, and each draw starts on a cleared bitmap", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.camera.adoptedFrame()));
+  await h.advance(3000);
+  assert.ok(h.posts.filter((p) => p.op === "verify").length >= 10, "many verifications");
+  assert.ok(h.detections.length >= 3, "several detections");
+  const sizes = (target) => h.on(target).filter((o) => o.op === "width" || o.op === "height").map((o) => `${o.op} ${o.value}`);
+  assert.deepEqual(sizes(h.contentCanvas), ["width 700", "height 700"], "the tracking pixels' canvas: once");
+  assert.deepEqual(sizes(h.detectCanvas), ["width 640", "height 640"], "the detection input: once");
+  // A frame that draws nothing (a video without a picture) must not leave
+  // the previous frame's pixels to verify or detect.
+  for (const target of [h.contentCanvas, h.detectCanvas]) {
+    const mine = h.on(target).filter((o) => o.op === "drawImage" || o.op === "clearRect");
+    assert.ok(mine.filter((o) => o.op === "drawImage").length >= 3);
+    mine.forEach((o, i) => { if (o.op === "drawImage") assert.equal(mine[i - 1]?.op, "clearRect", "a draw on a cleared bitmap"); });
+  }
+  h.camera.stop();
+  assert.deepEqual([h.contentCanvas.width, h.detectCanvas.width], [0, 0], "closing releases them");
+});
+
+test("a new frame shape resizes the detection input once", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(1000);
+  h.video.videoHeight = 525;
+  await h.advance(1000);
+  const sizes = h.on(h.detectCanvas).filter((o) => o.op === "width" || o.op === "height").map((o) => `${o.op} ${o.value}`);
+  assert.deepEqual(sizes, ["width 640", "height 640", "height 480"]);
+});
+
 test("aiming without an adopted frame, the diagnostics get the current frame, unverified and transient", async (t) => {
   const h = simulation(t, { grid: null });
   await h.advance(1000);

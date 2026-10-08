@@ -96,6 +96,18 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = releaseImage;
+  // The scratch canvases keep their bitmap while the frames keep their size:
+  // assigning a size reallocates it, about 5 MB for the tracking pixels. Each
+  // draw then starts from a cleared bitmap, as a fresh one would, so a frame
+  // that draws nothing (a video without a picture) leaves no earlier frame's
+  // pixels to detect or verify.
+  function scratch(canvas, width, height, options) {
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    const ctx = canvas.getContext("2d", options);
+    ctx.clearRect(0, 0, width, height);
+    return ctx;
+  }
   // The newest frame detection looked at, kept only while no frame is
   // adopted: while aiming, frames are sampled only for detection, and none is
   // adopted. A live capture on a stalled feed keeps it, as it keeps `raw`
@@ -120,11 +132,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   const verifyIds = () => ids([pendingCandidate, ...session.proofFrames, session.preview ? null : guideFrame]);
   function contentPixels(image) {
     const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
-    contentCanvas.width = Math.max(2, Math.round(image.width * scale));
-    contentCanvas.height = Math.max(2, Math.round(image.height * scale));
-    const ctx = contentCanvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(image, 0, 0, contentCanvas.width, contentCanvas.height);
-    return ctx.getImageData(0, 0, contentCanvas.width, contentCanvas.height);
+    const width = Math.max(2, Math.round(image.width * scale)), height = Math.max(2, Math.round(image.height * scale));
+    const ctx = scratch(contentCanvas, width, height, { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0, width, height);
+    return ctx.getImageData(0, 0, width, height);
   }
   // Registration, feature extraction and all content checks live exclusively
   // in the worker. A proof is usable only with the pixels shown on the canvas.
@@ -401,8 +412,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     try {
       // Detection copies the pixels synchronously, so one canvas serves every call.
       const small = detectCanvas, scale = Math.min(1, 640 / Math.max(image.width, image.height));
-      small.width = Math.round(image.width * scale); small.height = Math.round(image.height * scale);
-      small.getContext("2d").drawImage(image, 0, 0, small.width, small.height);
+      const width = Math.round(image.width * scale), height = Math.round(image.height * scale);
+      scratch(small, width, height).drawImage(image, 0, 0, width, height);
       // A live frame is read the quick way: the last-resort readings cost
       // more than the interval between frames, and a grid held in front of
       // the camera is found without them.
