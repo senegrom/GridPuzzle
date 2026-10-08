@@ -9,15 +9,15 @@ import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
 
-// The size of a snapshot of the video: scaled uniformly to a long side of at
-// most `maxSide`.
+// The size of a snapshot of the video, scaled uniformly to a long side of at
+// most `maxSide`: the snapshot's own and the one the settings are keyed on.
 function frameSize(video, maxSide = 1600) {
   if (!video.videoWidth || !video.videoHeight) throw Error("The camera is not ready yet.");
   const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
   return [Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale))];
 }
-function videoFrame(video, maxSide = 1600) {
-  const [width, height] = frameSize(video, maxSide), canvas = document.createElement("canvas");
+function videoFrame(video) {
+  const [width, height] = frameSize(video), canvas = document.createElement("canvas");
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
