@@ -69,14 +69,20 @@ jobs:
     # setup-scanner installs, pinned by digest: Chromium, WebKit and their
     # system packages come with it instead of from an apt mirror and
     # Playwright's CDN on every job (apt-get once took 19 of a job's 20
-    # minutes). The image's Ubuntu, 24.04, is also the runners': setup-python
-    # takes Python from the runner's tool cache, built for the runner's
-    # release. Moving to 26.04 is one deliberate change of both, the image's
-    # -resolute variant on ubuntu-26.04 runners, not ubuntu-latest's.
+    # minutes). They run as the runner's user, who owns the checkout, and
+    # with the runner's DejaVu and Lato fonts, which the image lacks: the
+    # suites draw DejaVu, and WebKit's serif and sans-serif are DejaVu.
+    # The image's Ubuntu, 24.04, is also the runners': setup-python takes
+    # Python from the runner's tool cache, built for the runner's release.
+    # Moving to 26.04 is one deliberate change of both, the image's -resolute
+    # variant on ubuntu-26.04 runners, not ubuntu-latest's.
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
-      options: --ipc=host --init
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -137,7 +143,10 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
-      options: --ipc=host --init
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -186,7 +195,10 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
-      options: --ipc=host --init
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
     timeout-minutes: 20
     strategy:
       fail-fast: false

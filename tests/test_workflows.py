@@ -592,18 +592,29 @@ def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
     }
     images = set()
     for name, job in jobs.items():
-        container = re.search(r"^    container:\n      image: (\S+)\n      options: (.+)\n", job, re.M)
+        container = re.search(
+            r"^    container:\n      image: (\S+)\n      options: (.+)\n      volumes:\n((?:        - .+\n)+)", job, re.M
+        )
         assert container, name
-        image, options = container.groups()
+        image, options, volumes = container.groups()
         pinned = re.fullmatch(
             rf"mcr\.microsoft\.com/playwright:v{re.escape(version)}-([a-z]+)@sha256:[0-9a-f]{{64}}", image
         )
         assert pinned, (name, image)
         assert f"\n    runs-on: ubuntu-{_UBUNTU_RELEASES[pinned.group(1)]}\n" in job, name
-        # the host's /dev/shm for the browsers, and an init that reaps orphans
-        assert options.split() == ["--ipc=host", "--init"], (name, options)
+        # the host's /dev/shm for the browsers, an init that reaps orphans,
+        # and the runner's user, who owns the checkout
+        assert options.split() == ["--ipc=host", "--init", "--user", "1001"], (name, options)
+        # the runner's fonts that the image lacks, read-only where the
+        # runner keeps them; setup-scanner fails without them
+        assert volumes.split() == [
+            "-", "/usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro",
+            "-", "/usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro",
+        ], (name, volumes)
         images.add(image)
     assert len(images) == 1, images
+    for family in ("DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono", "Lato"):
+        assert f'"{family}"' in action, family
 
 
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)

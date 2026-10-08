@@ -39,13 +39,17 @@ runs:
     # The image keeps its browsers in /ms-playwright under the revisions of the
     # Playwright version it was built for, which /ms-playwright/.docker-info
     # names. A job without the container, or in an image of another version,
-    # stops here rather than downloading browsers without their system packages.
+    # stops here rather than downloading browsers without their system packages;
+    # so does one without the runner's fonts the jobs mount into it.
     - name: Install repository browser test versions
       shell: bash
       env:
         BROWSERS: ${{ inputs.browsers }}
       run: |
         npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+        for family in "DejaVu Sans" "DejaVu Serif" "DejaVu Sans Mono" "Lato"; do
+          fc-list -q "$family" || { echo "::error::no $family font: mount the runner's fonts into the job's container"; exit 1; }
+        done
         node -e '
           const fs = require("node:fs"), playwright = require("playwright");
           const { version } = require("playwright/package.json");
