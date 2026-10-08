@@ -713,6 +713,18 @@ test("turning the wait on while a solved reading waits for a fresh frame keeps i
   assert.equal(h.counts.reads, 1); assert.equal(h.counts.solves, 1, "one reading, solved once");
 });
 
+// The camera configures the scan's diagnostics with all the settings it
+// reads, also the two that do not identify the reading: from the first frame
+// on, the report records the freeze's wait the scan runs with.
+test("the camera records the freeze's wait with the scan's settings in the diagnostics", async (t) => {
+  const h = simulation(t, { autoSolve: false, freezeWait: true });
+  assert.equal(h.diagnostics.snapshot().settings.freezeWait, undefined, "the harness's begin() leaves it out");
+  await h.advance(200);
+  const { settings } = h.diagnostics.snapshot();
+  assert.equal(settings.freezeWait, true, "the camera's configure() records it");
+  assert.equal(settings.autoSolve, false);
+});
+
 test("the canvas takes the adopted frame's size, so the outline's coordinates are the video's", async (t) => {
   // A canvas element starts at 300 x 150; the frames are 700 x 700.
   const h = simulation(t, { autoSolve: false, viewSize: [300, 150] });
