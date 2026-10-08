@@ -1,0 +1,29 @@
+name: Probe master's scanner setup on Ubuntu 26.04 (temporary)
+# Temporary, for the scanner-setup pull request only: master's setup-scanner,
+# with master's browser cache key, on the release ubuntu-latest becomes from
+# 2026-10-19, as master's live-camera (webkit) job would run there. Removed
+# before the pull request is ready.
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  master-setup-2604:
+    name: master's setup-scanner on ubuntu-26.04 (webkit)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      # master's files at the root, so the cache keys are master's
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 536ccf8368936900b6f5e3b88b64a430c0742cc7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 536ccf8368936900b6f5e3b88b64a430c0742cc7
+          path: old
+      - uses: ./old/.github/actions/setup-scanner
+        with:
+          build: "false"
+          browsers: webkit
+      - name: Launch WebKit as the live-camera suite does
+        run: node -e "require('playwright').webkit.launch({ headless: true }).then(async (browser) => { console.log('webkit', browser.version()); await browser.close(); })"
