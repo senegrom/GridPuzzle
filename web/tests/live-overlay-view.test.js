@@ -978,12 +978,17 @@ test("a solved reading freezes on a verified frame exactly half a second old", a
   h.hold(); await h.advance(30);
   const raw = h.raw(), at = h.created.find((c) => c.canvas === raw).at;
   await h.advance(at + 450 - h.now);
+  const from = h.writes.length;
   h.solveJobs[0].resolve(unique()); await flush();
   assert.equal(h.camera.view, "live", "not rendered yet");
   await h.advance(50); // The pulse at exactly half a second renders it first.
   assert.equal(h.now - at, 500);
   assert.equal(h.camera.view, "frozen", "a frame exactly half a second old is fresh");
   assert.equal(h.raw(), raw);
+  // Fresh for the help line too: it does not ask to hold the grid steady for
+  // a freeze that does not wait.
+  assert.deepEqual(h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text), [],
+    "nothing is written to the help line before the freeze");
 });
 
 test("a solved reading held by a retryable clue freezes exactly three seconds after its first render", async (t) => {
