@@ -2,14 +2,16 @@ name: Set up the scanner suites
 description: >-
   Python 3.14, Node 22, the pinned self-hosted runtime built into _site (or
   one already downloaded, with build set to "false") and the repository's
-  Playwright version with Chromium and WebKit, or the one engine a
-  per-engine job tests. The Playwright version lives here and nowhere else.
+  Playwright version, for a job that runs in that version's Playwright image,
+  which brings Chromium, WebKit and their system packages, so that no job
+  waits on an apt mirror or a browser download. The Playwright version lives
+  here; the scanner jobs' container images name the same version.
 inputs:
   build:
     description: Build _site with scripts/build_web.py ("true"), or expect it to be present already
     default: "true"
   browsers:
-    description: The Playwright browsers to install, space-separated
+    description: The Playwright browsers the job uses, space-separated; each must be in the job's image
     default: "chromium webkit"
 runs:
   using: composite
@@ -30,31 +32,34 @@ runs:
       with:
         path: ~/.npm
         key: scanner-npm-${{ runner.os }}-${{ hashFiles('scripts/build_web.py', '.github/actions/setup-scanner/action.yml') }}
-    # A job that installs one engine keeps its own cache entry: under the
-    # shared key it would stand in for the full set and never be refreshed.
-    - name: Name the browser set
-      id: browsers
-      shell: bash
-      env:
-        BROWSERS: ${{ inputs.browsers }}
-      run: echo "set=$(echo $BROWSERS | tr ' ' '-')" >> "$GITHUB_OUTPUT"
-    - name: Restore Playwright browsers
-      id: browser-cache
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: ~/.cache/ms-playwright
-        key: scanner-playwright-${{ runner.os }}-${{ steps.browsers.outputs.set }}-${{ hashFiles('.github/actions/setup-scanner/action.yml') }}
     - name: Build pinned self-hosted runtime
       shell: bash
       run: |
         if [ "${{ inputs.build }}" = "true" ]; then python scripts/build_web.py; else echo "using the _site already present"; fi
+    # The image keeps its browsers in /ms-playwright under the revisions of the
+    # Playwright version it was built for, which /ms-playwright/.docker-info
+    # names. A job without the container, or in an image of another version,
+    # stops here rather than downloading browsers without their system packages.
     - name: Install repository browser test versions
       shell: bash
       env:
         BROWSERS: ${{ inputs.browsers }}
       run: |
         npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-        npx playwright install --with-deps $BROWSERS
+        node -e '
+          const fs = require("node:fs"), playwright = require("playwright");
+          const { version } = require("playwright/package.json");
+          let image;
+          try { image = JSON.parse(fs.readFileSync("/ms-playwright/.docker-info", "utf8")); }
+          catch { throw new Error(`run this job in the container mcr.microsoft.com/playwright:v${version}-noble`); }
+          if (image.driverVersion !== version) throw new Error(`the container is ${image.dockerImageName}; Playwright is ${version}`);
+          for (const name of process.env.BROWSERS.split(" ").filter(Boolean)) {
+            const executable = playwright[name].executablePath();
+            if (!fs.existsSync(executable)) throw new Error(`${name} is not in ${image.dockerImageName}: ${executable}`);
+            console.log(`${name}: ${executable}`);
+          }
+          console.log(`browsers and their system packages: ${image.dockerImageName}`);
+        '
     # Parallel jobs may race to save the same key; the losers only warn.
     - name: Save npm downloads
       if: steps.npm-cache.outputs.cache-hit != 'true' && inputs.build == 'true'
@@ -62,9 +67,3 @@ runs:
       with:
         path: ~/.npm
         key: ${{ steps.npm-cache.outputs.cache-primary-key }}
-    - name: Save Playwright browsers
-      if: steps.browser-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: ~/.cache/ms-playwright
-        key: ${{ steps.browser-cache.outputs.cache-primary-key }}

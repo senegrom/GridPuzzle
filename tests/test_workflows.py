@@ -564,13 +564,46 @@ def test_every_leg_of_a_matrix_job_uploads_under_its_own_name(name):
             assert upload and "${{ matrix." in upload.group(1), f"{name} {job_id}: {upload and upload.group(1)}"
 
 
-def test_each_browser_set_keeps_its_own_playwright_cache():
-    """A per-engine job installs one browser; under the full set's key its
-    cache would stand in for both and never be refreshed."""
+# The Ubuntu release of each Playwright image variant.
+_UBUNTU_RELEASES = {"noble": "24.04", "resolute": "26.04"}
+
+
+def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
+    """setup-scanner installs nothing with apt: the browsers and their system
+    packages come with the Playwright image, which must be of the version the
+    action installs and pinned by digest. The runners have the image's Ubuntu
+    release, not ubuntu-latest's, since setup-python takes Python from the
+    runner's tool cache, built for the runner's release."""
+    from scripts.check_runtime_pins import playwright_pin
+
     action = (_GITHUB / "actions" / "setup-scanner" / "action.yml").read_text(encoding="utf-8")
-    assert "npx playwright install --with-deps $BROWSERS" in action
-    key = re.search(r"path: ~/\.cache/ms-playwright\n\s+key: (.+)", action).group(1)
-    assert "${{ steps.browsers.outputs.set }}" in key, key
+    version = playwright_pin(action)
+    assert "--with-deps" not in action and "apt-get" not in action and "install-deps" not in action
+    assert "/ms-playwright/.docker-info" in action
+    jobs = {
+        f"{path.name} {job_id}": job
+        for path in sorted((_GITHUB / "workflows").glob("*.yml"))
+        for job_id, job in _jobs(path.read_text(encoding="utf-8")).items()
+        if "uses: ./.github/actions/setup-scanner" in job
+    }
+    assert set(jobs) == {
+        "browser-pages.yml build", "browser-pages.yml live-acceptance", "browser-pages.yml live-camera",
+        "scan-input.yml recognition", "scan-input.yml live",
+    }
+    images = set()
+    for name, job in jobs.items():
+        container = re.search(r"^    container:\n      image: (\S+)\n      options: (.+)\n", job, re.M)
+        assert container, name
+        image, options = container.groups()
+        pinned = re.fullmatch(
+            rf"mcr\.microsoft\.com/playwright:v{re.escape(version)}-([a-z]+)@sha256:[0-9a-f]{{64}}", image
+        )
+        assert pinned, (name, image)
+        assert f"\n    runs-on: ubuntu-{_UBUNTU_RELEASES[pinned.group(1)]}\n" in job, name
+        # the host's /dev/shm for the browsers, and an init that reaps orphans
+        assert options.split() == ["--ipc=host", "--init"], (name, options)
+        images.add(image)
+    assert len(images) == 1, images
 
 
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)
