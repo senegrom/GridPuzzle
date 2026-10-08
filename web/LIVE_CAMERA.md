@@ -644,7 +644,12 @@ delay.
 measurement: painting, the main-thread time of each sampled camera frame
 (`performance.tick`, including the readbacks for detection and tracking it
 starts; a tick that samples nothing is not counted), frame age, tracking
-latency, queue work and the time to the first completed reading.
+latency, queue work and the time to the first completed reading. Frame age
+and tracking latency count the frames sent for verification; while the camera
+aims at nothing none is. Before, every aiming frame counted too, through its
+empty verification: only as old as its own readback, with the tracker's last
+time repeated, so those medians were lower the longer the camera aimed at
+nothing.
 `performance.overlay` shares the live time while a grid is found and tracked
 between its modes: the outline drawn, or nothing over the video (a rejected
 or stalled proof, a tracking failure, a frame of another shape); aiming at
@@ -742,7 +747,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   with the first frame adopted on the new shape, which verifies the grid
   there), and is not resized while that size holds; the first frame adopted
   is the one that verified the candidate; past the stale limit the snapshot
-  and its proofs are dropped and no copy takes their place; `data-delayed` follows the
+  and its proofs are dropped and no copy takes their place; `data-delayed`
+  follows the
   tier of the verified evidence shown, the outline or the reading the legend
   counts (also when a frame of another shape leaves no outline to draw), and
   marks nothing while neither is; a stalled feed
