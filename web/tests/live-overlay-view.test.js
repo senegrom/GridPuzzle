@@ -530,32 +530,36 @@ test("a solved reading on a frame of another shape than the video does not freez
   assert.equal(h.view.dataset.recognised, "0");
 });
 
-test("a solved reading on a frame older than half a second freezes on the next fresh frame", async (t) => {
-  const h = simulation(t, { solve: "deferred" });
-  assert.ok(await h.until(() => h.solveJobs.length === 1));
-  h.hold(); await h.advance(700);
-  h.solveJobs[0].resolve(unique()); await flush(); await h.advance(300);
-  assert.equal(h.camera.view, "live", "no freeze on a frame a second old");
-  assert.equal(h.view.dataset.solution, "0", "and no solution over the live video");
-  assert.equal(h.help, WAITING);
-  assert.deepEqual(h.on(h.view).filter((o) => o.op === "fillText"), []);
-  const old = h.raw();
-  h.release(); // That old reply, then one for the latest frame.
-  assert.ok(await h.until(() => h.frozen(), 300));
-  assert.notEqual(h.raw(), old, "frozen on the fresh frame");
-  assert.equal(h.on(h.view).filter((o) => o.op === "drawImage").at(-1).source, h.raw());
-  assert.match(h.help, FROZEN);
-});
+// The wait for a fresh frame is about which picture freezes, not about the
+// clues: it holds whatever the setting for clearer clues says.
+for (const [freezeWait, setting] of [[undefined, "the wait for clearer clues off, the default"], [true, "the wait for clearer clues on"]]) {
+  test(`a solved reading on a frame older than half a second freezes on the next fresh frame (${setting})`, async (t) => {
+    const h = simulation(t, { solve: "deferred", freezeWait });
+    assert.ok(await h.until(() => h.solveJobs.length === 1));
+    h.hold(); await h.advance(700);
+    h.solveJobs[0].resolve(unique()); await flush(); await h.advance(300);
+    assert.equal(h.camera.view, "live", "no freeze on a frame a second old");
+    assert.equal(h.view.dataset.solution, "0", "and no solution over the live video");
+    assert.equal(h.help, WAITING);
+    assert.deepEqual(h.on(h.view).filter((o) => o.op === "fillText"), []);
+    const old = h.raw();
+    h.release(); // That old reply, then one for the latest frame.
+    assert.ok(await h.until(() => h.frozen(), 300));
+    assert.notEqual(h.raw(), old, "frozen on the fresh frame");
+    assert.equal(h.on(h.view).filter((o) => o.op === "drawImage").at(-1).source, h.raw());
+    assert.match(h.help, FROZEN);
+  });
 
-test("with every verified frame older than half a second the freeze comes three seconds after the solution", async (t) => {
-  const h = simulation(t, { replyMs: 600 });
-  assert.ok(await h.until(() => h.help === WAITING, 15000));
-  const since = h.now;
-  assert.ok(await h.until(() => h.frozen(), 4000));
-  const waited = h.now - since;
-  assert.ok(waited >= 2800 && waited <= 3200, `froze ${waited} ms after the solution was first rendered`);
-  assert.equal(h.view.dataset.solution, "12");
-});
+  test(`with every verified frame older than half a second the freeze comes three seconds after the solution (${setting})`, async (t) => {
+    const h = simulation(t, { replyMs: 600, freezeWait });
+    assert.ok(await h.until(() => h.help === WAITING, 15000));
+    const since = h.now;
+    assert.ok(await h.until(() => h.frozen(), 4000));
+    const waited = h.now - since;
+    assert.ok(waited >= 2800 && waited <= 3200, `froze ${waited} ms after the solution was first rendered`);
+    assert.equal(h.view.dataset.solution, "12");
+  });
+}
 
 // Targeted retries need a clearer view of the uncertain cell: the n-th
 // detection reports it ever sharper. A retry reads the same value.
