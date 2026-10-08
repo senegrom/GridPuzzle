@@ -130,7 +130,8 @@ all. "The freeze's wait, off by default and on through its checkbox" came
 later still: a solve with the box as installed, two page loads, a solve on a
 cold interpreter and the three-second wait. Without its first solve it took
 5.3 to 9.5 s in three local Chromium runs (2026-10-08), where the whole suite
-took 65 to 99 s; with it, 10.8 s in a run whose whole suite took 75 s.
+took 65 to 99 s; with it, 7.2 to 10.8 s in three runs whose whole suite took
+68 to 86 s.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
