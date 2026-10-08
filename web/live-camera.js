@@ -286,6 +286,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     guide = displayed?.corners || (guideFrame && isCurrent(guideFrame)?.corners) || null;
     if (raw && aspectMatches() && (shutter ? solvedPreview(displayed) : readyToFreeze())) { freezeNow(); return; }
     const mode = guide && aspectMatches() ? "outline" : "none";
+    // How long a found grid shows its outline over the live video, and how
+    // long nothing (performance.overlay); aiming at nothing does not count.
+    diagnostics?.overlay?.(session.anchorFrame || guideFrame ? mode : null);
     // The evidence's tier, as data-delayed and in the label; only an outline
     // or a reading makes it matter.
     const delayed = !!(guide || displayed) && delayedTier();
@@ -393,6 +396,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     dropProofs(); guideFrame = null; lastPaint = null; solvedReading = null;
     session.invalidate("frozen"); // The OCR engine and an idle interpreter are kept.
     canvas.setAttribute?.("data-view", "frozen");
+    diagnostics?.overlay?.(null);
     diagnostics?.event({ stage: "complete", reason: "frozen" });
     say(FROZEN_HELP);
     updateRestartControl();
@@ -659,7 +663,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // The canvas may still carry a frozen or captured picture's state and
     // label from the session before (closed, or saved and scanned again).
     start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
-    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); dropScanned(); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
+    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); dropScanned(); diagnostics?.overlay?.(null); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from
     // nothing. The OCR engine, the geometry workers and an idle interpreter

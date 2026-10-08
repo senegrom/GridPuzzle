@@ -604,6 +604,11 @@ test("diagnostics: the frozen frame is the verified source, and the freeze and C
   assert.equal(h.diagnostics.snapshot().reason, "frozen");
   const tick = h.diagnostics.snapshot().performance.tick;
   assert.ok(tick.count > 0 && tick.meanMilliseconds >= 0, "main-thread time per sampled frame");
+  // The frozen view is not live: its time counts in no overlay mode.
+  const overlay = h.diagnostics.snapshot().performance.overlay.milliseconds;
+  assert.ok(overlay > 0, "the live time before the freeze counts");
+  await h.advance(2000);
+  assert.equal(h.diagnostics.snapshot().performance.overlay.milliseconds, overlay, "the frozen time does not");
   h.camera.resume();
   assert.ok(events().includes("tracking:cleared"), events().join(" "));
   assert.equal(events().at(-1), "detecting:cleared");

@@ -356,6 +356,44 @@ test("with automatic reading paused, the outline returns after a stall only with
   assert.ok(await h.until(() => h.view.dataset.overlay === "outline", 1000), "the newly verified frame does");
 });
 
+// performance.overlay: while a grid is found and tracked over the live video,
+// the share of the time its outline is drawn and the share with nothing over
+// the video: here the grid out of view while its reading is kept (detection
+// finds none, so no guide is left). Aiming at nothing and a closed camera do
+// not count.
+test("the diagnostics share a found grid's live time between its outline and nothing", async (t) => {
+  const h = simulation(t, { grid: null });
+  const overlay = () => h.diagnostics.snapshot().performance.overlay;
+  await h.advance(2000);
+  assert.equal(overlay().milliseconds, 0, "aiming at nothing does not count");
+  h.aim([120, 110]);
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
+  const found = h.now;
+  await h.advance(1500);
+  h.aim(null); await h.advance(1500);
+  assert.equal(h.view.dataset.overlay, "none");
+  assert.ok(h.reasons().includes("no-grid") && !h.reasons().includes("grid-lost"), "the reading is kept, the grid not found");
+  const share = overlay();
+  assert.ok(Math.abs(share.milliseconds - (h.now - found)) <= 110, `${share.milliseconds} ms counted of ${h.now - found}`);
+  assert.ok(share.percent.outline >= 40 && share.percent.outline <= 60, `outline ${share.percent.outline} %`);
+  assert.ok(share.percent.none >= 40 && share.percent.none <= 60, `none ${share.percent.none} %`);
+  h.camera.stop();
+  const closed = overlay().milliseconds;
+  await h.advance(1000);
+  assert.equal(overlay().milliseconds, closed, "a closed camera does not count");
+});
+
+// A guide without a reading (here automatic reading paused; also a frame
+// with a quality warning) shows the outline too, and counts.
+test("the diagnostics count a guide's outline without a reading", async (t) => {
+  const h = simulation(t, { settings: { enabled: false } });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
+  await h.advance(1000);
+  const share = h.diagnostics.snapshot().performance.overlay;
+  assert.ok(share.milliseconds >= 900, `${share.milliseconds} ms`);
+  assert.equal(share.percent.outline, 100);
+});
+
 // A camera that has delivered no frame since it started is not a stalled feed:
 // it says so itself, and no video-stalled diagnostic is recorded.
 test("a camera that delivers no frame holds its own message and reports no stalled feed", async (t) => {
