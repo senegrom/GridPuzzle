@@ -63,7 +63,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the freeze's wait for clearer clues ticked through its checkbox (saved, restored, three seconds held with its text), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker, transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it | `live-acceptance` |
@@ -126,10 +126,11 @@ again, a second live solve and a frozen shutter) and "320 px" (a third live
 solve on a 320 × 568 screen). The table predates them; two local Chromium
 runs on a shared Windows host took 5.5 to 8.9, 2.0 to 5.9 and 1.3 to 2.9 s for
 the three, where "live solve" took 5.2 to 5.6 s; the second run took 84 s in
-all. "The freeze's wait, on through its checkbox" came later still: two page
-loads, a solve on a cold interpreter and the three-second wait, 5.3 to 9.5 s
-in three local Chromium runs (2026-10-08), where the whole suite took 65 to
-99 s.
+all. "The freeze's wait, off by default and on through its checkbox" came
+later still: a solve with the box as installed, two page loads, a solve on a
+cold interpreter and the three-second wait. Without its first solve it took
+5.3 to 9.5 s in three local Chromium runs (2026-10-08), where the whole suite
+took 65 to 99 s; with it, 10.8 s in a run whose whole suite took 75 s.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own

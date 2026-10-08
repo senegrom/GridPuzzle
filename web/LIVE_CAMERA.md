@@ -719,22 +719,27 @@ Unit tests (`node --test web/tests/*.test.js`):
   render, and on during a wait for a fresh frame keeps the reading waiting for
   the retries, either way on the same reading, with nothing started over.
   While the freeze waits the help line holds only the wait's text, also across
-  a blink, and with the setting on a reading with nothing to retry is not
-  held. A live capture keeps a
+  a blink, with the setting off as on (a reading that blinks while it waits
+  for a fresh frame freezes on its return without the session's text for a
+  solution on screen), and with the setting on a reading with nothing to retry
+  is not held. A live capture keeps a
   fresh verified frame with its reading, outline and bar but no solution, and
   otherwise the frame on screen without a reading, or the last frame scanned
   while no frame is presented; while a solution waits to
   freeze, the shutter freezes it on its own frame, also one older than half a
   second, and saves it with the solution; right after Clear it waits until a
   frame reported after Clear was scanned, in that camera session only. A frame
-  exactly half a second old is fresh, for the capture and the freeze, and the
-  freeze's wait ends at exactly three seconds.
+  exactly half a second old is fresh, for the capture, the freeze and the help
+  line, which then says nothing about a wait, and the freeze's wait ends at
+  exactly three seconds. From its first frame the camera records the setting
+  with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
   stands) and the counted status without automatic solving, and
   `photo-flow.test.js` the shutter drawing a live capture's stored picture on
   the panel, with that picture's label and counts, and the camera reading the
   freeze's wait from its checkbox at every call, which the diagnostics record
-  with the scan's settings (`diagnostic-report.test.js`: as a boolean only).
+  with the scan's settings, each box from itself (`diagnostic-report.test.js`:
+  as a boolean only).
   `app.test.js` pins the checkbox's place after automatic solving, unticked,
   and runs app.js's own code to save and restore it with its neighbours.
 - `live-camera-recovery.test.js`: settings changes (a change of automatic
@@ -766,9 +771,10 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   unchanged, the chip's contrast), a live capture without automatic solving
   (the playing video, the outline and the legend counts; a fresh verified frame
   stored with its reading and shown exactly as stored), the freeze's wait for
-  clearer clues ticked through its checkbox (saved, restored after a reload,
-  recorded in the diagnostics, and holding a solved reading with a retryable
-  yellow clue for three seconds with the wait's text), Clear without a new
+  clearer clues, off by default (a solved reading with a retryable yellow clue
+  freezes without waiting for its retries) and ticked through its checkbox
+  (saved, restored after a reload, recorded in the diagnostics, and holding
+  the same reading for three seconds with the wait's text), Clear without a new
   getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and
