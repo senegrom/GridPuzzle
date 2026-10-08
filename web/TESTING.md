@@ -126,7 +126,10 @@ again, a second live solve and a frozen shutter) and "320 px" (a third live
 solve on a 320 × 568 screen). The table predates them; two local Chromium
 runs on a shared Windows host took 5.5 to 8.9, 2.0 to 5.9 and 1.3 to 2.9 s for
 the three, where "live solve" took 5.2 to 5.6 s; the second run took 84 s in
-all.
+all. "The freeze's wait, on through its checkbox" came later still: two page
+loads, a solve on a cold interpreter and the three-second wait, 5.3 to 9.5 s
+in three local Chromium runs (2026-10-08), where the whole suite took 65 to
+99 s.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
