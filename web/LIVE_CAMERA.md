@@ -77,26 +77,41 @@ chip. Nothing moves or blinks any more, and **Save picture** stores exactly
 that picture. The freeze paints the one camera frame the canvas shows while
 the camera runs, on the frame the solution was verified on, never on a later
 one; a solution that arrives while the grid does not verify freezes only once
-a newer frame verifies it. It waits for at most three seconds from the first
-render that shows the reading solved: until the verified frame is at most half
-a second old, so the still does not jump back to a framing the user has left
-(a slow phone spends much of its time on older frames), and until no automatic
-retry of a yellow clue may still change the reading. A retry needs a clearer
-frame of that clue, so with the phone held still on one view, a reading with a
-retryable yellow clue freezes only after the full three seconds. Meanwhile no
-solution is shown and the help line says "Solution found — hold the grid
-steady for a moment…", from the moment the solved reading is published, also
-when it returns after a blink; Save picture ends the wait, freezing the view
-at once on the solution's own frame, whatever its age, and saving that
-picture: no retry can run after the shutter. The three seconds belong to the
-reading's own frame: a
-blink of the grid, a merged retry or a new solve keep them running, and only a
-new full reading starts them again. Freezing ends all frame work: no frame is
-sampled, and no detection, tracking, OCR, retry or solve runs, while replies
-already in flight are fenced and dropped. Before, a solved view kept sampling
-about four frames a second; every measured blink of the solution, and both
-measured captures that missed one (2 of 22 solved runs), happened in that
-phase.
+a newer frame verifies it. It waits for a verified frame at most half a second
+old, so the still does not jump back to a framing the user has left (a slow
+phone spends much of its time on older frames), for at most three seconds from
+the first render that shows the reading solved.
+
+**Wait up to 3 s for clearer clues before freezing** (in Grid size &
+settings, after automatic solving; off by default) adds a second wait within
+the same three seconds: until no automatic retry of a yellow clue may still
+change the reading. A retry needs a clearer frame of that clue, so with the
+phone held still on one view, a reading with a retryable yellow clue then
+freezes only after the full three seconds; with the setting off it freezes on
+the first fresh verified frame, as before this wait existed, its yellow clue
+flagged in the picture. In every measured run the wait only delayed the freeze,
+so it is off until the comparison on the iPhone decides. The camera reads the
+setting at every freeze decision and keeps it out of the reading's identity,
+as it does automatic solving, so changing it while the camera runs applies to
+the reading on screen and resets nothing. Without automatic solving nothing
+freezes and the setting has no effect; it stays enabled, so it can be set
+beforehand.
+
+While the freeze waits, no solution is shown and the help line says "Solution
+found — hold the grid steady for a moment…", from the moment the solved
+reading is published, also when it returns after a blink. A reading that
+freezes at the next render, a tenth of a second later at most, leaves the help
+line as it stands until the frozen help replaces it. Save picture ends any
+wait, freezing the view at once on the solution's own frame, whatever its age,
+and saving that picture: no retry can run after the shutter. The three seconds
+belong to the reading's own frame: a blink of the grid, a merged retry or a
+new solve keep them running, and only a new full reading starts them again.
+
+Freezing ends all frame work: no frame is sampled, and no detection,
+tracking, OCR, retry or solve runs, while replies already in flight are fenced
+and dropped. Before, a solved view kept sampling about four frames a second;
+every measured blink of the solution, and both measured captures that missed
+one (2 of 22 solved runs), happened in that phase.
 
 The camera stays on while frozen, as the user chose: no timer turns it off, so
 the camera indicator stays on and the phone does not lock itself while frozen
@@ -144,11 +159,12 @@ view stays with the reason (a refused permission in plain words), and Save
 picture still works.
 
 Freezing has a price. A solution is not improved after the freeze: the
-targeted retries of yellow clues get the three seconds before it and end with
-it. A change on the paper is not noticed until Clear, and a setting changed
-while frozen takes effect after Clear. A unique solution built on a misread
-yellow clue freezes too: the yellow flag stays in the picture and in review,
-and Clear reads the view again from scratch.
+targeted retries of yellow clues end with it, and only with the freeze's wait
+on do they get up to three seconds before it. A change on the paper is not
+noticed until Clear, and a setting changed while frozen takes effect after
+Clear. A unique solution built on a misread yellow clue freezes too: the
+yellow flag stays in the picture and in review, and Clear reads the view again
+from scratch.
 
 ### Warm workers
 
@@ -501,8 +517,9 @@ or sub-noise marks remain heuristic.
 ### Reading again
 
 Once a complete unique solution is shown, the view is frozen and nothing is
-read again until Clear; before that, during the freeze's wait of at most three
-seconds, targeted retries and a re-read of a much sharper frame can still run.
+read again until Clear; before that, while the freeze waits (at most three
+seconds, for a fresh frame or, with the setting for clearer clues on, for a
+retry), targeted retries and a re-read of a much sharper frame can still run.
 A complete reading without automatic solving is not read
 again until the picture or the settings change, or autofocus yields a
 substantially sharper frame. An unresolved scene retries with a doubling
@@ -693,10 +710,17 @@ Unit tests (`node --test web/tests/*.test.js`):
   counts (also when a frame of another shape leaves no outline to draw), and
   marks nothing while neither is; a stalled feed
   with no adopted frame still offers Restart. The freeze
-  waits for a fresh frame and for the retries of a marked yellow clue, for at
-  most three seconds counted from the first solved render across a blink, and
-  a yellow clue no retry can read does not hold it; meanwhile the help line
-  holds only the wait's text, also across a blink. A live capture keeps a
+  waits for a fresh frame whatever the setting, and with the setting for
+  clearer clues on for the retries of a marked yellow clue, for at most three
+  seconds counted from the first solved render across a blink; a yellow clue
+  no retry can read does not hold it, nor by default (the setting off) does a
+  retryable one, which then freezes on the next render with nothing written to
+  the help line. Turning the setting off during the wait freezes at the next
+  render, and on during a wait for a fresh frame keeps the reading waiting for
+  the retries, either way on the same reading, with nothing started over.
+  While the freeze waits the help line holds only the wait's text, also across
+  a blink, and with the setting on a reading with nothing to retry is not
+  held. A live capture keeps a
   fresh verified frame with its reading, outline and bar but no solution, and
   otherwise the frame on screen without a reading, or the last frame scanned
   while no frame is presented; while a solution waits to
@@ -705,14 +729,21 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame reported after Clear was scanned, in that camera session only. A frame
   exactly half a second old is fresh, for the capture and the freeze, and the
   freeze's wait ends at exactly three seconds.
-  `live-session.test.js` covers `refining` and the counted status without
-  automatic solving, and `photo-flow.test.js` the shutter drawing a live
-  capture's stored picture on the panel, with that picture's label and counts.
-- `live-camera-recovery.test.js`: settings changes, the detection deadline,
-  Start/Stop cycles and retired completions, with a controlled detector, clock
-  and canvas, and the diagnostics' picture while tracking is paused (the
-  video's current frame, unverified; `diagnostic-retirement.test.js` checks
-  that the report releases such a frame once encoded).
+  `live-session.test.js` covers `refining`, `keep` (the line held as it
+  stands) and the counted status without automatic solving, and
+  `photo-flow.test.js` the shutter drawing a live capture's stored picture on
+  the panel, with that picture's label and counts, and the camera reading the
+  freeze's wait from its checkbox at every call, which the diagnostics record
+  with the scan's settings (`diagnostic-report.test.js`: as a boolean only).
+  `app.test.js` pins the checkbox's place after automatic solving, unticked,
+  and runs app.js's own code to save and restore it with its neighbours.
+- `live-camera-recovery.test.js`: settings changes (a change of automatic
+  solving or the freeze's wait leaves a pending detection alone), the
+  detection deadline, Start/Stop cycles and retired completions, with a
+  controlled detector, clock and canvas, and the diagnostics' picture while
+  tracking is paused (the video's current frame, unverified;
+  `diagnostic-retirement.test.js` checks that the report releases such a frame
+  once encoded).
   `solver-handoff.test.js`: the interpreter handoff.
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
@@ -734,7 +765,10 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   behind the still and attached, the camera track still on, the picture
   unchanged, the chip's contrast), a live capture without automatic solving
   (the playing video, the outline and the legend counts; a fresh verified frame
-  stored with its reading and shown exactly as stored), Clear without a new
+  stored with its reading and shown exactly as stored), the freeze's wait for
+  clearer clues ticked through its checkbox (saved, restored after a reload,
+  recorded in the diagnostics, and holding a solved reading with a retryable
+  yellow clue for three seconds with the wait's text), Clear without a new
   getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and
