@@ -32,14 +32,16 @@ export function overlayCells(found, result = null) {
 
 // Why a reading cannot carry a solution preview yet, or null when it can. The
 // message names the actual obstacle instead of blaming red cells for everything.
-const UNREAD = "Red ? cells are printed marks that could not be read. Move closer for a clearer read.";
+// The live video shows no clue digits, so the cells meant are named by the
+// legend entry that counts them, not by a colour on screen.
+const UNREAD = "Some printed marks could not be read (unread clue ? in the legend). Move closer for a clearer read.";
 export function previewBlocker(found) {
   try {
     const p = found.puzzle;
     checkSolveReady(p);
     if (!p.cells.some(Number.isInteger) && !p.cages.length && !p.clues.length && !p.inequalities.length)
       return "No printed clues were read yet. Move closer for a clearer read.";
-    if (conflicts(p).size) return "Conflicting readings (yellow) must be corrected before a solution can be shown.";
+    if (conflicts(p).size) return "Conflicting readings (uncertain ? in the legend) must be corrected before a solution can be shown.";
     const marked = new Set(found.markedCells ?? []);
     for (const cell of Array.isArray(found.markedCells) ? [] : found.cellUncertain ?? found.uncertain ?? [])
       if (p.cells[cell] === null) return UNREAD;
@@ -48,6 +50,27 @@ export function previewBlocker(found) {
   } catch (error) {
     return `${error?.message || "The readings are incomplete."} Check the readings and the puzzle type.`;
   }
+}
+
+// The grid outline: over live video the latest verified proof's, in the frozen
+// and captured pictures their reading's. White and `line` wide, by default two
+// pixels or a 500th of the frame's `width`; a dark `halo` that wide on either
+// side keeps it visible on white paper.
+export function drawGuide(ctx, corners, width, { line = Math.max(2, width / 500), halo = 0 } = {}) {
+  ctx.beginPath(); corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+  if (halo > 0) { ctx.strokeStyle = "#101820b3"; ctx.lineWidth = line + 2 * halo; ctx.stroke(); }
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = line; ctx.stroke();
+}
+
+// The bar of a frozen or captured picture, kept in the saved PNG: PREVIEW and
+// the meaning of the colours. Live video gets none.
+export function drawPreviewBar(ctx, width, height) {
+  const font = Math.max(13, Math.round(width / 55)), bar = font * 2.1;
+  ctx.fillStyle = "#101820e8"; ctx.fillRect(0, height - bar, width, bar);
+  ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#fff"; ctx.fillText("PREVIEW", font * .6, height - bar / 2);
+  const labels = [["recognised", "Read"], ["uncertain", "Check ?"], ["unknown", "Unread ?"], ["solution", "Solution"]];
+  labels.forEach(([kind, label], i) => { ctx.fillStyle = SCAN_COLOURS[kind]; ctx.fillText(label, width * (.18 + i * .205), height - bar / 2); });
 }
 
 export function drawLiveOverlay(ctx, width, height, corners, found, result = null) {

@@ -91,12 +91,16 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false, video = null, makeLive = null } = {}) {
   const { setupPhotoFlow } = await import("../photo-flow.js");
   const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
-  let flow = null, diagnostics = null;
+  let flow = null, diagnostics = null, liveOptions = null;
   t.after(() => flow?.stopCamera()); // Before the globals go: it clears the page's timers.
+  // A node's 2D context records what is drawn into it.
   const $ = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
-      setAttribute(name, value) { this.attributes[name] = value; },
-      focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => ({ clearRect() {} }) });
+    if (!nodes.has(id)) {
+      const context = { draws: [], clearRect() {}, drawImage(source) { this.draws.push(source); } };
+      nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
+        setAttribute(name, value) { this.attributes[name] = value; },
+        focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => context });
+    }
     return nodes.get(id);
   };
   for (const key of ["navigator", "document"]) {
@@ -148,7 +152,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     $, state: {}, scanner: {}, stopTask() {}, status: (...args) => statuses.push(args),
     savePicture: async (annotated, createdAt) => { saved.push({ annotated, createdAt }); return true; },
     liveFactory: (options) => {
-      diagnostics = options.diagnostics;
+      diagnostics = options.diagnostics; liveOptions = options;
       const live = makeLive ? makeLive(options) : { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
         start() { liveStarted++; }, stop() { liveStopped++; }, capture: () => capture,
         resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; options.onViewChange?.("live"); },
@@ -158,7 +162,7 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
     },
   });
   return { $, flow, statuses, listeners, track: tracks[0], tracks, saved, stream, playedOn,
-    get live() { return lives.at(-1); }, get diagnostics() { return diagnostics; },
+    get live() { return lives.at(-1); }, get diagnostics() { return diagnostics; }, get liveOptions() { return liveOptions; },
     get liveStarted() { return liveStarted; }, get liveStopped() { return liveStopped; },
     get requests() { return requests; }, refuse(error) { refusal = error; },
     holdRequests() { gate = deferred(); return gate; },
@@ -223,6 +227,33 @@ test("Escape closes the full-screen camera and returns focus to its opener", asy
   h.listeners.keydown({ key: "Escape", preventDefault() {} });
   assert.equal(h.$("camera").focused, 1, "Escape with the panel closed is not ours");
 });
+
+// "Wait up to 3 s for clearer clues before freezing" (#freeze-wait): the
+// camera reads the box at each call, so a change applies to the reading on
+// screen, off unless ticked; the diagnostics record it with the live scan's
+// settings, as they record automatic solving.
+test("the live camera takes the freeze's wait from its checkbox, off unless ticked", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick();
+  const settings = h.liveOptions.getSettings;
+  assert.equal(settings().freezeWait, false, "an unticked box");
+  assert.equal(h.diagnostics.snapshot().settings.freezeWait, false, "recorded with the scan's settings");
+  h.$("freeze-wait").checked = true;
+  assert.equal(settings().freezeWait, true, "read at each call");
+  h.$("freeze-wait").checked = false;
+  assert.equal(settings().freezeWait, false);
+});
+// The two boxes ticked differently, so neither can be recorded from the other.
+for (const [freezeWait, autoSolve] of [[true, false], [false, true]])
+  test(`a camera opened with the freeze's wait ${freezeWait ? "ticked" : "unticked"} and automatic solving ${autoSolve ? "on" : "off"} records each from its own box`, async (t) => {
+    const h = await cameraHarness(t);
+    h.$("freeze-wait").checked = freezeWait; h.$("auto-solve").checked = autoSolve;
+    await h.$("camera").onclick();
+    assert.equal(h.liveOptions.getSettings().freezeWait, freezeWait);
+    const { settings } = h.diagnostics.snapshot();
+    assert.equal(settings.freezeWait, freezeWait, "the diagnostics record the freeze's wait from its box");
+    assert.equal(settings.autoSolve, autoSolve, "and automatic solving from its own");
+  });
 
 // --- photo-flow: the frozen solution and Clear --------------------------
 test("freezing pauses the video but keeps the camera on; Clear plays it again before scanning resumes", async (t) => {
@@ -713,6 +744,55 @@ test("the shutter while frozen shows the captured picture", async (t) => {
   assert.equal(h.$("live-preview").attributes["data-view"], "captured", "the canvas holds the stored picture");
   assert.equal(h.$("clear-freeze").hidden, true);
   assert.equal(h.$("retake-photo").hidden, false); assert.equal(h.track.stopped, 1);
+});
+
+// While live the screen shows the video, with at most an outline on the
+// canvas: the shutter draws the stored picture there, so the panel shows
+// exactly what is saved. A frozen capture is the canvas already.
+test("a live shutter shows the stored picture on the canvas", async (t) => {
+  const picture = { photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 2, frozen: false };
+  const h = await cameraHarness(t, { capture: picture });
+  await h.$("camera").onclick();
+  const view = h.$("live-preview");
+  view.width = 700; view.height = 700;
+  await h.$("take-photo").onclick(); await tick();
+  assert.deepEqual(view.getContext("2d").draws, [picture.annotated]);
+  assert.deepEqual([view.width, view.height], [640, 480], "at the picture's own size");
+  assert.equal(view.attributes["data-view"], "captured"); assert.equal(view.attributes["data-overlay"], "composition");
+  assert.equal(h.saved.length, 1); assert.equal(h.saved[0].annotated, picture.annotated, "the picture shown is the one stored");
+  assert.equal(h.$("camera-panel").attributes["data-view"], "captured");
+});
+
+// The live view's label and counts described an outline and a reading; the
+// stored picture replaces them with its own, which may have none.
+test("a live shutter labels and counts the stored picture, with or without a reading", async (t) => {
+  const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells = [1, 2, 3, 4, ...Array(12).fill(null)];
+  const found = { puzzle, cellUncertain: [1], markedCells: [0, 1, 2, 3, 5], notes: [] };
+  const reading = { photo: {}, annotated: { width: 640, height: 480 }, found, corners: [], createdAt: 4, frozen: false };
+  const h = await cameraHarness(t, { capture: reading });
+  await h.$("camera").onclick();
+  const view = h.$("live-preview");
+  for (const [key, value] of Object.entries({ "aria-label": "Live camera. Grid outline shown; reading: 9 recognised, 0 uncertain, 0 unread clues.",
+    "data-recognised": "9", "data-uncertain": "0", "data-unknown": "0", "data-delayed": "1" })) view.setAttribute(key, value);
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(view.attributes["aria-label"], "Saved picture: 3 recognised, 1 uncertain, 1 unread clues. Live results are not confirmed.");
+  assert.deepEqual(["recognised", "uncertain", "unknown", "solution", "delayed"].map((key) => view.attributes[`data-${key}`]), ["3", "1", "1", "0", "0"]);
+  await h.$("retake-photo").onclick();
+  h.live.capture = () => ({ photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 5, frozen: false });
+  view.setAttribute("data-recognised", "9");
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(view.attributes["aria-label"], "Saved picture without a reading. Crop and read it in the editor.");
+  assert.equal(view.attributes["data-recognised"], "0");
+});
+
+test("a frozen shutter draws nothing: the canvas already holds the stored picture", async (t) => {
+  const picture = { photo: {}, annotated: { width: 640, height: 480 }, found: null, corners: null, createdAt: 3, frozen: true };
+  const h = await cameraHarness(t, { capture: picture });
+  await h.$("camera").onclick(); h.live.freeze();
+  await h.$("take-photo").onclick(); await tick();
+  assert.deepEqual(h.$("live-preview").getContext("2d").draws, []);
+  assert.equal(h.$("live-preview").attributes["data-overlay"], "composition");
+  assert.equal(h.saved[0].annotated, picture.annotated);
 });
 
 test("a resumed stream that delivers no frame for three seconds offers Start preview", async (t) => {

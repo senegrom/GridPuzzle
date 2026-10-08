@@ -12,9 +12,9 @@ function deferred() {
 }
 function harness(t, solver = { solve: async () => null, cancel() {} }, initial = {}) {
   let time = 0, serial = 0, cancellations = 0, frozenTime = null;
-  const timers = new Map(), detections = [], readings = [], nodes = new Map(), renders = [], texts = [];
+  const timers = new Map(), detections = [], readings = [], nodes = new Map(), renders = [], texts = [], draws = [];
   const previous = globalThis.document;
-  const context = { drawImage() {}, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
+  const context = { drawImage(source) { draws.push({ source }); }, clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
     fillRect() {}, fillText(text) { texts.push(text); }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
     getImageData: (_x, _y, width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(180) }) };
   const canvas = () => ({ width: 700, height: 700, dataset: {}, attributes: {}, getContext: () => context, setAttribute(name, value) { this.attributes[name] = value; } });
@@ -35,7 +35,8 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
       hold ? new Promise(resolve => held.push({ task, at: time, resolve, result: () => core.run({ ...task, op: 'verify' }) })) : Promise.resolve(core.run({ ...task, op: 'verify' })),
     reset() { core = createTrackingCore(); },
   };
-  const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } }, canvas: view,
+  const video = { videoWidth: 700, videoHeight: 700, get currentTime() { return frozenTime ?? time / 1000; } };
+  const camera = createLiveCamera({ tracker, $, diagnostics: { event() {}, configure() {}, geometry() {}, tracking() {}, scheduling() {}, rendering: v => renders.push(v) }, video, canvas: view,
     getSettings: () => ({ ...settings }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() { cancellations++; } },
     reader: { read() { const job = deferred(); readings.push(job); return job.promise; }, cancel() {} },
@@ -60,7 +61,7 @@ function harness(t, solver = { solve: async () => null, cancel() {} }, initial =
   }
   t.after(() => { camera.stop(); globalThis.document = previous; });
   camera.start();
-  return { get now() { return time; }, camera, timers, detections, readings, settings, advance, result, $, renders, view, texts, writes, failTracking(v) { trackingError=v; }, rejectVerify(v) { rejectAll = v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
+  return { get now() { return time; }, camera, timers, detections, readings, settings, advance, result, $, renders, view, video, texts, draws, writes, failTracking(v) { trackingError=v; }, rejectVerify(v) { rejectAll = v; }, stall() { frozenTime = time / 1000; }, resume() { frozenTime = null; }, holdTracking(value) { hold = value; }, held, get cancellations() { return cancellations; } };
 }
 
 test("changing live settings immediately replaces a pending grid detection", async (t) => {
@@ -75,6 +76,21 @@ test("changing live settings immediately replaces a pending grid detection", asy
   assert.equal(h.$("camera-help").textContent, text);
   await h.result(); await h.advance(700); await h.result();
   assert.equal(h.readings.length, 1, "the replacement detector must continue into OCR");
+});
+
+// Automatic solving and the freeze's wait for clearer clues apply to the
+// reading on screen: changing either starts nothing over.
+test("changing automatic solving or the freeze's wait leaves a pending grid detection alone", async (t) => {
+  const h = harness(t, undefined, { autoSolve: true, freezeWait: false }); await h.advance(100);
+  assert.equal(h.detections.length, 1);
+  const before = h.cancellations;
+  h.settings.freezeWait = true; await h.advance(100);
+  h.settings.autoSolve = false; await h.advance(100);
+  h.settings.freezeWait = false; await h.advance(100);
+  assert.equal(h.cancellations, before, "nothing was cancelled");
+  assert.equal(h.detections.length, 1, "nor started again");
+  await h.result(); await h.advance(700); await h.result();
+  assert.equal(h.readings.length, 1, "the detection continues into OCR");
 });
 
 test("a stalled detector is bounded and retries without closing the camera", async (t) => {
@@ -172,11 +188,14 @@ test("small-number guidance preserves manual camera capture", async (t) => {
 test("a worker reply up to two seconds late is adopted as a delayed overlay", async t => {
  const h=harness(t);await h.advance(100);await h.result();
  assert.equal(h.camera.diagnosticSource().verified,true);assert.equal(h.view.dataset.delayed,"0");
- assert.equal(h.texts.includes("DELAYED"),false,'a prompt worker draws a live overlay');
+ assert.doesNotMatch(h.view.attributes["aria-label"],/catching up/,'a prompt worker keeps the outline on the live tier');
  h.holdTracking(true);await h.advance(900);
  assert.equal(h.camera.diagnosticSource().verified,true,'a verified view survives a slow worker inside the stale limit');
- assert.equal(h.view.dataset.delayed,"1");assert.ok(h.texts.includes("DELAYED"));
- assert.match(h.view.attributes["aria-label"],/delayed/);
+ // Live video is never delayed: only the outline over it trails, and says so
+ // in data-delayed and the accessible label, never in a bitmap label.
+ assert.equal(h.view.dataset.delayed,"1");assert.equal(h.texts.includes("DELAYED"),false);
+ assert.equal(h.view.dataset.overlay,"outline");
+ assert.match(h.view.attributes["aria-label"],/The overlay is catching up with the camera\./);
  const early=h.held[0];assert.ok(early,'a verify submitted while the worker was slow');
  early.resolve(early.result());await flush();
  assert.equal(h.camera.diagnosticSource().verified,true,'a reply inside the limit is adopted');
@@ -191,9 +210,14 @@ test("a worker reply up to two seconds late is adopted as a delayed overlay", as
 });
 test("a worker reply older than the stale limit is dropped and the view falls back unverified", async t => {
  const h=harness(t);await h.advance(100);await h.result();
+ const adopted=h.camera.adoptedFrame();
  h.holdTracking(true);await h.advance(2300);
- assert.equal(h.camera.diagnosticSource().verified,false,'past the stale limit the display is an unverified fresh frame');
- assert.equal(h.view.dataset.delayed,"0");assert.equal(h.camera.capture().found,null);
+ assert.equal(h.camera.diagnosticSource().verified,false,'past the stale limit nothing on screen is verified');
+ // The video is the display: the old snapshot and its proofs are dropped, and
+ // no unverified copy of a newer frame takes its place.
+ assert.equal(h.camera.adoptedFrame(),null);assert.equal(adopted.width,0,'the dropped snapshot is released');
+ assert.equal(h.camera.stats.retainedSources,h.camera.stats.candidate,'no frame or copy is kept for display');
+ assert.equal(h.view.dataset.delayed,"0");assert.equal(h.view.dataset.overlay,"none");assert.equal(h.camera.capture().found,null);
  const late=h.held[0];assert.ok(h.now-late.at>2000);late.resolve(late.result());await flush();
  assert.equal(h.camera.diagnosticSource().verified,false,'a reply older than the stale limit cannot restore the view');
  const recent=h.held.at(-1);assert.notEqual(recent,late);recent.resolve(recent.result());await flush();
@@ -224,7 +248,7 @@ test("crossing into the delayed tier repaints once without a new frame", async t
  assert.ok(h.renders.slice(mid).some(r=>r.painted),'entering the delayed tier repaints');
  assert.equal(h.view.dataset.delayed,"1");
 });
-test("capturing in the delayed tier keeps the verified frame and its reading", async t => {
+test("capturing in the delayed tier keeps the frame on screen without the reading", async t => {
  const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();
  assert.equal(h.readings.length,1);
  const {makePuzzle}=await import('../model.js');const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,null,null,1];
@@ -232,9 +256,14 @@ test("capturing in the delayed tier keeps the verified frame and its reading", a
  assert.ok(h.camera.capture().found);
  h.holdTracking(true);await h.advance(900);
  assert.equal(h.view.dataset.delayed,"1");
- const capture=h.camera.capture();
- assert.ok(capture.found,'a delayed but verified view still carries its reading');assert.ok(capture.corners);assert.ok(capture.photo);
- assert.equal(h.camera.diagnosticSource().verified,true);
+ // The verified frame is a second old, no longer what the user saw: a live
+ // capture keeps the frame on screen and leaves the reading to the editor.
+ const draws=h.draws.length,capture=h.camera.capture();
+ assert.equal(capture.found,null);assert.equal(capture.corners,null);assert.equal(capture.frozen,false);
+ assert.equal(h.draws[draws].source,h.video,'the photo is the frame on screen now');
+ assert.equal(h.camera.diagnosticSource().verified,true,'the reading itself is still verified');
+ h.holdTracking(false);for(const job of h.held)job.resolve(job.result());await h.advance(300);
+ assert.ok(h.camera.capture().found,'a fresh verified frame carries it again');
 });
 
 
@@ -307,6 +336,21 @@ test('repeated tracking failures back off and stop until an explicit restart',as
  assert.equal(h.$('restart-live').hidden,false);assert.ok(h.camera.capture().photo);
  h.failTracking(false);h.camera.restart();await h.advance(100);await h.result();await h.advance(500);await h.result();
  assert.equal(h.camera.stats.recovery.blocked,false);assert.equal(h.readings.length,1);
+});
+// Paused tracking adopts no frame, and the last one is dropped past the stale
+// limit, just when the help line suggests a diagnostic report: the report's
+// optional image is then the video's current frame, marked unverified and
+// transient (the diagnostics UI releases it once encoded).
+test('with tracking paused after repeated failures the diagnostics still get the current frame, unverified',async t=>{
+ const h=harness(t);h.failTracking(true);await h.advance(100);await h.result();
+ await h.advance(2500);await h.result();await h.advance(4500);await h.result();
+ assert.equal(h.camera.stats.recovery.blocked,true);await h.advance(15000);
+ assert.equal(h.camera.adoptedFrame(),null,'no frame is adopted while paused');
+ const draws=h.draws.length,source=h.camera.diagnosticSource();
+ assert.ok(source.image,'a picture for the report');assert.equal(source.verified,false);assert.equal(source.transient,true);
+ assert.deepEqual(h.draws.slice(draws).map(d=>d.source),[h.video],'drawn from the video now');
+ assert.equal(h.camera.stats.retainedSources,0,'and not kept by the camera');
+ h.video.videoWidth=0;assert.deepEqual(h.camera.diagnosticSource(),{image:null,verified:false},'a video without a picture gives none');
 });
 test('thirty open/close cycles release source/scratch canvases and timers, including late detectors',async t=>{
  const h=harness(t);

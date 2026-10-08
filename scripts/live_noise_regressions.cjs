@@ -67,7 +67,9 @@ async function begin() {
     return{found,expected:[...values],reads:state.reads,completed:state.completed,ticks:state.ticks,
       diagnostic:diagnostics.snapshot(),status:document.getElementById('camera-help').textContent};
   };
-  state.witness=()=>Array.from(out.getContext('2d').getImageData(10,10,1,1).data);
+  // The witness pixel of the frame the camera adopted last (its proofs' frame;
+  // the display canvas holds only an outline over the video), or none yet.
+  state.witness=()=>{const frame=camera.adoptedFrame();return frame?Array.from(frame.getContext('2d').getImageData(10,10,1,1).data):[0,0,0,0];};
   state.cover=()=>{state.mode='covered';draw();paint();};
   state.uncover=()=>{state.mode='grid';draw();paint();};
   state.change=()=>{values[1]=3;draw();paint();};

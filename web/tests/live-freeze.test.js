@@ -322,7 +322,8 @@ function heldReplies(t) {
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "", hidden: true }); return nodes.get(id); };
   const tracker = {
     anchor: async (task) => core.run({ ...task, op: "anchor" }),
-    verify: (task) => hold ? new Promise((resolve, reject) => held.push({ resolve, reject, result: () => core.run({ ...task, op: "verify" }) }))
+    verify: (task) => hold ? new Promise((resolve, reject) => held.push({ resolve, reject, result: () => core.run({ ...task, op: "verify" }),
+      settle() { resolve(this.result()); } }))
       : Promise.resolve(core.run({ ...task, op: "verify" })),
     reset() { core = createTrackingCore(); },
   };
@@ -363,15 +364,20 @@ test("replies held across the freeze are fenced: the frozen frame stays and noth
   h.holdTracking(true); await h.advance(700);
   assert.ok(h.held.length > 0, "verifications are in flight");
   assert.equal(h.view.dataset.delayed, "1", "the view lags behind the camera");
+  // The freeze waits for a frame at most half a second old: the latest
+  // verification is handed back and adopted, still on the delayed tier,
+  // while the older ones and the next tick's stay in flight.
+  h.held.pop().settle(); await flush(); await h.advance(100);
+  assert.ok(h.held.length > 1, "verifications from before and after it are in flight");
   const puzzle = makePuzzle("latinsquare", 2); puzzle.cells = [1, null, null, 1];
   const texts = h.texts.length;
   h.readings[0].resolve({ puzzle, cellUncertain: [], cageUncertain: [], markedCells: [0, 3], needsReview: true, notes: [] });
-  await flush(); await h.advance(300);
+  await flush(); await h.advance(100);
   assert.equal(h.camera.view, "frozen");
   const frozenPaint = h.texts.slice(texts);
   assert.ok(frozenPaint.includes("PREVIEW"));
-  assert.equal(frozenPaint.includes("DELAYED"), false, "the frozen picture is never marked DELAYED");
-  assert.equal(h.view.dataset.delayed, "0");
+  assert.equal(frozenPaint.includes("DELAYED"), false, "no picture is marked DELAYED");
+  assert.equal(h.view.dataset.delayed, "0", "the frozen picture is not marked as catching up");
   const raw = h.camera.diagnosticSource().image, paints = h.renders.filter((r) => r.painted).length, draws = h.draws.length;
   // One held verification fails late: a worker error from before the freeze
   // must not reach the frozen view (no failure, message or Restart).
@@ -445,6 +451,8 @@ test("closing a frozen camera releases everything, and thirty Clear cycles leave
   h.camera.start();
   assert.equal(h.view.attributes["data-view"], "live", "a camera started on the canvas a frozen one left is live");
   assert.equal(h.view.attributes["aria-label"], "Live camera preview", "and no longer described as the frozen picture");
+  assert.deepEqual([h.view.dataset.recognised, h.view.dataset.solution, h.view.dataset.overlay, h.view.dataset.delayed], ["0", "0", "none", "0"],
+    "nor counted as it, before its first paint");
   for (let cycle = 0; cycle < 30; cycle++) {
     assert.ok(await h.until(() => frozenNow(h)), `cycle ${cycle} freezes`);
     await h.advance(100);
@@ -553,26 +561,34 @@ test("Clear discards the first frame the paused video reports, which can be the 
   assert.equal(h.camera.stats.scheduling.processed, ticks + 1, "the next frame is scanned");
 });
 
-test("the first verified view after Clear is not marked DELAYED for a lag before the freeze", async (t) => {
+test("the first verified view after Clear is not marked as catching up for a lag before the freeze", async (t) => {
   const h = heldReplies(t);
   await h.advance(100); await h.result(); await h.advance(700); await h.result();
   assert.equal(h.readings.length, 1);
   h.holdTracking(true); await h.advance(700);
   assert.equal(h.view.dataset.delayed, "1", "the view lags behind the camera before the freeze");
+  // A fresh frame for the freeze, adopted while the lag still holds the tier.
+  h.held.pop().settle(); await flush();
   const puzzle = makePuzzle("latinsquare", 2); puzzle.cells = [1, null, null, 1];
   h.readings[0].resolve({ puzzle, cellUncertain: [], cageUncertain: [], markedCells: [0, 3], needsReview: true, notes: [] });
-  await flush(); await h.advance(300);
+  await flush(); await h.advance(100);
   assert.equal(h.camera.view, "frozen");
   for (const job of h.held) job.resolve(job.result());
   h.holdTracking(false); await flush();
   h.camera.resume();
-  const texts = h.texts.length;
-  await h.advance(100); await h.result(); // A new detection, verified on the next frame.
+  const paints = h.renders.filter((r) => r.painted).length, detections = h.detections.length;
+  // The first frame the video reports after Clear is a baseline only
+  // (discardFirst); the next one starts a new detection, which is resolved
+  // here and verified on the frame after.
+  await h.advance(200);
+  assert.equal(h.detections.length, detections + 1, "the first frame scanned after Clear starts a detection");
+  await h.result();
   await h.advance(100);
   assert.equal(h.camera.stats.candidate, 0, "the candidate was verified");
-  assert.ok(h.texts.slice(texts).includes("PREVIEW"), "views were painted after Clear");
-  assert.equal(h.texts.slice(texts).includes("DELAYED"), false, "none of them marked DELAYED");
-  assert.equal(h.view.dataset.delayed, "0");
+  assert.ok(h.renders.filter((r) => r.painted).length > paints, "views were painted after Clear");
+  assert.equal(h.view.dataset.overlay, "outline", "the verified outline is shown");
+  assert.equal(h.view.dataset.delayed, "0", "and not marked as catching up");
+  assert.doesNotMatch(h.view.attributes["aria-label"], /catching up/);
 });
 
 test("diagnostics: the frozen frame is the verified source, and the freeze and Clear are reported", async (t) => {

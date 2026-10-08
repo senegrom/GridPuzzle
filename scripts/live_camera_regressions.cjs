@@ -61,6 +61,34 @@ async function solveLive(page) {
   await startLive(page);
   await page.waitForFunction(()=>Number(document.getElementById("live-preview").dataset.solution)>0,null,{timeout:150000});
 }
+// Every drawImage onto #live-preview, with the canvas's data-view at the time:
+// while live the video is the display and the canvas holds only an outline,
+// so a camera frame reaches it once, at the freeze, or from the shutter.
+async function recordPreviewDraws(page) {
+  await page.evaluate(()=>{
+    const draw=CanvasRenderingContext2D.prototype.drawImage;
+    window.previewDraws=[];
+    CanvasRenderingContext2D.prototype.drawImage=function(...args){
+      if(this.canvas?.id==="live-preview")previewDraws.push({view:this.canvas.dataset.view,source:args[0]?.constructor?.name});
+      return draw.apply(this,args);
+    };
+  });
+}
+// The live capture keeps its reading on a verified frame at most half a
+// second old. Press the shutter just after a verification reply has been
+// adopted, so that the frame is fresh whatever the engine's tick spacing.
+async function shutterAfterVerification(page) {
+  await page.evaluate(()=>new Promise(resolve=>{
+    window.onTrackReply=()=>{window.onTrackReply=null;setTimeout(()=>{document.getElementById("take-photo").click();resolve();},0);};
+  }));
+}
+async function watchTrackReplies(page) {
+  await page.evaluate(()=>{
+    const Native=window.Worker;
+    window.Worker=class extends Native{constructor(url,options){super(url,options);
+      if(/live-tracking-worker/.test(String(url)))this.addEventListener("message",({data})=>{if(data?.result?.proofs)window.onTrackReply?.();});}};
+  });
+}
 // The solved view is frozen until Clear: a still of the verified frame with
 // its solution, the video paused behind it (visible, covered) and still attached to
 // its stream (`attached`),
@@ -99,8 +127,26 @@ async function cameraLayout(page) {
     const box=selector=>document.querySelector(selector).getBoundingClientRect(), row=document.querySelector(".camera-actions");
     const result={viewfinder:box("#camera-panel .viewfinder").height,row:box(".camera-actions").height,
       rowOverflow:row.scrollWidth>row.clientWidth,shutter:box("#take-photo"),clear:box("#clear-freeze"),start:box("#start-camera"),panel:box("#camera-panel")};
+    // The legend as shown (with the reading's counts when there is one) and
+    // bare, with the generated content that shows the counts switched off
+    // through a rule in the app's own style sheet (the CSP forbids a new one).
+    const legend=document.querySelector(".live-legend"),sheet=[...document.styleSheets].find(s=>/style\.css/.test(s.href??""));
+    result.counts=legend.querySelectorAll("[data-count]").length;result.legend=legend.getBoundingClientRect().height;
+    const rule=sheet.insertRule(".live-legend *::after,.live-legend *::before{content:none!important;display:none!important}",sheet.cssRules.length);
+    result.bareLegend=legend.getBoundingClientRect().height;sheet.deleteRule(rule);
     help.textContent=text;
     return JSON.parse(JSON.stringify(result));
+  });
+}
+// The boxes of the video and of the canvas over it, which draws the outline in
+// the frame's coordinates and letterboxes the frame like the video, and the
+// element a touch in the viewfinder's centre reaches.
+async function viewfinderLayers(page) {
+  return page.evaluate(()=>{
+    const box=id=>{const b=document.getElementById(id).getBoundingClientRect();return [b.x,b.y,b.width,b.height].map(v=>Math.round(v*10)/10);};
+    const finder=document.querySelector("#camera-panel .viewfinder").getBoundingClientRect();
+    return {video:box("video"),canvas:box("live-preview"),videoPointer:getComputedStyle(document.getElementById("video")).pointerEvents,
+      touched:document.elementFromPoint(finder.x+finder.width/2,finder.y+finder.height/2)?.id??null};
   });
 }
 // Wall time per phase and engine, in the report and the log, so that a split
@@ -124,8 +170,35 @@ async function run() {
       report.checks=[];
       const time=phaseTimer(report,name);
       try {
+        await time("viewfinder layers",async()=>{
+          // A phone and screens taller than the general viewfinder rule's 65vh
+          // cap on videos: the canvas and the video share one box at each.
+          await idlePage(page,server.base);await fixture(page);
+          const size=page.viewportSize();report.viewfinderLayers={};
+          try {
+            for (const [width,height] of [[430,932],[820,1180],[1920,1080]]) {
+              await page.setViewportSize({width,height});
+              await startLive(page);
+              await page.waitForFunction(()=>document.getElementById("video").videoWidth>0);
+              const layers=await viewfinderLayers(page);report.viewfinderLayers[`${width}x${height}`]=layers;
+              assert.deepEqual(layers.canvas,layers.video,`at ${width} x ${height} the canvas has the video's box`);
+              // The canvas takes touches, as when it showed snapshots: VoiceOver
+              // finds its label there, and the video's native controls get none.
+              assert.equal(layers.touched,"live-preview","a touch on the picture reaches the canvas, not the video");
+              assert.equal(layers.videoPointer,"none","nor any touch the video's box alone has");
+              await page.click("#close-camera");
+            }
+          } finally { await page.setViewportSize(size); }
+          report.checks.push("the video and the canvas over it share one box on a phone, a tablet and a desktop screen, so the outline lands on the video; touches reach the canvas, not the video");
+        });
         await time("live solve",async()=>{
-        await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);await solveLive(page);
+        await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);
+        await recordPreviewDraws(page);await solveLive(page);
+        // The video was the display while aiming and reading: the one camera
+        // frame on the canvas is the frozen one, drawn by the render that froze.
+        const draws=await page.evaluate(()=>previewDraws);report.previewDraws=draws;
+        assert.deepEqual(draws,[{view:"live",source:"HTMLCanvasElement"}],"no camera-frame paint before the freeze, exactly one at it");
+        assert.equal(await page.locator("#live-preview").getAttribute("data-overlay"),"composition");
         assert.equal(await page.locator("#camera-panel").isVisible(),true);
         assert.equal(await page.evaluate(()=>liveTestStream.getTracks()[0].readyState),"live");
         assert.deepEqual(await page.evaluate(()=>liveApp.getState().puzzle),accepted.puzzle);
@@ -161,6 +234,7 @@ async function run() {
         await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
         assert.equal(await page.evaluate(()=>liveTestStream.getTracks().every(t=>t.readyState==="ended")),true);
         assert.equal(await page.locator("#live-preview").evaluate(c=>c.toDataURL()),shown);
+        assert.equal(await page.evaluate(()=>previewDraws.length),1,"a frozen capture paints nothing: the canvas is the stored picture");
         assert.equal(await page.locator("#camera-panel").getAttribute("data-view"),"captured");
         assert.equal(await page.locator("#clear-freeze").isVisible(),false);
         const stored=await page.evaluate(async()=>{
@@ -270,6 +344,11 @@ async function run() {
             assert.equal(frozen.viewfinder,live.viewfinder,"freezing does not shrink the viewfinder");
             assert.equal(frozen.row,live.row,"the frozen action row stays one line");assert.equal(frozen.rowOverflow,false);
             assert.equal(frozen.clear.top,frozen.shutter.top);assert.ok(frozen.clear.right<=frozen.panel.right);
+            // The frozen reading's counts show in the legend, each in place of
+            // its colour's name: they take no room of their own, so the legend
+            // (and the viewfinder) is the size it is without them.
+            assert.equal(frozen.counts,4,"the frozen legend counts the reading and its solution");
+            assert.equal(frozen.legend,frozen.bareLegend,"the counts do not enlarge the legend");
             // A Clear whose playback was refused adds Start preview to the row:
             // it takes a line of its own, and Save picture and Clear keep size.
             await page.evaluate(()=>{document.getElementById("start-camera").hidden=false;});
@@ -281,7 +360,114 @@ async function run() {
             assert.equal(retry.clear.top,retry.shutter.top);assert.ok(retry.start.bottom<=retry.shutter.top,"Start preview has a line of its own");
             await page.click("#close-camera");
           } finally { await page.setViewportSize(size); }
-          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size; Start preview after a refused Clear gets a line of its own");
+          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size, and the legend's counts take no room of their own; Start preview after a refused Clear gets a line of its own");
+        });
+        await time("live capture with automatic solving off",async()=>{
+          // Nothing freezes without automatic solving: the playing video stays
+          // the display, with the outline over it and the counts in the legend,
+          // and the shutter keeps a fresh verified frame with its clues, which
+          // the panel then shows exactly as stored.
+          await watchTrackReplies(page);
+          const autoSolve=value=>page.evaluate(value=>{const box=document.getElementById("auto-solve");box.checked=value;box.dispatchEvent(new Event("change",{bubbles:true}));},value);
+          await page.evaluate(()=>{window.liveMode="grid";});await autoSolve(false);
+          try {
+            await startLive(page);
+            // The complete reading (the provisional atlas reading shows the
+            // same 14 clues earlier, all flagged, while the help line says
+            // "Checking printed clues…"). The help line names the complete
+            // reading's counts as it completes; the canvas and the legend show
+            // them with the next render, up to a heartbeat (100 ms) later.
+            await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;
+              const help=/^Clues read \((\d+) recognised, (\d+) uncertain\)\. Automatic solving is off/.exec(document.getElementById("camera-help").textContent);
+              return !!help&&d.recognised===help[1]&&d.uncertain===help[2]&&Number(d.recognised)+Number(d.uncertain)===14;},null,{timeout:150000});
+            const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
+              return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
+                legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
+                help:document.getElementById("camera-help").textContent};});
+            report.liveCapture={live};
+            assert.equal(live.view,"live");assert.equal(live.overlay,"outline");assert.equal(live.solution,0);assert.equal(live.paused,false);
+            assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
+            assert.equal(live.help.match(/^Clues read \(\d+ recognised, \d+ uncertain\)\. Automatic solving is off/)?.[0],
+              `Clues read (${live.legend[0]} recognised, ${live.legend[1]} uncertain). Automatic solving is off`,"the legend and the help line give the same counts");
+            await shutterAfterVerification(page);
+            await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
+            const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
+            const stored=await page.evaluate(async()=>{
+              const record=await (await import("./capture-store.js")).loadCapture();
+              return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(record.blob);});
+            });
+            assert.equal(stored,shown,"the panel shows exactly the stored picture");
+            assert.equal(await page.locator("#live-preview").getAttribute("data-view"),"captured");
+            assert.match(await page.textContent("#use-live-capture"),/Review captured clues/,"a fresh verified frame keeps its reading");
+            report.liveCapture.offered=await page.textContent("#use-live-capture");
+            await page.click("#close-camera");
+          } finally { await autoSolve(true); }
+          report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
+        });
+        await time("the freeze's wait, off by default and on through its checkbox",async()=>{
+          // "Wait up to 3 s for clearer clues before freezing" is off by
+          // default: a solved reading with a yellow clue a retry could still
+          // read freezes at once, as on master. Ticked through the real
+          // checkbox the setting is saved and restored after a reload, and the
+          // same reading then holds the freeze for three seconds with the
+          // wait's text. The reading is stubbed with such a clue and every
+          // retry finds no new evidence, so the wait runs its full time.
+          const settingsOpen=async()=>{if(!await page.locator("#layout-settings").evaluate(d=>d.open))await page.click("#layout-settings > summary");};
+          // A live scan of the stubbed reading up to its freeze: the help
+          // line's texts and the freeze with their times, the frozen counts,
+          // and the scan's diagnostic report, whose events time the solver's
+          // answer and the freeze on the page's own clock.
+          const scanToFreeze=async()=>{
+            await page.evaluate(async()=>{
+              const {Scanner}=await import("./scanner.js"),{makePuzzle}=await import("./model.js");
+              Scanner.prototype.read=async()=>{const puzzle=makePuzzle("sudoku",4);puzzle.cells=[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1];
+                return {puzzle,cellUncertain:[0],cageUncertain:[],markedCells:[0,1,2,3,4,6,7,8,9,11,12,13,14,15],needsReview:true,notes:[],rectified:livePaper};};
+              Scanner.prototype.readCells=async()=>({identicalCrops:true,ocrStats:{calls:0}});
+              const help=document.getElementById("camera-help"),preview=document.getElementById("live-preview"),log=window.freezeWaitLog=[];
+              for (const observer of window.freezeWaitObservers??[]) observer.disconnect();
+              window.freezeWaitObservers=[new MutationObserver(()=>log.push({at:performance.now(),help:help.textContent})),
+                new MutationObserver(()=>{if(preview.dataset.view==="frozen")log.push({at:performance.now(),frozen:true});})];
+              freezeWaitObservers[0].observe(help,{childList:true,characterData:true,subtree:true});
+              freezeWaitObservers[1].observe(preview,{attributes:true,attributeFilter:["data-view"]});
+            });
+            await startLive(page);
+            await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+            const log=await page.evaluate(()=>freezeWaitLog),counts=await page.locator("#live-preview").evaluate(c=>({...c.dataset}));
+            const diagnostic=await page.evaluate(()=>{
+              const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
+              node("prepare").click();try{return JSON.parse(node("preview").textContent);}finally{node("clear").click();}
+            });
+            await page.click("#close-camera");
+            assert.equal(Number(counts.uncertain),1,"the yellow clue stays flagged in the frozen picture");assert.equal(Number(counts.solution),2);
+            const frozenAt=diagnostic.events.findIndex(e=>e.reason==="frozen"),solved=diagnostic.events.slice(0,Math.max(0,frozenAt)).findLast(e=>e.reason==="unique");
+            const waiting=log.find(e=>/^Solution found — hold the grid steady/.test(e.help??"")),frozen=log.find(e=>e.frozen);
+            return {settings:diagnostic.settings,events:diagnostic.events.map(e=>e.reason),
+              solvedToFrozenMs:frozenAt>=0&&solved?Math.round(diagnostic.events[frozenAt].milliseconds-solved.milliseconds):null,
+              heldMs:waiting?Math.round(frozen.at-waiting.at):null,texts:[...new Set(log.map(e=>e.help).filter(Boolean))]};
+          };
+          assert.equal(await page.locator("#freeze-wait").isChecked(),false,"off by default");
+          const off=await scanToFreeze();report.freezeWait={off};
+          assert.equal(off.settings.freezeWait,false,"the scan's diagnostics record the default");
+          // Ticked, the freeze waits three seconds from the solved reading's
+          // first render, a heartbeat after the answer at most. Off, it does
+          // not wait for the retries; the wait for a frame at most half a
+          // second old applies either way, so the bound leaves room for it.
+          assert.ok(off.solvedToFrozenMs!==null,`the diagnostics time the solver's answer and the freeze (${JSON.stringify(off.events)})`);
+          assert.ok(off.solvedToFrozenMs<2000,`by default the view froze ${off.solvedToFrozenMs} ms after the solver's answer, without waiting for the yellow clue's retries (${JSON.stringify(off.texts)})`);
+          await settingsOpen();await page.check("#freeze-wait");
+          assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("gridpuzzle-settings-v2"))["freeze-wait"]),true,"ticking it saves it");
+          await idlePage(page,server.base);await fixture(page);
+          assert.equal(await page.locator("#freeze-wait").isChecked(),true,"a reload restores it");
+          const on=await scanToFreeze();report.freezeWait.on=on;
+          assert.ok(on.heldMs!==null,`the wait's text is shown (${JSON.stringify(on.texts)})`);
+          assert.ok(on.heldMs>=2500,`the freeze waited ${on.heldMs} ms for the yellow clue's retries`);
+          assert.equal(on.settings.freezeWait,true,"the scan's diagnostics record the setting");
+          // Off again through the checkbox, with the reader restored, as the
+          // phases after this one expect.
+          await settingsOpen();await page.uncheck("#freeze-wait");
+          assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("gridpuzzle-settings-v2"))["freeze-wait"]),false);
+          await idlePage(page,server.base);await fixture(page);
+          report.checks.push("the freeze's wait for clearer clues is off by default, and a solved reading with a retryable yellow clue then freezes without waiting for its retries; ticked through its checkbox it is saved, restored after a reload and recorded in the diagnostics, and holds the same reading for three seconds with the wait's text");
         });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.

@@ -33,6 +33,63 @@ test("core HTML owns the safe-area and security polish without patch files", () 
   assert.match(css, /safe-area-inset-top/);
 });
 
+// The page plays the camera's video itself whenever it starts or resumes it
+// (opening, Start preview, Clear). On a video with the autoplay attribute
+// WebKit forces its native controls while Low Power Mode keeps its gesture
+// restriction, and the live video is visible and tappable: the canvas over
+// it is a transparent layer.
+test("the camera's video plays muted and inline, without the autoplay attribute", () => {
+  const video = read("index.html").match(/<video id="video"[^>]*>/)?.[0];
+  assert.ok(video, "the camera's video element");
+  assert.doesNotMatch(video, /\sautoplay\b/);
+  assert.match(video, /\smuted\b/); assert.match(video, /\splaysinline\b/);
+});
+
+// "Wait up to 3 s for clearer clues before freezing" sits right after the
+// automatic-solving checkbox in the scanner settings, unticked by default. A
+// no-break space keeps "3 s" on one line however narrow the label wraps.
+test("the freeze's wait is a checkbox after automatic solving, off by default", () => {
+  const html = read("index.html");
+  assert.match(html, /<label class="check"><input id="auto-solve" type="checkbox" checked \/> Solve clear, unambiguous scans automatically<\/label>\s*<label class="check"><input id="freeze-wait" type="checkbox" \/> Wait up to 3&nbsp;s for clearer clues before freezing<\/label>/);
+});
+
+// The three camera checkboxes are restored from and saved to the stored
+// settings alike: app.js's own code, run against plain nodes whose checked
+// states are index.html's defaults.
+test("the freeze's wait is saved and restored like the other camera checkboxes", () => {
+  const defaults = { "auto-capture": true, "auto-solve": true, "freeze-wait": false };
+  const values = { "puzzle-type": "auto", "time-limit": "90", "edit-tool": "value" };
+  function page(stored) {
+    const nodes = new Map(), saved = [];
+    const $ = (id) => {
+      if (!nodes.has(id)) nodes.set(id, { value: values[id] ?? "", checked: defaults[id] ?? false, listeners: [],
+        addEventListener(type, fn) { if (type === "change") this.listeners.push(fn); } });
+      return nodes.get(id);
+    };
+    const storage = { get: (key) => (key === "gridpuzzle-settings-v2" ? stored : null),
+      set: (key, value) => saved.push([key, JSON.parse(JSON.stringify(value))]) };
+    vm.runInContext(section('const prefs = storage.get("gridpuzzle-settings-v2");', "const layoutFields ="),
+      vm.createContext({ $, storage, TYPES: model.TYPES }));
+    const change = (id, checked) => { $(id).checked = checked; for (const fn of $(id).listeners) fn(); };
+    return { checked: (id) => $(id).checked, saved, change };
+  }
+  const first = page(null);
+  assert.equal(first.checked("freeze-wait"), false, "off until ticked");
+  assert.deepEqual(first.saved, [], "restoring saves nothing");
+  first.change("freeze-wait", true);
+  assert.deepEqual(first.saved, [["gridpuzzle-settings-v2",
+    { type: "auto", "auto-capture": true, "auto-solve": true, "freeze-wait": true, limit: "90", editing: "value" }]], "ticking it saves the settings");
+  const reopened = page(first.saved.at(-1)[1]);
+  assert.equal(reopened.checked("freeze-wait"), true, "restored ticked");
+  reopened.change("freeze-wait", false);
+  assert.equal(reopened.saved.at(-1)[1]["freeze-wait"], false);
+  assert.equal(page(reopened.saved.at(-1)[1]).checked("freeze-wait"), false, "restored unticked");
+  assert.equal(page({ "freeze-wait": "yes" }).checked("freeze-wait"), false, "only a saved true or false is restored");
+  // Its neighbours keep working alongside it.
+  const neighbours = page({ "auto-capture": false, "auto-solve": false, "freeze-wait": true });
+  assert.deepEqual(["auto-capture", "auto-solve", "freeze-wait"].map(neighbours.checked), [false, false, true]);
+});
+
 // WCAG 2 relative luminance of a #rgb or #rrggbb colour, and the contrast
 // ratio of two colours.
 function luminance(hex) {
