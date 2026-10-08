@@ -219,13 +219,17 @@ test("the scratch canvases' sizes are assigned only when they change, and each d
   assert.deepEqual([h.contentCanvas.width, h.detectCanvas.width], [0, 0], "closing releases them");
 });
 
-test("a new frame shape resizes the detection input once", async (t) => {
+test("a new frame shape resizes the detection input once, and draws fill it", async (t) => {
   const h = simulation(t, { grid: null });
   await h.advance(1000);
   h.video.videoHeight = 525;
+  const changed = h.ops.length;
   await h.advance(1000);
   const sizes = h.on(h.detectCanvas).filter((o) => o.op === "width" || o.op === "height").map((o) => `${o.op} ${o.value}`);
   assert.deepEqual(sizes, ["width 640", "height 640", "height 480"]);
+  const draws = h.ops.slice(changed).filter((o) => o.target === h.detectCanvas && o.op === "drawImage");
+  assert.ok(draws.length >= 2);
+  for (const o of draws) assert.deepEqual(o.box, [0, 0, 640, 480], "the 4:3 frame over the whole input");
 });
 
 test("aiming without an adopted frame, the diagnostics get the current frame, unverified and transient", async (t) => {
