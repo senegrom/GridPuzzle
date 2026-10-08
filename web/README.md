@@ -52,9 +52,9 @@ default, applies to the live camera's frozen solution. Off, a solved reading
 freezes on the first fresh verified frame, yellow clues and all; on, a yellow
 clue that an automatic retry could still read keeps the view live for up to
 three seconds while the help line asks to hold the grid steady. Either way the
-freeze waits for a frame at most half a second old. Switching it while the
-camera runs resets nothing and applies to the reading on screen. Like the
-other scanner settings, it is saved in this browser.
+freeze waits for a frame at most half a second old, for at most three
+seconds, with the same request to hold the grid steady. Like the other
+scanner settings, it is saved in this browser and applies from the next scan.
 
 The full-screen camera is modal: background controls are inert, Tab and
 Shift+Tab remain inside it, and closing it restores the previous focus and
