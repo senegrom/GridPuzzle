@@ -404,6 +404,54 @@ async function run() {
           } finally { await autoSolve(true); }
           report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
         });
+        await time("the freeze's wait, on through its checkbox",async()=>{
+          // "Wait up to 3 s for clearer clues before freezing" is off by
+          // default. Ticked through the real checkbox it is saved and restored
+          // after a reload, and a solved reading with a yellow clue a retry
+          // could still read then holds the freeze for three seconds with the
+          // wait's text. The reading is stubbed with such a clue and every
+          // retry finds no new evidence, so the wait runs its full time.
+          const settingsOpen=async()=>{if(!await page.locator("#layout-settings").evaluate(d=>d.open))await page.click("#layout-settings > summary");};
+          assert.equal(await page.locator("#freeze-wait").isChecked(),false,"off by default");
+          await settingsOpen();await page.check("#freeze-wait");
+          assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("gridpuzzle-settings-v2"))["freeze-wait"]),true,"ticking it saves it");
+          await idlePage(page,server.base);await fixture(page);
+          assert.equal(await page.locator("#freeze-wait").isChecked(),true,"a reload restores it");
+          await page.evaluate(async()=>{
+            const {Scanner}=await import("./scanner.js"),{makePuzzle}=await import("./model.js");
+            Scanner.prototype.read=async()=>{const puzzle=makePuzzle("sudoku",4);puzzle.cells=[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1];
+              return {puzzle,cellUncertain:[0],cageUncertain:[],markedCells:[0,1,2,3,4,6,7,8,9,11,12,13,14,15],needsReview:true,notes:[],rectified:livePaper};};
+            Scanner.prototype.readCells=async()=>({identicalCrops:true,ocrStats:{calls:0}});
+            // The help line's texts and the freeze, with their times.
+            const help=document.getElementById("camera-help"),preview=document.getElementById("live-preview");
+            window.freezeWaitLog=[];
+            new MutationObserver(()=>freezeWaitLog.push({at:performance.now(),help:help.textContent}))
+              .observe(help,{childList:true,characterData:true,subtree:true});
+            new MutationObserver(()=>{if(preview.dataset.view==="frozen")freezeWaitLog.push({at:performance.now(),frozen:true});})
+              .observe(preview,{attributes:true,attributeFilter:["data-view"]});
+          });
+          await startLive(page);
+          await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+          const log=await page.evaluate(()=>freezeWaitLog);
+          const waiting=log.find(e=>/^Solution found — hold the grid steady/.test(e.help??"")),frozen=log.find(e=>e.frozen);
+          report.freezeWait={heldMs:waiting?Math.round(frozen.at-waiting.at):null,texts:[...new Set(log.map(e=>e.help).filter(Boolean))]};
+          assert.ok(waiting,`the wait's text is shown (${JSON.stringify(report.freezeWait.texts)})`);
+          assert.ok(frozen.at-waiting.at>=2500,`the freeze waited ${report.freezeWait.heldMs} ms for the yellow clue's retries`);
+          const counts=await page.locator("#live-preview").evaluate(c=>({...c.dataset}));
+          assert.equal(Number(counts.uncertain),1,"the yellow clue stays flagged in the frozen picture");assert.equal(Number(counts.solution),2);
+          const settings=await page.evaluate(()=>{
+            const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
+            node("prepare").click();try{return JSON.parse(node("preview").textContent).settings;}finally{node("clear").click();}
+          });
+          assert.equal(settings.freezeWait,true,"the scan's diagnostics record the setting");
+          await page.click("#close-camera");
+          // Off again through the checkbox, with the reader restored, as the
+          // phases after this one expect.
+          await settingsOpen();await page.uncheck("#freeze-wait");
+          assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("gridpuzzle-settings-v2"))["freeze-wait"]),false);
+          await idlePage(page,server.base);await fixture(page);
+          report.checks.push("the freeze's wait for clearer clues is off by default; ticked through its checkbox it is saved, restored after a reload and recorded in the diagnostics, and holds a solved reading with a retryable yellow clue for three seconds with the wait's text");
+        });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.
         await page.evaluate(async()=>{
