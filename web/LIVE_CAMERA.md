@@ -238,7 +238,10 @@ saw; this gives **Review captured clues**. Otherwise the frame on screen at
 the press is kept without a reading and goes to the editor's crop and read;
 while no new frame has been presented for half a second ("Waiting for a new
 camera frame"), the video may show nothing useful (iOS paints an interrupted
-camera black), so the last frame the camera scanned is kept instead.
+camera black), so the last frame the camera scanned is kept instead: the last
+adopted frame, or while aiming, where none is adopted, the frame the last
+detection looked at, which the camera keeps for this until a frame is
+adopted.
 Right after Clear the shutter instead says "Wait for a camera frame before
 capturing." until a frame the video reported after Clear has been scanned:
 the paused player can still draw the picture of the freeze (see Clear above),
@@ -310,12 +313,18 @@ can finish off-screen and is queued, solving starts only after the exact sample
 verifies again, and a late solver result stays hidden until reverified too.
 Two mutually matching fresh detections of changed content retire the old job;
 settings changes and Stop do so at once. Five seconds of unverified loss retire
-retained work, and the 90-second OCR timeout still applies. Time while the
-worker builds an anchor does not count towards those five seconds, since no
-verification can arrive meanwhile; before, an anchor of about seven seconds or
-more reset the reference each time, so reading never started and the help line
-repeated "Grid lost". Temporary captured-frame canvases are released on
-success, failure, outdated detection, replacement and Stop.
+retained work, and the 90-second OCR timeout still applies. A grid that was
+never found is never lost: aimed at nothing, the session runs no loss clock,
+so the help line carries only the detector's guidance. Before, the session
+counted that as a loss: from two seconds on it wrote "Aligning the grid" and
+every five seconds "Grid lost" to the help line, each replaced at once by the
+detector's guidance in the same task, and recorded a grid-lost reset in the
+diagnostics every five seconds. Time while the worker builds an anchor does
+not count towards those five seconds, since no verification can arrive
+meanwhile; before, an anchor of about seven seconds or more reset the
+reference each time, so reading never started and the help line repeated
+"Grid lost". Temporary captured-frame canvases are released on success,
+failure, outdated detection, replacement and Stop.
 
 ### Background tracking and its cost
 
@@ -354,7 +363,9 @@ available without a synchronous registration fallback.
 
 Over the live video the camera draws only what a verification proved: the
 outline of the grid in the latest adopted snapshot, in that snapshot's
-coordinates. The canvas has the snapshot's size and letterboxes it in the
+coordinates. A snapshot is adopted only when a verification of it returns, so
+while the camera aims at nothing none is (`adoptedFrame()` is null). The
+canvas has the snapshot's size and letterboxes it in the
 video's box like the video (both fill the viewfinder: the general 65vh cap on
 videos, which made the video's box shorter than the canvas's on tablets and
 desktop screens, does not apply), so those coordinates land on the video. The
@@ -425,24 +436,42 @@ a timer or the media clock alone cannot authorize the switch, and callbacks
 from before the switch are fenced. Repeated starts and shutdown fence every old
 callback.
 
-Expensive snapshots run at most every 100 ms, back off to 250 ms once a reading
+Frames are processed at most every 100 ms, back off to 250 ms once a reading
 is settled and up to 300 ms when recent worker timing calls for it; the
-latest-frame queue stays bounded. A separate 100 ms heartbeat expires the
-overlay when presentation is over 500 ms old, or the accepted tracking evidence
-is older than the two-second limit above, even if no video callback arrives, so
-a detector reply can never sample a stalled video into fresh evidence. Every
-heartbeat still validates freshness and the current solver preferences, and
-decides the freeze, but the canvas is repainted only when what it shows
-changes: whether an outline is drawn, the outline itself rounded to half a
-pixel (so sub-pixel jitter of the proofs does not repaint), the reading the
-counts describe, or the tier. A live paint clears the canvas and strokes the
-outline, vector work only; no camera frame is drawn until the freeze. These
-are processing intervals, not sensor frame rates: the browser presents the
-video itself. While the view is frozen the scheduler is stopped: no
-video-frame callback, heartbeat, snapshot or readback runs, and Clear starts
-it again with new tokens, taking the first frame the video reports only as a
-baseline (`discardFirst`), so the first frame scanned was presented after the
-tap.
+latest-frame queue stays bounded. Since the video is the display, a processed
+frame is sampled (drawn from the video into a snapshot of at most 1600 pixels)
+only for the pipeline's own work: to verify a pending candidate, the guide or
+a reading, and once per detection. While the camera aims at no grid that is
+one snapshot per detection, every 300 ms, which detection gets itself; no
+tracking pixels are read back and no frame is adopted. Detection gets a copy
+only of a frame that is verified too, since tracking adopts that snapshot.
+Before, every processed frame was sampled, its 960 × 1280 tracking pixels
+were read back and it was adopted after an empty verification, and each
+detection drew one more copy: about eight snapshots and readbacks a second
+while aiming with a 30-fps camera, which only the snapshot display had
+needed. The tracking and detection canvases keep their bitmaps while the
+frames keep their size (assigning a size reallocates one, about 5 MB for the
+tracking pixels), and each draw clears its bitmap first, so a frame that
+draws nothing (a video without a picture) leaves no earlier frame's pixels to
+verify or detect.
+
+A separate 100 ms heartbeat expires the overlay when presentation is over
+500 ms old, or the accepted tracking evidence is older than the two-second
+limit above, even if no video callback arrives, so a detector reply can never
+sample a stalled video into fresh evidence; with nothing verified (no proofs,
+reading or guide) it has nothing to expire, and a stalled feed is still
+reported. Every heartbeat still validates freshness and the current solver
+preferences, and decides the freeze, but the canvas is repainted only when
+what it shows changes: whether an outline is drawn, the outline itself rounded
+to half a pixel (so sub-pixel jitter of the proofs does not repaint), the
+reading the counts describe, or the tier. A live paint clears the canvas and
+strokes the outline, vector work only; no camera frame is drawn until the
+freeze. These are processing intervals, not sensor frame rates: the browser
+presents the video itself. While the view is frozen the scheduler is stopped:
+no video-frame callback, heartbeat, snapshot or readback runs, and Clear
+starts it again with new tokens, taking the first frame the video reports only
+as a baseline (`discardFirst`), so the first frame scanned was presented after
+the tap.
 
 ## Noticing changed print
 
@@ -597,8 +626,8 @@ the worker again. Until then the shutter still captures the current frame by
 hand, and readings the camera can no longer verify stay hidden rather than being
 shown on the wrong frame. Start/Stop cycles reset the pipeline, a repeated Start
 is idempotent, and retired detector clean-up or solver errors cannot cancel a
-newer request. Stop releases the scratch canvases and any pending read samples
-as well as the timers and workers.
+newer request. Stop releases the scratch canvases, the newest scanned frame
+and any pending read samples as well as the timers and workers.
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -614,9 +643,14 @@ delay.
 `scan-metrics.js` keeps bounded numeric windows of the latest 128 samples per
 measurement: painting, the main-thread time of each sampled camera frame
 (`performance.tick`, including the readbacks for detection and tracking it
-starts), frame age, tracking latency, queue work and the time to the first
-completed reading. The freeze, Clear and a camera turned off while frozen are
-recorded as `frozen`, `cleared` and `camera-released` events. P50 and P95
+starts; a tick that samples nothing is not counted), frame age, tracking
+latency, queue work and the time to the first completed reading.
+`performance.overlay` shares the live time while a grid is found and tracked
+between its modes: the outline drawn, or nothing over the video (a rejected
+or stalled proof, a tracking failure, a frame of another shape); aiming at
+nothing, the frozen view and a closed camera do not count. The freeze, Clear
+and a camera turned off while frozen are recorded as `frozen`, `cleared` and
+`camera-released` events. P50 and P95
 describe the window; means, maxima and counts describe the session. Render
 requests are counted separately from actual paints, and repeated updates of one
 frame do not double-count its tracking measurement. The export carries numbers
@@ -658,12 +692,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   settled frame.
 - `live-freeze.test.js`: the frozen solution on the production camera, tracker
   and tracking core with a fake clock: it freezes on its own verified frame
-  (also inside a tick, without tracking that tick's frame), and only on a
+  (also inside a tick, which then samples no frame), and only on a
   verified unique solution, never on a provisional, multiple or unsolvable
   reading or without automatic solving; nothing is sampled, detected, tracked,
   read or painted while frozen: held replies and an abandoned detection are
-  fenced without cancelling the geometry worker, and the reading is retired
-  (neither a frame it kept nor a re-read it began outlives the freeze);
+  fenced without cancelling the geometry worker (its frame released, also
+  when its reply comes after Clear), and the reading is retired
+  (neither a frame it kept nor a re-read it began outlives the freeze), and
+  the frozen time counts in no overlay mode;
   Restart is hidden, also when offered just before the freeze; the heartbeat
   that follows a freeze in the same pulse leaves the frozen help line alone;
   capture keeps the frozen frame and reading; Clear starts from nothing (a clean
@@ -702,10 +738,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   the legend counts (the solution's only frozen) and the labels follow; no
   outline is drawn, and no solution frozen, on a frame of another shape (1 %
   off; 0.4 % is rounding), nor an outline over a video without one; the
-  canvas takes the adopted frame's size,
-  also before any outline after a change of stream resolution, and is not
-  resized while that size holds; past the stale limit the snapshot and its
-  proofs are dropped and no copy takes their place; `data-delayed` follows the
+  canvas takes the adopted frame's size (after a change of stream resolution
+  with the first frame adopted on the new shape, which verifies the grid
+  there), and is not resized while that size holds; the first frame adopted
+  is the one that verified the candidate; past the stale limit the snapshot
+  and its proofs are dropped and no copy takes their place; `data-delayed` follows the
   tier of the verified evidence shown, the outline or the reading the legend
   counts (also when a frame of another shape leaves no outline to draw), and
   marks nothing while neither is; a stalled feed
@@ -734,7 +771,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   exactly three seconds. From its first frame the camera records the setting
   with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
-  stands) and the counted status without automatic solving, and
+  stands), the counted status without automatic solving and hiding with
+  nothing ever found (no loss clock, nothing written), and
   `photo-flow.test.js` the shutter drawing a live capture's stored picture on
   the panel, with that picture's label and counts, and the camera reading the
   freeze's wait from its checkbox at every call, which the diagnostics record
@@ -742,6 +780,29 @@ Unit tests (`node --test web/tests/*.test.js`):
   as a boolean only).
   `app.test.js` pins the checkbox's place after automatic solving, unticked,
   and runs app.js's own code to save and restore it with its neighbours.
+- `live-sampling.test.js`: what the camera samples, on the production camera,
+  tracker and tracking core with a fake clock, every canvas recording its
+  draws, readbacks and size assignments. Aimed at no grid on a phone's
+  1440 × 1920 stream, it takes one 1600-px snapshot per detection, every
+  300 ms, reads back no tracking pixels, sends nothing to the tracker, adopts
+  nothing and counts only those ticks in `performance.tick`; detection gets
+  the snapshot itself, and a copy only of a frame tracking verifies, whose
+  copy a detection finding no grid releases at once. The scratch canvases
+  are sized once while the frames keep their size (again on a new shape),
+  cleared before each full-size draw, the tracking canvas asking for a
+  CPU-backed context. Without an adopted frame the diagnostics get the
+  video's current frame, transient; on a stalled feed a capture and the
+  diagnostics keep the newest frame detection scanned, which an adopted
+  frame, a tracking failure and closing release, and which a detection
+  ending after the camera closed never becomes. Aimed at nothing for ten
+  seconds the help line carries only the detector's guidance, with no
+  grid-lost reset; a stalled feed is still reported and held, a camera with
+  no frame yet reports none, a stall drops the guide's proof (with reading
+  paused the outline returns only with a newly verified frame), and a
+  reading out of view through a long stall is retired as a lost grid.
+  `performance.overlay` counts a found grid's outline and nothing, also a
+  guide without a reading, never aiming at nothing or a closed camera
+  (`diagnostic-report.test.js`: its window and allowlist).
 - `live-camera-recovery.test.js`: settings changes (a change of automatic
   solving or the freeze's wait leaves a pending detection alone), the
   detection deadline, Start/Stop cycles and retired completions, with a
