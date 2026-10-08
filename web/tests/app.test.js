@@ -46,10 +46,11 @@ test("the camera's video plays muted and inline, without the autoplay attribute"
 });
 
 // "Wait up to 3 s for clearer clues before freezing" sits right after the
-// automatic-solving checkbox in the scanner settings, unticked by default.
+// automatic-solving checkbox in the scanner settings, unticked by default. A
+// no-break space keeps "3 s" on one line however narrow the label wraps.
 test("the freeze's wait is a checkbox after automatic solving, off by default", () => {
   const html = read("index.html");
-  assert.match(html, /<label class="check"><input id="auto-solve" type="checkbox" checked \/> Solve clear, unambiguous scans automatically<\/label>\s*<label class="check"><input id="freeze-wait" type="checkbox" \/> Wait up to 3 s for clearer clues before freezing<\/label>/);
+  assert.match(html, /<label class="check"><input id="auto-solve" type="checkbox" checked \/> Solve clear, unambiguous scans automatically<\/label>\s*<label class="check"><input id="freeze-wait" type="checkbox" \/> Wait up to 3&nbsp;s for clearer clues before freezing<\/label>/);
 });
 
 // The three camera checkboxes are restored from and saved to the stored
