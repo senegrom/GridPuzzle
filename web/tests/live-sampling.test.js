@@ -155,6 +155,54 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason) };
 }
 
+test("aiming at no grid samples one frame per detection, every 300 ms, and reads back no tracking pixels", async (t) => {
+  // A phone's 1440 x 1920 stream: 1200 x 1600 snapshots, 960 x 1280 tracking pixels.
+  const h = simulation(t, { frame: [1440, 1920], grid: null });
+  await h.advance(9980); // Between two detections: none is running.
+  assert.equal(h.camera.stats.detection, 0);
+  const ticks = h.camera.stats.scheduling.processed, snapshots = h.snapshots();
+  assert.ok(ticks >= 95, `the scheduler still processes a frame every 100 ms: ${ticks}`);
+  assert.equal(snapshots.length, h.detections.length, "one snapshot per detection");
+  assert.ok(snapshots.length >= 30 && snapshots.length <= 34, `${snapshots.length} snapshots in 10 s`);
+  const gaps = snapshots.slice(1).map((s, i) => s.at - snapshots[i].at);
+  assert.ok(gaps.every((gap) => gap >= 300 && gap <= 400), `one detection every 300 ms: ${gaps.join(" ")}`);
+  assert.deepEqual(h.detected(), snapshots.map((s) => s.canvas), "each detection got its own snapshot");
+  assert.deepEqual(h.ops.filter((o) => o.op === "getImageData"), [], "nothing is read back: no 960 x 1280 tracking pixels");
+  assert.deepEqual(h.posts, [], "nothing goes to the tracker");
+  assert.deepEqual([h.detectCanvas.width, h.detectCanvas.height], [480, 640], "detection's own input");
+  assert.equal(h.camera.adoptedFrame(), null, "nothing is adopted while aiming");
+  // The tick metric counts the ticks that sampled the video.
+  assert.equal(h.diagnostics.snapshot().performance.tick.count, snapshots.length);
+});
+
+test("with nothing tracked detection gets the snapshot itself; with a grid tracked, a copy of the frame tracking verifies", async (t) => {
+  const h = simulation(t);
+  await h.advance(100);
+  const [first] = h.detected();
+  assert.deepEqual(h.drawnFrom(first), [h.video], "the first detection gets the snapshot itself");
+  assert.equal(h.snapshots().length, 1); assert.equal(h.created.length, 3, "and no copy is made");
+  // Its candidate is verified on a later frame, which is adopted. From then
+  // on a detection's frame is also tracked, so detection gets a copy.
+  assert.ok(await h.until(() => h.camera.adoptedFrame()), "the candidate verifies");
+  assert.ok(await h.until(() => h.detected().length >= 3, 3000));
+  for (const copy of h.detected().slice(1)) {
+    const [snapshot, ...rest] = h.drawnFrom(copy);
+    assert.deepEqual(rest, []);
+    assert.deepEqual(h.drawnFrom(snapshot), [h.video], "a copy of a snapshot");
+    assert.ok(h.on(h.contentCanvas, "drawImage").some((o) => o.source === snapshot), "which tracking verifies");
+  }
+});
+
+test("aiming without an adopted frame, the diagnostics get the current frame, unverified and transient", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(1000);
+  assert.equal(h.camera.adoptedFrame(), null);
+  const before = h.created.length, source = h.camera.diagnosticSource();
+  assert.equal(source.verified, false); assert.equal(source.transient, true);
+  assert.equal(h.created.length, before + 1, "drawn for the report");
+  assert.deepEqual(h.drawnFrom(source.image), [h.video], "from the video now");
+});
+
 test("aiming at no grid for ten seconds writes only the detector's guidance to the help line", async (t) => {
   const h = simulation(t, { grid: null });
   await h.advance(10000);

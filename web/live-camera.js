@@ -9,10 +9,15 @@ import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
 
-function videoFrame(video, maxSide = 1600) {
+// The size of a snapshot of the video: scaled uniformly to a long side of at
+// most `maxSide`.
+function frameSize(video, maxSide = 1600) {
   if (!video.videoWidth || !video.videoHeight) throw Error("The camera is not ready yet.");
-  const canvas = document.createElement("canvas"), scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-  const width = Math.max(1, Math.round(video.videoWidth * scale)), height = Math.max(1, Math.round(video.videoHeight * scale));
+  const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+  return [Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale))];
+}
+function videoFrame(video, maxSide = 1600) {
+  const [width, height] = frameSize(video, maxSide), canvas = document.createElement("canvas");
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -537,14 +542,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function heartbeat() {
     if (!active || view !== "live") return;
-    if (video.videoWidth && video.videoHeight) {
-      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-      syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
-    }
+    if (video.videoWidth && video.videoHeight) syncSettings(...frameSize(video));
     // Old video, or verified evidence past the stale limit, retires the proofs
-    // and hides what they verified. While aiming nothing is verified, so
-    // nothing is dropped then, and the session's loss clock does not run for
-    // a grid never found.
+    // and hides what they verified. While aiming nothing is verified or
+    // adopted, so the adopted frame is always "old": nothing is dropped then,
+    // and the session's loss clock does not run for a grid never found.
     if ((!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) &&
       (Object.keys(proofs).length || session.anchorFrame || guideFrame)) {
       dropProofs(); guide = null;
@@ -577,14 +579,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     interval: () => Math.max(session.settled ? 250 : 100,
       Math.min(300, (tracker.stats?.milliseconds ?? 0) * 1.5)),
   });
+  // The video is the display, so a frame is sampled only for the pipeline's
+  // own work: to verify a candidate, the guide or a reading, and to detect.
+  // While aiming at nothing that leaves one snapshot per detection, with no
+  // tracking pixels read back.
   function tick() {
     if (!active || view !== "live") return;
     seenFrame = true; pausedPicture = false;
     const started = now();
-    let image, sampled = false;
+    let image = null, sampled = false;
     try {
-      image = videoFrame(video); sampled = true;
-      syncSettings(image.width, image.height);
+      syncSettings(...frameSize(video));
       // On a stalled/unsupported worker the video and the manual shutter still
       // work, but no old proof or captured clue metadata survives the age
       // deadline: the adopted snapshot and its proofs are dropped. It does
@@ -594,22 +599,26 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       render();
       // The render may have frozen the view. This tick's frame must then not
       // be tracked or adopted: its epoch is already the frozen one.
-      if (view !== "live") return;
-      if (!recovery.blocked && now() >= retryTrackingAt) {
-        // One candidate at a time: a new detection waits until a reply has
-        // verified or rejected the pending one. Replacing it every 300 ms
-        // meant that once replies took longer than that, no candidate was
-        // ever verified and reading never started. Detections start every
-        // 300 ms to acquire or re-find the grid; once a reading is shown, or
-        // is running or finished with its own frame still verifying, they
-        // follow trackGap() instead. Replies can be two seconds old and two
-        // seconds apart, so "still" allows twice the stale limit.
-        const tracked = !!session.preview ||
-          ((session.busy || session.settled) && now() - ownVerifiedAt <= 2 * STALE_TRACK_AGE);
-        if (!detection && !pendingCandidate && (tracked ? now() >= trackAfter : now() - lastDetect >= 300))
-          void locate(copyCanvas(image), setting, settingsKey, epoch);
-        void track(image, settingsKey, epoch); image = null;
-      }
+      if (view !== "live" || recovery.blocked || now() < retryTrackingAt) return;
+      // Verification needs anchors: a candidate, the guide or a reading. One
+      // candidate at a time: a new detection waits until a reply has verified
+      // or rejected the pending one. Replacing it every 300 ms meant that once
+      // replies took longer than that, no candidate was ever verified and
+      // reading never started. Detections start every 300 ms to acquire or
+      // re-find the grid; once a reading is shown, or is running or finished
+      // with its own frame still verifying, they follow trackGap() instead.
+      // Replies can be two seconds old and two seconds apart, so "still"
+      // allows twice the stale limit.
+      const verify = verifyIds().length > 0;
+      const tracked = !!session.preview ||
+        ((session.busy || session.settled) && now() - ownVerifiedAt <= 2 * STALE_TRACK_AGE);
+      const detect = !detection && !pendingCandidate && (tracked ? now() >= trackAfter : now() - lastDetect >= 300);
+      if (!verify && !detect) return;
+      image = videoFrame(video); sampled = true;
+      // Detection gets the snapshot itself unless tracking adopts it.
+      if (detect) void locate(verify ? copyCanvas(image) : image, setting, settingsKey, epoch);
+      if (verify) void track(image, settingsKey, epoch);
+      image = null;
     } catch (error) { say(error.message || "Waiting for the camera…"); }
     finally {
       release(image);
@@ -668,8 +677,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       scratchPixels: contentCanvas.width * contentCanvas.height + detectCanvas.width * detectCanvas.height,
       tracking: tracker.stats, scheduling: scheduler.stats, recovery: recovery.stats }; },
     // The frozen frame is the verified frame of the frozen reading. Without an
-    // adopted frame (none yet, or dropped past the stale limit, as while
-    // tracking is paused after failures) the diagnostics get the video's
+    // adopted frame (none while aiming, or dropped past the stale limit, as
+    // while tracking is paused after failures) the diagnostics get the video's
     // current frame, unverified and transient: the diagnostics UI releases it
     // once encoded. The suites' pixel witnesses use adoptedFrame() instead.
     diagnosticSource() {

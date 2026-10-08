@@ -148,9 +148,11 @@ function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = 
     };
     return worker;
   } });
-  // Detection is handed a copy scaled to at most 640 pixels.
-  const scale = Math.min(1, 640 / Math.max(W, H)), sw = Math.round(W * scale), sh = Math.round(H * scale);
-  const small = (p) => ({ x: p.x * (sw - 1) / (W - 1), y: p.y * (sh - 1) / (H - 1) });
+  // Detection is handed the frame scaled to at most 640 pixels.
+  const small = (p) => {
+    const scale = Math.min(1, 640 / Math.max(W, H)), sw = Math.round(W * scale), sh = Math.round(H * scale);
+    return { x: p.x * (sw - 1) / (W - 1), y: p.y * (sh - 1) / (H - 1) };
+  };
   const diagnostics = createScanDiagnostics({ now: () => time }), rendering = diagnostics.rendering;
   diagnostics.rendering = (value) => { renders.push({ ...value, at: time }); rendering(value); };
   diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4, autoSolve });
@@ -212,6 +214,9 @@ function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = 
     on: (target, from = 0) => ops.slice(from).filter((o) => o.target === target),
     legend: () => Object.fromEntries(["recognised", "uncertain", "unknown", "solution"].map((key) => [key, $(`legend-${key}`).getAttribute("data-count")])),
     stall() { frozenTime = time; }, unstall() { frozenTime = null; },
+    // The stream changes shape (a rotation or a new resolution): the video,
+    // the printed scene and the detections follow, with the grid at `grid`.
+    reshape([width, height], [gx, gy]) { W = width; H = height; x = gx; y = gy; video.videoWidth = width; video.videoHeight = height; },
     hold() { hold = true; }, release() { hold = false; for (const reply of held.splice(0)) reply(); },
     rejectVerify(value) { rejectAll = value; }, jitter(px) { jitter = px; }, warp(fn) { warp = fn; },
     get held() { return held.length; }, get countWrites() { return countWrites; }, get sizeWrites() { return sizeWrites; } };
@@ -223,8 +228,13 @@ test("live, the canvas holds only the outline: no camera frame, no digits, no so
   assert.equal(h.view.attributes["aria-label"], "Live camera preview");
   assert.deepEqual(h.legend(), { recognised: null, uncertain: null, unknown: null, solution: null }, "no counts before a reading");
   await h.advance(100);
-  assert.ok(h.raw(), "the first frame is adopted");
+  // Aiming, the first frame is sampled for detection only: none is adopted.
+  assert.equal(h.raw(), null, "aiming adopts no frame");
   assert.equal(h.view.dataset.overlay, "none"); assert.equal(h.view.attributes["aria-label"], "Live camera preview");
+  // The first frame adopted is the one that verified the candidate: its
+  // outline shows, and without a reading still no counts.
+  assert.ok(await h.until(() => h.raw()), "the candidate's verification adopts its frame");
+  assert.equal(h.view.dataset.overlay, "outline"); assert.equal(h.view.attributes["aria-label"], "Live camera. Grid outline shown.");
   assert.deepEqual(h.legend(), { recognised: null, uncertain: null, unknown: null, solution: null }, "nor once a frame is shown without one");
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
   await h.advance(3000);
@@ -747,14 +757,19 @@ test("the canvas size is assigned only when the adopted frame's differs", async 
 
 // After a rotation or a change of stream resolution the settings start over
 // and nothing is drawn until a grid verifies on frames of the new shape; the
-// cleared canvas takes their size with the first one adopted.
-test("a change of stream resolution gives the cleared canvas the new frames' size at once", async (t) => {
+// canvas takes their size with the first one adopted, which is the one that
+// verifies the grid: frames are adopted only when something is verified.
+test("a change of stream resolution draws nothing until a grid verifies on the new frames, whose size the canvas takes", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.ok(await h.until(() => h.view.dataset.overlay === "outline"));
-  h.video.videoHeight = 525; // The stream turns to 4:3.
-  assert.ok(await h.until(() => h.raw()?.height === 525, 1000), "a frame of the new shape is adopted");
-  assert.equal(h.view.dataset.overlay, "none");
+  h.reshape([700, 525], [120, 40]); // The stream turns to 4:3, the grid still in view.
+  await h.advance(100);
+  assert.equal(h.view.dataset.overlay, "none", "the outline of the old shape is gone");
+  assert.equal(h.raw()?.height, 700, "no frame of the new shape is adopted before a grid verifies on one");
+  assert.ok(await h.until(() => h.raw()?.height === 525, 2000), "a frame of the new shape is adopted");
+  assert.equal(h.view.dataset.overlay, "outline", "with the grid it verified");
   assert.deepEqual([h.view.width, h.view.height], [700, 525]);
+  near(h.outline(h.view).points, [{ x: 120, y: 40 }, { x: 560, y: 40 }, { x: 560, y: 480 }, { x: 120, y: 480 }], 1, "the outline on the new frame");
 });
 
 // data-delayed and the label describe the evidence on screen. A stalled feed
@@ -1077,10 +1092,12 @@ test("adoptedFrame is the adopted snapshot itself, or null", async (t) => {
   const h = simulation(t, { autoSolve: false });
   assert.equal(h.raw(), null);
   await h.advance(100);
-  const first = h.raw();
-  assert.ok(first, "the first tick's empty verification adopts its snapshot");
-  assert.equal(h.created.find((c) => c.canvas === first)?.at, 100, "made by that tick");
-  assert.equal(h.raw(), first, "the same object, not a copy");
+  assert.equal(h.raw(), null, "a frame sampled only for detection is not adopted");
+  assert.ok(await h.until(() => h.raw()), "the candidate's verification adopts its snapshot");
+  const first = h.raw(), made = h.created.find((c) => c.canvas === first);
+  assert.ok(made && made.at > 100, "made by the tick that verified the candidate");
+  assert.deepEqual(h.on(first).filter((o) => o.op === "drawImage").map((o) => o.source), [h.video], "drawn from the video, not a copy");
+  assert.equal(h.raw(), first, "the same object each time");
   assert.ok(await h.until(() => h.raw() !== first, 500), "the next adopted reply replaces it");
   assert.equal(first.width, 0, "a replaced snapshot is released");
 });
