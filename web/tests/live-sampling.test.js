@@ -171,6 +171,7 @@ test("aiming at no grid samples one frame per detection, every 300 ms, and reads
   assert.deepEqual(h.posts, [], "nothing goes to the tracker");
   assert.deepEqual([h.detectCanvas.width, h.detectCanvas.height], [480, 640], "detection's own input");
   assert.equal(h.camera.adoptedFrame(), null, "nothing is adopted while aiming");
+  assert.deepEqual(snapshots.filter((s) => s.canvas.width > 0).map((s) => s.canvas), [snapshots.at(-1).canvas], "only the newest is kept");
   // The tick metric counts the ticks that sampled the video.
   assert.equal(h.diagnostics.snapshot().performance.tick.count, snapshots.length);
 });
@@ -201,6 +202,56 @@ test("aiming without an adopted frame, the diagnostics get the current frame, un
   assert.equal(source.verified, false); assert.equal(source.transient, true);
   assert.equal(h.created.length, before + 1, "drawn for the report");
   assert.deepEqual(h.drawnFrom(source.image), [h.video], "from the video now");
+});
+
+// While aiming no frame is adopted, so on a stalled feed (an interrupted
+// iPhone camera draws black) the newest frame detection scanned is the last
+// picture: a live capture and the diagnostics keep it, as they keep the last
+// adopted frame otherwise.
+test("aiming at no grid, a stalled feed keeps the newest frame detection scanned for a capture and the diagnostics", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(1000);
+  const scanned = h.detected().at(-1);
+  assert.equal(h.camera.stats.retainedSources, 1, "the newest scanned frame is kept");
+  assert.ok(scanned.width > 0);
+  // Frames still arrive: a capture draws the video, the frame on screen now.
+  assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [h.video]);
+  h.stall(); await h.advance(700);
+  assert.equal(h.help, STALLED);
+  const shot = h.camera.capture();
+  assert.equal(shot.found, null); assert.equal(shot.frozen, false);
+  assert.notEqual(shot.photo, scanned, "a copy");
+  assert.deepEqual(h.drawnFrom(shot.photo), [scanned], "of the newest frame scanned, not of the video");
+  assert.equal(h.drawnFrom(shot.annotated)[0], shot.photo);
+  const source = h.camera.diagnosticSource();
+  assert.equal(source.image, scanned, "the report's picture too"); assert.equal(source.verified, false);
+  assert.equal(source.transient, undefined, "the camera's own: the report does not release it");
+  h.camera.stop();
+  assert.equal(scanned.width, 0, "closing releases it");
+  assert.equal(h.camera.stats.retainedSources, 0);
+});
+
+test("the scanned frame gives way to the first adopted one", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(1000);
+  const scanned = h.detected().at(-1);
+  h.aim([120, 110]);
+  assert.ok(await h.until(() => h.camera.adoptedFrame()), "a grid comes into view and verifies");
+  assert.equal(scanned.width, 0, "the scanned frame is released");
+  assert.equal(h.camera.stats.retainedSources, 1, "only the adopted frame is kept");
+  // On a stalled feed the capture now keeps the adopted frame.
+  h.stall(); await h.advance(700);
+  assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [h.camera.adoptedFrame()]);
+});
+
+test("a tracking failure releases the scanned frame: none is newer during the back-off", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(1000);
+  const scanned = h.detected().at(-1);
+  h.fail(true); h.aim([120, 110]);
+  assert.ok(await h.until(() => h.camera.stats.recovery.failures === 1), "the anchor fails in the worker");
+  assert.equal(scanned.width, 0);
+  assert.equal(h.camera.stats.retainedSources, 0);
 });
 
 test("aiming at no grid for ten seconds writes only the detector's guidance to the help line", async (t) => {
