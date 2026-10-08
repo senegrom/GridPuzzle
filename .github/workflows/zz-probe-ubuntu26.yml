@@ -26,4 +26,5 @@ jobs:
           build: "false"
           browsers: webkit
       - name: Launch WebKit as the live-camera suite does
-        run: node -e "require('playwright').webkit.launch({ headless: true }).then(async (browser) => { console.log('webkit', browser.version()); await browser.close(); })"
+        run: |
+          node -e "require('playwright').webkit.launch({ headless: true }).then(async (browser) => { console.log('webkit', browser.version()); await browser.close(); })"
