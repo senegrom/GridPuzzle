@@ -632,6 +632,25 @@ test("a detection in flight at the freeze is abandoned without cancelling its wo
   assert.equal(h.timers.size, 0);
 });
 
+// After Clear no frame is adopted until a grid verifies again, and the newest
+// frame a detection scanned is kept for a capture on a stalled feed. A
+// detection abandoned at the freeze shows the scene from before it: its frame
+// must not become that frame when the reply comes after Clear.
+test("a detection abandoned at the freeze releases its frame also when its reply comes after Clear", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.holdDetections(true);
+  const detects = h.counts.detects;
+  assert.ok(await h.until(() => h.counts.detects > detects, 3000), "a settled detection starts");
+  const sample = h.created.at(-1).canvas;
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.ok(await h.until(() => frozenNow(h), 500, 10));
+  h.camera.resume();
+  h.heldDetections[0].resolve(h.found()); await flush();
+  assert.equal(sample.width, 0, "its frame is released");
+  assert.equal(h.camera.stats.retainedSources, 0, "not kept as the newest scanned frame");
+});
+
 test("a detection candidate still waiting for its verdict at the freeze is discarded", async (t) => {
   const h = simulation(t, { solve: "deferred" });
   assert.ok(await h.until(() => h.solveJobs.length === 1));

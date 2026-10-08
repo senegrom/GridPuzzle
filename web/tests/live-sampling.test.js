@@ -63,14 +63,15 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       width: { get: () => width, set(value) { record("width", { value }); width = value; } },
       height: { get: () => height, set(value) { record("height", { value }); height = value; } },
     });
-    const ctx = { canvas: c, drawImage(source) { record("drawImage", { source }); }, clearRect() { record("clearRect"); },
+    const ctx = { canvas: c, drawImage(source, ...box) { record("drawImage", { source, box }); },
+      clearRect(left, top, w, h) { record("clearRect", { left, top, w, h }); },
       fillText() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
       save() {}, restore() {}, translate() {}, rotate() {},
       getImageData(_x, _y, w, h) {
         record("getImageData", { w, h });
         return grid && w === W && h === H ? scene(W, H, grid[0], grid[1]) : { width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(255) };
       } };
-    c.getContext = () => ctx;
+    c.getContext = (_type, options) => { if (options) record("options", { options }); return ctx; };
     return c;
   }
   const previous = globalThis.document;
@@ -172,6 +173,7 @@ test("aiming at no grid samples one frame per detection, every 300 ms, and reads
   assert.deepEqual([h.detectCanvas.width, h.detectCanvas.height], [480, 640], "detection's own input");
   assert.equal(h.camera.adoptedFrame(), null, "nothing is adopted while aiming");
   assert.deepEqual(snapshots.filter((s) => s.canvas.width > 0).map((s) => s.canvas), [snapshots.at(-1).canvas], "only the newest is kept");
+  assert.deepEqual([snapshots.at(-1).canvas.width, snapshots.at(-1).canvas.height], [1200, 1600]);
   // The tick metric counts the ticks that sampled the video.
   assert.equal(h.diagnostics.snapshot().performance.tick.count, snapshots.length);
 });
@@ -209,7 +211,13 @@ test("the scratch canvases' sizes are assigned only when they change, and each d
     const mine = h.on(target).filter((o) => o.op === "drawImage" || o.op === "clearRect");
     assert.ok(mine.filter((o) => o.op === "drawImage").length >= 3);
     mine.forEach((o, i) => { if (o.op === "drawImage") assert.equal(mine[i - 1]?.op, "clearRect", "a draw on a cleared bitmap"); });
+    for (const o of mine)
+      assert.deepEqual(o.op === "clearRect" ? [o.left, o.top, o.w, o.h] : o.box, [0, 0, target.width, target.height], `${o.op} over the whole bitmap`);
   }
+  // The tracking pixels are read back on every processed frame: a CPU-backed
+  // context where the browser honours the hint.
+  assert.ok(h.on(h.contentCanvas, "options").every((o) => o.options.willReadFrequently === true));
+  assert.ok(h.on(h.contentCanvas, "options").length > 0);
   h.camera.stop();
   assert.deepEqual([h.contentCanvas.width, h.detectCanvas.width], [0, 0], "closing releases them");
 });
@@ -257,6 +265,17 @@ test("aiming at no grid, a stalled feed keeps the newest frame detection scanned
   assert.equal(source.transient, undefined, "the camera's own: the report does not release it");
   h.camera.stop();
   assert.equal(scanned.width, 0, "closing releases it");
+  assert.equal(h.camera.stats.retainedSources, 0);
+});
+
+test("a detection that ends after the camera closed keeps no frame", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(120);
+  assert.equal(h.camera.stats.detection, 1, "a detection is running");
+  const frame = h.detected().at(-1);
+  h.camera.stop();
+  await h.advance(100);
+  assert.equal(frame.width, 0, "its frame is released when it ends");
   assert.equal(h.camera.stats.retainedSources, 0);
 });
 
