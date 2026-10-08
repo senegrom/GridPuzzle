@@ -58,6 +58,7 @@ jobs:
       volumes:
         - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
         - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -98,6 +99,7 @@ jobs:
       volumes:
         - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
         - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

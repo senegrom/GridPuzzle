@@ -573,7 +573,9 @@ def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
     packages come with the Playwright image, which must be of the version the
     action installs and pinned by digest. The runners have the image's Ubuntu
     release, not ubuntu-latest's, since setup-python takes Python from the
-    runner's tool cache, built for the runner's release."""
+    runner's tool cache, built for the runner's release. The tag names that
+    release, but only the image itself shows that the digest is of it, so
+    setup-scanner compares the two releases when the job runs."""
     from scripts.check_runtime_pins import playwright_pin
 
     action = (_GITHUB / "actions" / "setup-scanner" / "action.yml").read_text(encoding="utf-8")
@@ -606,15 +608,23 @@ def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
         # and the runner's user, who owns the checkout
         assert options.split() == ["--ipc=host", "--init", "--user", "1001"], (name, options)
         # the runner's fonts that the image lacks, read-only where the
-        # runner keeps them; setup-scanner fails without them
+        # runner keeps them, and its os-release where a container finds its
+        # host's, for setup-scanner's comparison of the two releases
         assert volumes.split() == [
             "-", "/usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro",
             "-", "/usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro",
+            "-", "/etc/os-release:/run/host/os-release:ro",
         ], (name, volumes)
         images.add(image)
     assert len(images) == 1, images
-    for family in ("DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono", "Lato"):
-        assert f'"{family}"' in action, family
+    # The releases are compared before setup-python takes the runner's
+    # Python. setup-scanner stops without the DejaVu fonts the suites draw;
+    # Lato only keeps the runner's font set, so a runner image without it
+    # must not stop every deployment.
+    assert action.index("/run/host/os-release") < action.index("uses: actions/setup-python@")
+    families = re.search(r"^ +for family in (.+); do$", action, re.M)
+    assert families, "setup-scanner checks no fonts"
+    assert re.findall(r'"([^"]+)"', families.group(1)) == ["DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono"]
 
 
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)

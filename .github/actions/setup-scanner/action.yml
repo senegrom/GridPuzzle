@@ -16,6 +16,20 @@ inputs:
 runs:
   using: composite
   steps:
+    # setup-python takes Python from the runner's tool cache, built for the
+    # runner's Ubuntu release, so the image must be of that release as well:
+    # Ubuntu 26.04's Python cannot load ssl in the 24.04 image. The jobs mount
+    # the runner's os-release where a container finds its host's, and a job
+    # whose image (variant or digest) and runs-on disagree stops here, first.
+    - name: Check that the image's Ubuntu release is the runner's
+      shell: bash
+      run: |
+        image=$(. /etc/os-release && echo "$VERSION_CODENAME")
+        runner=$(. /run/host/os-release && echo "$VERSION_CODENAME") || {
+          echo "::error::no /run/host/os-release: run this job in the Playwright image, with the runner's /etc/os-release mounted there"; exit 1; }
+        [ "$image" = "$runner" ] || {
+          echo "::error::the image is Ubuntu $image and the runner Ubuntu $runner: change the image's variant and digest and runs-on together"; exit 1; }
+        echo "image and runner: Ubuntu $image"
     - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
       with:
         python-version: "3.14"
@@ -40,7 +54,9 @@ runs:
     # Playwright version it was built for, which /ms-playwright/.docker-info
     # names. A job without the container, or in an image of another version,
     # stops here rather than downloading browsers without their system packages;
-    # so does one without the runner's fonts that the jobs mount into it.
+    # so does one without the runner's DejaVu fonts, which the suites draw. The
+    # jobs mount the runner's Lato as well, only to keep its font set: nothing
+    # draws Lato, so a runner image without it is no reason to stop.
     - name: Install repository browser test versions
       shell: bash
       env:
@@ -52,7 +68,7 @@ runs:
           const { version } = require("playwright/package.json");
           let image;
           try { image = JSON.parse(fs.readFileSync("/ms-playwright/.docker-info", "utf8")); }
-          catch { throw new Error(`run this job in the container mcr.microsoft.com/playwright:v${version}-noble`); }
+          catch { throw new Error(`run this job in an image mcr.microsoft.com/playwright:v${version}-<release>`); }
           if (image.driverVersion !== version) throw new Error(`the container is ${image.dockerImageName}; Playwright is ${version}`);
           for (const name of process.env.BROWSERS.split(" ").filter(Boolean)) {
             const executable = playwright[name].executablePath();
@@ -61,7 +77,7 @@ runs:
           }
           console.log(`browsers and their system packages: ${image.dockerImageName}`);
         '
-        for family in "DejaVu Sans" "DejaVu Serif" "DejaVu Sans Mono" "Lato"; do
+        for family in "DejaVu Sans" "DejaVu Serif" "DejaVu Sans Mono"; do
           fc-list -q "$family" || { echo "::error::no $family font: mount the runner's fonts into the job's container"; exit 1; }
         done
     # Parallel jobs may race to save the same key; the losers only warn.
