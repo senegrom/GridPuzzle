@@ -243,14 +243,17 @@ test("the live camera takes the freeze's wait from its checkbox, off unless tick
   h.$("freeze-wait").checked = false;
   assert.equal(settings().freezeWait, false);
 });
-test("a camera opened with the freeze's wait ticked records it in the diagnostics", async (t) => {
-  const h = await cameraHarness(t);
-  h.$("freeze-wait").checked = true; h.$("auto-solve").checked = true;
-  await h.$("camera").onclick();
-  assert.equal(h.liveOptions.getSettings().freezeWait, true);
-  const { settings } = h.diagnostics.snapshot();
-  assert.equal(settings.freezeWait, true); assert.equal(settings.autoSolve, true);
-});
+// The two boxes ticked differently, so neither can be recorded from the other.
+for (const [freezeWait, autoSolve] of [[true, false], [false, true]])
+  test(`a camera opened with the freeze's wait ${freezeWait ? "ticked" : "unticked"} and automatic solving ${autoSolve ? "on" : "off"} records each from its own box`, async (t) => {
+    const h = await cameraHarness(t);
+    h.$("freeze-wait").checked = freezeWait; h.$("auto-solve").checked = autoSolve;
+    await h.$("camera").onclick();
+    assert.equal(h.liveOptions.getSettings().freezeWait, freezeWait);
+    const { settings } = h.diagnostics.snapshot();
+    assert.equal(settings.freezeWait, freezeWait, "the diagnostics record the freeze's wait from its box");
+    assert.equal(settings.autoSolve, autoSolve, "and automatic solving from its own");
+  });
 
 // --- photo-flow: the frozen solution and Clear --------------------------
 test("freezing pauses the video but keeps the camera on; Clear plays it again before scanning resumes", async (t) => {
