@@ -164,3 +164,49 @@ test("aiming at no grid for ten seconds writes only the detector's guidance to t
   assert.deepEqual([...new Set(later)], [GUIDANCE], "no Aligning…, no Grid lost");
   assert.equal(h.reasons().includes("grid-lost"), false, "no grid-lost reset");
 });
+
+test("aiming at no grid, a stalled feed is still reported and held on the help line", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(1000);
+  h.stall(); await h.advance(1000);
+  assert.ok(h.reasons().includes("video-stalled"));
+  assert.equal(h.help, STALLED);
+  h.unstall(); await h.advance(1000);
+  assert.equal(h.help, GUIDANCE, "the detector's guidance once frames return");
+});
+
+// With automatic reading paused only the guide is tracked, with no reading.
+// A stalled feed retires its proof: when frames return, the outline waits for
+// a frame verified after the stall.
+test("with automatic reading paused, the outline returns after a stall only with a newly verified frame", async (t) => {
+  const h = simulation(t, { settings: { enabled: false } });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"), "the guide alone is tracked");
+  assert.match(h.help, /Automatic reading is paused/);
+  h.stall(); await h.advance(700);
+  assert.equal(h.view.dataset.overlay, "none");
+  // The first frame after the stall is sampled and sent to verification; the
+  // proof from before the stall must not bring the outline back meanwhile.
+  h.rejectVerify(true); h.unstall();
+  const verifications = h.posts.filter((p) => p.op === "verify").length;
+  await h.advance(100);
+  assert.equal(h.posts.filter((p) => p.op === "verify").length, verifications + 1, "a new frame is being verified");
+  assert.equal(h.view.dataset.overlay, "none", "the old proof does not show the outline");
+  h.rejectVerify(false);
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline", 1000), "a newly verified frame does");
+});
+
+// A reading stays while its grid is lost for less than five seconds, also
+// through a stalled feed: the heartbeat keeps the loss clock running for it,
+// also once the detector has stopped finding a grid (no guide is left).
+test("a reading lost through a stalled feed for five seconds is retired, also with no grid detected", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  assert.equal(h.reads.length, 1);
+  h.aim(null); // Aimed away: the reading is hidden, and detection finds no grid.
+  assert.ok(await h.until(() => h.help === GUIDANCE, 3000));
+  h.stall(); await h.advance(6000);
+  assert.ok(h.reasons().includes("grid-lost"), "retired while no frame came");
+  assert.equal(h.help, STALLED);
+  h.aim([120, 110]); h.unstall();
+  assert.ok(await h.until(() => h.reads.length === 2, 3000), "the grid back in view is read again");
+});

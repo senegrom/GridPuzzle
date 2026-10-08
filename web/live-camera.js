@@ -541,13 +541,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
       syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
     }
-    if (!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) {
+    // Old video, or verified evidence past the stale limit, retires the proofs
+    // and hides what they verified. While aiming nothing is verified, so
+    // nothing is dropped then, and the session's loss clock does not run for
+    // a grid never found.
+    if ((!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) &&
+      (Object.keys(proofs).length || session.anchorFrame || guideFrame)) {
       dropProofs(); guide = null;
       session.suspend();
-      if (!scheduler.fresh && seenFrame) {
-        diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
-      }
     }
+    if (!scheduler.fresh && seenFrame) diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
     prepareSolver();
     // Conditions the camera owns take the help line while they last. A
     // camera that has delivered no frame a second after start or Clear says
