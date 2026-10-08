@@ -48,7 +48,7 @@ const cornersAt = (x, y) => [{ x, y }, { x: x + GRID, y }, { x: x + GRID, y: y +
 // most 1280 px, which tracking reads unscaled). `settings` are merged into
 // the scanner's settings (automatic solving is off).
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {} } = {}) {
-  let time = 0, serial = 0, frozenTime = null, failing = false, rejectAll = false;
+  let time = 0, serial = 0, frozenTime = null, failing = false, replyMs = 20, missing = false;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], detections = [], reads = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
@@ -91,15 +91,10 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
           let data;
           try {
             if (failing) throw Error("injected worker failure");
-            // rejectVerify(true): the worker answers, but no anchor matches.
-            const result = rejectAll && message.op === "verify"
-              ? { proofs: Object.fromEntries(message.anchors.map((id) => [id, null])),
-                rejections: Object.fromEntries(message.anchors.map((id) => [id, { reason: "cell-content", region: 0 }])) }
-              : core.run(message);
-            data = { id: message.id, result, milliseconds: 20 };
+            data = { id: message.id, result: core.run(message), milliseconds: 20 };
           } catch (error) { data = { id: message.id, error: error.message }; }
           worker.onmessage?.({ data });
-        }, 20);
+        }, replyMs);
       },
       terminate() { worker.dead = true; },
     };
@@ -117,7 +112,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     detector: { detect(input) {
       // The camera hands detection its frame scaled to at most 640 pixels.
       detections.push({ input, at: time });
-      const sx = (input.width - 1) / (W - 1), sy = (input.height - 1) / (H - 1), at = grid;
+      const sx = (input.width - 1) / (W - 1), sy = (input.height - 1) / (H - 1), at = missing ? null : grid;
       return new Promise((resolve) => setTimer(() => resolve(at
         ? { confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
         : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), 50));
@@ -152,7 +147,9 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     detected: () => drawnFrom(created[1].canvas),
     get now() { return time; }, get help() { return help; },
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
-    rejectVerify(value) { rejectAll = value; },
+    replyDelay(ms) { replyMs = ms; },
+    // The detector misses the grid that is still in view.
+    miss(value) { missing = value; },
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason) };
 }
 
@@ -279,6 +276,23 @@ test("a detection that ends after the camera closed keeps no frame", async (t) =
   assert.equal(h.camera.stats.retainedSources, 0);
 });
 
+// While a frame is adopted, a detection's frame is a copy of one tracking
+// verifies, and the adopted frame is the newest picture: the copy is released
+// as soon as the detection is done with it, not kept beside it.
+test("with a reading tracked, a detection that finds no grid releases its copy at once", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.miss(true);
+  const count = h.detections.length;
+  assert.ok(await h.until(() => h.detections.length > count, 3000), "a detection of the tracked grid starts");
+  const copy = h.detected().at(-1);
+  assert.ok(h.drawnFrom(copy).every((source) => source !== h.video), "it got a copy");
+  await h.advance(60); // Its reply has come; the next adoption has not.
+  assert.ok(h.reasons().includes("no-grid"), "it found no grid");
+  assert.equal(copy.width, 0, "its copy is released");
+  assert.equal(h.camera.stats.retainedSources, 1, "only the adopted frame is kept");
+});
+
 test("the scanned frame gives way to the first adopted one", async (t) => {
   const h = simulation(t, { grid: null });
   await h.advance(1000);
@@ -331,15 +345,26 @@ test("with automatic reading paused, the outline returns after a stall only with
   assert.match(h.help, /Automatic reading is paused/);
   h.stall(); await h.advance(700);
   assert.equal(h.view.dataset.overlay, "none");
-  // The first frame after the stall is sampled and sent to verification; the
-  // proof from before the stall must not bring the outline back meanwhile.
-  h.rejectVerify(true); h.unstall();
+  // The first frame after the stall is sampled and sent to verification, which
+  // takes 300 ms; the proof from before the stall must not bring the outline
+  // back meanwhile.
+  h.replyDelay(300); h.unstall();
   const verifications = h.posts.filter((p) => p.op === "verify").length;
-  await h.advance(100);
+  await h.advance(150);
   assert.equal(h.posts.filter((p) => p.op === "verify").length, verifications + 1, "a new frame is being verified");
   assert.equal(h.view.dataset.overlay, "none", "the old proof does not show the outline");
-  h.rejectVerify(false);
-  assert.ok(await h.until(() => h.view.dataset.overlay === "outline", 1000), "a newly verified frame does");
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline", 1000), "the newly verified frame does");
+});
+
+// A camera that has delivered no frame since it started is not a stalled feed:
+// it says so itself, and no video-stalled diagnostic is recorded.
+test("a camera that delivers no frame holds its own message and reports no stalled feed", async (t) => {
+  const h = simulation(t, { grid: null });
+  h.video.videoWidth = 0; // A video with no picture yet presents no frame.
+  await h.advance(2000);
+  assert.equal(h.camera.stats.scheduling.observed, 0);
+  assert.equal(h.help, "Waiting for the camera to deliver a picture…");
+  assert.equal(h.reasons().includes("video-stalled"), false);
 });
 
 // A reading stays while its grid is lost for less than five seconds, also
