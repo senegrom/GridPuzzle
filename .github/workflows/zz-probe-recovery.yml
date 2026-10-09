@@ -1,0 +1,48 @@
+name: Probe live recovery decisions (temporary)
+# Temporary, for this pull request only, removed again before it is ready:
+# draws the live-recovery scene with its digits shifted and several
+# degradations of the retried clue, and runs the production stages on each
+# frame (detection and quality, the tracking core's same-scene decision with
+# per-region content statistics, the full OCR read, clearerCells and the
+# targeted read), in both engines of the scanner jobs' image.
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: probe-recovery-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    name: probe ${{ matrix.shard }} (${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, webkit]
+        shard: [current, free27, lower27, small]
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-scanner
+        with:
+          browsers: ${{ matrix.engine }}
+      - name: Probe
+        env:
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          mkdir -p probe-out
+          node .github/probe/probe_offline.cjs .github/probe/configs-${{ matrix.shard }}.json probe-out/${{ matrix.shard }}-${{ matrix.engine }}.json | tee probe-out/${{ matrix.shard }}-${{ matrix.engine }}.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: probe-${{ matrix.shard }}-${{ matrix.engine }}
+          path: probe-out
+          retention-days: 5
