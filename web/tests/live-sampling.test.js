@@ -436,6 +436,24 @@ test("a stalled capture after a failed verification keeps the frame the worker f
   assert.equal(h.camera.stats.retainedSources, 1, "only that frame is kept");
 });
 
+// During the back-off after a tracking failure, and while tracking is paused
+// after three, nothing is detected or verified, so no frame is sampled either,
+// though the scheduler still processes them.
+test("the back-off and the pause after tracking failures sample no frame", async (t) => {
+  const h = simulation(t);
+  h.fail(true);
+  assert.ok(await h.until(() => h.camera.stats.recovery.failures === 1), "the worker fails");
+  const before = h.snapshots().length, processed = h.camera.stats.scheduling.processed;
+  await h.advance(1500);
+  assert.ok(h.camera.stats.scheduling.processed >= processed + 10, "frames are still processed");
+  assert.equal(h.snapshots().length, before, "the two-second back-off samples none");
+  assert.ok(await h.until(() => h.camera.stats.recovery.blocked, 30000), "paused after three failures");
+  const paused = h.snapshots().length;
+  await h.advance(5000);
+  assert.equal(h.snapshots().length, paused, "the pause samples none");
+  assert.equal(h.diagnostics.snapshot().performance.tick.count, paused, "and counts no tick");
+});
+
 test("aiming at no grid for ten seconds writes only the detector's guidance to the help line", async (t) => {
   const h = simulation(t, { grid: null });
   await h.advance(10000);
