@@ -451,6 +451,35 @@ test("a stalled capture after a failed verification keeps the frame the worker f
   assert.equal(h.camera.stats.retainedSources, 1, "only that frame is kept");
 });
 
+// Replies can come late. Here a guide is tracked with replies taking 400 ms
+// and its grid leaves view: detection, now on snapshots of its own, keeps a
+// newer frame while verifications of earlier frames are still in flight.
+// When one of them comes back, adopted or failed in the worker, the newer
+// frame stays the one a stalled capture and the diagnostics keep.
+for (const outcome of ["adopted", "failed"]) {
+  test(`a verification of an earlier frame ${outcome} late keeps the newer frame detection scanned`, async (t) => {
+    const h = simulation(t, { settings: { enabled: false } });
+    assert.ok(await h.until(() => h.view.dataset.overlay === "outline"), "the guide alone is tracked");
+    h.replyDelay(400); h.aim(null);
+    assert.ok(await h.until(() => h.help === GUIDANCE, 3000), "detection drops the guide");
+    const own = () => h.detected().filter((frame) => h.drawnFrom(frame)[0] === h.video);
+    const count = own().length;
+    assert.ok(await h.until(() => own().length > count && h.camera.stats.detection === 0, 1000), "a detection is done with a snapshot of its own");
+    if (outcome === "failed") h.fail(true);
+    const adopted = h.camera.adoptedFrame(), failures = h.camera.stats.recovery.failures;
+    assert.ok(await h.until(() => outcome === "failed" ? h.camera.stats.recovery.failures > failures : h.camera.adoptedFrame() !== adopted, 1000),
+      `a verification sent before the guide was dropped is ${outcome}`);
+    const late = outcome === "adopted" ? h.camera.adoptedFrame() : h.on(h.contentCanvas, "drawImage").at(-1).source;
+    const scanned = own().at(-1), sampled = (frame) => h.on(frame, "drawImage")[0].at;
+    assert.ok(sampled(late) < sampled(scanned), `its frame is the older: ${sampled(late)} ms against ${sampled(scanned)} ms`);
+    assert.ok(scanned.width > 0, "the newer frame is kept");
+    if (outcome === "failed") assert.equal(late.width, 0, "the failed frame is released");
+    h.stall(); await h.advance(700);
+    assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [scanned], "a stalled capture keeps the newer frame");
+    assert.equal(h.camera.diagnosticSource().image, scanned, "as do the diagnostics");
+  });
+}
+
 // During the back-off after a tracking failure, and while tracking is paused
 // after three, nothing is detected or verified, so no frame is sampled either,
 // though the scheduler still processes them.

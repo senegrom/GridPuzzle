@@ -115,8 +115,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // detection got for itself once done with it, also when its anchor failed
   // in the worker, or the frame a verification failed on; sampled at
   // `scannedAt`. A live capture on a stalled feed keeps it (an interrupted
-  // iPhone camera draws black), and so do the diagnostics. An adoption
-  // releases it, so beside an adopted frame it is always the newer one.
+  // iPhone camera draws black), and so do the diagnostics. The adoption of a
+  // frame at least as new releases it, so beside an adopted frame it is
+  // always the newer one.
   let scanned = null, scannedAt = -Infinity;
   function keepScanned(image, at) {
     if (at > scannedAt) { release(scanned); scanned = image; scannedAt = at; } else release(image);
@@ -522,7 +523,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
       if (raw !== image) release(raw);
-      raw = image; kept = true; sampledAt = adoptedAt = at; dropScanned();
+      raw = image; kept = true; sampledAt = adoptedAt = at;
+      // A frame scanned after this one stays the newer picture (a late reply).
+      if (scannedAt <= at) dropScanned();
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, proof]) =>
         [anchor, proof ? { ...proof, width, height } : null]));
       if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
