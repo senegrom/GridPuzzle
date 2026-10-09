@@ -6,6 +6,8 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
   'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
   'manual-corners','review-required','auto-solve-off','alignment-rejected','frozen','cleared','camera-released']);
 const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
+// The live camera's data-overlay modes over live video.
+const OVERLAYS = ['none','outline'];
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
 const settingsOf = value => {
@@ -33,7 +35,16 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
   let paintMetrics = createMetricWindow(), workerMetrics = createMetricWindow(), ageMetrics = createMetricWindow();
   let tickMetrics = createMetricWindow();
   let paintRequests = 0, lastMetricFrame = -1, firstReading = null;
+  // Milliseconds of live time per overlay mode while a grid is tracked, and
+  // the mode in force since overlayAt (null: not counted).
+  let overlayTimes = {}, overlayMode = null, overlayAt = 0;
   const listeners = new Set();
+  function overlayShare() {
+    const times = { ...overlayTimes };
+    if (overlayMode) times[overlayMode] = (times[overlayMode] ?? 0) + now() - overlayAt;
+    const total = OVERLAYS.reduce((sum, mode) => sum + (times[mode] ?? 0), 0);
+    return { milliseconds: number(total), percent: Object.fromEntries(OVERLAYS.map(mode => [mode, total ? number(100 * (times[mode] ?? 0) / total) : null])) };
+  }
   function notify() { for (const listener of listeners) { try { listener(); } catch { /* Diagnostics cannot interrupt scanning. */ } } }
   function event(value) {
     const next = STAGES.has(value.stage) ? value.stage : stage;
@@ -65,7 +76,8 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {};
       paintMetrics = createMetricWindow(); workerMetrics = createMetricWindow(); ageMetrics = createMetricWindow();
       tickMetrics = createMetricWindow();
-      paintRequests = 0; lastMetricFrame = -1; firstReading = null; notify();
+      paintRequests = 0; lastMetricFrame = -1; firstReading = null;
+      overlayTimes = {}; overlayMode = null; notify();
     },
     event,
     configure(value) { settings = settingsOf(value); reading = geometry = null; notify(); },
@@ -85,6 +97,14 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
     },
     // Main-thread milliseconds of each camera frame the live camera sampled.
     ticking(milliseconds) { tickMetrics.add(milliseconds); },
+    // The live view's overlay from now on: a data-overlay mode while a grid
+    // is tracked over live video, null otherwise (aiming at nothing, frozen,
+    // closed). The time since the last call goes to the mode then in force.
+    overlay(mode) {
+      const time = now();
+      if (overlayMode) overlayTimes[overlayMode] = (overlayTimes[overlayMode] ?? 0) + time - overlayAt;
+      overlayMode = OVERLAYS.includes(mode) ? mode : null; overlayAt = time;
+    },
     tracking(stats, frame) {
       if (Number.isSafeInteger(frame.frame) && frame.frame > lastMetricFrame) {
         lastMetricFrame = frame.frame;
@@ -110,7 +130,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         stageMilliseconds: Object.fromEntries(Object.entries({...timings, [stage]: (timings[stage] ?? 0) + now() - stageAt}).map(([k,v]) => [k, number(v)])),
         counters, tracking, scheduling,
         performance: { firstCompletedReadingMilliseconds: firstReading, paintRequests,
-          rendering: paintMetrics.snapshot(), tick: tickMetrics.snapshot(), trackingWorker: workerMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
+          rendering: paintMetrics.snapshot(), tick: tickMetrics.snapshot(), overlay: overlayShare(), trackingWorker: workerMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
         privacy: { includesImage: false, automaticUpload: false, includesSolutions: false } });
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },

@@ -80,6 +80,10 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   }
   function hide() {
     publish(null); release(best); best = null;
+    // Nothing was ever found (the camera aimed at no grid, whose detector
+    // suspends on every frame without one): there is no loss to count and
+    // nothing to announce, neither "Aligning…" nor a reset as "Grid lost".
+    if (!reference && !stored) return false;
     // A missing asynchronous proof hides the view, not the two already
     // verified observations of this original anchor. Resetting acquisition
     // here can starve OCR whenever worker replies span multiple camera ticks.

@@ -274,7 +274,7 @@ test("without automatic solving a settled reading never freezes and keeps tracki
   assert.match(h.help, /Automatic solving is off/);
 });
 
-test("a freeze inside a tick does not track or adopt that tick's frame", async (t) => {
+test("a freeze inside a tick samples, tracks and adopts no frame after it", async (t) => {
   // Replies that report 200 ms keep the interval at 300 ms, so a tick runs on
   // every third 100-ms pulse, before that pulse's heartbeat.
   const h = simulation(t, { solve: "deferred", workerMs: 200 });
@@ -287,9 +287,10 @@ test("a freeze inside a tick does not track or adopt that tick's frame", async (
   assert.equal(lastTick(), tickAt, "no tick in the two pulses after it");
   h.solveJobs[0].resolve(unique()); await flush();
   assert.equal(h.camera.view, "live");
-  const raw = h.raw(), posts = h.posts.length;
+  const raw = h.raw(), posts = h.posts.length, processed = h.camera.stats.scheduling.processed, detects = h.counts.detects;
   await h.advance(50);
   assert.equal(h.camera.view, "frozen");
+  assert.equal(h.camera.stats.scheduling.processed, processed + 1, "the freeze happened in a tick");
   // This video has no requestVideoFrameCallback, so the pulse that ran the
   // freezing tick runs its heartbeat right after it (as it does in browsers
   // without one, and after the native callback stalls). That heartbeat sees
@@ -298,12 +299,13 @@ test("a freeze inside a tick does not track or adopt that tick's frame", async (
   assert.match(h.help, FROZEN, "the same pulse's heartbeat leaves the frozen help line");
   const reasons = h.diagnostics.snapshot().events.map((e) => `${e.stage}:${e.reason}`);
   assert.equal(reasons.at(-1), "complete:frozen", `nothing follows the freeze: ${reasons.slice(-3).join(" ")}`);
-  const sampled = h.created.filter((c) => c.at === h.now);
-  assert.equal(sampled.length, 1, "the freezing tick took its snapshot and nothing else");
-  assert.equal(sampled[0].canvas.width, 0, "and released it at once");
+  // A tick samples the video only after its render, for tracking or
+  // detection: the freezing tick takes no snapshot at all.
+  assert.deepEqual(h.created.filter((c) => c.at === h.now), [], "the freezing tick took no snapshot");
   assert.equal(h.raw(), raw, "the frozen frame keeps its identity");
   assert.equal(h.viewDraws().at(-1).source, raw);
-  assert.equal(h.posts.length, posts, "the frame was neither tracked nor sent for detection");
+  assert.equal(h.posts.length, posts, "nothing was tracked");
+  assert.equal(h.counts.detects, detects, "nor sent for detection");
   assert.equal(h.camera.stats.candidate, 0); assert.equal(h.camera.stats.retainedSources, 1);
 });
 
@@ -602,6 +604,11 @@ test("diagnostics: the frozen frame is the verified source, and the freeze and C
   assert.equal(h.diagnostics.snapshot().reason, "frozen");
   const tick = h.diagnostics.snapshot().performance.tick;
   assert.ok(tick.count > 0 && tick.meanMilliseconds >= 0, "main-thread time per sampled frame");
+  // The frozen view is not live: its time counts in no overlay mode.
+  const overlay = h.diagnostics.snapshot().performance.overlay.milliseconds;
+  assert.ok(overlay > 0, "the live time before the freeze counts");
+  await h.advance(2000);
+  assert.equal(h.diagnostics.snapshot().performance.overlay.milliseconds, overlay, "the frozen time does not");
   h.camera.resume();
   assert.ok(events().includes("tracking:cleared"), events().join(" "));
   assert.equal(events().at(-1), "detecting:cleared");
@@ -628,6 +635,25 @@ test("a detection in flight at the freeze is abandoned without cancelling its wo
   assert.equal(h.camera.stats.candidate, 0); assert.equal(h.camera.stats.retainedSources, 1);
   assert.equal(sample.width, 0, "its frame is released");
   assert.equal(h.timers.size, 0);
+});
+
+// After Clear no frame is adopted until a grid verifies again, and the newest
+// frame a detection scanned is kept for a capture on a stalled feed. A
+// detection abandoned at the freeze shows the scene from before it: its frame
+// must not become that frame when the reply comes after Clear.
+test("a detection abandoned at the freeze releases its frame also when its reply comes after Clear", async (t) => {
+  const h = simulation(t, { solve: "deferred" });
+  assert.ok(await h.until(() => h.solveJobs.length === 1));
+  h.holdDetections(true);
+  const detects = h.counts.detects;
+  assert.ok(await h.until(() => h.counts.detects > detects, 3000), "a settled detection starts");
+  const sample = h.created.at(-1).canvas;
+  h.solveJobs[0].resolve(unique()); await flush();
+  assert.ok(await h.until(() => frozenNow(h), 500, 10));
+  h.camera.resume();
+  h.heldDetections[0].resolve(h.found()); await flush();
+  assert.equal(sample.width, 0, "its frame is released");
+  assert.equal(h.camera.stats.retainedSources, 0, "not kept as the newest scanned frame");
 });
 
 test("a detection candidate still waiting for its verdict at the freeze is discarded", async (t) => {
