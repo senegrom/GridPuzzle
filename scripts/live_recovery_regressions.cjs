@@ -51,8 +51,8 @@ async function begin({ font, race = false }) {
   // - The blur is a Gaussian computed here, so both engines blur the raster
   //   they drew the same way; a 2.5 px decimation by drawImage kept or dropped
   //   whole strokes with the digit's phase, and at most offsets the OCR then
-  //   read the blurred 6 without a flag. At sigma 2.5 px neither single-
-  //   character read finds a digit, so the clue is flagged at every offset.
+  //   read the blurred 6 without a flag. At sigma 2.5 px no single-character
+  //   read recognises the 6, so the clue is flagged at every offset.
   //   The clearer frame is not sharp but sigma 1 px: both single-character
   //   reads find the 6, its focus score is at least twice the blurred one's,
   //   and its cell signature stays within 70% of the comparison's limits
