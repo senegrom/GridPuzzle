@@ -397,6 +397,7 @@ test("once a found grid is lost, a stalled feed keeps the newest frame detection
   h.stall(); await h.advance(700);
   const scanned = h.detected().at(-1);
   assert.deepEqual(h.drawnFrom(scanned), [h.video], "detection's own snapshot");
+  assert.ok(scanned.width > 0, "kept, not released");
   assert.ok(h.on(scanned, "drawImage")[0].at > h.on(adopted, "drawImage")[0].at + 1000, "sampled over a second after the adopted frame");
   assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [scanned], "a copy of the newest frame scanned");
   const source = h.camera.diagnosticSource();
@@ -424,6 +425,7 @@ for (const [lead, delay] of [[0, 0], [1000, 0], [1000, 1500], [1000, 2500]]) {
     assert.equal(h.camera.adoptedFrame(), null, "nothing was adopted");
     const failed = h.detected().at(-1);
     assert.deepEqual(h.drawnFrom(failed), [h.video], "detection's own snapshot");
+    assert.ok(failed.width > 0, "kept, not released");
     const shot = h.camera.capture();
     assert.deepEqual(h.drawnFrom(shot.photo), [failed], "a copy of the frame the anchor failed on, not of the stalled video");
     assert.equal(h.camera.diagnosticSource().image, failed, "the report's picture too");
@@ -442,6 +444,7 @@ test("a stalled capture after a failed verification keeps the frame the worker f
   assert.equal(h.posts.at(-1).op, "verify");
   const failed = h.on(h.contentCanvas, "drawImage").at(-1).source;
   assert.deepEqual(h.drawnFrom(failed), [h.video], "a snapshot, sent for verification");
+  assert.ok(failed.width > 0, "kept, not released");
   h.stall(); await h.advance(700);
   assert.equal(h.camera.adoptedFrame(), null, "nothing was adopted");
   assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [failed], "not the stalled video");
