@@ -60,7 +60,7 @@
   // The suite's paint(), with the digits shifted by (dx, dy) and a choice of
   // degradation for cell 52 (the suite's: a 50x50 window at +8 resampled to
   // 20x20 and back).
-  function paint(ctx, { font = "Courier New", size = 27, weight = "", yoff = 0, dx = 0, dy = 0, sharp = false, changed = false, degrade = { kind: "resample" }, tick = 1, baseline = "font-box" }) {
+  function paint(ctx, { font = "Courier New", size = 27, weight = "", yoff = 0, dx = 0, dy = 0, sharp = false, changed = false, degrade = { kind: "resample" }, degradeS = null, raceValue = 9, tick = 1, baseline = "font-box" }) {
     ctx.save();
     ctx.fillStyle = "#edf1f5"; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = tick % 2 ? "#ff0000" : "#0000ff"; ctx.fillRect(0, 0, 20, 20);
@@ -79,9 +79,10 @@
       const box = ctx.measureText("0"); offset = (box.actualBoundingBoxAscent - box.actualBoundingBoxDescent) / 2;
     } else ctx.textBaseline = baseline;
     cells.forEach((v, i) => {
-      if (v !== null) ctx.fillText(String(changed && i === 13 ? 9 : v), GX + (i % 9 + .5) * CELLPX + dx, GY + (Math.floor(i / 9) + .5) * CELLPX + offset + yoff + dy);
+      if (v !== null) ctx.fillText(String(changed && i === 13 ? raceValue : v), GX + (i % 9 + .5) * CELLPX + dx, GY + (Math.floor(i / 9) + .5) * CELLPX + offset + yoff + dy);
     });
     if (!sharp) degradeCell(ctx, 52, degrade);
+    else if (degradeS) degradeCell(ctx, 52, degradeS);
     ctx.fillStyle = changed ? "#00ff00" : "#ff00ff"; ctx.fillRect(25, 0, 20, 20);
     ctx.restore();
   }
