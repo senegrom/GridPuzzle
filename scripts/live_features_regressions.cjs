@@ -15,7 +15,12 @@ async function fixture() {
   };
   paint();window.featureFixture={canvas,cells,paint,corners:[{x:30,y:30},{x:470,y:30},{x:470,y:470},{x:30,y:470}]};
 }
-async function workerCheck() {
+/* The real tracking worker in each transport (live-tracker.js): "default" is
+   what the handshake decides in this engine (a bitmap of the frame, drawn and
+   read back in the worker, where it can), "imagedata" the page's own readback
+   (no bitmaps offered). The fixture is 500 x 500, so the tracking pixels are
+   the canvas at its own size, as the camera would read them. */
+async function workerCheck(kind) {
   const {createLiveTracker}=await import('./live-tracker.js');
   const {canvas,corners}=featureFixture;
   let ticks=0;const timer=setInterval(()=>ticks++,5),workerURLs=[];
@@ -24,14 +29,29 @@ async function workerCheck() {
     const host={postMessage:(m,t)=>actual.postMessage(m,t),terminate:()=>actual.terminate()};
     actual.onmessage=e=>setTimeout(()=>host.onmessage?.(e),60);
     actual.onerror=e=>host.onerror?.(e);return host;
-  }});
-  const pixels=()=>canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);
+  },...(kind==='imagedata'?{probe:()=>null}:{})});
+  const pixels=()=>canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height),bitmaps=[];
   try {
-    const a=pixels(),result=await tracker.anchor({image:a,corners,rows:4,cols:4,anchors:[]});
-    const replies=await Promise.all(Array.from({length:10},()=>tracker.verify({image:pixels(),anchors:[result.anchor.id]})
-      .then(r=>({matched:!!r.proofs[result.anchor.id]}),e=>({cancelled:e.name==='AbortError'}))));
-    return {replies,ticks,detached:a.data.byteLength===0,stats:tracker.stats,workerURLs};
+    const transport=await tracker.ready();
+    const frame=async()=>{if(transport!=='bitmap')return{image:pixels()};const bitmap=await createImageBitmap(canvas);bitmaps.push(bitmap);return{bitmap,width:canvas.width,height:canvas.height};};
+    const a=await frame(),result=await tracker.anchor({...a,corners,rows:4,cols:4,anchors:[]});
+    // Ten frames made first, then sent at once: the first goes to the worker,
+    // each later one replaces the queued one, the last is verified.
+    const frames=await Promise.all(Array.from({length:10},frame));
+    const replies=await Promise.all(frames.map(f=>tracker.verify({...f,anchors:[result.anchor.id]})
+      .then(r=>({matched:!!r.proofs[result.anchor.id],corners:r.proofs[result.anchor.id]?.corners??null}),e=>({cancelled:e.name==='AbortError'}))));
+    return {transport,replies,ticks,anchor:result.anchor.corners,stats:tracker.stats,workerURLs,
+      detached:a.bitmap?a.bitmap.width===0&&a.bitmap.height===0:a.image.data.byteLength===0,
+      // Transferred or closed, every one: both leave no pixels.
+      bitmaps:bitmaps.length,bitmapsOpen:bitmaps.filter(b=>b.width||b.height).length};
   }finally{tracker.reset();clearInterval(timer);}
+}
+// Both transports on the same frames: the same verdicts, corners within 0.05 px.
+function sameProofs(a,b){
+  const near=(p,q)=>p.length===q.length&&p.every((v,i)=>Math.abs(v.x-q[i].x)<=.05&&Math.abs(v.y-q[i].y)<=.05);
+  assert.ok(near(a.anchor,b.anchor),`anchor corners ${JSON.stringify([a.anchor,b.anchor])}`);
+  assert.deepEqual(a.replies.map(r=>r.cancelled?'cancelled':r.matched),b.replies.map(r=>r.cancelled?'cancelled':r.matched));
+  a.replies.forEach((r,i)=>{if(r.corners)assert.ok(near(r.corners,b.replies[i].corners),`proof ${i}`);});
 }
 async function targetedCheck() {
   const {Scanner}=await import('./scanner.js'),{mergeRecoveredClues}=await import('./clue-recovery.js');
@@ -79,12 +99,19 @@ async function diagnosticCheck(page, report) {
 async function run() {
  const server=await serve();
  try {
-  await engines('live-features.json',async(page,report)=>{
+  await engines('live-features.json',async(page,report,engine)=>{
     await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');await page.evaluate(fixture);
-    report.worker=await page.evaluate(workerCheck);
-    assert.equal(report.worker.detached,true);assert.ok(report.worker.ticks>0);
-    assert.equal(report.worker.replies.filter(r=>r.matched).length,2);assert.equal(report.worker.replies.filter(r=>r.cancelled).length,8);
-    assert.equal(report.worker.stats.queuedFrames,0);
+    report.worker=await page.evaluate(workerCheck,'imagedata');report.transport=await page.evaluate(workerCheck,'default');
+    // Chromium can draw a bitmap in a worker; WebKit decides in its handshake
+    // (no OffscreenCanvas before iOS 16.4, nor in this WebKit on Windows).
+    assert.equal(report.worker.transport,'imagedata');if(engine==='chromium')assert.equal(report.transport.transport,'bitmap');
+    for(const check of [report.worker,report.transport]){
+      assert.equal(check.detached,true);assert.ok(check.ticks>0);
+      assert.equal(check.replies.filter(r=>r.matched).length,2);assert.equal(check.replies.filter(r=>r.cancelled).length,8);
+      assert.equal(check.stats.queuedFrames,0);assert.equal(check.stats.failures,0);assert.equal(check.stats.transport,check.transport);
+    }
+    if(report.transport.transport==='bitmap'){assert.equal(report.transport.bitmaps,11);assert.equal(report.transport.bitmapsOpen,0);}
+    sameProofs(report.transport,report.worker);
     report.targeted=await page.evaluate(targetedCheck);
     assert.deepEqual(report.targeted.full,report.targeted.expected);
     assert.equal(report.targeted.identical.skipped,true);assert.equal(report.targeted.identical.calls,0);
