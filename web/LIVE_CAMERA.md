@@ -800,12 +800,17 @@ Unit tests (`node --test web/tests/*.test.js`):
   draws, readbacks and size assignments. Aimed at no grid on a phone's
   1440 × 1920 stream, it takes one 1600-px snapshot per detection, every
   300 ms, reads back no tracking pixels, sends nothing to the tracker, adopts
-  nothing and counts only those ticks in `performance.tick`; detection gets
-  the snapshot itself, and a copy only of a frame tracking verifies, whose
-  copy a detection finding no grid releases at once. The scratch canvases
+  nothing and counts only those ticks in `performance.tick`, which also
+  counts the ticks that only verify a tracked reading; detection gets the
+  snapshot itself, and a copy only of a frame tracking verifies, whose copy
+  a detection finding no grid releases at once. Once nothing is left to
+  verify (a guide's grid aimed away, a failing detection, a lost reading
+  retired) it is back to one snapshot per detection, and the back-off and
+  the pause after tracking failures sample nothing. The scratch canvases
   are sized once while the frames keep their size (again on a new shape),
   cleared before each full-size draw, the tracking canvas asking for a
-  CPU-backed context. Without an adopted frame the diagnostics get the
+  CPU-backed context and reading a 4:3 frame back at its own shape.
+  Without an adopted frame the diagnostics get the
   video's current frame, transient. On a stalled feed a capture and the
   diagnostics keep the newest frame scanned: aimed at nothing, the frame
   detection last got for itself, also beside an older adopted frame once a
@@ -816,11 +821,13 @@ Unit tests (`node --test web/tests/*.test.js`):
   seconds the help line carries only the detector's guidance, with no
   grid-lost reset; a stalled feed is still reported and held, a camera with
   no frame yet reports none, a stall drops the guide's proof (with reading
-  paused the outline returns only with a newly verified frame), and a
-  reading out of view through a long stall is retired as a lost grid.
+  paused the outline returns only with a newly verified frame), a reading
+  out of view through a long stall is retired as a lost grid, and a settings
+  change on a stalled feed retires the reading at the next heartbeat.
   `performance.overlay` counts a found grid's outline and nothing, also a
-  guide without a reading, never aiming at nothing or a closed camera
-  (`diagnostic-report.test.js`: its window and allowlist).
+  guide without a reading, never aiming at nothing, also once a lost
+  reading is retired, nor a closed camera (`diagnostic-report.test.js`: its
+  window and allowlist).
 - `live-camera-recovery.test.js`: settings changes (a change of automatic
   solving or the freeze's wait leaves a pending detection alone), the
   detection deadline, Start/Stop cycles and retired completions, with a
