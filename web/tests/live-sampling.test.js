@@ -352,6 +352,20 @@ test("a detection that ends after the camera closed keeps no frame", async (t) =
   assert.equal(h.camera.stats.retainedSources, 0);
 });
 
+// Nor does one that ends after the camera was opened again: the picture of the
+// old session must not become the new session's newest frame scanned.
+test("a detection that ends after the camera closed and opened again keeps no frame of the old session", async (t) => {
+  const h = simulation(t, { grid: null });
+  await h.advance(120);
+  assert.equal(h.camera.stats.detection, 1, "a detection is running");
+  const frame = h.detected().at(-1), detections = h.detections.length;
+  h.camera.stop(); h.camera.start();
+  await h.advance(40);
+  assert.equal(h.detections.length, detections, "the new session has not detected yet");
+  assert.equal(frame.width, 0, "the old detection's frame is released when it ends");
+  assert.equal(h.camera.stats.retainedSources, 0, "and not kept");
+});
+
 // While a frame is adopted, a detection's frame is a copy of one tracking
 // verifies, and the adopted frame is the newest picture: the copy is released
 // as soon as the detection is done with it, not kept beside it.
