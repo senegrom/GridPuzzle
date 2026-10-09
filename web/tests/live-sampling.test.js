@@ -292,6 +292,18 @@ test("a new frame shape resizes the detection input once, and draws fill it", as
   for (const o of draws) assert.deepEqual(o.box, [0, 0, 640, 480], "the 4:3 frame over the whole input");
 });
 
+// The tracking pixels keep the frame's shape: a 4:3 frame of at most 1280
+// pixels is read back at its own size, not squashed into a square.
+test("the tracking pixels of a 4:3 frame keep its shape", async (t) => {
+  const h = simulation(t, { frame: [700, 525], grid: [120, 40] });
+  assert.ok(await h.until(() => h.camera.adoptedFrame()), "the grid verifies");
+  assert.deepEqual([h.contentCanvas.width, h.contentCanvas.height], [700, 525]);
+  const reads = h.on(h.contentCanvas, "getImageData");
+  assert.ok(reads.length >= 2, "the anchor's and a verification's");
+  for (const o of reads) assert.deepEqual([o.w, o.h], [700, 525], "read back at the frame's shape");
+  for (const o of h.on(h.contentCanvas, "drawImage")) assert.deepEqual(o.box, [0, 0, 700, 525], "drawn over the whole bitmap");
+});
+
 test("aiming without an adopted frame, the diagnostics get the current frame, unverified and transient", async (t) => {
   const h = simulation(t, { grid: null });
   await h.advance(1000);
