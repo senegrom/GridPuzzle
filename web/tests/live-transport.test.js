@@ -302,6 +302,7 @@ test("a frozen view, Clear and a closed camera leave no bitmap open, and every q
   assert.ok(dropped.length > 0, "their bitmaps closed");
   assert.deepEqual(h.open(), [], "nothing open at the freeze");
   assert.equal(h.workers.at(-1).dead, true, "the worker ended at the freeze");
+  assert.equal(h.diagnostics.snapshot().tracking.transport, "bitmap", "the export keeps the transport the scan used");
   await h.advance(3000);
   assert.deepEqual(h.open(), [], "nothing made while frozen");
   h.camera.resume();

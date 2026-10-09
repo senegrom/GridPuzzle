@@ -103,9 +103,12 @@ test('the tracking transport and its time are reported apart from the tracking c
  let r=d.snapshot();assert.equal(r.tracking.transport,'bitmap');assert.equal(r.tracking.transportMilliseconds,11);
  assert.equal(r.performance.trackingWorker.p50Milliseconds,20);assert.equal(r.performance.trackingTransport.count,2);
  assert.equal(r.performance.trackingTransport.maximumMilliseconds,11);
- d.tracking({milliseconds:20,transportMilliseconds:0,transport:'imagedata'},{frame:3,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,'imagedata');
- d.tracking({transport:'PRIVATE'},{frame:4,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,null);
- d.tracking({},{frame:5,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,null);
+ // A reset (the freeze, Clear, a close) leaves the tracker without a transport
+ // until its next worker decides: the one used last stays reported.
+ d.tracking({milliseconds:20,transport:null},{frame:3,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,'bitmap');
+ d.tracking({milliseconds:20,transportMilliseconds:0,transport:'imagedata'},{frame:4,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,'imagedata');
+ d.tracking({transport:'PRIVATE'},{frame:5,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,'imagedata','not an allowlisted one');
+ d.begin('live',{});d.tracking({},{frame:1,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,null,'a new scan has none yet');
  assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
  d.event({stage:'tracking',reason:'tracking-transport'});assert.equal(d.snapshot().events.at(-1).reason,'tracking-transport');
  assert.equal(typeof REASON_LABELS['tracking-transport'],'string');

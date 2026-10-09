@@ -112,9 +112,13 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         lastMetricFrame = frame.frame;
         workerMetrics.add(stats?.milliseconds); transportMetrics.add(stats?.transportMilliseconds); ageMetrics.add(frame.age);
       }
+      // The transport tracking used last: a reset (the freeze, Clear, a
+      // close) leaves the tracker none until its next worker decides, which
+      // must not erase the one the scan used.
+      const transport = TRANSPORTS.includes(stats?.transport) ? stats.transport : tracking.transport ?? null;
       tracking = {};
       for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
-      tracking.transport = TRANSPORTS.includes(stats?.transport) ? stats.transport : null;
+      tracking.transport = transport;
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
       tracking.tier = frame.stale ? 'delayed' : 'live';
       if (MISMATCHES.has(frame.rejection?.reason)) {
