@@ -438,9 +438,16 @@ test("past the stale limit the adopted frame and its proofs are dropped, with no
   assert.equal(h.raw(), null); assert.equal(raw.width, 0, "the old frame is released");
   assert.equal(h.camera.diagnosticSource().verified, false);
   assert.equal(h.view.dataset.recognised, "0"); assert.equal(h.view.dataset.overlay, "none");
-  assert.equal(h.camera.stats.retainedSources, h.camera.stats.candidate, "no frame or copy is kept for display");
+  // Nothing takes its place for display. The verification the worker never
+  // answered has timed out meanwhile, a tracking failure, and only the
+  // snapshot it was sent is kept: a capture on a stalled feed keeps it.
+  assert.equal(h.camera.stats.recovery.failures, 1, "the held verification timed out");
+  assert.equal(h.camera.stats.retainedSources, h.camera.stats.candidate + 1, "no frame or copy is kept for display");
   assert.deepEqual(h.on(h.view).filter((o) => o.op === "drawImage"), [], "and nothing is painted from one");
   assert.equal(h.camera.capture().found, null);
+  h.stall(); await h.advance(700);
+  const kept = h.camera.diagnosticSource().image;
+  assert.deepEqual(h.on(kept).filter((o) => o.op === "drawImage").map((o) => o.source), [h.video], "a snapshot of the video, not a copy of the dropped frame");
 });
 
 test("data-delayed and the label follow the evidence's tier; the outline trails", async (t) => {

@@ -340,16 +340,18 @@ test('repeated tracking failures back off and stop until an explicit restart',as
 // Paused tracking adopts no frame, and the last one is dropped past the stale
 // limit, just when the help line suggests a diagnostic report: the report's
 // optional image is then the video's current frame, marked unverified and
-// transient (the diagnostics UI releases it once encoded).
+// transient (the diagnostics UI releases it once encoded). The camera keeps
+// only the frame the last anchor failed on, for a capture on a stalled feed.
 test('with tracking paused after repeated failures the diagnostics still get the current frame, unverified',async t=>{
  const h=harness(t);h.failTracking(true);await h.advance(100);await h.result();
  await h.advance(2500);await h.result();await h.advance(4500);await h.result();
  assert.equal(h.camera.stats.recovery.blocked,true);await h.advance(15000);
  assert.equal(h.camera.adoptedFrame(),null,'no frame is adopted while paused');
+ assert.equal(h.camera.stats.retainedSources,1,'the frame the last anchor failed on');
  const draws=h.draws.length,source=h.camera.diagnosticSource();
  assert.ok(source.image,'a picture for the report');assert.equal(source.verified,false);assert.equal(source.transient,true);
  assert.deepEqual(h.draws.slice(draws).map(d=>d.source),[h.video],'drawn from the video now');
- assert.equal(h.camera.stats.retainedSources,0,'and not kept by the camera');
+ assert.equal(h.camera.stats.retainedSources,1,'and not kept by the camera');
  h.video.videoWidth=0;assert.deepEqual(h.camera.diagnosticSource(),{image:null,verified:false},'a video without a picture gives none');
 });
 test('thirty open/close cycles release source/scratch canvases and timers, including late detectors',async t=>{

@@ -310,14 +310,70 @@ test("the scanned frame gives way to the first adopted one", async (t) => {
   assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [h.camera.adoptedFrame()]);
 });
 
-test("a tracking failure releases the scanned frame: none is newer during the back-off", async (t) => {
-  const h = simulation(t, { grid: null });
-  await h.advance(1000);
+// Once a found grid is lost nothing is verified, so no frame is adopted while
+// detection keeps looking, and the last adopted frame ages towards the stale
+// limit. The frames detection scans meanwhile are newer: a stalled capture and
+// the diagnostics keep the newest of them, not that adopted frame.
+test("once a found grid is lost, a stalled feed keeps the newest frame detection scanned, not the older adopted one", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.aim(null);
+  assert.ok(await h.until(() => h.reasons().includes("grid-lost"), 8000), "the reading is retired");
+  await h.advance(1200);
+  const adopted = h.camera.adoptedFrame();
+  assert.ok(adopted, "the last adopted frame is not past the stale limit yet");
+  h.stall(); await h.advance(700);
   const scanned = h.detected().at(-1);
-  h.fail(true); h.aim([120, 110]);
-  assert.ok(await h.until(() => h.camera.stats.recovery.failures === 1), "the anchor fails in the worker");
-  assert.equal(scanned.width, 0);
-  assert.equal(h.camera.stats.retainedSources, 0);
+  assert.deepEqual(h.drawnFrom(scanned), [h.video], "detection's own snapshot");
+  assert.ok(h.on(scanned, "drawImage")[0].at > h.on(adopted, "drawImage")[0].at + 1000, "sampled over a second after the adopted frame");
+  assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [scanned], "a copy of the newest frame scanned");
+  const source = h.camera.diagnosticSource();
+  assert.equal(source.image, scanned, "the report's picture too"); assert.equal(source.verified, false);
+  assert.equal(h.camera.stats.retainedSources, 2, "both are kept until the adopted frame is past the stale limit");
+  h.unstall(); await h.advance(400);
+  assert.equal(h.camera.adoptedFrame(), null); assert.equal(adopted.width, 0, "which then releases it");
+  assert.equal(h.camera.stats.retainedSources, 1);
+});
+
+// A tracking failure stops sampling for its back-off (two seconds, then four)
+// and pauses it after three. The frame the worker failed on is then the
+// newest picture: here the first grid's anchor fails before anything was
+// adopted, with or without frames scanned before, the feed stalling at once or
+// late in the back-off (when the next detection has failed in turn).
+for (const [lead, delay] of [[0, 0], [1000, 0], [1000, 1500], [1000, 2500]]) {
+  test(`a stalled capture after an anchor failure keeps the frame it failed on (aimed at nothing for ${lead} ms, stalled ${delay} ms after)`, async (t) => {
+    const h = simulation(t, { grid: lead ? null : [120, 110] });
+    await h.advance(lead);
+    h.fail(true); h.aim([120, 110]);
+    assert.ok(await h.until(() => h.camera.stats.recovery.failures === 1, 5000), "the anchor fails in the worker");
+    await h.advance(delay);
+    h.stall(); await h.advance(700);
+    assert.equal(h.help, STALLED);
+    assert.equal(h.camera.adoptedFrame(), null, "nothing was adopted");
+    const failed = h.detected().at(-1);
+    assert.deepEqual(h.drawnFrom(failed), [h.video], "detection's own snapshot");
+    const shot = h.camera.capture();
+    assert.deepEqual(h.drawnFrom(shot.photo), [failed], "a copy of the frame the anchor failed on, not of the stalled video");
+    assert.equal(h.camera.diagnosticSource().image, failed, "the report's picture too");
+    assert.equal(h.camera.stats.retainedSources, 1, "only that frame is kept");
+  });
+}
+
+// A verification can fail too: here the first grid's anchor is built, and the
+// worker fails on the frame that verifies it, before anything was adopted or
+// scanned. That frame is the newest picture.
+test("a stalled capture after a failed verification keeps the frame the worker failed on", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.camera.stats.candidate === 1, 3000), "the first grid's anchor is built");
+  h.fail(true);
+  assert.ok(await h.until(() => h.camera.stats.recovery.failures === 1, 3000), "its verification fails in the worker");
+  assert.equal(h.posts.at(-1).op, "verify");
+  const failed = h.on(h.contentCanvas, "drawImage").at(-1).source;
+  assert.deepEqual(h.drawnFrom(failed), [h.video], "a snapshot, sent for verification");
+  h.stall(); await h.advance(700);
+  assert.equal(h.camera.adoptedFrame(), null, "nothing was adopted");
+  assert.deepEqual(h.drawnFrom(h.camera.capture().photo), [failed], "not the stalled video");
+  assert.equal(h.camera.stats.retainedSources, 1, "only that frame is kept");
 });
 
 test("aiming at no grid for ten seconds writes only the detector's guidance to the help line", async (t) => {

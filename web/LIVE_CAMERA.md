@@ -238,10 +238,13 @@ saw; this gives **Review captured clues**. Otherwise the frame on screen at
 the press is kept without a reading and goes to the editor's crop and read;
 while no new frame has been presented for half a second ("Waiting for a new
 camera frame"), the video may show nothing useful (iOS paints an interrupted
-camera black), so the last frame the camera scanned is kept instead: the last
-adopted frame, or while aiming, where none is adopted, the frame the last
-detection looked at, which the camera keeps for this until a frame is
-adopted.
+camera black), so the newest frame the camera scanned is kept instead. That
+is the last adopted frame, unless a newer one was scanned since: while
+nothing is verified (aiming, or once a found grid is lost) no frame is
+adopted, and the frame each detection got for itself is kept once detection
+is done with it; after a tracking failure, during whose back-off nothing is
+sampled, the frame the worker failed on (for an anchor, the detection's
+frame). The next adoption releases it.
 Right after Clear the shutter instead says "Wait for a camera frame before
 capturing." until a frame the video reported after Clear has been scanned:
 the paused player can still draw the picture of the freeze (see Clear above),
@@ -797,10 +800,13 @@ Unit tests (`node --test web/tests/*.test.js`):
   are sized once while the frames keep their size (again on a new shape),
   cleared before each full-size draw, the tracking canvas asking for a
   CPU-backed context. Without an adopted frame the diagnostics get the
-  video's current frame, transient; on a stalled feed a capture and the
-  diagnostics keep the newest frame detection scanned, which an adopted
-  frame, a tracking failure and closing release, and which a detection
-  ending after the camera closed never becomes. Aimed at nothing for ten
+  video's current frame, transient. On a stalled feed a capture and the
+  diagnostics keep the newest frame scanned: aimed at nothing, the frame
+  detection last got for itself, also beside an older adopted frame once a
+  found grid is lost; after a failed anchor or verification, with nothing
+  adopted, at once or late in the back-off, the frame the worker failed on.
+  An adoption and closing release it, and a detection ending after the
+  camera closed never becomes it. Aimed at nothing for ten
   seconds the help line carries only the detector's guidance, with no
   grid-lost reset; a stalled feed is still reported and held, a camera with
   no frame yet reports none, a stall drops the guide's proof (with reading
