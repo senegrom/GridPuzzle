@@ -166,6 +166,7 @@ for (const [name, setup, act] of [
   ['a value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 5 ? v + 3 : v)); }],
   ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }],
   ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }],
+  ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }],
   ['300 ms without an answer after the worker started', {}, async h => { h.started(); h.fire(HANDSHAKE_WAIT); }],
   ['a reply that cannot be received', {}, async h => { h.started(); h.last().onmessageerror(); }],
   ['a probe that cannot be transferred', { refuse: true }, async h => { assert.equal(h.bitmaps[0].closed, true, 'the probe bitmap is closed'); }],
@@ -363,6 +364,9 @@ test('the default probe is a bitmap of a 2 x 2 page canvas holding PROBE; withou
     delete globalThis.document;
     assert.equal(await createLiveTracker({ makeWorker: worker, setTimer: () => 1, clearTimer() {} }).ready(), 'imagedata', 'no page (a worker, or Node)');
     assert.equal(made.length, 1); assert.equal(sent.length, 1);
+    globalThis.document = { createElement: () => ({ getContext: () => null }) };
+    assert.equal(await createLiveTracker({ makeWorker: worker, setTimer: () => 1, clearTimer() {} }).ready(), 'imagedata', 'no 2D context');
+    assert.equal(made.length, 1); assert.equal(sent.length, 1);
   } finally {
     if (saved.document === undefined) delete globalThis.document; else globalThis.document = saved.document;
     if (saved.createImageBitmap === undefined) delete globalThis.createImageBitmap; else globalThis.createImageBitmap = saved.createImageBitmap;
@@ -436,7 +440,7 @@ test('the actual tracking worker draws a transferred bitmap and reads it back, t
   const script = `const {parentPort}=require('node:worker_threads');
 class OffscreenCanvas{constructor(w,h){this.width=w;this.height=h;}getContext(){const c=this;return{clearRect(){},
 drawImage(b,x,y,w,h){const end=Date.now()+(b.wait||0);while(Date.now()<end);c.drawn=[x,y,w,h];c.pixels=b.pixels;},
-getImageData(x,y,w,h){return{width:w,height:h,data:Uint8ClampedArray.from(c.pixels)};}};}}
+getImageData(x,y,w,h){return{width:w,height:h,data:Uint8ClampedArray.from({length:w*h*4},(_,i)=>c.pixels[i]??0)};}};}}
 global.OffscreenCanvas=OffscreenCanvas;global.self={postMessage:m=>parentPort.postMessage(m)};
 import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
   const thread = new NodeWorker(script, { eval: true });

@@ -32,9 +32,10 @@ export const HANDSHAKE_WAIT = 300;
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
 const matches = pixels => pixels?.length === PROBE.length && PROBE.every((value, i) => Math.abs(pixels[i] - value) <= 2);
 // The probe as a bitmap of a page canvas, as the camera's snapshots are; null
-// where this thread cannot make bitmaps.
+// where this thread cannot make bitmaps. Anything else that fails (no page,
+// no 2D context) throws, which the handshake takes as "imagedata" too.
 function probeBitmap() {
-  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return null;
+  if (typeof createImageBitmap !== 'function') return null;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 2;
   const ctx = canvas.getContext('2d'), image = ctx.createImageData(2, 2);
