@@ -228,8 +228,8 @@ expire within 31 days of its review; its timeout must match the requested case
 timeout. Expired, future-dated, malformed, duplicate, missing-file, or
 out-of-repository entries fail before cases run. Never renew the dates without
 reviewing fresh reports and removing recovered cases. In the baseline's last
-week the runner adds a warning to the run saying when it expires, so the weekly
-job warns while it still passes.
+two weeks the runner adds a warning to the run saying when it expires, so at
+least two weekly runs warn while they still pass.
 
 Reports retain the raw `timeout` status and separately list `accepted_timeouts`,
 `unexpected_timeouts`, and `resolved_timeouts`. The latter identifies previously
