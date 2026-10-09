@@ -474,6 +474,21 @@ test("aiming at no grid, a stalled feed is still reported and held on the help l
   assert.equal(h.help, GUIDANCE, "the detector's guidance once frames return");
 });
 
+// The heartbeat, not only a tick, applies the settings: on a stalled feed a
+// change of them retires the reading at once, not when frames return.
+test("a settings change on a stalled feed retires the reading at the next heartbeat", async (t) => {
+  const settings = {};
+  const h = simulation(t, { settings });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.stall(); await h.advance(700);
+  const resets = () => h.reasons().filter((reason) => reason === "settings-or-detection").length;
+  const before = resets(), processed = h.camera.stats.scheduling.processed;
+  settings.rows = 5; settings.cols = 5;
+  await h.advance(250);
+  assert.equal(h.camera.stats.scheduling.processed, processed, "no frame was processed");
+  assert.equal(resets(), before + 1, "retired by the heartbeat while the feed is stalled");
+});
+
 // With automatic reading paused only the guide is tracked, with no reading.
 // A stalled feed retires its proof: when frames return, the outline waits for
 // a frame verified after the stall.
