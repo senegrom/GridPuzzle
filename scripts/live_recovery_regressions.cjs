@@ -12,8 +12,8 @@ const { serve, engines, main } = require('./harness.cjs');
 const PRESENTATION_FRESHNESS = 500, MARGIN = 500;
 // page.waitForFunction for a decision of the live session: a timeout fails
 // with the decision that was expected, not only with the time spent.
-async function decided(page, predicate, timeout, expected) {
-  try { return await page.waitForFunction(predicate, null, { timeout }); }
+async function decided(page, predicate, timeout, expected, arg = null) {
+  try { return await page.waitForFunction(predicate, arg, { timeout }); }
   catch (error) {
     if (error.name !== 'TimeoutError') throw error;
     throw new assert.AssertionError({ message: `${expected} (nothing within ${timeout / 1000} s)` });
@@ -32,7 +32,7 @@ async function begin({ font, race = false }) {
   const video = document.createElement('video'); video.muted = true; video.playsInline = true;
   video.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:250px;z-index:9998'; document.body.append(video);
   const out = document.createElement('canvas'); out.style.cssText = 'position:fixed;left:200px;top:0;width:200px;height:250px;z-index:9999'; document.body.append(out);
-  const state = window.recoveryState = { font, race, clearer: false, changed: false, ticks: 0, full: [], retries: [], events: [], scheduling: null, worker: null, corners: [] };
+  const state = window.recoveryState = { font, race, clearer: false, changed: false, ticks: 0, full: [], retries: [], events: [], seq: 0, scheduling: null, worker: null, corners: [] };
   const pack = f => ({ cells: [...f.puzzle.cells], uncertain: [...(f.uncertain ?? [])], marked: [...(f.markedCells ?? [])], stats: f.ocrStats, recovery: f.recovery, needsReview: f.needsReview });
   // The retried clue is cell 52's 6, blurred; clear() makes it clearer. The
   // session re-reads that clue alone only if the reading flagged the blurred
@@ -109,7 +109,7 @@ async function begin({ font, race = false }) {
   const diagnostics = {
     configure() {}, geometry(v) { state.corners = v.corners; },
     tracking(v) { state.worker = { ...v }; }, scheduling(v) { state.scheduling = { ...v }; },
-    event(v) { state.events.push({ stage: v.stage, reason: v.reason, targets: v.targets, cancelledRead: v.cancelledRead }); if (state.events.length > 160) state.events.shift(); },
+    event(v) { state.events.push({ seq: ++state.seq, stage: v.stage, reason: v.reason, targets: v.targets, cancelledRead: v.cancelledRead }); if (state.events.length > 160) state.events.shift(); },
   };
   const camera = createLiveCamera({ $: id => document.getElementById(id), video, canvas: out, detector, diagnostics,
     getSettings: () => ({ type: 'sudoku', rows: 9, cols: 9, boxRows: 3, boxCols: 3, enabled: true, autoSolve: false }),
@@ -137,9 +137,13 @@ async function begin({ font, race = false }) {
   state.changedPresented = () => { const frame = camera.adoptedFrame(); return !!frame && frame.getContext('2d').getImageData(30, 5, 1, 1).data[1] > 200; };
   state.clear = () => { state.clearer = true; paint(); };
   state.change = () => { state.changed = true; paint(); };
-  // Whether the session took the clearer frame for other print, or read the
-  // whole grid again, instead of re-reading the clue alone.
-  state.misjudged = () => state.full.length > 1 || state.events.some(e => e.reason === 'content-changed');
+  // The reading's resets (live-session.js reset()) after event `since`, by
+  // reason; a failed tracking worker resets it as 'settings-or-detection'.
+  const RESETS = ['reset', 'started', 'stopped', 'content-changed', 'grid-lost', 'settings-or-detection', 'frozen', 'cleared'];
+  state.resetsSince = since => state.events.filter(e => e.seq > since && e.stage === 'tracking' && RESETS.includes(e.reason)).map(e => e.reason);
+  // Whether, after event `since`, the session gave the reading up or read the
+  // whole grid again instead of re-reading the clue alone.
+  state.abandoned = since => state.full.length > 1 || state.resetsSince(since).length > 0;
   state.pause = () => video.pause(); state.resume = () => play();
   state.stop = () => { state.releaseRetry?.(); camera.stop(); startButton.remove(); clearInterval(clock); stream.getTracks().forEach(t => t.stop()); video.srcObject = null; video.remove(); out.remove(); source.width = source.height = scratch.width = scratch.height = 0; };
   async function play() {
@@ -189,16 +193,24 @@ async function run() {
             // The session reports each declined retry; wait for the decision itself rather than a guess at when it happens.
             await decided(page, () => recoveryState.events.some(e => e.reason === 'clearer-frame-needed'), 15000, 'the session must decline a retry while the clue is unchanged');
             assert.equal(await page.evaluate(() => recoveryState.retries.length), 0, 'unchanged evidence must not start an automatic retry');
-            await page.evaluate(() => recoveryState.clear());
+            // Until the clue clears, the first reading must stand: a reset or
+            // a second read before then (a tracking worker timing out on a
+            // loaded host, say) is not what the rest of this test judges.
+            const readSeq = await page.evaluate(() => recoveryState.events.find(e => e.reason === 'read-complete')?.seq ?? 0);
+            const standing = await page.evaluate(since => ({ resets: recoveryState.resetsSince(since), reads: recoveryState.full.length }), readSeq);
+            assert.ok(!standing.resets.length && standing.reads === 1, `the first reading must stand until the clue clears (resets: ${standing.resets.join(', ') || 'none'}; full reads: ${standing.reads})`);
+            const clearSeq = await page.evaluate(() => { recoveryState.clear(); return recoveryState.seq; });
             // The clearer frame shows the same print, so the session must
-            // re-read the clue alone. The waits also end when it takes the
-            // frame for changed print or reads the whole grid again, which
-            // then fails with that reason instead of a timeout.
-            const sameJudgement = 'the clearer frame shows the same print: it must not count as changed content';
+            // re-read the clue alone. The waits also end when it resets the
+            // reading (as changed print, say) or reads the whole grid again,
+            // which then fails with that reason instead of a timeout.
+            const sameJudgement = resets => `the clearer frame shows the same print, so nothing may reset the reading, but it was reset (${resets.join(', ')})`;
+            const judged = () => page.evaluate(since => ({ resets: recoveryState.resetsSince(since), reads: recoveryState.full.length }), clearSeq);
             if (config.race) {
-              await decided(page, () => !!recoveryState.releaseRetry || recoveryState.misjudged(), 30000, 'a clearer frame of the flagged clue must start its targeted re-read');
-              assert.ok(!await page.evaluate(() => recoveryState.events.some(e => e.reason === 'content-changed')), sameJudgement);
-              assert.equal(await page.evaluate(() => recoveryState.full.length), 1, 'a clearer cell must not cause another whole-grid read');
+              await decided(page, since => !!recoveryState.releaseRetry || recoveryState.abandoned(since), 30000, 'a clearer frame of the flagged clue must start its targeted re-read', clearSeq);
+              const started = await judged();
+              assert.deepEqual(started.resets, [], sameJudgement(started.resets));
+              assert.equal(started.reads, 1, 'a clearer cell must not cause another whole-grid read');
               await page.evaluate(() => recoveryState.change());
               await decided(page, () => recoveryState.changedPresented() && !recoveryState.visible() && recoveryState.events.some(e => e.reason === 'content-changed'), 10000, 'the changed puzzle must count as changed print');
               await page.evaluate(() => recoveryState.releaseRetry());
@@ -212,13 +224,14 @@ async function run() {
               assert.ok(record.after.events.some(e => e.reason === 'content-changed'));
               assert.ok(!record.after.events.some(e => e.reason === 'targeted-complete'), 'the retired targeted reply must never commit');
             } else {
-              const afterHandle = await decided(page, () => {
-                if (recoveryState.misjudged()) return recoveryState.snapshot();
+              const afterHandle = await decided(page, since => {
+                if (recoveryState.abandoned(since)) return recoveryState.snapshot();
                 if (!recoveryState.events.some(e => e.reason === 'targeted-complete') || !recoveryState.visible()) return false;
                 const value = recoveryState.snapshot(); return value.capture ? value : false;
-              }, 30000, 'a clearer frame of the flagged clue must be re-read');
+              }, 30000, 'a clearer frame of the flagged clue must be re-read', clearSeq);
               record.after = await afterHandle.jsonValue(); await afterHandle.dispose();
-              assert.ok(!record.after.events.some(e => e.reason === 'content-changed'), sameJudgement);
+              const reread = await judged();
+              assert.deepEqual(reread.resets, [], sameJudgement(reread.resets));
               assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
               assert.equal(record.after.retries.length, 1);
               assert.ok(record.after.capture.recovery?.proposals > 0, 'the targeted re-read must propose a digit for the clearer clue');
