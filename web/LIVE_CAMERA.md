@@ -819,7 +819,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   adopted, at once or late in the back-off, the frame the worker failed on;
   a late reply for an earlier frame, adopted or failed, leaves the newer
   one. An adoption and closing release it, and a detection ending after the
-  camera closed never becomes it. Aimed at nothing for ten
+  camera closed, or closed and opened again, never becomes it. Aimed at
+  nothing for ten
   seconds the help line carries only the detector's guidance, with no
   grid-lost reset; a stalled feed is still reported and held, a camera with
   no frame yet reports none, a stall drops the guide's proof (with reading
