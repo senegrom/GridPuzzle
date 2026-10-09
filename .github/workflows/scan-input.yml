@@ -49,7 +49,16 @@ jobs:
   recognition:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    runs-on: ubuntu-latest
+    # Both jobs run in the Playwright image, on the runners of its Ubuntu
+    # release; the build job in browser-pages.yml explains why.
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -83,7 +92,14 @@ jobs:
   live:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

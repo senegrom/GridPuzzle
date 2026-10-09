@@ -564,13 +564,67 @@ def test_every_leg_of_a_matrix_job_uploads_under_its_own_name(name):
             assert upload and "${{ matrix." in upload.group(1), f"{name} {job_id}: {upload and upload.group(1)}"
 
 
-def test_each_browser_set_keeps_its_own_playwright_cache():
-    """A per-engine job installs one browser; under the full set's key its
-    cache would stand in for both and never be refreshed."""
+# The Ubuntu release of each Playwright image variant.
+_UBUNTU_RELEASES = {"noble": "24.04", "resolute": "26.04"}
+
+
+def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
+    """setup-scanner installs nothing with apt: the browsers and their system
+    packages come with the Playwright image, which must be of the version the
+    action installs and pinned by digest. The runners have the image's Ubuntu
+    release, not ubuntu-latest's, since setup-python takes Python from the
+    runner's tool cache, built for the runner's release. The tag names that
+    release, but only the image itself shows that the digest is of it, so
+    setup-scanner compares the two releases when the job runs."""
+    from scripts.check_runtime_pins import playwright_pin
+
     action = (_GITHUB / "actions" / "setup-scanner" / "action.yml").read_text(encoding="utf-8")
-    assert "npx playwright install --with-deps $BROWSERS" in action
-    key = re.search(r"path: ~/\.cache/ms-playwright\n\s+key: (.+)", action).group(1)
-    assert "${{ steps.browsers.outputs.set }}" in key, key
+    version = playwright_pin(action)
+    assert "--with-deps" not in action and "apt-get" not in action and "install-deps" not in action
+    assert "/ms-playwright/.docker-info" in action
+    jobs = {
+        f"{path.name} {job_id}": job
+        for path in sorted((_GITHUB / "workflows").glob("*.yml"))
+        for job_id, job in _jobs(path.read_text(encoding="utf-8")).items()
+        if "uses: ./.github/actions/setup-scanner" in job
+    }
+    assert set(jobs) == {
+        "browser-pages.yml build", "browser-pages.yml live-acceptance", "browser-pages.yml live-camera",
+        "scan-input.yml recognition", "scan-input.yml live",
+    }
+    images = set()
+    for name, job in jobs.items():
+        container = re.search(
+            r"^    container:\n      image: (\S+)\n      options: (.+)\n      volumes:\n((?:        - .+\n)+)", job, re.M
+        )
+        assert container, name
+        image, options, volumes = container.groups()
+        pinned = re.fullmatch(
+            rf"mcr\.microsoft\.com/playwright:v{re.escape(version)}-([a-z]+)@sha256:[0-9a-f]{{64}}", image
+        )
+        assert pinned, (name, image)
+        assert f"\n    runs-on: ubuntu-{_UBUNTU_RELEASES[pinned.group(1)]}\n" in job, name
+        # the host's /dev/shm for the browsers, an init that reaps orphans,
+        # and the runner's user, who owns the checkout
+        assert options.split() == ["--ipc=host", "--init", "--user", "1001"], (name, options)
+        # the runner's fonts that the image lacks, read-only where the
+        # runner keeps them, and its os-release where a container finds its
+        # host's, for setup-scanner's comparison of the two releases
+        assert volumes.split() == [
+            "-", "/usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro",
+            "-", "/usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro",
+            "-", "/etc/os-release:/run/host/os-release:ro",
+        ], (name, volumes)
+        images.add(image)
+    assert len(images) == 1, images
+    # The releases are compared before setup-python takes the runner's
+    # Python. setup-scanner stops without the DejaVu fonts the suites draw;
+    # Lato only keeps the runner's font set, so a runner image without it
+    # must not stop every deployment.
+    assert action.index("/run/host/os-release") < action.index("uses: actions/setup-python@")
+    families = re.search(r"^ +for family in (.+); do$", action, re.M)
+    assert families, "setup-scanner checks no fonts"
+    assert re.findall(r'"([^"]+)"', families.group(1)) == ["DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono"]
 
 
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)

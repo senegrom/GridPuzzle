@@ -2,18 +2,34 @@ name: Set up the scanner suites
 description: >-
   Python 3.14, Node 22, the pinned self-hosted runtime built into _site (or
   one already downloaded, with build set to "false") and the repository's
-  Playwright version with Chromium and WebKit, or the one engine a
-  per-engine job tests. The Playwright version lives here and nowhere else.
+  Playwright version, for a job that runs in that version's Playwright image,
+  which brings Chromium, WebKit and their system packages, so that no job
+  waits on an apt mirror or a browser download. The Playwright version lives
+  here; the scanner jobs' container images name the same version.
 inputs:
   build:
     description: Build _site with scripts/build_web.py ("true"), or expect it to be present already
     default: "true"
   browsers:
-    description: The Playwright browsers to install, space-separated
+    description: The Playwright browsers the job uses, space-separated; each must be in the job's image
     default: "chromium webkit"
 runs:
   using: composite
   steps:
+    # setup-python takes Python from the runner's tool cache, built for the
+    # runner's Ubuntu release, so the image must be of that release as well:
+    # Ubuntu 26.04's Python cannot load ssl in the 24.04 image. The jobs mount
+    # the runner's os-release where a container finds its host's, and a job
+    # whose image (variant or digest) and runs-on disagree stops here, first.
+    - name: Check that the image's Ubuntu release is the runner's
+      shell: bash
+      run: |
+        image=$(. /etc/os-release && echo "$VERSION_CODENAME")
+        runner=$(. /run/host/os-release && echo "$VERSION_CODENAME") || {
+          echo "::error::no /run/host/os-release: run this job in the Playwright image, with the runner's /etc/os-release mounted there"; exit 1; }
+        [ "$image" = "$runner" ] || {
+          echo "::error::the image is Ubuntu $image and the runner Ubuntu $runner: change the image's variant and digest and runs-on together"; exit 1; }
+        echo "image and runner: Ubuntu $image"
     - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
       with:
         python-version: "3.14"
@@ -30,31 +46,40 @@ runs:
       with:
         path: ~/.npm
         key: scanner-npm-${{ runner.os }}-${{ hashFiles('scripts/build_web.py', '.github/actions/setup-scanner/action.yml') }}
-    # A job that installs one engine keeps its own cache entry: under the
-    # shared key it would stand in for the full set and never be refreshed.
-    - name: Name the browser set
-      id: browsers
-      shell: bash
-      env:
-        BROWSERS: ${{ inputs.browsers }}
-      run: echo "set=$(echo $BROWSERS | tr ' ' '-')" >> "$GITHUB_OUTPUT"
-    - name: Restore Playwright browsers
-      id: browser-cache
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: ~/.cache/ms-playwright
-        key: scanner-playwright-${{ runner.os }}-${{ steps.browsers.outputs.set }}-${{ hashFiles('.github/actions/setup-scanner/action.yml') }}
     - name: Build pinned self-hosted runtime
       shell: bash
       run: |
         if [ "${{ inputs.build }}" = "true" ]; then python scripts/build_web.py; else echo "using the _site already present"; fi
+    # The image keeps its browsers in /ms-playwright under the revisions of the
+    # Playwright version it was built for, which /ms-playwright/.docker-info
+    # names. A job without the container, or in an image of another version,
+    # stops here rather than downloading browsers without their system packages;
+    # so does one without the runner's DejaVu fonts, which the suites draw. The
+    # jobs mount the runner's Lato as well, only to keep its font set: nothing
+    # draws Lato, so a runner image without it is no reason to stop.
     - name: Install repository browser test versions
       shell: bash
       env:
         BROWSERS: ${{ inputs.browsers }}
       run: |
         npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
-        npx playwright install --with-deps $BROWSERS
+        node -e '
+          const fs = require("node:fs"), playwright = require("playwright");
+          const { version } = require("playwright/package.json");
+          let image;
+          try { image = JSON.parse(fs.readFileSync("/ms-playwright/.docker-info", "utf8")); }
+          catch { throw new Error(`run this job in an image mcr.microsoft.com/playwright:v${version}-<release>`); }
+          if (image.driverVersion !== version) throw new Error(`the container is ${image.dockerImageName}; Playwright is ${version}`);
+          for (const name of process.env.BROWSERS.split(" ").filter(Boolean)) {
+            const executable = playwright[name].executablePath();
+            if (!fs.existsSync(executable)) throw new Error(`${name} is not in ${image.dockerImageName}: ${executable}`);
+            console.log(`${name}: ${executable}`);
+          }
+          console.log(`browsers and their system packages: ${image.dockerImageName}`);
+        '
+        for family in "DejaVu Sans" "DejaVu Serif" "DejaVu Sans Mono"; do
+          fc-list -q "$family" || { echo "::error::no $family font: mount the runner's fonts into the job's container"; exit 1; }
+        done
     # Parallel jobs may race to save the same key; the losers only warn.
     - name: Save npm downloads
       if: steps.npm-cache.outputs.cache-hit != 'true' && inputs.build == 'true'
@@ -62,9 +87,3 @@ runs:
       with:
         path: ~/.npm
         key: ${{ steps.npm-cache.outputs.cache-primary-key }}
-    - name: Save Playwright browsers
-      if: steps.browser-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: ~/.cache/ms-playwright
-        key: ${{ steps.browser-cache.outputs.cache-primary-key }}
