@@ -27,25 +27,32 @@ async function stopServer() {
 }
 // WebKit 27.2 gives every <select> it builds an inline `text-overflow:
 // inherit`. The page's CSP (style-src 'self') blocks that, and WebKit reports
-// it at the select's line of the page; WebKit 26.6 and Chromium report
-// nothing. Nothing changes on screen, since the page sets no text-overflow on
-// a select. This tells that report apart: the stylesheet refusal, located in
-// the page itself, on a line (0-based, as console locations count) holding a
-// <select>.
-let selectLines;
-function webkitSelectReport(message) {
-  selectLines ??= new Set(
+// it once per select as it parses the page, at the select's line; WebKit 26.6
+// and Chromium report nothing. Nothing changes on screen, since the page sets
+// no text-overflow on a select. The report reads like any inline style
+// refusal, so it is told apart by place and number: a stylesheet refusal
+// located in the page itself, on a line (0-based, as console locations count)
+// holding a <select>, and no more of them on that line than one per select in
+// each page load. An inline style on such a line adds a report of its own.
+let selectsByLine;
+function selectsOn(lineNumber) {
+  selectsByLine ??= new Map(
     fs
       .readFileSync("_site/index.html", "utf8")
       .split("\n")
-      .flatMap((line, index) => (/<select\b/.test(line) ? [index] : [])),
+      .map((line, index) => [index, line.match(/<select\b/g)?.length ?? 0])
+      .filter(([, count]) => count > 0),
   );
+  return selectsByLine.get(lineNumber) ?? 0;
+}
+// The page line of such a WebKit report, or null for any other message.
+function webkitSelectLine(message) {
   const { url, lineNumber } = message.location();
-  return (
-    /^Refused to apply a stylesheet\b/.test(message.text()) &&
+  return /^Refused to apply a stylesheet\b/.test(message.text()) &&
     url.split(/[?#]/)[0] === BASE &&
-    selectLines.has(lineNumber)
-  );
+    selectsOn(lineNumber) > 0
+    ? lineNumber
+    : null;
 }
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
@@ -235,19 +242,27 @@ async function checkStartupCancellation(browser, image, report) {
     page.on("pageerror", (e) => errors.push(e.message));
     // A Content Security Policy violation only logs; surface it as a failure.
     // Playwright itself injects a stylesheet while capturing screenshots
-    // (WebKit reports it), so violations are ignored during our own captures,
-    // and so is WebKit's report of its own style for each <select> (see
-    // webkitSelectReport). Chromium still reports any inline style the page
-    // itself carries, on any line.
-    let capturing = false;
+    // (WebKit reports it), so violations are ignored during our own captures.
+    // WebKit's report of its own style for each <select> (see
+    // webkitSelectLine) is counted per line instead, and the end of the run
+    // fails a line with more of them than its selects make in the page loads.
+    // Chromium still reports any inline style the page itself carries.
+    let capturing = false,
+      loads = 0;
+    const selectReports = new Map();
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) loads++;
+    });
     page.on("console", (m) => {
       if (
-        !capturing &&
-        m.type() === "error" &&
-        /Content.Security.Policy/i.test(m.text()) &&
-        !(name === "webkit" && webkitSelectReport(m))
+        capturing ||
+        m.type() !== "error" ||
+        !/Content.Security.Policy/i.test(m.text())
       )
-        errors.push(m.text());
+        return;
+      const line = name === "webkit" ? webkitSelectLine(m) : null;
+      if (line === null) errors.push(m.text());
+      else selectReports.set(line, (selectReports.get(line) ?? 0) + 1);
     });
     const screenshot = async (options) => {
       capturing = true;
@@ -645,6 +660,12 @@ async function checkStartupCancellation(browser, image, report) {
       report.checks.push("origin-offline photo recognition");
       await startServer();
       assert.deepEqual(external, [], "App made an external runtime request");
+      report.selectReports = { loads, lines: Object.fromEntries(selectReports) };
+      for (const [line, count] of selectReports)
+        if (count > loads * selectsOn(line))
+          errors.push(
+            `${count} style refusals at index.html line ${line + 1} in ${loads} page loads, more than its <select> elements make`,
+          );
       assert.deepEqual(errors, [], "Browser raised uncaught errors");
       report.ok = true;
       console.log(name, JSON.stringify(report));
