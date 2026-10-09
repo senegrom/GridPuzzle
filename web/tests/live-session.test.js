@@ -54,6 +54,30 @@ test('invalidate retires the reading and reports why: frozen, cleared, or settin
  }
 });
 
+// A camera aimed at no grid hides the session on every detection without
+// one. With no reference and no reading there is nothing to lose: no loss
+// clock runs, and neither "Aligning…" nor "Grid lost" is announced. Once a
+// grid was found, the same hiding is a loss again.
+test('hiding with nothing ever found runs no loss clock and writes nothing',async t=>{
+ let time=0,current=true;const statuses=[],events=[];
+ const s=createLiveSession({read:()=>new Promise(()=>{}),solve:()=>new Promise(()=>{}),cancelRead(){},cancelSolve(){},
+  onChange(){},onStatus:m=>statuses.push(m),onEvent:e=>events.push(e.reason),now:()=>time,isCurrent:()=>current,sameScene:()=>true});
+ s.start();t.after(()=>s.stop());
+ for(let i=0;i<100;i++){time+=100;s.suspend();}
+ assert.deepEqual(statuses,[],'ten seconds of hiding announce nothing');
+ assert.deepEqual(events,['started'],'and retire nothing');
+ const corners=[{x:0,y:0},{x:20,y:0},{x:20,y:20},{x:0,y:20}];
+ s.observe({key:'2',width:21,height:21,corners,sharpness:200,image:{width:21,height:21}});
+ current=false;
+ for(let i=0;i<20;i++){time+=100;s.suspend();}
+ assert.deepEqual(statuses,[],'a found grid lost for under two seconds is not announced');
+ time+=100;s.suspend();
+ assert.deepEqual(statuses,['Aligning the grid — checking the printed clues…']);
+ for(let i=0;i<30;i++){time+=100;s.suspend();}
+ assert.equal(statuses.at(-1),'Grid lost. Keep the whole puzzle in view to read again.');
+ assert.deepEqual(events,['started','grid-lost']);
+});
+
 // Without automatic solving live video shows no clue digits, so the status
 // names the counts (the legend shows them too).
 test('the status of a complete reading without automatic solving names its counts',async t=>{

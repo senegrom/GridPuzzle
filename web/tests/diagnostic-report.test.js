@@ -72,3 +72,24 @@ test('the frozen view, Clear and a released camera are reported, and tick times 
  assert.equal(tick.count,2);assert.equal(tick.maximumMilliseconds,8);assert.equal(tick.p50Milliseconds,4);
  d.begin('photo',{});assert.equal(d.snapshot().performance.tick.count,0,'a new scan starts a new window');
 });
+
+// performance.overlay: of the live time while a grid is tracked, the share in
+// each data-overlay mode. Time with no mode (aiming at nothing, frozen,
+// closed) and unknown modes are not counted; the current mode counts up to
+// the snapshot.
+test('the overlay window shares the tracked live time between its modes, numbers only',()=>{
+ let time=0;const d=createScanDiagnostics({now:()=>time});d.begin('live',{});
+ assert.deepEqual(d.snapshot().performance.overlay,{milliseconds:0,percent:{none:null,outline:null}});
+ d.overlay(null);time=1000;
+ d.overlay('outline');time=1300;
+ d.overlay('none');time=1400;
+ d.overlay('PRIVATE');time=2400;
+ d.overlay('outline');time=2500;
+ assert.deepEqual(d.snapshot().performance.overlay,{milliseconds:500,percent:{none:20,outline:80}},'the open interval counts too');
+ time=2600;assert.equal(d.snapshot().performance.overlay.milliseconds,600);
+ d.overlay(null);time=9000;
+ assert.deepEqual(d.snapshot().performance.overlay,{milliseconds:600,percent:{none:16.67,outline:83.33}});
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+ d.overlay('outline');d.begin('live',{});time=9500;
+ assert.deepEqual(d.snapshot().performance.overlay,{milliseconds:0,percent:{none:null,outline:null}},'a new scan starts afresh');
+});

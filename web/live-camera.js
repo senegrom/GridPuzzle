@@ -9,10 +9,15 @@ import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
 
-function videoFrame(video, maxSide = 1600) {
+// The size of a snapshot of the video, scaled uniformly to a long side of at
+// most `maxSide`: the snapshot's own and the one the settings are keyed on.
+function frameSize(video, maxSide = 1600) {
   if (!video.videoWidth || !video.videoHeight) throw Error("The camera is not ready yet.");
-  const canvas = document.createElement("canvas"), scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-  const width = Math.max(1, Math.round(video.videoWidth * scale)), height = Math.max(1, Math.round(video.videoHeight * scale));
+  const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+  return [Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale))];
+}
+function videoFrame(video) {
+  const [width, height] = frameSize(video), canvas = document.createElement("canvas");
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -91,6 +96,33 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = releaseImage;
+  // The scratch canvases are sized only when the frames change size.
+  // Assigning a canvas its size again resets it: WebKit and Chromium keep a
+  // bitmap of the same size, but clear it and reset the context's state.
+  // Each draw then clears the bitmap itself, as that reset did, so a frame
+  // that draws nothing (a video without a picture) leaves no earlier frame's
+  // pixels to detect or verify.
+  function scratch(canvas, width, height, options) {
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    const ctx = canvas.getContext("2d", options);
+    ctx.clearRect(0, 0, width, height);
+    return ctx;
+  }
+  // The newest picture of the camera that no adopted frame replaces: while
+  // nothing is verified (aiming, or once a found grid is lost), frames are
+  // sampled only for detection, and none is adopted. It is the frame such a
+  // detection got for itself once done with it, also when its anchor failed
+  // in the worker, or the frame a verification failed on; sampled at
+  // `scannedAt`. A live capture on a stalled feed keeps it (an interrupted
+  // iPhone camera draws black), and so do the diagnostics. The adoption of a
+  // frame at least as new releases it, so beside an adopted frame it is
+  // always the newer one.
+  let scanned = null, scannedAt = -Infinity;
+  function keepScanned(image, at) {
+    if (at > scannedAt) { release(scanned); scanned = image; scannedAt = at; } else release(image);
+  }
+  function dropScanned() { release(scanned); scanned = null; scannedAt = -Infinity; }
   function discardCandidate() { release(pendingCandidate?.image); pendingCandidate = null; }
   // Every path that stops trusting the current proofs drops them here.
   function dropProofs() { proofs = {}; }
@@ -107,11 +139,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   const verifyIds = () => ids([pendingCandidate, ...session.proofFrames, session.preview ? null : guideFrame]);
   function contentPixels(image) {
     const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
-    contentCanvas.width = Math.max(2, Math.round(image.width * scale));
-    contentCanvas.height = Math.max(2, Math.round(image.height * scale));
-    const ctx = contentCanvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(image, 0, 0, contentCanvas.width, contentCanvas.height);
-    return ctx.getImageData(0, 0, contentCanvas.width, contentCanvas.height);
+    const width = Math.max(2, Math.round(image.width * scale)), height = Math.max(2, Math.round(image.height * scale));
+    const ctx = scratch(contentCanvas, width, height, { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0, width, height);
+    return ctx.getImageData(0, 0, width, height);
   }
   // Registration, feature extraction and all content checks live exclusively
   // in the worker. A proof is usable only with the pixels shown on the canvas.
@@ -262,6 +293,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     guide = displayed?.corners || (guideFrame && isCurrent(guideFrame)?.corners) || null;
     if (raw && aspectMatches() && (shutter ? solvedPreview(displayed) : readyToFreeze())) { freezeNow(); return; }
     const mode = guide && aspectMatches() ? "outline" : "none";
+    // How long a found grid shows its outline over the live video, and how
+    // long nothing (performance.overlay); aiming at nothing does not count.
+    diagnostics?.overlay?.(session.anchorFrame || guideFrame ? mode : null);
     // The evidence's tier, as data-delayed and in the label; only an outline
     // or a reading makes it matter.
     const delayed = !!(guide || displayed) && delayedTier();
@@ -369,14 +403,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     dropProofs(); guideFrame = null; lastPaint = null; solvedReading = null;
     session.invalidate("frozen"); // The OCR engine and an idle interpreter are kept.
     canvas.setAttribute?.("data-view", "frozen");
+    diagnostics?.overlay?.(null);
     diagnostics?.event({ stage: "complete", reason: "frozen" });
     say(FROZEN_HELP);
     updateRestartControl();
     onViewChange?.("frozen");
   }
-  async function locate(image, settings, key, owner) {
-    const job = {};
-    detection = job; lastDetect = now();
+  // `own`: detection got the snapshot itself, since nothing was verified on
+  // it (otherwise it gets a copy of the frame tracking verifies).
+  async function locate(image, settings, key, owner, own) {
+    const job = {}, at = now();
+    detection = job; lastDetect = at;
     const current = () => active && owner === epoch && key === settingsKey && detection === job;
     // Grid detection is small, bounded geometry work. Do not let a stalled
     // worker hold the live view hostage to the scanner's longer OCR timeout.
@@ -388,8 +425,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     try {
       // Detection copies the pixels synchronously, so one canvas serves every call.
       const small = detectCanvas, scale = Math.min(1, 640 / Math.max(image.width, image.height));
-      small.width = Math.round(image.width * scale); small.height = Math.round(image.height * scale);
-      small.getContext("2d").drawImage(image, 0, 0, small.width, small.height);
+      const width = Math.round(image.width * scale), height = Math.round(image.height * scale);
+      scratch(small, width, height).drawImage(image, 0, 0, width, height);
       // A live frame is read the quick way: the last-resort readings cost
       // more than the interval between frames, and a grid held in front of
       // the camera is found without them.
@@ -441,19 +478,25 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // The next newly presented frame verifies this candidate. Do not sample
       // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
-      if (job.anchoring && current()) { trackingFailed(error, owner); return; }
+      if (job.anchoring && current()) { job.failed = trackingFailed(error, owner); return; }
       if (current()) { guide = guideFrame = null; session.invalidate(); guidance(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
       if (!job.handedOff) {
-        image.width = image.height = 0;
+        // A frame detection got for itself is the newest picture scanned (see
+        // `scanned`), also when its anchor failed; a copy is tracking's
+        // frame, and a retired detection's frame is done with.
+        if (own && (job.failed || current())) keepScanned(image, at); else release(image);
         if (current()) trackAfter = now() + trackGap();
       }
       clearTimer(job.deadline);
       if (detection === job) detection = null;
     }
   }
+  // Whether the failure was handled: the caller's frame, the one the worker
+  // failed on, is then kept as the picture scanned unless a newer one is
+  // (see `scanned`).
   function trackingFailed(error, owner) {
-    if (!active || owner !== epoch || error?.name === "AbortError") return;
+    if (!active || owner !== epoch || error?.name === "AbortError") return false;
     epoch++; recovery.fail(); retryTrackingAt = recovery.nextAttempt; dropProofs();
     tracker.reset(); discardCandidate(); cancelDetection();
     guide = guideFrame = null; session.invalidate(); lastDetect = trackAfter = ownVerifiedAt = -Infinity;
@@ -464,11 +507,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     diagnostics?.event({ stage: 'tracking', reason: recovery.blocked ? 'worker-paused' : 'worker-backoff' });
     updateRestartControl();
     render();
+    return true;
   }
   async function track(image, key, owner) {
     const id = ++frameSerial, at = now(), pixels = contentPixels(image),
       width = pixels.width, height = pixels.height, anchors = verifyIds();
-    let adopted = false;
+    let kept = false;
     try {
       const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
@@ -480,7 +524,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
       if (raw !== image) release(raw);
-      raw = image; adopted = true; sampledAt = adoptedAt = at;
+      raw = image; kept = true; sampledAt = adoptedAt = at;
+      // A frame scanned after this one stays the newer picture (a late reply).
+      if (scannedAt <= at) dropScanned();
       proofs = Object.fromEntries(Object.entries(result.proofs).map(([anchor, proof]) =>
         [anchor, proof ? { ...proof, width, height } : null]));
       if (Object.values(proofs).some(Boolean)) { recovery.succeeded(); unmatchedCandidates = 0; }
@@ -515,8 +561,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       render();
       diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
         rejection: Object.values(result.rejections ?? {})[0] });
-    } catch (error) { trackingFailed(error, owner); }
-    finally { if (!adopted) release(image); }
+    } catch (error) {
+      // The frame the worker failed on is kept as the picture scanned, unless
+      // a newer one is.
+      if (trackingFailed(error, owner) && !kept) { keepScanned(image, at); kept = true; }
+    }
+    finally { if (!kept) release(image); }
   }
   function syncSettings(width, height) {
     const next = getSettings(), identitySettings = { ...next };
@@ -537,17 +587,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function heartbeat() {
     if (!active || view !== "live") return;
-    if (video.videoWidth && video.videoHeight) {
-      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-      syncSettings(Math.max(1, Math.round(video.videoWidth * scale)), Math.max(1, Math.round(video.videoHeight * scale)));
-    }
-    if (!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) {
+    if (video.videoWidth && video.videoHeight) syncSettings(...frameSize(video));
+    // Old video, or verified evidence past the stale limit, retires the proofs
+    // and hides what they verified. While aiming nothing is verified or
+    // adopted, so the adopted frame is always "old": nothing is dropped then,
+    // and the session's loss clock does not run for a grid never found.
+    if ((!scheduler.fresh || sampleAge() > STALE_TRACK_AGE) &&
+      (Object.keys(proofs).length || session.anchorFrame || guideFrame)) {
       dropProofs(); guide = null;
       session.suspend();
-      if (!scheduler.fresh && seenFrame) {
-        diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
-      }
     }
+    if (!scheduler.fresh && seenFrame) diagnostics?.event({ stage: 'tracking', reason: 'video-stalled' });
     prepareSolver();
     // Conditions the camera owns take the help line while they last. A
     // camera that has delivered no frame a second after start or Clear says
@@ -574,14 +624,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     interval: () => Math.max(session.settled ? 250 : 100,
       Math.min(300, (tracker.stats?.milliseconds ?? 0) * 1.5)),
   });
+  // The video is the display, so a frame is sampled only for the pipeline's
+  // own work: to verify a candidate, the guide or a reading, and to detect.
+  // While aiming at nothing that leaves one snapshot per detection, with no
+  // tracking pixels read back.
   function tick() {
     if (!active || view !== "live") return;
     seenFrame = true; pausedPicture = false;
     const started = now();
-    let image, sampled = false;
+    let image = null, sampled = false;
     try {
-      image = videoFrame(video); sampled = true;
-      syncSettings(image.width, image.height);
+      syncSettings(...frameSize(video));
       // On a stalled/unsupported worker the video and the manual shutter still
       // work, but no old proof or captured clue metadata survives the age
       // deadline: the adopted snapshot and its proofs are dropped. It does
@@ -591,22 +644,26 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       render();
       // The render may have frozen the view. This tick's frame must then not
       // be tracked or adopted: its epoch is already the frozen one.
-      if (view !== "live") return;
-      if (!recovery.blocked && now() >= retryTrackingAt) {
-        // One candidate at a time: a new detection waits until a reply has
-        // verified or rejected the pending one. Replacing it every 300 ms
-        // meant that once replies took longer than that, no candidate was
-        // ever verified and reading never started. Detections start every
-        // 300 ms to acquire or re-find the grid; once a reading is shown, or
-        // is running or finished with its own frame still verifying, they
-        // follow trackGap() instead. Replies can be two seconds old and two
-        // seconds apart, so "still" allows twice the stale limit.
-        const tracked = !!session.preview ||
-          ((session.busy || session.settled) && now() - ownVerifiedAt <= 2 * STALE_TRACK_AGE);
-        if (!detection && !pendingCandidate && (tracked ? now() >= trackAfter : now() - lastDetect >= 300))
-          void locate(copyCanvas(image), setting, settingsKey, epoch);
-        void track(image, settingsKey, epoch); image = null;
-      }
+      if (view !== "live" || recovery.blocked || now() < retryTrackingAt) return;
+      // Verification needs anchors: a candidate, the guide or a reading. One
+      // candidate at a time: a new detection waits until a reply has verified
+      // or rejected the pending one. Replacing it every 300 ms meant that once
+      // replies took longer than that, no candidate was ever verified and
+      // reading never started. Detections start every 300 ms to acquire or
+      // re-find the grid; once a reading is shown, or is running or finished
+      // with its own frame still verifying, they follow trackGap() instead.
+      // Replies can be two seconds old and two seconds apart, so "still"
+      // allows twice the stale limit.
+      const verify = verifyIds().length > 0;
+      const tracked = !!session.preview ||
+        ((session.busy || session.settled) && now() - ownVerifiedAt <= 2 * STALE_TRACK_AGE);
+      const detect = !detection && !pendingCandidate && (tracked ? now() >= trackAfter : now() - lastDetect >= 300);
+      if (!verify && !detect) return;
+      image = videoFrame(video); sampled = true;
+      // Detection gets the snapshot itself unless tracking adopts it.
+      if (detect) void locate(verify ? copyCanvas(image) : image, setting, settingsKey, epoch, !verify);
+      if (verify) void track(image, settingsKey, epoch);
+      image = null;
     } catch (error) { say(error.message || "Waiting for the camera…"); }
     finally {
       release(image);
@@ -624,7 +681,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // The canvas may still carry a frozen or captured picture's state and
     // label from the session before (closed, or saved and scanned again).
     start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
-    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
+    stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); dropScanned(); diagnostics?.overlay?.(null); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from
     // nothing. The OCR engine, the geometry workers and an idle interpreter
@@ -661,16 +718,23 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     },
     // Numeric lifecycle counters only; no image or retained puzzle data.
     get stats() { return { active, view, detection: detection ? 1 : 0, candidate: pendingCandidate ? 1 : 0,
-      retainedSources: Number(!!raw) + Number(!!pendingCandidate?.image),
+      retainedSources: Number(!!raw) + Number(!!pendingCandidate?.image) + Number(!!scanned),
       scratchPixels: contentCanvas.width * contentCanvas.height + detectCanvas.width * detectCanvas.height,
       tracking: tracker.stats, scheduling: scheduler.stats, recovery: recovery.stats }; },
-    // The frozen frame is the verified frame of the frozen reading. Without an
-    // adopted frame (none yet, or dropped past the stale limit, as while
-    // tracking is paused after failures) the diagnostics get the video's
-    // current frame, unverified and transient: the diagnostics UI releases it
-    // once encoded. The suites' pixel witnesses use adoptedFrame() instead.
+    // The frozen frame is the verified frame of the frozen reading. Live, the
+    // diagnostics get the newest picture. Without an adopted frame (none
+    // while nothing is verified, or dropped past the stale limit, as while
+    // tracking is paused after failures), or with a newer one scanned since
+    // (see `scanned`), that is the video's current frame, unverified and
+    // transient: the diagnostics UI releases it once encoded; on a stalled
+    // feed, which may draw black, the newest frame scanned, as a live capture
+    // keeps (also a found grid's first frame, still waiting in the candidate
+    // when the feed stalled right after Start, Clear or Restart). The suites'
+    // pixel witnesses use adoptedFrame() instead.
     diagnosticSource() {
-      if (raw) return { image: raw, verified: view === "frozen" || !!isCurrent(session.anchorFrame) };
+      if (raw && !scanned) return { image: raw, verified: view === "frozen" || !!isCurrent(session.anchorFrame) };
+      const kept = scanned ?? pendingCandidate?.image;
+      if (kept && !scheduler.fresh) return { image: kept, verified: false };
       try { return { image: videoFrame(video), verified: false, transient: true }; } catch { return { image: null, verified: false }; }
     },
     // The adopted snapshot itself (the frame the latest proofs verified, or
@@ -708,9 +772,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (!verified && pausedPicture) throw Error("Wait for a camera frame before capturing.");
       // While no new frame is presented the video may show nothing useful: iOS
       // paints an interrupted camera (a call, another app, Split View) black.
-      // The last adopted frame, the newest picture scanned, is kept instead.
-      const stalled = !verified && !!raw && !scheduler.fresh;
-      const image = verified ? raw : stalled ? copyCanvas(raw) : videoFrame(video), annotated = document.createElement("canvas");
+      // The newest picture scanned is kept instead: a frame scanned after the
+      // last adopted one (see `scanned`), that adopted frame, or, when the feed
+      // stalled before a found grid's first frame verified (right after Start,
+      // Clear or Restart), that frame, still waiting in the candidate.
+      const kept = scanned ?? raw ?? pendingCandidate?.image, stalled = !verified && !!kept && !scheduler.fresh;
+      const image = verified ? raw : stalled ? copyCanvas(kept) : videoFrame(video), annotated = document.createElement("canvas");
       annotated.width = image.width; annotated.height = image.height;
       composeView(annotated.getContext("2d"), image, verified ? preview : null, null);
       if (!verified) return { photo: image, annotated, found: null, corners: null, createdAt: Date.now(), frozen: false };
