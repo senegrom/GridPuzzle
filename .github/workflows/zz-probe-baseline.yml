@@ -1,18 +1,19 @@
-name: Probe live recovery shift (temporary)
+name: Probe text baselines (temporary)
 # Temporary, for the Playwright 1.64 pull request only, removed again before
-# it is ready: runs the live-recovery suite with its digits drawn a pixel
-# higher or lower, in the 1.63.0 image under master's setup-scanner and in the
-# 1.64.0 image under this branch's, with the scanner jobs' options and mounts.
+# it is ready: where each engine places the live-recovery suite's digits by
+# textBaseline "middle" and by the alphabetic baseline, in the 1.63.0 image
+# under master's setup-scanner and the 1.64.0 image under this branch's; and,
+# in the 1.64.0 image, the two live-acceptance suites that have not run yet.
 on:
   pull_request:
 permissions:
   contents: read
 concurrency:
-  group: probe-recovery-${{ github.event.pull_request.number }}
+  group: probe-baseline-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
   probe:
-    name: recovery shift in the ${{ matrix.playwright }} image
+    name: baselines in the ${{ matrix.playwright }} image
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -21,11 +22,9 @@ jobs:
           - playwright: "1.63.0"
             image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
             setup: 33296d0ddea1730efd1b4976d251438d59df86dc
-            runs: "webkit:0 webkit:-1 webkit:0 webkit:-1 chromium:0 chromium:-1"
           - playwright: "1.64.0"
             image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
             setup: ${{ github.event.pull_request.head.sha }}
-            runs: "webkit:0 webkit:1 webkit:0 webkit:1 chromium:0 chromium:-1"
     container:
       image: ${{ matrix.image }}
       options: --ipc=host --init --user 1001
@@ -41,11 +40,21 @@ jobs:
           ref: ${{ matrix.setup }}
           path: setup
       - uses: ./setup/.github/actions/setup-scanner
-      - name: Live recovery with the digits shifted
-        run: node .github/probe/shift_recovery.cjs ${{ matrix.runs }}
+      - name: Where the engines place the digits
+        run: node .github/probe/baseline_probe.cjs
+      - name: Clue editor re-read proposals and confirmation
+        if: matrix.playwright == '1.64.0'
+        continue-on-error: true
+        run: node scripts/editor_reread_regressions.cjs
+      - name: Repeated-session worker and image ownership soak
+        if: matrix.playwright == '1.64.0'
+        continue-on-error: true
+        run: node scripts/live_soak_regressions.cjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
-          name: probe-recovery-${{ matrix.playwright }}
-          path: probe-out
+          name: probe-baseline-${{ matrix.playwright }}
+          path: |
+            probe-out
+            browser-artifacts
           retention-days: 3
