@@ -42,6 +42,10 @@
     `  const __p = sameRegions(a.pixels, b.pixels, true, [[.03, 2.5, false], [.01, .06, true]], diagnostic);
   if (!__p && !globalThis.__probeAll) return false;
   return sameRegions(a.structure, b.structure, false, [[.01, .8, false], [.01, .06, true]], diagnostic) && __p;`);
+    patch("    for (const shift of SHIFTS) if (passes(a, b, shift, fraction, average, 0, rangesA, rangesB)) return true;",
+      `    let __any = false;
+    for (const shift of SHIFTS) if (passes(a, b, shift, fraction, average, 0, rangesA, rangesB)) { __any = true; if (!globalThis.__probeAll) return true; }
+    if (__any) return true;`);
     patch("  return changed <= count * fraction || difference <= count * average;",
       "  if (globalThis.__probeCheck) globalThis.__probeCheck.best = Math.min(globalThis.__probeCheck.best, changed / (count * fraction), difference / (count * average));\n  return changed <= count * fraction || difference <= count * average;");
     P.content = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
@@ -60,7 +64,7 @@
   // The suite's paint(), with the digits shifted by (dx, dy) and a choice of
   // degradation for cell 52 (the suite's: a 50x50 window at +8 resampled to
   // 20x20 and back).
-  function paint(ctx, { font = "Courier New", size = 27, weight = "", yoff = 0, dx = 0, dy = 0, sharp = false, changed = false, degrade = { kind: "resample" }, degradeS = null, raceValue = 9, tick = 1, baseline = "font-box" }) {
+  function paint(ctx, { font = "Courier New", size = 27, weight = "", yoff = 0, dx = 0, dy = 0, sharp = false, changed = false, degrade = { kind: "resample" }, degradeS = null, raceValue = 9, raceAdd = null, tick = 1, baseline = "font-box" }) {
     ctx.save();
     ctx.fillStyle = "#edf1f5"; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = tick % 2 ? "#ff0000" : "#0000ff"; ctx.fillRect(0, 0, 20, 20);
@@ -78,8 +82,10 @@
       ctx.textBaseline = "alphabetic";
       const box = ctx.measureText("0"); offset = (box.actualBoundingBoxAscent - box.actualBoundingBoxDescent) / 2;
     } else ctx.textBaseline = baseline;
-    cells.forEach((v, i) => {
-      if (v !== null) ctx.fillText(String(changed && i === 13 ? raceValue : v), GX + (i % 9 + .5) * CELLPX + dx, GY + (Math.floor(i / 9) + .5) * CELLPX + offset + yoff + dy);
+    const shown = cells.slice();
+    if (changed) { if (raceValue !== null) shown[13] = raceValue; if (raceAdd) shown[raceAdd.cell] = raceAdd.value; }
+    shown.forEach((v, i) => {
+      if (v !== null) ctx.fillText(String(v), GX + (i % 9 + .5) * CELLPX + dx, GY + (Math.floor(i / 9) + .5) * CELLPX + offset + yoff + dy);
     });
     if (!sharp) degradeCell(ctx, 52, degrade);
     else if (degradeS) degradeCell(ctx, 52, degradeS);
@@ -196,7 +202,8 @@
       const a3 = core.run({ op: "anchor", image: Cp, corners: Cd.corners, rows: 9, cols: 9, anchors: [a2.id] }).anchor;
       const cs = contentStats(Sp, Cp, Sd.corners, Cd.corners);
       result.race = { anchorMatch: a3?.matches?.[a2.id] ?? null, failing: cs.records.filter((r) => !r.ok).map(describe),
-        cell13: cs.records.map(describe).filter((r) => r.where === "cell13") };
+        cell13: cs.records.map(describe).filter((r) => r.where === "cell13"),
+        added: config.raceAdd ? cs.records.map(describe).filter((r) => r.where === "cell" + config.raceAdd.cell) : null };
     }
     if (config.ocr !== false) {
       const found = await P.reader.read(D, Dd.corners, "sudoku", 9, 9, () => {}, { orient: false });

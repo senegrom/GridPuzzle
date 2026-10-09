@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: [chromium, webkit]
-        shard: [s24d25, s24d3, s22d25, s22d3, race]
+        shard: [d225, d25, d275, race3]
     container:
       image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
       options: --ipc=host --init --user 1001
