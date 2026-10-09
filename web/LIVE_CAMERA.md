@@ -900,9 +900,12 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   isolates retention from repeated-search backoff. It also measures
   static/self and translated-anchor tracking on the twelve Lexski images, which
   is tracking coverage, not detection or digit accuracy.
-- `live_recovery_regressions.cjs` resamples one printed cell to simulate lost
-  optical detail and restores the original raster in the next phase, through the
-  production camera, detector, tracking worker and Tesseract. No OCR values,
+- `live_recovery_regressions.cjs` blurs one printed clue to simulate lost focus
+  (a Gaussian of 2.5 px, only where no structural strip of the content
+  comparison samples) and makes it clearer (1 px) in the next phase, through the
+  production camera, detector, tracking worker and Tesseract. The scene keeps
+  the reading's flag and the same-print decision well inside their limits at
+  any digit offset of up to 3 px, in both engines. No OCR values,
   confidence, uncertainty, quality scores, corners or identity proofs enter the
   pipeline; reference values only score the output. A real targeted reply can be
   delayed to test a changed puzzle, and paused playback tests the freshness
