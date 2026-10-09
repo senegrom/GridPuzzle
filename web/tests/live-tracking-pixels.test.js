@@ -1,0 +1,80 @@
+// The tracking worker's readback of a transferred bitmap (the bitmap
+// transport, live-tracker.js), with a fake OffscreenCanvas that records what
+// is done to it: one canvas, sized only when the size changes, cleared, the
+// whole bitmap drawn over the whole canvas and read back, and the bitmap
+// closed on every path.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createPixelReader } from "../live-tracking-pixels.js";
+
+function fakes({ context = true, draw = null } = {}) {
+  const made = [], ops = [];
+  const makeCanvas = (width, height) => {
+    let w = width, h = height;
+    const canvas = {
+      get width() { return w; }, set width(value) { ops.push(["width", value]); w = value; },
+      get height() { return h; }, set height(value) { ops.push(["height", value]); h = value; },
+      getContext(type, options) {
+        ops.push(["getContext", type, options]);
+        return context ? {
+          clearRect: (...box) => ops.push(["clearRect", ...box]),
+          drawImage(source, ...box) { ops.push(["drawImage", source, ...box]); draw?.(); },
+          getImageData: (x, y, width, height) => { ops.push(["getImageData", x, y, width, height]);
+            return { width, height, data: new Uint8ClampedArray(width * height * 4) }; },
+        } : null;
+      },
+    };
+    made.push([width, height]); return canvas;
+  };
+  const bitmap = () => ({ closed: 0, close() { this.closed++; } });
+  return { made, ops, makeCanvas, bitmap };
+}
+
+test("a bitmap is drawn at the tracking size over a cleared canvas and read back as ImageData", () => {
+  const f = fakes(), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
+  const image = pixelsOf({ bitmap, width: 960, height: 1280 });
+  assert.deepEqual([image.width, image.height, image.data.length], [960, 1280, 960 * 1280 * 4]);
+  assert.ok(image.data instanceof Uint8ClampedArray);
+  assert.deepEqual(f.made, [[960, 1280]]);
+  assert.deepEqual(f.ops, [
+    ["getContext", "2d", { willReadFrequently: true }],
+    ["clearRect", 0, 0, 960, 1280],
+    ["drawImage", bitmap, 0, 0, 960, 1280],
+    ["getImageData", 0, 0, 960, 1280],
+  ], "no size assigned to a new canvas of the right size; a CPU-backed context where honoured");
+  assert.equal(bitmap.closed, 1, "the transferred bitmap is closed once read");
+});
+
+test("one canvas serves every frame; its size is assigned only when it changes", () => {
+  const f = fakes(), pixelsOf = createPixelReader(f.makeCanvas);
+  pixelsOf({ bitmap: f.bitmap(), width: 2, height: 2 }); // the handshake's probe
+  pixelsOf({ bitmap: f.bitmap(), width: 960, height: 1280 });
+  pixelsOf({ bitmap: f.bitmap(), width: 960, height: 1280 });
+  pixelsOf({ bitmap: f.bitmap(), width: 960, height: 720 });
+  assert.deepEqual(f.made, [[2, 2]], "one canvas");
+  assert.deepEqual(f.ops.filter(([op]) => op === "width" || op === "height"),
+    [["width", 960], ["height", 1280], ["height", 720]]);
+  const draws = f.ops.filter(([op]) => op === "drawImage").map(([, , ...box]) => box.join(" "));
+  assert.deepEqual(draws, ["0 0 2 2", "0 0 960 1280", "0 0 960 1280", "0 0 960 720"]);
+  // Every draw starts on a cleared bitmap: a snapshot that drew nothing must
+  // not leave the previous frame's pixels.
+  f.ops.forEach(([op], i) => { if (op === "drawImage") assert.equal(f.ops[i - 1][0], "clearRect"); });
+});
+
+for (const [name, options, expected] of [
+  ["without a 2D context", { context: false }, /No 2D canvas/],
+  ["when drawing fails", { draw: () => { throw new DOMException("detached", "InvalidStateError"); } }, /detached/],
+]) test(`the bitmap is closed ${name}`, () => {
+  const f = fakes(options), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
+  assert.throws(() => pixelsOf({ bitmap, width: 64, height: 64 }), expected);
+  assert.equal(bitmap.closed, 1);
+});
+
+test("the bitmap is closed when no canvas can be made (no OffscreenCanvas in the worker)", () => {
+  const bitmap = { closed: 0, close() { this.closed++; } };
+  assert.throws(() => createPixelReader()({ bitmap, width: 2, height: 2 }), ReferenceError, "Node has no OffscreenCanvas");
+  assert.equal(bitmap.closed, 1);
+  const thrower = createPixelReader(() => { throw Error("out of memory"); }), other = { closed: 0, close() { this.closed++; } };
+  assert.throws(() => thrower({ bitmap: other, width: 2, height: 2 }), /out of memory/);
+  assert.equal(other.closed, 1);
+});
