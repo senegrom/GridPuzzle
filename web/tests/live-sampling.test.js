@@ -532,6 +532,23 @@ test("the diagnostics count a guide's outline without a reading", async (t) => {
   assert.equal(share.percent.outline, 100);
 });
 
+// Once a found grid's reading is retired (lost for five seconds) the camera
+// aims at nothing again, which performance.overlay does not count: its time
+// stops at the reset, though nothing is repainted then and the last adopted
+// frame has not aged out yet.
+test("the diagnostics stop counting when a lost reading is retired", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.aim(null);
+  assert.ok(await h.until(() => h.reasons().includes("grid-lost"), 8000), "the reading is retired");
+  const overlay = () => h.diagnostics.snapshot().performance.overlay.milliseconds;
+  const atReset = overlay();
+  assert.ok(atReset > 4000, `the loss itself counted: ${atReset} ms`);
+  assert.ok(h.camera.adoptedFrame(), "an adopted frame is still kept");
+  await h.advance(3000);
+  assert.equal(overlay(), atReset, "aiming at nothing after the reset is not counted");
+});
+
 // A camera that has delivered no frame since it started is not a stalled feed:
 // it says so itself, and no video-stalled diagnostic is recorded.
 test("a camera that delivers no frame holds its own message and reports no stalled feed", async (t) => {
