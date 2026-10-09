@@ -34,8 +34,16 @@ async function begin({ font, race = false }) {
       ctx.beginPath(); ctx.moveTo(60 + k * 600 / 9, 180); ctx.lineTo(60 + k * 600 / 9, 780);
       ctx.moveTo(60, 180 + k * 600 / 9); ctx.lineTo(660, 180 + k * 600 / 9); ctx.stroke();
     }
-    ctx.fillStyle = '#24282c'; ctx.font = `27px ${font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    cells.forEach((v, i) => { if (v !== null) ctx.fillText(String(state.changed && i === 13 ? 9 : v), 60 + (i % 9 + .5) * 600 / 9, 180 + (Math.floor(i / 9) + .5) * 600 / 9); });
+    // Each digit's alphabetic baseline lies half the font box's ascent minus
+    // its descent below the cell centre: where textBaseline "middle" put it in
+    // Chromium and in WebKit 26.6, pixel for pixel. WebKit 27.2 places
+    // "middle" by the em box instead, 1 px higher in two rows of three at this
+    // size, and this scenario turns on that pixel: the sharpened clue then
+    // counts as changed content (and 1 px higher, Chromium reads the blurred
+    // clue without a flag).
+    ctx.fillStyle = '#24282c'; ctx.font = `27px ${font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const box = ctx.measureText('0'), middle = (box.fontBoundingBoxAscent - box.fontBoundingBoxDescent) / 2;
+    cells.forEach((v, i) => { if (v !== null) ctx.fillText(String(state.changed && i === 13 ? 9 : v), 60 + (i % 9 + .5) * 600 / 9, 180 + (Math.floor(i / 9) + .5) * 600 / 9 + middle); });
     if (!state.sharp) {
       const cell = 52, x = Math.round(60 + cell % 9 * 600 / 9) + 8, y = Math.round(180 + Math.floor(cell / 9) * 600 / 9) + 8;
       tiny.getContext('2d').drawImage(source, x, y, 50, 50, 0, 0, 20, 20);
