@@ -25,6 +25,28 @@ async function stopServer() {
     "The origin must actually be unreachable during offline testing.",
   );
 }
+// WebKit 27.2 gives every <select> it builds an inline `text-overflow:
+// inherit`. The page's CSP (style-src 'self') blocks that, and WebKit reports
+// it at the select's line of the page; WebKit 26.6 and Chromium report
+// nothing. Nothing changes on screen, since the page sets no text-overflow on
+// a select. This tells that report apart: the stylesheet refusal, located in
+// the page itself, on a line (0-based, as console locations count) holding a
+// <select>.
+let selectLines;
+function webkitSelectReport(message) {
+  selectLines ??= new Set(
+    fs
+      .readFileSync("_site/index.html", "utf8")
+      .split("\n")
+      .flatMap((line, index) => (/<select\b/.test(line) ? [index] : [])),
+  );
+  const { url, lineNumber } = message.location();
+  return (
+    /^Refused to apply a stylesheet\b/.test(message.text()) &&
+    url.split(/[?#]/)[0] === BASE &&
+    selectLines.has(lineNumber)
+  );
+}
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async () => {
@@ -213,13 +235,17 @@ async function checkStartupCancellation(browser, image, report) {
     page.on("pageerror", (e) => errors.push(e.message));
     // A Content Security Policy violation only logs; surface it as a failure.
     // Playwright itself injects a stylesheet while capturing screenshots
-    // (WebKit reports it), so violations are ignored during our own captures.
+    // (WebKit reports it), so violations are ignored during our own captures,
+    // and so is WebKit's report of its own style for each <select> (see
+    // webkitSelectReport). Chromium still reports any inline style the page
+    // itself carries, on any line.
     let capturing = false;
     page.on("console", (m) => {
       if (
         !capturing &&
         m.type() === "error" &&
-        /Content.Security.Policy/i.test(m.text())
+        /Content.Security.Policy/i.test(m.text()) &&
+        !(name === "webkit" && webkitSelectReport(m))
       )
         errors.push(m.text());
     });
