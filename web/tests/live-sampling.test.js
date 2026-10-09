@@ -465,6 +465,28 @@ test("a stalled capture after a failed verification keeps the frame the worker f
   assert.equal(h.camera.stats.retainedSources, 1, "only that frame is kept");
 });
 
+// Right after Start (or Clear, or Restart) with a grid in view, the first
+// detection finds it and its frame waits in the candidate for a second frame
+// to verify on. A feed that stalls before then leaves no adopted or scanned
+// frame, so the candidate's is the newest picture there is.
+test("a feed that stalls before the first found grid verifies keeps the candidate's frame for a capture and the diagnostics", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.snapshots().length === 1, 1000), "the first frame is sampled for detection");
+  h.stall(); // No frame after it.
+  assert.ok(await h.until(() => h.camera.stats.candidate === 1, 1000), "the first detection finds the grid");
+  await h.advance(700);
+  assert.equal(h.help, STALLED);
+  assert.equal(h.camera.stats.candidate, 1, "it never verifies"); assert.equal(h.camera.adoptedFrame(), null);
+  const first = h.detected().at(-1);
+  assert.deepEqual(h.drawnFrom(first), [h.video], "the snapshot detection was handed");
+  const shot = h.camera.capture();
+  assert.equal(shot.found, null);
+  assert.deepEqual(h.drawnFrom(shot.photo), [first], "a copy of that frame, not the stalled video");
+  const source = h.camera.diagnosticSource();
+  assert.equal(source.image, first, "the report's picture too"); assert.equal(source.verified, false);
+  assert.equal(source.transient, undefined, "the camera's own: the report does not release it");
+});
+
 // Replies can come late. Here a guide is tracked with replies taking 400 ms
 // and its grid leaves view: detection, now on snapshots of its own, keeps a
 // newer frame while verifications of earlier frames are still in flight.

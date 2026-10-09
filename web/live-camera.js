@@ -728,10 +728,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // (see `scanned`), that is the video's current frame, unverified and
     // transient: the diagnostics UI releases it once encoded; on a stalled
     // feed, which may draw black, the newest frame scanned, as a live capture
-    // keeps. The suites' pixel witnesses use adoptedFrame() instead.
+    // keeps (also a found grid's first frame, still waiting in the candidate
+    // when the feed stalled right after Start, Clear or Restart). The suites'
+    // pixel witnesses use adoptedFrame() instead.
     diagnosticSource() {
       if (raw && !scanned) return { image: raw, verified: view === "frozen" || !!isCurrent(session.anchorFrame) };
-      if (scanned && !scheduler.fresh) return { image: scanned, verified: false };
+      const kept = scanned ?? pendingCandidate?.image;
+      if (kept && !scheduler.fresh) return { image: kept, verified: false };
       try { return { image: videoFrame(video), verified: false, transient: true }; } catch { return { image: null, verified: false }; }
     },
     // The adopted snapshot itself (the frame the latest proofs verified, or
@@ -770,8 +773,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // While no new frame is presented the video may show nothing useful: iOS
       // paints an interrupted camera (a call, another app, Split View) black.
       // The newest picture scanned is kept instead: a frame scanned after the
-      // last adopted one (see `scanned`), or that adopted frame.
-      const kept = scanned ?? raw, stalled = !verified && !!kept && !scheduler.fresh;
+      // last adopted one (see `scanned`), that adopted frame, or, when the feed
+      // stalled before a found grid's first frame verified (right after Start,
+      // Clear or Restart), that frame, still waiting in the candidate.
+      const kept = scanned ?? raw ?? pendingCandidate?.image, stalled = !verified && !!kept && !scheduler.fresh;
       const image = verified ? raw : stalled ? copyCanvas(kept) : videoFrame(video), annotated = document.createElement("canvas");
       annotated.width = image.width; annotated.height = image.height;
       composeView(annotated.getContext("2d"), image, verified ? preview : null, null);
