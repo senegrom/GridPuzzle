@@ -363,6 +363,47 @@ Verifications wait while an anchor is built, and grid detection's own
 eight-second deadline no longer covers anchoring. Manual capture remains
 available without a synchronous registration fallback.
 
+### How the frames reach the worker
+
+The tracking pixels are the snapshot scaled to at most 1280 pixels on the
+long side (960 × 1280 from a phone's 1200 × 1600 snapshot). Where the browser
+can, the worker makes them itself: the camera hands over
+`createImageBitmap(snapshot)`, a copy the browser makes without reading the
+pixels back to the main thread, transferred with the job, and the worker draws
+it at the tracking size into one `OffscreenCanvas` and reads it back there
+(`live-tracking-pixels.js`). The main thread then neither scales the frame nor
+reads its 4.9 MB back; it still takes the snapshot, which is the frame that is
+adopted, frozen, captured and read. Otherwise the camera does the readback
+itself, as before. Each worker uses one of the two, decided by a handshake
+when it starts, so every anchor is verified on pixels resampled the way it was
+built: the tracker transfers a bitmap of a 2 × 2 canvas of four known colours,
+which the worker draws and reads back. The bitmap transport needs all sixteen
+values within 2. A wrong value, a worker without a 2D `OffscreenCanvas` (iOS
+before 16.4, and Playwright's WebKit on Windows), a probe that cannot be made
+or transferred, a reply that cannot be received, or no answer within 300 ms of
+the worker's start (its first message: loading its modules is no part of the
+transport) mean the camera's own readback; a worker that never starts fails as
+its first anchor would have. Jobs wait for the decision. On seven corpus
+photographs, at their own size and scaled to a phone's snapshot, and on the
+live suites' scenes, the two give the same pixels in Chromium, bit for bit,
+and the same proofs and verdicts through shifts, noise, light and changed
+print; `live_features` compares the verdicts and corners of both on every
+engine whose handshake decides for bitmaps.
+
+Every bitmap is transferred or closed: the worker closes each one it reads
+back, the tracker each one it does not transfer (a replaced queued frame, a
+reset, a failed post, a job prepared for a worker of the other transport), and
+the camera one whose frame or detection was retired while it was made. A
+bitmap failure (the worker cannot read one back, one cannot be transferred or
+made, a reply cannot be received, or a deadline passes before any bitmap job
+of the worker completed) is no tracking failure: bitmaps are given up for the
+rest of the camera session, the worker is reset with its anchors, and the
+camera starts acquisition again at once on its own readback, with no back-off
+and no Restart (a `tracking-transport` event). Later failures of a worker whose
+bitmaps have worked count as before. The worker reports the tracking core's
+time apart from the transport's draw and readback, and only the core's paces
+the frames, so moving the readback into the worker does not slow them.
+
 ### Live and delayed views
 
 Over the live video the camera draws only what a verification proved: the
@@ -461,6 +502,9 @@ Chromium keep a bitmap of the same size, so that saves the reset, not an
 allocation; the saving above comes from sampling less). Each draw clears its
 bitmap first, as the reset did, so a frame that draws nothing (a video
 without a picture) leaves no earlier frame's pixels to verify or detect.
+Where the worker reads the tracking pixels back (see "How the frames reach the
+worker"), the main thread only takes the snapshot and its bitmap, and the
+worker's canvas is cleared before each draw in the same way.
 
 A separate 100 ms heartbeat expires the overlay when presentation is over
 500 ms old, or the accepted tracking evidence is older than the two-second
@@ -634,7 +678,9 @@ hand, and readings the camera can no longer verify stay hidden rather than being
 shown on the wrong frame. Start/Stop cycles reset the pipeline, a repeated Start
 is idempotent, and retired detector clean-up or solver errors cannot cancel a
 newer request. Stop releases the scratch canvases, the newest scanned frame
-and any pending read samples as well as the timers and workers.
+and any pending read samples as well as the timers and workers. A bitmap
+transport failure is none of these failures: it switches to the camera's own
+readback and starts acquisition again (see "How the frames reach the worker").
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -649,9 +695,14 @@ delay.
 
 `scan-metrics.js` keeps bounded numeric windows of the latest 128 samples per
 measurement: painting, the main-thread time of each sampled camera frame
-(`performance.tick`, including the readbacks for detection and tracking it
-starts; a tick that samples nothing is not counted), frame age, tracking
-latency, queue work and the time to the first completed reading. Frame age
+(`performance.tick`, including the work it starts for detection and tracking:
+detection's readback, and tracking's readback or its bitmap's copy of the
+snapshot; a tick that samples nothing is not counted), frame age, tracking
+latency, queue work and the time to the first completed reading.
+`tracking.transport` names the worker's transport (`bitmap` or `imagedata`;
+none until its handshake has decided), `performance.trackingWorker` is the
+tracking core's time and `performance.trackingTransport` the worker's draw and
+readback of a bitmap (0 for the camera's own readback). Frame age
 and tracking latency count the frames sent for verification; while the camera
 aims at nothing none is. Before, every aiming frame counted too, through its
 empty verification: only as old as its own readback, with the tracker's last
@@ -842,7 +893,27 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
   tracking worker and targeted retries; `clue-reread.test.js`: the editor's
-  per-clue re-read.
+  per-clue re-read. `live-tracker.test.js` also covers the pixel transport:
+  the default probe (a 2 × 2 page canvas holding the four colours), the
+  handshake's decision (every way to the camera's own readback, none of them a
+  failure, and a worker that never starts failing as its first anchor would
+  have), jobs waiting for it, a reset rejecting its waiters, every bitmap
+  transferred or closed, the bitmap failures that give bitmaps up without a
+  failure and the later ones that count, the core's time apart from the
+  transport's, and the real worker module drawing a bitmap through a stand-in
+  `OffscreenCanvas`. `live-tracking-pixels.test.js`: the worker's readback (one
+  canvas, sized on change, cleared, the whole bitmap drawn, closed on every
+  path).
+- `live-transport.test.js`: the camera with the bitmap transport on the
+  production camera, tracker and tracking core with a fake clock: no tracking
+  readback on the main thread, every job carrying a transferred bitmap of a
+  snapshot, the same proofs as the camera's own readback, the handshake's wait,
+  a verification's readback or bitmap made inside the tick that sampled its
+  frame, bitmaps closed for frames retired by closing the camera, the freeze, a
+  settings change, Restart or a worker failure and for retired detections, and
+  the restart on a bitmap failure (once, at once, without a failure, back-off
+  or Restart, the detection in flight abandoned rather than cancelled, no
+  anchor of the old worker asked for, and the grid read again).
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
@@ -911,8 +982,10 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   delayed to test a changed puzzle, and paused playback tests the freshness
   heartbeat; raw values, flags, calls and scheduling statistics are kept in
   `live-recovery.json`.
-- `live_features_regressions.cjs`: the real worker, transfer and queue
-  behaviour, selected-cell Tesseract calls, identical-crop skipping and
+- `live_features_regressions.cjs`: the real worker in both transports (the
+  one its handshake decides, a bitmap in Chromium, and the page's own
+  readback): transfer and queue behaviour, the same verdicts and corners within
+  0.05 px; selected-cell Tesseract calls, identical-crop skipping and
   diagnostic download privacy.
 - `live_noise_regressions.cjs` runs automatic type and grid detection, the real
   tracking worker and Tesseract on a continually re-noised grey and blue
@@ -923,7 +996,8 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   resolution changes and delayed replies from the real tracking worker, with
   controlled video clocks and OCR, so only resource ownership is measured:
   worker counts, owned timers and source and scratch buffers must return to zero
-  after each Stop. It is not a heap benchmark.
+  after each Stop, and every ImageBitmap the page made must have been
+  transferred or closed. It is not a heap benchmark.
 - `external_replay_regressions.cjs` replays the first three hash-selected Lexski
   test entries through automatic detection, tracking and real OCR; reference
   corners and values never reach the recognition path. Its report keeps no-read
