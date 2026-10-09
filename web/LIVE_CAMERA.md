@@ -452,11 +452,12 @@ Before, every processed frame was sampled, its 960 × 1280 tracking pixels
 were read back and it was adopted after an empty verification, and each
 detection drew one more copy: about eight snapshots and readbacks a second
 while aiming with a 30-fps camera, which only the snapshot display had
-needed. The tracking and detection canvases keep their bitmaps while the
-frames keep their size (assigning a size reallocates one, about 5 MB for the
-tracking pixels), and each draw clears its bitmap first, so a frame that
-draws nothing (a video without a picture) leaves no earlier frame's pixels to
-verify or detect.
+needed. The tracking and detection canvases are sized only when the frames
+change size: assigning a canvas its size again resets it (WebKit and
+Chromium keep a bitmap of the same size, so that saves the reset, not an
+allocation; the saving above comes from sampling less). Each draw clears its
+bitmap first, as the reset did, so a frame that draws nothing (a video
+without a picture) leaves no earlier frame's pixels to verify or detect.
 
 A separate 100 ms heartbeat expires the overlay when presentation is over
 500 ms old, or the accepted tracking evidence is older than the two-second

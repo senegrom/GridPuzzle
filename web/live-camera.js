@@ -96,9 +96,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   const contentCanvas = document.createElement("canvas"), detectCanvas = document.createElement("canvas");
   const release = releaseImage;
-  // The scratch canvases keep their bitmap while the frames keep their size:
-  // assigning a size reallocates it, about 5 MB for the tracking pixels. Each
-  // draw then starts from a cleared bitmap, as a fresh one would, so a frame
+  // The scratch canvases are sized only when the frames change size.
+  // Assigning a canvas its size again resets it: WebKit and Chromium keep a
+  // bitmap of the same size, but clear it and reset the context's state.
+  // Each draw then clears the bitmap itself, as that reset did, so a frame
   // that draws nothing (a video without a picture) leaves no earlier frame's
   // pixels to detect or verify.
   function scratch(canvas, width, height, options) {

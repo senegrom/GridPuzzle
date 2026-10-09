@@ -53,8 +53,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
   // A canvas element starts at 300 x 150. Assigning its width or height, even
-  // to the same value, reallocates and clears its bitmap: each assignment is
-  // recorded, as are draws, clears and readbacks.
+  // to the same value, resets it (clears its bitmap and its context's state):
+  // each assignment is recorded, as are draws, clears and readbacks.
   function canvas() {
     let width = 300, height = 150;
     const c = { dataset: {}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };

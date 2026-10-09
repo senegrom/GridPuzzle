@@ -111,8 +111,8 @@ function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = 
     setAttribute(name, value) { if (name === "data-count") countWrites++; this.attributes[name] = String(value); }, getAttribute(name) { return this.attributes[name] ?? null; },
     removeAttribute(name) { delete this.attributes[name]; } });
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
-  // Assigning a canvas's width or height reallocates and clears its bitmap:
-  // the display canvas counts those assignments.
+  // Assigning a canvas's width or height resets it, clearing its bitmap and
+  // its context's state: the display canvas counts those assignments.
   let [viewWidth, viewHeight] = viewSize, sizeWrites = 0;
   Object.defineProperties(view, {
     width: { get: () => viewWidth, set(value) { sizeWrites++; viewWidth = value; } },
@@ -749,9 +749,9 @@ test("the canvas takes the adopted frame's size, so the outline's coordinates ar
   assert.deepEqual([h.view.width, h.view.height], [700, 700]);
 });
 
-// Each assignment of a canvas's size reallocates and clears its bitmap, about
-// 7 MB for a 1600 x 1200 frame: the live paints, ten a second, keep the size
-// they have.
+// Each assignment of a canvas's size resets it, clearing its bitmap and its
+// context's state (browsers keep a bitmap of the same size rather than
+// allocate one): the live paints, ten a second, keep the size they have.
 test("the canvas size is assigned only when the adopted frame's differs", async (t) => {
   const h = simulation(t, { autoSolve: false, viewSize: [300, 150] });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
