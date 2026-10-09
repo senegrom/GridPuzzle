@@ -550,8 +550,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     try {
       const frame = await contentFrame(image), { width, height } = frame;
       // A frame retired while its pixels were prepared posts nothing, and its
-      // bitmap is closed.
-      if (!active || view !== "live" || owner !== epoch) { frame.bitmap?.close(); return; }
+      // bitmap is closed: closing the camera, the freeze, Clear, Restart, a
+      // change of settings and a tracking failure each start a new epoch.
+      if (owner !== epoch) { frame.bitmap?.close(); return; }
       const result = await tracker.verify({ ...frame, anchors });
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
       // Fence by snapshot time: a reply is adopted while its own snapshot is

@@ -169,7 +169,7 @@ for (const [name, setup, act] of [
   ['300 ms without an answer after the worker started', {}, async h => { h.started(); h.fire(HANDSHAKE_WAIT); }],
   ['a reply that cannot be received', {}, async h => { h.started(); h.last().onmessageerror(); }],
   ['a probe that cannot be transferred', { refuse: true }, async h => { assert.equal(h.bitmaps[0].closed, true, 'the probe bitmap is closed'); }],
-  ['no bitmap from this thread', { probe: 'none' }, async h => { assert.deepEqual(h.last().sent, [], 'nothing is probed'); }],
+  ['no bitmap from this thread', { probe: 'none' }, async h => { assert.deepEqual(h.last().sent, [], 'nothing is probed'); h.started(); }],
   ['a bitmap that cannot be made', { probe: 'rejects' }, async () => {}],
   ['a canvas that cannot be made', { probe: 'throws' }, async () => {}],
 ]) test(`the handshake decides "imagedata", with no failure counted, on ${name}`, async () => {
@@ -336,4 +336,122 @@ test('the actual tracking worker announces its start, and without OffscreenCanva
   const reply = await next();
   assert.equal(reply.id, 5); assert.deepEqual(reply.result.proofs, {});
   assert.ok(reply.milliseconds >= 0 && reply.transportMilliseconds >= 0);
+});
+
+test('the default probe is a bitmap of a 2 x 2 page canvas holding PROBE; without createImageBitmap or a page there is none', async () => {
+  const saved = { document: globalThis.document, createImageBitmap: globalThis.createImageBitmap };
+  const sent = [], made = [], canvases = [];
+  const worker = () => ({ postMessage(data, transfer) { sent.push({ data, transfer }); }, terminate() {} });
+  try {
+    globalThis.document = { createElement(tag) {
+      const canvas = { tag, width: 300, height: 150, getContext: (type) => ({ type,
+        createImageData: (width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+        putImageData(image, x, y) { canvas.put = { data: [...image.data], width: image.width, height: image.height, x, y }; } }) };
+      canvases.push(canvas); return canvas;
+    } };
+    delete globalThis.createImageBitmap;
+    assert.equal(await createLiveTracker({ makeWorker: worker, setTimer: () => 1, clearTimer() {} }).ready(), 'imagedata', 'no createImageBitmap');
+    assert.equal(canvases.length, 0); assert.deepEqual(sent, []);
+    globalThis.createImageBitmap = async (source) => { const bitmap = { source, close() {} }; made.push(bitmap); return bitmap; };
+    const tracker = createLiveTracker({ makeWorker: worker, setTimer: () => 1, clearTimer() {} });
+    tracker.ready().catch(() => {}); await flush();
+    assert.equal(canvases.length, 1); assert.equal(canvases[0].tag, 'canvas'); assert.deepEqual([canvases[0].width, canvases[0].height], [2, 2]);
+    assert.deepEqual(canvases[0].put, { data: [...PROBE], width: 2, height: 2, x: 0, y: 0 }, 'the four colours, exactly');
+    assert.equal(made.length, 1); assert.equal(made[0].source, canvases[0]);
+    assert.deepEqual(sent.map(s => s.data.op), ['probe']); assert.equal(sent[0].data.bitmap, made[0]); assert.deepEqual(sent[0].transfer, [made[0]]);
+    tracker.reset();
+    delete globalThis.document;
+    assert.equal(await createLiveTracker({ makeWorker: worker, setTimer: () => 1, clearTimer() {} }).ready(), 'imagedata', 'no page (a worker, or Node)');
+    assert.equal(made.length, 1); assert.equal(sent.length, 1);
+  } finally {
+    if (saved.document === undefined) delete globalThis.document; else globalThis.document = saved.document;
+    if (saved.createImageBitmap === undefined) delete globalThis.createImageBitmap; else globalThis.createImageBitmap = saved.createImageBitmap;
+  }
+});
+
+test('a probe bitmap made after the handshake ran out is closed, not posted', async () => {
+  let resolveProbe;
+  const h = transport({ probe: () => new Promise(resolve => { resolveProbe = resolve; }) });
+  const ready = h.tracker.ready(); h.started(); h.fire(HANDSHAKE_WAIT);
+  assert.equal(await ready, 'imagedata');
+  const late = h.bitmap('probe'); resolveProbe(late); await flush();
+  assert.equal(late.closed, true); assert.deepEqual(h.last().sent, []);
+  h.tracker.reset();
+});
+
+test('the probe of a replaced worker that fails later decides nothing for the next worker', async () => {
+  const failures = [];
+  const h = transport({ probe: () => new Promise((_resolve, reject) => failures.push(reject)) });
+  h.tracker.ready().catch(() => {}); h.tracker.reset();
+  const ready = h.tracker.ready();
+  failures[0](Error('late')); await flush();
+  assert.equal(h.tracker.transport, null, 'the new worker is still undecided');
+  assert.equal(h.tracker.stats.active, 1);
+  const rejected = assert.rejects(ready, { name: 'AbortError' }); h.tracker.reset(); await rejected;
+});
+
+test('a retired job of the other transport does not hold up the next job', async () => {
+  const h = transport(), ready = h.tracker.ready(); await flush();
+  // An anchor read back for an "imagedata" worker, then a bitmap frame.
+  const stray = h.tracker.anchor({ image: image(), corners: [], rows: 2, cols: 2, anchors: [] }), job = h.frame(), verified = h.tracker.verify(job);
+  h.started(); h.answer(); await ready;
+  await assert.rejects(stray, { name: 'AbortError' });
+  assert.deepEqual(h.last().sent.map(m => m.op), ['probe', 'verify'], 'the frame is posted at once');
+  h.reply(); await verified; h.tracker.reset();
+});
+
+test('a replaced queued anchor\'s bitmap is closed', async () => {
+  const h = transport(); await h.handshake();
+  const first = h.frame('anchor'), queued = h.frame('anchor'), newer = h.frame('anchor');
+  const a = h.tracker.anchor(first), b = h.tracker.anchor(queued), c = h.tracker.anchor(newer);
+  await assert.rejects(b, { name: 'AbortError' });
+  assert.equal(queued.bitmap.closed, true); assert.equal(first.bitmap.transferred, true); assert.equal(newer.bitmap.closed, false);
+  h.reply(); await a; h.reply(); await c;
+  assert.equal(newer.bitmap.transferred, true); h.tracker.reset();
+});
+
+test('a reset forgets the transport and whether a bitmap job completed', async () => {
+  const h = transport(); await h.handshake();
+  const first = h.tracker.anchor(h.frame('anchor')); h.reply(); await first;
+  h.tracker.reset();
+  assert.equal(h.tracker.transport, null); assert.equal(h.tracker.stats.transport, null);
+  assert.equal(await h.handshake(), 'bitmap', 'the next worker probes again');
+  // Its first bitmap job never answers: bitmaps are given up, which a job
+  // completed on the first worker does not prevent.
+  const job = h.tracker.anchor(h.frame('anchor')), given = assert.rejects(job, { name: 'NotSupportedError' });
+  h.fire(ANCHOR_DEADLINE); await given;
+  assert.equal(h.tracker.stats.failures, 0);
+});
+
+test('a worker that cannot be made rejects ready() and counts a failure, as a job would', async () => {
+  const tracker = createLiveTracker({ makeWorker() { throw Error('no workers here'); }, setTimer: () => 1, clearTimer() {} });
+  await assert.rejects(tracker.ready(), /no workers here/);
+  assert.equal(tracker.stats.failures, 1); assert.equal(tracker.transport, null);
+});
+
+test('the actual tracking worker draws a transferred bitmap and reads it back, timing that apart from the tracking core', async t => {
+  const url = new URL('../live-tracking-worker.js', import.meta.url).href;
+  // A stand-in OffscreenCanvas: drawing takes the "bitmap"'s own pixels (a
+  // plain object carrying them), after `wait` ms; reading back returns them.
+  const script = `const {parentPort}=require('node:worker_threads');
+class OffscreenCanvas{constructor(w,h){this.width=w;this.height=h;}getContext(){const c=this;return{clearRect(){},
+drawImage(b,x,y,w,h){const end=Date.now()+(b.wait||0);while(Date.now()<end);c.drawn=[x,y,w,h];c.pixels=b.pixels;},
+getImageData(x,y,w,h){return{width:w,height:h,data:Uint8ClampedArray.from(c.pixels)};}};}}
+global.OffscreenCanvas=OffscreenCanvas;global.self={postMessage:m=>parentPort.postMessage(m)};
+import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
+  const thread = new NodeWorker(script, { eval: true });
+  t.after(() => thread.terminate());
+  const next = () => new Promise(resolve => thread.once('message', resolve));
+  assert.deepEqual(await next(), { started: true });
+  thread.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE] } });
+  assert.deepEqual(await next(), { probe: { pixels: [...PROBE] } }, 'the probe read back as drawn');
+  const frame = image(64, 64), corners = [{ x: 1, y: 1 }, { x: 62, y: 1 }, { x: 62, y: 62 }, { x: 1, y: 62 }];
+  thread.postMessage({ op: 'anchor', id: 7, bitmap: { pixels: [...frame.data], wait: 80 }, width: 64, height: 64, corners, rows: 2, cols: 2, anchors: [] });
+  const anchored = await next();
+  assert.equal(anchored.id, 7); assert.ok(anchored.result.anchor.id > 0, 'tracked on the pixels read back');
+  assert.ok(anchored.transportMilliseconds >= 75, `the draw and readback: ${anchored.transportMilliseconds} ms`);
+  assert.ok(anchored.milliseconds < 75, `the tracking core alone: ${anchored.milliseconds} ms`);
+  thread.postMessage({ op: 'verify', id: 8, bitmap: { pixels: [...frame.data] }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
+  const verified = await next();
+  assert.ok(verified.result.proofs[anchored.result.anchor.id], 'the same frame verifies');
 });

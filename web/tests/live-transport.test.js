@@ -47,8 +47,8 @@ const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(w
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
   startMs = 10, solve = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
-    holdBitmaps = false, transportMs = 9;
-  const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [];
+    holdBitmaps = false, transportMs = 9, detectMs = 50, cancels = 0;
+  const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
   function canvas() {
@@ -63,8 +63,9 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       fillText() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
       save() {}, restore() {}, translate() {}, rotate() {}, setLineDash() {},
       getImageData(_x, _y, w, h) {
-        record("getImageData", { w, h });
-        return grid && w === W && h === H ? scene(W, H, grid[0], grid[1]) : blank(w, h);
+        const result = grid && w === W && h === H ? scene(W, H, grid[0], grid[1]) : blank(w, h);
+        record("getImageData", { w, h, result });
+        return result;
       } };
     c.getContext = () => ctx;
     return c;
@@ -74,7 +75,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   function bitmap(source, label = "frame") {
     const b = { label, source, grid: grid && [...grid], width: source?.width ?? 2, height: source?.height ?? 2, closed: false, transferred: false, at: time,
       close() { if (!this.transferred) this.closed = true; this.width = this.height = 0; } };
-    bitmaps.push(b); return b;
+    bitmaps.push(b); ops.push({ op: "bitmap", bitmap: b, at: time }); return b;
   }
   const previous = { document: globalThis.document, createImageBitmap: globalThis.createImageBitmap };
   globalThis.document = { createElement: () => { const c = canvas(); created.push({ canvas: c, at: time }); return c; } };
@@ -115,6 +116,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
                   : message.bitmap.grid && message.width === W && message.height === H ? scene(W, H, ...message.bitmap.grid) : blank(message.width, message.height);
                 const result = core.run({ ...message, image: pixels });
                 if (message.op === "verify") results.push(JSON.stringify(result.proofs));
+                for (const rejection of Object.values(result.rejections ?? {})) rejections.push({ at: time, reason: rejection.reason });
                 data = { id: message.id, result, milliseconds: 20, transportMilliseconds: message.bitmap ? transportMs : 0 };
               }
             } catch (error) { data = { id: message.id, error: error.message }; }
@@ -127,8 +129,11 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       setTimer(() => { if (!worker.dead) worker.onmessage?.({ data: { started: true } }); }, startMs);
       return worker;
     } });
-  const diagnostics = createScanDiagnostics({ now: () => time });
+  const diagnostics = createScanDiagnostics({ now: () => time }), detections = [];
   diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4 });
+  // The tick metric's call, in the order of everything else.
+  const ticking = diagnostics.ticking;
+  diagnostics.ticking = (ms) => { ops.push({ op: "ticking", at: time }); ticking(ms); };
   const video = { videoWidth: W, videoHeight: H, get currentTime() { return (frozenTime ?? time) / 1000; } };
   const reading = () => {
     const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells = [1, 2, 3, 4, ...Array(12).fill(null)];
@@ -139,10 +144,11 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve: !!solve, ...live }),
     detector: { detect(input) {
       const sx = (input.width - 1) / (W - 1), sy = (input.height - 1) / (H - 1), at = grid;
+      detections.push(time);
       return new Promise((resolve) => setTimer(() => resolve(at
         ? { confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
-        : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), 50));
-    }, cancel() {} },
+        : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), detectMs));
+    }, cancel() { cancels++; } },
     reader: { read: () => new Promise((resolve) => setTimer(() => resolve(reading()), 500)), cancel() {} },
     solver: solve ? { solve: async () => solve, cancel() {}, invalidate() {} } : { solve: () => new Promise(() => {}), cancel() {}, invalidate() {} },
     now: () => time, setTimer, clearTimer });
@@ -162,7 +168,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   const contentCanvas = created[0].canvas;
   t.after(() => { camera.stop(); globalThis.document = previous.document; globalThis.createImageBitmap = previous.createImageBitmap; });
   camera.start();
-  return { camera, view, video, ops, posts, bitmaps, results, workers, diagnostics, advance, until, live, contentCanvas,
+  return { camera, view, video, ops, posts, bitmaps, results, workers, diagnostics, advance, until, live, contentCanvas, rejections, detections,
+    get cancels() { return cancels; }, detectDelay(ms) { detectMs = ms; },
     get now() { return time; }, get help() { return help; }, writes, restartHidden: () => $("restart-live").hidden,
     // Bitmaps neither transferred nor closed (with nothing still being made).
     open: () => bitmaps.filter((b) => !b.closed && !b.transferred),
@@ -350,4 +357,55 @@ test("the camera's frames are paced by the tracking core's time, not the transpo
   await h.advance(1000);
   assert.equal(h.camera.stats.tracking.transportMilliseconds, 400);
   assert.equal(h.camera.stats.scheduling.intervalMilliseconds, 100, "1.5 x 20 ms of core time, floored at 100 ms; not 1.5 x 420");
+});
+
+// performance.tick times the main thread's work of a sampling tick, which
+// must keep tracking's part of it: the readback (imagedata) or the bitmap's
+// copy of the snapshot (bitmap) happens inside the tick, before its metric,
+// once the transport is known.
+for (const transport of ["bitmap", "imagedata"]) test(`a verification's ${transport === "bitmap" ? "bitmap" : "readback"} is made inside the tick that sampled its frame`, async (t) => {
+  const h = simulation(t, { transport });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(1000);
+  const index = (test) => h.ops.findIndex(test);
+  let checked = 0;
+  for (const post of h.posts.filter((p) => p.op === "verify")) {
+    const made = transport === "bitmap" ? index((o) => o.op === "bitmap" && o.bitmap === post.bitmap) : index((o) => o.op === "getImageData" && o.result === post.image);
+    const snapshot = transport === "bitmap" ? post.bitmap.source
+      : h.ops.slice(0, made).reverse().find((o) => o.target === h.contentCanvas && o.op === "drawImage").source;
+    const sampled = index((o) => o.target === snapshot && o.op === "drawImage" && o.source === h.video);
+    assert.ok(sampled >= 0 && sampled < made, "a snapshot of the video");
+    assert.equal(h.ops.slice(sampled, made).some((o) => o.op === "ticking"), false, "made before the tick ended");
+    checked++;
+  }
+  assert.ok(checked >= 5, `${checked} verifications`);
+});
+
+// A bitmap failure while a reading is tracked: the worker has a verification
+// active and a frame queued, and a detection is in flight. One restart for
+// both rejected jobs; the detection is abandoned, not cancelled (the geometry
+// worker stays warm), so the next one starts at once; no anchor of the old
+// worker is asked for again.
+test("a bitmap failure while a reading is tracked restarts acquisition once, at once, and asks the new worker for no old anchor", async (t) => {
+  const AIMING = "Hold the grid steady. Recognition and solution appear here automatically.";
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  assert.equal(h.view.dataset.overlay, "outline");
+  h.replyDelay(450); h.detectDelay(2000);
+  assert.ok(await h.until(() => h.camera.stats.detection === 1 && h.camera.stats.tracking.active === 1 && h.camera.stats.tracking.queuedFrames === 1, 5000),
+    "a detection in flight, a verification active and a frame queued");
+  const writes = h.writes.length, detections = h.detections.length, cancels = h.cancels;
+  h.bitmapError(true);
+  assert.ok(await h.until(() => h.reasons().includes("tracking-transport"), 2000));
+  const restartedAt = h.now;
+  assert.deepEqual(h.writes.slice(writes).filter((text) => text === AIMING), [AIMING], "one restart, saying so once");
+  assert.equal(h.cancels, cancels, "the detection is abandoned, not cancelled");
+  assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
+  h.detectDelay(50); h.replyDelay(20);
+  assert.ok(await h.until(() => h.detections.length > detections, 150), "a new detection at the next frame");
+  assert.ok(h.detections.at(-1) - restartedAt <= 110, `${h.detections.at(-1) - restartedAt} ms after the restart`);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again on the camera's own readback");
+  assert.equal(h.camera.stats.tracking.transport, "imagedata");
+  assert.deepEqual(h.rejections.filter((r) => r.at >= restartedAt && r.reason === "missing-anchor"), [], "no anchor of the old worker asked for");
+  assert.deepEqual(h.open(), []);
 });

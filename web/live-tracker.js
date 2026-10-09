@@ -63,6 +63,7 @@ export function createLiveTracker({
   function reset(error = cancelled()) {
     clearTimer(deadline); deadline = null;
     clearTimer(handshake); handshake = null;
+    // No worker: no transport, and the next worker has completed no bitmap job.
     const old = worker; worker = null; transport = null; proven = false;
     for (const job of [active, frame, anchor]) { discard(job); job?.reject(error); }
     active = frame = anchor = null;
@@ -79,7 +80,7 @@ export function createLiveTracker({
   }
   function ensure() {
     if (worker) return;
-    const owned = makeWorker(); worker = owned; transport = null; proven = false;
+    const owned = makeWorker(); worker = owned;
     owned.onerror = event => { if (worker === owned) fail(event?.message || 'Background tracking failed.'); };
     // A reply that cannot be received: during the handshake it decides
     // "imagedata" (nothing was built on the worker yet); before a bitmap job
@@ -137,8 +138,8 @@ export function createLiveTracker({
     }, job.data.op === 'anchor' ? ANCHOR_DEADLINE : VERIFY_DEADLINE);
     try { worker.postMessage({ ...job.data, id: job.id }, [job.data.bitmap ?? job.data.image.data.buffer]); }
     catch (error) {
-      // A bitmap that cannot be transferred (DataCloneError) gives bitmaps up.
-      discard(job);
+      // A bitmap that cannot be transferred (DataCloneError) gives bitmaps
+      // up. Either way the reset closes the job's bitmap.
       if (job.data.bitmap) giveUp(); else fail(error?.message || 'Background tracking is unavailable.');
     }
   }
