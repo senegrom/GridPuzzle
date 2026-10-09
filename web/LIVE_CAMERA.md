@@ -244,7 +244,8 @@ nothing is verified (aiming, or once a found grid is lost) no frame is
 adopted, and the frame each detection got for itself is kept once detection
 is done with it; after a tracking failure, during whose back-off nothing is
 sampled, the frame the worker failed on (for an anchor, the detection's
-frame). The next adoption releases it.
+frame). The adoption of a frame at least as new releases it (a late reply
+for an older frame leaves it).
 Right after Clear the shutter instead says "Wait for a camera frame before
 capturing." until a frame the video reported after Clear has been scanned:
 the paused player can still draw the picture of the freeze (see Clear above),
@@ -815,8 +816,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   diagnostics keep the newest frame scanned: aimed at nothing, the frame
   detection last got for itself, also beside an older adopted frame once a
   found grid is lost; after a failed anchor or verification, with nothing
-  adopted, at once or late in the back-off, the frame the worker failed on.
-  An adoption and closing release it, and a detection ending after the
+  adopted, at once or late in the back-off, the frame the worker failed on;
+  a late reply for an earlier frame, adopted or failed, leaves the newer
+  one. An adoption and closing release it, and a detection ending after the
   camera closed never becomes it. Aimed at nothing for ten
   seconds the help line carries only the detector's guidance, with no
   grid-lost reset; a stalled feed is still reported and held, a camera with
