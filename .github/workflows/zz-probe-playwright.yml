@@ -1,0 +1,54 @@
+name: Probe Playwright 1.64 (temporary)
+# Temporary, for the Playwright 1.64 pull request only, removed again before
+# it is ready: what both engines draw, decode and resample in the 1.63.0
+# image under master's setup-scanner and in the 1.64.0 image under this
+# branch's, with the scanner jobs' options and mounts, to be compared pixel
+# for pixel from the two artifacts.
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: probe-playwright-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    name: probe in the ${{ matrix.playwright }} image
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - playwright: "1.63.0"
+            image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+            setup: 33296d0ddea1730efd1b4976d251438d59df86dc
+          - playwright: "1.64.0"
+            image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+            setup: ${{ github.event.pull_request.head.sha }}
+    container:
+      image: ${{ matrix.image }}
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ matrix.setup }}
+          path: setup
+      - uses: ./setup/.github/actions/setup-scanner
+        with:
+          build: "false"
+      - name: Fetch the external pictures
+        run: python scripts/fetch_live_fixtures.py
+      - name: Draw, decode and resample in both engines
+        run: node .github/probe/pwprobe.cjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: probe-${{ matrix.playwright }}
+          path: probe-out
+          retention-days: 3
