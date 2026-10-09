@@ -62,7 +62,7 @@ runs:
       env:
         BROWSERS: ${{ inputs.browsers }}
       run: |
-        npm install --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+        npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
         node -e '
           const fs = require("node:fs"), playwright = require("playwright");
           const { version } = require("playwright/package.json");
