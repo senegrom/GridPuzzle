@@ -1,22 +1,27 @@
 // Temporary probe for this pull request, removed again before it is ready.
-// The same as shift_runs.cjs, for master's version of the suite (257d598):
-// runs it with every digit drawn dx, dy px off its place, in the engine
-// BROWSER_ENGINES names, `repeat` times per offset; never fails the job.
-//   node .github/probe/before_runs.cjs <out-dir> <repeat> dx,dy [dx,dy ...]
+// Runs scripts/live_recovery_regressions.cjs with every digit drawn dx, dy px
+// off its place (a patched copy; the blurred window stays where it is), in
+// the engine BROWSER_ENGINES names, `repeat` times per offset:
+//
+//   node .github/probe/shift_runs.cjs <out-dir> <repeat> dx,dy [dx,dy ...]
+//
+// Each run's reports land in <out-dir>/<dx>_<dy>_<n>/; summary.txt has one
+// line per run, and the exit code is 1 if any run failed.
 "use strict";
-const { spawnSync, execFileSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const [out, repeat, ...specs] = process.argv.slice(2);
-const COPY = "scripts/zz_live_recovery_before.cjs";
-let source = execFileSync("git", ["show", "257d598:scripts/live_recovery_regressions.cjs"], { encoding: "utf8" });
-for (const [from, to] of JSON.parse(fs.readFileSync(path.join(__dirname, "before-patches.json"), "utf8"))) {
+const SUITE = "scripts/live_recovery_regressions.cjs", COPY = "scripts/zz_live_recovery_shift.cjs";
+let source = fs.readFileSync(SUITE, "utf8");
+for (const [from, to] of JSON.parse(fs.readFileSync(path.join(__dirname, "patches.json"), "utf8"))) {
   if (source.split(from).length !== 2) throw new Error(`not exactly once: ${from}`);
   source = source.replace(from, to);
 }
 fs.writeFileSync(COPY, source);
 fs.mkdirSync(out, { recursive: true });
+let failed = 0;
 for (const spec of specs) {
   const [dx, dy] = spec.split(",");
   for (let n = 0; n < Number(repeat); n++) {
@@ -40,9 +45,11 @@ for (const spec of specs) {
         outcomes.push(`${file.replace("live-recovery-", "").replace(".json", "")} ${report.browser} ${report.status} flagged=${flagged} ${decision}${first ? ` | ${first}` : ""}`);
       }
     }
+    if (result.status !== 0) failed++;
     const line = `dx=${dx} dy=${dy} run=${n} exit=${result.status} ${Math.round((Date.now() - started) / 1000)}s | ${outcomes.join(" || ")}`;
     fs.appendFileSync(path.join(out, "summary.txt"), line + "\n");
     console.log(line);
   }
 }
 fs.rmSync(COPY, { force: true });
+process.exitCode = failed ? 1 : 0;

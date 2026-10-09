@@ -1,5 +1,5 @@
 [
  ["async function begin({ font, race = false }) {", "async function begin({ font, race = false, dx = 0, dy = 0 }) {"],
- ["60 + (i % 9 + .5) * 600 / 9, 180 + (Math.floor(i / 9) + .5) * 600 / 9 + middle); });", "60 + (i % 9 + .5) * 600 / 9 + dx, 180 + (Math.floor(i / 9) + .5) * 600 / 9 + middle + dy); });"],
+ ["ctx.fillText(String(v), 60 + (i % 9 + .5) * CELL, 180 + (Math.floor(i / 9) + .5425) * CELL + lift); });", "ctx.fillText(String(v), 60 + (i % 9 + .5) * CELL + dx, 180 + (Math.floor(i / 9) + .5425) * CELL + lift + dy); });"],
  ["for (const config of [{ font: 'Courier New', race: false }, { font: 'Courier New', race: true }]) {", "for (const config of [{ font: 'Courier New', race: false, dx: Number(process.env.SHIFT_X || 0), dy: Number(process.env.SHIFT_Y || 0) }, { font: 'Courier New', race: true, dx: Number(process.env.SHIFT_X || 0), dy: Number(process.env.SHIFT_Y || 0) }].filter((c) => !process.env.SCENE || process.env.SCENE === (c.race ? 'race' : 'clear'))) {"]
 ]
