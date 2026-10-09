@@ -1,10 +1,8 @@
-name: Probe live recovery decisions (temporary)
+name: Probe live recovery shifts (temporary)
 # Temporary, for this pull request only, removed again before it is ready:
-# draws the live-recovery scene with its digits shifted and several
-# degradations of the retried clue, and runs the production stages on each
-# frame (detection and quality, the tracking core's same-scene decision with
-# per-region content statistics, the full OCR read, clearerCells and the
-# targeted read), in both engines of the scanner jobs' image.
+# runs live_recovery_regressions.cjs with every digit drawn up to 3 px off
+# its place, three times per offset, in both engines of the scanner jobs'
+# image, with the scanner jobs' options and mounts.
 on:
   pull_request:
 permissions:
@@ -13,14 +11,23 @@ concurrency:
   group: probe-recovery-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  probe:
-    name: probe ${{ matrix.shard }} (${{ matrix.engine }})
+  shifts:
+    name: shifts ${{ matrix.group }} (${{ matrix.engine }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         engine: [chromium, webkit]
-        shard: [d225, d25, d275, race3]
+        group: [up, down, side, diagonal]
+        include:
+          - group: up
+            shifts: "0,-3 0,-2 0,-1 0,0"
+          - group: down
+            shifts: "0,1 0,2 0,3 -3,0"
+          - group: side
+            shifts: "-2,0 -1,0 1,0 2,0"
+          - group: diagonal
+            shifts: "3,0 -2,-2 2,2 -2,2 2,-2"
     container:
       image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
       options: --ipc=host --init --user 1001
@@ -28,21 +35,19 @@ jobs:
         - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
         - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
         - /etc/os-release:/run/host/os-release:ro
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
         with:
           browsers: ${{ matrix.engine }}
-      - name: Probe
+      - name: Live recovery with the digits shifted
         env:
-          ENGINE: ${{ matrix.engine }}
-        run: |
-          mkdir -p probe-out
-          node .github/probe/probe_offline.cjs .github/probe/configs-${{ matrix.shard }}.json probe-out/${{ matrix.shard }}-${{ matrix.engine }}.json | tee probe-out/${{ matrix.shard }}-${{ matrix.engine }}.txt
+          BROWSER_ENGINES: ${{ matrix.engine }}
+        run: node .github/probe/shift_runs.cjs shift-out 3 ${{ matrix.shifts }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
-          name: probe-${{ matrix.shard }}-${{ matrix.engine }}
-          path: probe-out
+          name: shifts-${{ matrix.group }}-${{ matrix.engine }}
+          path: shift-out
           retention-days: 5
