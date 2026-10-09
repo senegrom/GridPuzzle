@@ -48,7 +48,7 @@ const cornersAt = (x, y) => [{ x, y }, { x: x + GRID, y }, { x: x + GRID, y: y +
 // most 1280 px, which tracking reads unscaled). `settings` are merged into
 // the scanner's settings (automatic solving is off).
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {} } = {}) {
-  let time = 0, serial = 0, frozenTime = null, failing = false, replyMs = 20, missing = false;
+  let time = 0, serial = 0, frozenTime = null, failing = false, replyMs = 20, missing = false, detectFails = false;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], detections = [], reads = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
@@ -113,6 +113,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       // The camera hands detection its frame scaled to at most 640 pixels.
       detections.push({ input, at: time });
       const sx = (input.width - 1) / (W - 1), sy = (input.height - 1) / (H - 1), at = missing ? null : grid;
+      if (detectFails) return new Promise((_resolve, reject) => setTimer(() => reject(Error("injected detector failure")), 50));
       return new Promise((resolve) => setTimer(() => resolve(at
         ? { confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
         : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), 50));
@@ -150,6 +151,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     replyDelay(ms) { replyMs = ms; },
     // The detector misses the grid that is still in view.
     miss(value) { missing = value; },
+    // The detector rejects every request (a failing geometry worker).
+    failDetect(value) { detectFails = value; },
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason) };
 }
 
@@ -191,6 +194,52 @@ test("with nothing tracked detection gets the snapshot itself; with a grid track
     assert.deepEqual(h.drawnFrom(snapshot), [h.video], "a copy of a snapshot");
     assert.ok(h.on(h.contentCanvas, "drawImage").some((o) => o.source === snapshot), "which tracking verifies");
   }
+});
+
+// Once nothing is left to verify the camera is back to sampling one frame per
+// detection, as when it aimed at nothing from the start: after a guide's grid
+// leaves view or a detection fails (either drops the guide), and after a lost
+// reading is retired.
+test("once a guide's grid leaves view, the camera samples only for detection again", async (t) => {
+  const h = simulation(t, { settings: { enabled: false } });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"), "the guide alone is tracked");
+  h.aim(null);
+  assert.ok(await h.until(() => h.help === GUIDANCE, 3000), "detection finds no grid");
+  await h.advance(500);
+  const snapshots = h.snapshots().length, detections = h.detections.length, posts = h.posts.length;
+  await h.advance(3000);
+  assert.ok(h.detections.length - detections >= 9, "a detection every 300 ms");
+  assert.equal(h.snapshots().length - snapshots, h.detections.length - detections, "one snapshot per detection");
+  assert.equal(h.posts.length, posts, "nothing more goes to the tracker");
+});
+
+test("a failing detection drops the guide, and the camera samples only for detection", async (t) => {
+  const h = simulation(t, { settings: { enabled: false } });
+  assert.ok(await h.until(() => h.view.dataset.overlay === "outline"), "the guide alone is tracked");
+  h.failDetect(true);
+  assert.ok(await h.until(() => h.help === "injected detector failure", 3000), "a detection fails");
+  await h.advance(500);
+  const snapshots = h.snapshots().length, detections = h.detections.length, posts = h.posts.length;
+  await h.advance(3000);
+  assert.equal(h.view.dataset.overlay, "none", "no outline without a guide");
+  assert.ok(h.detections.length - detections >= 9, "detection retries every 300 ms");
+  assert.equal(h.snapshots().length - snapshots, h.detections.length - detections, "one snapshot per detection");
+  assert.equal(h.posts.length, posts, "nothing more goes to the tracker");
+});
+
+test("after a lost reading is retired, the camera samples only for detection again", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.aim(null);
+  assert.ok(await h.until(() => h.reasons().includes("grid-lost"), 8000), "the reading is retired");
+  await h.advance(2500); // Past the stale limit of the last adopted frame.
+  const snapshots = h.snapshots().length, detections = h.detections.length, posts = h.posts.length;
+  await h.advance(3000);
+  assert.ok(h.detections.length - detections >= 9, "a detection every 300 ms");
+  assert.equal(h.snapshots().length - snapshots, h.detections.length - detections, "one snapshot per detection");
+  assert.equal(h.posts.length, posts, "nothing more goes to the tracker");
+  assert.equal(h.camera.adoptedFrame(), null, "the last adopted frame has aged out");
+  assert.equal(h.camera.stats.retainedSources, 1, "the newest scanned frame is kept instead");
 });
 
 test("the scratch canvases' sizes are assigned only when they change, and each draw starts on a cleared bitmap", async (t) => {
