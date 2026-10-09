@@ -493,7 +493,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     }
   }
   // Whether the failure was handled: the caller's frame, the one the worker
-  // failed on, then stays the newest picture scanned (see `scanned`).
+  // failed on, is then kept as the picture scanned unless a newer one is
+  // (see `scanned`).
   function trackingFailed(error, owner) {
     if (!active || owner !== epoch || error?.name === "AbortError") return false;
     epoch++; recovery.fail(); retryTrackingAt = recovery.nextAttempt; dropProofs();
@@ -561,7 +562,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
         rejection: Object.values(result.rejections ?? {})[0] });
     } catch (error) {
-      // The frame the worker failed on is the newest picture scanned.
+      // The frame the worker failed on is kept as the picture scanned, unless
+      // a newer one is.
       if (trackingFailed(error, owner) && !kept) { keepScanned(image, at); kept = true; }
     }
     finally { if (!kept) release(image); }
