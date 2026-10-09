@@ -10,6 +10,15 @@ const { serve, engines, main } = require('./harness.cjs');
 // before the two-second STALE_TRACK_AGE. capture() checks it itself; the
 // margin covers the polling interval and a busy runner.
 const PRESENTATION_FRESHNESS = 500, MARGIN = 500;
+// page.waitForFunction for a decision of the live session: a timeout fails
+// with the decision that was expected, not only with the time spent.
+async function decided(page, predicate, timeout, expected) {
+  try { return await page.waitForFunction(predicate, null, { timeout }); }
+  catch (error) {
+    if (error.name !== 'TimeoutError') throw error;
+    throw new assert.AssertionError({ message: `${expected} (nothing within ${timeout / 1000} s)` });
+  }
+}
 async function begin({ font, race = false }) {
   const { Scanner } = await import('./scanner.js');
   const { createLiveCamera } = await import('./live-camera.js');
@@ -169,16 +178,16 @@ async function run() {
             await page.click('#recovery-start');
             await page.waitForFunction(() => recoveryState.started || recoveryState.startError, null, { timeout: 25000 });
             assert.equal(await page.evaluate(() => recoveryState.startError ?? null), null, 'test video must actually start before camera acceptance');
-            const beforeHandle = await page.waitForFunction(() => {
+            const beforeHandle = await decided(page, () => {
               if (!recoveryState.full.length || !recoveryState.visible()) return false;
               const value = recoveryState.snapshot(); return value.capture ? value : false;
-            }, null, { timeout: 60000 });
+            }, 60000, 'the camera must complete a first reading of the grid');
             record.before = await beforeHandle.jsonValue(); await beforeHandle.dispose();
             assert.ok(record.before.full[0].uncertain.includes(52), 'real initial OCR must flag the degraded clue, without injected uncertainty');
             assert.equal(record.before.full.length, 1);
             assert.ok(record.before.full[0].marked.includes(52));
             // The session reports each declined retry; wait for the decision itself rather than a guess at when it happens.
-            await page.waitForFunction(() => recoveryState.events.some(e => e.reason === 'clearer-frame-needed'), null, { timeout: 15000 });
+            await decided(page, () => recoveryState.events.some(e => e.reason === 'clearer-frame-needed'), 15000, 'the session must decline a retry while the clue is unchanged');
             assert.equal(await page.evaluate(() => recoveryState.retries.length), 0, 'unchanged evidence must not start an automatic retry');
             await page.evaluate(() => recoveryState.clear());
             // The clearer frame shows the same print, so the session must
@@ -187,32 +196,32 @@ async function run() {
             // then fails with that reason instead of a timeout.
             const sameJudgement = 'the clearer frame shows the same print: it must not count as changed content';
             if (config.race) {
-              await page.waitForFunction(() => !!recoveryState.releaseRetry || recoveryState.misjudged(), null, { timeout: 30000 });
+              await decided(page, () => !!recoveryState.releaseRetry || recoveryState.misjudged(), 30000, 'a clearer frame of the flagged clue must start its targeted re-read');
               assert.ok(!await page.evaluate(() => recoveryState.events.some(e => e.reason === 'content-changed')), sameJudgement);
               assert.equal(await page.evaluate(() => recoveryState.full.length), 1, 'a clearer cell must not cause another whole-grid read');
               await page.evaluate(() => recoveryState.change());
-              await page.waitForFunction(() => recoveryState.changedPresented() && !recoveryState.visible() && recoveryState.events.some(e => e.reason === 'content-changed'), null, { timeout: 10000 });
+              await decided(page, () => recoveryState.changedPresented() && !recoveryState.visible() && recoveryState.events.some(e => e.reason === 'content-changed'), 10000, 'the changed puzzle must count as changed print');
               await page.evaluate(() => recoveryState.releaseRetry());
-              const changedHandle = await page.waitForFunction(() => {
+              const changedHandle = await decided(page, () => {
                 if (recoveryState.full.length < 2) return false;
                 const value = recoveryState.snapshot(); return value.capture?.cells[13] === 7 && value.capture.cells[14] === 9 ? value : false;
-              }, null, { timeout: 60000 });
+              }, 60000, 'the changed puzzle must be read again');
               record.after = await changedHandle.jsonValue(); await changedHandle.dispose();
               assert.equal(record.after.full.length, 2, 'exactly one new full reading for the changed puzzle');
               assert.equal(record.after.capture.cells[13], 7, 'late old-grid retry cannot restore the prior printed clue');
               assert.ok(record.after.events.some(e => e.reason === 'content-changed'));
               assert.ok(!record.after.events.some(e => e.reason === 'targeted-complete'), 'the retired targeted reply must never commit');
             } else {
-              const afterHandle = await page.waitForFunction(() => {
+              const afterHandle = await decided(page, () => {
                 if (recoveryState.misjudged()) return recoveryState.snapshot();
                 if (!recoveryState.events.some(e => e.reason === 'targeted-complete') || !recoveryState.visible()) return false;
-                const value = recoveryState.snapshot(); return value.capture?.recovery?.proposals > 0 ? value : false;
-              }, null, { timeout: 30000 });
+                const value = recoveryState.snapshot(); return value.capture ? value : false;
+              }, 30000, 'a clearer frame of the flagged clue must be re-read');
               record.after = await afterHandle.jsonValue(); await afterHandle.dispose();
               assert.ok(!record.after.events.some(e => e.reason === 'content-changed'), sameJudgement);
               assert.equal(record.after.full.length, 1, 'a clearer cell must not cause another whole-grid read');
               assert.equal(record.after.retries.length, 1);
-              assert.ok(record.after.capture.recovery.proposals > 0);
+              assert.ok(record.after.capture.recovery?.proposals > 0, 'the targeted re-read must propose a digit for the clearer clue');
               assert.deepEqual(record.after.retries[0].cells, [52]);
               assert.deepEqual(record.after.capture.cells, record.after.expected);
               assert.ok(record.after.capture.uncertain.includes(52)); assert.equal(record.after.capture.needsReview, true);
@@ -224,10 +233,10 @@ async function run() {
               record.stalled = await page.evaluate(() => recoveryState.snapshot());
               assert.equal(record.stalled.capture, null, 'video stall must expire overlays without another callback');
               await page.evaluate(() => recoveryState.resume());
-              const resumedHandle = await page.waitForFunction(() => {
+              const resumedHandle = await decided(page, () => {
                 if (!recoveryState.visible()) return false;
                 const value = recoveryState.snapshot(); return value.capture ? value : false;
-              }, null, { timeout: 10000 });
+              }, 10000, 'the reading must return once playback resumes');
               record.resumed = await resumedHandle.jsonValue(); await resumedHandle.dispose();
               assert.equal(record.resumed.full.length, 1, 'brief stalled playback must retain the completed reading');
             }
