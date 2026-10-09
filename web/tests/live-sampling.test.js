@@ -196,6 +196,17 @@ test("with nothing tracked detection gets the snapshot itself; with a grid track
   }
 });
 
+// While a reading is tracked most sampled ticks only verify: they count in
+// performance.tick too, not only the ticks that also detect.
+test("every tick that samples counts in performance.tick, also one that only verifies", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(2000);
+  const snapshots = h.snapshots().length, detections = h.detections.length;
+  assert.ok(snapshots >= detections + 5, `ticks that only verify sample too: ${snapshots} snapshots, ${detections} detections`);
+  assert.equal(h.diagnostics.snapshot().performance.tick.count, snapshots, "every sampling tick counted");
+});
+
 // Once nothing is left to verify the camera is back to sampling one frame per
 // detection, as when it aimed at nothing from the start: after a guide's grid
 // leaves view or a detection fails (either drops the guide), and after a lost
