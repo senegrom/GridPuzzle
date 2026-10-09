@@ -1,0 +1,47 @@
+name: Probe live recovery mutants (temporary)
+# Temporary, for this pull request only, removed again before it is ready:
+# builds the site with one mutant of the live session's targeted re-read at a
+# time (.github/probe/mutate.cjs) and runs live_recovery_regressions.cjs on
+# it in one engine. A job passes when the control passes and the mutant is
+# caught (the suite fails).
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: probe-mutants-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  mutant:
+    name: mutant ${{ matrix.mutant }} (${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, webkit]
+        mutant: [none, never-flag, full-reread, never-merge, never-clearer, strict-content, pending-hides-change]
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      options: --ipc=host --init --user 1001
+      volumes:
+        - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
+        - /usr/share/fonts/truetype/lato:/usr/share/fonts/truetype/lato:ro
+        - /etc/os-release:/run/host/os-release:ro
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Apply the mutant to web/
+        run: node .github/probe/mutate.cjs web ${{ matrix.mutant }}
+      - uses: ./.github/actions/setup-scanner
+        with:
+          browsers: ${{ matrix.engine }}
+      - name: Live recovery against the mutant
+        env:
+          BROWSER_ENGINES: ${{ matrix.engine }}
+        run: node .github/probe/expect.cjs ${{ matrix.mutant }} mutant-out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: mutant-${{ matrix.mutant }}-${{ matrix.engine }}
+          path: mutant-out
+          retention-days: 5
