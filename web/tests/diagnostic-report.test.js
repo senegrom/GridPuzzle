@@ -93,3 +93,21 @@ test('the overlay window shares the tracked live time between its modes, numbers
  d.overlay('outline');d.begin('live',{});time=9500;
  assert.deepEqual(d.snapshot().performance.overlay,{milliseconds:0,percent:{none:null,outline:null}},'a new scan starts afresh');
 });
+
+// The tracking transport (live-tracker.js): which one, from an allowlist, and
+// the worker's draw and readback time apart from the tracking core's.
+test('the tracking transport and its time are reported apart from the tracking core, from an allowlist',()=>{
+ const d=createScanDiagnostics();d.begin('live',{});
+ d.tracking({milliseconds:20,transportMilliseconds:9,transport:'bitmap'},{frame:1,age:30,matched:true});
+ d.tracking({milliseconds:22,transportMilliseconds:11,transport:'bitmap'},{frame:2,age:30,matched:true});
+ let r=d.snapshot();assert.equal(r.tracking.transport,'bitmap');assert.equal(r.tracking.transportMilliseconds,11);
+ assert.equal(r.performance.trackingWorker.p50Milliseconds,20);assert.equal(r.performance.trackingTransport.count,2);
+ assert.equal(r.performance.trackingTransport.maximumMilliseconds,11);
+ d.tracking({milliseconds:20,transportMilliseconds:0,transport:'imagedata'},{frame:3,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,'imagedata');
+ d.tracking({transport:'PRIVATE'},{frame:4,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,null);
+ d.tracking({},{frame:5,age:30,matched:true});assert.equal(d.snapshot().tracking.transport,null);
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+ d.event({stage:'tracking',reason:'tracking-transport'});assert.equal(d.snapshot().events.at(-1).reason,'tracking-transport');
+ assert.equal(typeof REASON_LABELS['tracking-transport'],'string');
+ d.begin('live',{});assert.equal(d.snapshot().performance.trackingTransport.count,0,'a new scan starts a new window');
+});
