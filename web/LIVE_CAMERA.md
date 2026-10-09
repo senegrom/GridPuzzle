@@ -367,7 +367,9 @@ available without a synchronous registration fallback.
 Over the live video the camera draws only what a verification proved: the
 outline of the grid in the latest adopted snapshot, in that snapshot's
 coordinates. A snapshot is adopted only when a verification of it returns, so
-while the camera aims at nothing none is (`adoptedFrame()` is null). The
+while nothing is verified (the camera aiming at nothing, or once a found grid
+is lost) no frame is adopted, and one adopted before is dropped once it is
+past the two-second stale limit (`adoptedFrame()` is then null). The
 canvas has the snapshot's size and letterboxes it in the
 video's box like the video (both fill the viewfinder: the general 65vh cap on
 videos, which made the video's box shorter than the canvas's on tablets and
@@ -655,9 +657,12 @@ empty verification: only as old as its own readback, with the tracker's last
 time repeated, so those medians were lower the longer the camera aimed at
 nothing.
 `performance.overlay` shares the live time while a grid is found and tracked
-between its modes: the outline drawn, or nothing over the video (a rejected
-or stalled proof, a tracking failure, a frame of another shape); aiming at
-nothing, the frozen view and a closed camera do not count. The freeze, Clear
+(a reading or the guide is kept) between its modes: the outline drawn, or
+nothing over the video (a proof rejected or stalled meanwhile, or a frame of
+another shape, for at most a heartbeat until the settings start over on the
+new shape). Aiming at nothing does not count, nor do the frozen view, a
+closed camera or a tracking failure, which retires the reading and the
+guide as a reset does. The freeze, Clear
 and a camera turned off while frozen are recorded as `frozen`, `cleared` and
 `camera-released` events. P50 and P95
 describe the window; means, maxima and counts describe the session. Render
