@@ -52,7 +52,13 @@ async function begin({ font, race = false }) {
   //   they drew the same way; a 2.5 px decimation by drawImage kept or dropped
   //   whole strokes with the digit's phase, and at most offsets the OCR then
   //   read the blurred 6 without a flag. At sigma 2.5 px no single-character
-  //   read recognises the 6, so the clue is flagged at every offset.
+  //   read recognises the 6, so the clue's vote is never unanimous (voteDigit
+  //   in web/ocr-map.js needs two agreeing reads) and the reading flags the
+  //   clue at confidence 0 at every offset. The full-grid read still finds
+  //   the 6 at most offsets, though (at the others nothing, or a 3), so the
+  //   targeted re-read mostly confirms the 6 instead of filling the cell in;
+  //   a merge that dropped the re-read digit would pass there, and
+  //   web/tests/clue-recovery.test.js checks that the merge writes it.
   //   The clearer frame is not sharp but sigma 1 px: both single-character
   //   reads find the 6, its focus score is at least twice the blurred one's,
   //   and its cell signature stays within 70% of the comparison's limits
