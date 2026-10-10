@@ -20,12 +20,14 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 const GRID = 440, CELLS = 4;
 
 // A printed 4x4 grid with a different glyph in every cell, its top-left grid
-// corner at (x, y) of a W x H frame (as in live-sampling.test.js).
-function scene(W, H, x, y) {
+// corner at (x, y) of the video's frame (as in live-sampling.test.js), drawn
+// into a W x H picture of that frame scaled by `s` (1: the frame itself).
+function scene(W, H, x, y, s = 1) {
   const data = new Uint8ClampedArray(W * H * 4).fill(255);
   const rect = (left, top, w, h, value) => {
-    for (let yy = Math.max(0, top); yy < Math.min(H, top + h); yy++)
-      for (let xx = Math.max(0, left); xx < Math.min(W, left + w); xx++) {
+    const x0 = Math.round(left * s), y0 = Math.round(top * s), x1 = Math.round((left + w) * s), y1 = Math.round((top + h) * s);
+    for (let yy = Math.max(0, y0); yy < Math.min(H, y1); yy++)
+      for (let xx = Math.max(0, x0); xx < Math.min(W, x1); xx++) {
         const at = 4 * (yy * W + xx); data[at] = data[at + 1] = data[at + 2] = value;
       }
   };
@@ -62,18 +64,21 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     const ctx = { canvas: c, drawImage(source, ...box) { record("drawImage", { source, box }); }, clearRect() {},
       fillText() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, stroke() {},
       save() {}, restore() {}, translate() {}, rotate() {}, setLineDash() {},
+      // A readback of the frame, at its own size or scaled (the tracking size).
       getImageData(_x, _y, w, h) {
-        const result = grid && w === W && h === H ? scene(W, H, grid[0], grid[1]) : blank(w, h);
+        const result = grid && w * H === h * W ? scene(w, h, grid[0], grid[1], w / W) : blank(w, h);
         record("getImageData", { w, h, result });
         return result;
       } };
     c.getContext = () => ctx;
     return c;
   }
-  // A bitmap keeps the scene as it was when it was made; transfer and close()
-  // both detach it.
+  // A bitmap keeps the scene as it was when it was made, and the size of its
+  // source then (a snapshot is released once its frame is done with); transfer
+  // and close() both detach it.
   function bitmap(source, label = "frame") {
     const b = { label, source, grid: grid && [...grid], width: source?.width ?? 2, height: source?.height ?? 2, closed: false, transferred: false, at: time,
+      made: [source?.width ?? 2, source?.height ?? 2],
       close() { if (!this.transferred) this.closed = true; this.width = this.height = 0; } };
     bitmaps.push(b); ops.push({ op: "bitmap", bitmap: b, at: time }); return b;
   }
@@ -100,7 +105,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
         postMessage(message, transfer = []) {
           for (const item of transfer) if (bitmaps.includes(item)) { item.transferred = true; item.width = item.height = 0; }
           posts.push({ op: message.op, at: time, bitmap: message.bitmap ?? null, image: message.image ?? null, transfer,
-            width: message.width ?? message.image?.width, height: message.height ?? message.image?.height });
+            width: message.width ?? message.image?.width, height: message.height ?? message.image?.height, corners: message.corners ?? null });
           if (message.op === "probe") {
             if (transport !== "silent") setTimer(() => { if (!worker.dead) worker.onmessage?.({ data: { probe: { pixels: [...PROBE] } } }); }, 2);
             return;
@@ -113,9 +118,11 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
               if (message.bitmap && bitmapError) data = { id: message.id, error: "bitmap-unsupported" };
               else {
                 // The worker's readback: the scene where the grid was when the
-                // bitmap was made, at the frame's own size as the camera reads it.
+                // bitmap was made, drawn at the size the job asks for, as the
+                // camera's own readback would be.
                 const pixels = !message.bitmap ? message.image
-                  : message.bitmap.grid && message.width === W && message.height === H ? scene(W, H, ...message.bitmap.grid) : blank(message.width, message.height);
+                  : message.bitmap.grid && message.width * H === message.height * W
+                    ? scene(message.width, message.height, ...message.bitmap.grid, message.width / W) : blank(message.width, message.height);
                 const result = core.run({ ...message, image: pixels });
                 if (message.op === "verify") results.push(JSON.stringify(result.proofs));
                 for (const rejection of Object.values(result.rejections ?? {})) rejections.push({ at: time, reason: rejection.reason });
@@ -228,6 +235,34 @@ test("both transports give the same proofs; the camera's own readback is the fal
   assert.equal(runs.imagedata.bitmaps, 0, "and posts no bitmap");
   assert.equal(runs.bitmap.dataset.recognised, runs.imagedata.dataset.recognised);
   assert.equal(runs.bitmap.dataset.overlay, "outline"); assert.equal(runs.imagedata.dataset.overlay, "outline");
+});
+
+// A phone's snapshot, 1200 x 1600, is tracked at 960 x 1280 (the other tests'
+// frames are within 1280 pixels, where the two sizes are the same). In both
+// transports every job asks the worker for that size: the bitmap of the
+// snapshot is drawn at it, or the camera reads back at it. The anchor gets the
+// detection's corners scaled into the tracking pixels, and the proofs are
+// scaled back to the snapshot, so the reading's corners are the grid's.
+for (const transport of ["bitmap", "imagedata"]) test(`${transport === "bitmap" ? "with the bitmap transport" : "with the camera's own readback"} a 1200 x 1600 snapshot is tracked at 960 x 1280, and its proofs come back to the snapshot`, async (t) => {
+  const h = simulation(t, { frame: [1200, 1600], grid: [150, 300], transport });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "the grid is found, tracked and read");
+  await h.advance(500);
+  assert.equal(h.camera.stats.tracking.transport, transport);
+  const jobs = h.jobs(), grid = cornersAt(150, 300);
+  assert.ok(jobs.filter((p) => p.op === "verify").length >= 5);
+  for (const job of jobs) {
+    assert.deepEqual([job.width, job.height], [960, 1280], `${job.op} at the tracking size`);
+    if (transport === "bitmap") assert.deepEqual(job.bitmap.made, [1200, 1600], "a bitmap of the whole snapshot");
+    else assert.deepEqual([job.image.width, job.image.height], [960, 1280], "read back at the tracking size");
+  }
+  assert.equal(h.readbacks().length > 0, transport === "imagedata", "the main thread reads back only for its own transport");
+  const [anchor] = jobs.filter((p) => p.op === "anchor");
+  anchor.corners.forEach((p, i) => assert.ok(Math.abs(p.x - grid[i].x * 959 / 1199) < 1e-6 && Math.abs(p.y - grid[i].y * 1279 / 1599) < 1e-6,
+    `anchor corner ${i}: ${JSON.stringify(p)}`));
+  const shot = h.camera.capture();
+  assert.ok(shot.found, "a fresh verified reading");
+  shot.corners.forEach((p, i) => assert.ok(Math.hypot(p.x - grid[i].x, p.y - grid[i].y) < 0.5, `corner ${i}: ${JSON.stringify(p)}`));
+  assert.deepEqual(h.open(), []);
 });
 
 test("the handshake holds the first anchor for at most 300 ms after the worker started, then the camera reads back itself", async (t) => {
