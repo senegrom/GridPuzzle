@@ -699,10 +699,10 @@ measurement: painting, the main-thread time of each sampled camera frame
 detection's readback, and tracking's readback or its bitmap's copy of the
 snapshot; a tick that samples nothing is not counted), frame age, tracking
 latency, queue work and the time to the first completed reading.
-`tracking.transport` names the transport tracking used last (`bitmap` or
-`imagedata`; none until the scan's first handshake has decided, and kept
-across the reset at the freeze, Clear or a close until another worker
-decides), `performance.trackingWorker` is the
+`tracking.transport` names the transport of the worker that answered the
+scan's latest verification (`bitmap` or `imagedata`; none before the first
+answer, and kept across the reset at the freeze, Clear or a close until a
+later worker answers one), `performance.trackingWorker` is the
 tracking core's time and `performance.trackingTransport` the worker's draw and
 readback of a bitmap (0 for the camera's own readback). Frame age
 and tracking latency count the frames sent for verification; while the camera
@@ -911,20 +911,22 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-transport.test.js`: the camera with the bitmap transport on the
   production camera, tracker and tracking core with a fake clock: no tracking
   readback on the main thread, every job carrying a transferred bitmap of a
-  snapshot, the same proofs as the camera's own readback, the handshake's wait,
-  a verification's readback or bitmap made inside the tick that sampled its
-  frame, bitmaps closed for frames retired by closing the camera, the freeze, a
-  settings change, Restart or a worker failure and for retired detections, a
-  worker that dies with a verification in it and a frame queued (a counted
-  failure, the queued bitmap closed, bitmaps used again after the back-off),
-  verification replies too late to adopt (their frames released, the ones in
-  time adopted, and at every moment only the queued jobs' bitmaps not handed
-  over), verifications that reject every anchor, and the restart on a bitmap
-  failure (once, at once, without a failure, back-off or Restart, the
-  detection in flight abandoned rather than cancelled, a waiting candidate
-  discarded and the outline gone before the next frame, no anchor of the old
-  worker asked for, the frame the bitmap failed on kept as the newest picture
-  scanned, and the grid read again).
+  snapshot, the same proofs as the camera's own readback, a phone's 1200 × 1600
+  snapshot tracked at 960 × 1280 in both transports (the anchor's corners
+  scaled into the tracking pixels and the proofs back to the snapshot), the
+  handshake's wait, a verification's readback or bitmap made inside the tick
+  that sampled its frame, bitmaps closed for frames retired by closing the
+  camera, the freeze, a settings change, Restart or a worker failure and for
+  retired detections, a worker that dies with a verification in it and a
+  frame queued (a counted failure, the queued bitmap closed, bitmaps used
+  again after the back-off), verification replies too late to adopt (their
+  frames released, the ones in time adopted, and at every moment only the
+  queued jobs' bitmaps not handed over), verifications that reject every
+  anchor, and the restart on a bitmap failure (once, at once, without a
+  failure, back-off or Restart, the detection in flight abandoned rather than
+  cancelled, a waiting candidate discarded and the outline gone before the
+  next frame, no anchor of the old worker asked for, the frame the bitmap
+  failed on kept as the newest picture scanned, and the grid read again).
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
