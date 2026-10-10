@@ -452,3 +452,91 @@ test("a bitmap failure while a candidate waits retires it and the outline at onc
   assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
   assert.deepEqual(h.open(), []);
 });
+
+// A worker that dies while it verifies one frame and another waits in its
+// queue: a tracking failure, counted as before, since a dead worker is no
+// bitmap failure (SPEC 4.4). The queued frame's bitmap is closed and its
+// snapshot released; the active frame's bitmap went with the worker. After the
+// back-off a new worker probes for bitmaps again and the grid is read on them.
+test("a worker that dies with a verification in it and a frame queued closes the queued bitmap; after the back-off bitmaps are used again", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  h.replyDelay(450);
+  assert.ok(await h.until(() => h.camera.stats.tracking.active === 1 && h.camera.stats.tracking.queuedFrames === 1, 5000),
+    "a verification in the worker and a frame queued");
+  const open = h.open(), sent = h.jobs().at(-1).bitmap, dead = h.workers.at(-1);
+  assert.equal(open.length, 1, "the queued frame's bitmap is the only one not handed over");
+  assert.equal(sent.transferred, true);
+  const [queued] = open, diedAt = h.now;
+  dead.onerror({ message: "worker crashed" });
+  await h.advance(0);
+  assert.equal(queued.closed, true, "the queued frame's bitmap is closed");
+  assert.equal(queued.source.width, 0, "and its snapshot released");
+  assert.deepEqual(h.open(), []);
+  assert.equal(dead.dead, true, "the dead worker is terminated");
+  assert.equal(h.camera.stats.recovery.failures, 1, "a tracking failure, as before");
+  assert.ok(h.reasons().includes("worker-error")); assert.equal(h.reasons().includes("tracking-transport"), false);
+  h.replyDelay(20);
+  assert.ok(await h.until(() => h.workers.length === 2 && h.camera.stats.tracking.transport === "bitmap", 4000),
+    "a new worker decides for bitmaps again");
+  assert.ok(h.workers[1].createdAt >= diedAt + 2000, `not before the back-off (${h.workers[1].createdAt - diedAt} ms)`);
+  assert.equal(h.posts.filter((p) => p.op === "probe").length, 2, "with its own probe");
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again");
+  const later = h.jobs().filter((p) => p.at >= h.workers[1].createdAt);
+  assert.ok(later.length > 0 && later.every((p) => p.bitmap && p.bitmap.transferred), "on transferred bitmaps");
+  assert.deepEqual(h.open(), []);
+});
+
+// Verification replies too late to adopt. With replies taking 1.9 s, the frame
+// posted when the worker frees up was sampled up to a frame period earlier, so
+// some replies come more than the stale limit (2 s) after their frame: those
+// frames are not adopted and their snapshots are released at the reply, while
+// the frames whose replies come in time, at exactly 2 s too, are adopted. In
+// 12 s the reading is lost and found again, so the replies come 1.9, 2.1, 2.2,
+// 2.0 and 2.0 s after their frames. Every bitmap went to the worker when
+// posted; at every moment the only bitmaps not handed over are the queued
+// jobs'.
+test("a verification whose reply comes too late to adopt releases its frame; every bitmap not queued is transferred or closed", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  const REPLY = 1900, from = h.jobs().length, adopted = new Set(), checked = new Set(), late = [], timely = [];
+  h.replyDelay(REPLY);
+  for (let step = 0; step < 12000; step++) {
+    await h.advance(1);
+    adopted.add(h.camera.adoptedFrame());
+    const stats = h.camera.stats.tracking;
+    assert.equal(h.open().length, stats.queuedFrames + stats.queuedAnchors, `${h.now} ms: only queued jobs' bitmaps are not handed over`);
+    for (const post of h.jobs().slice(from)) {
+      if (post.op !== "verify" || checked.has(post) || h.now < post.at + REPLY) continue;
+      checked.add(post);
+      const age = post.at + REPLY - post.bitmap.at, snapshot = post.bitmap.source;
+      assert.equal(post.bitmap.transferred, true);
+      if (age > 2000) { late.push(age); assert.equal(snapshot.width, 0, `a frame ${age} ms old at its reply is released`); }
+      else { timely.push(age); assert.equal(h.camera.adoptedFrame(), snapshot, `a frame ${age} ms old at its reply is adopted`); }
+    }
+  }
+  assert.ok(late.length >= 2 && timely.length >= 2, `replies too late ${JSON.stringify(late)}, in time ${JSON.stringify(timely)}`);
+  for (const post of h.jobs().slice(from).filter((p) => checked.has(p) && p.at + REPLY - p.bitmap.at > 2000))
+    assert.equal(adopted.has(post.bitmap.source), false, "a frame too old at its reply is never adopted");
+  assert.equal(h.camera.stats.recovery.failures, 0, "replies within the deadline are no failure");
+  h.replyDelay(20);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000));
+  assert.deepEqual(h.open(), []);
+});
+
+// Verifications that reject every anchor (the grid moved beyond their reach):
+// their frames' bitmaps went to the worker like any other, nothing stays
+// open, and the moved grid is found and read again on bitmaps.
+test("verifications that reject every anchor leave no bitmap open, and the moved grid is read again", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  const from = h.rejections.length, posted = h.jobs().length;
+  h.aim([200, 170]);
+  assert.ok(await h.until(() => h.rejections.length > from, 2000), "verifications reject");
+  assert.ok(await h.until(() => h.view.dataset.recognised === "0", 3000), "the reading is hidden");
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 10000), "the moved grid is read again");
+  const jobs = h.jobs().slice(posted);
+  assert.ok(jobs.length > 0 && jobs.every((p) => p.bitmap && p.bitmap.transferred), "on transferred bitmaps");
+  assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.deepEqual(h.open(), []);
+});

@@ -463,3 +463,28 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   const verified = await next();
   assert.ok(verified.result.proofs[anchored.result.anchor.id], 'the same frame verifies');
 });
+
+// A worker that dies (its error event) is no bitmap failure, even before any
+// bitmap job of it completed: SPEC 4.4 gives bitmaps up only on the worker's
+// "bitmap-unsupported", a bitmap that cannot be transferred or made, an
+// unreadable reply or the first bitmap job's deadline. It counts as a tracking
+// failure, as before; the queued frame's bitmap is closed, the active one went
+// to the worker, and the next worker probes for bitmaps again.
+test('a worker that dies with a bitmap job active and another queued counts a failure, closes the queued bitmap and keeps bitmaps', async () => {
+  const h = transport(); await h.handshake();
+  const active = h.frame('anchor'), queued = h.frame();
+  const anchored = h.tracker.anchor(active), verified = h.tracker.verify(queued);
+  assert.equal(active.bitmap.transferred, true); assert.equal(h.tracker.stats.queuedFrames, 1);
+  const died = error => error.name !== 'NotSupportedError' && error.message === 'worker crashed';
+  const both = Promise.all([assert.rejects(anchored, died), assert.rejects(verified, died)]);
+  h.last().onerror({ message: 'worker crashed' });
+  await both;
+  assert.equal(h.tracker.stats.failures, 1, 'a tracking failure, as before');
+  assert.equal(h.workers[0].terminated, true); assert.equal(h.timers.size, 0, 'no deadline left');
+  assert.equal(queued.bitmap.closed, true, 'the queued frame\'s bitmap is closed');
+  assert.equal(active.bitmap.closed, false, 'the transferred one went with the worker');
+  assert.ok(h.bitmaps.every(b => b.closed || b.transferred), JSON.stringify(h.bitmaps.map(b => [b.label, b.closed, b.transferred])));
+  assert.equal(await h.handshake(), 'bitmap', 'the next worker probes again');
+  assert.equal(h.workers[1].sent[0].op, 'probe');
+  h.tracker.reset();
+});
