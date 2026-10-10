@@ -83,7 +83,9 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     if (failBitmaps) return Promise.reject(new DOMException("No bitmap", "InvalidStateError"));
     const made = bitmap(source);
     if (!holdBitmaps) return Promise.resolve(made);
-    return new Promise((resolve) => held.push(() => resolve(made)));
+    return new Promise((resolve, reject) => held.push({ resolve: () => resolve(made),
+      // Made after all: the bitmap was never handed over.
+      reject: () => { bitmaps.splice(bitmaps.indexOf(made), 1); reject(new DOMException("No bitmap", "InvalidStateError")); } }));
   };
   const element = () => ({ textContent: "", hidden: true, attributes: {}, setAttribute(name, value) { this.attributes[name] = String(value); },
     getAttribute(name) { return this.attributes[name] ?? null; }, removeAttribute(name) { delete this.attributes[name]; } });
@@ -180,8 +182,9 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
     failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; },
-    // Lets the bitmaps held so far be made.
-    releaseBitmaps: async () => { for (const resolve of held.splice(0)) resolve(); await flush(); },
+    // Lets the bitmaps held so far be made, or fail to be, with no time passing.
+    releaseBitmaps: async () => { for (const entry of held.splice(0)) entry.resolve(); await flush(); },
+    failHeldBitmaps: async () => { for (const entry of held.splice(0)) entry.reject(); await flush(); },
     get held() { return held.length; } };
 }
 
@@ -325,6 +328,9 @@ for (const [name, provoke] of [
   const h = simulation(t);
   provoke(h);
   assert.ok(await h.until(() => h.reasons().includes("tracking-transport"), 3000), "the transport is given up");
+  // The first detection's anchor failed: its own frame stays the newest
+  // picture scanned, as after any tracking failure.
+  assert.equal(h.camera.stats.retainedSources, 1, "the frame the anchor failed on is kept");
   const restartedAt = h.now, recovery = h.camera.stats.recovery;
   assert.equal(recovery.failures, 0, "no failure counted"); assert.equal(recovery.blocked, false);
   assert.equal(h.reasons().includes("worker-error"), false); assert.equal(h.reasons().includes("worker-backoff"), false);
@@ -408,5 +414,41 @@ test("a bitmap failure while a reading is tracked restarts acquisition once, at 
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again on the camera's own readback");
   assert.equal(h.camera.stats.tracking.transport, "imagedata");
   assert.deepEqual(h.rejections.filter((r) => r.at >= restartedAt && r.reason === "missing-anchor"), [], "no anchor of the old worker asked for");
+  assert.deepEqual(h.open(), []);
+});
+
+// A bitmap failure while a later detection's candidate waits for its first
+// verification and the reading's outline is shown. The restart retires both at
+// once, before the next frame: the candidate's anchor died with the worker, so
+// it is discarded rather than verified on the next worker, and the outline of
+// the old worker's proofs goes. The frame whose bitmap failed stays the newest
+// picture scanned, which a capture on a stalled feed keeps, as after any
+// tracking failure.
+test("a bitmap failure while a candidate waits retires it and the outline at once, and keeps the frame it failed on", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  assert.ok(await h.until(() => h.camera.stats.candidate === 1, 5000), "a later detection's candidate waits");
+  h.holdBitmaps(true);
+  assert.ok(await h.until(() => h.held > 0, 1000), "the bitmap of the frame that verifies it is being made");
+  const failed = h.bitmaps.at(-1).source;
+  assert.equal(h.camera.stats.candidate, 1); assert.equal(h.camera.stats.tracking.active, 0, "no other job in the worker");
+  assert.equal(h.view.dataset.overlay, "outline");
+  await h.failHeldBitmaps();
+  const restartedAt = h.now;
+  assert.deepEqual(h.reasons().filter((reason) => reason === "tracking-transport"), ["tracking-transport"], "bitmaps given up");
+  assert.equal(h.view.dataset.overlay, "none", "the outline goes before the next frame");
+  assert.equal(h.camera.stats.candidate, 0, "the candidate is discarded");
+  assert.ok(failed.width > 0, "the frame the bitmap failed on is not released");
+  assert.equal(h.camera.stats.retainedSources, 2, "the adopted frame, and the frame scanned since");
+  h.holdBitmaps(false); h.stall();
+  assert.ok(await h.until(() => !h.camera.stats.scheduling.fresh, 2000), "the feed stalls");
+  const shot = h.camera.capture();
+  assert.equal(shot.found, null);
+  assert.ok(h.ops.some((o) => o.target === shot.photo && o.op === "drawImage" && o.source === failed), "a copy of the frame it failed on");
+  h.unstall();
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again on the camera's own readback");
+  assert.equal(h.camera.stats.tracking.transport, "imagedata");
+  assert.deepEqual(h.rejections.filter((r) => r.at >= restartedAt && r.reason === "missing-anchor"), [], "the old candidate's anchor is not asked for");
+  assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
   assert.deepEqual(h.open(), []);
 });
