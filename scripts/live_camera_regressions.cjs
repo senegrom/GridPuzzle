@@ -441,13 +441,18 @@ async function run() {
             assert.equal(Number(counts.uncertain),1,"the yellow clue stays flagged in the frozen picture");assert.equal(Number(counts.solution),2);
             const frozenAt=diagnostic.events.findIndex(e=>e.reason==="frozen"),solved=diagnostic.events.slice(0,Math.max(0,frozenAt)).findLast(e=>e.reason==="unique");
             const waiting=log.find(e=>/^Solution found — hold the grid steady/.test(e.help??"")),frozen=log.find(e=>e.frozen);
-            return {settings:diagnostic.settings,events:diagnostic.events.map(e=>e.reason),
+            return {settings:diagnostic.settings,events:diagnostic.events.map(e=>e.reason),transport:diagnostic.tracking?.transport??null,
               solvedToFrozenMs:frozenAt>=0&&solved?Math.round(diagnostic.events[frozenAt].milliseconds-solved.milliseconds):null,
               heldMs:waiting?Math.round(frozen.at-waiting.at):null,texts:[...new Set(log.map(e=>e.help).filter(Boolean))]};
           };
           assert.equal(await page.locator("#freeze-wait").isChecked(),false,"off by default");
           const off=await scanToFreeze();report.freezeWait={off};
           assert.equal(off.settings.freezeWait,false,"the scan's diagnostics record the default");
+          // The report names the pixel transport tracking used, also after the
+          // freeze reset the tracker: a bitmap read back in the worker in
+          // Chromium, whichever its handshake decided in another engine.
+          assert.ok(["bitmap","imagedata"].includes(off.transport),`the scan's diagnostics name its tracking transport after the freeze (${off.transport})`);
+          if(name==="chromium")assert.equal(off.transport,"bitmap","Chromium tracks on bitmaps read back in the worker");
           // Ticked, the freeze waits three seconds from the solved reading's
           // first render, a heartbeat after the answer at most. Off, it does
           // not wait for the retries; the wait for a frame at most half a

@@ -947,7 +947,9 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   clearer clues, off by default (a solved reading with a retryable yellow clue
   freezes without waiting for its retries) and ticked through its checkbox
   (saved, restored after a reload, recorded in the diagnostics, and holding
-  the same reading for three seconds with the wait's text), Clear without a new
+  the same reading for three seconds with the wait's text), the scan's
+  diagnostics naming its tracking transport after the freeze (`bitmap` in
+  Chromium), Clear without a new
   getUserMedia, an app switch while frozen
   (camera off, picture kept, Clear asking for the camera again, Save picture
   without a camera), the frozen action row on a 320-pixel screen with and
