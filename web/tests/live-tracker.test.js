@@ -436,10 +436,14 @@ test('a worker that cannot be made rejects ready() and counts a failure, as a jo
 test('the actual tracking worker draws a transferred bitmap and reads it back, timing that apart from the tracking core', async t => {
   const url = new URL('../live-tracking-worker.js', import.meta.url).href;
   // A stand-in OffscreenCanvas: drawing takes the "bitmap"'s own pixels (a
-  // plain object carrying them), after `wait` ms; reading back returns them.
+  // plain object carrying them) and `wait` ms; reading back returns them. The
+  // thread's clock moves only while the stand-in draws (nothing else the
+  // worker loads reads a clock), so the two times are exact, however busy the
+  // host: the core's is 0, the transport's the draw's `wait`.
   const script = `const {parentPort}=require('node:worker_threads');
+let clock=0;Object.defineProperty(globalThis,'performance',{value:{now:()=>clock},configurable:true,writable:true});
 class OffscreenCanvas{constructor(w,h){this.width=w;this.height=h;}getContext(){const c=this;return{clearRect(){},
-drawImage(b,x,y,w,h){const end=Date.now()+(b.wait||0);while(Date.now()<end);c.drawn=[x,y,w,h];c.pixels=b.pixels;},
+drawImage(b,x,y,w,h){clock+=b.wait||0;c.drawn=[x,y,w,h];c.pixels=b.pixels;},
 getImageData(x,y,w,h){return{width:w,height:h,data:Uint8ClampedArray.from({length:w*h*4},(_,i)=>c.pixels[i]??0)};}};}}
 global.OffscreenCanvas=OffscreenCanvas;global.self={postMessage:m=>parentPort.postMessage(m)};
 import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
@@ -453,8 +457,8 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   thread.postMessage({ op: 'anchor', id: 7, bitmap: { pixels: [...frame.data], wait: 80 }, width: 64, height: 64, corners, rows: 2, cols: 2, anchors: [] });
   const anchored = await next();
   assert.equal(anchored.id, 7); assert.ok(anchored.result.anchor.id > 0, 'tracked on the pixels read back');
-  assert.ok(anchored.transportMilliseconds >= 75, `the draw and readback: ${anchored.transportMilliseconds} ms`);
-  assert.ok(anchored.milliseconds < 75, `the tracking core alone: ${anchored.milliseconds} ms`);
+  assert.equal(anchored.transportMilliseconds, 80, 'the draw and readback');
+  assert.equal(anchored.milliseconds, 0, 'the tracking core alone');
   thread.postMessage({ op: 'verify', id: 8, bitmap: { pixels: [...frame.data] }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
   const verified = await next();
   assert.ok(verified.result.proofs[anchored.result.anchor.id], 'the same frame verifies');
