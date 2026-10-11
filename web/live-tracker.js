@@ -95,7 +95,14 @@ export function createLiveTracker({
   function ensure() {
     if (worker) return;
     const owned = makeWorker(); worker = owned;
-    owned.onerror = event => { if (worker === owned) fail(event?.message || 'Background tracking failed.'); };
+    // A worker that dies while its first bitmap job is in it gives bitmaps up,
+    // as one that never answers that job does: a bitmap that crashes the
+    // worker would crash each new worker, counted, until tracking paused.
+    // Dying later, idle or on the camera's own readback fails as before.
+    owned.onerror = event => {
+      if (worker !== owned) return;
+      if (active?.data.bitmap && !proven) giveUp(); else fail(event?.message || 'Background tracking failed.');
+    };
     // A reply that cannot be received: during the handshake it decides
     // "imagedata" (nothing was built on the worker yet); before a bitmap job
     // has completed it gives bitmaps up; after that it fails as before.

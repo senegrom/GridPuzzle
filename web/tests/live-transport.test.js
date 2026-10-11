@@ -50,7 +50,7 @@ const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(w
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
   startMs = 10, solve = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
-    holdBitmaps = false, blankBitmaps = false, transportMs = 9, detectMs = 50, cancels = 0;
+    holdBitmaps = false, blankBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
@@ -118,6 +118,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
           }
           setTimer(() => {
             if (worker.dead || worker.stuck) return;
+            if (crashOnBitmap && message.bitmap) { worker.onerror?.({ message: "worker crashed on a bitmap" }); return; }
             let data;
             try {
               if (failing) throw Error("injected worker failure");
@@ -194,7 +195,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason),
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
-    failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
+    failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
     // Lets the bitmaps held so far be made, or fail to be, with no time passing.
     releaseBitmaps: async () => { for (const entry of held.splice(0)) entry.resolve(); await flush(); },
     failHeldBitmaps: async () => { for (const entry of held.splice(0)) entry.reject(); await flush(); },
@@ -452,6 +453,21 @@ test("a worker stuck on its probe is replaced at the handshake's wait, and the g
   h.camera.restart();
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again after Restart");
   assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "no probe for a later worker");
+  assert.deepEqual(h.open(), []);
+});
+
+// A worker that dies on every bitmap job (a bitmap that crashes it) gives
+// bitmaps up at its first one, as one that never answers it would: the grid is
+// read on the camera's own readback with no failure counted, rather than each
+// new worker crashing in turn until tracking pauses.
+test("a worker that dies on its first bitmap job gives bitmaps up, and the grid is read on the camera's own readback", async (t) => {
+  const h = simulation(t);
+  h.crashOnBitmap(true);
+  assert.ok(await h.until(() => h.reasons().includes("tracking-transport"), 3000), "bitmaps are given up");
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read on the camera's own readback");
+  assert.equal(h.camera.stats.tracking.transport, "imagedata");
+  assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.reasons().includes("worker-error"), false);
+  assert.equal(h.restartHidden(), true, "no Restart");
   assert.deepEqual(h.open(), []);
 });
 
