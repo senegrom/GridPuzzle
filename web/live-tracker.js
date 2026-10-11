@@ -27,7 +27,8 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // HANDSHAKE_WAIT. That wait starts when the worker has started (its first
 // message), since loading its modules is no part of the transport; a worker
 // that does not start within the anchor deadline fails as its first anchor
-// would have.
+// would have. A worker that misses the wait may be stuck on its probe: it is
+// replaced, and bitmaps are not probed again for the tracker's life.
 export const HANDSHAKE_WAIT = 300;
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
 const matches = pixels => pixels?.length === PROBE.length && PROBE.every((value, i) => Math.abs(pixels[i] - value) <= 2);
@@ -79,6 +80,18 @@ export function createLiveTracker({
     for (const waiter of waiters.splice(0)) waiter.resolve(value);
     dispatch();
   }
+  // A worker that has not answered its probe HANDSHAKE_WAIT after it started
+  // may be stuck on it, and a worker handles its messages in order: every job
+  // would wait behind the probe and fail at its deadline. It is replaced by a
+  // worker that uses the ImageData transport, as every later one does. Nothing
+  // was built on it, so this is no failure, and the callers waiting for the
+  // decision get the new worker's.
+  function stalled() {
+    forced = 'imagedata'; handshake = null;
+    const old = worker; worker = null;
+    old.onmessage = old.onerror = old.onmessageerror = null; old.terminate();
+    try { ensure(); } catch (error) { fail(error?.message || 'Background tracking is unavailable.'); }
+  }
   function ensure() {
     if (worker) return;
     const owned = makeWorker(); worker = owned;
@@ -95,7 +108,7 @@ export function createLiveTracker({
     owned.onmessage = ({ data }) => {
       if (worker !== owned) return;
       if (data?.started) {
-        if (transport === null) { clearTimer(handshake); handshake = setTimer(() => decide('imagedata'), HANDSHAKE_WAIT); }
+        if (transport === null) { clearTimer(handshake); handshake = setTimer(stalled, HANDSHAKE_WAIT); }
         return;
       }
       if (data?.probe) { if (transport === null) decide(matches(data.probe.pixels) ? 'bitmap' : 'imagedata'); return; }

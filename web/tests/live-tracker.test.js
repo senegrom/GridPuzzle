@@ -5,7 +5,10 @@ import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, PR
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
-const image = (width=64,height=64) => ({width,height,data:new Uint8ClampedArray(width*height*4).fill(180)});
+// A promise that must have settled by now (its decision was made synchronously
+// in what the test just did): a regression fails at once, not at the timeout.
+const settled = promise => Promise.race([promise, flush().then(() => { throw Error('still pending'); })]);
+const image =(width=64,height=64) => ({width,height,data:new Uint8ClampedArray(width*height*4).fill(180)});
 function harness() {
   const workers=[],timers=new Map();let serial=0;
   const tracker=createLiveTracker({makeWorker(){const worker={sent:[],postMessage(data,transfer){
@@ -169,7 +172,6 @@ for (const [name, setup, act] of [
   ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }],
   ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }],
   ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }],
-  ['300 ms without an answer after the worker started', {}, async h => { h.started(); h.fire(HANDSHAKE_WAIT); }],
   ['a reply that cannot be received', {}, async h => { h.started(); h.last().onmessageerror(); }],
   ['a probe that cannot be transferred', { refuse: true }, async h => { assert.equal(h.bitmaps[0].closed, true, 'the probe bitmap is closed'); }],
   ['no bitmap from this thread', { probe: 'none' }, async h => { assert.deepEqual(h.last().sent, [], 'nothing is probed'); h.started(); }],
@@ -187,6 +189,30 @@ for (const [name, setup, act] of [
   const pixels = image(), done = h.tracker.verify({ image: pixels, anchors: [] });
   assert.equal(h.last().sent.at(-1).op, 'verify'); assert.equal(pixels.data.byteLength, 0);
   h.reply(); await done; h.tracker.reset();
+});
+
+// A worker that has not answered its probe 300 ms after it started may be
+// stuck on it, and every job would wait behind the probe: it is replaced by a
+// worker on the camera's own readback, without a probe, and bitmaps are not
+// probed again for the tracker's life. No failure counts.
+test('a worker without an answer 300 ms after it started is replaced by one on the camera\'s own readback, for good', async () => {
+  const h = transport(), ready = h.tracker.ready(); await flush();
+  h.started();
+  assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
+  h.fire(HANDSHAKE_WAIT);
+  assert.equal(await settled(ready), 'imagedata', 'the waiters get the new worker\'s transport');
+  assert.equal(h.workers.length, 2); assert.equal(h.workers[0].terminated, true, 'the stalled worker is ended');
+  assert.deepEqual(h.workers[1].sent, [], 'the new worker gets no probe');
+  assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0);
+  const pixels = image(), done = h.tracker.verify({ image: pixels, anchors: [] });
+  assert.equal(h.workers[1].sent.at(-1).op, 'verify', 'jobs go to the new worker'); assert.equal(pixels.data.byteLength, 0);
+  h.reply(); await done;
+  // The stalled worker's handlers are detached: a late answer cannot reach the tracker.
+  assert.equal(h.workers[0].onmessage, null); assert.equal(h.tracker.transport, 'imagedata');
+  h.tracker.reset();
+  assert.equal(await settled(h.tracker.ready()), 'imagedata', 'nor is a later worker probed');
+  assert.equal(h.workers.length, 3); assert.deepEqual(h.workers[2].sent, []);
+  h.tracker.reset();
 });
 
 test('a worker that never starts fails as its first anchor would have, counted', async () => {
@@ -395,7 +421,7 @@ test('a probe bitmap made after the handshake ran out is closed, not posted', as
   let resolveProbe;
   const h = transport({ probe: () => new Promise(resolve => { resolveProbe = resolve; }) });
   const ready = h.tracker.ready(); h.started(); h.fire(HANDSHAKE_WAIT);
-  assert.equal(await ready, 'imagedata');
+  assert.equal(await settled(ready), 'imagedata');
   const late = h.bitmap('probe'); resolveProbe(late); await flush();
   assert.equal(late.closed, true); assert.deepEqual(h.last().sent, []);
   h.tracker.reset();

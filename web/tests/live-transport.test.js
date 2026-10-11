@@ -45,7 +45,8 @@ const cornersAt = (x, y) => [{ x, y }, { x: x + GRID, y }, { x: x + GRID, y: y +
 const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) });
 
 // `transport`: "bitmap" (the probe reads back right), "imagedata" (no bitmaps
-// on this thread) or "silent" (the worker never answers the probe).
+// on this thread), "silent" (the worker never answers the probe) or "stuck"
+// (the worker never finishes the probe, so it answers nothing after it).
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
   startMs = 10, solve = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
@@ -111,11 +112,12 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
           posts.push({ op: message.op, at: time, bitmap: message.bitmap ?? null, image: message.image ?? null, transfer,
             width: message.width ?? message.image?.width, height: message.height ?? message.image?.height, corners: message.corners ?? null });
           if (message.op === "probe") {
-            if (transport !== "silent") setTimer(() => { if (!worker.dead) worker.onmessage?.({ data: { probe: { pixels: [...PROBE] } } }); }, 2);
+            if (transport === "stuck") worker.stuck = true;
+            else if (transport !== "silent") setTimer(() => { if (!worker.dead) worker.onmessage?.({ data: { probe: { pixels: [...PROBE] } } }); }, 2);
             return;
           }
           setTimer(() => {
-            if (worker.dead) return;
+            if (worker.dead || worker.stuck) return;
             let data;
             try {
               if (failing) throw Error("injected worker failure");
@@ -432,6 +434,24 @@ test("with bitmaps that are not their snapshot's size the moved grid freezes whe
   const grid = cornersAt(210, 170);
   h.camera.capture().corners.forEach((p, i) => assert.ok(Math.hypot(p.x - grid[i].x, p.y - grid[i].y) < 1, `corner ${i}: ${JSON.stringify(p)}`));
   assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.deepEqual(h.open(), []);
+});
+
+// A worker stuck on its probe answers nothing after it: the handshake's wait
+// replaces it with a worker on the camera's own readback, so the jobs do not
+// queue behind the probe until their deadlines, and no failure counts. Later
+// workers (Restart here) are not probed again.
+test("a worker stuck on its probe is replaced at the handshake's wait, and the grid is read on the camera's own readback", async (t) => {
+  const h = simulation(t, { transport: "stuck" });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read");
+  assert.equal(h.workers.length, 2); assert.equal(h.workers[0].dead, true, "the stuck worker is ended");
+  assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "the new worker is not probed");
+  assert.ok(h.jobs().length > 0 && h.jobs().every((p) => p.image), "on the camera's own readback");
+  assert.equal(h.camera.stats.tracking.transport, "imagedata");
+  assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
+  h.camera.restart();
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again after Restart");
+  assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "no probe for a later worker");
   assert.deepEqual(h.open(), []);
 });
 
