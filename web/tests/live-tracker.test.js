@@ -284,9 +284,12 @@ test('a bitmap that cannot be transferred (DataCloneError) is closed and gives b
 });
 
 test('once a bitmap job has completed, a deadline or an unreadable reply counts as a failure, as before', async () => {
-  for (const provoke of [h => h.fire(VERIFY_DEADLINE), h => h.last().onmessageerror()]) {
+  // The completed job may be an anchor or a verification: a worker that died
+  // idle failed no job, so the camera's next verification can be the first
+  // job a new worker completes.
+  for (const op of ['anchor', 'verify']) for (const provoke of [h => h.fire(VERIFY_DEADLINE), h => h.last().onmessageerror()]) {
     const h = transport(); await h.handshake();
-    const first = h.tracker.anchor(h.frame('anchor')); h.reply(); await first;
+    const first = op === 'anchor' ? h.tracker.anchor(h.frame('anchor')) : h.tracker.verify(h.frame()); h.reply(); await first;
     const late = h.tracker.verify(h.frame()), failed = assert.rejects(late, error => error.name !== 'NotSupportedError');
     provoke(h); await failed;
     assert.equal(h.tracker.stats.failures, 1);
