@@ -7,20 +7,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createPixelReader } from "../live-tracking-pixels.js";
 
-function fakes({ context = true, draw = null } = {}) {
+// `paint`: what a draw covers with opaque pixels ("all", the "left" half, or
+// "none"); a cleared canvas is transparent.
+function fakes({ context = true, draw = null, paint = "all" } = {}) {
   const made = [], ops = [];
   const makeCanvas = (width, height) => {
-    let w = width, h = height;
+    let w = width, h = height, painted = "none";
     const canvas = {
       get width() { return w; }, set width(value) { ops.push(["width", value]); w = value; },
       get height() { return h; }, set height(value) { ops.push(["height", value]); h = value; },
       getContext(type, options) {
         ops.push(["getContext", type, options]);
         return context ? {
-          clearRect: (...box) => ops.push(["clearRect", ...box]),
-          drawImage(source, ...box) { ops.push(["drawImage", source, ...box]); draw?.(); },
+          clearRect: (...box) => { ops.push(["clearRect", ...box]); painted = "none"; },
+          drawImage(source, ...box) { ops.push(["drawImage", source, ...box]); draw?.(); painted = paint; },
           getImageData: (x, y, width, height) => { ops.push(["getImageData", x, y, width, height]);
-            return { width, height, data: new Uint8ClampedArray(width * height * 4) }; },
+            const data = new Uint8ClampedArray(width * height * 4);
+            if (painted === "all") data.fill(255);
+            if (painted === "left") for (let row = 0; row < height; row++) data.fill(255, 4 * row * width, 4 * (row * width + Math.floor(width / 2)));
+            return { width, height, data }; },
         } : null;
       },
     };
@@ -97,4 +102,14 @@ for (const [name, make] of [
   if (bitmap) assert.equal(bitmap.closed, 1);
   // The reader still serves the next bitmap.
   assert.equal(pixelsOf({ bitmap: f.bitmap(), width: 960, height: 1280 }).width, 960);
+});
+
+// A bitmap of the right size that draws nothing (a buffer lost on its way),
+// or not over the whole canvas, leaves the cleared canvas transparent there:
+// that is no camera snapshot, which is opaque, and is not taken for one.
+for (const paint of ["none", "left"]) test(`a readback left ${paint === "none" ? "transparent" : "transparent in part"} by its bitmap is refused`, () => {
+  const f = fakes({ paint }), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
+  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), /drew nothing/);
+  assert.equal(bitmap.closed, 1);
+  assert.deepEqual(f.ops.map(([op]) => op), ["getContext", "clearRect", "drawImage", "getImageData"], "drawn and read back, then refused");
 });

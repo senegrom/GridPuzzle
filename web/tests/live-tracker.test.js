@@ -477,7 +477,9 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   assert.deepEqual(await next(), { started: true });
   thread.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE], width: 2, height: 2 } });
   assert.deepEqual(await next(), { probe: { pixels: [...PROBE] } }, 'the probe read back as drawn');
+  // A camera snapshot is opaque.
   const frame = image(64, 64), corners = [{ x: 1, y: 1 }, { x: 62, y: 1 }, { x: 62, y: 62 }, { x: 1, y: 62 }];
+  for (let i = 3; i < frame.data.length; i += 4) frame.data[i] = 255;
   thread.postMessage({ op: 'anchor', id: 7, bitmap: { pixels: [...frame.data], wait: 80, width: 64, height: 64 }, width: 64, height: 64, corners, rows: 2, cols: 2, anchors: [] });
   const anchored = await next();
   assert.equal(anchored.id, 7); assert.ok(anchored.result.anchor.id > 0, 'tracked on the pixels read back');
@@ -486,6 +488,10 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   thread.postMessage({ op: 'verify', id: 8, bitmap: { pixels: [...frame.data], width: 64, height: 64 }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
   const verified = await next();
   assert.ok(verified.result.proofs[anchored.result.anchor.id], 'the same frame verifies');
+  // A bitmap of the right size that draws nothing leaves the canvas
+  // transparent: it is answered as unreadable, not tracked as a blank frame.
+  thread.postMessage({ op: 'verify', id: 9, bitmap: { pixels: [], width: 64, height: 64 }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
+  assert.deepEqual(await next(), { id: 9, error: 'bitmap-unsupported' });
 });
 
 // A worker that dies (its error event) is no bitmap failure, even before any

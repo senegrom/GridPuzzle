@@ -6,6 +6,17 @@
 // CPU-backed where the browser honours willReadFrequently, the default
 // smoothing, the whole bitmap over the whole canvas. Whatever cannot be read
 // back so throws, which the worker answers with "bitmap-unsupported".
+// A camera snapshot is opaque, so a readback with any transparent pixel is a
+// bitmap that drew nothing there (a buffer lost on its way, say): tracked, it
+// would give an anchor with nothing in it, which every later blank frame
+// matches. It is checked at 9 × 9 points spread over it, its corners included.
+function opaque({ width, height, data }) {
+  for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) {
+    const x = Math.round(j * (width - 1) / 8), y = Math.round(i * (height - 1) / 8);
+    if (data[4 * (y * width + x) + 3] !== 255) return false;
+  }
+  return true;
+}
 export function createPixelReader(makeCanvas = (width, height) => new OffscreenCanvas(width, height)) {
   let canvas = null;
   return function pixelsOf({ bitmap, width, height }) {
@@ -23,7 +34,9 @@ export function createPixelReader(makeCanvas = (width, height) => new OffscreenC
       // A snapshot that drew nothing must not leave the previous frame's pixels.
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(bitmap, 0, 0, width, height);
-      return ctx.getImageData(0, 0, width, height);
+      const image = ctx.getImageData(0, 0, width, height);
+      if (!opaque(image)) throw Error("The bitmap drew nothing.");
+      return image;
     } finally {
       // The bitmap was transferred here: it is closed on every path.
       bitmap?.close?.();
