@@ -267,6 +267,28 @@ test('a reset during the handshake rejects every waiter, and a probe bitmap made
   h.started(); h.answer(); assert.equal(await again, 'bitmap'); h.tracker.reset();
 });
 
+// The camera's continuation of a reply runs before the next job goes out. A
+// reply whose render freezes the view resets the tracker there (the freeze),
+// so the queued frame's bitmap is closed here rather than posted to the
+// worker the reset ends: WebKit (from iOS 18) keeps a bitmap posted to an
+// ended worker that had not started its message in the GPU process.
+test('a reply whose continuation resets the tracker closes the queued bitmap instead of posting it to the ended worker', async () => {
+  const h = transport(); await h.handshake();
+  const sent = h.frame(), queued = h.frame();
+  const first = h.tracker.verify(sent), next = h.tracker.verify(queued);
+  const frozen = first.then(() => h.tracker.reset()), retired = assert.rejects(next, { name: 'AbortError' });
+  h.reply(); await frozen; await retired;
+  assert.equal(queued.bitmap.closed, true, 'closed on this thread'); assert.equal(queued.bitmap.transferred, false);
+  assert.deepEqual(h.workers[0].sent.map(m => m.op), ['probe', 'verify'], 'only the replied frame was posted');
+  // Without such a reset the queued job goes out right after the continuation.
+  await h.handshake();
+  const a = h.tracker.verify(h.frame()), b = h.frame(), queuedNext = h.tracker.verify(b);
+  let posted = null; const seen = a.then(() => { posted = h.last().sent.length; });
+  h.reply(); await seen; await flush();
+  assert.equal(posted, 2, 'not yet posted in the continuation'); assert.equal(h.last().sent.length, 3, 'posted after it');
+  assert.equal(b.bitmap.transferred, true); h.reply(); await queuedNext; h.tracker.reset();
+});
+
 test('every bitmap handed over is transferred or closed: a replaced queued frame, a reset, a failed post', async () => {
   const h = transport(); await h.handshake();
   const active = h.frame(), queued = h.frame(), newer = h.frame();

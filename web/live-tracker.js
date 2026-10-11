@@ -129,7 +129,13 @@ export function createLiveTracker({
       stats.milliseconds = time(data.milliseconds);
       stats.transportMilliseconds = time(data.transportMilliseconds);
       job.resolve(data.result);
-      dispatch();
+      // The next job goes out after the caller's continuation, not before it:
+      // a reply whose render freezes the view resets the tracker there, which
+      // then closes the queued job's bitmap instead of posting it to a worker
+      // it ends at once. WebKit (from iOS 18) never releases a transferred
+      // bitmap whose message the ended worker had not started, keeping its
+      // buffer in the GPU process for the life of the tab.
+      queueMicrotask(dispatch);
     };
     let pending = null;
     try { pending = forced ? null : probe(); } catch { /* no bitmap: the ImageData transport */ }
