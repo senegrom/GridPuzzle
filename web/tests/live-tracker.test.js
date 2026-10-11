@@ -164,6 +164,8 @@ test('the handshake transfers a probe bitmap once the worker has started and dec
 
 for (const [name, setup, act] of [
   ['a value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 5 ? v + 3 : v)); }],
+  // All sixteen values count, the alpha channel's too.
+  ['an alpha value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 7 ? v - 3 : v)); }],
   ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }],
   ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }],
   ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }],
