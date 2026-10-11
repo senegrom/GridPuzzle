@@ -227,9 +227,12 @@ test('a reset during the handshake rejects every waiter, and a probe bitmap made
   let resolveProbe;
   const h = transport({ probe: () => new Promise(resolve => { resolveProbe = resolve; }) });
   const first = h.tracker.ready(), second = h.tracker.ready();
+  assert.equal(h.tracker.stats.active, 1, 'the handshake is the worker\'s work');
   const rejected = Promise.all([assert.rejects(first, { name: 'AbortError' }), assert.rejects(second, { name: 'AbortError' })]);
   h.tracker.reset(); await rejected;
   assert.equal(h.workers[0].terminated, true); assert.equal(h.timers.size, 0);
+  // No worker, no handshake: nothing in progress (the export after a freeze).
+  assert.equal(h.tracker.stats.active, 0);
   const late = h.bitmap('probe'); resolveProbe(late); await flush();
   assert.equal(late.closed, true, 'closed, not posted'); assert.deepEqual(h.workers[0].sent, []);
   // The next ready() starts a new worker with its own handshake.
