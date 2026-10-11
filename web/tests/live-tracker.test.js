@@ -315,7 +315,10 @@ test('the camera\'s own bitmap failure gives bitmaps up and resets', async () =>
 });
 
 test('the worker reports the tracking core\'s time and the transport\'s apart; only the core\'s is "milliseconds"', async () => {
-  const h = transport(); await h.handshake();
+  const h = transport();
+  // Before any job completed both are zero, not missing.
+  assert.equal(h.tracker.stats.milliseconds, 0); assert.equal(h.tracker.stats.transportMilliseconds, 0);
+  await h.handshake();
   const job = h.tracker.verify(h.frame()); h.reply(h.last(), { milliseconds: 12.5, transportMilliseconds: 31 }); await job;
   assert.equal(h.tracker.stats.milliseconds, 12.5); assert.equal(h.tracker.stats.transportMilliseconds, 31);
   const next = h.tracker.verify(h.frame()); h.reply(h.last(), { milliseconds: -1, transportMilliseconds: 'x' }); await next;
