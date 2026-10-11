@@ -100,7 +100,11 @@ test('the tracking transport and its time are reported apart from the tracking c
  const d=createScanDiagnostics();d.begin('live',{});
  d.tracking({milliseconds:20,transportMilliseconds:9,transport:'bitmap'},{frame:1,age:30,matched:true});
  d.tracking({milliseconds:22,transportMilliseconds:11,transport:'bitmap'},{frame:2,age:30,matched:true});
+ // The camera reports an adopted frame twice (at the reply and after its
+ // render): each window counts the frame once.
+ d.tracking({milliseconds:22,transportMilliseconds:11,transport:'bitmap'},{frame:2,age:31,matched:true});
  let r=d.snapshot();assert.equal(r.tracking.transport,'bitmap');assert.equal(r.tracking.transportMilliseconds,11);
+ assert.equal(r.performance.trackingWorker.count,2);
  assert.equal(r.performance.trackingWorker.p50Milliseconds,20);assert.equal(r.performance.trackingTransport.count,2);
  assert.equal(r.performance.trackingTransport.maximumMilliseconds,11);
  // A reset (the freeze, Clear, a close) leaves the tracker without a transport
