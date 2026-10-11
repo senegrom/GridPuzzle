@@ -441,6 +441,12 @@ test('a worker that cannot be made rejects ready() and counts a failure, as a jo
   const tracker = createLiveTracker({ makeWorker() { throw Error('no workers here'); }, setTimer: () => 1, clearTimer() {} });
   await assert.rejects(tracker.ready(), /no workers here/);
   assert.equal(tracker.stats.failures, 1); assert.equal(tracker.transport, null);
+  // A job reaches the same path when the tracker was reset between the
+  // camera's ready() and its submit: each fails, counted, and none stays queued.
+  await assert.rejects(tracker.verify({ image: image(), anchors: [] }), /no workers here/);
+  assert.equal(tracker.stats.failures, 2); assert.equal(tracker.stats.queuedFrames, 0);
+  await assert.rejects(tracker.anchor({ image: image(), corners: [], rows: 2, cols: 2, anchors: [] }), /no workers here/);
+  assert.equal(tracker.stats.failures, 3); assert.equal(tracker.stats.queuedAnchors, 0);
 });
 
 test('the actual tracking worker draws a transferred bitmap and reads it back, timing that apart from the tracking core', async t => {
