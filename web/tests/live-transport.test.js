@@ -49,7 +49,7 @@ const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(w
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
   startMs = 10, solve = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
-    holdBitmaps = false, transportMs = 9, detectMs = 50, cancels = 0;
+    holdBitmaps = false, blankBitmaps = false, transportMs = 9, detectMs = 50, cancels = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
@@ -86,6 +86,10 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   globalThis.document = { createElement: () => { const c = canvas(); created.push({ canvas: c, at: time }); return c; } };
   globalThis.createImageBitmap = (source) => {
     if (failBitmaps) return Promise.reject(new DOMException("No bitmap", "InvalidStateError"));
+    // `blankBitmaps`: the size of a blank bitmap made instead of the snapshot's
+    // copy (WebKit's answer when it cannot allocate the copy is 1 x 1), which
+    // the worker would stretch over the tracking pixels: a blank frame.
+    if (blankBitmaps) { const b = bitmap(source, "blank"); b.grid = null; [b.width, b.height] = blankBitmaps; b.made = [...blankBitmaps]; return Promise.resolve(b); }
     const made = bitmap(source);
     if (!holdBitmaps) return Promise.resolve(made);
     return new Promise((resolve, reject) => held.push({ resolve: () => resolve(made),
@@ -188,7 +192,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason),
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
-    failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; },
+    failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
     // Lets the bitmaps held so far be made, or fail to be, with no time passing.
     releaseBitmaps: async () => { for (const entry of held.splice(0)) entry.resolve(); await flush(); },
     failHeldBitmaps: async () => { for (const entry of held.splice(0)) entry.reject(); await flush(); },
@@ -389,10 +393,13 @@ test("a frozen view, Clear and a closed camera leave no bitmap open, and every q
 for (const [name, provoke] of [
   ["the worker cannot read a bitmap back", (h) => h.bitmapError(true)],
   ["no bitmap can be made", (h) => h.failBitmaps(true)],
+  ["a bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1])],
+  ["a bitmap is not its snapshot's height", (h) => h.blankBitmaps([700, 699])],
 ]) test(`when ${name}, acquisition restarts on the camera's own readback, with no back-off and no Restart`, async (t) => {
   const h = simulation(t);
   provoke(h);
   assert.ok(await h.until(() => h.reasons().includes("tracking-transport"), 3000), "the transport is given up");
+  assert.deepEqual(h.jobs().filter((p) => p.bitmap?.label === "blank"), [], "no blank bitmap reaches the worker");
   // The first detection's anchor failed: its own frame stays the newest
   // picture scanned, as after any tracking failure.
   assert.equal(h.camera.stats.retainedSources, 1, "the frame the anchor failed on is kept");
@@ -405,6 +412,26 @@ for (const [name, provoke] of [
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "the grid is read on the camera's own readback");
   assert.equal(h.camera.stats.recovery.failures, 0);
   assert.equal(h.restartHidden(), true, "no Restart");
+  assert.deepEqual(h.open(), []);
+});
+
+// The review's case (M1): with every bitmap a blank 1 x 1, the anchor would be
+// built on a blank frame and every later blank frame would "verify" it at the
+// detection's corners. The grid moves 90 px right and 60 px down after the
+// reading, then the solver answers: the view must freeze where the grid is,
+// not draw the solution where it was.
+test("with bitmaps that are not their snapshot's size the moved grid freezes where it is, not where it was", async (t) => {
+  let solved;
+  const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
+  h.blankBitmaps([1, 1]);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  assert.equal(h.camera.stats.tracking.transport, "imagedata", "on the camera's own readback");
+  h.aim([210, 170]); await h.advance(1500);
+  solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
+  assert.ok(await h.until(() => h.camera.view === "frozen", 5000), "frozen");
+  const grid = cornersAt(210, 170);
+  h.camera.capture().corners.forEach((p, i) => assert.ok(Math.hypot(p.x - grid[i].x, p.y - grid[i].y) < 1, `corner ${i}: ${JSON.stringify(p)}`));
+  assert.equal(h.camera.stats.recovery.failures, 0);
   assert.deepEqual(h.open(), []);
 });
 

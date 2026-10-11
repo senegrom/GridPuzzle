@@ -155,12 +155,20 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // done here ("imagedata", as before, and for a tracker without transports).
   // Once the transport is known, the readback or the bitmap's copy of the
   // snapshot happens in the caller's tick; until then it waits for the
-  // handshake. A bitmap that cannot be made gives bitmaps up.
+  // handshake. A bitmap that cannot be made gives bitmaps up, and so does one
+  // that is not the snapshot's size: WebKit resolves with a blank 1 × 1
+  // bitmap when it cannot allocate the copy (createBlankImageBuffer in its
+  // ImageBitmap.cpp). Stretched over the tracking pixels, that would give an
+  // anchor with nothing in it, which every later blank frame "verifies" at the
+  // detection's corners whatever the camera does.
   async function contentFrame(image) {
-    const [width, height] = trackingSize(image);
+    const [width, height] = trackingSize(image), size = [image.width, image.height];
     const transport = !tracker.ready ? "imagedata" : tracker.transport ?? await tracker.ready();
     if (transport !== "bitmap") return { image: contentPixels(image), width, height };
-    try { return { bitmap: await createImageBitmap(image), width, height }; } catch { throw tracker.bitmapFailed(); }
+    let bitmap;
+    try { bitmap = await createImageBitmap(image); } catch { throw tracker.bitmapFailed(); }
+    if (bitmap.width !== size[0] || bitmap.height !== size[1]) { bitmap.close(); throw tracker.bitmapFailed(); }
+    return { bitmap, width, height };
   }
   // Registration, feature extraction and all content checks live exclusively
   // in the worker. A proof is usable only with the pixels shown on the canvas.
