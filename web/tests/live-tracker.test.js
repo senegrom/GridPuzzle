@@ -273,11 +273,13 @@ for (const [name, provoke] of [
   h.tracker.reset();
 });
 
-test('a bitmap that cannot be transferred (DataCloneError) is closed and gives bitmaps up, without a failure', async () => {
+// SPEC 4.4.3: also after bitmap jobs of the worker have completed.
+for (const completed of [false, true]) test(`a bitmap that cannot be transferred (DataCloneError) is closed and gives bitmaps up, without a failure${completed ? ', also after bitmap jobs completed' : ''}`, async () => {
   const h = transport(); await h.handshake();
+  if (completed) { const first = h.tracker.anchor(h.frame('anchor')); h.reply(); await first; }
   h.last().refuse = data => !!data.bitmap;
-  const job = h.frame('anchor'), anchored = h.tracker.anchor(job);
-  await assert.rejects(anchored, { name: 'NotSupportedError' });
+  const job = h.frame(completed ? 'verify' : 'anchor'), sent = completed ? h.tracker.verify(job) : h.tracker.anchor(job);
+  await assert.rejects(sent, { name: 'NotSupportedError' });
   assert.equal(job.bitmap.closed, true); assert.equal(h.tracker.stats.failures, 0);
   assert.equal(h.workers[0].terminated, true); assert.equal(await h.tracker.ready(), 'imagedata');
   h.tracker.reset();
