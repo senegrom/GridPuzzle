@@ -323,11 +323,41 @@ test("an anchor's bitmap made after its detection was retired is closed and not 
   h.holdBitmaps(true);
   assert.ok(await h.until(() => h.held > 0, 1000), "the first detection's anchor bitmap is being made");
   assert.equal(h.jobs().length, 0);
+  const workers = h.workers.length, posts = h.posts.length;
   h.camera.stop();
   await h.releaseBitmaps();
   assert.equal(h.bitmaps.filter((b) => b.label === "frame").every((b) => b.closed), true);
   assert.deepEqual(h.jobs(), []); assert.deepEqual(h.open(), []);
   assert.equal(h.camera.stats.retainedSources, 0, "its snapshot is released");
+  // Nothing is asked of the tracker for it: no worker started, nothing
+  // posted (not even a probe), nothing queued.
+  await h.advance(500);
+  assert.equal(h.workers.length, workers); assert.equal(h.posts.length, posts);
+  assert.equal(h.camera.stats.tracking.queuedAnchors, 0);
+});
+
+// The same at the freeze: a later detection's anchor bitmap made after the
+// view froze (only the bitmap of detection's copy is held, so verifications
+// go on and the view can freeze meanwhile) starts no worker while frozen.
+test("an anchor's bitmap made after the view froze is closed and starts no worker while frozen", async (t) => {
+  let solved;
+  const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read; the solver has not answered");
+  const harnessBitmap = globalThis.createImageBitmap, held = [];
+  const fromVideo = (source) => h.ops.some((o) => o.target === source && o.op === "drawImage" && o.source === h.video);
+  globalThis.createImageBitmap = (source) => fromVideo(source) ? harnessBitmap(source)
+    : new Promise((resolve) => held.push(() => resolve(harnessBitmap(source))));
+  assert.ok(await h.until(() => held.length > 0, 4000), "a later detection's anchor bitmap is being made");
+  solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
+  assert.ok(await h.until(() => h.camera.view === "frozen", 2000), "frozen");
+  const workers = h.workers.length, posts = h.posts.length;
+  for (const release of held.splice(0)) release();
+  await h.advance(1000);
+  globalThis.createImageBitmap = harnessBitmap;
+  assert.equal(h.camera.view, "frozen");
+  assert.equal(h.workers.length, workers, "no worker started while frozen");
+  assert.equal(h.posts.length, posts, "nothing posted while frozen");
+  assert.deepEqual(h.open(), []);
 });
 
 test("a frozen view, Clear and a closed camera leave no bitmap open, and every queued frame's bitmap is closed", async (t) => {
