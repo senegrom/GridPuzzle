@@ -343,8 +343,13 @@ test('the actual tracking worker announces its start, and without OffscreenCanva
   assert.deepEqual(await next(), { started: true });
   thread.postMessage({ op: 'probe', bitmap: { width: 2, height: 2 } });
   assert.deepEqual(await next(), { probe: { pixels: null } });
-  thread.postMessage({ op: 'verify', id: 4, bitmap: { width: 2, height: 2 }, width: 64, height: 64, anchors: [] });
+  thread.postMessage({ op: 'verify', id: 4, bitmap: { width: 64, height: 64 }, width: 64, height: 64, anchors: [] });
   assert.deepEqual(await next(), { id: 4, error: 'bitmap-unsupported' });
+  // A bitmap that arrived as null (WebKit from iOS 18, when it could not move
+  // the bitmap to the worker) is a bitmap that cannot be read back, not a
+  // frame without pixels for the tracking core.
+  thread.postMessage({ op: 'verify', id: 6, bitmap: null, width: 64, height: 64, anchors: [] });
+  assert.deepEqual(await next(), { id: 6, error: 'bitmap-unsupported' });
   const pixels = image();
   thread.postMessage({ op: 'verify', id: 5, image: pixels, anchors: [] }, [pixels.data.buffer]);
   const reply = await next();
@@ -470,15 +475,15 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   t.after(() => thread.terminate());
   const next = () => new Promise(resolve => thread.once('message', resolve));
   assert.deepEqual(await next(), { started: true });
-  thread.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE] } });
+  thread.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE], width: 2, height: 2 } });
   assert.deepEqual(await next(), { probe: { pixels: [...PROBE] } }, 'the probe read back as drawn');
   const frame = image(64, 64), corners = [{ x: 1, y: 1 }, { x: 62, y: 1 }, { x: 62, y: 62 }, { x: 1, y: 62 }];
-  thread.postMessage({ op: 'anchor', id: 7, bitmap: { pixels: [...frame.data], wait: 80 }, width: 64, height: 64, corners, rows: 2, cols: 2, anchors: [] });
+  thread.postMessage({ op: 'anchor', id: 7, bitmap: { pixels: [...frame.data], wait: 80, width: 64, height: 64 }, width: 64, height: 64, corners, rows: 2, cols: 2, anchors: [] });
   const anchored = await next();
   assert.equal(anchored.id, 7); assert.ok(anchored.result.anchor.id > 0, 'tracked on the pixels read back');
   assert.equal(anchored.transportMilliseconds, 80, 'the draw and readback');
   assert.equal(anchored.milliseconds, 0, 'the tracking core alone');
-  thread.postMessage({ op: 'verify', id: 8, bitmap: { pixels: [...frame.data] }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
+  thread.postMessage({ op: 'verify', id: 8, bitmap: { pixels: [...frame.data], width: 64, height: 64 }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
   const verified = await next();
   assert.ok(verified.result.proofs[anchored.result.anchor.id], 'the same frame verifies');
 });

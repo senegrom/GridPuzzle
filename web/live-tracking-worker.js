@@ -11,12 +11,14 @@ self.onmessage = ({ data }) => {
     return;
   }
   // A frame arrives as the camera's own readback (image) or as a bitmap of
-  // its snapshot, read back here. `milliseconds` is the tracking core's time
-  // alone, which paces the camera's frames; `transportMilliseconds` the draw
-  // and readback of a bitmap.
+  // its snapshot, read back here. A bitmap job whose bitmap arrived as null
+  // (WebKit could not move it here) cannot be read back: it is answered as
+  // such, not tracked as a frame without pixels. `milliseconds` is the
+  // tracking core's time alone, which paces the camera's frames;
+  // `transportMilliseconds` the draw and readback of a bitmap.
   const started = performance.now();
   let image;
-  try { image = data.bitmap ? pixelsOf(data) : data.image; } catch {
+  try { image = 'bitmap' in data ? pixelsOf(data) : data.image; } catch {
     self.postMessage({ id: data.id, error: 'bitmap-unsupported' });
     return;
   }

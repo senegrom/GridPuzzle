@@ -4,11 +4,16 @@
 // main thread neither scales it nor reads it back. The drawing is the main
 // thread's own readback (contentPixels in live-camera.js): a cleared canvas,
 // CPU-backed where the browser honours willReadFrequently, the default
-// smoothing, the whole bitmap over the whole canvas.
+// smoothing, the whole bitmap over the whole canvas. Whatever cannot be read
+// back so throws, which the worker answers with "bitmap-unsupported".
 export function createPixelReader(makeCanvas = (width, height) => new OffscreenCanvas(width, height)) {
   let canvas = null;
   return function pixelsOf({ bitmap, width, height }) {
     try {
+      // A bitmap that did not arrive whole: WebKit delivers one it could not
+      // move to this thread as null (from iOS 18) or as 0 × 0 (iOS 16.4 to
+      // 17), and a snapshot's bitmap is never smaller than its tracking pixels.
+      if (!(bitmap?.width >= width && bitmap?.height >= height)) throw Error("The bitmap did not arrive whole.");
       canvas ??= makeCanvas(width, height);
       // Assigning a size resets the canvas, so only a new size is assigned.
       if (canvas.width !== width) canvas.width = width;

@@ -26,7 +26,8 @@ function fakes({ context = true, draw = null } = {}) {
     };
     made.push([width, height]); return canvas;
   };
-  const bitmap = () => ({ closed: 0, close() { this.closed++; } });
+  // A bitmap of a phone's 1200 x 1600 snapshot unless given another size.
+  const bitmap = (width = 1200, height = 1600) => ({ width, height, closed: 0, close() { this.closed++; } });
   return { made, ops, makeCanvas, bitmap };
 }
 
@@ -71,10 +72,29 @@ for (const [name, options, expected] of [
 });
 
 test("the bitmap is closed when no canvas can be made (no OffscreenCanvas in the worker)", () => {
-  const bitmap = { closed: 0, close() { this.closed++; } };
+  const bitmap = { width: 2, height: 2, closed: 0, close() { this.closed++; } };
   assert.throws(() => createPixelReader()({ bitmap, width: 2, height: 2 }), ReferenceError, "Node has no OffscreenCanvas");
   assert.equal(bitmap.closed, 1);
-  const thrower = createPixelReader(() => { throw Error("out of memory"); }), other = { closed: 0, close() { this.closed++; } };
+  const thrower = createPixelReader(() => { throw Error("out of memory"); }), other = { width: 2, height: 2, closed: 0, close() { this.closed++; } };
   assert.throws(() => thrower({ bitmap: other, width: 2, height: 2 }), /out of memory/);
   assert.equal(other.closed, 1);
+});
+
+// What WebKit delivers for a bitmap it could not move to the worker: null
+// (from iOS 18), or a 0 x 0 bitmap (iOS 16.4 to 17); and a bitmap smaller than
+// the pixels asked of it, such as WebKit's blank 1 x 1 copy, is no snapshot.
+// None is drawn: the reader throws (the worker answers "bitmap-unsupported")
+// without touching its canvas, and closes what it can.
+for (const [name, make] of [
+  ["null", () => null],
+  ["0 x 0", (f) => f.bitmap(0, 0)],
+  ["1 x 1", (f) => f.bitmap(1, 1)],
+  ["one row short", (f) => f.bitmap(960, 1279)],
+]) test(`a bitmap that did not arrive whole (${name}) is not read back`, () => {
+  const f = fakes(), pixelsOf = createPixelReader(f.makeCanvas), bitmap = make(f);
+  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), /did not arrive whole/);
+  assert.deepEqual(f.made, []); assert.deepEqual(f.ops, []);
+  if (bitmap) assert.equal(bitmap.closed, 1);
+  // The reader still serves the next bitmap.
+  assert.equal(pixelsOf({ bitmap: f.bitmap(), width: 960, height: 1280 }).width, 960);
 });
