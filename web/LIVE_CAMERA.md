@@ -394,24 +394,25 @@ with no failure counted. A wait whose timer fires more than 50 ms late ran
 behind a long task on the main thread, which the answer may have waited for
 (Chromium hands a new worker its first message only once the page's task has
 ended, and WebKit runs an overdue timer before a reply that is already
-queued; a busy main thread alone timed the handshake out in both), so it is
-renewed, until the anchor deadline after the worker's start: a worker that
-answers once the main thread is free is kept, and one that never answers is
-still replaced on a page that stays busy. A worker replaced so costs bitmaps
-only itself: the worker after the next reset (the freeze, Clear, Restart)
-probes again, and only a second worker replaced so in the camera session
-gives bitmaps up for the rest of it. A worker that never starts fails as its
-first anchor would have. Jobs wait for the decision. On seven corpus
-photographs, at their own size and scaled to a phone's snapshot, and on the
-live suites' scenes, the two give the same pixels in Chromium, bit for bit,
-and the same proofs and verdicts through shifts, noise, light and changed
-print. On every engine whose handshake decides for bitmaps, `live_features`
-compares both, on a frame at the tracking size and on one scaled to it: the
-verdicts and corners of tracking, the worker's reader against the page's own
-readback (within 2 per channel), and an anchor built on either transport's
-pixels verified on the other's pixels of the same frame, at its own corners.
-The verdicts alone cannot show a frame drawn otherwise: a verified copy of an
-anchor's frame verifies at the anchor's corners, whatever both were drawn as.
+queued, so a busy main thread alone would time the handshake out in both),
+so it is renewed, until the anchor deadline after the worker's start: a
+worker that answers once the main thread is free is kept, and one that never
+answers is still replaced on a page that stays busy. A worker replaced so
+costs bitmaps only itself: the worker after the next reset (the freeze,
+Clear, Restart) probes again, and only a second worker replaced so in the
+camera session gives bitmaps up for the rest of it. A worker that never
+starts fails as its first anchor would have. Jobs wait for the decision.
+On seven corpus photographs, at their own size and scaled to a phone's
+snapshot, and on the live suites' scenes, the two give the same pixels in
+Chromium, bit for bit, and the same proofs and verdicts through shifts,
+noise, light and changed print. On every engine whose handshake decides for
+bitmaps, `live_features` compares both, on a frame at the tracking size and
+on one scaled to it: the verdicts and corners of tracking, the worker's
+reader against the page's own readback (within 2 per channel), and an anchor
+built on either transport's pixels verified on the other's pixels of the
+same frame, at its own corners. The verdicts alone cannot show a frame drawn
+otherwise: a verified copy of an anchor's frame verifies at the anchor's
+corners, whatever both were drawn as.
 
 Every bitmap is transferred or closed: the worker closes each one it reads
 back, the tracker each one it does not transfer (a replaced queued frame, a
