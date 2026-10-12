@@ -215,7 +215,8 @@ for (const [name, setup, act, reason] of [
 // without a probe. No failure counts.
 test('a worker without an answer 300 ms after it started is replaced at once by one on the camera\'s own readback', async () => {
   const h = transport(), ready = h.tracker.ready(); await flush();
-  h.started();
+  // However long its modules took to load: the wait runs from its start.
+  h.tick(1000); h.started();
   assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
   // On time: no later than HANDSHAKE_LATE after the wait's end.
   h.tick(HANDSHAKE_WAIT + HANDSHAKE_LATE); h.fire(HANDSHAKE_WAIT);
