@@ -5,13 +5,15 @@
 // failure restarts acquisition on the camera's own readback without counting
 // a failure. The production camera, tracker and tracking core run on a fake
 // clock; the fake worker answers the handshake's probe and reads a bitmap
-// back as the camera's own readback would (the scene where the grid was when
-// the bitmap was made), and every bitmap records whether it was closed or
-// transferred.
+// back with the worker's own reader (live-tracking-pixels.js) over a stand-in
+// OffscreenCanvas, on which a bitmap draws what the camera's own readback
+// would give (the scene where the grid was when the bitmap was made), and
+// every bitmap records whether it was closed or transferred.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createLiveCamera } from "../live-camera.js";
 import { createLiveTracker, PROBE, HANDSHAKE_WAIT, VERIFY_DEADLINE } from "../live-tracker.js";
+import { createPixelReader } from "../live-tracking-pixels.js";
 import { createTrackingCore } from "../live-tracking-core.js";
 import { createScanDiagnostics } from "../scan-diagnostics.js";
 import { makePuzzle } from "../model.js";
@@ -50,8 +52,10 @@ const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(w
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
   startMs = 10, solve = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
-    holdBitmaps = false, blankBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
+    holdBitmaps = false, blankBitmaps = false, emptyBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
+  // Every frame the tracking core was given: its op, and whether it came from a bitmap.
+  const runs = [];
   const setTimer = (fn, ms) => { timers.set(++serial, { fn, at: time + ms }); return serial; };
   const clearTimer = (id) => { timers.delete(id); };
   function canvas() {
@@ -91,7 +95,10 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     // copy (WebKit's answer when it cannot allocate the copy is 1 x 1), which
     // the worker would stretch over the tracking pixels: a blank frame.
     if (blankBitmaps) { const b = bitmap(source, "blank"); b.grid = null; [b.width, b.height] = blankBitmaps; b.made = [...blankBitmaps]; return Promise.resolve(b); }
-    const made = bitmap(source);
+    // `emptyBitmaps`: bitmaps of the right size that draw nothing (a buffer
+    // lost on its way), which leave the worker's cleared canvas transparent.
+    const made = bitmap(source, emptyBitmaps ? "empty" : "frame");
+    if (emptyBitmaps) made.empty = true;
     if (!holdBitmaps) return Promise.resolve(made);
     return new Promise((resolve, reject) => held.push({ resolve: () => resolve(made),
       // Made after all: the bitmap was never handed over.
@@ -105,6 +112,19 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   const tracker = createLiveTracker({ setTimer, clearTimer, now: () => time,
     probe: transport === "imagedata" ? () => null : () => Promise.resolve(bitmap(null, "probe")),
     makeWorker() {
+      // The worker's reader over a stand-in OffscreenCanvas: a bitmap draws
+      // the scene where the grid was when it was made (blank paper without a
+      // grid), scaled to the canvas, as the camera's own readback would give
+      // it; an empty one draws nothing.
+      const reader = createPixelReader((width, height) => {
+        let drawn = null;
+        return { width, height, getContext: () => ({
+          clearRect() { drawn = null; },
+          drawImage(received) { drawn = received.empty ? null : received; },
+          getImageData: (_x, _y, w, h) => !drawn ? { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }
+            : drawn.grid && w * H === h * W ? scene(w, h, ...drawn.grid, w / W) : blank(w, h),
+        }) };
+      });
       const core = createTrackingCore(), worker = {
         dead: false,
         postMessage(message, transfer = []) {
@@ -120,17 +140,16 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
           setTimer(() => {
             if (worker.dead || worker.stuck) return;
             if (crashOnBitmap && message.bitmap) { worker.onerror?.({ message: "worker crashed on a bitmap" }); return; }
-            let data;
+            let data, pixels = message.image;
             try {
               if (failing) throw Error("injected worker failure");
-              if (message.bitmap && bitmapError) data = { id: message.id, error: "bitmap-unsupported" };
+              // The bitmap as it arrives in the worker: the size it was made
+              // at (the camera's copy is detached by the transfer).
+              const { bitmap: sent } = message, received = sent && { width: sent.made[0], height: sent.made[1], grid: sent.grid, empty: !!sent.empty, close() {} };
+              if ("bitmap" in message) try { pixels = reader({ bitmap: received, width: message.width, height: message.height }); } catch { pixels = null; }
+              if (message.bitmap && bitmapError || "bitmap" in message && !pixels) data = { id: message.id, error: "bitmap-unsupported" };
               else {
-                // The worker's readback: the scene where the grid was when the
-                // bitmap was made, drawn at the size the job asks for, as the
-                // camera's own readback would be.
-                const pixels = !message.bitmap ? message.image
-                  : message.bitmap.grid && message.width * H === message.height * W
-                    ? scene(message.width, message.height, ...message.bitmap.grid, message.width / W) : blank(message.width, message.height);
+                runs.push({ op: message.op, bitmap: !!message.bitmap, empty: !!message.bitmap?.empty });
                 const result = core.run({ ...message, image: pixels });
                 if (message.op === "verify") results.push(JSON.stringify(result.proofs));
                 for (const rejection of Object.values(result.rejections ?? {})) rejections.push({ at: time, reason: rejection.reason });
@@ -185,7 +204,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   const contentCanvas = created[0].canvas;
   t.after(() => { camera.stop(); globalThis.document = previous.document; globalThis.createImageBitmap = previous.createImageBitmap; });
   camera.start();
-  return { camera, view, video, ops, posts, bitmaps, results, workers, diagnostics, advance, until, live, contentCanvas, rejections, detections,
+  return { camera, view, video, ops, posts, bitmaps, results, workers, diagnostics, advance, until, live, contentCanvas, rejections, detections, runs,
     get cancels() { return cancels; }, detectDelay(ms) { detectMs = ms; },
     get now() { return time; }, get help() { return help; }, writes, restartHidden: () => $("restart-live").hidden,
     // Bitmaps neither transferred nor closed (with nothing still being made).
@@ -196,7 +215,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason),
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
-    failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
+    failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
+    emptyBitmaps(value) { emptyBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
     // Lets the bitmaps held so far be made, or fail to be, with no time passing.
     releaseBitmaps: async () => { for (const entry of held.splice(0)) entry.resolve(); await flush(); },
     failHeldBitmaps: async () => { for (const entry of held.splice(0)) entry.reject(); await flush(); },
@@ -402,6 +422,7 @@ for (const [name, provoke, cause] of [
   ["no bitmap can be made", (h) => h.failBitmaps(true), "unmade"],
   ["a bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1]), "unmade"],
   ["a bitmap is not its snapshot's height", (h) => h.blankBitmaps([700, 699]), "unmade"],
+  ["a bitmap of the right size draws nothing in the worker", (h) => h.emptyBitmaps(true), "refused"],
 ]) test(`when ${name}, acquisition restarts on the camera's own readback, with no back-off and no Restart`, async (t) => {
   const h = simulation(t);
   provoke(h);
@@ -424,17 +445,27 @@ for (const [name, provoke, cause] of [
   assert.equal(report.transport, "imagedata"); assert.equal(report.transportReason, cause, "the export says why");
 });
 
-// The review's case (M1): with every bitmap a blank 1 x 1, the anchor would be
-// built on a blank frame and every later blank frame would "verify" it at the
-// detection's corners. The grid moves 90 px right and 60 px down after the
-// reading, then the solver answers: the view must freeze where the grid is,
-// not draw the solution where it was.
-test("with bitmaps that are not their snapshot's size the moved grid freezes where it is, not where it was", async (t) => {
+// The review's case (M1): a bitmap that is no picture of its snapshot, WebKit's
+// blank 1 x 1 copy (refused by the camera) or one of the right size that draws
+// nothing (refused by the worker's reader), would give an anchor with nothing
+// in it, which every later such frame "verifies" at the detection's corners.
+// Bitmaps are given up at the first one, so the tracking core gets no pixels
+// of one. The grid moves 90 px right and 60 px down after the reading, then
+// the solver answers: the view must freeze where the grid is, not draw the
+// solution where it was.
+for (const [name, provoke, cause] of [
+  ["that are not their snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1]), "unmade"],
+  ["of the right size that draw nothing", (h) => h.emptyBitmaps(true), "refused"],
+]) test(`with bitmaps ${name} no anchor or proof is built on one, and the moved grid freezes where it is, not where it was`, async (t) => {
   let solved;
   const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
-  h.blankBitmaps([1, 1]);
+  provoke(h);
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
   assert.equal(h.camera.stats.tracking.transport, "imagedata", "on the camera's own readback");
+  assert.ok(h.runs.some((r) => r.op === "anchor") && h.runs.some((r) => r.op === "verify"));
+  assert.deepEqual(h.runs.filter((r) => r.bitmap), [], "the tracking core got no bitmap's pixels");
+  assert.deepEqual(h.reasons().filter((r) => r === "tracking-transport"), ["tracking-transport"], "bitmaps given up at the first one");
+  assert.equal(h.diagnostics.snapshot().tracking.transportReason, cause);
   h.aim([210, 170]); await h.advance(1500);
   solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
   assert.ok(await h.until(() => h.camera.view === "frozen", 5000), "frozen");
