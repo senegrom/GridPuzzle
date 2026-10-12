@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, PROBE, TRANSPORT_REASONS } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -209,15 +209,16 @@ for (const [name, setup, act, reason] of [
   assert.equal(h.tracker.stats.transportReason, null); assert.equal(h.tracker.stats.probePixels, null, 'a reset forgets the values');
 });
 
-// A worker that has not answered its probe 300 ms after it started may be
-// stuck on it, and every job would wait behind the probe: it is replaced by a
-// worker on the camera's own readback, without a probe, and bitmaps are not
-// probed again for the tracker's life. No failure counts.
-test('a worker without an answer 300 ms after it started is replaced by one on the camera\'s own readback, for good', async () => {
+// A worker that has not answered its probe when the wait ends on time, 300 ms
+// after it started, may be stuck on it, and every job would wait behind the
+// probe: it is replaced at once by a worker on the camera's own readback,
+// without a probe. No failure counts.
+test('a worker without an answer 300 ms after it started is replaced at once by one on the camera\'s own readback', async () => {
   const h = transport(), ready = h.tracker.ready(); await flush();
   h.started();
   assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
-  h.fire(HANDSHAKE_WAIT);
+  // On time: no later than HANDSHAKE_LATE after the wait's end.
+  h.tick(HANDSHAKE_WAIT + HANDSHAKE_LATE); h.fire(HANDSHAKE_WAIT);
   assert.equal(await settled(ready), 'imagedata', 'the waiters get the new worker\'s transport');
   assert.equal(h.tracker.stats.transportReason, 'timeout');
   assert.equal(h.tracker.stats.handshakeMilliseconds, null, 'the new worker has no handshake to time');
@@ -230,10 +231,96 @@ test('a worker without an answer 300 ms after it started is replaced by one on t
   // The stalled worker's handlers are detached: a late answer cannot reach the tracker.
   assert.equal(h.workers[0].onmessage, null); assert.equal(h.tracker.transport, 'imagedata');
   h.tracker.reset();
-  assert.equal(await settled(h.tracker.ready()), 'imagedata', 'nor is a later worker probed');
-  assert.equal(h.tracker.stats.transportReason, 'timeout', 'and it says why');
-  assert.equal(h.workers.length, 3); assert.deepEqual(h.workers[2].sent, []);
+});
+
+// A wait that ends late ran behind a long task on this thread, which the
+// worker's answer may have waited for: Chromium hands a new worker its first
+// message only once the page's task has ended, and WebKit runs the overdue
+// timer before a reply that is already queued. Such a wait is renewed, from
+// its late end, and the answer that comes then decides; a renewed wait that
+// ends on time replaces a worker that still has not answered.
+test('a wait that ends late, behind a long task, is renewed, and the answer after it decides "bitmap"', async () => {
+  const h = transport(), ready = h.tracker.ready(); await flush();
+  h.started();
+  h.tick(HANDSHAKE_WAIT + HANDSHAKE_LATE + 1); h.fire(HANDSHAKE_WAIT);
+  assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined, 'the worker is kept');
+  assert.deepEqual(h.delays(), [HANDSHAKE_WAIT], 'and waited for again');
+  assert.equal(h.tracker.transport, null); assert.equal(h.tracker.stats.active, 1, 'the handshake still runs');
+  h.tick(HANDSHAKE_WAIT + 700); h.fire(HANDSHAKE_WAIT);
+  assert.equal(h.workers.length, 1); assert.deepEqual(h.delays(), [HANDSHAKE_WAIT], 'again after another late end');
+  h.tick(3); h.answer();
+  assert.equal(await settled(ready), 'bitmap');
+  assert.equal(h.tracker.stats.transportReason, 'probe');
+  assert.equal(h.tracker.stats.handshakeMilliseconds, 2 * HANDSHAKE_WAIT + HANDSHAKE_LATE + 704, 'from the worker\'s start');
+  assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0);
   h.tracker.reset();
+  // Renewed once, then ending on time without an answer: replaced.
+  const next = h.tracker.ready(); await flush();
+  h.started(); h.tick(HANDSHAKE_WAIT + 400); h.fire(HANDSHAKE_WAIT);
+  assert.equal(h.workers.length, 2, 'renewed');
+  h.tick(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
+  assert.equal(await settled(next), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
+  assert.equal(h.workers.length, 3); assert.equal(h.workers[1].terminated, true); assert.deepEqual(h.workers[2].sent, []);
+  assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// A page whose timers all fire late must not keep a worker that never answers:
+// the renewals end ANCHOR_DEADLINE after the worker started.
+test('a worker that never answers is replaced at the first wait ending ANCHOR_DEADLINE after its start, however late every wait ends', async () => {
+  const h = transport(), ready = h.tracker.ready(); await flush();
+  h.started();
+  const late = HANDSHAKE_WAIT + 200;
+  let elapsed = 0;
+  for (;;) {
+    h.tick(late); elapsed += late; h.fire(HANDSHAKE_WAIT);
+    if (h.workers.length > 1) break;
+    assert.ok(elapsed < ANCHOR_DEADLINE, `still waiting ${elapsed} ms after the worker started`);
+    assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
+  }
+  assert.equal(elapsed, Math.ceil(ANCHOR_DEADLINE / late) * late, 'at the first end at or past the bound');
+  assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
+  assert.equal(h.workers[0].terminated, true); assert.deepEqual(h.workers[1].sent, [], 'its replacement gets no probe');
+  assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0);
+  h.tracker.reset();
+});
+
+// A worker replaced for missing the wait gives bitmaps up only for itself:
+// the worker after the next reset probes again.
+test('after a worker was replaced for missing the wait, the worker after the next reset probes again', async () => {
+  const h = transport(), ready = h.tracker.ready(); await flush();
+  h.started(); h.fire(HANDSHAKE_WAIT);
+  assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
+  h.tracker.reset();
+  assert.equal(await h.handshake(), 'bitmap', 'the next worker probes again');
+  assert.equal(h.workers.length, 3); assert.equal(h.workers[2].sent[0].op, 'probe');
+  assert.equal(h.tracker.stats.transportReason, 'probe'); assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// The second worker replaced for missing the wait in the tracker's life, with
+// a worker whose handshake decided in between, gives bitmaps up: no later
+// worker probes, and each says why.
+test('a second worker replaced for missing the wait gives bitmaps up for the tracker\'s life', async () => {
+  const h = transport(), timeout = async () => {
+    const ready = h.tracker.ready(); await flush();
+    assert.equal(h.last().sent[0]?.op, 'probe', 'probed');
+    h.started(); h.fire(HANDSHAKE_WAIT);
+    assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
+    assert.deepEqual(h.last().sent, [], 'its replacement gets no probe');
+    h.tracker.reset();
+  };
+  await timeout();
+  assert.equal(await h.handshake(), 'bitmap'); h.tracker.reset();
+  await timeout();
+  for (let i = 0; i < 2; i++) {
+    assert.equal(await settled(h.tracker.ready()), 'imagedata', 'no later worker probes');
+    assert.deepEqual(h.last().sent, []);
+    assert.equal(h.tracker.stats.transportReason, 'timeout', 'and it says why');
+    assert.equal(h.tracker.stats.handshakeMilliseconds, null);
+    h.tracker.reset();
+  }
+  assert.equal(h.workers.length, 7); assert.equal(h.tracker.stats.failures, 0);
 });
 
 test('a worker that never starts fails as its first anchor would have, counted', async () => {

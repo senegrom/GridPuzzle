@@ -389,9 +389,19 @@ Windows), a probe that cannot be made or transferred, or a reply that cannot
 be received mean the camera's own readback. So does a worker that has not
 answered 300 ms after its start (its first message: loading its modules is no
 part of the transport): it may be stuck on the probe, with every job queued
-behind it, so it is replaced by one on the camera's own readback, and no later
-worker of the camera session is probed. A worker that never starts fails as
-its first anchor would have. Jobs wait for the decision. On seven corpus
+behind it, so it is replaced at once by one on the camera's own readback,
+with no failure counted. A wait whose timer fires more than 50 ms late ran
+behind a long task on the main thread, which the answer may have waited for
+(Chromium hands a new worker its first message only once the page's task has
+ended, and WebKit runs an overdue timer before a reply that is already
+queued; a busy main thread alone timed the handshake out in both), so it is
+renewed, until the anchor deadline after the worker's start: a worker that
+answers once the main thread is free is kept, and one that never answers is
+still replaced on a page that stays busy. A worker replaced so costs bitmaps
+only itself: the worker after the next reset (the freeze, Clear, Restart)
+probes again, and only a second worker replaced so in the camera session
+gives bitmaps up for the rest of it. A worker that never starts fails as its
+first anchor would have. Jobs wait for the decision. On seven corpus
 photographs, at their own size and scaled to a phone's snapshot, and on the
 live suites' scenes, the two give the same pixels in Chromium, bit for bit,
 and the same proofs and verdicts through shifts, noise, light and changed
@@ -730,12 +740,15 @@ worker's handshake `probe` (bitmaps work), `mismatch` (a value read back was
 off; `tracking.probePixels` then holds the values the 2 × 2 probe read back),
 `no-pixels` (the worker could not draw it), `unreadable` (its answer could not
 be received), `no-bitmaps` (the page makes none) or `probe-failed` (the probe
-could not be made or transferred); once bitmaps were given up in the camera
-session, the cause: `timeout` (no answer within the handshake's wait),
-`refused` (the worker could not read a bitmap back), `untransferable`,
-`unmade` (the camera could not make a bitmap of its snapshot, or got one of
-another size) or `unanswered` (a worker's first bitmap job reached its
-deadline, got an unreadable reply or the worker died in it).
+could not be made or transferred); without a handshake, `timeout` (the worker
+replacing one with no answer within the handshake's wait; after a second
+such worker in the camera session, bitmaps are given up and every later
+worker says `timeout` too); once bitmaps were given up in the camera session
+for another cause, that cause: `refused` (the worker could not read a bitmap
+back), `untransferable`, `unmade` (the camera could not make a bitmap of its
+snapshot, or got one of another size) or `unanswered` (a worker's first
+bitmap job reached its deadline, got an unreadable reply or the worker died
+in it).
 `tracking.handshakeMilliseconds` is the time from the worker's start to its
 handshake's decision (none without a handshake). `performance.trackingWorker`
 is the tracking core's time and `performance.trackingTransport` the worker's
@@ -934,9 +947,13 @@ Unit tests (`node --test web/tests/*.test.js`):
   the default probe (a 2 × 2 page canvas holding the four colours), the
   handshake's decision (every way to the camera's own readback, none of them a
   failure, each with its reason and time for the diagnostic report, a worker
-  that has not answered the probe in time replaced for good, and a worker that
-  never starts failing as its first anchor would have), jobs waiting for it, a
-  reset rejecting its waiters, every bitmap transferred or closed, the next
+  that has not answered the probe when the wait ends on time replaced at once,
+  a wait that ended late renewed so that the answer after it decides, the
+  renewals bounded by the anchor deadline on a page whose timers all fire
+  late, the worker after the next reset probing again and a second worker
+  replaced so giving bitmaps up, and a worker that never starts failing as
+  its first anchor would have), jobs waiting for it, a reset rejecting its
+  waiters, every bitmap transferred or closed, the next
   job posted only after a reply's continuation (so a freeze there closes its
   bitmap rather than posting it to the ended worker), the bitmap failures that
   give bitmaps up without a failure, with their causes, and the later ones
@@ -972,9 +989,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   nothing in the worker's reader, give bitmaps up at the first one: no anchor
   or proof is built on one, and a grid that moved after its reading freezes
   where it is. A worker stuck on its probe, or dying on its first bitmap job,
-  leaves the grid read on the camera's own readback; a bitmap failure for a
-  frame the freeze retired leaves the frozen view, and the next scan's export
-  gives its cause.
+  leaves the grid read on the camera's own readback (after a Restart a new
+  worker probes again, and a second stuck one gives bitmaps up); a bitmap
+  failure for a frame the freeze retired leaves the frozen view, and the next
+  scan's export gives its cause.
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker

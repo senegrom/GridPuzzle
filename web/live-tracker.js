@@ -27,9 +27,18 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // HANDSHAKE_WAIT. That wait starts when the worker has started (its first
 // message), since loading its modules is no part of the transport; a worker
 // that does not start within the anchor deadline fails as its first anchor
-// would have. A worker that misses the wait may be stuck on its probe: it is
-// replaced, and bitmaps are not probed again for the tracker's life.
-export const HANDSHAKE_WAIT = 300;
+// would have. A wait whose timer fires more than HANDSHAKE_LATE after its
+// time ran behind a long task on this thread, and the answer may have waited
+// for that task: Chromium hands a new worker its first message only once this
+// thread's task has ended, and WebKit runs an overdue timer before a reply
+// that is already queued. Such a wait is renewed while the worker started
+// less than the anchor deadline ago, so a worker that answers once this
+// thread is free is kept, and one that never answers is still replaced on a
+// page that stays busy. A worker without an answer when its wait ends on time
+// (or past that bound) may be stuck on its probe: it is replaced by one on the
+// camera's own readback, the worker after the next reset probes again, and
+// the second worker so replaced in the tracker's life gives bitmaps up.
+export const HANDSHAKE_WAIT = 300, HANDSHAKE_LATE = 50;
 // Why a worker uses its transport (stats.transportReason, for the diagnostic
 // report, so an "imagedata" from a phone tells an old iOS from a slow or
 // failed handshake). From its handshake: "probe" (the probe read back right:
@@ -37,15 +46,18 @@ export const HANDSHAKE_WAIT = 300;
 // read back), "no-pixels" (the worker could not draw it: no OffscreenCanvas
 // or 2D context there), "unreadable" (its answer could not be received),
 // "no-bitmaps" (this thread makes no bitmaps), "probe-failed" (the probe could
-// not be made or transferred). Once bitmaps have been given up, every later
-// worker uses the camera's readback without a handshake and gives the cause:
-// "timeout" (a worker did not answer its probe within HANDSHAKE_WAIT),
-// "refused" (the worker could not read a bitmap back), "untransferable" (a
-// bitmap could not be transferred), "unmade" (the camera could not make a
-// bitmap of its snapshot, or got one of another size), "unanswered" (a
-// worker's first bitmap job reached its deadline, got an unreadable reply or
-// the worker died in it). stats.handshakeMilliseconds is the time from the
-// worker's start to its handshake's decision; null without one.
+// not be made or transferred). Without a handshake: "timeout" (the worker
+// replacing one that did not answer its probe, see HANDSHAKE_WAIT; once a
+// second worker missed it, bitmaps are given up and every later worker says
+// "timeout" too). Once bitmaps have been given up for another cause, every
+// later worker uses the camera's readback without a handshake and gives that
+// cause: "refused" (the worker could not read a bitmap back),
+// "untransferable" (a bitmap could not be transferred), "unmade" (the camera
+// could not make a bitmap of its snapshot, or got one of another size),
+// "unanswered" (a worker's first bitmap job reached its deadline, got an
+// unreadable reply or the worker died in it). stats.handshakeMilliseconds is
+// the time from the worker's start to its handshake's decision; null without
+// one.
 export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels', 'unreadable', 'no-bitmaps', 'probe-failed',
   'timeout', 'refused', 'untransferable', 'unmade', 'unanswered']);
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
@@ -73,12 +85,13 @@ export function createLiveTracker({
   let worker = null, active = null, frame = null, anchor = null, serial = 0, deadline = null;
   // This worker's transport (null while its handshake runs), why, the probe's
   // values on a mismatch, when the worker started and how long after that its
-  // handshake decided; the handshake's timer and the callers of ready()
-  // waiting for it; whether a bitmap job of this worker has completed; and,
-  // once bitmaps have been given up, why (every later worker then uses the
-  // camera's readback).
+  // handshake decided; the handshake's timer, when its wait last started, and
+  // the callers of ready() waiting for it; whether a bitmap job of this worker
+  // has completed; whether a worker of this tracker was replaced for missing
+  // the wait; and, once bitmaps have been given up, why (every later worker
+  // then uses the camera's readback).
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
-  let handshake = null, waiters = [], proven = false, givenUp = null;
+  let handshake = null, armedAt = null, waiters = [], proven = false, timedOut = false, givenUp = null;
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
   // one does nothing.
@@ -103,19 +116,31 @@ export function createLiveTracker({
     for (const waiter of waiters.splice(0)) waiter.resolve(value);
     dispatch();
   }
-  // A worker that has not answered its probe HANDSHAKE_WAIT after it started
-  // may be stuck on it, and a worker handles its messages in order: every job
-  // would wait behind the probe and fail at its deadline. It is replaced by a
-  // worker that uses the ImageData transport, as every later one does. Nothing
-  // was built on it, so this is no failure, and the callers waiting for the
-  // decision get the new worker's, which has no handshake to time.
+  // The end of the handshake's wait. A wait that ran late, behind a long task
+  // on this thread, is renewed (see HANDSHAKE_WAIT), up to the anchor deadline
+  // after the worker started. Otherwise a worker that has not answered its
+  // probe may be stuck on it, and a worker handles its messages in order:
+  // every job would wait behind the probe and fail at its deadline. It is
+  // replaced by a worker that uses the ImageData transport without a probe.
+  // Nothing was built on it, so this is no failure, and the callers waiting
+  // for the decision get the new worker's, which has no handshake to time.
+  // The worker after the next reset probes again, unless a worker was
+  // replaced so before: then bitmaps are given up for the tracker's life.
   function stalled() {
-    givenUp = 'timeout'; handshake = null; startedAt = null;
+    const at = now();
+    if (at - armedAt > HANDSHAKE_WAIT + HANDSHAKE_LATE && at - startedAt < ANCHOR_DEADLINE) {
+      armedAt = at; handshake = setTimer(stalled, HANDSHAKE_WAIT); return;
+    }
+    if (timedOut) givenUp = 'timeout';
+    timedOut = true; handshake = null; startedAt = null;
     const old = worker; worker = null;
     old.onmessage = old.onerror = old.onmessageerror = null; old.terminate();
-    try { ensure(); } catch (error) { fail(error?.message || 'Background tracking is unavailable.'); }
+    try { ensure('timeout'); } catch (error) { fail(error?.message || 'Background tracking is unavailable.'); }
   }
-  function ensure() {
+  // A worker started without a handshake uses the camera's readback and says
+  // why: the cause bitmaps were given up for, or "timeout" for the one that
+  // replaces a worker that missed the handshake's wait.
+  function ensure(why = givenUp) {
     if (worker) return;
     const owned = makeWorker(); worker = owned;
     // A worker that dies while its first bitmap job is in it gives bitmaps up,
@@ -138,7 +163,7 @@ export function createLiveTracker({
     owned.onmessage = ({ data }) => {
       if (worker !== owned) return;
       if (data?.started) {
-        if (transport === null) { startedAt = now(); clearTimer(handshake); handshake = setTimer(stalled, HANDSHAKE_WAIT); }
+        if (transport === null) { startedAt = armedAt = now(); clearTimer(handshake); handshake = setTimer(stalled, HANDSHAKE_WAIT); }
         return;
       }
       if (data?.probe) {
@@ -168,7 +193,7 @@ export function createLiveTracker({
       // buffer in the GPU process for the life of the tab.
       queueMicrotask(dispatch);
     };
-    let pending = null, why = givenUp;
+    let pending = null;
     if (!why) try { pending = probe(); if (!pending) why = 'no-bitmaps'; } catch { why = 'probe-failed'; }
     if (!pending) { decide('imagedata', why); return; }
     handshake = setTimer(() => fail('Background tracking timed out. Capture for manual review or restart the camera.'), ANCHOR_DEADLINE);

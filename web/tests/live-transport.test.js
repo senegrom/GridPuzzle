@@ -477,19 +477,28 @@ for (const [name, provoke, cause] of [
 
 // A worker stuck on its probe answers nothing after it: the handshake's wait
 // replaces it with a worker on the camera's own readback, so the jobs do not
-// queue behind the probe until their deadlines, and no failure counts. Later
-// workers (Restart here) are not probed again.
+// queue behind the probe until their deadlines, and no failure counts. The
+// worker after a reset (Restart here) probes again; a second worker stuck so
+// gives bitmaps up, and no later worker is probed.
 test("a worker stuck on its probe is replaced at the handshake's wait, and the grid is read on the camera's own readback", async (t) => {
   const h = simulation(t, { transport: "stuck" });
+  const probes = () => h.posts.filter((p) => p.op === "probe").length;
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read");
   assert.equal(h.workers.length, 2); assert.equal(h.workers[0].dead, true, "the stuck worker is ended");
-  assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "the new worker is not probed");
+  assert.equal(probes(), 1, "the new worker is not probed");
   assert.ok(h.jobs().length > 0 && h.jobs().every((p) => p.image), "on the camera's own readback");
   assert.equal(h.camera.stats.tracking.transport, "imagedata");
   assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
   h.camera.restart();
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again after Restart");
-  assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "no probe for a later worker");
+  assert.equal(probes(), 2, "the worker after Restart probes again");
+  assert.equal(h.workers.length, 4); assert.equal(h.workers[2].dead, true, "and, stuck too, is replaced");
+  h.camera.restart();
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again after another Restart");
+  assert.equal(probes(), 2, "the second stuck worker gave bitmaps up: no probe for a later worker");
+  assert.equal(h.workers.length, 5);
+  assert.ok(h.jobs().every((p) => p.image), "every job on the camera's own readback");
+  assert.equal(h.camera.stats.recovery.failures, 0);
   assert.deepEqual(h.open(), []);
   assert.equal(h.diagnostics.snapshot().tracking.transportReason, "timeout", "the export says why");
 });
