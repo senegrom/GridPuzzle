@@ -30,6 +30,24 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // would have. A worker that misses the wait may be stuck on its probe: it is
 // replaced, and bitmaps are not probed again for the tracker's life.
 export const HANDSHAKE_WAIT = 300;
+// Why a worker uses its transport (stats.transportReason, for the diagnostic
+// report, so an "imagedata" from a phone tells an old iOS from a slow or
+// failed handshake). From its handshake: "probe" (the probe read back right:
+// bitmap), "mismatch" (a value off; stats.probePixels then holds the values
+// read back), "no-pixels" (the worker could not draw it: no OffscreenCanvas
+// or 2D context there), "unreadable" (its answer could not be received),
+// "no-bitmaps" (this thread makes no bitmaps), "probe-failed" (the probe could
+// not be made or transferred). Once bitmaps have been given up, every later
+// worker uses the camera's readback without a handshake and gives the cause:
+// "timeout" (a worker did not answer its probe within HANDSHAKE_WAIT),
+// "refused" (the worker could not read a bitmap back), "untransferable" (a
+// bitmap could not be transferred), "unmade" (the camera could not make a
+// bitmap of its snapshot, or got one of another size), "unanswered" (a
+// worker's first bitmap job reached its deadline, got an unreadable reply or
+// the worker died in it). stats.handshakeMilliseconds is the time from the
+// worker's start to its handshake's decision; null without one.
+export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels', 'unreadable', 'no-bitmaps', 'probe-failed',
+  'timeout', 'refused', 'untransferable', 'unmade', 'unanswered']);
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
 const matches = pixels => pixels?.length === PROBE.length && PROBE.every((value, i) => Math.abs(pixels[i] - value) <= 2);
 // The probe as a bitmap of a page canvas, as the camera's snapshots are; null
@@ -50,14 +68,17 @@ const time = value => Number.isFinite(value) ? Math.max(0, value) : 0;
 // video queue, synchronous registration fallback or stale-worker callbacks.
 export function createLiveTracker({
   makeWorker = () => new Worker(new URL('./live-tracking-worker.js', import.meta.url), { type: 'module' }),
-  setTimer = setTimeout, clearTimer = clearTimeout, probe = probeBitmap,
+  setTimer = setTimeout, clearTimer = clearTimeout, probe = probeBitmap, now = () => performance.now(),
 } = {}) {
   let worker = null, active = null, frame = null, anchor = null, serial = 0, deadline = null;
-  // This worker's transport (null while its handshake runs), the handshake's
-  // timer and the callers of ready() waiting for it; whether a bitmap job of
-  // this worker has completed; and "imagedata" for every later worker once
-  // bitmaps have failed.
-  let transport = null, handshake = null, waiters = [], proven = false, forced = null;
+  // This worker's transport (null while its handshake runs), why, the probe's
+  // values on a mismatch, when the worker started and how long after that its
+  // handshake decided; the handshake's timer and the callers of ready()
+  // waiting for it; whether a bitmap job of this worker has completed; and,
+  // once bitmaps have been given up, why (every later worker then uses the
+  // camera's readback).
+  let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
+  let handshake = null, waiters = [], proven = false, givenUp = null;
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
   // one does nothing.
@@ -66,7 +87,7 @@ export function createLiveTracker({
     clearTimer(deadline); deadline = null;
     clearTimer(handshake); handshake = null;
     // No worker: no transport, and the next worker has completed no bitmap job.
-    const old = worker; worker = null; transport = null; proven = false;
+    const old = worker; worker = null; transport = reason = mismatched = startedAt = handshakeMs = null; proven = false;
     for (const job of [active, frame, anchor]) { discard(job); job?.reject(error); }
     active = frame = anchor = null;
     for (const waiter of waiters.splice(0)) waiter.reject(error);
@@ -74,9 +95,11 @@ export function createLiveTracker({
   }
   function fail(message) { stats.failures++; reset(Error(message)); }
   // Not a tracking failure: the next worker uses the ImageData transport.
-  function giveUp() { forced = 'imagedata'; reset(unsupported()); }
-  function decide(value) {
-    transport = value; clearTimer(handshake); handshake = null;
+  function giveUp(cause) { givenUp = cause; reset(unsupported()); }
+  function decide(value, why, values = null) {
+    transport = value; reason = why; mismatched = values;
+    handshakeMs = startedAt === null ? null : time(now() - startedAt);
+    clearTimer(handshake); handshake = null;
     for (const waiter of waiters.splice(0)) waiter.resolve(value);
     dispatch();
   }
@@ -85,9 +108,9 @@ export function createLiveTracker({
   // would wait behind the probe and fail at its deadline. It is replaced by a
   // worker that uses the ImageData transport, as every later one does. Nothing
   // was built on it, so this is no failure, and the callers waiting for the
-  // decision get the new worker's.
+  // decision get the new worker's, which has no handshake to time.
   function stalled() {
-    forced = 'imagedata'; handshake = null;
+    givenUp = 'timeout'; handshake = null; startedAt = null;
     const old = worker; worker = null;
     old.onmessage = old.onerror = old.onmessageerror = null; old.terminate();
     try { ensure(); } catch (error) { fail(error?.message || 'Background tracking is unavailable.'); }
@@ -101,27 +124,35 @@ export function createLiveTracker({
     // Dying later, idle or on the camera's own readback fails as before.
     owned.onerror = event => {
       if (worker !== owned) return;
-      if (active?.data.bitmap && !proven) giveUp(); else fail(event?.message || 'Background tracking failed.');
+      if (active?.data.bitmap && !proven) giveUp('unanswered'); else fail(event?.message || 'Background tracking failed.');
     };
     // A reply that cannot be received: during the handshake it decides
     // "imagedata" (nothing was built on the worker yet); before a bitmap job
     // has completed it gives bitmaps up; after that it fails as before.
     owned.onmessageerror = () => {
       if (worker !== owned) return;
-      if (transport === null) decide('imagedata');
-      else if (transport === 'bitmap' && !proven) giveUp();
+      if (transport === null) decide('imagedata', 'unreadable');
+      else if (transport === 'bitmap' && !proven) giveUp('unanswered');
       else fail('Could not receive background tracking.');
     };
     owned.onmessage = ({ data }) => {
       if (worker !== owned) return;
       if (data?.started) {
-        if (transport === null) { clearTimer(handshake); handshake = setTimer(stalled, HANDSHAKE_WAIT); }
+        if (transport === null) { startedAt = now(); clearTimer(handshake); handshake = setTimer(stalled, HANDSHAKE_WAIT); }
         return;
       }
-      if (data?.probe) { if (transport === null) decide(matches(data.probe.pixels) ? 'bitmap' : 'imagedata'); return; }
+      if (data?.probe) {
+        const pixels = data.probe.pixels;
+        if (transport !== null) return;
+        if (matches(pixels)) decide('bitmap', 'probe');
+        else if (!pixels) decide('imagedata', 'no-pixels');
+        // The values read back go to the diagnostic report (at most a 4 x 4 readback's).
+        else decide('imagedata', 'mismatch', Array.isArray(pixels) ? pixels.slice(0, 64) : null);
+        return;
+      }
       if (!active || data?.id !== active.id) return;
       const job = active;
-      if (data.error === 'bitmap-unsupported' && job.data.bitmap) { giveUp(); return; }
+      if (data.error === 'bitmap-unsupported' && job.data.bitmap) { giveUp('refused'); return; }
       if (data.error || !data.result) { fail(data.error || 'Invalid background tracking reply.'); return; }
       clearTimer(deadline); deadline = null; active = null;
       if (job.data.bitmap) proven = true;
@@ -137,14 +168,14 @@ export function createLiveTracker({
       // buffer in the GPU process for the life of the tab.
       queueMicrotask(dispatch);
     };
-    let pending = null;
-    try { pending = forced ? null : probe(); } catch { /* no bitmap: the ImageData transport */ }
-    if (!pending) { decide('imagedata'); return; }
+    let pending = null, why = givenUp;
+    if (!why) try { pending = probe(); if (!pending) why = 'no-bitmaps'; } catch { why = 'probe-failed'; }
+    if (!pending) { decide('imagedata', why); return; }
     handshake = setTimer(() => fail('Background tracking timed out. Capture for manual review or restart the camera.'), ANCHOR_DEADLINE);
     Promise.resolve(pending).then(bitmap => {
       if (worker !== owned || transport !== null) { bitmap?.close?.(); return; }
-      try { owned.postMessage({ op: 'probe', bitmap }, [bitmap]); } catch { bitmap?.close?.(); decide('imagedata'); }
-    }, () => { if (worker === owned && transport === null) decide('imagedata'); });
+      try { owned.postMessage({ op: 'probe', bitmap }, [bitmap]); } catch { bitmap?.close?.(); decide('imagedata', 'probe-failed'); }
+    }, () => { if (worker === owned && transport === null) decide('imagedata', 'probe-failed'); });
   }
   function dispatch() {
     if (active || (!anchor && !frame)) return;
@@ -160,14 +191,14 @@ export function createLiveTracker({
     deadline = setTimer(() => {
       if (active !== job) return;
       // A worker that never answers its first bitmap gives bitmaps up.
-      if (job.data.bitmap && !proven) giveUp();
+      if (job.data.bitmap && !proven) giveUp('unanswered');
       else fail('Background tracking timed out. Capture for manual review or restart the camera.');
     }, job.data.op === 'anchor' ? ANCHOR_DEADLINE : VERIFY_DEADLINE);
     try { worker.postMessage({ ...job.data, id: job.id }, [job.data.bitmap ?? job.data.image.data.buffer]); }
     catch (error) {
       // A bitmap that cannot be transferred (DataCloneError) gives bitmaps
       // up. Either way the reset closes the job's bitmap.
-      if (job.data.bitmap) giveUp(); else fail(error?.message || 'Background tracking is unavailable.');
+      if (job.data.bitmap) giveUp('untransferable'); else fail(error?.message || 'Background tracking is unavailable.');
     }
   }
   function submit(data) {
@@ -192,11 +223,12 @@ export function createLiveTracker({
     },
     // The camera could not make a bitmap of its frame: bitmaps are given up as
     // for any other bitmap failure. The error to throw.
-    bitmapFailed() { giveUp(); return unsupported(); },
+    bitmapFailed() { giveUp('unmade'); return unsupported(); },
     reset,
     get transport() { return transport; },
     // `active` counts a handshake in progress too: its probe is the worker's work.
-    get stats() { return { ...stats, transport, active: active || (worker && transport === null) ? 1 : 0,
+    get stats() { return { ...stats, transport, transportReason: reason, handshakeMilliseconds: handshakeMs,
+      probePixels: mismatched, active: active || (worker && transport === null) ? 1 : 0,
       queuedFrames: frame ? 1 : 0, queuedAnchors: anchor ? 1 : 0 }; },
   };
 }

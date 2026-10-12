@@ -102,7 +102,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   const view = canvas(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
   const writes = []; let help = "";
   nodes.set("camera-help", { get textContent() { return help; }, set textContent(value) { help = value; writes.push(value); } });
-  const tracker = createLiveTracker({ setTimer, clearTimer,
+  const tracker = createLiveTracker({ setTimer, clearTimer, now: () => time,
     probe: transport === "imagedata" ? () => null : () => Promise.resolve(bitmap(null, "probe")),
     makeWorker() {
       const core = createTrackingCore(), worker = {
@@ -113,7 +113,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
             width: message.width ?? message.image?.width, height: message.height ?? message.image?.height, corners: message.corners ?? null });
           if (message.op === "probe") {
             if (transport === "stuck") worker.stuck = true;
-            else if (transport !== "silent") setTimer(() => { if (!worker.dead) worker.onmessage?.({ data: { probe: { pixels: [...PROBE] } } }); }, 2);
+            else if (transport !== "silent") setTimer(() => { if (!worker.dead) worker.onmessage?.({ data: { probe: { pixels: [...PROBE] } } }); },
+              Math.max(0, worker.createdAt + startMs - time) + 2);
             return;
           }
           setTimer(() => {
@@ -219,9 +220,12 @@ test("with the bitmap transport the camera reads back no tracking pixels and eve
     assert.ok(source === h.video || drawn(source) === h.video, "a bitmap of a snapshot of the video (or of detection's copy of one)");
   }
   assert.deepEqual(h.open(), [], "every bitmap transferred or closed");
-  // The export: the transport, the core's time apart from the transport's.
+  // The export: the transport, why (the probe read back right) and the
+  // handshake's time from the worker's start, the core's time apart from the
+  // transport's.
   const report = h.diagnostics.snapshot();
   assert.equal(report.tracking.transport, "bitmap");
+  assert.equal(report.tracking.transportReason, "probe"); assert.equal(report.tracking.handshakeMilliseconds, 2);
   assert.equal(report.performance.trackingWorker.p50Milliseconds, 20, "the tracking core's time");
   assert.equal(report.performance.trackingTransport.p50Milliseconds, 9, "the worker's draw and readback, apart");
 });
@@ -393,11 +397,11 @@ test("a frozen view, Clear and a closed camera leave no bitmap open, and every q
 // A bitmap failure is no tracking failure: the tracker gives bitmaps up and
 // resets; the camera restarts acquisition at once on its own readback, with no
 // back-off and no Restart, and reads the grid again.
-for (const [name, provoke] of [
-  ["the worker cannot read a bitmap back", (h) => h.bitmapError(true)],
-  ["no bitmap can be made", (h) => h.failBitmaps(true)],
-  ["a bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1])],
-  ["a bitmap is not its snapshot's height", (h) => h.blankBitmaps([700, 699])],
+for (const [name, provoke, cause] of [
+  ["the worker cannot read a bitmap back", (h) => h.bitmapError(true), "refused"],
+  ["no bitmap can be made", (h) => h.failBitmaps(true), "unmade"],
+  ["a bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1]), "unmade"],
+  ["a bitmap is not its snapshot's height", (h) => h.blankBitmaps([700, 699]), "unmade"],
 ]) test(`when ${name}, acquisition restarts on the camera's own readback, with no back-off and no Restart`, async (t) => {
   const h = simulation(t);
   provoke(h);
@@ -416,6 +420,8 @@ for (const [name, provoke] of [
   assert.equal(h.camera.stats.recovery.failures, 0);
   assert.equal(h.restartHidden(), true, "no Restart");
   assert.deepEqual(h.open(), []);
+  const report = h.diagnostics.snapshot().tracking;
+  assert.equal(report.transport, "imagedata"); assert.equal(report.transportReason, cause, "the export says why");
 });
 
 // The review's case (M1): with every bitmap a blank 1 x 1, the anchor would be
@@ -454,6 +460,7 @@ test("a worker stuck on its probe is replaced at the handshake's wait, and the g
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again after Restart");
   assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "no probe for a later worker");
   assert.deepEqual(h.open(), []);
+  assert.equal(h.diagnostics.snapshot().tracking.transportReason, "timeout", "the export says why");
 });
 
 // A worker that dies on every bitmap job (a bitmap that crashes it) gives
@@ -469,6 +476,35 @@ test("a worker that dies on its first bitmap job gives bitmaps up, and the grid 
   assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.reasons().includes("worker-error"), false);
   assert.equal(h.restartHidden(), true, "no Restart");
   assert.deepEqual(h.open(), []);
+  assert.equal(h.diagnostics.snapshot().tracking.transportReason, "unanswered", "the export says why");
+});
+
+// A bitmap that cannot be made for a frame the freeze has retired: the frozen
+// view and its help line stay, and nothing is logged while frozen (N2). The
+// failure still gives bitmaps up, since it says bitmaps fail here, so the next
+// scan, after Clear, reads back on the main thread without a probe; its
+// export says why ("unmade"), as it would have after a restart in a scan.
+test("a bitmap that cannot be made for a frame the freeze retired leaves the frozen view, and the next scan's export says why it reads back", async (t) => {
+  let solved;
+  const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read; the solver has not answered");
+  h.holdBitmaps(true);
+  assert.ok(await h.until(() => h.held > 0, 1000), "a verification's bitmap is being made");
+  solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
+  assert.ok(await h.until(() => h.camera.view === "frozen", 1000), "the solved view freezes meanwhile");
+  const help = h.help, writes = h.writes.length, reasons = h.reasons().length;
+  await h.failHeldBitmaps(); await h.advance(1000);
+  assert.equal(h.camera.view, "frozen");
+  assert.equal(h.help, help, "the frozen help line stays");
+  assert.deepEqual(h.writes.slice(writes), [], "nothing written to the help line while frozen");
+  assert.deepEqual(h.reasons().slice(reasons), [], "no event while frozen");
+  assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.deepEqual(h.open(), []);
+  h.holdBitmaps(false); h.camera.resume();
+  assert.ok(await h.until(() => h.camera.view === "frozen" || h.view.dataset.recognised === "4", 10000), "read again after Clear");
+  assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "no probe after Clear");
+  const report = h.diagnostics.snapshot().tracking;
+  assert.equal(report.transport, "imagedata"); assert.equal(report.transportReason, "unmade");
 });
 
 test("a stop during the handshake ends the waiting anchor and releases its snapshot", async (t) => {

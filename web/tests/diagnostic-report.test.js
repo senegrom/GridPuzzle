@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createScanDiagnostics, REASON_LABELS } from '../scan-diagnostics.js';
+import { TRANSPORT_REASONS } from '../live-tracker.js';
 import { diagnosticImage } from '../diagnostics-ui.js';
 import { makePuzzle } from '../model.js';
 test('diagnostics export an allowlist, not arbitrary input, photos, notes, answers or stacks',()=>{
@@ -117,4 +118,49 @@ test('the tracking transport and its time are reported apart from the tracking c
  d.event({stage:'tracking',reason:'tracking-transport'});assert.equal(d.snapshot().events.at(-1).reason,'tracking-transport');
  assert.equal(typeof REASON_LABELS['tracking-transport'],'string');
  d.begin('live',{});assert.equal(d.snapshot().performance.trackingTransport.count,0,'a new scan starts a new window');
+});
+
+// Why the worker used its transport and how long its handshake took from the
+// worker's start (live-tracker.js), so an "imagedata" from a phone tells an old
+// iOS from a slow handshake, a mismatch or bitmaps given up during the scan.
+test('the export says why tracking used its transport and how long the handshake took, from an allowlist, kept across a reset',()=>{
+ const d=createScanDiagnostics();d.begin('live',{});
+ d.tracking({transport:'bitmap',transportReason:'probe',handshakeMilliseconds:22.456},{frame:1,age:30,matched:true});
+ let t=d.snapshot().tracking;assert.equal(t.transportReason,'probe');assert.equal(t.handshakeMilliseconds,22.46);
+ // A reset (the freeze, Clear, a close) leaves the tracker none: the scan's stay.
+ d.tracking({transport:null,transportReason:null,handshakeMilliseconds:null},{frame:2,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.transport,'bitmap');assert.equal(t.transportReason,'probe');assert.equal(t.handshakeMilliseconds,22.46);
+ // A later worker's decision replaces them, also without a handshake time.
+ d.tracking({transport:'imagedata',transportReason:'unmade',handshakeMilliseconds:null},{frame:3,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.transportReason,'unmade');assert.equal(t.handshakeMilliseconds,null);
+ // Every reason the tracker gives is allowlisted; anything else is dropped.
+ for(const reason of TRANSPORT_REASONS){d.tracking({transport:'imagedata',transportReason:reason},{frame:4,age:30,matched:true});assert.equal(d.snapshot().tracking.transportReason,reason);}
+ d.tracking({transport:'imagedata',transportReason:'PRIVATE',handshakeMilliseconds:'x'},{frame:5,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.transportReason,null);assert.equal(t.handshakeMilliseconds,null);
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+ d.begin('live',{});d.tracking({},{frame:1,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.transportReason,null,'a new scan has none yet');assert.equal(t.handshakeMilliseconds,null);
+});
+
+// On a mismatch the export keeps the values the probe read back: channel
+// values of the tracker's synthetic 2 x 2 probe, at most 64 integers 0-255.
+test('the export keeps the probe values of a mismatch, from an allowlist, kept across a reset',()=>{
+ const d=createScanDiagnostics();d.begin('live',{});
+ const values=[201,40,90,255,30,163,220,255,250,250,250,255,10,10,10,255];
+ d.tracking({transport:'imagedata',transportReason:'mismatch',probePixels:values},{frame:1,age:30,matched:true});
+ let t=d.snapshot().tracking;assert.deepEqual(t.probePixels,values);
+ values[0]=0;assert.equal(d.snapshot().tracking.probePixels[0],201,'no caller-owned array is kept');
+ d.tracking({transport:null,probePixels:null},{frame:2,age:30,matched:true});
+ assert.deepEqual(d.snapshot().tracking.probePixels,[201,...values.slice(1)],'kept across a reset');
+ d.tracking({transport:'bitmap',transportReason:'probe',probePixels:null},{frame:3,age:30,matched:true});
+ assert.equal(d.snapshot().tracking.probePixels,null,'a later decision replaces them');
+ const limit=Array.from({length:64},(_,i)=>i*4);
+ d.tracking({transport:'imagedata',transportReason:'mismatch',probePixels:limit},{frame:4,age:30,matched:true});
+ assert.deepEqual(d.snapshot().tracking.probePixels,limit,'a 4 x 4 readback');
+ for(const bad of [[...limit,0],[1,2,256],[1,-1],[1.5],['PRIVATE'],'PRIVATE',{length:1,0:1}]){
+  d.tracking({transport:'imagedata',transportReason:'mismatch',probePixels:bad},{frame:5,age:30,matched:true});
+  assert.equal(d.snapshot().tracking.probePixels,null,JSON.stringify(bad));
+ }
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+ d.begin('live',{});d.tracking({},{frame:1,age:30,matched:true});assert.equal(d.snapshot().tracking.probePixels,null,'a new scan has none yet');
 });

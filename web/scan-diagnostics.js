@@ -8,8 +8,13 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
 const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
 // The live camera's data-overlay modes over live video.
 const OVERLAYS = ['none','outline'];
-// How tracking pixels reach the worker (live-tracker.js).
+// How tracking pixels reach the worker, and why (live-tracker.js).
 const TRANSPORTS = ['bitmap','imagedata'];
+const TRANSPORT_REASONS = ['probe','mismatch','no-pixels','unreadable','no-bitmaps','probe-failed',
+  'timeout','refused','untransferable','unmade','unanswered'];
+// The handshake probe's values read back on a mismatch: channel values of the
+// tracker's synthetic 2 x 2 probe (never camera pixels), at most 64.
+const probeValues = value => Array.isArray(value) && value.length <= 64 && value.every(v => Number.isInteger(v) && v >= 0 && v <= 255) ? [...value] : null;
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
 const settingsOf = value => {
@@ -112,13 +117,19 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         lastMetricFrame = frame.frame;
         workerMetrics.add(stats?.milliseconds); transportMetrics.add(stats?.transportMilliseconds); ageMetrics.add(frame.age);
       }
-      // The transport tracking used last: a reset (the freeze, Clear, a
-      // close) leaves the tracker none until its next worker decides, which
-      // must not erase the one the scan used.
-      const transport = TRANSPORTS.includes(stats?.transport) ? stats.transport : tracking.transport ?? null;
+      // The transport tracking used last, why (with the probe's values on a
+      // mismatch), and how long that worker's handshake took from its start:
+      // a reset (the freeze, Clear, a close) leaves the tracker none until its
+      // next worker decides, which must not erase the one the scan used.
+      const decided = TRANSPORTS.includes(stats?.transport);
+      const transport = decided ? stats.transport : tracking.transport ?? null;
+      const transportReason = decided ? (TRANSPORT_REASONS.includes(stats.transportReason) ? stats.transportReason : null) : tracking.transportReason ?? null;
+      const handshakeMilliseconds = decided ? number(stats.handshakeMilliseconds) : tracking.handshakeMilliseconds ?? null;
+      const probePixels = decided ? probeValues(stats.probePixels) : tracking.probePixels ?? null;
       tracking = {};
       for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
-      tracking.transport = transport;
+      tracking.transport = transport; tracking.transportReason = transportReason; tracking.handshakeMilliseconds = handshakeMilliseconds;
+      tracking.probePixels = probePixels;
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
       tracking.tier = frame.stale ? 'delayed' : 'live';
       if (MISMATCHES.has(frame.rejection?.reason)) {

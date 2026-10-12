@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, PROBE } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, PROBE, TRANSPORT_REASONS } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -106,7 +106,7 @@ test('the actual tracking worker runs in a separate thread with transferred fram
 // Timers are recorded with their delay and fired by it.
 function transport({ probe = 'bitmap' } = {}) {
   const workers = [], timers = new Map(), bitmaps = [];
-  let serial = 0, made = 0;
+  let serial = 0, made = 0, clock = 0;
   const bitmap = (label = 'frame') => {
     const b = { label, width: 960, height: 1280, closed: false, transferred: false,
       close() { if (!this.transferred) this.closed = true; this.width = this.height = 0; } };
@@ -125,13 +125,14 @@ function transport({ probe = 'bitmap' } = {}) {
       workers.push(worker); made++; return worker;
     },
     setTimer(fn, ms) { timers.set(++serial, { fn, ms }); return serial; }, clearTimer(id) { timers.delete(id); },
-    probe: typeof probe === 'function' ? probe : probes[probe],
+    probe: typeof probe === 'function' ? probe : probes[probe], now: () => clock,
   });
   const last = () => workers.at(-1);
-  return { tracker, workers, timers, bitmaps, bitmap, last,
-    get made() { return made; },
+  return { tracker, workers, timers, bitmaps, bitmap, last, answered: undefined,
+    get made() { return made; }, tick(ms) { clock += ms; },
     started: (w = last()) => w.onmessage({ data: { started: true } }),
-    answer: (pixels = [...PROBE], w = last()) => w.onmessage({ data: { probe: { pixels } } }),
+    // `answered`: the values of the latest answer to a probe.
+    answer(pixels = [...PROBE], w = last()) { this.answered = pixels; w.onmessage({ data: { probe: { pixels } } }); },
     reply: (w = last(), extra = {}) => w.onmessage({ data: { id: w.sent.at(-1).id, result: { proofs: {} }, milliseconds: 3, transportMilliseconds: 7, ...extra } }),
     fire(ms) { for (const [id, t] of [...timers]) if (t.ms === ms) { timers.delete(id); t.fn(); } },
     delays: () => [...timers.values()].map(t => t.ms).sort((a, b) => a - b),
@@ -152,37 +153,46 @@ test('the handshake transfers a probe bitmap once the worker has started and dec
   assert.equal(h.tracker.transport, null); assert.equal(h.tracker.stats.transport, null);
   assert.equal(h.tracker.stats.active, 1, 'the handshake is the worker\'s work');
   assert.deepEqual(h.delays(), [ANCHOR_DEADLINE], 'until the worker starts, only a start deadline runs');
-  h.started();
+  h.tick(40); h.started();
   assert.deepEqual(h.delays(), [HANDSHAKE_WAIT], 'the wait for the probe starts when the worker has started');
-  h.answer(PROBE.map((value, i) => i % 4 === 3 ? value : value + (i % 2 ? 2 : -2)), worker);
-  assert.equal(await ready, 'bitmap', 'every value within 2');
+  h.tick(22); h.answer(PROBE.map((value, i) => i % 4 === 3 ? value : value + (i % 2 ? 2 : -2)), worker);
+  assert.equal(await settled(ready), 'bitmap', 'every value within 2');
   assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.tracker.stats.transport, 'bitmap');
+  assert.equal(h.tracker.stats.transportReason, 'probe'); assert.equal(h.tracker.stats.probePixels, null, 'values only on a mismatch');
+  assert.equal(h.tracker.stats.handshakeMilliseconds, 22, 'from the worker\'s start to the answer');
   assert.equal(h.tracker.stats.active, 0); assert.equal(h.timers.size, 0);
   assert.equal(await h.tracker.ready(), 'bitmap', 'decided once per worker');
   assert.equal(worker.sent.length, 1, 'no second probe');
   assert.equal(h.tracker.stats.failures, 0);
   h.answer([...PROBE].fill(0), worker); assert.equal(h.tracker.transport, 'bitmap', 'a late second answer changes nothing');
   h.tracker.reset();
+  assert.equal(h.tracker.stats.transportReason, null, 'a reset forgets why'); assert.equal(h.tracker.stats.handshakeMilliseconds, null);
 });
 
-for (const [name, setup, act] of [
-  ['a value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 5 ? v + 3 : v)); }],
+for (const [name, setup, act, reason] of [
+  ['a value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 5 ? v + 3 : v)); }, 'mismatch'],
   // All sixteen values count, the alpha channel's too.
-  ['an alpha value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 7 ? v - 3 : v)); }],
-  ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }],
-  ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }],
-  ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }],
-  ['a reply that cannot be received', {}, async h => { h.started(); h.last().onmessageerror(); }],
-  ['a probe that cannot be transferred', { refuse: true }, async h => { assert.equal(h.bitmaps[0].closed, true, 'the probe bitmap is closed'); }],
-  ['no bitmap from this thread', { probe: 'none' }, async h => { assert.deepEqual(h.last().sent, [], 'nothing is probed'); h.started(); }],
-  ['a bitmap that cannot be made', { probe: 'rejects' }, async () => {}],
-  ['a canvas that cannot be made', { probe: 'throws' }, async () => {}],
+  ['an alpha value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 7 ? v - 3 : v)); }, 'mismatch'],
+  ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }, 'no-pixels'],
+  ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }, 'mismatch'],
+  ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }, 'mismatch'],
+  // The report keeps at most a 4 x 4 readback's values.
+  ['a readback of 8 x 8 pixels', {}, async h => { h.started(); h.answer(Array.from({ length: 256 }, (_, i) => i)); }, 'mismatch'],
+  ['a reply that cannot be received', {}, async h => { h.started(); h.last().onmessageerror(); }, 'unreadable'],
+  ['a probe that cannot be transferred', { refuse: true }, async h => { assert.equal(h.bitmaps[0].closed, true, 'the probe bitmap is closed'); }, 'probe-failed'],
+  ['no bitmap from this thread', { probe: 'none' }, async h => { assert.deepEqual(h.last().sent, [], 'nothing is probed'); h.started(); }, 'no-bitmaps'],
+  ['a bitmap that cannot be made', { probe: 'rejects' }, async () => {}, 'probe-failed'],
+  ['a canvas that cannot be made', { probe: 'throws' }, async () => {}, 'probe-failed'],
 ]) test(`the handshake decides "imagedata", with no failure counted, on ${name}`, async () => {
   const h = transport(setup), ready = h.tracker.ready();
   if (setup.refuse) h.last().refuse = data => data.op === 'probe';
   await flush();
   await act(h);
-  assert.equal(await ready, 'imagedata');
+  assert.equal(await settled(ready), 'imagedata');
+  assert.equal(h.tracker.stats.transportReason, reason, 'why, for the diagnostic report');
+  assert.ok(TRANSPORT_REASONS.includes(reason));
+  // On a mismatch the report gets the values read back, and nothing else.
+  assert.deepEqual(h.tracker.stats.probePixels, reason === 'mismatch' ? h.answered.slice(0, 64) : null);
   assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0, 'no handshake timer left');
   assert.equal(h.last().terminated, undefined, 'the worker is kept');
   // Its jobs carry the camera's own readback, transferred as before.
@@ -201,6 +211,8 @@ test('a worker without an answer 300 ms after it started is replaced by one on t
   assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
   h.fire(HANDSHAKE_WAIT);
   assert.equal(await settled(ready), 'imagedata', 'the waiters get the new worker\'s transport');
+  assert.equal(h.tracker.stats.transportReason, 'timeout');
+  assert.equal(h.tracker.stats.handshakeMilliseconds, null, 'the new worker has no handshake to time');
   assert.equal(h.workers.length, 2); assert.equal(h.workers[0].terminated, true, 'the stalled worker is ended');
   assert.deepEqual(h.workers[1].sent, [], 'the new worker gets no probe');
   assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0);
@@ -211,6 +223,7 @@ test('a worker without an answer 300 ms after it started is replaced by one on t
   assert.equal(h.workers[0].onmessage, null); assert.equal(h.tracker.transport, 'imagedata');
   h.tracker.reset();
   assert.equal(await settled(h.tracker.ready()), 'imagedata', 'nor is a later worker probed');
+  assert.equal(h.tracker.stats.transportReason, 'timeout', 'and it says why');
   assert.equal(h.workers.length, 3); assert.deepEqual(h.workers[2].sent, []);
   h.tracker.reset();
 });
@@ -303,10 +316,10 @@ test('every bitmap handed over is transferred or closed: a replaced queued frame
   assert.ok(h.bitmaps.every(b => b.closed || b.transferred), JSON.stringify(h.bitmaps.map(b => [b.label, b.closed, b.transferred])));
 });
 
-for (const [name, provoke] of [
-  ['replies "bitmap-unsupported"', h => h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' })],
-  ['never answers the first bitmap job', h => h.fire(ANCHOR_DEADLINE)],
-  ['sends a reply that cannot be received before a bitmap job completed', h => h.last().onmessageerror()],
+for (const [name, provoke, cause] of [
+  ['replies "bitmap-unsupported"', h => h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }), 'refused'],
+  ['never answers the first bitmap job', h => h.fire(ANCHOR_DEADLINE), 'unanswered'],
+  ['sends a reply that cannot be received before a bitmap job completed', h => h.last().onmessageerror(), 'unanswered'],
 ]) test(`bitmaps are given up, without a failure, when the worker ${name}`, async () => {
   const h = transport(); await h.handshake();
   const job = h.frame('anchor'), queued = h.frame(), anchored = h.tracker.anchor(job), verified = h.tracker.verify(queued);
@@ -316,9 +329,11 @@ for (const [name, provoke] of [
   assert.equal(h.tracker.stats.failures, 0, 'not a tracking failure');
   assert.equal(h.workers[0].terminated, true);
   assert.ok(job.bitmap.closed || job.bitmap.transferred); assert.equal(queued.bitmap.closed, true);
-  // Every later worker uses the ImageData transport, without a probe.
-  assert.equal(await h.tracker.ready(), 'imagedata');
+  // Every later worker uses the ImageData transport, without a probe, and
+  // says why.
+  assert.equal(await settled(h.tracker.ready()), 'imagedata');
   assert.equal(h.workers.length, 2); assert.deepEqual(h.workers[1].sent, []);
+  assert.equal(h.tracker.stats.transportReason, cause); assert.equal(h.tracker.stats.handshakeMilliseconds, null, 'no handshake ran');
   const later = h.frame(), retired = h.tracker.verify(later);
   await assert.rejects(retired, { name: 'AbortError' }); assert.equal(later.bitmap.closed, true, 'a bitmap prepared before is closed');
   h.tracker.reset();
@@ -332,7 +347,8 @@ for (const completed of [false, true]) test(`a bitmap that cannot be transferred
   const job = h.frame(completed ? 'verify' : 'anchor'), sent = completed ? h.tracker.verify(job) : h.tracker.anchor(job);
   await assert.rejects(sent, { name: 'NotSupportedError' });
   assert.equal(job.bitmap.closed, true); assert.equal(h.tracker.stats.failures, 0);
-  assert.equal(h.workers[0].terminated, true); assert.equal(await h.tracker.ready(), 'imagedata');
+  assert.equal(h.workers[0].terminated, true); assert.equal(await settled(h.tracker.ready()), 'imagedata');
+  assert.equal(h.tracker.stats.transportReason, 'untransferable');
   h.tracker.reset();
 });
 
@@ -366,7 +382,8 @@ test('the camera\'s own bitmap failure gives bitmaps up and resets', async () =>
   assert.equal(error.name, 'NotSupportedError', 'the error the camera throws');
   await both;
   assert.equal(queued.bitmap.closed, true); assert.equal(sent.bitmap.transferred, true);
-  assert.equal(h.tracker.stats.failures, 0); assert.equal(await h.tracker.ready(), 'imagedata');
+  assert.equal(h.tracker.stats.failures, 0); assert.equal(await settled(h.tracker.ready()), 'imagedata');
+  assert.equal(h.tracker.stats.transportReason, 'unmade');
   h.tracker.reset();
 });
 
@@ -559,6 +576,7 @@ test('a worker that dies during its first bitmap job gives bitmaps up, without a
   assert.equal(queued.bitmap.closed, true, "the queued frame's bitmap is closed");
   assert.equal(active.bitmap.closed, false, 'the transferred one went with the worker');
   assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.deepEqual(h.workers[1].sent, [], 'no probe');
+  assert.equal(h.tracker.stats.transportReason, 'unanswered');
   h.tracker.reset();
 });
 

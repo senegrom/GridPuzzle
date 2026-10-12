@@ -702,9 +702,23 @@ latency, queue work and the time to the first completed reading.
 `tracking.transport` names the transport of the worker that answered the
 scan's latest verification (`bitmap` or `imagedata`; none before the first
 answer, and kept across the reset at the freeze, Clear or a close until a
-later worker answers one), `performance.trackingWorker` is the
-tracking core's time and `performance.trackingTransport` the worker's draw and
-readback of a bitmap (0 for the camera's own readback). Frame age
+later worker answers one). `tracking.transportReason` says why, from a fixed
+list, so an `imagedata` from a phone tells an iOS without a 2D
+`OffscreenCanvas` in workers from a slow or failed handshake: from the
+worker's handshake `probe` (bitmaps work), `mismatch` (a value read back was
+off; `tracking.probePixels` then holds the values the 2 × 2 probe read back),
+`no-pixels` (the worker could not draw it), `unreadable` (its answer could not
+be received), `no-bitmaps` (the page makes none) or `probe-failed` (the probe
+could not be made or transferred); once bitmaps were given up in the camera
+session, the cause: `timeout` (no answer within the handshake's wait),
+`refused` (the worker could not read a bitmap back), `untransferable`,
+`unmade` (the camera could not make a bitmap of its snapshot, or got one of
+another size) or `unanswered` (a worker's first bitmap job reached its
+deadline, got an unreadable reply or the worker died in it).
+`tracking.handshakeMilliseconds` is the time from the worker's start to its
+handshake's decision (none without a handshake). `performance.trackingWorker`
+is the tracking core's time and `performance.trackingTransport` the worker's
+draw and readback of a bitmap (0 for the camera's own readback). Frame age
 and tracking latency count the frames sent for verification; while the camera
 aims at nothing none is. Before, every aiming frame counted too, through its
 empty verification: only as old as its own readback, with the tracker's last
