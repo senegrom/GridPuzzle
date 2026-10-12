@@ -15,7 +15,7 @@ const nextMessage = (thread, ms = 10000) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => { thread.off('message', on); reject(Error(`no message from the worker within ${ms} ms`)); }, ms);
   thread.once('message', on);
 });
-const image =(width=64,height=64) => ({width,height,data:new Uint8ClampedArray(width*height*4).fill(180)});
+const image = (width=64,height=64) => ({width,height,data:new Uint8ClampedArray(width*height*4).fill(180)});
 function harness() {
   const workers=[],timers=new Map();let serial=0;
   const tracker=createLiveTracker({makeWorker(){const worker={sent:[],postMessage(data,transfer){
@@ -471,6 +471,20 @@ test('a probe bitmap made after the handshake ran out is closed, not posted', as
   assert.equal(await settled(ready), 'imagedata');
   const late = h.bitmap('probe'); resolveProbe(late); await flush();
   assert.equal(late.closed, true); assert.deepEqual(h.last().sent, []);
+  h.tracker.reset();
+});
+
+// A worker whose answer could not be received is decided "imagedata" while
+// its probe is still being made, and kept: the probe made after the decision
+// is closed, not posted to it.
+test('a probe bitmap made after an unreadable answer decided the handshake is closed, not posted to the kept worker', async () => {
+  let resolveProbe;
+  const h = transport({ probe: () => new Promise(resolve => { resolveProbe = resolve; }) });
+  const ready = h.tracker.ready(); h.started(); h.last().onmessageerror();
+  assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unreadable');
+  const late = h.bitmap('probe'); resolveProbe(late); await flush();
+  assert.equal(late.closed, true); assert.deepEqual(h.workers[0].sent, [], 'nothing posted to the worker');
+  assert.equal(h.workers.length, 1, 'the worker is kept');
   h.tracker.reset();
 });
 
