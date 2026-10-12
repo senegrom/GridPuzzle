@@ -8,6 +8,13 @@ const flush = () => new Promise(r => setImmediate(r));
 // A promise that must have settled by now (its decision was made synchronously
 // in what the test just did): a regression fails at once, not at the timeout.
 const settled = promise => Promise.race([promise, flush().then(() => { throw Error('still pending'); })]);
+// The next message of a real worker thread: a worker that never sends it fails
+// the test here, not at its timeout (unharmed, one comes within a second).
+const nextMessage = (thread, ms = 10000) => new Promise((resolve, reject) => {
+  const on = data => { clearTimeout(timer); resolve(data); };
+  const timer = setTimeout(() => { thread.off('message', on); reject(Error(`no message from the worker within ${ms} ms`)); }, ms);
+  thread.once('message', on);
+});
 const image =(width=64,height=64) => ({width,height,data:new Uint8ClampedArray(width*height*4).fill(180)});
 function harness() {
   const workers=[],timers=new Map();let serial=0;
@@ -249,7 +256,7 @@ test('jobs wait for the handshake, which dispatches them; a job of the other tra
   assert.equal(anchorJob.bitmap.transferred && verifyJob.bitmap.transferred, true);
   // A frame read back for an "imagedata" worker that was replaced meanwhile.
   const stray = h.tracker.verify({ image: image(), anchors: [] });
-  await assert.rejects(stray, { name: 'AbortError' });
+  await assert.rejects(settled(stray), { name: 'AbortError' });
   assert.equal(h.last().sent.at(-1).op, 'verify', 'not posted'); assert.equal(h.last().sent.length, 3);
   assert.equal(h.tracker.stats.failures, 0); h.tracker.reset();
 });
@@ -258,7 +265,7 @@ test('a bitmap job for an "imagedata" worker is retired and its bitmap closed', 
   const h = transport({ probe: 'none' });
   assert.equal(await h.tracker.ready(), 'imagedata');
   const job = h.frame(), stray = h.tracker.verify(job);
-  await assert.rejects(stray, { name: 'AbortError' });
+  await assert.rejects(settled(stray), { name: 'AbortError' });
   assert.equal(job.bitmap.closed, true); assert.deepEqual(h.last().sent, []);
   h.tracker.reset();
 });
@@ -336,7 +343,7 @@ for (const [name, provoke, cause] of [
   assert.equal(h.workers.length, 2); assert.deepEqual(h.workers[1].sent, []);
   assert.equal(h.tracker.stats.transportReason, cause); assert.equal(h.tracker.stats.handshakeMilliseconds, null, 'no handshake ran');
   const later = h.frame(), retired = h.tracker.verify(later);
-  await assert.rejects(retired, { name: 'AbortError' }); assert.equal(later.bitmap.closed, true, 'a bitmap prepared before is closed');
+  await assert.rejects(settled(retired), { name: 'AbortError' }); assert.equal(later.bitmap.closed, true, 'a bitmap prepared before is closed');
   h.tracker.reset();
 });
 
@@ -405,7 +412,7 @@ test('the actual tracking worker announces its start, and without OffscreenCanva
   const script = `const {parentPort}=require('node:worker_threads');global.self={postMessage:m=>parentPort.postMessage(m)};import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
   const thread = new NodeWorker(script, { eval: true }), messages = [];
   t.after(() => thread.terminate());
-  const next = () => new Promise(resolve => thread.once('message', data => { messages.push(data); resolve(data); }));
+  const next = () => nextMessage(thread).then(data => { messages.push(data); return data; });
   assert.deepEqual(await next(), { started: true });
   thread.postMessage({ op: 'probe', bitmap: { width: 2, height: 2 } });
   assert.deepEqual(await next(), { probe: { pixels: null } });
@@ -483,7 +490,7 @@ test('a retired job of the other transport does not hold up the next job', async
   // An anchor read back for an "imagedata" worker, then a bitmap frame.
   const stray = h.tracker.anchor({ image: image(), corners: [], rows: 2, cols: 2, anchors: [] }), job = h.frame(), verified = h.tracker.verify(job);
   h.started(); h.answer(); await ready;
-  await assert.rejects(stray, { name: 'AbortError' });
+  await assert.rejects(settled(stray), { name: 'AbortError' });
   assert.deepEqual(h.last().sent.map(m => m.op), ['probe', 'verify'], 'the frame is posted at once');
   h.reply(); await verified; h.tracker.reset();
 });
@@ -539,7 +546,7 @@ global.OffscreenCanvas=OffscreenCanvas;global.self={postMessage:m=>parentPort.po
 import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
   const thread = new NodeWorker(script, { eval: true });
   t.after(() => thread.terminate());
-  const next = () => new Promise(resolve => thread.once('message', resolve));
+  const next = () => nextMessage(thread);
   assert.deepEqual(await next(), { started: true });
   thread.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE], width: 2, height: 2 } });
   assert.deepEqual(await next(), { probe: { pixels: [...PROBE] } }, 'the probe read back as drawn');
