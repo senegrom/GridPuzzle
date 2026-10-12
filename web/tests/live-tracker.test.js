@@ -199,6 +199,7 @@ for (const [name, setup, act, reason] of [
   const pixels = image(), done = h.tracker.verify({ image: pixels, anchors: [] });
   assert.equal(h.last().sent.at(-1).op, 'verify'); assert.equal(pixels.data.byteLength, 0);
   h.reply(); await done; h.tracker.reset();
+  assert.equal(h.tracker.stats.transportReason, null); assert.equal(h.tracker.stats.probePixels, null, 'a reset forgets the values');
 });
 
 // A worker that has not answered its probe 300 ms after it started may be
