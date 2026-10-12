@@ -965,7 +965,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   drew nothing as one it cannot read back. `live-tracking-pixels.test.js`: the
   worker's readback (one canvas, sized on change, cleared, the whole bitmap
   drawn, closed on every path, and refused for a bitmap that did not arrive
-  whole or a readback with a transparent pixel).
+  whole or a readback with a transparent pixel, also one only in its last
+  column, its last row or a corner).
 - `live-transport.test.js`: the camera with the bitmap transport on the
   production camera, tracker and tracking core with a fake clock: no tracking
   readback on the main thread, every job carrying a transferred bitmap of a

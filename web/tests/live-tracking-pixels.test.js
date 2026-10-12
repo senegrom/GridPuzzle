@@ -7,8 +7,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createPixelReader } from "../live-tracking-pixels.js";
 
-// `paint`: what a draw covers with opaque pixels ("all", the "left" half, or
-// "none"); a cleared canvas is transparent.
+// `paint`: what a draw covers with opaque pixels ("all", the "left" half,
+// "none", or a function of (x, y, width, height) that is false where the draw
+// leaves the canvas transparent); a cleared canvas is transparent.
 function fakes({ context = true, draw = null, paint = "all" } = {}) {
   const made = [], ops = [];
   const makeCanvas = (width, height) => {
@@ -25,6 +26,8 @@ function fakes({ context = true, draw = null, paint = "all" } = {}) {
             const data = new Uint8ClampedArray(width * height * 4);
             if (painted === "all") data.fill(255);
             if (painted === "left") for (let row = 0; row < height; row++) data.fill(255, 4 * row * width, 4 * (row * width + Math.floor(width / 2)));
+            if (typeof painted === "function") for (let row = 0; row < height; row++) for (let col = 0; col < width; col++)
+              if (painted(col, row, width, height)) data.fill(255, 4 * (row * width + col), 4 * (row * width + col + 1));
             return { width, height, data }; },
         } : null;
       },
@@ -112,4 +115,23 @@ for (const paint of ["none", "left"]) test(`a readback left ${paint === "none" ?
   assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), /drew nothing/);
   assert.equal(bitmap.closed, 1);
   assert.deepEqual(f.ops.map(([op]) => op), ["getContext", "clearRect", "drawImage", "getImageData"], "drawn and read back, then refused");
+});
+
+// The check's points reach the readback's edges, its corners included: a draw
+// that leaves only the last column, the last row or one corner pixel
+// transparent is refused too, and one that leaves none is read back.
+for (const [name, transparent] of [
+  ["the last column", (x, _y, w) => x === w - 1],
+  ["the last row", (_x, y, _w, h) => y === h - 1],
+  ["the top-left corner", (x, y) => x === 0 && y === 0],
+  ["the top-right corner", (x, y, w) => x === w - 1 && y === 0],
+  ["the bottom-left corner", (x, y, _w, h) => x === 0 && y === h - 1],
+  ["the bottom-right corner", (x, y, w, h) => x === w - 1 && y === h - 1],
+  ["no pixel", () => false],
+]) test(`a readback left transparent in ${name} by its bitmap is ${name === "no pixel" ? "read back" : "refused"}`, () => {
+  const f = fakes({ paint: (...at) => !transparent(...at) }), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
+  const read = () => pixelsOf({ bitmap, width: 960, height: 1280 });
+  if (name === "no pixel") assert.equal(read().width, 960);
+  else assert.throws(read, /drew nothing/);
+  assert.equal(bitmap.closed, 1);
 });
