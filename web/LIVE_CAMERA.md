@@ -1014,8 +1014,10 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 - `live_features_regressions.cjs`: the real worker in both transports (the
   one its handshake decides, a bitmap in Chromium, and the page's own
   readback): transfer and queue behaviour, the same verdicts and corners within
-  0.05 px; selected-cell Tesseract calls, identical-crop skipping and
-  diagnostic download privacy.
+  0.05 px, on a 500 × 500 frame tracked at its own size and on a 1600 × 1600
+  copy scaled to 1280 × 1280 (in the worker from its bitmap, or on the page);
+  selected-cell Tesseract calls, identical-crop skipping and diagnostic
+  download privacy.
 - `live_noise_regressions.cjs` runs automatic type and grid detection, the real
   tracking worker and Tesseract on a continually re-noised grey and blue
   synthetic board, then covers it and changes a digit; labels score output only,
@@ -1025,8 +1027,9 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   resolution changes and delayed replies from the real tracking worker, with
   controlled video clocks and OCR, so only resource ownership is measured:
   worker counts, owned timers and source and scratch buffers must return to zero
-  after each Stop, and every ImageBitmap the page made must have been
-  transferred or closed. It is not a heap benchmark.
+  after each Stop, and every ImageBitmap the page made must have gone to a
+  tracking worker in a message it accepted or been closed, none left with
+  pixels. It is not a heap benchmark.
 - `external_replay_regressions.cjs` replays the first three hash-selected Lexski
   test entries through automatic detection, tracking and real OCR; reference
   corners and values never reach the recognition path. Its report keeps no-read

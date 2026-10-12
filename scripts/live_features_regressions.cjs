@@ -18,11 +18,19 @@ async function fixture() {
 /* The real tracking worker in each transport (live-tracker.js): "default" is
    what the handshake decides in this engine (a bitmap of the frame, drawn and
    read back in the worker, where it can), "imagedata" the page's own readback
-   (no bitmaps offered). The fixture is 500 x 500, so the tracking pixels are
-   the canvas at its own size, as the camera would read them. */
-async function workerCheck(kind) {
+   (no bitmaps offered). The frame is the 500 x 500 fixture, or a `size` x
+   `size` copy of it, tracked as the camera tracks a snapshot: at most 1280
+   pixels on the long side, drawn into a cleared canvas with the default
+   smoothing (contentPixels in live-camera.js) or by the worker from the
+   frame's bitmap. A 1600 x 1600 copy is scaled to 1280 x 1280, in the worker
+   or on the page, which a frame within 1280 pixels never is. */
+async function workerCheck([kind,size=500]) {
   const {createLiveTracker}=await import('./live-tracker.js');
-  const {canvas,corners}=featureFixture;
+  const fixture=featureFixture;let canvas=fixture.canvas;
+  if(size!==fixture.canvas.width){canvas=document.createElement('canvas');canvas.width=canvas.height=size;canvas.getContext('2d').drawImage(fixture.canvas,0,0,size,size);}
+  const track=Math.min(size,1280),scratch=document.createElement('canvas');scratch.width=scratch.height=track;
+  // The fixture's corners in the frame, then in the tracking pixels, as the camera maps a detection's.
+  const corners=fixture.corners.map(p=>({x:p.x*size/fixture.canvas.width*(track-1)/(size-1),y:p.y*size/fixture.canvas.height*(track-1)/(size-1)}));
   let ticks=0;const timer=setInterval(()=>ticks++,5),workerURLs=[];
   const tracker=createLiveTracker({makeWorker(){
     const actual=new Worker(new URL('./live-tracking-worker.js',location.href),{type:'module'});workerURLs.push('live-tracking-worker.js');
@@ -30,21 +38,21 @@ async function workerCheck(kind) {
     actual.onmessage=e=>setTimeout(()=>host.onmessage?.(e),60);
     actual.onerror=e=>host.onerror?.(e);return host;
   },...(kind==='imagedata'?{probe:()=>null}:{})});
-  const pixels=()=>canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height),bitmaps=[];
+  const pixels=()=>{const ctx=scratch.getContext('2d',{willReadFrequently:true});ctx.clearRect(0,0,track,track);ctx.drawImage(canvas,0,0,track,track);return ctx.getImageData(0,0,track,track);},bitmaps=[];
   try {
     const transport=await tracker.ready();
-    const frame=async()=>{if(transport!=='bitmap')return{image:pixels()};const bitmap=await createImageBitmap(canvas);bitmaps.push(bitmap);return{bitmap,width:canvas.width,height:canvas.height};};
+    const frame=async()=>{if(transport!=='bitmap')return{image:pixels(),width:track,height:track};const bitmap=await createImageBitmap(canvas);bitmaps.push(bitmap);return{bitmap,width:track,height:track};};
     const a=await frame(),result=await tracker.anchor({...a,corners,rows:4,cols:4,anchors:[]});
     // Ten frames made first, then sent at once: the first goes to the worker,
     // each later one replaces the queued one, the last is verified.
     const frames=await Promise.all(Array.from({length:10},frame));
     const replies=await Promise.all(frames.map(f=>tracker.verify({...f,anchors:[result.anchor.id]})
       .then(r=>({matched:!!r.proofs[result.anchor.id],corners:r.proofs[result.anchor.id]?.corners??null}),e=>({cancelled:e.name==='AbortError'}))));
-    return {transport,replies,ticks,anchor:result.anchor.corners,stats:tracker.stats,workerURLs,
+    return {size,track,transport,replies,ticks,anchor:result.anchor.corners,stats:tracker.stats,workerURLs,
       detached:a.bitmap?a.bitmap.width===0&&a.bitmap.height===0:a.image.data.byteLength===0,
       // Transferred or closed, every one: both leave no pixels.
       bitmaps:bitmaps.length,bitmapsOpen:bitmaps.filter(b=>b.width||b.height).length};
-  }finally{tracker.reset();clearInterval(timer);}
+  }finally{tracker.reset();clearInterval(timer);if(canvas!==fixture.canvas)canvas.width=canvas.height=0;scratch.width=scratch.height=0;}
 }
 // Both transports on the same frames: the same verdicts, corners within 0.05 px.
 function sameProofs(a,b){
@@ -101,17 +109,22 @@ async function run() {
  try {
   await engines('live-features.json',async(page,report,engine)=>{
     await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');await page.evaluate(fixture);
-    report.worker=await page.evaluate(workerCheck,'imagedata');report.transport=await page.evaluate(workerCheck,'default');
+    report.worker=await page.evaluate(workerCheck,['imagedata']);report.transport=await page.evaluate(workerCheck,['default']);
+    // A phone-sized frame: scaled to the tracking size in the worker (from a
+    // bitmap) or on the page, which must give the same proofs too.
+    report.scaledWorker=await page.evaluate(workerCheck,['imagedata',1600]);report.scaled=await page.evaluate(workerCheck,['default',1600]);
     // Chromium can draw a bitmap in a worker; WebKit decides in its handshake
     // (no OffscreenCanvas before iOS 16.4, nor in this WebKit on Windows).
-    assert.equal(report.worker.transport,'imagedata');if(engine==='chromium')assert.equal(report.transport.transport,'bitmap');
-    for(const check of [report.worker,report.transport]){
+    assert.equal(report.worker.transport,'imagedata');assert.equal(report.scaledWorker.transport,'imagedata');
+    if(engine==='chromium'){assert.equal(report.transport.transport,'bitmap');assert.equal(report.scaled.transport,'bitmap');}
+    assert.equal(report.scaled.track,1280);
+    for(const check of [report.worker,report.transport,report.scaledWorker,report.scaled]){
       assert.equal(check.detached,true);assert.ok(check.ticks>0);
       assert.equal(check.replies.filter(r=>r.matched).length,2);assert.equal(check.replies.filter(r=>r.cancelled).length,8);
       assert.equal(check.stats.queuedFrames,0);assert.equal(check.stats.failures,0);assert.equal(check.stats.transport,check.transport);
+      if(check.transport==='bitmap'){assert.equal(check.bitmaps,11);assert.equal(check.bitmapsOpen,0);}
     }
-    if(report.transport.transport==='bitmap'){assert.equal(report.transport.bitmaps,11);assert.equal(report.transport.bitmapsOpen,0);}
-    sameProofs(report.transport,report.worker);
+    sameProofs(report.transport,report.worker);sameProofs(report.scaled,report.scaledWorker);
     report.targeted=await page.evaluate(targetedCheck);
     assert.deepEqual(report.targeted.full,report.targeted.expected);
     assert.equal(report.targeted.identical.skipped,true);assert.equal(report.targeted.identical.calls,0);

@@ -10,16 +10,18 @@ async function soak(){
   const paint=()=>{const c=source.getContext('2d');c.fillStyle='white';c.fillRect(0,0,source.width,source.height);c.fillStyle='black';c.fillRect(50,50,15,50);c.fillRect(120,120,20,40);};paint();
   const timers=new Set(),workers=new Set(),history=[];let made=0,peak=0,warm=0,readSerial=0;
   // Every ImageBitmap made on this thread (the bitmap transport's frames and
-  // probes) and every close() of one that still had pixels: after each stop,
-  // each must be transferred (detached: 0 x 0, never closed here) or closed.
-  const bitmaps=[],closed=new Set(),makeBitmap=window.createImageBitmap,closeBitmap=globalThis.ImageBitmap?.prototype.close;
+  // probes), every close() of one that still had pixels, and every one in the
+  // transfer list of a message a tracking worker accepted: after each stop,
+  // each must have been transferred or closed here, and none is left with
+  // pixels (a transferred one is detached: 0 x 0).
+  const bitmaps=[],closed=new Set(),transferred=new Set(),makeBitmap=window.createImageBitmap,closeBitmap=globalThis.ImageBitmap?.prototype.close;
   if(makeBitmap)window.createImageBitmap=async(...args)=>{const b=await makeBitmap.apply(window,args);bitmaps.push(b);return b;};
   if(closeBitmap)ImageBitmap.prototype.close=function(){if(this.width||this.height)closed.add(this);return closeBitmap.call(this);};
-  const balance=()=>{const open=bitmaps.filter(b=>b.width||b.height).length;return{created:bitmaps.length,closed:closed.size,transferred:bitmaps.length-closed.size-open,open};};
+  const balance=()=>({created:bitmaps.length,closed:closed.size,transferred:transferred.size,open:bitmaps.filter(b=>b.width||b.height).length});
   const set=(fn,ms)=>{const id=setTimeout(()=>{timers.delete(id);fn();},ms);timers.add(id);return id;},clear=id=>{clearTimeout(id);timers.delete(id);};
   const tracker=createLiveTracker({setTimer:set,clearTimer:clear,makeWorker(){
     const w=new Worker(new URL('./live-tracking-worker.js',location.href),{type:'module'});workers.add(w);made++;peak=Math.max(peak,workers.size);
-    const host={postMessage:(m,t)=>w.postMessage(m,t),terminate(){w.terminate();workers.delete(w);}};
+    const host={postMessage(m,t){w.postMessage(m,t);for(const item of t??[])if(bitmaps.includes(item))transferred.add(item);},terminate(){w.terminate();workers.delete(w);}};
     w.onmessage=e=>set(()=>host.onmessage?.(e),20);w.onerror=e=>host.onerror?.(e);return host;
   }});
   const diagnostics=createScanDiagnostics();diagnostics.begin('live',{});let ended=false;
@@ -45,8 +47,9 @@ async function run(){const server=await serve();try{await engines('live-soak.jso
  await p.goto(server.base);await p.waitForSelector('body[data-ready="true"]');r.soak=await p.evaluate(soak);
  assert.equal(r.soak.warm,0);assert.ok(r.soak.made>=20);assert.equal(r.soak.peak,1);
  for(const s of r.soak.history){assert.equal(s.workers,0);assert.equal(s.timers,0);assert.equal(s.active,false);assert.equal(s.scratchPixels,0);assert.equal(s.retainedSources,0);assert.equal(s.tracking.active+s.tracking.queuedFrames+s.tracking.queuedAnchors,0);
-  // The bitmap transport: created = transferred + closed after every stop.
-  assert.equal(s.bitmaps.open,0,`cycle ${s.cycle}: ${JSON.stringify(s.bitmaps)}`);}
+  // The bitmap transport: created = transferred + closed, none open, after every stop.
+  assert.equal(s.bitmaps.open,0,`cycle ${s.cycle}: ${JSON.stringify(s.bitmaps)}`);
+  assert.equal(s.bitmaps.created,s.bitmaps.transferred+s.bitmaps.closed,`cycle ${s.cycle}: ${JSON.stringify(s.bitmaps)}`);}
  const b=r.soak.bitmaps;assert.equal(b.created,b.transferred+b.closed);assert.equal(b.open,0);
  // Chromium draws bitmaps in its workers, so the soak exercises the transport there.
  if(engine==='chromium')assert.ok(b.transferred>=40,`bitmaps transferred: ${JSON.stringify(b)}`);
