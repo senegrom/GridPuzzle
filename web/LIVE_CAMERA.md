@@ -405,9 +405,13 @@ first anchor would have. Jobs wait for the decision. On seven corpus
 photographs, at their own size and scaled to a phone's snapshot, and on the
 live suites' scenes, the two give the same pixels in Chromium, bit for bit,
 and the same proofs and verdicts through shifts, noise, light and changed
-print; `live_features` compares the verdicts and corners of both, on a frame
-at the tracking size and on one scaled to it, on every engine whose handshake
-decides for bitmaps.
+print. On every engine whose handshake decides for bitmaps, `live_features`
+compares both, on a frame at the tracking size and on one scaled to it: the
+verdicts and corners of tracking, the worker's reader against the page's own
+readback (within 2 per channel), and an anchor built on either transport's
+pixels verified on the other's pixels of the same frame, at its own corners.
+The verdicts alone cannot show a frame drawn otherwise: a verified copy of an
+anchor's frame verifies at the anchor's corners, whatever both were drawn as.
 
 Every bitmap is transferred or closed: the worker closes each one it reads
 back, the tracker each one it does not transfer (a replaced queued frame, a
@@ -1069,8 +1073,13 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   readback): transfer and queue behaviour, the same verdicts and corners within
   0.05 px, on a 500 × 500 frame tracked at its own size and on a 1600 × 1600
   copy scaled to 1280 × 1280 (in the worker from its bitmap, or on the page);
-  selected-cell Tesseract calls, identical-crop skipping and diagnostic
-  download privacy.
+  where the handshake decides for bitmaps, the same pixels (the worker's reader
+  against the page's readback, within 2 per channel) and, in one real worker,
+  an anchor built on a bitmap verified on the page's readback of the same
+  frame, and the reverse, each at its anchor's corners within 0.05 px (a
+  worker that drew scaled bitmaps 4 px off fails both, which the verdicts
+  alone passed); selected-cell Tesseract calls, identical-crop skipping and
+  diagnostic download privacy.
 - `live_noise_regressions.cjs` runs automatic type and grid detection, the real
   tracking worker and Tesseract on a continually re-noised grey and blue
   synthetic board, then covers it and changes a digit; labels score output only,

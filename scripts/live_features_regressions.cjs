@@ -54,9 +54,51 @@ async function workerCheck([kind,size=500]) {
       bitmaps:bitmaps.length,bitmapsOpen:bitmaps.filter(b=>b.width||b.height).length};
   }finally{tracker.reset();clearInterval(timer);if(canvas!==fixture.canvas)canvas.width=canvas.height=0;scratch.width=scratch.height=0;}
 }
+/* Where the handshake picks bitmaps, the two transports must give the same
+   pixels, which the verdicts and corners of workerCheck cannot show: its
+   verified frames are copies of the anchor's frame, and a frame identical to
+   its anchor's verifies at the anchor's corners (matchGrid), whatever both
+   were drawn as. So, on workerCheck's frame: (1) the worker's reader
+   (live-tracking-pixels.js), run on this page on the frame's bitmap, against
+   the page's own readback (contentPixels in live-camera.js), within 2 per
+   channel; (2) in one real tracking worker, an anchor built from the frame's
+   bitmap verified on the page's readback of the same frame, and one built
+   from that readback verified on the bitmap: each must verify at its anchor's
+   corners, which a frame drawn otherwise in the worker moves or fails. */
+async function equivalenceCheck(size) {
+  const {createPixelReader}=await import('./live-tracking-pixels.js');
+  const fixture=featureFixture;let canvas=fixture.canvas;
+  if(size!==fixture.canvas.width){canvas=document.createElement('canvas');canvas.width=canvas.height=size;canvas.getContext('2d').drawImage(fixture.canvas,0,0,size,size);}
+  const track=Math.min(size,1280),scratch=document.createElement('canvas');scratch.width=scratch.height=track;
+  const corners=fixture.corners.map(p=>({x:p.x*size/fixture.canvas.width*(track-1)/(size-1),y:p.y*size/fixture.canvas.height*(track-1)/(size-1)}));
+  const pixels=()=>{const ctx=scratch.getContext('2d',{willReadFrequently:true});ctx.clearRect(0,0,track,track);ctx.drawImage(canvas,0,0,track,track);return ctx.getImageData(0,0,track,track);};
+  const worker=new Worker(new URL('./live-tracking-worker.js',location.href),{type:'module'}),replies=new Map();
+  const within=(promise,what)=>{let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(`no ${what} within 20 s`)),20000);})]).finally(()=>clearTimeout(timer));};
+  try{
+    const page=pixels().data,read=createPixelReader()({bitmap:await createImageBitmap(canvas),width:track,height:track}).data;
+    let max=0,differing=0;
+    for(let i=0;i<page.length;i++){const d=Math.abs(page[i]-read[i]);if(d){differing++;if(d>max)max=d;}}
+    await within(new Promise((resolve,reject)=>{worker.onerror=e=>reject(Error(e.message||'the tracking worker failed'));
+      worker.onmessage=({data})=>{if(data?.started)resolve();else replies.get(data?.id)?.(data);};}),'start of the tracking worker');
+    let serial=0;
+    const ask=async(op,kind,extra)=>{
+      const job=kind==='bitmap'?{bitmap:await createImageBitmap(canvas)}:{image:pixels()},id=++serial;
+      return within(new Promise(resolve=>{replies.set(id,resolve);
+        worker.postMessage({op,id,...job,width:track,height:track,...extra},[job.bitmap??job.image.data.buffer]);}),`reply to ${op}`);
+    };
+    const cross={};
+    for(const [anchorKind,verifyKind] of [['bitmap','imagedata'],['imagedata','bitmap']]){
+      const built=await ask('anchor',anchorKind,{corners,rows:4,cols:4,anchors:[]}),id=built.result?.anchor?.id;
+      const verified=await ask('verify',verifyKind,{anchors:[id]});
+      cross[`${anchorKind} anchor, ${verifyKind} frame`]={anchor:built.result?.anchor?.corners??null,
+        proof:verified.result?.proofs?.[id]?.corners??null,error:built.error??verified.error??null};
+    }
+    return {size,track,pixels:{maxChannelDifference:max,differingValues:differing,values:page.length},cross};
+  }finally{worker.terminate();if(canvas!==fixture.canvas)canvas.width=canvas.height=0;scratch.width=scratch.height=0;}
+}
+const near=(p,q)=>!!p&&!!q&&p.length===q.length&&p.every((v,i)=>Math.abs(v.x-q[i].x)<=.05&&Math.abs(v.y-q[i].y)<=.05);
 // Both transports on the same frames: the same verdicts, corners within 0.05 px.
 function sameProofs(a,b){
-  const near=(p,q)=>p.length===q.length&&p.every((v,i)=>Math.abs(v.x-q[i].x)<=.05&&Math.abs(v.y-q[i].y)<=.05);
   assert.ok(near(a.anchor,b.anchor),`anchor corners ${JSON.stringify([a.anchor,b.anchor])}`);
   assert.deepEqual(a.replies.map(r=>r.cancelled?'cancelled':r.matched),b.replies.map(r=>r.cancelled?'cancelled':r.matched));
   a.replies.forEach((r,i)=>{if(r.corners)assert.ok(near(r.corners,b.replies[i].corners),`proof ${i}`);});
@@ -125,6 +167,19 @@ async function run() {
       if(check.transport==='bitmap'){assert.equal(check.bitmaps,11);assert.equal(check.bitmapsOpen,0);}
     }
     sameProofs(report.transport,report.worker);sameProofs(report.scaled,report.scaledWorker);
+    // Where the handshake picks bitmaps (both sizes in Chromium): the same
+    // pixels, and each transport's anchor verified at its corners on the other's.
+    report.equivalence={};
+    for(const [check,size] of [[report.transport,500],[report.scaled,1600]]){
+      if(check.transport!=='bitmap')continue;
+      const result=report.equivalence[size]=await page.evaluate(equivalenceCheck,size);
+      assert.ok(result.pixels.maxChannelDifference<=2,`${size}: the worker's reader against the page's readback ${JSON.stringify(result.pixels)}`);
+      for(const [name,r] of Object.entries(result.cross)){
+        assert.equal(r.error,null,`${size}, ${name}`);
+        assert.ok(near(r.proof,r.anchor),`${size}, ${name}: verified at the anchor's corners ${JSON.stringify(r)}`);
+      }
+    }
+    if(engine==='chromium')assert.deepEqual(Object.keys(report.equivalence),['500','1600']);
     report.targeted=await page.evaluate(targetedCheck);
     assert.deepEqual(report.targeted.full,report.targeted.expected);
     assert.equal(report.targeted.identical.skipped,true);assert.equal(report.targeted.identical.calls,0);
