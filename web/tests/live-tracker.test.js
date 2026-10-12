@@ -241,6 +241,7 @@ test('a worker without an answer 300 ms after it started is replaced at once by 
 // its late end, and the answer that comes then decides; a renewed wait that
 // ends on time replaces a worker that still has not answered.
 test('a wait that ends late, behind a long task, is renewed, and the answer after it decides "bitmap"', async () => {
+  assert.equal(HANDSHAKE_LATE, 50, 'late: more than 50 ms after its end (LIVE_CAMERA.md)');
   const h = transport(), ready = h.tracker.ready(); await flush();
   h.started();
   h.tick(HANDSHAKE_WAIT + HANDSHAKE_LATE + 1); h.fire(HANDSHAKE_WAIT);
