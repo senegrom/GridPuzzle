@@ -368,41 +368,62 @@ available without a synchronous registration fallback.
 The tracking pixels are the snapshot scaled to at most 1280 pixels on the
 long side (960 × 1280 from a phone's 1200 × 1600 snapshot). Where the browser
 can, the worker makes them itself: the camera hands over
-`createImageBitmap(snapshot)`, a copy the browser makes without reading the
-pixels back to the main thread, transferred with the job, and the worker draws
-it at the tracking size into one `OffscreenCanvas` and reads it back there
-(`live-tracking-pixels.js`). The main thread then neither scales the frame nor
-reads its 4.9 MB back; it still takes the snapshot, which is the frame that is
-adopted, frozen, captured and read. Otherwise the camera does the readback
-itself, as before. Each worker uses one of the two, decided by a handshake
-when it starts, so every anchor is verified on pixels resampled the way it was
-built: the tracker transfers a bitmap of a 2 × 2 canvas of four known colours,
-which the worker draws and reads back. The bitmap transport needs all sixteen
-values within 2. A wrong value, a worker without a 2D `OffscreenCanvas` (iOS
-before 16.4, and Playwright's WebKit on Windows), a probe that cannot be made
-or transferred, a reply that cannot be received, or no answer within 300 ms of
-the worker's start (its first message: loading its modules is no part of the
-transport) mean the camera's own readback; a worker that never starts fails as
+`createImageBitmap(snapshot)`, a copy of the snapshot transferred with the
+job, and the worker draws it at the tracking size into one `OffscreenCanvas`
+and reads it back there (`live-tracking-pixels.js`). The main thread then
+neither scales the frame nor reads its 4.9 MB back; it still takes the
+snapshot, which is the frame that is adopted, frozen, captured and read. In
+desktop Chromium the main thread's part of making the bitmap measured 0–0.3
+ms. Safari before 26.2 (WebKit's release branches up to safari-7622) copies
+the snapshot's pixels out of its GPU process for the bitmap while the main
+thread waits, the copy the scaled draw of the camera's own readback also
+needs, so on such an iPhone the bitmap saves the scaled draw and the readback
+but not that copy.
+Otherwise the camera does the readback itself, as before. Each worker uses one
+of the two, decided by a handshake when it starts, so every anchor is verified
+on pixels resampled the way it was built: the tracker transfers a bitmap of a
+2 × 2 canvas of four known colours, which the worker draws and reads back. The
+bitmap transport needs all sixteen values within 2. A wrong value, a worker
+without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's WebKit on
+Windows), a probe that cannot be made or transferred, or a reply that cannot
+be received mean the camera's own readback. So does a worker that has not
+answered 300 ms after its start (its first message: loading its modules is no
+part of the transport): it may be stuck on the probe, with every job queued
+behind it, so it is replaced by one on the camera's own readback, and no later
+worker of the camera session is probed. A worker that never starts fails as
 its first anchor would have. Jobs wait for the decision. On seven corpus
 photographs, at their own size and scaled to a phone's snapshot, and on the
 live suites' scenes, the two give the same pixels in Chromium, bit for bit,
 and the same proofs and verdicts through shifts, noise, light and changed
-print; `live_features` compares the verdicts and corners of both on every
-engine whose handshake decides for bitmaps.
+print; `live_features` compares the verdicts and corners of both, on a frame
+at the tracking size and on one scaled to it, on every engine whose handshake
+decides for bitmaps.
 
 Every bitmap is transferred or closed: the worker closes each one it reads
 back, the tracker each one it does not transfer (a replaced queued frame, a
 reset, a failed post, a job prepared for a worker of the other transport), and
 the camera one whose frame or detection was retired while it was made. A
-bitmap failure (the worker cannot read one back, one cannot be transferred or
-made, a reply cannot be received, or a deadline passes before any bitmap job
-of the worker completed) is no tracking failure: bitmaps are given up for the
-rest of the camera session, the worker is reset with its anchors, and the
-camera starts acquisition again at once on its own readback, with no back-off
-and no Restart (a `tracking-transport` event). Later failures of a worker whose
-bitmaps have worked count as before. The worker reports the tracking core's
-time apart from the transport's draw and readback, and only the core's paces
-the frames, so moving the readback into the worker does not slow them.
+bitmap failure is no tracking failure: bitmaps are given up for the rest of
+the camera session, the worker is reset with its anchors, and the camera
+starts acquisition again at once on its own readback, with no back-off and no
+Restart (a `tracking-transport` event; the diagnostic report gives the cause).
+These give bitmaps up whenever they happen: the worker cannot read a bitmap
+back (no 2D context there, a bitmap that arrived null, 0 × 0 or smaller than
+the tracking pixels, or a readback with a transparent pixel, which a camera
+snapshot never has: a bitmap that drew nothing), a bitmap cannot be
+transferred, or the camera cannot make one or gets one of another size than
+its snapshot (WebKit's answer when it cannot allocate the copy is a blank
+1 × 1 bitmap). Tracked, a bitmap that is no picture of its snapshot would give
+an anchor with nothing in it, which every later such frame would match at the
+detection's corners. These give bitmaps up only before any bitmap job of the
+worker has completed, and count as tracking failures, as before, once one
+has: a reply that cannot be received, a job's deadline, and the worker dying
+with a bitmap job in it. A bitmap that cannot be made for a frame the freeze
+has retired gives bitmaps up too, with no restart and no event while the view
+is frozen; the scans after Clear report the cause. The worker reports the
+tracking core's time apart from the transport's draw and readback, and only
+the core's paces the frames, so moving the readback into the worker does not
+slow them.
 
 ### Live and delayed views
 
@@ -912,16 +933,22 @@ Unit tests (`node --test web/tests/*.test.js`):
   per-clue re-read. `live-tracker.test.js` also covers the pixel transport:
   the default probe (a 2 × 2 page canvas holding the four colours), the
   handshake's decision (every way to the camera's own readback, none of them a
-  failure, and a worker that never starts failing as its first anchor would
-  have), jobs waiting for it, a reset rejecting its waiters, every bitmap
-  transferred or closed, the bitmap failures that give bitmaps up without a
-  failure and the later ones that count (a worker that dies, even before any
-  bitmap job of it completed: its queued bitmap closed, and bitmaps kept for
-  the next worker), the core's time apart from the transport's, and the real
+  failure, each with its reason and time for the diagnostic report, a worker
+  that has not answered the probe in time replaced for good, and a worker that
+  never starts failing as its first anchor would have), jobs waiting for it, a
+  reset rejecting its waiters, every bitmap transferred or closed, the next
+  job posted only after a reply's continuation (so a freeze there closes its
+  bitmap rather than posting it to the ended worker), the bitmap failures that
+  give bitmaps up without a failure, with their causes, and the later ones
+  that count (a worker that dies once a bitmap job of it completed, idle or on
+  the camera's own readback: its queued bitmap closed, and bitmaps kept for the
+  next worker), the core's time apart from the transport's, and the real
   worker module drawing a bitmap through a stand-in `OffscreenCanvas`, timed on
-  a clock only its draw moves. `live-tracking-pixels.test.js`: the worker's
-  readback (one canvas, sized on change, cleared, the whole bitmap drawn,
-  closed on every path).
+  a clock only its draw moves, and answering a bitmap that arrived null or
+  drew nothing as one it cannot read back. `live-tracking-pixels.test.js`: the
+  worker's readback (one canvas, sized on change, cleared, the whole bitmap
+  drawn, closed on every path, and refused for a bitmap that did not arrive
+  whole or a readback with a transparent pixel).
 - `live-transport.test.js`: the camera with the bitmap transport on the
   production camera, tracker and tracking core with a fake clock: no tracking
   readback on the main thread, every job carrying a transferred bitmap of a
@@ -940,7 +967,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   failure, back-off or Restart, the detection in flight abandoned rather than
   cancelled, a waiting candidate discarded and the outline gone before the
   next frame, no anchor of the old worker asked for, the frame the bitmap
-  failed on kept as the newest picture scanned, and the grid read again).
+  failed on kept as the newest picture scanned, the grid read again, and the
+  cause in the export). Bitmaps that are not their snapshot's size, or draw
+  nothing in the worker's reader, give bitmaps up at the first one: no anchor
+  or proof is built on one, and a grid that moved after its reading freezes
+  where it is. A worker stuck on its probe, or dying on its first bitmap job,
+  leaves the grid read on the camera's own readback; a bitmap failure for a
+  frame the freeze retired leaves the frozen view, and the next scan's export
+  gives its cause.
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
