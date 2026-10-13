@@ -334,7 +334,7 @@ function runProfile(b, w, h, shearX = 0, shearY = 0) {
 }
 // `mode` picks what counts as a line: "ink" the adaptive mask, "run" the
 // longest continuous run of ink.
-export function gridLines(image, mask, shear = null, mode = "ink", invert = false) {
+export function gridLines(image, mask, shear = null, mode = "ink", invert = false, relaxed = false) {
   const w = image.width,
     h = image.height,
     // Inverted, a screen with a light-on-dark theme has its light lines as
@@ -346,7 +346,17 @@ export function gridLines(image, mask, shear = null, mode = "ink", invert = fals
   // cells and its column reads at half strength. Measure over the pixels that
   // are ink or not absolutely dark, so the line counts where it can be seen.
   const visible = new Uint8Array(b.length);
-  for (let i = 0; i < b.length; i++) visible[i] = b[i] || g[i] >= 50 ? 1 : 0;
+  // Relaxed (a still photograph's retry, see findGrid): "absolutely dark" is
+  // judged against the warp, since every cell of a dark-theme screen is below
+  // 50 and none would be visible, so every column would read as all line.
+  let floor = 50;
+  if (relaxed) {
+    const histogram = new Uint32Array(256);
+    for (let i = 0; i < g.length; i += 3) histogram[g[i]]++;
+    for (let v = 0, seen = 0, half = Math.ceil(g.length / 3) / 2; v < 256; v++)
+      if ((seen += histogram[v]) >= half) { floor = Math.min(50, 0.6 * v); break; }
+  }
+  for (let i = 0; i < b.length; i++) visible[i] = b[i] || g[i] >= floor ? 1 : 0;
   // A quad a few percent off the grid slants every line in the warp and
   // smears its column; read each axis in the frame that straightens it.
   const shearX = shear ? shear.x : bestShear(b, w, h, visible, "x"),
@@ -571,7 +581,7 @@ function runLattice(best, lines, length) {
 // Test one axis at a cell count the other axis established: the warp maps
 // the quad to a square, so a square-celled grid has the same spacing both
 // ways. Four in five positions must hold a line and strays stay bounded.
-function latticeAt(found, length, cells, beyond) {
+function latticeAt(found, length, cells, beyond, relaxed = false) {
   const lines = trimmed(found, length, beyond),
     step = (length - 1) / cells;
   let present = 0,
@@ -588,23 +598,26 @@ function latticeAt(found, length, cells, beyond) {
       if (k === cells) last = Math.max(last, l.at);
     }
   }
-  return present >= Math.ceil((cells + 1) * 0.8) && strays <= Math.floor(lines.length / 5)
+  // Relaxed: nine in ten positions holding a line may carry strays up to half
+  // the lines (a dark theme's highlighted rows and bright digits add lines).
+  return (present >= Math.ceil((cells + 1) * 0.8) && strays <= Math.floor(lines.length / 5)) ||
+    (relaxed && present >= Math.ceil((cells + 1) * 0.9) && strays <= Math.floor(lines.length / 2))
     ? { cells, first: Number.isFinite(first) ? first : 0, last: Number.isFinite(last) ? last : length - 1,
       quality: present / (cells + 1) - strays / lines.length }
     : { cells: 0, first: 0, last: length - 1, quality: 0 };
 }
-export function estimateGrid(image, mask, shear = null, aspect = 1, invert = false, thorough = true) {
-  let lines = gridLines(image, mask, shear, "ink", invert),
+export function estimateGrid(image, mask, shear = null, aspect = 1, invert = false, thorough = true, relaxed = false) {
+  let lines = gridLines(image, mask, shear, "ink", invert, relaxed),
     across = regular(lines.x, image.width, lines.beyondX),
     down = regular(lines.y, image.height, lines.beyondY);
-  if (across.cells && !down.cells) down = latticeAt(lines.y, image.height, across.cells, lines.beyondY);
-  else if (down.cells && !across.cells) across = latticeAt(lines.x, image.width, down.cells, lines.beyondX);
+  if (across.cells && !down.cells) down = latticeAt(lines.y, image.height, across.cells, lines.beyondY, relaxed);
+  else if (down.cells && !across.cells) across = latticeAt(lines.x, image.width, down.cells, lines.beyondX, relaxed);
   // Cells full of pencil marks or handwriting lift columns of small digits
   // over the cutoff and bury the lattice in strays. Lines are continuous
   // where marks are not: the longest-run profile keeps only what runs the
   // length of the warp.
   if (thorough && !(across.cells && down.cells)) {
-    const runs = gridLines(image, mask, lines.shear, "run", invert),
+    const runs = gridLines(image, mask, lines.shear, "run", invert, relaxed),
       runAcross = regular(runs.x, image.width, runs.beyondX),
       runDown = regular(runs.y, image.height, runs.beyondY);
     // At least five cells each way: a coarser lattice found only by continuous
@@ -652,9 +665,12 @@ export function estimateGrid(image, mask, shear = null, aspect = 1, invert = fal
   if (!invert && !(across.cells && down.cells) && lightOnDark(gray(image))) {
     // The skew is a property of the quad, not of the ink's polarity: the
     // inverted pass reuses the shear rather than searching for it again.
-    const flipped = estimateGrid(image, undefined, shear ?? lines.shear, aspect, true, thorough);
+    const flipped = estimateGrid(image, undefined, shear ?? lines.shear, aspect, true, thorough, relaxed);
     if (flipped.rows && flipped.cols) return flipped;
   }
+  // A relaxed reading needs five cells each way, like a run-profile one: fewer
+  // is a Sudoku's 3 x 3 box lines, or a keypad, rather than a small grid.
+  if (relaxed && (across.cells < 5 || down.cells < 5)) across = down = { cells: 0 };
   const cols = across.cells,
     rows = down.cells;
   let boxes = false;
@@ -686,7 +702,7 @@ function padded(corners, width, height, fraction = 0.04) {
 // the lattice's outer lines are the grid's border, mapped back through the
 // homography, and the tighter quad is confirmed with a second padded warp
 // that must find the same lattice.
-function settle(image, corners, thorough = true) {
+function settle(image, corners, thorough = true, relaxed = false) {
   const size = 540,
     grown = padded(corners, image.width, image.height),
     // Clamping a quad that touches the frame can fold it; fall back to the
@@ -696,7 +712,7 @@ function settle(image, corners, thorough = true) {
     // height over its width, which a partial lattice must respect.
     aspect = (Math.hypot(loose[3].x - loose[0].x, loose[3].y - loose[0].y) + Math.hypot(loose[2].x - loose[1].x, loose[2].y - loose[1].y)) /
       Math.max(1, Math.hypot(loose[1].x - loose[0].x, loose[1].y - loose[0].y) + Math.hypot(loose[2].x - loose[3].x, loose[2].y - loose[3].y)),
-    estimated = estimateGrid(warp(image, loose, size, size), undefined, null, aspect, false, thorough);
+    estimated = estimateGrid(warp(image, loose, size, size), undefined, null, aspect, false, thorough, relaxed);
   if (!estimated.rows || !estimated.cols || !estimated.extent) return { corners, estimated };
   const [x0, x1] = estimated.extent.x,
     [y0, y1] = estimated.extent.y,
@@ -730,7 +746,7 @@ function settle(image, corners, thorough = true) {
   // to search for.
   if (moved <= diagonal * 0.01 && !estimated.partial) return { corners: tight, estimated };
   const grownTight = padded(tight, image.width, image.height),
-    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 }, 1, false, thorough);
+    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 }, 1, false, thorough, relaxed);
   if (again.rows === estimated.rows && again.cols === estimated.cols && !again.partial) return { corners: tight, estimated: again };
   return estimated.partial ? none : { corners, estimated };
 }
@@ -811,7 +827,7 @@ function widened(b, w, h, start, gap, queue) {
   }
   return [tl, tr, br, bl];
 }
-function findIn(image, b, thorough = true) {
+function findIn(image, b, thorough = true, relaxed = false) {
   const w = image.width,
     h = image.height,
     seen = new Uint8Array(b.length),
@@ -917,13 +933,13 @@ function findIn(image, b, thorough = true) {
     // quad short by a black clue band leaves one a column short.
     tried = (candidate) => {
       if (candidate.tried) return candidate.tried;
-      const plain = settle(image, candidate.corners, thorough),
+      const plain = settle(image, candidate.corners, thorough, relaxed),
         wide = widen(candidate),
         diagonal = Math.hypot(candidate.corners[2].x - candidate.corners[0].x, candidate.corners[2].y - candidate.corners[0].y),
         moved = Math.max(...wide.map((p, i) => Math.hypot(p.x - candidate.corners[i].x, p.y - candidate.corners[i].y)));
       let outcome = plain;
       if (moved > diagonal * 0.01) {
-        const wider = settle(image, wide, thorough);
+        const wider = settle(image, wide, thorough, relaxed);
         if (found(wider) && (!found(plain) ||
           wider.estimated.quality > plain.estimated.quality + 0.05 ||
           (samePitch(wider, plain) && wider.estimated.rows + wider.estimated.cols > plain.estimated.rows + plain.estimated.cols &&
@@ -1096,10 +1112,12 @@ function dotGrid(image, b) {
   if (!validQuad(tight, w, h)) return null;
   return { corners: tight, confidence: 0.94, rows: down.cells, cols: across.cells, boxes: false };
 }
+// The confidence of a lattice that only proposes the corners (see findGrid).
+export const PROPOSED = 0.8;
 // The grid in a frame: read from the ink mask; when that finds no grid in a
 // mostly dark frame (a screen with a light-on-dark theme, whose light lines
-// are not ink), from the inverted frame; and failing both, as a lattice of
-// dots.
+// are not ink), from the inverted frame; failing both, as a lattice of dots;
+// and for a still photograph, as a relaxed lattice that is only proposed.
 export function findGrid(image, { thorough = true } = {}) {
   const g = gray(image),
     b = thresholdGray(g, image.width, image.height);
@@ -1110,7 +1128,18 @@ export function findGrid(image, { thorough = true } = {}) {
     if (second.confidence >= 0.9) return second;
     if (second.confidence > best.confidence) best = second;
   }
-  return dotGrid(image, b) ?? best;
+  const dots = dotGrid(image, b);
+  if (dots) return dots;
+  // A still photograph whose line stage found no lattice anywhere gets one
+  // relaxed retry (dark-theme screens, whose lines are darker than cells that
+  // are themselves nearly black). Its lattice only proposes the corners: its
+  // confidence is PROPOSED, which the photo flow does not take as found (that
+  // needs more than 0.8), so the corners must be confirmed and every cell of
+  // a reading through them unchanged is highlighted. Measured on the corpus,
+  // reading these automatically left digits the player had entered on app
+  // screenshots unflagged as printed clues.
+  const retried = findIn(image, b, thorough, true);
+  return retried.confidence >= 0.9 ? { ...retried, confidence: PROPOSED } : best;
 }
 export function sharpness(image) {
   const g = gray(image),

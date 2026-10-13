@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { estimateGrid, findGrid, gridLines } from "../geometry.js";
+import { estimateGrid, findGrid, gridLines, PROPOSED } from "../geometry.js";
 
 // A 540 x 540 warp of a 9 x 9 grid drawn the way a photograph thresholds:
 // thick box lines, thin cell lines at a chosen grey, digits as short strokes
@@ -146,6 +146,53 @@ test("a light-on-dark screen grid is found", () => {
   assert.equal(found.rows, 9); assert.equal(found.cols, 9);
   const truth = [[g0, g0], [g0 + 9 * cell, g0], [g0 + 9 * cell, g0 + 9 * cell], [g0, g0 + 9 * cell]];
   assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+// A dark-theme app whose cell lines (24) and box lines (12) are darker than
+// its cells (42), light digits in a third of the cells, and highlighted rows
+// and columns (62), as an app marks the selected cell's row and column.
+function darkScreen({ cellLine = 24, highlightRows = [4], highlightCols = [] } = {}) {
+  const n = 640, cell = 60, g0 = 50, data = new Uint8ClampedArray(n * n * 4);
+  const px = (x, y, v) => { if (x < 0 || y < 0 || x >= n || y >= n) return; const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 14);
+  for (let y = g0; y <= g0 + 9 * cell; y++) for (let x = g0; x <= g0 + 9 * cell; x++)
+    px(x, y, highlightRows.includes(Math.floor((y - g0) / cell)) || highlightCols.includes(Math.floor((x - g0) / cell)) ? 62 : 42);
+  for (let k = 0; k <= 9; k++) for (let t = g0; t <= g0 + 9 * cell; t++) {
+    const v = k % 3 === 0 ? 12 : cellLine, thick = k % 3 === 0 ? 3 : 1;
+    for (let d = 0; d < thick; d++) { px(g0 + k * cell + d, t, v); px(t, g0 + k * cell + d, v); }
+  }
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if ((r * 4 + c * 7) % 3 === 0)
+    for (let y = 18; y < 42; y++) for (let x = 24; x < 36; x++) if (x < 27 || x > 32 || y < 22 || y > 38) px(g0 + c * cell + x, g0 + r * cell + y, 200);
+  return { image: { width: n, height: n, data }, truth: [[g0, g0], [g0 + 9 * cell, g0], [g0 + 9 * cell, g0 + 9 * cell], [g0, g0 + 9 * cell]] };
+}
+test("a dark-theme screen with darker lines is proposed by a still photograph's retry, never found", () => {
+  const { image, truth } = darkScreen(), found = findGrid(image);
+  assert.equal(found.confidence, PROPOSED); assert.ok(PROPOSED <= 0.8, "the photo flow confirms only above 0.8");
+  assert.equal(found.rows, 9); assert.equal(found.cols, 9);
+  assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 8 && Math.abs(c.y - truth[i][1]) <= 8), JSON.stringify(found.corners));
+});
+test("the live camera, which is not thorough, never retries", () => {
+  // Highlighted rows and a column: a retry would read this one even from a live frame.
+  const { image } = darkScreen({ highlightRows: [1, 4, 7], highlightCols: [4] });
+  assert.equal(findGrid(image).confidence, PROPOSED);
+  const live = findGrid(image, { thorough: false });
+  assert.ok(live.confidence < PROPOSED && !(live.rows && live.cols), JSON.stringify(live));
+});
+test("what the line stage reads today is not retried: the same screen without highlights is found", () => {
+  assert.equal(findGrid(darkScreen({ highlightRows: [] }).image).confidence, 0.94);
+});
+test("a relaxed retry that sees only box lines proposes nothing", () => {
+  // Cell lines as dark as the cells: only the 3 x 3 box lines are visible.
+  const found = findGrid(darkScreen({ cellLine: 42 }).image);
+  assert.ok(found.confidence < PROPOSED && !(found.rows && found.cols), JSON.stringify(found));
+});
+test("with one axis established, a relaxed reading completes the other past stray lines", () => {
+  // Nine of the ten row lines, and four full-width strays between them: more
+  // than the fifth of the lines that the strict reading tolerates.
+  const image = warp({ drop: "y7" }), n = 540;
+  for (const y of [30, 90, 330, 450]) for (let x = 0; x < n; x++) { const i = (y * n + x) * 4; image.data[i] = image.data[i + 1] = image.data[i + 2] = 0; }
+  const strict = estimateGrid(image, undefined, null, 1, false, true), relaxed = estimateGrid(image, undefined, null, 1, false, true, true);
+  assert.ok(!(strict.rows && strict.cols), JSON.stringify([strict.rows, strict.cols]));
+  assert.deepEqual([relaxed.rows, relaxed.cols], [9, 9]);
 });
 test("a grid joined to a toolbar below it is found without the toolbar", () => {
   // 9 x 9 grid of 50 px cells; a 75 px toolbar box hangs from the bottom
