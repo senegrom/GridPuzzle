@@ -8,10 +8,10 @@
 # pyproject.toml keeps open lower bounds instead, which CI's lower-bounds job
 # tests; Dependabot leaves those alone.
 colorama==0.4.6
-iniconfig==2.3.0
+iniconfig==2.3.1
 markdown-it-py==4.2.0
 mdurl==0.1.2
-numpy==2.5.3
+numpy==2.5.4
 packaging==26.3
 pillow==12.3.0
 pip==26.2.1
@@ -19,5 +19,5 @@ pluggy==1.6.0
 pygments==2.21.0
 pytest==9.1.1
 rich==15.0.0
-ruff==0.16.10
+ruff==0.17.0
 setuptools==84.0.0
