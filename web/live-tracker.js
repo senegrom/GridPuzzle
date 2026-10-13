@@ -29,15 +29,18 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // that does not start within the anchor deadline fails as its first anchor
 // would have. A wait whose timer fires more than HANDSHAKE_LATE after its
 // time ran behind a long task on this thread, and the answer may have waited
-// for that task: Chromium hands a new worker its first message only once this
-// thread's task has ended, and WebKit runs an overdue timer before a reply
-// that is already queued. Such a wait is renewed while the worker started
-// less than the anchor deadline ago, so a worker that answers once this
-// thread is free is kept, and one that never answers is still replaced on a
-// page that stays busy. A worker without an answer when its wait ends on time
-// (or past that bound) may be stuck on its probe: it is replaced by one on the
-// camera's own readback, the worker after the next reset probes again, and
-// the second worker so replaced in the tracker's life gives bitmaps up.
+// for that task: in Chromium a new worker's first OffscreenCanvas use waits
+// for this thread's task to end, and WebKit runs an overdue timer before a
+// reply that is already queued. Such a wait is renewed while the worker
+// started less than the anchor deadline ago, so a worker held back by a task
+// that ends more than HANDSHAKE_LATE after the wait's end is kept, and one
+// that never answers is still replaced on a page that stays busy. A task that
+// ends within HANDSHAKE_LATE after the wait's end still times the handshake
+// out: the timer then counts as on time. A worker without an answer when its
+// wait ends on time (or past that bound) may be stuck on its probe: it is
+// replaced by one on the camera's own readback, the worker after the next
+// reset probes again, and the second worker so replaced in the tracker's life
+// gives bitmaps up.
 export const HANDSHAKE_WAIT = 300, HANDSHAKE_LATE = 50;
 // Why a worker uses its transport (stats.transportReason, for the diagnostic
 // report, so an "imagedata" from a phone tells an old iOS from a slow or

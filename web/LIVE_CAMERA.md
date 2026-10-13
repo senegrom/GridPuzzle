@@ -392,12 +392,14 @@ part of the transport): it may be stuck on the probe, with every job queued
 behind it, so it is replaced at once by one on the camera's own readback,
 with no failure counted. A wait whose timer fires more than 50 ms late ran
 behind a long task on the main thread, which the answer may have waited for
-(Chromium hands a new worker its first message only once the page's task has
-ended, and WebKit runs an overdue timer before a reply that is already
+(in Chromium a new worker's first `OffscreenCanvas` use waits for the page's
+task to end, and WebKit runs an overdue timer before a reply that is already
 queued, so a busy main thread alone would time the handshake out in both),
 so it is renewed, until the anchor deadline after the worker's start: a
-worker that answers once the main thread is free is kept, and one that never
-answers is still replaced on a page that stays busy. A worker replaced so
+worker held back by a task that ends more than 50 ms after the wait's end is
+kept, and one that never answers is still replaced on a page that stays
+busy. A task that ends within those 50 ms still times the handshake out, as
+the timer then counts as on time. A worker replaced so
 costs bitmaps only itself: the worker after the next reset (the freeze,
 Clear, Restart) probes again, and only a second worker replaced so in the
 camera session gives bitmaps up for the rest of it. A worker that never
