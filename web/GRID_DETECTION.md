@@ -188,7 +188,8 @@ diagonal to 0.5-1.2%). On the other 33 the quad stays: on 21 the third warp
 would leave the image (screenshots whose grid fills the frame, and image1000,
 whose grid runs off the photograph's edge), on 10 the third warp puts the line
 elsewhere or finds another lattice (image1020, image1036), and on 2 the placement
-is taken in a settling whose candidate loses. Detection at the live scale (640
+is taken in a reading that the comparison of candidates then sets aside.
+Detection at the live scale (640
 pixels, `thorough: false`) returns exactly the same results on the 45 and on
 107 other photographs. The third warp is one more 540-pixel warp and lattice
 where it runs; detection times are unchanged within measurement noise.
