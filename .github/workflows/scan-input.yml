@@ -81,7 +81,7 @@ jobs:
         run: node scripts/recognition_segments_regressions.cjs
       - name: Original-detail decoding, cell alignment and end-to-end photo scans
         run: node scripts/scan_input_regressions.cjs
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: recognition-report
@@ -108,7 +108,7 @@ jobs:
         run: python scripts/fetch_live_fixtures.py
       - name: External pictures through automatic detection, tracking and OCR
         run: node scripts/external_replay_regressions.cjs
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: live-report
