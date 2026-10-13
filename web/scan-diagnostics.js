@@ -4,10 +4,17 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
   'found','no-grid','small','blur','contrast','full-read','targeted','identical-crops','ocr-complete','read-complete',
   'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
   'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
-  'manual-corners','review-required','auto-solve-off','alignment-rejected','frozen','cleared','camera-released']);
+  'manual-corners','review-required','auto-solve-off','alignment-rejected','frozen','cleared','camera-released','tracking-transport']);
 const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
 // The live camera's data-overlay modes over live video.
 const OVERLAYS = ['none','outline'];
+// How tracking pixels reach the worker, and why (live-tracker.js).
+const TRANSPORTS = ['bitmap','imagedata'];
+const TRANSPORT_REASONS = ['probe','mismatch','no-pixels','unreadable','no-bitmaps','probe-failed',
+  'timeout','refused','untransferable','unmade','unanswered'];
+// The handshake probe's values read back on a mismatch: channel values of the
+// tracker's synthetic 2 x 2 probe (never camera pixels), at most 64.
+const probeValues = value => Array.isArray(value) && value.length <= 64 && value.every(v => Number.isInteger(v) && v >= 0 && v <= 255) ? [...value] : null;
 const indices = (value, max = 625) => Array.isArray(value) ? [...new Set(value.filter(i => Number.isInteger(i) && i >= 0 && i < 625))].slice(0, max) : [];
 const number = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
 const settingsOf = value => {
@@ -33,7 +40,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
   let started = now(), source = 'none', settings = {}, stage = 'idle', reason = 'ready', reading = null, geometry = null;
   let events = [], timings = {}, stageAt = started, counters = {}, tracking = {}, scheduling = {};
   let paintMetrics = createMetricWindow(), workerMetrics = createMetricWindow(), ageMetrics = createMetricWindow();
-  let tickMetrics = createMetricWindow();
+  let tickMetrics = createMetricWindow(), transportMetrics = createMetricWindow();
   let paintRequests = 0, lastMetricFrame = -1, firstReading = null;
   // Milliseconds of live time per overlay mode while a grid is tracked, and
   // the mode in force since overlayAt (null: not counted).
@@ -75,7 +82,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       started = stageAt = now(); source = ['live','photo'].includes(kind) ? kind : 'none'; settings = settingsOf(value);
       stage = 'idle'; reason = 'ready'; reading = geometry = null; events = []; timings = {}; counters = {}; tracking = {}; scheduling = {};
       paintMetrics = createMetricWindow(); workerMetrics = createMetricWindow(); ageMetrics = createMetricWindow();
-      tickMetrics = createMetricWindow();
+      tickMetrics = createMetricWindow(); transportMetrics = createMetricWindow();
       paintRequests = 0; lastMetricFrame = -1; firstReading = null;
       overlayTimes = {}; overlayMode = null; notify();
     },
@@ -108,10 +115,21 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
     tracking(stats, frame) {
       if (Number.isSafeInteger(frame.frame) && frame.frame > lastMetricFrame) {
         lastMetricFrame = frame.frame;
-        workerMetrics.add(stats?.milliseconds); ageMetrics.add(frame.age);
+        workerMetrics.add(stats?.milliseconds); transportMetrics.add(stats?.transportMilliseconds); ageMetrics.add(frame.age);
       }
+      // The transport tracking used last, why (with the probe's values on a
+      // mismatch), and how long that worker's handshake took from its start:
+      // a reset (the freeze, Clear, a close) leaves the tracker none until its
+      // next worker decides, which must not erase the one the scan used.
+      const decided = TRANSPORTS.includes(stats?.transport);
+      const transport = decided ? stats.transport : tracking.transport ?? null;
+      const transportReason = decided ? (TRANSPORT_REASONS.includes(stats.transportReason) ? stats.transportReason : null) : tracking.transportReason ?? null;
+      const handshakeMilliseconds = decided ? number(stats.handshakeMilliseconds) : tracking.handshakeMilliseconds ?? null;
+      const probePixels = decided ? probeValues(stats.probePixels) : tracking.probePixels ?? null;
       tracking = {};
-      for (const key of ['submitted','completed','dropped','failures','milliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
+      for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
+      tracking.transport = transport; tracking.transportReason = transportReason; tracking.handshakeMilliseconds = handshakeMilliseconds;
+      tracking.probePixels = probePixels;
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
       tracking.tier = frame.stale ? 'delayed' : 'live';
       if (MISMATCHES.has(frame.rejection?.reason)) {
@@ -130,7 +148,8 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         stageMilliseconds: Object.fromEntries(Object.entries({...timings, [stage]: (timings[stage] ?? 0) + now() - stageAt}).map(([k,v]) => [k, number(v)])),
         counters, tracking, scheduling,
         performance: { firstCompletedReadingMilliseconds: firstReading, paintRequests,
-          rendering: paintMetrics.snapshot(), tick: tickMetrics.snapshot(), overlay: overlayShare(), trackingWorker: workerMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
+          rendering: paintMetrics.snapshot(), tick: tickMetrics.snapshot(), overlay: overlayShare(), trackingWorker: workerMetrics.snapshot(),
+          trackingTransport: transportMetrics.snapshot(), trackingFrameAge: ageMetrics.snapshot() }, geometry, lastReading: reading, events,
         privacy: { includesImage: false, automaticUpload: false, includesSolutions: false } });
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -166,4 +185,5 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   frozen: 'The solution preview is frozen on the verified picture it was found on. Nothing is scanned until Clear.',
   cleared: 'Clear discarded the frozen solution and its reading; the camera is scanning again.',
   'camera-released': 'The camera was turned off while the solution was frozen. Clear turns it back on.',
+  'tracking-transport': 'Bitmaps could not reach background tracking, so tracking reads the camera pixels on the main thread from now on and started again from a fresh frame.',
 });

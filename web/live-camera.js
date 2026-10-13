@@ -137,20 +137,49 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // compared through their anchor-time matches. The guide outline needs its
   // own proof only without a preview, whose corners it otherwise follows.
   const verifyIds = () => ids([pendingCandidate, ...session.proofFrames, session.preview ? null : guideFrame]);
-  function contentPixels(image) {
+  // The tracking pixels' size: the snapshot's, at most 1280 on the long side.
+  function trackingSize(image) {
     const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
-    const width = Math.max(2, Math.round(image.width * scale)), height = Math.max(2, Math.round(image.height * scale));
+    return [Math.max(2, Math.round(image.width * scale)), Math.max(2, Math.round(image.height * scale))];
+  }
+  function contentPixels(image) {
+    const [width, height] = trackingSize(image);
     const ctx = scratch(contentCanvas, width, height, { willReadFrequently: true });
     ctx.drawImage(image, 0, 0, width, height);
     return ctx.getImageData(0, 0, width, height);
   }
+  // A snapshot's tracking pixels in the transport of the tracker's worker
+  // (live-tracker.js), one per worker, so each anchor is verified on pixels
+  // resampled the way it was built: a bitmap of the snapshot, which the worker
+  // draws at the tracking size and reads back ("bitmap"), or that readback
+  // done here ("imagedata", as before, and for a tracker without transports).
+  // Once the transport is known, the readback or the bitmap's copy of the
+  // snapshot happens in the caller's tick; until then it waits for the
+  // handshake. A bitmap that cannot be made gives bitmaps up, and so does one
+  // that is not the snapshot's size: WebKit resolves with a blank 1 × 1
+  // bitmap when it cannot allocate the copy (createBlankImageBuffer in its
+  // ImageBitmap.cpp). Stretched over the tracking pixels, that would give an
+  // anchor with nothing in it, which every later blank frame "verifies" at the
+  // detection's corners whatever the camera does.
+  async function contentFrame(image) {
+    const [width, height] = trackingSize(image), size = [image.width, image.height];
+    const transport = !tracker.ready ? "imagedata" : tracker.transport ?? await tracker.ready();
+    if (transport !== "bitmap") return { image: contentPixels(image), width, height };
+    let bitmap;
+    try { bitmap = await createImageBitmap(image); } catch { throw tracker.bitmapFailed(); }
+    if (bitmap.width !== size[0] || bitmap.height !== size[1]) { bitmap.close(); throw tracker.bitmapFailed(); }
+    return { bitmap, width, height };
+  }
   // Registration, feature extraction and all content checks live exclusively
   // in the worker. A proof is usable only with the pixels shown on the canvas.
-  async function anchorOf(image, corners, rows, cols) {
-    const pixels = contentPixels(image);
-    const points = corners.map(p => ({ x: p.x * (pixels.width - 1) / (image.width - 1),
-      y: p.y * (pixels.height - 1) / (image.height - 1) }));
-    return (await tracker.anchor({ image: pixels, corners: points, rows, cols, anchors: anchorIds() })).anchor;
+  // A detection retired while its pixels were prepared posts nothing, and its
+  // bitmap is closed (every bitmap is transferred or closed).
+  async function anchorOf(image, corners, rows, cols, current) {
+    const frame = await contentFrame(image);
+    if (!current()) { frame.bitmap?.close(); return null; }
+    const points = corners.map(p => ({ x: p.x * (frame.width - 1) / (image.width - 1),
+      y: p.y * (frame.height - 1) / (image.height - 1) }));
+    return (await tracker.anchor({ ...frame, corners: points, rows, cols, anchors: anchorIds() })).anchor;
   }
   const sampleAge = () => now() - sampledAt;
   // Detection spacing while a reading is tracked (see tick). A new detection
@@ -460,7 +489,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // Anchoring is bounded by the tracker's own, longer anchor deadline; this
       // one covers detection only, which a slow anchor must not time out.
       job.anchoring = true; clearTimer(job.deadline);
-      const anchorStarted = now(), anchor = await anchorOf(image, corners, rows, cols);
+      const anchorStarted = now(), anchor = await anchorOf(image, corners, rows, cols, current);
       anchorMs = now() - anchorStarted;
       if (!current()) return;
       if (!anchor) { session.suspend(); return; }
@@ -497,6 +526,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // (see `scanned`).
   function trackingFailed(error, owner) {
     if (!active || owner !== epoch || error?.name === "AbortError") return false;
+    if (error?.name === "NotSupportedError") { transportRestart(); return true; }
     epoch++; recovery.fail(); retryTrackingAt = recovery.nextAttempt; dropProofs();
     tracker.reset(); discardCandidate(); cancelDetection();
     guide = guideFrame = null; session.invalidate(); lastDetect = trackAfter = ownVerifiedAt = -Infinity;
@@ -509,12 +539,29 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     render();
     return true;
   }
+  // The tracker gave bitmaps up and reset itself (live-tracker.js): its worker,
+  // and every anchor in it, is gone. Acquisition starts again on pixels read
+  // back here. That is no tracking failure: no back-off, no Restart. A
+  // detection in flight is abandoned, not cancelled, so the geometry worker
+  // stays warm.
+  function transportRestart() {
+    epoch++; dropProofs(); discardCandidate(); abandonDetection();
+    guide = guideFrame = null; session.invalidate("tracking-transport");
+    lastDetect = trackAfter = ownVerifiedAt = -Infinity;
+    say(aiming());
+    render();
+  }
+  // Called by the tick only with anchors to verify.
   async function track(image, key, owner) {
-    const id = ++frameSerial, at = now(), pixels = contentPixels(image),
-      width = pixels.width, height = pixels.height, anchors = verifyIds();
+    const id = ++frameSerial, at = now(), anchors = verifyIds();
     let kept = false;
     try {
-      const result = anchors.length ? await tracker.verify({ image: pixels, anchors }) : { proofs: {} };
+      const frame = await contentFrame(image), { width, height } = frame;
+      // A frame retired while its pixels were prepared posts nothing, and its
+      // bitmap is closed: closing the camera, the freeze, Clear, Restart, a
+      // change of settings and a tracking failure each start a new epoch.
+      if (owner !== epoch) { frame.bitmap?.close(); return; }
+      const result = await tracker.verify({ ...frame, anchors });
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
       // Fence by snapshot time: a reply is adopted while its own snapshot is
       // within STALE and newer than the last adopted one, also after an older
@@ -668,7 +715,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     finally {
       release(image);
       // Main-thread time of a tick that took a snapshot, including the
-      // synchronous readbacks for detection and tracking it started.
+      // synchronous work for detection and tracking it started: detection's
+      // readback, and tracking's readback or its bitmap's copy of the snapshot.
       if (sampled) diagnostics?.ticking?.(now() - started);
     }
   }
