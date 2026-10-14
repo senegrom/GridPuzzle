@@ -627,15 +627,30 @@ The whole corpus was also detected in the other three quarter turns the Rotate
 button gives, with the check before its inward-only rule (9b77125, which takes
 the same placements there), and every image whose detection the check changes
 was read. Turned a quarter either way, 22 readings change: 402 to 641 clues
-right and 20 to 3 unflagged errors, with no false turn. Upside down, 14 readings change: 127 to
-147 right, but 36 to 40 unflagged errors, every new one a 6 read as 9 or a 9
-as 6. Neither build checks for a half turn: the orientation check runs only
-when glyphs are wider than tall, so both read these pages upside down, and the
-better-placed quad reads their 6s and 9s with more confidence. In WebKit, 249
-previews read in all four turns take 7 placements, none farther from the
-target corners, and wichtounet-originals image1024 reads 24 of 24 instead of
-3 turned the wrong way. No Kakuro, Killer, Str8ts, Slitherlink, Futoshiki or
-other non-Sudoku image changes in any of these runs.
+right and 20 to 3 unflagged errors, with no false turn. Upside down, 14
+readings change: 127 to 147 right, but 36 to 40 unflagged errors, every new
+one a 6 read as 9 or a 9 as 6. Neither build checks for a half turn: the
+orientation check runs only when glyphs are wider than tall, so both read
+these pages upside down, and the better-placed quad reads their 6s and 9s with
+more confidence. In WebKit, 249 previews detected in all four turns take 7
+placements, none farther from the target corners, and wichtounet-originals
+image1024 reads 24 of 24 instead of 3 turned the wrong way. No Kakuro, Killer,
+Str8ts, Slitherlink, Futoshiki or other non-Sudoku image changes in any of
+these runs.
+
+The 45 and lexski test-k26kolm0b01d1, which takes a placement only when
+decoded with Pillow, were also read in WebKit through the import, on master
+and with the check (2026-10-14). 11 detections change: Chromium's 12 less
+wichtounet-originals image1087.original, which takes no placement in WebKit,
+as with Pillow; k26kolm0b01d1 takes none either. Clues right go from 1,304 to
+1,378 of 1,895, unflagged errors from 20 to 11 and perfect boards from 5 to
+10. Cell by cell 89 clues become right and 15 that master read right no
+longer are, all flagged with the check (11 missed, 4 read wrong); master read
+2 of them confidently, the handwritten 3 at r2c6 and 5 at r4c4 of
+wichtounet-solved image1087. No cell gains an unflagged error. In WebKit
+master already turns wichtounet-newspaper image1024 (23 of 24 right, 24 with
+the check), and turns its original the wrong way (1 of 24 right, 8 unflagged
+errors), which the check turns the right way (24 of 24).
 
 ## Alternatives tried
 

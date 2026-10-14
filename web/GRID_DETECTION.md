@@ -172,20 +172,20 @@ reading through it had the border inside the cell windows of the first
 columns. The second warp, centred on that quad, had the whole band in view,
 where its halftone reads weaker than the border (0.948 against 0.963), and
 found the border. So when the second warp's outer lines lie more than a tenth
-of a cell from the tightened quad, its placement is read once more, on a
-third padded warp centred on it. That warp must lie inside the image, margin
-and all, and find the same whole lattice within a tenth of a cell; only then
-does the placement replace the tightened quad. The placement may also move
-the quad's edges only inward, give or take half a tenth of a cell: an outer
-line that was not the border was a neighbour outside it. With a band printed
-beside every side of a grid the first warp takes the bands on two sides, and
-the second, centred on that quad, takes the other two at its own edge; every
-warp then agrees on a placement that moves those edges outward onto their
-bands, and only this rule refuses it. The first warp's outer line sits off
-the border in other ways too, and they end the same way: on image1004 a line
-at the warp's very edge merged with the border, and on image1087 a missing
-end line was taken to be the warp's edge. The live camera keeps the tightened
-quad.
+of a cell from the tightened quad, its placement is read once more, on a third
+padded warp centred on it. That warp must lie inside the image, margin and
+all, and find the same whole lattice within a tenth of a cell; only then does
+the placement replace the tightened quad. The placement may also move the
+quad's edges only inward, give or take half a tenth of a cell: an outer line
+that was not the border lay outside it, a neighbour merged into it or the
+warp's own edge. With a band printed beside every side of a grid the first
+warp takes the bands on two sides, and the second, centred on that quad, takes
+the other two at its own edge; every warp then agrees on a placement that
+moves those edges outward onto their bands, and only this rule refuses it. The
+first warp's outer line sits off the border in other ways too, and they end
+the same way: on image1004 a line at the warp's very edge merged with the
+border, and on image1087 a missing end line was taken to be the warp's edge.
+The live camera keeps the tightened quad.
 
 Measured on the whole corpus at the photo flow's preview (3,978 images through
 `importPhoto`, Chromium, 2026-10-13): a second warp runs on 631 images and
@@ -305,6 +305,25 @@ map was a second full line stage on every failed estimate.
   one cell's distance (read one row too tall), photographs at a steep angle
   or with glare, and grids drawn on lined or squared paper whose ruling
   merges with the grid.
+- A band or a line printed beside the border still frames a still photograph's
+  quad on it when the second settling warp scores it stronger than the border
+  too, or does not run: the settling check acts only when the second warp sees
+  the border where the first did not. On 1,056 synthetic boards with a
+  halftone band, a solid rule or a double rule 3 to 18 pixels beside one side
+  of the border, with or without a blot at a corner, the check moves 54 quads
+  onto the border (48 beside bands, 6 beside double rules, none beside a solid
+  rule) and leaves 424 on the neighbour (460 before it). On 280 of these both
+  warps merge the neighbour into the border alike; on the other 144 the first
+  warp moves the outline's quad by no more than 1% of the diagonal, so no
+  second warp runs, and the quad stays about a tenth of a cell outside the
+  border. image1024 itself is near that edge: of 25 sub-pixel shifts and small
+  rescales of its preview, 6 still frame the band (16 before the check), and
+  on its old 960-pixel preview the band is the stronger line in both warps
+  (0.992 against 0.977, then 0.943 against 0.911). Taking the cluster member
+  that best fits the lattice rather than the strongest would reach these too;
+  prototyped, it changed 55 detections (15 closer to the target corners, 6
+  farther), and it reaches the live camera and `prepareScan`'s lattice, so it
+  is left for a change of its own.
 - `corpus/detect_benchmark.cjs` reproduces the measurement over every corpus
   image with corner ground truth, at both scales, in a few minutes; it is a
   measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above
