@@ -104,6 +104,62 @@ test("a placement may move the quad's edges inward only, give or take half a ten
   assert.equal(placed({ left: 112 }, slanted), null, "a corner 10 px outside the quad's right edge");
 });
 
+// The pure tests' frame again, for the boundaries of relocation() and
+// confirms(): a 541-pixel warp of [90, 630]^2 (warp coordinate u is image
+// coordinate 90 + u) around a tightened quad of 520 / 9 = 57.8 px cells.
+const FRAME = [{ x: 90, y: 90 }, { x: 630, y: 90 }, { x: 630, y: 630 }, { x: 90, y: 630 }],
+  TIGHT = [{ x: 100, y: 100 }, { x: 620, y: 100 }, { x: 620, y: 620 }, { x: 100, y: 620 }],
+  seen = ({ left = 100, top = 100, right = 620, bottom = 620, rows = 9, cols = 9 } = {}) =>
+    ({ rows, cols, partial: false, extent: { x: [left - 90, right - 90], y: [top - 90, bottom - 90] } }),
+  box = (left, top, right, bottom) => [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }];
+
+test("a disagreement along the top edge is measured like one along the left edge", () => {
+  assert.ok(relocation(TIGHT, FRAME, seen({ top: 112 }), 541, 760, 720), "12 px down is two tenths of a cell");
+  assert.equal(confirms(seen(), seen({ top: 112 }), FRAME, 541, box(100, 112, 620, 620)), false, "a third warp back on the first warp's top line");
+});
+
+test("the tenth of a cell: just over it relocates, exactly it does not, and it is measured on the tightened quad", () => {
+  assert.ok(relocation(TIGHT, FRAME, seen({ left: 107 }), 541, 760, 720), "7 px is 0.12 of a cell");
+  assert.equal(confirms(seen(), seen({ left: 107 }), FRAME, 541, box(107, 100, 620, 620)), false, "and too far back to confirm");
+  // 5.75 px is under a tenth of the tightened quad's 57.8 px cell (5.78), and
+  // would be over a tenth of the placement's 57.1 px cell (5.71).
+  assert.equal(relocation(TIGHT, FRAME, seen({ left: 105.75 }), 541, 760, 720), null);
+  // A 1025-pixel warp of [0, 1024]^2 maps warp coordinates to the image's
+  // exactly, and a quad of 50 px cells has a tenth of exactly 5 px.
+  const exact = box(0, 0, 1024, 1024), square = box(100, 100, 550, 550),
+    lattice = (left) => ({ rows: 9, cols: 9, partial: false, extent: { x: [left, 550], y: [100, 550] } });
+  assert.equal(relocation(square, exact, lattice(105), 1025, 1100, 1100), null, "a tenth of a cell keeps the quad");
+  assert.ok(relocation(square, exact, lattice(106), 1025, 1100, 1100), "more than a tenth relocates");
+  assert.equal(confirms(lattice(105), lattice(100), exact, 1025, square), true, "a third warp a tenth of a cell off confirms");
+  assert.equal(confirms(lattice(106), lattice(100), exact, 1025, square), false, "one more than a tenth off does not");
+});
+
+test("a rectangular grid measures each side of its cells by that side's own count", () => {
+  // 18 columns of 28.9 px and 9 rows of 27.8 px (a 2:1 frame [90, 630] x
+  // [90, 360]): a tenth of a cell is 2.78 px.
+  const wide = box(90, 90, 630, 360), quad = box(100, 100, 620, 350),
+    across = (left) => ({ rows: 9, cols: 18, partial: false, extent: { x: [left - 90, 530], y: [20, 520] } });
+  assert.equal(relocation(quad, wide, across(102), 541, 760, 720), null, "2 px is under a tenth of a cell");
+  assert.ok(relocation(quad, wide, across(104), 541, 760, 720), "4 px is over it");
+  // 9 columns of 57.8 px and 18 rows of 14.4 px: a tenth is 1.44 px.
+  const flat = box(100, 100, 620, 360),
+    down = (left) => ({ rows: 18, cols: 9, partial: false, extent: { x: [left - 90, 530], y: [10, 270] } });
+  assert.ok(relocation(flat, FRAME, down(102), 541, 760, 720), "2 px is over a tenth of a 14.4 px row");
+  assert.equal(relocation(flat, FRAME, down(101), 541, 760, 720), null, "1 px is under it");
+  // A square quad: the narrower cell sets the tenth, columns as well as rows.
+  assert.ok(relocation(TIGHT, FRAME, seen({ left: 105, cols: 18 }), 541, 760, 720), "5 px is a sixth of an 18-column cell");
+});
+
+test("the margin check reads the image's width along x and its height along y", () => {
+  // A landscape image 700 x 640; the placement's padded warp reaches past
+  // x = 640, inside the image's 700 px width.
+  const frame = box(150, 50, 690, 590), tight = box(160, 60, 680, 580),
+    found = { rows: 9, cols: 9, partial: false, extent: { x: [22, 520], y: [10, 530] } };
+  const placed = relocation(tight, frame, found, 541, 700, 640);
+  assert.ok(placed, "the padded placement fits a 700 x 640 image");
+  assert.ok(Math.max(...placed.map((p) => p.x)) > 645, "and reaches past x = 640");
+});
+
 test("a band printed beside the border: the still photograph's quad lands on the border, the live camera's is unchanged", () => {
   const image = bandBoard();
   const photo = findGrid(image), live = findGrid(image, { thorough: false });
@@ -112,6 +168,19 @@ test("a band printed beside the border: the still photograph's quad lands on the
   // The live camera keeps the quad the first warp tightened: along the band.
   assert.ok(BORDER - left(live) > 0.15 * CELL, `live quad's left edge ${left(live)} on the band`);
   for (const i of [1, 2]) assert.ok(Math.abs(photo.corners[i].x - live.corners[i].x) < 1, "the right edge stays");
+});
+
+test("a band printed above the top border: the still photograph's top edge lands on the border", () => {
+  // The band board transposed, as image1004's line above its top border.
+  const { width, height, data } = bandBoard(), turned = new Uint8ClampedArray(data.length);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++)
+    for (let c = 0; c < 4; c++) turned[4 * (x * height + y) + c] = data[4 * (y * width + x) + c];
+  const image = { width: height, height: width, data: turned };
+  const photo = findGrid(image), live = findGrid(image, { thorough: false }),
+    top = (found) => (found.corners[0].y + found.corners[1].y) / 2;
+  assert.equal(photo.rows, 9); assert.equal(photo.cols, 9);
+  assert.ok(BORDER - top(live) > 0.15 * CELL, `live quad's top edge ${top(live)} on the band`);
+  assert.ok(Math.abs(top(photo) - BORDER) < 1.5, `photo quad's top edge ${top(photo)} on the border at ${BORDER}`);
 });
 
 test("a placement that the third warp does not confirm is not taken", () => {
