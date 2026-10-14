@@ -8,7 +8,7 @@ import { prepareScan } from "../scan-analysis.js";
 // of its border, as beside the sideways page of wichtounet image1024. Its
 // glyphs lie on their side, as on that page: a bar with a short foot.
 const X = 160, Y = 90, CELL = 60, BORDER = X + 2.5;
-function bandBoard({ gap = 8, light = 100, band = 22, blob = false, glyphs = [] } = {}) {
+function bandBoard({ gap = 8, light = 100, band = 22, blob = false, glyphs = [], pencil = false } = {}) {
   const width = 760, height = 720, data = new Uint8ClampedArray(width * height * 4), size = 9 * CELL;
   const set = (x, y, v) => {
     const at = 4 * (y * width + x);
@@ -29,6 +29,13 @@ function bandBoard({ gap = 8, light = 100, band = 22, blob = false, glyphs = [] 
     const cx = X + (cell % 9) * CELL + 31, cy = Y + Math.floor(cell / 9) * CELL + 31;
     for (let y = cy - 3; y < cy + 4; y++) for (let x = cx - 17; x < cx + 18; x++) set(x, y, 20);
     for (let y = cy - 11; y < cy + 4; y++) for (let x = cx + 12; x < cx + 18; x++) set(x, y, 20);
+  }
+  // Pencil marks: a 3 x 3 block of small candidate digits in every cell, so
+  // columns and rows of marks are as dark as the cell lines.
+  if (pencil) for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((r + c + i * 2 + j) % 4 !== 0) {
+    const x0 = X + c * CELL + 10 + j * 16, y0 = Y + r * CELL + 8 + i * 16;
+    for (let y = 0; y < 11; y++) { set(x0 + 1, y0 + y, 30); set(x0 + 2, y0 + y, 30); }
+    for (let x = 0; x < 8; x++) { set(x0 + x, y0, 30); set(x0 + x, y0 + 10, 30); }
   }
   return { width, height, data };
 }
@@ -195,6 +202,16 @@ test("a relocated reading carries the third warp's lattice, which lies on the co
   const cx = settled.corners.reduce((sum, p) => sum + p.x, 0) / 4, cy = settled.corners.reduce((sum, p) => sum + p.y, 0) / 4,
     frame = settled.corners.map((p) => ({ x: p.x + (p.x - cx) * 0.04, y: p.y + (p.y - cy) * 0.04 }));
   assert.equal(confirms(settled.estimated, settled.estimated, frame, 540, settled.corners), true);
+});
+
+test("cells crowded with pencil marks: the third warp also reads the lattice from continuous runs", () => {
+  // Only the continuous-run profile, which a still photograph's warps fall
+  // back on, reads this lattice: the ink profile alone finds none.
+  const image = bandBoard({ pencil: true, gap: 10 });
+  const photo = findGrid(image), live = findGrid(image, { thorough: false });
+  assert.equal(live.rows * live.cols, 0, "no lattice from the ink profile alone");
+  assert.equal(photo.rows, 9); assert.equal(photo.cols, 9);
+  assert.ok(Math.abs(left(photo) - BORDER) < 1.5, `photo quad's left edge ${left(photo)} on the border at ${BORDER}`);
 });
 
 test("a placement that the third warp does not confirm is not taken", () => {
