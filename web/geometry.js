@@ -803,8 +803,8 @@ export function settle(image, corners, thorough = true) {
   // A still photograph also checks where the confirmation put the border.
   // On a newspaper page (wichtounet image1024) a grey band printed beside
   // the border lay at the first warp's very edge and merged with the border
-  // into one line. Running the warp's whole height, where the border stops
-  // at the grid's corners, the band was the stronger and gave the line its
+  // into one line. At the warp's very edge, where its strongest column is
+  // almost solid ink, the band was the stronger and gave the line its
   // position: the quad ran along the band, a fifth of a cell outside the
   // grid, and the border then crossed the cell windows of the first columns.
   // The confirmation, with the band in full view, where its halftone reads

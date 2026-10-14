@@ -163,10 +163,12 @@ A still photograph also checks where that second warp puts the border. On a
 newspaper page (wichtounet image1024) a band of grey halftone printed beside
 the grid's left border lay at the first warp's very edge. Lines within 3% of
 each other are clustered into one, which takes the position of its stronger
-member, and there the band was the stronger: its few columns inside the warp
-are almost solid ink, and it runs the warp's whole height, where the border
-stops at the grid's corners (profile peaks 0.992 against 0.970; over the
-grid's own rows alone the border is the stronger, 0.995 against 0.989). The
+member, and there the band was the stronger (profile peaks 0.992 against
+0.970). At the warp's very edge, with the warp's 3-pixel shear, the band's
+strongest column is counted only on the lower two thirds of the warp, where it
+is almost solid ink, while the border's best column lacks ink on 12 of its 401
+rows, beyond the grid's corners and at gaps near its lower end; even over the
+lattice's own rows the band reads stronger (0.992 against 0.985). The
 quad then ran along the band, a fifth of a cell outside the grid, and every
 reading through it had the border inside the cell windows of the first
 columns. The second warp, centred on that quad, had the whole band in view,
@@ -315,8 +317,8 @@ map was a second full line stage on every failed estimate.
   rule) and leaves 424 on the neighbour (460 before it). On 280 of these both
   warps merge the neighbour into the border alike; on the other 144 the first
   warp moves the outline's quad by no more than 1% of the diagonal, so no
-  second warp runs, and the quad stays about a tenth of a cell outside the
-  border. image1024 itself is near that edge: of 25 sub-pixel shifts and small
+  second warp runs, and the quad stays a tenth to a sixth of a cell outside
+  the border. image1024 itself is near that edge: of 25 sub-pixel shifts and small
   rescales of its preview, 6 still frame the band (16 before the check), and
   on its old 960-pixel preview the band is the stronger line in both warps
   (0.992 against 0.977, then 0.943 against 0.911). Taking the cluster member
