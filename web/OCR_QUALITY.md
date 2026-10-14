@@ -580,8 +580,10 @@ quad (the whole corpus, detection only); every other detection is unchanged by
 construction. Those 45 and a control of 107 others (the control above, less
 one of the 45) were read through the import on master 7e4420a, where all 152
 rows match the table's rows exactly, and again with the check (Chromium,
-2026-10-13). The control reads the same. Twelve of the 45 change, and none of
-them loses a correct clue or gains an unflagged error:
+2026-10-13, and on 2026-10-14 with its inward-only rule, which changes none of
+them). The control reads the same. Twelve of the 45 change. No image reads
+fewer clues right or gains an unflagged error, but counted cell by cell 87
+clues become right and 18 that master read right no longer are:
 
 | | clues right | unflagged | perfect | turned |
 |---|---:|---:|---:|---:|
@@ -602,8 +604,38 @@ them loses a correct clue or gains an unflagged error:
   as digits, all highlighted by the note-size flag (#122), and 26 fewer empty
   cells are highlighted.
 - The wichtounet-solved pictures of image1024 and image1087, whose targets are
-  whole handwritten solutions, read 9 more of their handwritten digits, 3 of
-  them right and 6 wrong, all flagged.
+  whole handwritten solutions: image1024 reads 52 of 81 as before, with 6
+  digits gained and 6 lost (3 more read wrong, 3 fewer missed), and image1087
+  52 instead of 49, with 6 gained and 3 lost, all flagged.
+
+The 18 clues lost lie on 5 of the 12 images, and each of the 5 gains at least
+as many as it loses. All 18 are flagged with the check (11 now missed, 7 read
+wrong), and 17 of them were flagged on master too:
+- val-gka96q36bvec1: 6 of the app's printed clues (r1c6 4, r1c8 7, r2c6 1,
+  r5c2 1, r7c7 4, r8c5 1), against 12 gained. Three of them are 1s: no glyph
+  rule changed, but through the moved quad these thin glyphs go unread.
+- image1087 and its original: the printed 3 at r4c8 on both and the 7 at r4c0
+  on the original, now missed, against 4 and 2 gained.
+- The two solved pictures: 9 handwritten digits, one of them a 1, against 12
+  gained. The 5 at r4c4 of image1087 is the one lost clue master read
+  confidently; it is now a flagged 1.
+
+Against 87 clues gained, 2 fewer unflagged errors and 5 more perfect boards,
+these 18 flagged losses were judged worth it.
+
+The whole corpus was also detected in the other three quarter turns the Rotate
+button gives, with the check before its inward-only rule (9b77125, which takes
+the same placements there), and every image whose detection the check changes
+was read. Turned a quarter either way, 22 readings change: 402 to 641 clues
+right and 20 to 3 unflagged errors, with no false turn. Upside down, 14 readings change: 127 to
+147 right, but 36 to 40 unflagged errors, every new one a 6 read as 9 or a 9
+as 6. Neither build checks for a half turn: the orientation check runs only
+when glyphs are wider than tall, so both read these pages upside down, and the
+better-placed quad reads their 6s and 9s with more confidence. In WebKit, 249
+previews read in all four turns take 7 placements, none farther from the
+target corners, and wichtounet-originals image1024 reads 24 of 24 instead of
+3 turned the wrong way. No Kakuro, Killer, Str8ts, Slitherlink, Futoshiki or
+other non-Sudoku image changes in any of these runs.
 
 ## Alternatives tried
 

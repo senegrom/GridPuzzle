@@ -163,36 +163,50 @@ A still photograph also checks where that second warp puts the border. On a
 newspaper page (wichtounet image1024) a band of grey halftone printed beside
 the grid's left border lay at the first warp's very edge. Lines within 3% of
 each other are clustered into one, which takes the position of its stronger
-member, and of the first at equal strength: here the band. The quad then ran
-along the band, a fifth of a cell outside the grid, and every reading through
-it had the border inside the cell windows of the first columns. The second
-warp, centred on that quad, had the whole band in view, where its halftone is
-weaker than the border, and found the border. So when the second warp's outer
-lines lie more than a tenth of a cell from the tightened quad, its placement
-is read once more, on a third padded warp centred on it. That warp must lie
-inside the image, margin and all, and find the same whole lattice within a
-tenth of a cell; only then does the placement replace the tightened quad. The
-first warp's outer line sits off the border in other ways too, and they end
-the same way: on image1004 a line at the warp's very edge merged with the
-border, and on image1087 a missing end line was taken to be the warp's edge.
-The live camera keeps the tightened quad.
+member, and there the band was the stronger: its few columns inside the warp
+are almost solid ink, and it runs the warp's whole height, where the border
+stops at the grid's corners (profile peaks 0.992 against 0.970; over the
+grid's own rows alone the border is the stronger, 0.995 against 0.989). The
+quad then ran along the band, a fifth of a cell outside the grid, and every
+reading through it had the border inside the cell windows of the first
+columns. The second warp, centred on that quad, had the whole band in view,
+where its halftone reads weaker than the border (0.948 against 0.963), and
+found the border. So when the second warp's outer lines lie more than a tenth
+of a cell from the tightened quad, its placement is read once more, on a
+third padded warp centred on it. That warp must lie inside the image, margin
+and all, and find the same whole lattice within a tenth of a cell; only then
+does the placement replace the tightened quad. The placement may also move
+the quad's edges only inward, give or take half a tenth of a cell: an outer
+line that was not the border was a neighbour outside it. With a band printed
+beside every side of a grid the first warp takes the bands on two sides, and
+the second, centred on that quad, takes the other two at its own edge; every
+warp then agrees on a placement that moves those edges outward onto their
+bands, and only this rule refuses it. The first warp's outer line sits off
+the border in other ways too, and they end the same way: on image1004 a line
+at the warp's very edge merged with the border, and on image1087 a missing
+end line was taken to be the warp's edge. The live camera keeps the tightened
+quad.
 
 Measured on the whole corpus at the photo flow's preview (3,978 images through
-`importPhoto`, Chromium, 2026-10-13): 584 images settle through a second warp,
-which on 45 of them puts an outer line more than a tenth of a cell from the
-tightened quad. Twelve of the 45 take its placement, moved by 12 to 30 pixels.
-They are six pictures: wichtounet image1004, image1024 and image1087, each also
-in other sets, rozet sudoku_0123 and two lexski screenshots. The five with
-target corners all come closer to them (corner error from 1-1.9% of the
-diagonal to 0.5-1.2%). On the other 33 the quad stays: on 21 the third warp
-would leave the image (screenshots whose grid fills the frame, and image1000,
-whose grid runs off the photograph's edge), on 10 the third warp puts the line
-elsewhere or finds another lattice (image1020, image1036), and on 2 the placement
-is taken in a reading that the comparison of candidates then sets aside.
-Detection at the live scale (640
-pixels, `thorough: false`) returns exactly the same results on the 45 and on
-107 other photographs. The third warp is one more 540-pixel warp and lattice
-where it runs; detection times are unchanged within measurement noise.
+`importPhoto`, Chromium, 2026-10-13): a second warp runs on 631 images and
+confirms the settling on 584, and on 45 of those it puts an outer line more
+than a tenth of a cell from the tightened quad. Twelve of the 45 take its
+placement, moved by 12 to 30 pixels. They are six pictures: wichtounet
+image1004, image1024 and image1087, each also in other sets, rozet
+sudoku_0123 and two lexski screenshots. The five with target corners all come
+closer to them (corner error from 1-1.9% of the diagonal to 0.5-1.2%). On the
+other 33 the quad stays: on 21 the third warp would leave the image
+(screenshots whose grid fills the frame, and image1000, whose grid runs off
+the photograph's edge), on 10 the third warp puts the line elsewhere or finds
+another lattice (image1020, image1036), and on 2 the placement is taken in a
+reading that the comparison of candidates then sets aside. The inward-only
+rule refuses none of the 125 placements taken over the corpus in its four
+quarter turns, 249 of its previews in WebKit and noisy or rescaled variants:
+their largest outward corner move is 0.037 of a cell. Detection at the live
+scale (640 pixels, `thorough: false`) returns exactly the same results on the
+45 and on 107 other photographs. The third warp is one more 540-pixel warp
+and lattice where it runs; detection times are unchanged within measurement
+noise.
 
 When a substantial candidate lies inside the largest one it is tried first,
 since a page on a dark table makes the page's edge the largest component.
