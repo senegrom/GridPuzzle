@@ -159,6 +159,57 @@ padded warp that must find the same lattice. Fitting lines to the component's
 boundary was measured first and rejected: on tilted quads a slanted side
 contaminates its neighbour's samples and pulls the fit by about 4%.
 
+A still photograph also checks where that second warp puts the border. On a
+newspaper page (wichtounet image1024) a band of grey halftone printed beside
+the grid's left border lay at the first warp's very edge. Lines within 3% of
+each other are clustered into one, which takes the position of its stronger
+member, and there the band was the stronger (profile peaks 0.992 against
+0.970). At the warp's very edge, with the warp's 3-pixel shear, the band's
+strongest column is counted only on the lower two thirds of the warp, where it
+is almost solid ink, while the border's best column lacks ink on 12 of its 401
+rows, beyond the grid's corners and at gaps near its lower end; even over the
+lattice's own rows the band reads stronger (0.992 against 0.985). The
+quad then ran along the band, a fifth of a cell outside the grid, and every
+reading through it had the border inside the cell windows of the first
+columns. The second warp, centred on that quad, had the whole band in view,
+where its halftone reads weaker than the border (0.948 against 0.963), and
+found the border. So when the second warp's outer lines lie more than a tenth
+of a cell from the tightened quad, its placement is read once more, on a third
+padded warp centred on it. That warp must lie inside the image, margin and
+all, and find the same whole lattice within a tenth of a cell; only then does
+the placement replace the tightened quad. The placement may also move the
+quad's edges only inward, give or take half a tenth of a cell: an outer line
+that was not the border lay outside it, a neighbour merged into it or the
+warp's own edge. With a band printed beside every side of a grid the first
+warp takes the bands on two sides, and the second, centred on that quad, takes
+the other two at its own edge; every warp then agrees on a placement that
+moves those edges outward onto their bands, and only this rule refuses it. The
+first warp's outer line sits off the border in other ways too, and they end
+the same way: on image1004 a line at the warp's very edge merged with the
+border, and on image1087 a missing end line was taken to be the warp's edge.
+The live camera keeps the tightened quad.
+
+Measured on the whole corpus at the photo flow's preview (3,978 images through
+`importPhoto`, Chromium, 2026-10-13): a second warp runs on 631 images and
+confirms the settling on 584, and on 45 of those it puts an outer line more
+than a tenth of a cell from the tightened quad. Twelve of the 45 take its
+placement, moved by 12 to 30 pixels. They are six pictures: wichtounet
+image1004, image1024 and image1087, each also in other sets, rozet
+sudoku_0123 and two lexski screenshots. The five with target corners all come
+closer to them (corner error from 1-1.9% of the diagonal to 0.5-1.2%). On the
+other 33 the quad stays: on 21 the third warp would leave the image
+(screenshots whose grid fills the frame, and image1000, whose grid runs off
+the photograph's edge), on 10 the third warp puts the line elsewhere or finds
+another lattice (image1020, image1036), and on 2 the placement is taken in a
+reading that the comparison of candidates then sets aside. The inward-only
+rule refuses none of the 125 placements taken over the corpus in its four
+quarter turns, 249 of its previews in WebKit and noisy or rescaled variants:
+their largest outward corner move is 0.037 of a cell. Detection at the live
+scale (640 pixels, `thorough: false`) returns exactly the same results on the
+45 and on 107 other photographs. The third warp is one more 540-pixel warp
+and lattice where it runs; detection times are unchanged within measurement
+noise.
+
 When a substantial candidate lies inside the largest one it is tried first,
 since a page on a dark table makes the page's edge the largest component.
 
@@ -170,7 +221,8 @@ ones the live camera sees most: a page in view, not yet framed, with a quad
 and no grid. `findGrid(image, { thorough })` divides them. A live frame gets
 the outline, the widening, the inverted line stage and the
 partial lattice; a still photograph also gets the extra outline candidates,
-the continuous-run profile, the inverted outline pass and the dot lattice.
+the continuous-run profile, the inverted outline pass, the dot lattice and the
+check of where the second settling warp puts the border.
 Measured on the app photographs at the live scale, a frame with a quad and
 no grid takes 68 ms in the middle and 218 at its worst the quick way,
 against 53 and 192 before this change and 120 and 794 with everything on;
@@ -255,6 +307,25 @@ map was a second full line stage on every failed estimate.
   one cell's distance (read one row too tall), photographs at a steep angle
   or with glare, and grids drawn on lined or squared paper whose ruling
   merges with the grid.
+- A band or a line printed beside the border still frames a still photograph's
+  quad on it when the second settling warp scores it stronger than the border
+  too, or does not run: the settling check acts only when the second warp sees
+  the border where the first did not. On 1,056 synthetic boards with a
+  halftone band, a solid rule or a double rule 3 to 18 pixels beside one side
+  of the border, with or without a blot at a corner, the check moves 54 quads
+  onto the border (48 beside bands, 6 beside double rules, none beside a solid
+  rule) and leaves 424 on the neighbour (460 before it). On 280 of these both
+  warps merge the neighbour into the border alike; on the other 144 the first
+  warp moves the outline's quad by no more than 1% of the diagonal, so no
+  second warp runs, and the quad stays a tenth to a sixth of a cell outside
+  the border. image1024 itself is near that edge: of 25 sub-pixel shifts and small
+  rescales of its preview, 6 still frame the band (16 before the check), and
+  on its old 960-pixel preview the band is the stronger line in both warps
+  (0.992 against 0.977, then 0.943 against 0.911). Taking the cluster member
+  that best fits the lattice rather than the strongest would reach these too;
+  prototyped, it changed 55 detections (15 closer to the target corners, 6
+  farther), and it reaches the live camera and `prepareScan`'s lattice, so it
+  is left for a change of its own.
 - `corpus/detect_benchmark.cjs` reproduces the measurement over every corpus
   image with corner ground truth, at both scales, in a few minutes; it is a
   measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above

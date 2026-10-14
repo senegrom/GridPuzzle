@@ -510,7 +510,10 @@ corners. The whole corpus was read on 2026-10-04 through the runner's own
 loader. The 84 images whose previews PR #121's `importPhoto` changes were then
 read again through the import, on master d0222a4 (2026-10-06), and the table has
 their new rows. The same run read a control of 108 unchanged images, up to five
-from each set, and every one read exactly as before.
+from each set, and every one read exactly as before. The twelve images whose
+still-photo detection the settling check changes (`web/GRID_DETECTION.md`,
+"Settling the corners") were read again with it on 2026-10-13, and the table has
+their new rows too; see the end of this section.
 
 | set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners | failed to read |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -529,15 +532,15 @@ from each set, and every one read exactly as before.
 | sudoku/generated-render | 120 | 2,704 / 2,706 | 0 | 118 | 120 | 0 |  |
 | sudoku/janko-sudoku | 111 | 4,507 / 4,509 | 0 | 109 | 111 | 0 |  |
 | sudoku/kuleuven-assistant | 83 | 2,061 / 3,851 | 1 | 9 | 39 | 56 |  |
-| sudoku/lexski-mixed | 1398 | 49,259 / 59,831 | 72 | 400 | 1140 | 285 |  |
-| sudoku/rozet-handwritten | 400 | 15,519 / 17,821 | 20 | 89 | 388 | 22 |  |
-| sudoku/rozet-newspaper | 9 | 246 / 250 | 0 | 5 | 9 | 0 |  |
+| sudoku/lexski-mixed | 1398 | 49,269 / 59,831 | 72 | 400 | 1140 | 285 |  |
+| sudoku/rozet-handwritten | 400 | 15,543 / 17,821 | 20 | 89 | 388 | 22 |  |
+| sudoku/rozet-newspaper | 9 | 247 / 250 | 0 | 6 | 9 | 0 |  |
 | sudoku/rozet-render | 100 | 2,285 / 2,498 | 12 | 57 | 100 | 0 |  |
-| sudoku/wichtounet-newspaper | 203 | 4,577 / 5,902 | 41 | 44 | 194 | 10 |  |
-| sudoku/wichtounet-originals | 46 | 1,261 / 1,328 | 7 | 33 | 45 | 1 |  |
-| sudoku/wichtounet-solved | 200 | 9,122 / 16,200 | 74 | 0 | 155 | 48 |  |
+| sudoku/wichtounet-newspaper | 203 | 4,606 / 5,902 | 39 | 46 | 194 | 10 |  |
+| sudoku/wichtounet-originals | 46 | 1,263 / 1,328 | 7 | 35 | 45 | 1 |  |
+| sudoku/wichtounet-solved | 200 | 9,125 / 16,200 | 74 | 0 | 155 | 48 |  |
 | sudoku/wichtounet-solved-extra | 5 | 253 / 361 | 2 | 0 | 4 | 1 |  |
-| all | 3,978 | 119,660 / 149,672 | 231 | 1,597 | 3,582 | 455 | 5 |
+| all | 3,978 | 119,729 / 149,672 | 229 | 1,602 | 3,582 | 455 | 5 |
 
 The five failures are the Kakuro photo renders that read no clues.
 
@@ -548,14 +551,106 @@ more unflagged errors than through the runner's loader (119,693 and 229 before):
 - The 11 rotated JPEGs no longer read through the original's detail lose 21
   clues right and gain 2 unflagged errors net. wichtounet-newspaper image1024
   shows its page sideways even after the EXIF turn. Read straight from its
-  1,280 px preview, it yields 39 value regions instead of 24, 18 of them thin
-  slivers like gridline pieces. Neither quarter turn then reads the 8 confident
-  digits the orientation check needs, so the sideways reading stays: 0 of 24
-  clues right, with 2 unflagged errors.
+  1,280 px preview, it yielded 39 value regions instead of 24, 18 of them thin
+  slivers like gridline pieces, and the sideways reading stayed: 0 of 24 clues
+  right, with 2 unflagged errors. The cause was the detector's quad, not the
+  reading. A band of halftone grey printed beside the grid's left border put
+  the quad's left side a fifth of a cell outside the grid, at 960 px as at
+  1,280 (a 1% corner error in both rows; `web/GRID_DETECTION.md`, "Settling
+  the corners"). Through that quad the border and the next three lines crossed
+  the cell windows of the first four columns as the slivers, and at their full
+  height they made the pencil guard (#105) drop two of the sideways clues.
+  Turned a quarter, the page read 23 of its 24 clues right (its bottom row was
+  cut short, and a 6 read as 0), yet only 7 counted as confident where the
+  check needs 8: 15 were read through cell bounds refined around the shifted
+  lines, which are always flagged, and one had a split vote. Through the old
+  960 px detail 9 were confident (23 right, 14 of them flagged), just enough.
+  Dropping the slivers before the check would not have helped: the upright
+  reading's 2 confident digits set the bar at its floor of 8 either way. With
+  the settling check the quad sits on the border, the page is turned, and all
+  24 clues read right, one of them flagged.
 - The 8 rotated wichtounet originals, now with a 1,600 px preview instead of a
   1,200 px one, lose 24 clues right. At the larger size the detector no longer
   finds the grid of image1036, so its 26 correct clues become a reading with
   every cell highlighted.
+
+The settling check can change only the 45 images on which some settling's
+second warp puts an outer line more than a tenth of a cell from the tightened
+quad (the whole corpus, detection only); every other detection is unchanged by
+construction. Those 45 and a control of 107 others (the control above, less
+one of the 45) were read through the import on master 7e4420a, where all 152
+rows match the table's rows exactly, and again with the check (Chromium,
+2026-10-13, and on 2026-10-14 with its inward-only rule, which changes none of
+them). The control reads the same. Twelve of the 45 change. No image reads
+fewer clues right or gains an unflagged error, but counted cell by cell 87
+clues become right and 18 that master read right no longer are:
+
+| | clues right | unflagged | perfect | turned |
+|---|---:|---:|---:|---:|
+| the 45, master | 1,261 / 1,848 | 13 | 4 | 2 |
+| the 45, with the check | 1,330 / 1,848 | 11 | 9 | 3 |
+
+- image1024 reads all 24 clues, turned; its original reads 24 of 24 instead of
+  23 and is turned as before; the same photograph stored upright (rozet
+  empty_0020) reads 24 of 24 instead of 23. The one new turn is the right one,
+  and no turn is lost.
+- Three more pictures: image1004 reads 25 of 25 (23 before) and its original
+  25 of 25 (24); image1087 reads 25 of 26 (22) with 2 invented digits instead
+  of 20, and its original 24 of 26 with 3 instead of 19; rozet-handwritten
+  sudoku_0123 reads 42 of 46 (18).
+- Two lexski screenshots: val-gka96q36bvec1, a 3 x 3 detection read with every
+  cell flagged, reads 38 of 51 (32), and val-n392q2ui6jxc1 39 of 39 (35). In
+  the aligned cells of the second, 11 more of the app's candidate notes read
+  as digits, all highlighted by the note-size flag (#122), and 26 fewer empty
+  cells are highlighted.
+- The wichtounet-solved pictures of image1024 and image1087, whose targets are
+  whole handwritten solutions: image1024 reads 52 of 81 as before, with 6
+  digits gained and 6 lost (3 more read wrong, 3 fewer missed), and image1087
+  52 instead of 49, with 6 gained and 3 lost, all flagged.
+
+The 18 clues lost lie on 5 of the 12 images, and each of the 5 gains at least
+as many as it loses. All 18 are flagged with the check (11 now missed, 7 read
+wrong), and 17 of them were flagged on master too:
+- val-gka96q36bvec1: 6 of the app's printed clues (r1c6 4, r1c8 7, r2c6 1,
+  r5c2 1, r7c7 4, r8c5 1), against 12 gained. Three of them are 1s: no glyph
+  rule changed, but through the moved quad these thin glyphs go unread.
+- image1087 and its original: the printed 3 at r4c8 on both and the 7 at r4c0
+  on the original, now missed, against 4 and 2 gained.
+- The two solved pictures: 9 handwritten digits, one of them a 1, against 12
+  gained. The 5 at r4c4 of image1087 is the one lost clue master read
+  confidently; it is now a flagged 1.
+
+Against 87 clues gained, 2 fewer unflagged errors and 5 more perfect boards,
+these 18 flagged losses were judged worth it.
+
+The whole corpus was also detected in the other three quarter turns the Rotate
+button gives, with the check before its inward-only rule (9b77125, which takes
+the same placements there), and every image whose detection the check changes
+was read. Turned a quarter either way, 22 readings change: 402 to 641 clues
+right and 20 to 3 unflagged errors, with no false turn. Upside down, 14
+readings change: 127 to 147 right, but 36 to 40 unflagged errors, every new
+one a 6 read as 9 or a 9 as 6. Neither build checks for a half turn: the
+orientation check runs only when glyphs are wider than tall, so both read
+these pages upside down, and the better-placed quad reads their 6s and 9s with
+more confidence. In WebKit, 249 previews detected in all four turns take 7
+placements, none farther from the target corners, and wichtounet-originals
+image1024 reads 24 of 24 instead of 3 turned the wrong way. No Kakuro, Killer,
+Str8ts, Slitherlink, Futoshiki or other non-Sudoku image changes in any of
+these runs.
+
+The 45 and lexski test-k26kolm0b01d1, which takes a placement only when
+decoded with Pillow, were also read in WebKit through the import, on master
+and with the check (2026-10-14). 11 detections change: Chromium's 12 less
+wichtounet-originals image1087.original, which takes no placement in WebKit,
+as with Pillow; k26kolm0b01d1 takes none either. Clues right go from 1,304 to
+1,378 of 1,895, unflagged errors from 20 to 11 and perfect boards from 5 to
+10. Cell by cell 89 clues become right and 15 that master read right no
+longer are, all flagged with the check (11 missed, 4 read wrong); master read
+2 of them confidently, the handwritten 3 at r2c6 and 5 at r4c4 of
+wichtounet-solved image1087. No cell gains an unflagged error. In WebKit
+master already turns wichtounet-newspaper image1024 (23 of 24 right, 24 with
+the check), and turns its original the wrong way (1 of 24 right, 8 unflagged
+errors), which the check turns the right way (24 of 24).
 
 ## Alternatives tried
 

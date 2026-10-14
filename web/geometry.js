@@ -668,15 +668,81 @@ export function estimateGrid(image, mask, shear = null, aspect = 1, invert = fal
     quality: rows && cols ? Math.min(across.quality, down.quality) : 0,
     extent: rows && cols ? { x: [across.first, across.last], y: [down.first, down.last], shear: lines.shear } : null };
 }
-// A quad pushed outward from its centre by a fraction of its size, clamped
-// to the image.
-function padded(corners, width, height, fraction = 0.04) {
+// A quad pushed outward from its centre by a fraction of its size.
+function outward(corners, fraction = 0.04) {
   const cx = corners.reduce((sum, p) => sum + p.x, 0) / 4,
     cy = corners.reduce((sum, p) => sum + p.y, 0) / 4;
-  return corners.map((p) => ({
-    x: Math.min(width - 1, Math.max(0, p.x + (p.x - cx) * fraction)),
-    y: Math.min(height - 1, Math.max(0, p.y + (p.y - cy) * fraction)),
+  return corners.map((p) => ({ x: p.x + (p.x - cx) * fraction, y: p.y + (p.y - cy) * fraction }));
+}
+// The same, clamped to the image.
+function padded(corners, width, height, fraction = 0.04) {
+  return outward(corners, fraction).map((p) => ({
+    x: Math.min(width - 1, Math.max(0, p.x)),
+    y: Math.min(height - 1, Math.max(0, p.y)),
   }));
+}
+// Where a lattice's outer lines lie in the image: its extent in a warp of
+// `frame`, mapped back through the homography, unclamped.
+function outerQuad(frame, found, size) {
+  const m = homography(frame),
+    [x0, x1] = found.extent.x,
+    [y0, y1] = found.extent.y,
+    at = (u, v) => project(m, u / (size - 1), v / (size - 1));
+  return [at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1)];
+}
+// The largest distance between corresponding corners of two quads.
+function farthest(p, q) {
+  return Math.max(...p.map((a, i) => Math.hypot(a.x - q[i].x, a.y - q[i].y)));
+}
+// A tenth of the smaller cell side of a rows x cols grid in `quad`.
+function tenthOfCell(quad, rows, cols) {
+  const side = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  return 0.1 * Math.min((side(quad[0], quad[1]) + side(quad[3], quad[2])) / (2 * cols),
+    (side(quad[0], quad[3]) + side(quad[1], quad[2])) / (2 * rows));
+}
+// A confirmation found the lattice it was asked to confirm, whole.
+function sameLattice(found, expected) {
+  return found.rows === expected.rows && found.cols === expected.cols && !found.partial;
+}
+// How far the corners of `placed` reach outside the edges of `quad`, at
+// most: 0 when each lies on or inside the two edges it shares with `quad`.
+function beyond(quad, placed) {
+  const cx = quad.reduce((sum, p) => sum + p.x, 0) / 4,
+    cy = quad.reduce((sum, p) => sum + p.y, 0) / 4;
+  let most = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i],
+      b = quad[(i + 1) % 4],
+      length = Math.hypot(b.x - a.x, b.y - a.y) || 1,
+      nx = (b.y - a.y) / length,
+      ny = (a.x - b.x) / length,
+      // The edge's normal, turned away from the quad's centre.
+      out = (cx - a.x) * nx + (cy - a.y) * ny > 0 ? -1 : 1;
+    for (const p of [placed[i], placed[(i + 1) % 4]]) most = Math.max(most, out * ((p.x - a.x) * nx + (p.y - a.y) * ny));
+  }
+  return most;
+}
+// Where a confirmation's lattice puts the grid: `again` was read in a
+// size x size warp of `frame`, centred on the tightened quad `tight` with a
+// margin on every side. When its outer lines lie more than a tenth of a cell
+// from the quad's edges, the first warp's outer line was not the grid's
+// border, and this is the quad to check, provided a padded warp of it lies in
+// the image. The placement may only move edges inward: a first warp's outer
+// line that was not the border was a neighbour outside it, merged into it.
+// An edge moved outward is the confirmation doing the same at its own edge
+// (bands printed beside every side of the grid), so a corner more than half
+// a tenth of a cell outside the quad refuses the placement. Null otherwise.
+export function relocation(tight, frame, again, size, width, height) {
+  const placed = outerQuad(frame, again, size),
+    tenth = tenthOfCell(tight, again.rows, again.cols);
+  return farthest(placed, tight) > tenth && beyond(tight, placed) <= tenth / 2 &&
+    validQuad(outward(placed), width, height) ? placed : null;
+}
+// Whether `found`, read in a size x size warp of `frame`, is the lattice
+// `expected`, whole, with its outer lines within a tenth of a cell of `quad`.
+export function confirms(found, expected, frame, size, quad) {
+  return sameLattice(found, expected) &&
+    farthest(outerQuad(frame, found, size), quad) <= tenthOfCell(quad, expected.rows, expected.cols);
 }
 // The outline's extreme points can sit a few percent off the grid (a digit
 // touching the border, a black corner cell missing from the ink mask, a
@@ -685,8 +751,9 @@ function padded(corners, width, height, fraction = 0.04) {
 // never marked. The quad is therefore warped with a small outward margin;
 // the lattice's outer lines are the grid's border, mapped back through the
 // homography, and the tighter quad is confirmed with a second padded warp
-// that must find the same lattice.
-function settle(image, corners, thorough = true) {
+// that must find the same lattice. Exported for tests: the corners it
+// returns and the lattice estimate that goes with them.
+export function settle(image, corners, thorough = true) {
   const size = 540,
     grown = padded(corners, image.width, image.height),
     // Clamping a quad that touches the frame can fold it; fall back to the
@@ -730,9 +797,30 @@ function settle(image, corners, thorough = true) {
   // to search for.
   if (moved <= diagonal * 0.01 && !estimated.partial) return { corners: tight, estimated };
   const grownTight = padded(tight, image.width, image.height),
-    again = estimateGrid(warp(image, validQuad(grownTight, image.width, image.height) ? grownTight : tight, size, size), undefined, { x: 0, y: 0 }, 1, false, thorough);
-  if (again.rows === estimated.rows && again.cols === estimated.cols && !again.partial) return { corners: tight, estimated: again };
-  return estimated.partial ? none : { corners, estimated };
+    frame = validQuad(grownTight, image.width, image.height) ? grownTight : tight,
+    again = estimateGrid(warp(image, frame, size, size), undefined, { x: 0, y: 0 }, 1, false, thorough);
+  if (!sameLattice(again, estimated)) return estimated.partial ? none : { corners, estimated };
+  // A still photograph also checks where the confirmation put the border.
+  // On a newspaper page (wichtounet image1024) a grey band printed beside
+  // the border lay at the first warp's very edge and merged with the border
+  // into one line. At the warp's very edge, where its strongest column is
+  // almost solid ink, the band was the stronger and gave the line its
+  // position: the quad ran along the band, a fifth of a cell outside the
+  // grid, and the border then crossed the cell windows of the first columns.
+  // The confirmation, with the band in full view, where its halftone reads
+  // weaker than the border, found the border. Its placement stands only when
+  // a third warp, centred on it, finds the same lattice within a tenth of a
+  // cell; otherwise the tightened quad stays, as it does for the live camera.
+  // The third warp, like the second, reads with no shear: the settled quad
+  // has none left, and a warp that searches for one can line up a lattice
+  // the second warp did not see.
+  const placed = thorough ? relocation(tight, frame, again, size, image.width, image.height) : null;
+  if (placed) {
+    const check = outward(placed),
+      third = estimateGrid(warp(image, check, size, size), undefined, { x: 0, y: 0 }, 1, false, thorough);
+    if (confirms(third, again, check, size, placed)) return { corners: placed, estimated: third };
+  }
+  return { corners: tight, estimated: again };
 }
 // A white line through a black region splits its ink component: a Kakuro
 // corner cell cut by its clue diagonal leaves the corner triangle on its own,

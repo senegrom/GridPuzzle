@@ -84,20 +84,34 @@ test("a page on a dark table: the grid inside the page's edge wins over the edge
   assert.equal(found.rows, 9); assert.equal(found.cols, 9);
   assert.ok(Math.abs(found.corners[0].x - g0) <= 3 && Math.abs(found.corners[2].x - (g0 + 9 * cell + 2)) <= 4, JSON.stringify(found.corners));
 });
-test("black corner cells: the lattice is read past them and the corners settle on it", () => {
-  // A Kakuro-like 8 x 8 grid whose first row and column are black cells.
+// A Kakuro-like 8 x 8 grid of 60 px cells whose first row and column are
+// black cells, `g0` pixels from the frame's top and left edges.
+function blackCorners(g0) {
   const n = 640, data = new Uint8ClampedArray(n * n * 4);
   const px = (x, y, v) => { const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px(x, y, 245);
-  const g0 = 80, cell = 60, g1 = g0 + 8 * cell;
+  const cell = 60, g1 = g0 + 8 * cell;
   for (let y = g0; y < g1; y++) for (let x = g0; x < g1; x++) if (x < g0 + cell || y < g0 + cell) px(x, y, 20);
   for (let k = 0; k <= 8; k++) for (let t = g0; t <= g1; t++) { px(g0 + k * cell, t, 20); px(t, g0 + k * cell, 20); }
-  const found = findGrid({ width: n, height: n, data });
+  return { image: { width: n, height: n, data }, truth: [[g0, g0], [g1, g0], [g1, g1], [g0, g1]] };
+}
+test("black corner cells: the lattice is read past them and the corners settle on it", () => {
+  const { image, truth } = blackCorners(80);
+  const found = findGrid(image);
   assert.equal(found.rows, 8); assert.equal(found.cols, 8);
-  const truth = [[g0, g0], [g1, g0], [g1, g1], [g0, g1]];
   // Within about 1% of the grid: the border along black cells is read from
   // the outer member of its cluster, the black cell's rim being the stronger.
   assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("black corner cells 8 px from the frame's edge: the padded warps stay in the image (photo and live)", () => {
+  // The outline's quad padded by 4% reaches past the frame and is clamped to
+  // it; unclamped, the warp would refuse it and settle from the bare outline.
+  for (const thorough of [true, false]) {
+    const { image, truth } = blackCorners(8);
+    const found = findGrid(image, { thorough });
+    assert.equal(found.rows, 8, `thorough ${thorough}`); assert.equal(found.cols, 8, `thorough ${thorough}`);
+    assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+  }
 });
 test("a blob touching a corner does not keep the corner off the grid", () => {
   const n = 640, data = new Uint8ClampedArray(n * n * 4);
@@ -163,6 +177,27 @@ test("a grid joined to a toolbar below it is found without the toolbar", () => {
   assert.equal(found.rows, 9); assert.equal(found.cols, 9);
   const truth = [[g0, g0], [g0 + 9 * cell, g0], [g0 + 9 * cell, g0 + 9 * cell], [g0, g0 + 9 * cell]];
   assert.ok(found.corners.every((c, i) => Math.abs(c.x - truth[i][0]) <= 6 && Math.abs(c.y - truth[i][1]) <= 6), JSON.stringify(found.corners));
+});
+test("a partial lattice that the confirmation does not find again is no grid (photo and live)", () => {
+  // A ruled box: ten rules across its whole width, and over its left 62% ten
+  // doubled rules (two lines 15 px apart). The first warp merges each pair
+  // into one line, a regular run over part of the box: a partial 9 x 9
+  // reading. The confirmation, closer in, sees the pairs apart: no lattice
+  // across, so the reading is dropped rather than kept on the box's corners.
+  const n = 760, h = 640, x0 = 80, y0 = 50, w = 600, ht = 540, data = new Uint8ClampedArray(n * h * 4);
+  const px = (x, y, v) => { const i = (y * n + x) * 4; data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < n; x++) px(x, y, 245);
+  for (let k = 0; k <= 9; k++) { const y = Math.round(y0 + k * ht / 9); for (let x = x0; x <= x0 + w; x++) { px(x, y, 30); px(x, y + 1, 30); } }
+  for (let y = y0; y <= y0 + ht; y++) { px(x0 + w, y, 30); px(x0 + w + 1, y, 30); }
+  for (let k = 0; k <= 9; k++) {
+    const x = Math.round(x0 + k * 0.62 * w / 9);
+    for (let y = y0; y <= y0 + ht; y++) for (const d of [0, 1, 15, 16]) px(x + d, y, 30);
+  }
+  for (const thorough of [true, false]) {
+    const found = findGrid({ width: n, height: h, data }, { thorough });
+    assert.equal(found.rows, 0, `thorough ${thorough}`); assert.equal(found.cols, 0, `thorough ${thorough}`);
+    assert.ok(found.confidence < 0.8, `thorough ${thorough}`);
+  }
 });
 test("a grid whose every cell is full of pencil marks is found", () => {
   // 9 x 9 grid of 54 px cells with thin lines; every cell carries a 3 x 3
