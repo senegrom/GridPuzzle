@@ -751,8 +751,9 @@ export function confirms(found, expected, frame, size, quad) {
 // never marked. The quad is therefore warped with a small outward margin;
 // the lattice's outer lines are the grid's border, mapped back through the
 // homography, and the tighter quad is confirmed with a second padded warp
-// that must find the same lattice.
-function settle(image, corners, thorough = true) {
+// that must find the same lattice. Exported for tests: the corners it
+// returns and the lattice estimate that goes with them.
+export function settle(image, corners, thorough = true) {
   const size = 540,
     grown = padded(corners, image.width, image.height),
     // Clamping a quad that touches the frame can fold it; fall back to the

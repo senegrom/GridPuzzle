@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findGrid, relocation, confirms, warp } from "../geometry.js";
+import { findGrid, relocation, confirms, settle, warp } from "../geometry.js";
 import { prepareScan } from "../scan-analysis.js";
 
 // A 9 x 9 newspaper grid (60 px cells, 6 px border, 4 px box lines, 2 px cell
@@ -181,6 +181,20 @@ test("a band printed above the top border: the still photograph's top edge lands
   assert.equal(photo.rows, 9); assert.equal(photo.cols, 9);
   assert.ok(BORDER - top(live) > 0.15 * CELL, `live quad's top edge ${top(live)} on the band`);
   assert.ok(Math.abs(top(photo) - BORDER) < 1.5, `photo quad's top edge ${top(photo)} on the border at ${BORDER}`);
+});
+
+test("a relocated reading carries the third warp's lattice, which lies on the corners it returns", () => {
+  // settle() from the band board's outline, the extreme points of the grid's
+  // ink, as findGrid() settles it.
+  const outline = [{ x: X, y: Y }, { x: X + 9 * CELL + 5, y: Y }, { x: X + 9 * CELL + 5, y: Y + 9 * CELL + 5 }, { x: X, y: Y + 9 * CELL + 5 }];
+  const settled = settle(bandBoard(), outline);
+  assert.ok(Math.abs(left(settled) - BORDER) < 1.5, `relocated left edge ${left(settled)} on the border`);
+  // The third warp was read in the placement pushed out by 4% from its centre:
+  // its lattice's outer lines, mapped back, are the corners. The second warp's
+  // lattice, read around the band, would lie a fifth of a cell off them.
+  const cx = settled.corners.reduce((sum, p) => sum + p.x, 0) / 4, cy = settled.corners.reduce((sum, p) => sum + p.y, 0) / 4,
+    frame = settled.corners.map((p) => ({ x: p.x + (p.x - cx) * 0.04, y: p.y + (p.y - cy) * 0.04 }));
+  assert.equal(confirms(settled.estimated, settled.estimated, frame, 540, settled.corners), true);
 });
 
 test("a placement that the third warp does not confirm is not taken", () => {
