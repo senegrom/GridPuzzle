@@ -32,6 +32,26 @@ function bandBoard({ gap = 8, light = 100, band = 22, blob = false, glyphs = [] 
   }
   return { width, height, data };
 }
+// The same grid on a larger page with a solid grey band `band` pixels wide
+// printed `gap` pixels outside every side of the border, past the corners.
+function framedBoard({ gap = 3, band = 8, shade = 40 } = {}) {
+  const width = 860, height = 820, data = new Uint8ClampedArray(width * height * 4), size = 9 * CELL, reach = size + 6;
+  const set = (x, y, v) => {
+    const at = 4 * (y * width + x);
+    data[at] = data[at + 1] = data[at + 2] = v; data[at + 3] = 255;
+  };
+  const fill = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) set(x, y, shade); };
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) set(x, y, 226);
+  fill(X - gap - band, Y - 40, X - gap, Y + reach + 46);
+  fill(X + reach + gap, Y - 40, X + reach + gap + band, Y + reach + 46);
+  fill(X - 40, Y - gap - band, X + reach + 46, Y - gap);
+  fill(X - 40, Y + reach + gap, X + reach + 46, Y + reach + gap + band);
+  for (let k = 0; k <= 9; k++) {
+    const w = k === 0 || k === 9 ? 6 : k % 3 ? 2 : 4, shade = k === 0 || k === 9 ? 25 : k % 3 ? 70 : 35;
+    for (let t = 0; t < w; t++) for (let s = 0; s < size + 6; s++) { set(X + k * CELL + t, Y + s, shade); set(X + s, Y + k * CELL + t, shade); }
+  }
+  return { width, height, data };
+}
 const left = (found) => (found.corners[0].x + found.corners[3].x) / 2;
 
 test("a confirmation that puts the border a fifth of a cell inside the quad proposes its own placement", () => {
@@ -61,6 +81,29 @@ test("a placement is confirmed only by the same whole lattice within a tenth of 
   assert.equal(confirms(found(114, { partial: true }), expected, frame, size, quad), false, "a partial lattice");
 });
 
+test("a placement may move the quad's edges inward only, give or take half a tenth of a cell", () => {
+  // The pure tests' frame and quad: a tenth of a cell is 5.8 px, half of it 2.9.
+  const size = 541, frame = [{ x: 90, y: 90 }, { x: 630, y: 90 }, { x: 630, y: 630 }, { x: 90, y: 630 }],
+    tight = [{ x: 100, y: 100 }, { x: 620, y: 100 }, { x: 620, y: 620 }, { x: 100, y: 620 }],
+    lattice = ({ left = 100, top = 100, right = 620, bottom = 620 }) =>
+      ({ rows: 9, cols: 9, partial: false, extent: { x: [left - 90, right - 90], y: [top - 90, bottom - 90] } }),
+    placed = (edges, quad = tight) => relocation(quad, frame, lattice(edges), size, 760, 720);
+  assert.ok(placed({ left: 112 }), "the left edge 12 px inward");
+  assert.ok(placed({ bottom: 608 }), "the bottom edge 12 px inward");
+  assert.ok(placed({ left: 112, right: 622 }), "and the right edge 2 px outward");
+  for (const [edges, why] of [
+    [{ left: 112, right: 624 }, "the right edge 4 px outward"],
+    [{ left: 112, bottom: 624 }, "the bottom edge 4 px outward"],
+    [{ left: 112, top: 96 }, "the top edge 4 px outward"],
+    [{ top: 112, left: 96 }, "the left edge 4 px outward"],
+    [{ right: 632 }, "the right edge 12 px outward, nothing inward"],
+  ]) assert.equal(placed(edges), null, why);
+  // One corner alone: the tightened quad's bottom-right corner sits 10 px
+  // left of the placement's, which is outside its right edge.
+  const slanted = [{ x: 100, y: 100 }, { x: 620, y: 100 }, { x: 610, y: 620 }, { x: 100, y: 620 }];
+  assert.equal(placed({ left: 112 }, slanted), null, "a corner 10 px outside the quad's right edge");
+});
+
 test("a band printed beside the border: the still photograph's quad lands on the border, the live camera's is unchanged", () => {
   const image = bandBoard();
   const photo = findGrid(image), live = findGrid(image, { thorough: false });
@@ -77,6 +120,20 @@ test("a placement that the third warp does not confirm is not taken", () => {
   const image = bandBoard({ gap: 6, light: 135 });
   const photo = findGrid(image), live = findGrid(image, { thorough: false });
   assert.ok(BORDER - left(live) > 0.15 * CELL, "the first warp took the band");
+  assert.deepEqual(photo.corners, live.corners);
+});
+
+test("bands beside every side of the border: the confirmation's edges moved outward are not taken", () => {
+  // The first warp merges the left and top bands into the border, so the
+  // quad runs along them; the confirmation, centred on that quad, sees the
+  // right and bottom bands at its own edge and merges those instead. Its
+  // placement would move the right and bottom edges outward onto the bands.
+  const image = framedBoard();
+  const photo = findGrid(image), live = findGrid(image, { thorough: false });
+  assert.equal(photo.rows, 9); assert.equal(photo.cols, 9);
+  const right = (photo.corners[1].x + photo.corners[2].x) / 2, bottom = (photo.corners[2].y + photo.corners[3].y) / 2;
+  assert.ok(Math.abs(right - (X + 9 * CELL + 2.5)) < 1.5, `photo quad's right edge ${right} on the border`);
+  assert.ok(Math.abs(bottom - (Y + 9 * CELL + 2.5)) < 1.5, `photo quad's bottom edge ${bottom} on the border`);
   assert.deepEqual(photo.corners, live.corners);
 });
 

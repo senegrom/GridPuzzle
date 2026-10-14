@@ -704,15 +704,38 @@ function tenthOfCell(quad, rows, cols) {
 function sameLattice(found, expected) {
   return found.rows === expected.rows && found.cols === expected.cols && !found.partial;
 }
+// How far the corners of `placed` reach outside the edges of `quad`, at
+// most: 0 when each lies on or inside the two edges it shares with `quad`.
+function beyond(quad, placed) {
+  const cx = quad.reduce((sum, p) => sum + p.x, 0) / 4,
+    cy = quad.reduce((sum, p) => sum + p.y, 0) / 4;
+  let most = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i],
+      b = quad[(i + 1) % 4],
+      length = Math.hypot(b.x - a.x, b.y - a.y) || 1,
+      nx = (b.y - a.y) / length,
+      ny = (a.x - b.x) / length,
+      // The edge's normal, turned away from the quad's centre.
+      out = (cx - a.x) * nx + (cy - a.y) * ny > 0 ? -1 : 1;
+    for (const p of [placed[i], placed[(i + 1) % 4]]) most = Math.max(most, out * ((p.x - a.x) * nx + (p.y - a.y) * ny));
+  }
+  return most;
+}
 // Where a confirmation's lattice puts the grid: `again` was read in a
 // size x size warp of `frame`, centred on the tightened quad `tight` with a
 // margin on every side. When its outer lines lie more than a tenth of a cell
 // from the quad's edges, the first warp's outer line was not the grid's
 // border, and this is the quad to check, provided a padded warp of it lies in
-// the image. Null otherwise.
+// the image. The placement may only move edges inward: a first warp's outer
+// line that was not the border was a neighbour outside it, merged into it.
+// An edge moved outward is the confirmation doing the same at its own edge
+// (bands printed beside every side of the grid), so a corner more than half
+// a tenth of a cell outside the quad refuses the placement. Null otherwise.
 export function relocation(tight, frame, again, size, width, height) {
-  const placed = outerQuad(frame, again, size);
-  return farthest(placed, tight) > tenthOfCell(tight, again.rows, again.cols) &&
+  const placed = outerQuad(frame, again, size),
+    tenth = tenthOfCell(tight, again.rows, again.cols);
+  return farthest(placed, tight) > tenth && beyond(tight, placed) <= tenth / 2 &&
     validQuad(outward(placed), width, height) ? placed : null;
 }
 // Whether `found`, read in a size x size warp of `frame`, is the lattice
