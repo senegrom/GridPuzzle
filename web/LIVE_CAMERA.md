@@ -1136,7 +1136,13 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 - `live_noise_regressions.cjs` runs automatic type and grid detection, the real
   tracking worker and Tesseract on a continually re-noised grey and blue
   synthetic board, then covers it and changes a digit; labels score output only,
-  and no user photograph is committed. Diagnostics without imagery cannot
+  and no user photograph is committed. Where the handshake decided for bitmaps
+  it also loses frames on purpose (the page's `createImageBitmap` turns the
+  next frames into a bitmap that reads back transparent, which the worker
+  refuses, or a 1 × 1 one, which the camera refuses): one of each during the
+  tracked reading, which stays, read once, on bitmaps, and one right after the
+  change, which must still retire the reading as changed content (as CI's
+  WebKit once lost a frame there). Diagnostics without imagery cannot
   establish an exact visual cause.
 - `live_soak_regressions.cjs` runs twenty camera sessions per browser with
   resolution changes and delayed replies from the real tracking worker, with
