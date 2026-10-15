@@ -387,23 +387,28 @@ bitmap transport needs all sixteen values within 2. A wrong value, a worker
 without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's WebKit on
 Windows), a probe that cannot be made or transferred, or a reply that cannot
 be received mean the camera's own readback. So does a worker that has not
-answered 300 ms after its start (its first message: loading its modules is no
-part of the transport): it may be stuck on the probe, with every job queued
-behind it, so it is replaced at once by one on the camera's own readback,
-with no failure counted. A wait whose timer fires more than 50 ms late ran
-behind a long task on the main thread, which the answer may have waited for
-(in Chromium a new worker's first `OffscreenCanvas` use waits for the page's
-task to end, and WebKit runs an overdue timer before a reply that is already
-queued, so a busy main thread alone would time the handshake out in both),
-so it is renewed, until the anchor deadline after the worker's start: a
-worker held back by a task that ends more than 50 ms after the wait's end is
-kept, and one that never answers is still replaced on a page that stays
-busy. A task that ends within those 50 ms still times the handshake out, as
-the timer then counts as on time. A worker replaced so
-costs bitmaps only itself: the worker after the next reset (the freeze,
-Clear, Restart) probes again, and only a second worker replaced so in the
-camera session gives bitmaps up for the rest of it. A worker that never
-starts fails as its first anchor would have. Jobs wait for the decision.
+answered when its second 300-ms wait ends on time, 600 ms after its start (its
+first message: loading its modules is no part of the transport): it may be
+stuck on the probe, with every job queued behind it, so it is replaced at once
+by one on the camera's own readback, with no failure counted. A wait whose
+timer fires more than 50 ms late ran behind a long task on the main thread,
+which the answer may have waited for (in Chromium a new worker's first
+`OffscreenCanvas` use waits for the page's task to end, and WebKit runs an
+overdue timer before a reply that is already queued, so a busy main thread
+alone would time the handshake out in both), so it is renewed, until the
+anchor deadline after the worker's start: a worker held back by a task that
+ends more than 50 ms after the wait's end is kept, and one that never answers
+is still replaced on a page that stays busy. A task that ends within those
+50 ms holds the answer back just the same while its timer counts as on time:
+with one wait, a task ending 300-340 ms after the worker's start timed the
+handshake out in every Chromium trial and in WebKit at 310-330 ms. So the
+first wait that ends on time is renewed too, once per worker, and the answer
+that comes right after it decides; a worker held back by two such tasks in a
+row, 300 ms apart, is replaced, which a stuck worker costs 300 ms more. A
+worker replaced so costs bitmaps only itself: the worker after the next reset
+(the freeze, Clear, Restart) probes again, and only a second worker replaced
+so in the camera session gives bitmaps up for the rest of it. A worker that
+never starts fails as its first anchor would have. Jobs wait for the decision.
 On seven corpus photographs, at their own size and scaled to a phone's
 snapshot, and on the live suites' scenes, the two give the same pixels in
 Chromium, bit for bit, and the same proofs and verdicts through shifts,

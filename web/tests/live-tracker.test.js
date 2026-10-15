@@ -209,17 +209,21 @@ for (const [name, setup, act, reason] of [
   assert.equal(h.tracker.stats.transportReason, null); assert.equal(h.tracker.stats.probePixels, null, 'a reset forgets the values');
 });
 
-// A worker that has not answered its probe when the wait ends on time, 300 ms
-// after it started, may be stuck on it, and every job would wait behind the
-// probe: it is replaced at once by a worker on the camera's own readback,
-// without a probe. No failure counts.
-test('a worker without an answer 300 ms after it started is replaced at once by one on the camera\'s own readback', async () => {
+// A worker that has not answered its probe when a second wait ends on time,
+// 600 ms after it started, may be stuck on it, and every job would wait behind
+// the probe: it is replaced at once by a worker on the camera's own readback,
+// without a probe. No failure counts. Its first wait that ends on time is
+// renewed: a task that ended just before may hold the answer back.
+test('a worker without an answer when its second wait ends on time, 600 ms after it started, is replaced at once by one on the camera\'s own readback', async () => {
   const h = transport(), ready = h.tracker.ready(); await flush();
   // However long its modules took to load: the wait runs from its start.
   h.tick(1000); h.started();
   assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
   // On time: no later than HANDSHAKE_LATE after the wait's end.
   h.tick(HANDSHAKE_WAIT + HANDSHAKE_LATE); h.fire(HANDSHAKE_WAIT);
+  assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined, 'kept at its first wait');
+  assert.deepEqual(h.delays(), [HANDSHAKE_WAIT], 'and waited for again'); assert.equal(h.tracker.transport, null);
+  h.tick(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
   assert.equal(await settled(ready), 'imagedata', 'the waiters get the new worker\'s transport');
   assert.equal(h.tracker.stats.transportReason, 'timeout');
   assert.equal(h.tracker.stats.handshakeMilliseconds, null, 'the new worker has no handshake to time');
@@ -256,15 +260,51 @@ test('a wait that ends late, behind a long task, is renewed, and the answer afte
   assert.equal(h.tracker.stats.handshakeMilliseconds, 2 * HANDSHAKE_WAIT + HANDSHAKE_LATE + 704, 'from the worker\'s start');
   assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0);
   h.tracker.reset();
-  // Renewed once, then ending on time without an answer: replaced.
+  // Renewed once late, then twice ending on time without an answer: replaced
+  // at the second (the late renewal is no on-time end).
   const next = h.tracker.ready(); await flush();
   h.started(); h.tick(HANDSHAKE_WAIT + 400); h.fire(HANDSHAKE_WAIT);
   assert.equal(h.workers.length, 2, 'renewed');
+  h.tick(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
+  assert.equal(h.workers.length, 2, 'renewed at the first wait ending on time'); assert.deepEqual(h.delays(), [HANDSHAKE_WAIT]);
   h.tick(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
   assert.equal(await settled(next), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
   assert.equal(h.workers.length, 3); assert.equal(h.workers[1].terminated, true); assert.deepEqual(h.workers[2].sent, []);
   assert.equal(h.tracker.stats.failures, 0);
   h.tracker.reset();
+});
+
+// A main-thread task that ends within HANDSHAKE_LATE after the wait's end
+// holds the answer back as a longer one does (Chromium delivers a new
+// worker's first OffscreenCanvas work only after it, WebKit runs the overdue
+// timer before a reply already queued), but the timer counts as on time. The
+// worker's first wait that ends on time is therefore renewed, and the answer
+// that comes right after it decides; so does an answer after a renewal of a
+// late wait in between. Each worker gets its own renewal.
+test('a wait that ends on time with the answer right behind it is renewed, and the answer decides "bitmap"', async () => {
+  for (const lateness of [0, 20, HANDSHAKE_LATE]) {
+    const h = transport(), ready = h.tracker.ready(); await flush();
+    h.started(); h.tick(HANDSHAKE_WAIT + lateness); h.fire(HANDSHAKE_WAIT);
+    assert.equal(h.workers.length, 1, `kept, ${lateness} ms after the wait's end`); assert.equal(h.workers[0].terminated, undefined);
+    assert.deepEqual(h.delays(), [HANDSHAKE_WAIT], 'and waited for again'); assert.equal(h.tracker.stats.active, 1);
+    h.tick(1); h.answer();
+    assert.equal(await settled(ready), 'bitmap'); assert.equal(h.tracker.stats.transportReason, 'probe');
+    assert.equal(h.tracker.stats.handshakeMilliseconds, HANDSHAKE_WAIT + lateness + 1, 'from the worker\'s start');
+    assert.equal(h.tracker.stats.failures, 0); assert.equal(h.timers.size, 0);
+    // The next worker has a renewal of its own: kept at its first on-time
+    // end too, after a late renewal in between, and replaced at its second.
+    h.tracker.reset();
+    const next = h.tracker.ready(); await flush();
+    h.started(); h.tick(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
+    assert.equal(h.workers.length, 2, 'the next worker is kept at its first on-time end');
+    h.tick(HANDSHAKE_WAIT + HANDSHAKE_LATE + 1); h.fire(HANDSHAKE_WAIT);
+    assert.equal(h.workers.length, 2, 'and at a late one');
+    h.tick(HANDSHAKE_WAIT + lateness); h.fire(HANDSHAKE_WAIT);
+    assert.equal(await settled(next), 'imagedata', 'replaced at its second on-time end');
+    assert.equal(h.tracker.stats.transportReason, 'timeout'); assert.equal(h.workers.length, 3);
+    assert.equal(h.workers[1].terminated, true); assert.deepEqual(h.workers[2].sent, [], 'its replacement gets no probe');
+    assert.equal(h.tracker.stats.failures, 0); h.tracker.reset();
+  }
 });
 
 // A page whose timers all fire late must not keep a worker that never answers:
@@ -291,7 +331,8 @@ test('a worker that never answers is replaced at the first wait ending ANCHOR_DE
 // the worker after the next reset probes again.
 test('after a worker was replaced for missing the wait, the worker after the next reset probes again', async () => {
   const h = transport(), ready = h.tracker.ready(); await flush();
-  h.started(); h.fire(HANDSHAKE_WAIT);
+  // Two waits that end on time.
+  h.started(); h.fire(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
   assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
   h.tracker.reset();
   assert.equal(await h.handshake(), 'bitmap', 'the next worker probes again');
@@ -307,7 +348,7 @@ test('a second worker replaced for missing the wait gives bitmaps up for the tra
   const h = transport(), timeout = async () => {
     const ready = h.tracker.ready(); await flush();
     assert.equal(h.last().sent[0]?.op, 'probe', 'probed');
-    h.started(); h.fire(HANDSHAKE_WAIT);
+    h.started(); h.fire(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
     assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
     assert.deepEqual(h.last().sent, [], 'its replacement gets no probe');
     h.tracker.reset();
@@ -556,7 +597,7 @@ test('the default probe is a bitmap of a 2 x 2 page canvas holding PROBE; withou
 test('a probe bitmap made after the handshake ran out is closed, not posted', async () => {
   let resolveProbe;
   const h = transport({ probe: () => new Promise(resolve => { resolveProbe = resolve; }) });
-  const ready = h.tracker.ready(); h.started(); h.fire(HANDSHAKE_WAIT);
+  const ready = h.tracker.ready(); h.started(); h.fire(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
   assert.equal(await settled(ready), 'imagedata');
   const late = h.bitmap('probe'); resolveProbe(late); await flush();
   assert.equal(late.closed, true); assert.deepEqual(h.last().sent, []);

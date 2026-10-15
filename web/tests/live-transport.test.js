@@ -296,14 +296,14 @@ for (const transport of ["bitmap", "imagedata"]) test(`${transport === "bitmap" 
   assert.deepEqual(h.open(), []);
 });
 
-test("the handshake holds the first anchor for at most 300 ms after the worker started, then the camera reads back itself", async (t) => {
+test("the handshake holds the first anchor for at most two waits (600 ms) after the worker started, then the camera reads back itself", async (t) => {
   const h = simulation(t, { transport: "silent", startMs: 40 });
   assert.ok(await h.until(() => h.jobs().length > 0, 3000), "the first job is posted");
   const [probe] = h.posts, [first] = h.jobs();
   assert.equal(probe.op, "probe");
   assert.equal(first.op, "anchor"); assert.equal(first.bitmap, null); assert.ok(first.image, "the camera's own readback");
   assert.equal(probe.at, h.workers[0].createdAt, "the probe goes out with the first anchor's request for the transport");
-  assert.equal(first.at, h.workers[0].createdAt + 40 + HANDSHAKE_WAIT, "the anchor, once the wait after the worker's start ran out");
+  assert.equal(first.at, h.workers[0].createdAt + 40 + 2 * HANDSHAKE_WAIT, "the anchor, once a second wait after the worker's start ran out on time");
   assert.equal(h.camera.stats.tracking.transport, "imagedata"); assert.equal(h.camera.stats.recovery.failures, 0);
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "and the grid is read");
   assert.deepEqual(h.open().map((b) => b.label), [], "the probe bitmap was transferred");
@@ -475,12 +475,13 @@ for (const [name, provoke, cause] of [
   assert.deepEqual(h.open(), []);
 });
 
-// A worker stuck on its probe answers nothing after it: the handshake's wait
-// replaces it with a worker on the camera's own readback, so the jobs do not
-// queue behind the probe until their deadlines, and no failure counts. The
-// worker after a reset (Restart here) probes again; a second worker stuck so
-// gives bitmaps up, and no later worker is probed.
-test("a worker stuck on its probe is replaced at the handshake's wait, and the grid is read on the camera's own readback", async (t) => {
+// A worker stuck on its probe answers nothing after it: the handshake's second
+// wait that ends on time replaces it with a worker on the camera's own
+// readback, so the jobs do not queue behind the probe until their deadlines,
+// and no failure counts. The worker after a reset (Restart here) probes
+// again; a second worker stuck so gives bitmaps up, and no later worker is
+// probed.
+test("a worker stuck on its probe is replaced at the handshake's second wait, and the grid is read on the camera's own readback", async (t) => {
   const h = simulation(t, { transport: "stuck" });
   const probes = () => h.posts.filter((p) => p.op === "probe").length;
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read");
