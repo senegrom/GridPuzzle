@@ -452,7 +452,10 @@ are given up only at the third frame lost in a row, refused or unmade, with
 no bitmap job completed in between, in the camera session: the freeze, Clear
 and Restart do not end the run, a completed bitmap job does. A browser that
 can read no frame back that way loses two frames, a fraction of a second,
-before its tracking moves to the camera's own readback.
+before its tracking moves to the camera's own readback. The diagnostic report
+counts the lost frames of each cause (`tracking.refusedFrames`,
+`tracking.unmadeFrames`); its transport and reason stay the worker's until
+bitmaps are given up.
 
 Bitmaps given up are no tracking failure: they are given up for the rest of
 the camera session, the worker is reset with its anchors, and the camera
@@ -784,6 +787,11 @@ back) or `unmade` (the camera could not make a bitmap of its snapshot, or got
 one of another size), each for the third frame lost in a row,
 `untransferable`, or `unanswered` (a worker's first bitmap job reached its
 deadline, got an unreadable reply or the worker died in it).
+`tracking.refusedFrames` and `tracking.unmadeFrames` count the camera
+session's frames lost to a bitmap the worker could not read back, or the
+camera could not make or got of another size; each cost that frame alone, so
+an export with `bitmap` and `probe` and a count above 0 had frames lost
+without giving bitmaps up.
 `tracking.handshakeMilliseconds` is the time from the worker's start to its
 handshake's decision (none without a handshake). `performance.trackingWorker`
 is the tracking core's time and `performance.trackingTransport` the worker's
@@ -1025,7 +1033,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   anchor, one frame lost to its bitmap during a tracked reading (refused,
   drawing nothing, of another size or not made: no restart, no new worker,
   the reading not read again and its outline never gone, the export still
-  saying `probe`), and the restart once frames are lost in every frame (at the
+  saying `probe` and counting the frame; `diagnostic-report.test.js`: those
+  counts, numbers only, kept across a reset), and the restart once frames are
+  lost in every frame (at the
   third, once, at once, without a failure, back-off or Restart, the detection
   in flight abandoned rather than cancelled, a waiting candidate discarded and
   the outline gone before the next frame, no anchor of the old worker asked

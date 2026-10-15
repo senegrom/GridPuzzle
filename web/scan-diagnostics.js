@@ -127,7 +127,11 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
       const handshakeMilliseconds = decided ? number(stats.handshakeMilliseconds) : tracking.handshakeMilliseconds ?? null;
       const probePixels = decided ? probeValues(stats.probePixels) : tracking.probePixels ?? null;
       tracking = {};
-      for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors']) tracking[key] = number(stats?.[key]);
+      // refusedFrames and unmadeFrames: the camera session's frames lost to a
+      // bitmap the worker could not read back or the camera could not make
+      // (REFUSAL_LIMIT in live-tracker.js), kept by the tracker across resets.
+      for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors',
+        'refusedFrames','unmadeFrames']) tracking[key] = number(stats?.[key]);
       tracking.transport = transport; tracking.transportReason = transportReason; tracking.handshakeMilliseconds = handshakeMilliseconds;
       tracking.probePixels = probePixels;
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;

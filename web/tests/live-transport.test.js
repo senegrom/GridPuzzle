@@ -468,6 +468,7 @@ for (const [name, provoke, cause] of [
   assert.deepEqual(h.open(), []);
   const report = h.diagnostics.snapshot().tracking;
   assert.equal(report.transport, "bitmap"); assert.equal(report.transportReason, "probe", "the export still says why bitmaps are used");
+  assert.equal(report[counted], 1, "and counts the lost frame"); assert.equal(report[other], 0);
 });
 
 // Bitmap frames lost persistently (every frame here) are no tracking failure:
@@ -503,6 +504,7 @@ for (const [name, provoke, cause] of [
   assert.deepEqual(h.open(), []);
   const report = h.diagnostics.snapshot().tracking;
   assert.equal(report.transport, "imagedata"); assert.equal(report.transportReason, cause, "the export says why");
+  assert.equal(report[counted], REFUSAL_LIMIT, "and how many frames were lost");
 });
 
 // The review's case (M1): a bitmap that is no picture of its snapshot, WebKit's
@@ -610,6 +612,7 @@ test("a bitmap that cannot be made for a frame the freeze retired is lost alone:
   assert.ok(h.jobs().filter((p) => p.at >= h.workers[1].createdAt).every((p) => p.bitmap), "and gets bitmaps");
   const report = h.diagnostics.snapshot().tracking;
   assert.equal(report.transport, "bitmap"); assert.equal(report.transportReason, "probe");
+  assert.equal(report.unmadeFrames, held, "the export counts the lost frame");
 });
 
 test("a stop during the handshake ends the waiting anchor and releases its snapshot", async (t) => {

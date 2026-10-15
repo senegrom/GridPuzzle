@@ -142,6 +142,28 @@ test('the export says why tracking used its transport and how long the handshake
  t=d.snapshot().tracking;assert.equal(t.transportReason,null,'a new scan has none yet');assert.equal(t.handshakeMilliseconds,null);
 });
 
+// Frames lost to their bitmaps (live-tracker.js, REFUSAL_LIMIT): one costs only
+// itself, so the transport and its reason stay; the export counts them per
+// cause, as numbers the tracker keeps across its resets, and a new scan
+// starts with none.
+test('the export counts the frames lost to a bitmap the worker refused or the camera could not make, beside the transport',()=>{
+ const d=createScanDiagnostics();d.begin('live',{});
+ d.tracking({transport:'bitmap',transportReason:'probe',refusedFrames:0,unmadeFrames:0},{frame:1,age:30,matched:true});
+ let t=d.snapshot().tracking;assert.equal(t.refusedFrames,0);assert.equal(t.unmadeFrames,0);
+ d.tracking({transport:'bitmap',transportReason:'probe',refusedFrames:1,unmadeFrames:2},{frame:2,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['bitmap','probe',1,2]);
+ // A reset (the freeze, Clear) leaves the tracker no transport but its counts.
+ d.tracking({transport:null,refusedFrames:1,unmadeFrames:2},{frame:3,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['bitmap','probe',1,2]);
+ d.tracking({transport:'imagedata',transportReason:'refused',refusedFrames:3,unmadeFrames:2},{frame:4,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['imagedata','refused',3,2]);
+ d.tracking({transport:'imagedata',refusedFrames:'PRIVATE',unmadeFrames:{}},{frame:5,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.refusedFrames,null);assert.equal(t.unmadeFrames,null);
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+ d.begin('live',{});d.tracking({},{frame:1,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.refusedFrames,null,'a new scan has none yet');assert.equal(t.unmadeFrames,null);
+});
+
 // On a mismatch the export keeps the values the probe read back: channel
 // values of the tracker's synthetic 2 x 2 probe, at most 64 integers 0-255.
 test('the export keeps the probe values of a mismatch, from an allowlist, kept across a reset',()=>{
