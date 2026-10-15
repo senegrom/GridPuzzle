@@ -779,9 +779,9 @@ off; `tracking.probePixels` then holds the values the 2 × 2 probe read back),
 `no-pixels` (the worker could not draw it), `unreadable` (its answer could not
 be received), `no-bitmaps` (the page makes none) or `probe-failed` (the probe
 could not be made or transferred); without a handshake, `timeout` (the worker
-replacing one with no answer within the handshake's wait; after a second
-such worker in the camera session, bitmaps are given up and every later
-worker says `timeout` too); once bitmaps were given up in the camera session
+replacing one with no answer when the handshake's second wait ended on time;
+after a second such worker in the camera session, bitmaps are given up and
+every later worker says `timeout` too); once bitmaps were given up in the camera session
 for another cause, that cause: `refused` (the worker could not read a bitmap
 back) or `unmade` (the camera could not make a bitmap of its snapshot, or got
 one of another size), each for the third frame lost in a row,
@@ -990,8 +990,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   the default probe (a 2 × 2 page canvas holding the four colours), the
   handshake's decision (every way to the camera's own readback, none of them a
   failure, each with its reason and time for the diagnostic report, a worker
-  that has not answered the probe when the wait ends on time replaced at once,
-  a wait that ended late renewed so that the answer after it decides, the
+  that has not answered the probe when its second wait ends on time replaced
+  at once, its first wait that ended on time, or one that ended late, renewed
+  so that the answer after it decides, each worker with a renewal of its own,
+  the
   renewals bounded by the anchor deadline on a page whose timers all fire
   late, the worker after the next reset probing again and a second worker
   replaced so giving bitmaps up, and a worker that never starts failing as
