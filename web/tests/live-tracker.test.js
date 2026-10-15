@@ -579,6 +579,26 @@ for (const last of ['refused', 'unmade']) test(`the REFUSAL_LIMIT-th bitmap fram
   h.tracker.reset();
 });
 
+// Only a completed bitmap job ends a run of lost frames: a job on the camera's
+// own readback (here that of the worker replacing one that missed its
+// handshake) says nothing about bitmaps.
+test('only a completed bitmap job ends a run of lost frames; one on the camera\'s own readback does not', async () => {
+  const h = transport(); await h.handshake();
+  for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  h.tracker.reset();
+  const ready = h.tracker.ready(); await flush();
+  h.started(); h.fire(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
+  assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
+  const own = h.tracker.verify({ image: image(), anchors: [] }); h.reply(); await own;
+  assert.equal(h.tracker.stats.completed, 1);
+  h.tracker.reset();
+  assert.equal(await h.handshake(), 'bitmap', 'the worker after the reset probes again');
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the run went on: this is the REFUSAL_LIMIT-th in a row');
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unmade');
+  assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
 // A refusal is an answer, but no bitmap job of the worker completed: a later
 // bitmap job that reaches its deadline still gives bitmaps up as unanswered,
 // without a failure.
