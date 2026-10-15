@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createLiveCamera } from "../live-camera.js";
-import { createLiveTracker, PROBE, HANDSHAKE_WAIT, VERIFY_DEADLINE } from "../live-tracker.js";
+import { createLiveTracker, PROBE, HANDSHAKE_WAIT, VERIFY_DEADLINE, REFUSAL_LIMIT } from "../live-tracker.js";
 import { createPixelReader } from "../live-tracking-pixels.js";
 import { createTrackingCore } from "../live-tracking-core.js";
 import { createScanDiagnostics } from "../scan-diagnostics.js";
@@ -53,6 +53,12 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   startMs = 10, solve = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
     holdBitmaps = false, blankBitmaps = false, emptyBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
+  // One-shot faults: the next `refusals` bitmap jobs are answered
+  // "bitmap-unsupported"; each entry of `upcoming` is what the next bitmap the
+  // camera makes turns out as ("fail", "blank" 1 x 1 or "empty"); `reads`
+  // counts full reads.
+  let refusals = 0, reads = 0;
+  const upcoming = [];
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
   // Every frame the tracking core was given: its op, and whether it came from a bitmap.
   const runs = [];
@@ -90,15 +96,18 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
   const previous = { document: globalThis.document, createImageBitmap: globalThis.createImageBitmap };
   globalThis.document = { createElement: () => { const c = canvas(); created.push({ canvas: c, at: time }); return c; } };
   globalThis.createImageBitmap = (source) => {
-    if (failBitmaps) return Promise.reject(new DOMException("No bitmap", "InvalidStateError"));
+    const once = upcoming.shift();
+    if (failBitmaps || once === "fail") return Promise.reject(new DOMException("No bitmap", "InvalidStateError"));
     // `blankBitmaps`: the size of a blank bitmap made instead of the snapshot's
     // copy (WebKit's answer when it cannot allocate the copy is 1 x 1), which
     // the worker would stretch over the tracking pixels: a blank frame.
-    if (blankBitmaps) { const b = bitmap(source, "blank"); b.grid = null; [b.width, b.height] = blankBitmaps; b.made = [...blankBitmaps]; return Promise.resolve(b); }
+    const blankSize = blankBitmaps || (once === "blank" ? [1, 1] : null);
+    if (blankSize) { const b = bitmap(source, "blank"); b.grid = null; [b.width, b.height] = blankSize; b.made = [...blankSize]; return Promise.resolve(b); }
     // `emptyBitmaps`: bitmaps of the right size that draw nothing (a buffer
-    // lost on its way), which leave the worker's cleared canvas transparent.
-    const made = bitmap(source, emptyBitmaps ? "empty" : "frame");
-    if (emptyBitmaps) made.empty = true;
+    // lost on its way, or a snapshot of a video with no picture to draw),
+    // which leave the worker's cleared canvas transparent.
+    const empty = emptyBitmaps || once === "empty", made = bitmap(source, empty ? "empty" : "frame");
+    if (empty) made.empty = true;
     if (!holdBitmaps) return Promise.resolve(made);
     return new Promise((resolve, reject) => held.push({ resolve: () => resolve(made),
       // Made after all: the bitmap was never handed over.
@@ -147,7 +156,9 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
               // at (the camera's copy is detached by the transfer).
               const { bitmap: sent } = message, received = sent && { width: sent.made[0], height: sent.made[1], grid: sent.grid, empty: !!sent.empty, close() {} };
               if ("bitmap" in message) try { pixels = reader({ bitmap: received, width: message.width, height: message.height }); } catch { pixels = null; }
-              if (message.bitmap && bitmapError || "bitmap" in message && !pixels) data = { id: message.id, error: "bitmap-unsupported" };
+              const refused = message.bitmap && (bitmapError || refusals > 0);
+              if (refused && !bitmapError) refusals--;
+              if (refused || "bitmap" in message && !pixels) data = { id: message.id, error: "bitmap-unsupported" };
               else {
                 runs.push({ op: message.op, bitmap: !!message.bitmap, empty: !!message.bitmap?.empty });
                 const result = core.run({ ...message, image: pixels });
@@ -185,7 +196,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
         ? { confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
         : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), detectMs));
     }, cancel() { cancels++; } },
-    reader: { read: () => new Promise((resolve) => setTimer(() => resolve(reading()), 500)), cancel() {} },
+    reader: { read: () => { reads++; return new Promise((resolve) => setTimer(() => resolve(reading()), 500)); }, cancel() {} },
     solver: solve ? { solve: async () => solve, cancel() {}, invalidate() {} } : { solve: () => new Promise(() => {}), cancel() {}, invalidate() {} },
     now: () => time, setTimer, clearTimer });
   async function advance(ms) {
@@ -217,6 +228,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
     failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
     emptyBitmaps(value) { emptyBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
+    refuseNext(n = 1) { refusals = n; }, nextBitmap(...kinds) { upcoming.push(...kinds); },
+    get reads() { return reads; }, get upcoming() { return upcoming.length; },
     // Lets the bitmaps held so far be made, or fail to be, with no time passing.
     releaseBitmaps: async () => { for (const entry of held.splice(0)) entry.resolve(); await flush(); },
     failHeldBitmaps: async () => { for (const entry of held.splice(0)) entry.reject(); await flush(); },
@@ -414,21 +427,68 @@ test("a frozen view, Clear and a closed camera leave no bitmap open, and every q
     h.bitmaps.filter((b) => b.label === "frame" && (b.closed || b.transferred)).length, "created = transferred + closed");
 });
 
-// A bitmap failure is no tracking failure: the tracker gives bitmaps up and
-// resets; the camera restarts acquisition at once on its own readback, with no
-// back-off and no Restart, and reads the grid again.
+// One frame lost to its bitmap while a reading is tracked costs that frame
+// alone: the worker refuses its bitmap (as WebKit on CI did once in
+// live_noise's changed-content scene, a frame whose readback had a
+// transparent sample), or the bitmap draws nothing there (a snapshot of a
+// video with no picture to draw), or the camera cannot make one or gets one of
+// another size. No restart and no new worker; the reading is not read again,
+// and its outline never leaves the view (the adopted frame stays; before the
+// worker read bitmaps back, such a frame's own readback was adopted with no
+// proof, and the outline blinked); bitmaps stay, and the export counts the
+// frame while still saying why bitmaps are used. Before, any one of these
+// gave bitmaps up for the session and retired the reading.
+for (const [name, provoke, cause] of [
+  ["the worker refuses one frame's bitmap", (h) => h.refuseNext(1), "refused"],
+  ["one frame's bitmap draws nothing in the worker", (h) => h.nextBitmap("empty"), "refused"],
+  ["one frame's bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.nextBitmap("blank"), "unmade"],
+  ["one frame's bitmap cannot be made", (h) => h.nextBitmap("fail"), "unmade"],
+]) test(`when ${name} during a tracked reading, that frame alone is lost: the reading, its outline and bitmaps stay`, async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  await h.advance(1000);
+  assert.equal(h.reads, 1); assert.equal(h.camera.stats.tracking.transport, "bitmap");
+  const workers = h.workers.length, jobs = h.jobs().length, reasons = h.reasons().length;
+  const counted = cause === "refused" ? "refusedFrames" : "unmadeFrames", other = cause === "refused" ? "unmadeFrames" : "refusedFrames";
+  provoke(h);
+  const overlays = new Set(), recognised = new Set();
+  for (let i = 0; i < 200; i++) { await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); }
+  const tracking = h.camera.stats.tracking;
+  assert.equal(tracking[counted], 1, "one frame lost"); assert.equal(tracking[other], 0);
+  assert.deepEqual(h.reasons().slice(reasons).filter((r) => r === "tracking-transport"), [], "no restart");
+  assert.equal(h.workers.length, workers, "no new worker"); assert.equal(h.workers.at(-1).dead, false);
+  assert.equal(tracking.transport, "bitmap"); assert.equal(tracking.transportReason, "probe");
+  assert.equal(h.reads, 1, "the reading is not read again");
+  assert.deepEqual([...overlays], ["outline"], "its outline never leaves the view");
+  assert.deepEqual([...recognised], ["4"], "nor does its reading");
+  assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
+  assert.ok(h.jobs().slice(jobs).filter((p) => p.bitmap).length >= 5, "later frames go on as bitmaps");
+  assert.deepEqual(h.runs.filter((r) => r.empty), [], "no pixel of the lost frame reaches the tracking core");
+  assert.deepEqual(h.jobs().filter((p) => p.bitmap?.label === "blank"), [], "a bitmap of another size is never posted");
+  assert.deepEqual(h.open(), []);
+  const report = h.diagnostics.snapshot().tracking;
+  assert.equal(report.transport, "bitmap"); assert.equal(report.transportReason, "probe", "the export still says why bitmaps are used");
+});
+
+// Bitmap frames lost persistently (every frame here) are no tracking failure:
+// at the REFUSAL_LIMIT-th lost in a row the tracker gives bitmaps up and
+// resets; the camera restarts acquisition at once on its own readback, with
+// no back-off and no Restart, and reads the grid again. The frames before it
+// were lost alone.
 for (const [name, provoke, cause] of [
   ["the worker cannot read a bitmap back", (h) => h.bitmapError(true), "refused"],
   ["no bitmap can be made", (h) => h.failBitmaps(true), "unmade"],
   ["a bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1]), "unmade"],
   ["a bitmap is not its snapshot's height", (h) => h.blankBitmaps([700, 699]), "unmade"],
   ["a bitmap of the right size draws nothing in the worker", (h) => h.emptyBitmaps(true), "refused"],
-]) test(`when ${name}, acquisition restarts on the camera's own readback, with no back-off and no Restart`, async (t) => {
+]) test(`when ${name} in every frame, acquisition restarts on the camera's own readback, with no back-off and no Restart`, async (t) => {
   const h = simulation(t);
   provoke(h);
   assert.ok(await h.until(() => h.reasons().includes("tracking-transport"), 3000), "the transport is given up");
+  const counted = cause === "refused" ? "refusedFrames" : "unmadeFrames";
+  assert.equal(h.camera.stats.tracking[counted], REFUSAL_LIMIT, "at the REFUSAL_LIMIT-th frame lost in a row");
   assert.deepEqual(h.jobs().filter((p) => p.bitmap?.label === "blank"), [], "no blank bitmap reaches the worker");
-  // The first detection's anchor failed: its own frame stays the newest
+  // The first detections' anchors failed: their own frame stays the newest
   // picture scanned, as after any tracking failure.
   assert.equal(h.camera.stats.retainedSources, 1, "the frame the anchor failed on is kept");
   const restartedAt = h.now, recovery = h.camera.stats.recovery;
@@ -449,10 +509,10 @@ for (const [name, provoke, cause] of [
 // blank 1 x 1 copy (refused by the camera) or one of the right size that draws
 // nothing (refused by the worker's reader), would give an anchor with nothing
 // in it, which every later such frame "verifies" at the detection's corners.
-// Bitmaps are given up at the first one, so the tracking core gets no pixels
-// of one. The grid moves 90 px right and 60 px down after the reading, then
-// the solver answers: the view must freeze where the grid is, not draw the
-// solution where it was.
+// Each such frame is lost, and bitmaps are given up at the REFUSAL_LIMIT-th in
+// a row, so the tracking core gets no pixels of one. The grid moves 90 px
+// right and 60 px down after the reading, then the solver answers: the view
+// must freeze where the grid is, not draw the solution where it was.
 for (const [name, provoke, cause] of [
   ["that are not their snapshot's size (WebKit's blank 1 x 1)", (h) => h.blankBitmaps([1, 1]), "unmade"],
   ["of the right size that draw nothing", (h) => h.emptyBitmaps(true), "refused"],
@@ -464,7 +524,9 @@ for (const [name, provoke, cause] of [
   assert.equal(h.camera.stats.tracking.transport, "imagedata", "on the camera's own readback");
   assert.ok(h.runs.some((r) => r.op === "anchor") && h.runs.some((r) => r.op === "verify"));
   assert.deepEqual(h.runs.filter((r) => r.bitmap), [], "the tracking core got no bitmap's pixels");
-  assert.deepEqual(h.reasons().filter((r) => r === "tracking-transport"), ["tracking-transport"], "bitmaps given up at the first one");
+  assert.deepEqual(h.reasons().filter((r) => r === "tracking-transport"), ["tracking-transport"], "bitmaps given up once");
+  assert.equal(h.camera.stats.tracking[cause === "refused" ? "refusedFrames" : "unmadeFrames"], REFUSAL_LIMIT,
+    "at the REFUSAL_LIMIT-th frame lost in a row");
   assert.equal(h.diagnostics.snapshot().tracking.transportReason, cause);
   h.aim([210, 170]); await h.advance(1500);
   solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
@@ -522,10 +584,9 @@ test("a worker that dies on its first bitmap job gives bitmaps up, and the grid 
 
 // A bitmap that cannot be made for a frame the freeze has retired: the frozen
 // view and its help line stay, and nothing is logged while frozen (N2). The
-// failure still gives bitmaps up, since it says bitmaps fail here, so the next
-// scan, after Clear, reads back on the main thread without a probe; its
-// export says why ("unmade"), as it would have after a restart in a scan.
-test("a bitmap that cannot be made for a frame the freeze retired leaves the frozen view, and the next scan's export says why it reads back", async (t) => {
+// frame is lost alone, counted, so the scan after Clear probes for bitmaps
+// again and reads on them; its export still counts the lost frame.
+test("a bitmap that cannot be made for a frame the freeze retired is lost alone: the frozen view stays, and after Clear bitmaps are probed for again", async (t) => {
   let solved;
   const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read; the solver has not answered");
@@ -533,19 +594,22 @@ test("a bitmap that cannot be made for a frame the freeze retired leaves the fro
   assert.ok(await h.until(() => h.held > 0, 1000), "a verification's bitmap is being made");
   solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
   assert.ok(await h.until(() => h.camera.view === "frozen", 1000), "the solved view freezes meanwhile");
-  const help = h.help, writes = h.writes.length, reasons = h.reasons().length;
+  const help = h.help, writes = h.writes.length, reasons = h.reasons().length, held = h.held;
+  assert.ok(held >= 1 && held < REFUSAL_LIMIT, `${held} bitmaps held`);
   await h.failHeldBitmaps(); await h.advance(1000);
   assert.equal(h.camera.view, "frozen");
   assert.equal(h.help, help, "the frozen help line stays");
   assert.deepEqual(h.writes.slice(writes), [], "nothing written to the help line while frozen");
   assert.deepEqual(h.reasons().slice(reasons), [], "no event while frozen");
   assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.equal(h.camera.stats.tracking.unmadeFrames, held, "each lost frame counted");
   assert.deepEqual(h.open(), []);
   h.holdBitmaps(false); h.camera.resume();
   assert.ok(await h.until(() => h.camera.view === "frozen" || h.view.dataset.recognised === "4", 10000), "read again after Clear");
-  assert.equal(h.posts.filter((p) => p.op === "probe").length, 1, "no probe after Clear");
+  assert.equal(h.posts.filter((p) => p.op === "probe").length, 2, "the worker after Clear probes again");
+  assert.ok(h.jobs().filter((p) => p.at >= h.workers[1].createdAt).every((p) => p.bitmap), "and gets bitmaps");
   const report = h.diagnostics.snapshot().tracking;
-  assert.equal(report.transport, "imagedata"); assert.equal(report.transportReason, "unmade");
+  assert.equal(report.transport, "bitmap"); assert.equal(report.transportReason, "probe");
 });
 
 test("a stop during the handshake ends the waiting anchor and releases its snapshot", async (t) => {
@@ -593,12 +657,13 @@ for (const transport of ["bitmap", "imagedata"]) test(`a verification's ${transp
   assert.ok(checked >= 5, `${checked} verifications`);
 });
 
-// A bitmap failure while a reading is tracked: the worker has a verification
+// Bitmaps given up while a reading is tracked (every bitmap refused from now
+// on): at the REFUSAL_LIMIT-th lost frame the worker has a verification
 // active and a frame queued, and a detection is in flight. One restart for
 // both rejected jobs; the detection is abandoned, not cancelled (the geometry
 // worker stays warm), so the next one starts at once; no anchor of the old
 // worker is asked for again.
-test("a bitmap failure while a reading is tracked restarts acquisition once, at once, and asks the new worker for no old anchor", async (t) => {
+test("bitmaps given up while a reading is tracked restart acquisition once, at once, and ask the new worker for no old anchor", async (t) => {
   const AIMING = "Hold the grid steady. Recognition and solution appear here automatically.";
   const h = simulation(t);
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
@@ -622,17 +687,22 @@ test("a bitmap failure while a reading is tracked restarts acquisition once, at 
   assert.deepEqual(h.open(), []);
 });
 
-// A bitmap failure while a later detection's candidate waits for its first
-// verification and the reading's outline is shown. The restart retires both at
-// once, before the next frame: the candidate's anchor died with the worker, so
-// it is discarded rather than verified on the next worker, and the outline of
-// the old worker's proofs goes. The frame whose bitmap failed stays the newest
-// picture scanned, which a capture on a stalled feed keeps, as after any
-// tracking failure.
-test("a bitmap failure while a candidate waits retires it and the outline at once, and keeps the frame it failed on", async (t) => {
+// Bitmaps given up while a later detection's candidate waits for its first
+// verification and the reading's outline is shown: the frames that would
+// verify it are lost, alone, until the REFUSAL_LIMIT-th in a row, whose bitmap
+// cannot be made. The restart retires both at once, before the next frame:
+// the candidate's anchor died with the worker, so it is discarded rather than
+// verified on the next worker, and the outline of the old worker's proofs
+// goes. The frame whose bitmap failed stays the newest picture scanned, which
+// a capture on a stalled feed keeps, as after any tracking failure.
+test("bitmaps given up while a candidate waits retire it and the outline at once, and keep the frame they were given up on", async (t) => {
   const h = simulation(t);
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
   assert.ok(await h.until(() => h.camera.stats.candidate === 1, 5000), "a later detection's candidate waits");
+  h.refuseNext(REFUSAL_LIMIT - 1);
+  assert.ok(await h.until(() => h.camera.stats.tracking.refusedFrames === REFUSAL_LIMIT - 1, 2000), "the frames that would verify it are lost");
+  assert.equal(h.camera.stats.candidate, 1, "alone: the candidate still waits"); assert.equal(h.view.dataset.overlay, "outline");
+  assert.equal(h.reasons().includes("tracking-transport"), false);
   h.holdBitmaps(true);
   assert.ok(await h.until(() => h.held > 0, 1000), "the bitmap of the frame that verifies it is being made");
   const failed = h.bitmaps.at(-1).source;

@@ -5,9 +5,11 @@
 // thread's own readback (contentPixels in live-camera.js): a cleared canvas,
 // CPU-backed where the browser honours willReadFrequently, the default
 // smoothing, the whole bitmap over the whole canvas. Whatever cannot be read
-// back so throws, which the worker answers with "bitmap-unsupported".
-// A camera snapshot is opaque, so a readback with any transparent pixel is a
-// bitmap that drew nothing there (a buffer lost on its way, say): tracked, it
+// back so throws, which the worker answers with "bitmap-unsupported": that
+// frame is lost (REFUSAL_LIMIT in live-tracker.js).
+// A snapshot of the camera's picture is opaque, so a readback with any
+// transparent pixel is a bitmap that drew nothing there (a buffer lost on its
+// way, say) or a snapshot of a video that had no picture to draw: tracked, it
 // would give an anchor with nothing in it, which every later blank frame
 // matches. It is checked at 9 × 9 points spread over it, its corners included.
 function opaque({ width, height, data }) {

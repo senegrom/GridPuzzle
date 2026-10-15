@@ -155,12 +155,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // done here ("imagedata", as before, and for a tracker without transports).
   // Once the transport is known, the readback or the bitmap's copy of the
   // snapshot happens in the caller's tick; until then it waits for the
-  // handshake. A bitmap that cannot be made gives bitmaps up, and so does one
+  // handshake. A bitmap that cannot be made loses its frame, and so does one
   // that is not the snapshot's size: WebKit resolves with a blank 1 × 1
   // bitmap when it cannot allocate the copy (createBlankImageBuffer in its
   // ImageBitmap.cpp). Stretched over the tracking pixels, that would give an
   // anchor with nothing in it, which every later blank frame "verifies" at the
-  // detection's corners whatever the camera does.
+  // detection's corners whatever the camera does. The tracker's error for a
+  // lost frame is an AbortError, which drops that frame alone; only losses
+  // that persist give bitmaps up (REFUSAL_LIMIT in live-tracker.js).
   async function contentFrame(image) {
     const [width, height] = trackingSize(image), size = [image.width, image.height];
     const transport = !tracker.ready ? "imagedata" : tracker.transport ?? await tracker.ready();
@@ -523,7 +525,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   // Whether the failure was handled: the caller's frame, the one the worker
   // failed on, is then kept as the picture scanned unless a newer one is
-  // (see `scanned`).
+  // (see `scanned`). An AbortError is none: a retired request, or a frame
+  // lost to its bitmap (live-tracker.js), which the caller drops, keeping the
+  // reading, its proofs and the adopted frame.
   function trackingFailed(error, owner) {
     if (!active || owner !== epoch || error?.name === "AbortError") return false;
     if (error?.name === "NotSupportedError") { transportRestart(); return true; }
@@ -539,11 +543,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     render();
     return true;
   }
-  // The tracker gave bitmaps up and reset itself (live-tracker.js): its worker,
-  // and every anchor in it, is gone. Acquisition starts again on pixels read
-  // back here. That is no tracking failure: no back-off, no Restart. A
-  // detection in flight is abandoned, not cancelled, so the geometry worker
-  // stays warm.
+  // The tracker gave bitmaps up and reset itself (live-tracker.js: bitmap
+  // frames kept being lost, or one could not be transferred, or a worker's
+  // first bitmap job went unanswered): its worker, and every anchor in it, is
+  // gone. Acquisition starts again on pixels read back here. That is no
+  // tracking failure: no back-off, no Restart. A detection in flight is
+  // abandoned, not cancelled, so the geometry worker stays warm.
   function transportRestart() {
     epoch++; dropProofs(); discardCandidate(); abandonDetection();
     guide = guideFrame = null; session.invalidate("tracking-transport");

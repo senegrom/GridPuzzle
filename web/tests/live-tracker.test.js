@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -455,7 +455,6 @@ test('every bitmap handed over is transferred or closed: a replaced queued frame
 });
 
 for (const [name, provoke, cause] of [
-  ['replies "bitmap-unsupported"', h => h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }), 'refused'],
   ['never answers the first bitmap job', h => h.fire(ANCHOR_DEADLINE), 'unanswered'],
   ['sends a reply that cannot be received before a bitmap job completed', h => h.last().onmessageerror(), 'unanswered'],
 ]) test(`bitmaps are given up, without a failure, when the worker ${name}`, async () => {
@@ -512,16 +511,103 @@ test('"bitmap-unsupported" from a job of the camera\'s own readback is an ordina
   assert.equal(h.tracker.stats.failures, 1);
 });
 
-test('the camera\'s own bitmap failure gives bitmaps up and resets', async () => {
+// A frame whose bitmap the worker refuses ("bitmap-unsupported": it arrived
+// null or too small, or read back with a transparent pixel) is lost alone. Its
+// job fails as a retired one (the camera drops the frame and keeps its
+// reading), its deadline goes, and the worker, its anchors and its transport
+// stay: the queued job goes out next. One such frame says little about the
+// browser (CI's WebKit refused one of 26 frames once, in a scan whose frames
+// were otherwise read back right), so it no longer gives bitmaps up.
+test('a frame whose bitmap the worker refuses is lost alone: its job fails as retired, and the worker, its transport and the queued job go on', async () => {
+  assert.equal(REFUSAL_LIMIT, 3, 'LIVE_CAMERA.md');
+  for (const op of ['verify', 'anchor']) {
+    const h = transport(); await h.handshake();
+    const job = h.frame(op), queued = h.frame();
+    const refused = op === 'anchor' ? h.tracker.anchor(job) : h.tracker.verify(job), next = h.tracker.verify(queued);
+    const lost = assert.rejects(refused, { name: 'AbortError' });
+    h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' });
+    await lost;
+    assert.equal(h.tracker.stats.failures, 0, 'no failure'); assert.equal(h.tracker.stats.refusedFrames, 1, 'counted');
+    assert.equal(h.tracker.stats.unmadeFrames, 0); assert.equal(h.tracker.stats.completed, 0);
+    assert.equal(job.bitmap.transferred, true, 'it went to the worker, which closes it');
+    assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined, 'the worker and its anchors are kept');
+    assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.tracker.stats.transportReason, 'probe');
+    assert.deepEqual(h.last().sent.map(m => m.op), ['probe', op, 'verify'], 'the queued frame goes out next');
+    assert.equal(queued.bitmap.transferred, true);
+    assert.deepEqual(h.delays(), [VERIFY_DEADLINE], 'the lost job\'s deadline is gone, the next job\'s runs');
+    h.reply(); await next;
+    assert.equal(h.tracker.stats.completed, 1); assert.equal(h.tracker.stats.refusedFrames, 1);
+    h.tracker.reset();
+  }
+});
+
+// Bitmaps are given up once frames are lost to their bitmaps persistently:
+// at the REFUSAL_LIMIT-th lost in a row, whether the worker refused it or the
+// camera could not make it, with no bitmap job completed in between. A reset
+// (the freeze, Clear, Restart) does not end the run; a completed bitmap job
+// does. The give-up says why: the cause of the frame that made the losses
+// persist; and it is no failure.
+for (const last of ['refused', 'unmade']) test(`the REFUSAL_LIMIT-th bitmap frame lost in a row gives bitmaps up, here ${last}; a completed bitmap job ends the run, a reset does not`, async () => {
   const h = transport(); await h.handshake();
+  const refuse = async () => {
+    const p = h.tracker.verify(h.frame()), lost = assert.rejects(p, { name: 'AbortError' });
+    h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }); await lost;
+  };
+  const complete = async () => { const p = h.tracker.verify(h.frame()); h.reply(); await p; };
+  // One refused, one the camera could not make: two in a row, kept.
+  await refuse();
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the camera\'s own failure loses its frame alone too');
+  // A completed bitmap job ends the run: two more in a row, kept.
+  await complete();
+  await refuse(); assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined);
+  assert.deepEqual([h.tracker.stats.refusedFrames, h.tracker.stats.unmadeFrames], [2, 2]);
+  // A reset does not end the run: the next worker probes for bitmaps, and the
+  // next frame lost is the REFUSAL_LIMIT-th in a row.
+  h.tracker.reset(); assert.equal(await h.handshake(), 'bitmap');
   const sent = h.frame(), queued = h.frame(), active = h.tracker.verify(sent), waiting = h.tracker.verify(queued);
   const both = Promise.all([assert.rejects(active, { name: 'NotSupportedError' }), assert.rejects(waiting, { name: 'NotSupportedError' })]);
-  const error = h.tracker.bitmapFailed();
-  assert.equal(error.name, 'NotSupportedError', 'the error the camera throws');
+  if (last === 'refused') h.reply(h.workers[1], { result: undefined, error: 'bitmap-unsupported' });
+  else assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the error the camera throws at the give-up');
   await both;
   assert.equal(queued.bitmap.closed, true); assert.equal(sent.bitmap.transferred, true);
+  assert.equal(h.workers[1].terminated, true);
   assert.equal(h.tracker.stats.failures, 0); assert.equal(await settled(h.tracker.ready()), 'imagedata');
-  assert.equal(h.tracker.stats.transportReason, 'unmade');
+  assert.deepEqual(h.workers[2].sent, [], 'no later worker probes');
+  assert.equal(h.tracker.stats.transportReason, last, 'the cause of the frame that made the losses persist');
+  assert.deepEqual([h.tracker.stats.refusedFrames, h.tracker.stats.unmadeFrames], last === 'refused' ? [3, 2] : [2, 3]);
+  h.tracker.reset();
+});
+
+// A refusal is an answer, but no bitmap job of the worker completed: a later
+// bitmap job that reaches its deadline still gives bitmaps up as unanswered,
+// without a failure.
+test('a refused frame proves nothing: the worker\'s next bitmap job reaching its deadline gives bitmaps up, without a failure', async () => {
+  const h = transport(); await h.handshake();
+  const first = h.tracker.verify(h.frame()), lost = assert.rejects(first, { name: 'AbortError' });
+  h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }); await lost;
+  const next = h.tracker.verify(h.frame()), given = assert.rejects(next, { name: 'NotSupportedError' });
+  h.fire(VERIFY_DEADLINE); await given;
+  assert.equal(h.tracker.stats.failures, 0); assert.equal(await settled(h.tracker.ready()), 'imagedata');
+  assert.equal(h.tracker.stats.transportReason, 'unanswered');
+  h.tracker.reset();
+});
+
+// A bitmap that fails for a frame prepared for a worker before bitmaps were
+// given up (its tick asked for the transport earlier) is counted and lost
+// alone: the worker on the camera's own readback that replaced that worker
+// is kept with its job, and the cause stays.
+test('a frame whose bitmap fails after bitmaps were given up is counted and lost alone; the worker on the camera\'s readback is kept', async () => {
+  const h = transport(); await h.handshake();
+  h.last().refuse = data => !!data.bitmap;
+  await assert.rejects(h.tracker.verify(h.frame()), { name: 'NotSupportedError' });
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'untransferable');
+  const worker = h.last(), job = h.tracker.verify({ image: image(), anchors: [] });
+  for (let i = 0; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'lost alone');
+  assert.equal(worker.terminated, undefined, 'the worker is kept'); assert.equal(h.tracker.stats.transportReason, 'untransferable', 'the cause stays');
+  assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT);
+  h.reply(worker); await job;
+  assert.equal(h.tracker.stats.failures, 0);
   h.tracker.reset();
 });
 

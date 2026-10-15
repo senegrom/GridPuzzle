@@ -2,6 +2,9 @@ const cancelled = () => new DOMException('Tracking request retired', 'AbortError
 // Bitmaps failed where only the ImageData transport works (see the handshake):
 // the tracker gives them up and resets, and the camera starts acquisition again.
 const unsupported = () => new DOMException('Bitmaps cannot reach background tracking here.', 'NotSupportedError');
+// One frame lost to its bitmap (see REFUSAL_LIMIT): no failure, and the camera
+// drops the frame as it drops a retired one.
+const lostFrame = () => new DOMException('The bitmap of this frame could not be tracked.', 'AbortError');
 // Each operation fails closed after its own deadline. A verification later than
 // two seconds is useless to the delayed tier. An anchor is built from the whole
 // grid and re-matches every retained anchor: on noisy real photographs it
@@ -56,15 +59,29 @@ export const HANDSHAKE_WAIT = 300, HANDSHAKE_LATE = 50;
 // second worker missed it, bitmaps are given up and every later worker says
 // "timeout" too). Once bitmaps have been given up for another cause, every
 // later worker uses the camera's readback without a handshake and gives that
-// cause: "refused" (the worker could not read a bitmap back),
-// "untransferable" (a bitmap could not be transferred), "unmade" (the camera
-// could not make a bitmap of its snapshot, or got one of another size),
-// "unanswered" (a worker's first bitmap job reached its deadline, got an
-// unreadable reply or the worker died in it). stats.handshakeMilliseconds is
-// the time from the worker's start to its handshake's decision; null without
-// one.
+// cause: "refused" (the worker could not read a bitmap back) and "unmade"
+// (the camera could not make a bitmap of its snapshot, or got one of another
+// size), each for the frame that made the losses persist (REFUSAL_LIMIT),
+// "untransferable" (a bitmap could not be transferred), "unanswered" (a
+// worker's first bitmap job reached its deadline, got an unreadable reply or
+// the worker died in it). stats.handshakeMilliseconds is the time from the
+// worker's start to its handshake's decision; null without one.
 export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels', 'unreadable', 'no-bitmaps', 'probe-failed',
   'timeout', 'refused', 'untransferable', 'unmade', 'unanswered']);
+// A frame whose bitmap the worker refuses (it arrived null, 0 x 0 or smaller
+// than the tracking pixels, or read back with a transparent pixel: a bitmap
+// that drew nothing, or a snapshot of a video that had no picture to draw) or
+// the camera cannot make (no bitmap, or one of another size than its
+// snapshot: WebKit's blank 1 x 1 when it cannot allocate the copy) is lost
+// alone: its job fails as a retired one, and no pixel of it reaches the
+// tracking core. One such frame says little about the browser, so bitmaps are
+// given up only at the REFUSAL_LIMIT-th lost in a row, with no bitmap job
+// completed in between, in the tracker's life (the camera session; a reset
+// does not end the run). A browser that can read no frame back that way loses
+// REFUSAL_LIMIT - 1 frames before its tracking moves to the camera's own
+// readback. stats.refusedFrames and stats.unmadeFrames count the frames lost
+// for each cause.
+export const REFUSAL_LIMIT = 3;
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
 const matches = pixels => pixels?.length === PROBE.length && PROBE.every((value, i) => Math.abs(pixels[i] - value) <= 2);
 // The probe as a bitmap of a page canvas, as the camera's snapshots are; null
@@ -94,11 +111,13 @@ export function createLiveTracker({
   // whether one of its waits has ended on time without an answer, and the
   // callers of ready() waiting for it; whether a bitmap job of this worker
   // has completed; whether a worker of this tracker was replaced for missing
-  // the wait; and, once bitmaps have been given up, why (every later worker
-  // then uses the camera's readback).
+  // the wait; once bitmaps have been given up, why (every later worker then
+  // uses the camera's readback); and how many bitmap frames in a row were
+  // lost (REFUSAL_LIMIT).
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
-  let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null;
-  const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0 };
+  let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0;
+  const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0,
+    refusedFrames: 0, unmadeFrames: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
   // one does nothing.
   const discard = job => { try { job?.data.bitmap?.close?.(); } catch { /* closed already */ } };
@@ -115,6 +134,15 @@ export function createLiveTracker({
   function fail(message) { stats.failures++; reset(Error(message)); }
   // Not a tracking failure: the next worker uses the ImageData transport.
   function giveUp(cause) { givenUp = cause; reset(unsupported()); }
+  // A bitmap frame lost for `cause`, "refused" or "unmade" (REFUSAL_LIMIT):
+  // counted, and the REFUSAL_LIMIT-th in a row gives bitmaps up. Whether it
+  // did. A frame made for a worker before bitmaps were given up is only
+  // counted: its loss must not reset the worker that replaced it.
+  function lose(cause) {
+    stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
+    if (givenUp || ++lost < REFUSAL_LIMIT) return false;
+    giveUp(cause); return true;
+  }
   function decide(value, why, values = null) {
     transport = value; reason = why; mismatched = values;
     handshakeMs = startedAt === null ? null : time(now() - startedAt);
@@ -188,10 +216,16 @@ export function createLiveTracker({
       }
       if (!active || data?.id !== active.id) return;
       const job = active;
-      if (data.error === 'bitmap-unsupported' && job.data.bitmap) { giveUp('refused'); return; }
+      // The worker could not read this frame's bitmap back (and closed it):
+      // the frame is lost, and the next job goes out as after a reply.
+      if (data.error === 'bitmap-unsupported' && job.data.bitmap) {
+        if (lose('refused')) return;
+        clearTimer(deadline); deadline = null; active = null;
+        job.reject(lostFrame()); queueMicrotask(dispatch); return;
+      }
       if (data.error || !data.result) { fail(data.error || 'Invalid background tracking reply.'); return; }
       clearTimer(deadline); deadline = null; active = null;
-      if (job.data.bitmap) proven = true;
+      if (job.data.bitmap) { proven = true; lost = 0; }
       stats.completed++;
       stats.milliseconds = time(data.milliseconds);
       stats.transportMilliseconds = time(data.transportMilliseconds);
@@ -257,9 +291,11 @@ export function createLiveTracker({
       }
       return transport ? Promise.resolve(transport) : new Promise((resolve, reject) => waiters.push({ resolve, reject }));
     },
-    // The camera could not make a bitmap of its frame: bitmaps are given up as
-    // for any other bitmap failure. The error to throw.
-    bitmapFailed() { giveUp('unmade'); return unsupported(); },
+    // The camera could not make a bitmap of its frame, or got one of another
+    // size: the frame is lost, and bitmaps are given up only when such losses
+    // persist (REFUSAL_LIMIT). The error to throw: an AbortError for the frame
+    // alone, or the NotSupportedError of the give-up.
+    bitmapFailed() { return lose('unmade') ? unsupported() : lostFrame(); },
     reset,
     get transport() { return transport; },
     // `active` counts a handshake in progress too: its probe is the worker's work.

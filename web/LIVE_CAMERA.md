@@ -424,28 +424,50 @@ corners, whatever both were drawn as.
 Every bitmap is transferred or closed: the worker closes each one it reads
 back, the tracker each one it does not transfer (a replaced queued frame, a
 reset, a failed post, a job prepared for a worker of the other transport), and
-the camera one whose frame or detection was retired while it was made. A
-bitmap failure is no tracking failure: bitmaps are given up for the rest of
+the camera one whose frame or detection was retired while it was made.
+
+A frame whose bitmap fails is lost alone. The worker refuses a bitmap it
+cannot read back: no 2D context there, a bitmap that arrived null, 0 × 0 or
+smaller than the tracking pixels, or a readback with a transparent pixel at
+one of 9 × 9 points, which a snapshot of the camera's picture never has: a
+bitmap that drew nothing there, or a snapshot of a video that had no picture
+to draw (a video draws nothing while it has no current frame, and the
+snapshot's canvas starts transparent). The camera loses a frame whose bitmap
+it cannot make, or that is not its snapshot's size (WebKit's answer when it
+cannot allocate the copy is a blank 1 × 1 bitmap). Tracked, a bitmap that is
+no picture of its snapshot would give an anchor with nothing in it, which
+every later such frame would match at the detection's corners, so no pixel of
+one reaches the tracking core. The lost frame's job fails as a retired one:
+the camera drops the frame and keeps the reading, its proofs, the adopted
+frame and its outline, with no failure, no restart and no new worker; a lost
+anchor is a candidate that is not offered, and detection tries again. (Before
+the worker read bitmaps back, the camera's own readback of such a snapshot
+reached the tracking core: no anchor verified on it, the frame was adopted
+without a proof, and the outline blinked for about a frame.) One lost frame
+says little about the browser: on CI, WebKit refused one frame's bitmap in
+live_noise's changed-content scene (2026-10-14) after reading the scan's
+other bitmaps back right, and giving bitmaps up there restarted acquisition
+and retired the reading before the scene saw its content change. So bitmaps
+are given up only at the third frame lost in a row, refused or unmade, with
+no bitmap job completed in between, in the camera session: the freeze, Clear
+and Restart do not end the run, a completed bitmap job does. A browser that
+can read no frame back that way loses two frames, a fraction of a second,
+before its tracking moves to the camera's own readback.
+
+Bitmaps given up are no tracking failure: they are given up for the rest of
 the camera session, the worker is reset with its anchors, and the camera
 starts acquisition again at once on its own readback, with no back-off and no
-Restart (a `tracking-transport` event; the diagnostic report gives the cause).
-These give bitmaps up whenever they happen: the worker cannot read a bitmap
-back (no 2D context there, a bitmap that arrived null, 0 × 0 or smaller than
-the tracking pixels, or a readback with a transparent pixel, which a camera
-snapshot never has: a bitmap that drew nothing), a bitmap cannot be
-transferred, or the camera cannot make one or gets one of another size than
-its snapshot (WebKit's answer when it cannot allocate the copy is a blank
-1 × 1 bitmap). Tracked, a bitmap that is no picture of its snapshot would give
-an anchor with nothing in it, which every later such frame would match at the
-detection's corners. These give bitmaps up only before any bitmap job of the
-worker has completed, and count as tracking failures, as before, once one
-has: a reply that cannot be received, a job's deadline, and the worker dying
-with a bitmap job in it. A bitmap that cannot be made for a frame the freeze
-has retired gives bitmaps up too, with no restart and no event while the view
-is frozen; the scans after Clear report the cause. The worker reports the
-tracking core's time apart from the transport's draw and readback, and only
-the core's paces the frames, so moving the readback into the worker does not
-slow them.
+Restart (a `tracking-transport` event; the diagnostic report gives the cause,
+for lost frames that of the frame that made the losses persist). A bitmap
+that cannot be transferred gives them up whenever it happens. These give
+bitmaps up only before any bitmap job of the worker has completed, and count
+as tracking failures, as before, once one has: a reply that cannot be
+received, a job's deadline, and the worker dying with a bitmap job in it; a
+frame the worker refused completes no job. A bitmap that cannot be made for a
+frame the freeze has retired is lost and counted, with no event while the
+view is frozen. The worker reports the tracking core's time apart from the
+transport's draw and readback, and only the core's paces the frames, so
+moving the readback into the worker does not slow them.
 
 ### Live and delayed views
 
@@ -722,8 +744,9 @@ shown on the wrong frame. Start/Stop cycles reset the pipeline, a repeated Start
 is idempotent, and retired detector clean-up or solver errors cannot cancel a
 newer request. Stop releases the scratch canvases, the newest scanned frame
 and any pending read samples as well as the timers and workers. A bitmap
-transport failure is none of these failures: it switches to the camera's own
-readback and starts acquisition again (see "How the frames reach the worker").
+transport failure is none of these failures: a frame whose bitmap fails is
+lost alone, and bitmaps given up switch to the camera's own readback and start
+acquisition again (see "How the frames reach the worker").
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -757,10 +780,10 @@ replacing one with no answer within the handshake's wait; after a second
 such worker in the camera session, bitmaps are given up and every later
 worker says `timeout` too); once bitmaps were given up in the camera session
 for another cause, that cause: `refused` (the worker could not read a bitmap
-back), `untransferable`, `unmade` (the camera could not make a bitmap of its
-snapshot, or got one of another size) or `unanswered` (a worker's first
-bitmap job reached its deadline, got an unreadable reply or the worker died
-in it).
+back) or `unmade` (the camera could not make a bitmap of its snapshot, or got
+one of another size), each for the third frame lost in a row,
+`untransferable`, or `unanswered` (a worker's first bitmap job reached its
+deadline, got an unreadable reply or the worker died in it).
 `tracking.handshakeMilliseconds` is the time from the worker's start to its
 handshake's decision (none without a handshake). `performance.trackingWorker`
 is the tracking core's time and `performance.trackingTransport` the worker's
@@ -967,8 +990,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   its first anchor would have), jobs waiting for it, a reset rejecting its
   waiters, every bitmap transferred or closed, the next
   job posted only after a reply's continuation (so a freeze there closes its
-  bitmap rather than posting it to the ended worker), the bitmap failures that
-  give bitmaps up without a failure, with their causes, and the later ones
+  bitmap rather than posting it to the ended worker), a frame whose bitmap the
+  worker refuses or the camera cannot make lost alone (its job failing as a
+  retired one, the worker, its transport and the queued job going on, the
+  frame counted), bitmaps given up at the third such frame in a row (a
+  completed bitmap job ends the run, a reset does not; the cause that of the
+  last), a refused frame proving nothing to a later bitmap job's deadline, a
+  bitmap failure after the give-up only counted, the other bitmap failures
+  that give bitmaps up without a failure, with their causes, and the later ones
   that count (a worker that dies once a bitmap job of it completed, idle or on
   the camera's own readback: its queued bitmap closed, and bitmaps kept for the
   next worker), the core's time apart from the transport's, and the real
@@ -993,19 +1022,23 @@ Unit tests (`node --test web/tests/*.test.js`):
   again after the back-off), verification replies too late to adopt (their
   frames released, the ones in time adopted, and at every moment only the
   queued jobs' bitmaps not handed over), verifications that reject every
-  anchor, and the restart on a bitmap failure (once, at once, without a
-  failure, back-off or Restart, the detection in flight abandoned rather than
-  cancelled, a waiting candidate discarded and the outline gone before the
-  next frame, no anchor of the old worker asked for, the frame the bitmap
-  failed on kept as the newest picture scanned, the grid read again, and the
-  cause in the export). Bitmaps that are not their snapshot's size, or draw
-  nothing in the worker's reader, give bitmaps up at the first one: no anchor
-  or proof is built on one, and a grid that moved after its reading freezes
-  where it is. A worker stuck on its probe, or dying on its first bitmap job,
-  leaves the grid read on the camera's own readback (after a Restart a new
-  worker probes again, and a second stuck one gives bitmaps up); a bitmap
-  failure for a frame the freeze retired leaves the frozen view, and the next
-  scan's export gives its cause.
+  anchor, one frame lost to its bitmap during a tracked reading (refused,
+  drawing nothing, of another size or not made: no restart, no new worker,
+  the reading not read again and its outline never gone, the export still
+  saying `probe`), and the restart once frames are lost in every frame (at the
+  third, once, at once, without a failure, back-off or Restart, the detection
+  in flight abandoned rather than cancelled, a waiting candidate discarded and
+  the outline gone before the next frame, no anchor of the old worker asked
+  for, the frame the bitmaps were given up on kept as the newest picture
+  scanned, the grid read again, and the cause in the export). Bitmaps that are
+  not their snapshot's size, or draw nothing in the worker's reader, are lost
+  until bitmaps are given up at the third in a row: no anchor or proof is
+  built on one, and a grid that moved after its reading freezes where it is.
+  A worker stuck on its probe, or dying on its first bitmap job, leaves the
+  grid read on the camera's own readback (after a Restart a new worker probes
+  again, and a second stuck one gives bitmaps up); a bitmap that cannot be
+  made for a frame the freeze retired is lost alone, leaving the frozen view,
+  and the scan after Clear probes for bitmaps again.
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
