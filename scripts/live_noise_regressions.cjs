@@ -134,6 +134,11 @@ async function run(){const server=await serve();try{
         assert.deepEqual(report.lost.found.cells,report.lost.expected);
         assert.equal(report.lost.diagnostic.tracking.transport,'bitmap');assert.equal(report.lost.diagnostic.tracking.transportReason,'probe');
         assert.equal(report.lost.diagnostic.events.some(e=>e.reason==='tracking-transport'),false,'bitmaps are not given up');
+        // The export splits the refused frames by the worker's reason (the
+        // injected one reads back transparent: refusedBlank; any other is
+        // this engine losing a frame by itself).
+        const t=report.lost.diagnostic.tracking;
+        assert.equal(t.refusedIncomplete+t.refusedBlank+t.refusedFailed,t.refusedFrames,'every refused frame has its reason');
       }else report.lost='not applicable: the handshake decided for the camera\'s own readback';
       // The change, and (with bitmaps) a frame lost right after it, as CI's
       // WebKit lost one there: the reading is still retired as changed content.
