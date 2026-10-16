@@ -541,6 +541,28 @@ test('a frame whose bitmap the worker refuses is lost alone: its job fails as re
   }
 });
 
+// As after a reply, the next job goes out after the continuation of the lost
+// frame's caller, not before it: a caller that resets the tracker there closes
+// the queued frame's bitmap rather than posting it to the worker the reset
+// ends (which WebKit, from iOS 18, would keep in its GPU process).
+test('a lost frame whose continuation resets the tracker closes the queued bitmap instead of posting it to the ended worker', async () => {
+  const h = transport(); await h.handshake();
+  const queued = h.frame(), first = h.tracker.verify(h.frame()), next = h.tracker.verify(queued);
+  const reset = first.catch(error => { assert.equal(error.name, 'AbortError'); h.tracker.reset(); });
+  const retired = assert.rejects(next, { name: 'AbortError' });
+  h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }); await reset; await retired;
+  assert.equal(queued.bitmap.closed, true, 'closed on this thread'); assert.equal(queued.bitmap.transferred, false);
+  assert.deepEqual(h.workers[0].sent.map(m => m.op), ['probe', 'verify'], 'only the lost frame was posted');
+  assert.equal(h.tracker.stats.refusedFrames, 1); assert.equal(h.tracker.stats.failures, 0);
+  // Without such a reset the queued job goes out right after the continuation.
+  const g = transport(); await g.handshake();
+  const a = g.tracker.verify(g.frame()), b = g.frame(), queuedNext = g.tracker.verify(b);
+  let posted = null; const seen = a.catch(() => { posted = g.last().sent.length; });
+  g.reply(g.last(), { result: undefined, error: 'bitmap-unsupported' }); await seen; await flush();
+  assert.equal(posted, 2, 'not yet posted in the continuation'); assert.equal(g.last().sent.length, 3, 'posted after it');
+  assert.equal(b.bitmap.transferred, true); g.reply(); await queuedNext; g.tracker.reset();
+});
+
 // Bitmaps are given up once frames are lost to their bitmaps persistently:
 // at the REFUSAL_LIMIT-th lost in a row, whether the worker refused it or the
 // camera could not make it, with no bitmap job completed in between. A reset
