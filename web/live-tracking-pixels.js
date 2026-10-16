@@ -19,6 +19,20 @@ function opaque({ width, height, data }) {
   }
   return true;
 }
+// A readback with no picture at all: transparent at every one of the same
+// points (a snapshot of a video that had no picture to draw, or a readback
+// that failed into zeros). The camera loses such a frame of its own readback
+// (contentFrame in live-camera.js). That check is the looser one on purpose:
+// the camera's own readback is where every bitmap failure falls back to, and
+// a rasterizer that left a scaled snapshot's edge partly transparent must not
+// cost it every frame.
+export function pictureless({ width, height, data }) {
+  for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) {
+    const x = Math.round(j * (width - 1) / 8), y = Math.round(i * (height - 1) / 8);
+    if (data[4 * (y * width + x) + 3] !== 0) return false;
+  }
+  return true;
+}
 export function createPixelReader(makeCanvas = (width, height) => new OffscreenCanvas(width, height)) {
   let canvas = null;
   return function pixelsOf({ bitmap, width, height }) {

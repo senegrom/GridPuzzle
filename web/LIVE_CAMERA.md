@@ -445,10 +445,17 @@ lost verification the next presented frame is sampled at once rather than an
 interval later: at a settled reading's 250 ms the adopted frame would pass the
 live tier's 500 ms before the next one was adopted, which marks the view as
 catching up for two seconds (in the fake-clock simulation it did after any one
-lost frame, and no longer does). (Before
-the worker read bitmaps back, the camera's own readback of such a snapshot
-reached the tracking core: no anchor verified on it, the frame was adopted
-without a proof, and the outline blinked for about a frame.) One lost frame
+lost frame, and no longer does). The camera's own readback, where bitmaps are
+not used, loses a frame with no picture at all the same way: transparent at
+every one of the worker's 9 × 9 points, it is a snapshot of a video that had
+no picture to draw, or a readback that failed into zeros. It is counted and
+gives nothing up. Before, such a readback reached the tracking core: no
+anchor verified on it, the frame was adopted without a proof, and the outline
+and the reading's counts blinked for a frame (300 ms in the simulation), as
+they did for any such snapshot before the worker read bitmaps back. That
+check is looser than the worker's on purpose: the camera's own readback is
+where every bitmap failure falls back to, and an engine that left a scaled
+snapshot's edge partly transparent must not cost it every frame. One lost frame
 says little about the browser: on CI, WebKit refused one frame's bitmap in
 live_noise's changed-content scene (2026-10-14) after reading the scan's
 other bitmaps back right, and giving bitmaps up there restarted acquisition
@@ -808,7 +815,8 @@ deadline, got an unreadable reply or the worker died in it).
 session's frames lost to a bitmap the worker could not read back, or the
 camera could not make or got of another size; each cost that frame alone, so
 an export with `bitmap` and `probe` and a count above 0 had frames lost
-without giving bitmaps up.
+without giving bitmaps up. `tracking.blankReadbacks` counts the frames lost
+on the camera's own readback because it had no picture.
 `tracking.handshakeMilliseconds` is the time from the worker's start to its
 handshake's decision (none without a handshake). `performance.trackingWorker`
 is the tracking core's time and `performance.trackingTransport` the worker's
@@ -1036,7 +1044,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   worker's readback (one canvas, sized on change, cleared, the whole bitmap
   drawn, closed on every path, and refused for a bitmap that did not arrive
   whole or a readback with a transparent pixel, also one only in its last
-  column, its last row or a corner).
+  column, its last row or a corner), and the looser check of the camera's own
+  readback (lost only when transparent at every point: a partly transparent
+  one, at an edge, a corner or a half, is kept).
 - `live-transport.test.js`: the camera with the bitmap transport on the
   production camera, tracker and tracking core with a fake clock: no tracking
   readback on the main thread, every job carrying a transferred bitmap of a
@@ -1057,8 +1067,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   the live tier, the export still saying `probe` and counting the frame;
   `diagnostic-report.test.js`: those counts, numbers only, kept across a
   reset), two of every three frames lost (bitmaps, the reading, its outline
-  and the live tier kept), and the restart once frames are
-  lost in every frame (at the
+  and the live tier kept), a readback of the camera's own with no picture
+  lost alone during a tracked reading (no blink of the outline or the counts,
+  the live tier kept, counted) and while aiming (no anchor built on one), and
+  the restart once frames are lost in every frame (at the
   third, once, at once, without a failure, back-off or Restart, the detection
   in flight abandoned rather than cancelled, a waiting candidate discarded and
   the outline gone before the next frame, no anchor of the old worker asked

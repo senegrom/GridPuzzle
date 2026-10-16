@@ -2,10 +2,11 @@ const cancelled = () => new DOMException('Tracking request retired', 'AbortError
 // Bitmaps failed where only the ImageData transport works (see the handshake):
 // the tracker gives them up and resets, and the camera starts acquisition again.
 const unsupported = () => new DOMException('Bitmaps cannot reach background tracking here.', 'NotSupportedError');
-// One frame lost to its bitmap (see REFUSAL_LIMIT): no failure, and the camera
-// drops the frame as it drops a retired one. isLostFrame tells it from a
-// retired request: the camera then samples its next frame at once.
-const lostFrame = () => Object.assign(new DOMException('The bitmap of this frame could not be tracked.', 'AbortError'), { lostFrame: true });
+// One frame lost to its bitmap (see REFUSAL_LIMIT), or to a blank readback of
+// the camera's own (readbackBlank): no failure, and the camera drops the frame
+// as it drops a retired one. isLostFrame tells it from a retired request: the
+// camera then samples its next frame at once.
+export const lostFrame = () => Object.assign(new DOMException('The pixels of this frame could not be tracked.', 'AbortError'), { lostFrame: true });
 export const isLostFrame = error => error?.name === 'AbortError' && error.lostFrame === true;
 // Each operation fails closed after its own deadline. A verification later than
 // two seconds is useless to the delayed tier. An anchor is built from the whole
@@ -82,7 +83,10 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // does not end the run). A browser that can read no frame back that way loses
 // REFUSAL_LIMIT - 1 frames before its tracking moves to the camera's own
 // readback. stats.refusedFrames and stats.unmadeFrames count the frames lost
-// for each cause.
+// for each cause. On the camera's own readback, a readback with no picture at
+// all (transparent wherever the worker checks a bitmap's) is lost the same way
+// (readbackBlank, counted in stats.blankReadbacks), and gives nothing up,
+// since there is nothing to fall back to.
 export const REFUSAL_LIMIT = 3;
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
 const matches = pixels => pixels?.length === PROBE.length && PROBE.every((value, i) => Math.abs(pixels[i] - value) <= 2);
@@ -119,7 +123,7 @@ export function createLiveTracker({
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
   let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0;
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0,
-    refusedFrames: 0, unmadeFrames: 0 };
+    refusedFrames: 0, unmadeFrames: 0, blankReadbacks: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
   // one does nothing.
   const discard = job => { try { job?.data.bitmap?.close?.(); } catch { /* closed already */ } };
@@ -303,6 +307,10 @@ export function createLiveTracker({
     // persist (REFUSAL_LIMIT). The error to throw: an AbortError for the frame
     // alone, or the NotSupportedError of the give-up.
     bitmapFailed() { return lose('unmade') ? unsupported() : lostFrame(); },
+    // The camera's own readback of its frame has no picture (a snapshot of a
+    // video that had none to draw): the frame is lost, counted. The error to
+    // throw.
+    readbackBlank() { stats.blankReadbacks++; return lostFrame(); },
     reset,
     get transport() { return transport; },
     // `active` counts a handshake in progress too: its probe is the worker's work.

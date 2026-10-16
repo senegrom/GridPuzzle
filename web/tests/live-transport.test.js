@@ -55,9 +55,10 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     holdBitmaps = false, blankBitmaps = false, emptyBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
   // One-shot faults: the next `refusals` bitmap jobs are answered
   // "bitmap-unsupported"; each entry of `upcoming` is what the next bitmap the
-  // camera makes turns out as ("fail", "blank" 1 x 1, "empty" or "ok");
-  // `reads` counts full reads.
-  let refusals = 0, reads = 0;
+  // camera makes turns out as ("fail", "blank" 1 x 1, "empty" or "ok"); the
+  // next `pictureless` readbacks of the camera's own are transparent (a
+  // snapshot of a video with no picture); `reads` counts full reads.
+  let refusals = 0, reads = 0, pictureless = 0;
   const upcoming = [];
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
   // Every frame the tracking core was given: its op, and whether it came from a bitmap.
@@ -77,7 +78,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       save() {}, restore() {}, translate() {}, rotate() {}, setLineDash() {},
       // A readback of the frame, at its own size or scaled (the tracking size).
       getImageData(_x, _y, w, h) {
-        const result = grid && w * H === h * W ? scene(w, h, grid[0], grid[1], w / W) : blank(w, h);
+        const result = pictureless > 0 && pictureless-- ? { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }
+          : grid && w * H === h * W ? scene(w, h, grid[0], grid[1], w / W) : blank(w, h);
         record("getImageData", { w, h, result });
         return result;
       } };
@@ -160,7 +162,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
               if (refused && !bitmapError) refusals--;
               if (refused || "bitmap" in message && !pixels) data = { id: message.id, error: "bitmap-unsupported" };
               else {
-                runs.push({ op: message.op, bitmap: !!message.bitmap, empty: !!message.bitmap?.empty });
+                runs.push({ op: message.op, bitmap: !!message.bitmap, empty: !!message.bitmap?.empty || pixels?.data?.[3] === 0 });
                 const result = core.run({ ...message, image: pixels });
                 if (message.op === "verify") results.push(JSON.stringify(result.proofs));
                 for (const rejection of Object.values(result.rejections ?? {})) rejections.push({ at: time, reason: rejection.reason });
@@ -228,7 +230,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
     failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
     emptyBitmaps(value) { emptyBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
-    refuseNext(n = 1) { refusals = n; }, nextBitmap(...kinds) { upcoming.push(...kinds); },
+    refuseNext(n = 1) { refusals = n; }, nextBitmap(...kinds) { upcoming.push(...kinds); }, noPicture(n = 1) { pictureless = n; },
     get reads() { return reads; }, get upcoming() { return upcoming.length; },
     // Lets the bitmaps held so far be made, or fail to be, with no time passing.
     releaseBitmaps: async () => { for (const entry of held.splice(0)) entry.resolve(); await flush(); },
@@ -506,6 +508,45 @@ test("a browser that loses two of every three bitmap frames keeps bitmaps, the r
   assert.deepEqual([...tiers], ["0"], "on the live tier");
   assert.deepEqual(h.runs.filter((r) => r.empty), [], "no lost frame's pixels reach the tracking core");
   assert.deepEqual(h.open(), []);
+});
+
+// The camera's own readback (the only transport here) of a snapshot of a video
+// with no picture to draw, transparent wherever the worker checks a bitmap's
+// readback, is lost alone, counted, and never reaches the tracking core.
+// Before, it was verified on nothing and adopted without a proof, so the
+// outline and the reading's counts blinked for one frame.
+test("on the camera's own readback, a frame with no picture during a tracked reading is lost alone: no blink, the live tier kept", async (t) => {
+  const h = simulation(t, { transport: "imagedata" });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  await h.advance(1000);
+  const workers = h.workers.length, reasons = h.reasons().length, completed = h.camera.stats.tracking.completed;
+  h.noPicture(1);
+  const overlays = new Set(), recognised = new Set(), tiers = new Set();
+  for (let i = 0; i < 200; i++) {
+    await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); tiers.add(h.view.dataset.delayed);
+  }
+  const tracking = h.camera.stats.tracking;
+  assert.equal(tracking.blankReadbacks, 1, "one frame lost"); assert.equal(tracking.refusedFrames + tracking.unmadeFrames, 0);
+  assert.ok(tracking.completed > completed, "the frames after it are verified");
+  assert.equal(tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.equal(h.workers.length, workers); assert.equal(h.reads, 1, "the reading is not read again");
+  assert.deepEqual([...overlays], ["outline"], "the outline does not blink");
+  assert.deepEqual([...recognised], ["4"]); assert.deepEqual([...tiers], ["0"], "on the live tier");
+  assert.deepEqual(h.runs.filter((r) => r.empty), [], "no pixel of it reaches the tracking core");
+  assert.deepEqual(h.reasons().slice(reasons).filter((r) => ["worker-error", "tracking-transport"].includes(r)), []);
+  const report = h.diagnostics.snapshot().tracking;
+  assert.equal(report.transport, "imagedata"); assert.equal(report.blankReadbacks, 1, "the export counts it");
+});
+
+// While aiming, such a readback builds no anchor: the detection's candidate is
+// not offered, and detection tries again on the next frame.
+test("on the camera's own readback, frames with no picture while aiming build no anchor, and the grid is read from the frames after them", async (t) => {
+  const h = simulation(t, { transport: "imagedata" });
+  h.noPicture(3);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  assert.equal(h.camera.stats.tracking.blankReadbacks, 3);
+  assert.deepEqual(h.runs.filter((r) => r.empty), [], "the tracking core got none of them");
+  assert.equal(h.camera.stats.tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
 });
 
 // Bitmap frames lost persistently (every frame here) are no tracking failure:

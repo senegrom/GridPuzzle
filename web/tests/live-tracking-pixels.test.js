@@ -5,7 +5,7 @@
 // closed on every path.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPixelReader } from "../live-tracking-pixels.js";
+import { createPixelReader, pictureless } from "../live-tracking-pixels.js";
 
 // `paint`: what a draw covers with opaque pixels ("all", the "left" half,
 // "none", or a function of (x, y, width, height) that is false where the draw
@@ -134,4 +134,27 @@ for (const [name, transparent] of [
   if (name === "no pixel") assert.equal(read().width, 960);
   else assert.throws(read, /drew nothing/);
   assert.equal(bitmap.closed, 1);
+});
+
+// The camera's own readback is lost only when it has no picture at all:
+// transparent at every one of the same 9 x 9 points. A readback transparent
+// only in part (an edge, a corner, half of it, or every point but one) is
+// kept: that transport is where every bitmap failure falls back to.
+for (const [name, opaqueAt, expected] of [
+  ["transparent everywhere", () => false, true],
+  ["opaque everywhere", () => true, false],
+  ["transparent but for the centre pixel", (x, y, w, h) => x === Math.round((w - 1) / 2) && y === Math.round((h - 1) / 2), false],
+  ["transparent but for the bottom-right corner", (x, y, w, h) => x === w - 1 && y === h - 1, false],
+  ["transparent in its last column and row", (x, y, w, h) => x < w - 1 && y < h - 1, false],
+  ["transparent in its left half", (x, _y, w) => x >= w / 2, false],
+]) test(`the camera's own readback ${name} ${expected ? "has no picture" : "is kept as a picture"}`, () => {
+  const width = 960, height = 1280, data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (opaqueAt(x, y, width, height)) data.fill(255, 4 * (y * width + x), 4 * (y * width + x + 1));
+  assert.equal(pictureless({ width, height, data }), expected);
+});
+test("a partly opaque alpha is a picture, and a readback without its size is not taken for one without", () => {
+  const data = new Uint8ClampedArray(64 * 64 * 4).fill(0);
+  for (let i = 3; i < data.length; i += 4) data[i] = 1;
+  assert.equal(pictureless({ width: 64, height: 64, data }), false, "alpha 1 is not transparent");
+  assert.equal(pictureless({ data: new Uint8ClampedArray(64 * 64 * 4) }), false, "no size: nothing is claimed");
 });

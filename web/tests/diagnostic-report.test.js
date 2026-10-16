@@ -142,11 +142,12 @@ test('the export says why tracking used its transport and how long the handshake
  t=d.snapshot().tracking;assert.equal(t.transportReason,null,'a new scan has none yet');assert.equal(t.handshakeMilliseconds,null);
 });
 
-// Frames lost to their bitmaps (live-tracker.js, REFUSAL_LIMIT): one costs only
+// Frames lost to their bitmaps (live-tracker.js, REFUSAL_LIMIT), or to a
+// readback of the camera's own with no picture: one costs only
 // itself, so the transport and its reason stay; the export counts them per
 // cause, as numbers the tracker keeps across its resets, and a new scan
 // starts with none.
-test('the export counts the frames lost to a bitmap the worker refused or the camera could not make, beside the transport',()=>{
+test('the export counts the frames lost to a bitmap the worker refused or the camera could not make, or to a blank readback, beside the transport',()=>{
  const d=createScanDiagnostics();d.begin('live',{});
  d.tracking({transport:'bitmap',transportReason:'probe',refusedFrames:0,unmadeFrames:0},{frame:1,age:30,matched:true});
  let t=d.snapshot().tracking;assert.equal(t.refusedFrames,0);assert.equal(t.unmadeFrames,0);
@@ -157,11 +158,14 @@ test('the export counts the frames lost to a bitmap the worker refused or the ca
  t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['bitmap','probe',1,2]);
  d.tracking({transport:'imagedata',transportReason:'refused',refusedFrames:3,unmadeFrames:2},{frame:4,age:30,matched:true});
  t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['imagedata','refused',3,2]);
- d.tracking({transport:'imagedata',refusedFrames:'PRIVATE',unmadeFrames:{}},{frame:5,age:30,matched:true});
- t=d.snapshot().tracking;assert.equal(t.refusedFrames,null);assert.equal(t.unmadeFrames,null);
+ // On the camera's own readback, the frames lost to a readback with a transparent pixel.
+ d.tracking({transport:'imagedata',transportReason:'refused',refusedFrames:3,unmadeFrames:2,blankReadbacks:4},{frame:5,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.refusedFrames,t.unmadeFrames,t.blankReadbacks],[3,2,4]);
+ d.tracking({transport:'imagedata',refusedFrames:'PRIVATE',unmadeFrames:{},blankReadbacks:[1]},{frame:6,age:30,matched:true});
+ t=d.snapshot().tracking;assert.equal(t.refusedFrames,null);assert.equal(t.unmadeFrames,null);assert.equal(t.blankReadbacks,null);
  assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
  d.begin('live',{});d.tracking({},{frame:1,age:30,matched:true});
- t=d.snapshot().tracking;assert.equal(t.refusedFrames,null,'a new scan has none yet');assert.equal(t.unmadeFrames,null);
+ t=d.snapshot().tracking;assert.equal(t.refusedFrames,null,'a new scan has none yet');assert.equal(t.unmadeFrames,null);assert.equal(t.blankReadbacks,null);
 });
 
 // On a mismatch the export keeps the values the probe read back: channel

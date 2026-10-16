@@ -4,7 +4,8 @@ import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
-import { createLiveTracker, isLostFrame } from "./live-tracker.js";
+import { createLiveTracker, isLostFrame, lostFrame } from "./live-tracker.js";
+import { pictureless } from "./live-tracking-pixels.js";
 import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
@@ -162,11 +163,19 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // anchor with nothing in it, which every later blank frame "verifies" at the
   // detection's corners whatever the camera does. The tracker's error for a
   // lost frame is an AbortError, which drops that frame alone; only losses
-  // that persist give bitmaps up (REFUSAL_LIMIT in live-tracker.js).
+  // that persist give bitmaps up (REFUSAL_LIMIT in live-tracker.js). A
+  // readback of the camera's own that is transparent at every point the
+  // worker checks a bitmap's at is a snapshot of a video that had no picture
+  // to draw: that frame is lost too rather than verified (or anchored) on
+  // nothing (live-tracking-pixels.js).
   async function contentFrame(image) {
     const [width, height] = trackingSize(image), size = [image.width, image.height];
     const transport = !tracker.ready ? "imagedata" : tracker.transport ?? await tracker.ready();
-    if (transport !== "bitmap") return { image: contentPixels(image), width, height };
+    if (transport !== "bitmap") {
+      const pixels = contentPixels(image);
+      if (pictureless(pixels)) throw tracker.readbackBlank?.() ?? lostFrame();
+      return { image: pixels, width, height };
+    }
     let bitmap;
     try { bitmap = await createImageBitmap(image); } catch { throw tracker.bitmapFailed(); }
     if (bitmap.width !== size[0] || bitmap.height !== size[1]) { bitmap.close(); throw tracker.bitmapFailed(); }
