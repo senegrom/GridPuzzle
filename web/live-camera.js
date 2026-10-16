@@ -637,7 +637,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // tier, which marks the view as catching up for LIVE_SETTLE.
       if (isLostFrame(error)) {
         reportCounts();
-        if (active && owner === epoch && view === "live") scheduler.expedite();
+        if (active && owner === epoch) scheduler.expedite();
       }
       // The frame the worker failed on is kept as the picture scanned, unless
       // a newer one is.

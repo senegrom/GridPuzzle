@@ -88,8 +88,8 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // readback. stats.refusedFrames and stats.unmadeFrames count the frames lost
 // for each cause, and refusedIncomplete, refusedBlank and refusedFailed the
 // refused ones by the worker's reason (REFUSALS in live-tracking-pixels.js).
-// On the camera's own readback, a readback with no picture at
-// all (transparent wherever the worker checks a bitmap's) is lost the same way
+// On the camera's own readback, a readback with no picture at all
+// (transparent wherever the worker checks a bitmap's) is lost the same way
 // (readbackBlank, counted in stats.blankReadbacks), and gives nothing up,
 // since there is nothing to fall back to.
 export const REFUSAL_LIMIT = 3;
@@ -151,12 +151,12 @@ export function createLiveTracker({
   function giveUp(cause) { givenUp = cause; reset(unsupported()); }
   // A bitmap frame lost for `cause`, "refused" (with the worker's reason) or
   // "unmade" (REFUSAL_LIMIT): counted, and the REFUSAL_LIMIT-th in a row gives
-  // bitmaps up. Whether that reset the worker. A frame made for a worker before bitmaps were given up
-  // is only counted: its loss must not reset the worker that replaced it.
-  // Nor may a frame made for a worker before a reset reset the worker after
-  // it, once that worker's handshake decided for the camera's own readback:
-  // it has no bitmap to lose. It is kept, and bitmaps are given up for the
-  // workers after it.
+  // bitmaps up. Whether that reset the worker. A frame made for a worker
+  // before bitmaps were given up is only counted: its loss must not reset the
+  // worker that replaced it. Nor may a frame made for a worker before a reset
+  // reset the worker after it, once that worker's handshake decided for the
+  // camera's own readback: it has no bitmap to lose. It is kept, and bitmaps
+  // are given up for the workers after it.
   function lose(cause, refusal) {
     stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
     if (cause === 'refused') stats[Object.hasOwn(REFUSED, refusal) ? REFUSED[refusal] : REFUSED.failed]++;
