@@ -42,10 +42,10 @@ const upright = () => board([7, 1, 4, 6, 4, 2, 8, 9, 5, 7, 1, 7, 8, 9, 4, 3, 6, 
 const unsure = () => board([8, 9], { extra: 20 });
 
 test("only numbers with a 2, 3 or 5 show which way up a reading is", () => {
-  const found = board([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 18, 19, 23, 47, 81], { flagged: [2, 5] });
+  const found = board([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 18, 19, 23, 47, 81], { flagged: [2, 5] });
   found.puzzle.cells[20] = 0; found.puzzle.cells[21] = 69; found.puzzle.cells[22] = 35;
-  assert.equal(confidentDigits(found), 19);
-  assert.equal(wayUpDigits(found), 5, "2, 3, 5, 23 and 35; never 0, 1, 4, 6, 7, 8, 9, 10, 16, 18, 19, 47, 69 or 81");
+  assert.equal(confidentDigits(found), 20);
+  assert.equal(wayUpDigits(found), 6, "2, 3, 5, 12, 23 and 35; never 0, 1, 4, 6, 7, 8, 9, 10, 16, 18, 19, 47, 69 or 81");
   // A digit flagged only for its size still counts, as in confidentDigits.
   const sized = { ...board([2, 3]), noteSized: [1] };
   sized.uncertain = [1];
