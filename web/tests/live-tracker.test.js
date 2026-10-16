@@ -341,6 +341,28 @@ test('after a worker was replaced for missing the wait, the worker after the nex
   h.tracker.reset();
 });
 
+// That worker has a renewal of its own: one task ending within HANDSHAKE_LATE
+// after its first wait must not make it the second worker replaced for
+// missing the wait, which would give bitmaps up for the tracker's life.
+test('a worker probing after one was replaced for missing the wait still has its first on-time wait renewed', async () => {
+  for (const lateness of [0, HANDSHAKE_LATE]) {
+    const h = transport(), ready = h.tracker.ready(); await flush();
+    h.started(); h.fire(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT);
+    assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'timeout');
+    h.tracker.reset();
+    const next = h.tracker.ready(); await flush();
+    assert.equal(h.last().sent[0]?.op, 'probe', 'the worker after the reset probes again');
+    h.started(); h.tick(HANDSHAKE_WAIT + lateness); h.fire(HANDSHAKE_WAIT);
+    assert.equal(h.workers.length, 3, `kept at its first on-time end, ${lateness} ms late`); assert.equal(h.workers[2].terminated, undefined);
+    assert.deepEqual(h.delays(), [HANDSHAKE_WAIT], 'and waited for again');
+    h.tick(1); h.answer();
+    assert.equal(await settled(next), 'bitmap'); assert.equal(h.tracker.stats.transportReason, 'probe');
+    h.tracker.reset();
+    assert.equal(await h.handshake(), 'bitmap', 'bitmaps were not given up');
+    h.tracker.reset();
+  }
+});
+
 // The second worker replaced for missing the wait in the tracker's life, with
 // a worker whose handshake decided in between, gives bitmaps up: no later
 // worker probes, and each says why.
@@ -618,6 +640,28 @@ test('only a completed bitmap job ends a run of lost frames; one on the camera\'
   assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the run went on: this is the REFUSAL_LIMIT-th in a row');
   assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unmade');
   assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// Every completed bitmap job ends a run, not only a worker's first: CI's lost
+// frame came after many completed jobs, and sporadic losses, each run ended by
+// a completed job of a worker already proven, must never add up to the limit.
+test('every completed bitmap job ends a run of lost frames, not only the worker\'s first', async () => {
+  const h = transport(); await h.handshake();
+  const refuse = async () => {
+    const p = h.tracker.verify(h.frame()), lost = assert.rejects(p, { name: 'AbortError' });
+    h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }); await lost;
+  };
+  const complete = async () => { const p = h.tracker.verify(h.frame()); h.reply(); await p; };
+  await complete(); await complete();
+  for (let round = 0; round < 3; round++) {
+    for (let i = 1; i < REFUSAL_LIMIT; i++) await refuse();
+    await complete();
+  }
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined);
+  assert.equal(h.tracker.stats.refusedFrames, 3 * (REFUSAL_LIMIT - 1)); assert.equal(h.tracker.stats.transportReason, 'probe');
+  // The camera's own failures too: the run was ended by the last completed job.
+  for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
   h.tracker.reset();
 });
 
