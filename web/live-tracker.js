@@ -36,8 +36,11 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // would have. A wait whose timer fires more than HANDSHAKE_LATE after its
 // time ran behind a long task on this thread, and the answer may have waited
 // for that task: in Chromium a new worker's first OffscreenCanvas use waits
-// for this thread's task to end, and WebKit runs an overdue timer before a
-// reply that is already queued. Such a wait is renewed while the worker
+// for this thread's task to end; so does a worker's first bitmap or canvas on
+// an iPhone, whose connection to the GPU process WebKit sets up on this thread
+// (callOnMainRunLoopAndWait in RemoteRenderingBackendProxy); and WebKit
+// delivers a reply that reached this thread during a long task only after a
+// timer that came due during it. Such a wait is renewed while the worker
 // started less than the anchor deadline ago, so a worker held back by a task
 // that ends more than HANDSHAKE_LATE after the wait's end is kept, and one
 // that never answers is still replaced on a page that stays busy. A task that

@@ -392,19 +392,30 @@ first message: loading its modules is no part of the transport): it may be
 stuck on the probe, with every job queued behind it, so it is replaced at once
 by one on the camera's own readback, with no failure counted. A wait whose
 timer fires more than 50 ms late ran behind a long task on the main thread,
-which the answer may have waited for (in Chromium a new worker's first
-`OffscreenCanvas` use waits for the page's task to end, and WebKit runs an
-overdue timer before a reply that is already queued, so a busy main thread
-alone would time the handshake out in both), so it is renewed, until the
-anchor deadline after the worker's start: a worker held back by a task that
-ends more than 50 ms after the wait's end is kept, and one that never answers
-is still replaced on a page that stays busy. A task that ends within those
-50 ms holds the answer back just the same while its timer counts as on time:
-with one wait, a task ending 300-340 ms after the worker's start timed the
-handshake out in every Chromium trial and in WebKit at 310-330 ms. So the
-first wait that ends on time is renewed too, once per worker, and the answer
-that comes right after it decides; a worker held back by two such tasks in a
-row, 300 ms apart, is replaced, which a stuck worker costs 300 ms more. A
+which the answer may have waited for. In Chromium a new worker's first
+`OffscreenCanvas` use waits for the page's task to end. On an iPhone a
+worker's first bitmap or canvas does too: WebKit sets up the worker's
+connection to its GPU process on the main thread and blocks the worker until
+that is done (`callOnMainRunLoopAndWait` in `RemoteRenderingBackendProxy`, in
+every release branch from safari-7615, iOS 16.4, to main). And WebKit
+delivers a reply that reached the page during a long task only after a timer
+that came due during it. A busy main thread alone would time the handshake
+out in each. So such a wait is renewed, until the anchor deadline after the
+worker's start: a worker held back by a task that ends more than 50 ms after
+the wait's end is kept, and one that never answers is still replaced on a
+page that stays busy. A task that ends within those 50 ms holds the answer
+back just the same while its timer counts as on time: with one wait, a task
+ending 300-340 ms after the worker's start timed the handshake out in every
+Chromium trial and in WebKit at 310-330 ms. So the first wait that ends on
+time is renewed too, once per worker, and an answer that comes during the
+renewed wait decides (in Chromium it came a median of under a millisecond
+after the task's end, at most 139 ms on a loaded host; on an iPhone the GPU
+process's set-up for the worker comes after it). The renewal costs a stuck
+worker, which has never been seen, 300 ms more: it is replaced 600 ms after
+its start instead of 300. A worker is still replaced when its answer is not
+in by the end of its first wait and a task then ends within 50 ms after the
+end of its second: two such tasks in a row, or an answer slower than 300 ms
+and one such task. With one wait that worker was replaced at its first. A
 worker replaced so costs bitmaps only itself: the worker after the next reset
 (the freeze, Clear, Restart) probes again, and only a second worker replaced
 so in the camera session gives bitmaps up for the rest of it. A worker that
@@ -445,21 +456,25 @@ lost verification the next presented frame is sampled at once rather than an
 interval later: at a settled reading's 250 ms the adopted frame would pass the
 live tier's 500 ms before the next one was adopted, which marks the view as
 catching up for two seconds (in the fake-clock simulation it did after any one
-lost frame, and no longer does). The camera's own readback, where bitmaps are
-not used, loses a frame with no picture at all the same way: transparent at
-every one of the worker's 9 × 9 points, it is a snapshot of a video that had
-no picture to draw, or a readback that failed into zeros. It is counted and
-gives nothing up. Before, such a readback reached the tracking core: no
-anchor verified on it, the frame was adopted without a proof, and the outline
-and the reading's counts blinked for a frame (300 ms in the simulation), as
-they did for any such snapshot before the worker read bitmaps back. That
-check is looser than the worker's on purpose: the camera's own readback is
-where every bitmap failure falls back to, and an engine that left a scaled
-snapshot's edge partly transparent must not cost it every frame. One lost frame
-says little about the browser: on CI, WebKit refused one frame's bitmap in
-live_noise's changed-content scene (2026-10-14) after reading the scan's
-other bitmaps back right, and giving bitmaps up there restarted acquisition
-and retired the reading before the scene saw its content change. So bitmaps
+lost frame, and no longer does).
+
+The camera's own readback, where bitmaps are not used, loses a frame with no
+picture at all the same way: transparent at every one of the worker's 9 × 9
+points, it is a snapshot of a video that had no picture to draw, or a
+readback that failed into zeros. It is counted and gives nothing up. Before,
+such a readback reached the tracking core: no anchor verified on it, the frame
+was adopted without a proof, and the outline and the reading's counts blinked
+for a frame (300 ms in the simulation), as they did for any such snapshot
+before the worker read bitmaps back. That check is looser than the worker's
+on purpose: the camera's own readback is where every bitmap failure falls
+back to, and an engine that leaves a scaled snapshot's edge partly
+transparent, or the fingerprinting noise below, must not cost it every frame.
+
+One lost frame says little about the browser: on CI, WebKit refused one
+frame's bitmap in live_noise's changed-content scene (2026-10-14) after
+reading the scan's other bitmaps back right, and giving bitmaps up there
+restarted acquisition and retired the reading before the scene saw its
+content change. So bitmaps
 are given up only at the third frame lost in a row, refused or unmade, with
 no bitmap job completed in between, in the camera session: the freeze, Clear
 and Restart do not end the run, a completed bitmap job does. A frame made
@@ -472,10 +487,30 @@ camera's own readback. One that loses up to two frames of every three keeps
 bitmaps, since each completed job ends the run; with each lost frame replaced
 at once by the next, a third of its frames still kept the simulation's view
 on the live tier with its reading and outline (no such browser has been
-seen; the counts below would show one). The diagnostic report
-counts the lost frames of each cause (`tracking.refusedFrames`,
-`tracking.unmadeFrames`); its transport and reason stay the worker's until
-bitmaps are given up.
+seen; the counts below would show one). The diagnostic report counts the lost
+frames of each cause (`tracking.refusedFrames`, `tracking.unmadeFrames`); its
+transport and reason stay the worker's until bitmaps are given up.
+
+On an iPhone the two causes sort the failures differently from what their
+names suggest (WebKit's release branches safari-7615 to safari-7623, iOS 16.4
+to 26). From iOS 17.4 (safari-7618), a bitmap whose memory the GPU process
+cannot allocate reaches the worker as null, 0 × 0, or a transparent bitmap of
+its full size, and a failed readback in the worker is filled with zeros (in
+the report: `refusedIncomplete` or `refusedBlank`), so a refused frame
+there mostly means memory or transfer trouble, not a browser that cannot read
+bitmaps back. An unmade frame is mostly a snapshot canvas without a buffer
+(iOS 16 caps all canvases' memory) or WebKit's blank 1 × 1. On iOS 17.0 and
+17.1, fingerprinting protection (on in Private Browsing) adds noise to every
+2D draw, the probe's and each frame's, and can lower an opaque pixel's alpha:
+the handshake then mostly decides `mismatch`, or every frame is refused and
+bitmaps are given up at the third. The rule's one limit: three losses in a row
+from a passing condition (memory pressure that lasts, a GPU process restarted
+while the capture survives, iOS 16's canvas memory cap before a collection)
+still give bitmaps up for the rest of the camera session; closing and
+reopening the camera probes for them again. CI's WebKit, on Linux, moves
+bitmaps between threads and plays its synthetic camera through other code
+than an iPhone's, so its lost frames say little about phones; an iPhone's
+export is the evidence for them.
 
 Bitmaps given up are no tracking failure: they are given up for the rest of
 the camera session, the worker is reset with its anchors, and the camera

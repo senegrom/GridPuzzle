@@ -275,12 +275,14 @@ test('a wait that ends late, behind a long task, is renewed, and the answer afte
 });
 
 // A main-thread task that ends within HANDSHAKE_LATE after the wait's end
-// holds the answer back as a longer one does (Chromium delivers a new
-// worker's first OffscreenCanvas work only after it, WebKit runs the overdue
-// timer before a reply already queued), but the timer counts as on time. The
-// worker's first wait that ends on time is therefore renewed, and the answer
-// that comes right after it decides; so does an answer after a renewal of a
-// late wait in between. Each worker gets its own renewal.
+// holds the answer back as a longer one does (Chromium runs a new worker's
+// first OffscreenCanvas work only after it, an iPhone's WebKit sets up a
+// worker's first bitmap or canvas on the main thread after it, and WebKit
+// delivers a reply that reached the page during it after the timer that came
+// due then), but the timer counts as on time. The worker's first wait that
+// ends on time is therefore renewed, and an answer during the renewed wait
+// decides; so does an answer after a renewal of a late wait in between. Each
+// worker gets its own renewal.
 test('a wait that ends on time with the answer right behind it is renewed, and the answer decides "bitmap"', async () => {
   for (const lateness of [0, 20, HANDSHAKE_LATE]) {
     const h = transport(), ready = h.tracker.ready(); await flush();
