@@ -565,6 +565,23 @@ test('a frame whose bitmap the worker refuses is lost alone: its job fails as re
   }
 });
 
+// While the next worker's handshake still runs, that worker may decide for
+// bitmaps: the REFUSAL_LIMIT-th loss in a row then gives bitmaps up at once,
+// ending the probing worker, and its waiters get the give-up's error.
+test('the REFUSAL_LIMIT-th lost frame in a row during the next worker\'s handshake gives bitmaps up at once', async () => {
+  const h = transport(); await h.handshake();
+  for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  h.tracker.reset();
+  const ready = h.tracker.ready(), given = assert.rejects(ready, { name: 'NotSupportedError' }); await flush(); h.started();
+  assert.equal(h.last().sent[0]?.op, 'probe', 'the next worker probes');
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the give-up');
+  await given;
+  assert.equal(h.workers[1].terminated, true, 'the probing worker is ended');
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.deepEqual(h.last().sent, [], 'no later worker probes');
+  assert.equal(h.tracker.stats.transportReason, 'unmade'); assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
 // The worker says why it refused a bitmap (REFUSALS in live-tracking-pixels.js):
 // it did not arrive whole, it read back with a transparent pixel, or reading it
 // back failed. The tracker counts the refused frames by that reason beside the

@@ -1076,7 +1076,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   first, a reset does not; the cause that of the last), a refused frame proving nothing to a later bitmap job's deadline, a
   bitmap failure after the give-up only counted, the third in a row of a frame
   made before a reset keeping the worker after it that decided for the
-  camera's own readback and giving bitmaps up after it, the other bitmap failures
+  camera's own readback and giving bitmaps up after it, and giving them up at
+  once, ending the worker, while that worker's handshake still runs, the
+  other bitmap failures
   that give bitmaps up without a failure, with their causes, and the later ones
   that count (a worker that dies once a bitmap job of it completed, idle or on
   the camera's own readback: its queued bitmap closed, and bitmaps kept for the
