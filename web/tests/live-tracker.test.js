@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT, REFUSAL_SPAN } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -566,12 +566,13 @@ test('a frame whose bitmap the worker refuses is lost alone: its job fails as re
 });
 
 // While the next worker's handshake still runs, that worker may decide for
-// bitmaps: the REFUSAL_LIMIT-th loss in a row then gives bitmaps up at once,
-// ending the probing worker, and its waiters get the give-up's error.
+// bitmaps: the REFUSAL_LIMIT-th loss in a row (REFUSAL_SPAN after the first)
+// then gives bitmaps up at once, ending the probing worker, and its waiters
+// get the give-up's error.
 test('the REFUSAL_LIMIT-th lost frame in a row during the next worker\'s handshake gives bitmaps up at once', async () => {
   const h = transport(); await h.handshake();
   for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
-  h.tracker.reset();
+  h.tracker.reset(); h.tick(REFUSAL_SPAN);
   const ready = h.tracker.ready(), given = assert.rejects(ready, { name: 'NotSupportedError' }); await flush(); h.started();
   assert.equal(h.last().sent[0]?.op, 'probe', 'the next worker probes');
   assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the give-up');
@@ -628,11 +629,12 @@ test('a lost frame whose continuation resets the tracker closes the queued bitma
 });
 
 // Bitmaps are given up once frames are lost to their bitmaps persistently:
-// at the REFUSAL_LIMIT-th lost in a row, whether the worker refused it or the
-// camera could not make it, with no bitmap job completed in between. A reset
-// (the freeze, Clear, Restart) does not end the run; a completed bitmap job
-// does. The give-up says why: the cause of the frame that made the losses
-// persist; and it is no failure.
+// at the REFUSAL_LIMIT-th lost in a row (here REFUSAL_SPAN after the first of
+// them, see below), whether the worker refused it or the camera could not
+// make it, with no bitmap job completed in between. A reset (the freeze,
+// Clear, Restart) does not end the run; a completed bitmap job does. The
+// give-up says why: the cause of the frame that made the losses persist; and
+// it is no failure.
 for (const last of ['refused', 'unmade']) test(`the REFUSAL_LIMIT-th bitmap frame lost in a row gives bitmaps up, here ${last}; a completed bitmap job ends the run, a reset does not`, async () => {
   const h = transport(); await h.handshake();
   const refuse = async () => {
@@ -650,7 +652,7 @@ for (const last of ['refused', 'unmade']) test(`the REFUSAL_LIMIT-th bitmap fram
   assert.deepEqual([h.tracker.stats.refusedFrames, h.tracker.stats.unmadeFrames], [2, 2]);
   // A reset does not end the run: the next worker probes for bitmaps, and the
   // next frame lost is the REFUSAL_LIMIT-th in a row.
-  h.tracker.reset(); assert.equal(await h.handshake(), 'bitmap');
+  h.tracker.reset(); assert.equal(await h.handshake(), 'bitmap'); h.tick(REFUSAL_SPAN);
   const sent = h.frame(), queued = h.frame(), active = h.tracker.verify(sent), waiting = h.tracker.verify(queued);
   const both = Promise.all([assert.rejects(active, { name: 'NotSupportedError' }), assert.rejects(waiting, { name: 'NotSupportedError' })]);
   if (last === 'refused') h.reply(h.workers[1], { result: undefined, error: 'bitmap-unsupported' });
@@ -662,6 +664,54 @@ for (const last of ['refused', 'unmade']) test(`the REFUSAL_LIMIT-th bitmap fram
   assert.deepEqual(h.workers[2].sent, [], 'no later worker probes');
   assert.equal(h.tracker.stats.transportReason, last, 'the cause of the frame that made the losses persist');
   assert.deepEqual([h.tracker.stats.refusedFrames, h.tracker.stats.unmadeFrames], last === 'refused' ? [3, 2] : [2, 3]);
+  h.tracker.reset();
+});
+
+// Persistence is measured in time as well as in frames: the camera samples the
+// frame after a lost one at once, so a condition that passes within a tenth of
+// a second can lose three frames in a row. Until REFUSAL_SPAN after the first
+// frame of a run, every frame is lost alone, however many; the first lost at
+// or after it, at least the REFUSAL_LIMIT-th in a row, gives bitmaps up.
+test('frames lost in a row are lost alone until REFUSAL_SPAN after the first of them, however many', async () => {
+  assert.equal(REFUSAL_SPAN, 500, 'LIVE_CAMERA.md');
+  const h = transport(); await h.handshake();
+  const refuse = async () => {
+    const p = h.tracker.verify(h.frame()), lost = assert.rejects(p, { name: 'AbortError' });
+    h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }); await lost;
+  };
+  for (const ms of [0, 100, 100, 100, 100, REFUSAL_SPAN - 401]) {
+    h.tick(ms);
+    assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'lost alone, within the span');
+    await refuse();
+  }
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined);
+  assert.deepEqual([h.tracker.stats.refusedFrames, h.tracker.stats.unmadeFrames], [6, 6]);
+  h.tick(1);
+  const sent = h.frame(), given = assert.rejects(h.tracker.verify(sent), { name: 'NotSupportedError' });
+  h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported' }); await given;
+  assert.equal(h.workers[0].terminated, true, 'given up REFUSAL_SPAN after the first');
+  assert.equal(await settled(h.tracker.ready()), 'imagedata');
+  assert.equal(h.tracker.stats.transportReason, 'refused'); assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// The count still matters: fewer than REFUSAL_LIMIT frames lost in a row are
+// lost alone however far apart. A completed bitmap job ends the run, and the
+// next frame lost starts a new span.
+test('fewer than REFUSAL_LIMIT frames lost in a row are lost alone however far apart; a completed bitmap job starts the span again', async () => {
+  const h = transport(); await h.handshake();
+  const complete = async () => { const p = h.tracker.verify(h.frame()); h.reply(); await p; };
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError'); h.tick(10 * REFUSAL_SPAN); }
+  await complete();
+  // A new run: its REFUSAL_LIMIT-th loss comes within the span of its first.
+  for (let i = 0; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError', `${i + 1} in the new run`); h.tick(100); }
+  h.tick(REFUSAL_SPAN - 100 * REFUSAL_LIMIT - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'just within the span of the new run\'s first');
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers[0].terminated, undefined);
+  h.tick(1);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'REFUSAL_SPAN after the new run\'s first');
+  assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT - 1 + REFUSAL_LIMIT + 2);
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unmade');
   h.tracker.reset();
 });
 
@@ -679,6 +729,7 @@ test('only a completed bitmap job ends a run of lost frames; one on the camera\'
   assert.equal(h.tracker.stats.completed, 1);
   h.tracker.reset();
   assert.equal(await h.handshake(), 'bitmap', 'the worker after the reset probes again');
+  h.tick(REFUSAL_SPAN);
   assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the run went on: this is the REFUSAL_LIMIT-th in a row');
   assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unmade');
   assert.equal(h.tracker.stats.failures, 0);
@@ -687,7 +738,8 @@ test('only a completed bitmap job ends a run of lost frames; one on the camera\'
 
 // Every completed bitmap job ends a run, not only a worker's first: CI's lost
 // frame came after many completed jobs, and sporadic losses, each run ended by
-// a completed job of a worker already proven, must never add up to the limit.
+// a completed job of a worker already proven, must never add up to the limit
+// (here each run's losses span REFUSAL_SPAN, so only the count holds them).
 test('every completed bitmap job ends a run of lost frames, not only the worker\'s first', async () => {
   const h = transport(); await h.handshake();
   const refuse = async () => {
@@ -697,13 +749,13 @@ test('every completed bitmap job ends a run of lost frames, not only the worker\
   const complete = async () => { const p = h.tracker.verify(h.frame()); h.reply(); await p; };
   await complete(); await complete();
   for (let round = 0; round < 3; round++) {
-    for (let i = 1; i < REFUSAL_LIMIT; i++) await refuse();
+    for (let i = 1; i < REFUSAL_LIMIT; i++) { await refuse(); h.tick(REFUSAL_SPAN); }
     await complete();
   }
   assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers.length, 1); assert.equal(h.workers[0].terminated, undefined);
   assert.equal(h.tracker.stats.refusedFrames, 3 * (REFUSAL_LIMIT - 1)); assert.equal(h.tracker.stats.transportReason, 'probe');
   // The camera's own failures too: the run was ended by the last completed job.
-  for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError'); h.tick(REFUSAL_SPAN); }
   h.tracker.reset();
 });
 
@@ -770,6 +822,7 @@ test('the REFUSAL_LIMIT-th lost frame in a row, made before a reset, keeps the w
     const ready = h.tracker.ready(); await flush(); h.started(); decide(h);
     assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, reason);
     const worker = h.last(), job = h.tracker.verify({ image: image(), anchors: [] });
+    h.tick(REFUSAL_SPAN);
     assert.equal(h.tracker.bitmapFailed().name, 'AbortError', `that frame alone is lost (${reason})`);
     assert.equal(worker.terminated, undefined, `the worker on the camera's readback is kept (${reason})`);
     h.reply(worker); await job;

@@ -81,9 +81,18 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // snapshot: WebKit's blank 1 x 1 when it cannot allocate the copy) is lost
 // alone: its job fails as a retired one, and no pixel of it reaches the
 // tracking core. One such frame says little about the browser, so bitmaps are
-// given up only at the REFUSAL_LIMIT-th lost in a row, with no bitmap job
-// completed in between, in the tracker's life (the camera session; a reset
-// does not end the run). A browser that can read no frame back that way loses
+// given up only when the losses persist: at a frame lost that is at least the
+// REFUSAL_LIMIT-th in a row, with no bitmap job completed in between, and
+// comes REFUSAL_SPAN or more after the first of them, in the tracker's life
+// (the camera session; a reset does not end the run). Persistence is measured
+// in time as well, since the count alone follows the sampling: the camera
+// samples the frame after a lost one at once, and a tick that detects and
+// verifies makes two bitmaps of one snapshot, so a condition that passes
+// within a tenth of a second can lose three in a row. Three verification
+// frames of a settled reading, 250 ms apart, span 500 ms: that was the count's
+// time scale before the camera hurried its samples, and it stays. A browser
+// that can read no frame back that way loses the anchors of its detections,
+// at least 300 ms apart, so the span does not delay its give-up: it loses
 // REFUSAL_LIMIT - 1 frames before its tracking moves to the camera's own
 // readback. stats.refusedFrames and stats.unmadeFrames count the frames lost
 // for each cause, and refusedIncomplete, refusedBlank and refusedFailed the
@@ -92,7 +101,7 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // (transparent wherever the worker checks a bitmap's) is lost the same way
 // (readbackBlank, counted in stats.blankReadbacks), and gives nothing up,
 // since there is nothing to fall back to.
-export const REFUSAL_LIMIT = 3;
+export const REFUSAL_LIMIT = 3, REFUSAL_SPAN = 500;
 // The stats key of each reason the worker gives for refusing a bitmap
 // (REFUSALS in live-tracking-pixels.js); a reply without a known one counts
 // as "failed".
@@ -128,9 +137,9 @@ export function createLiveTracker({
   // has completed; whether a worker of this tracker was replaced for missing
   // the wait; once bitmaps have been given up, why (every later worker then
   // uses the camera's readback); and how many bitmap frames in a row were
-  // lost (REFUSAL_LIMIT).
+  // lost, since when (REFUSAL_LIMIT).
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
-  let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0;
+  let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0, lostSince = null;
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0,
     refusedFrames: 0, refusedIncomplete: 0, refusedBlank: 0, refusedFailed: 0, unmadeFrames: 0, blankReadbacks: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
@@ -150,8 +159,9 @@ export function createLiveTracker({
   // Not a tracking failure: the next worker uses the ImageData transport.
   function giveUp(cause) { givenUp = cause; reset(unsupported()); }
   // A bitmap frame lost for `cause`, "refused" (with the worker's reason) or
-  // "unmade" (REFUSAL_LIMIT): counted, and the REFUSAL_LIMIT-th in a row gives
-  // bitmaps up. Whether that reset the worker. A frame made for a worker
+  // "unmade" (REFUSAL_LIMIT): counted, and one that is at least the
+  // REFUSAL_LIMIT-th in a row, REFUSAL_SPAN or more after the first of them,
+  // gives bitmaps up. Whether that reset the worker. A frame made for a worker
   // before bitmaps were given up is only counted: its loss must not reset the
   // worker that replaced it. Nor may a frame made for a worker before a reset
   // reset the worker after it, once that worker's handshake decided for the
@@ -160,7 +170,9 @@ export function createLiveTracker({
   function lose(cause, refusal) {
     stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
     if (cause === 'refused') stats[Object.hasOwn(REFUSED, refusal) ? REFUSED[refusal] : REFUSED.failed]++;
-    if (givenUp || ++lost < REFUSAL_LIMIT) return false;
+    if (givenUp) return false;
+    if (lost++ === 0) lostSince = now();
+    if (lost < REFUSAL_LIMIT || now() - lostSince < REFUSAL_SPAN) return false;
     if (transport === 'imagedata') { givenUp = cause; return false; }
     giveUp(cause); return true;
   }
