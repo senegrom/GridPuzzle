@@ -653,6 +653,36 @@ test('a frame whose bitmap fails after bitmaps were given up is counted and lost
   h.tracker.reset();
 });
 
+// A frame made for a bitmap worker before a reset (the freeze, Clear, Restart)
+// can lose its bitmap after it, once the next worker's handshake has decided
+// for the camera's own readback (a mismatch, no pixels, or a worker replaced
+// for missing the wait). That worker has no bitmap to lose: the loss that is
+// the REFUSAL_LIMIT-th in a row gives bitmaps up for the workers after it,
+// and the worker is kept with its job and its reason.
+test('the REFUSAL_LIMIT-th lost frame in a row, made before a reset, keeps the worker on the camera\'s readback and gives bitmaps up after it', async () => {
+  for (const [decide, reason] of [
+    [h => h.answer(PROBE.map(v => 255 - v)), 'mismatch'],
+    [h => h.answer(null), 'no-pixels'],
+    [h => { h.fire(HANDSHAKE_WAIT); h.fire(HANDSHAKE_WAIT); }, 'timeout'],
+  ]) {
+    const h = transport(); await h.handshake();
+    for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+    h.tracker.reset();
+    const ready = h.tracker.ready(); await flush(); h.started(); decide(h);
+    assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, reason);
+    const worker = h.last(), job = h.tracker.verify({ image: image(), anchors: [] });
+    assert.equal(h.tracker.bitmapFailed().name, 'AbortError', `that frame alone is lost (${reason})`);
+    assert.equal(worker.terminated, undefined, `the worker on the camera's readback is kept (${reason})`);
+    h.reply(worker); await job;
+    assert.equal(h.tracker.transport, 'imagedata'); assert.equal(h.tracker.stats.transportReason, reason, 'its reason stays');
+    assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT); assert.equal(h.tracker.stats.failures, 0);
+    h.tracker.reset();
+    assert.equal(await settled(h.tracker.ready()), 'imagedata', 'bitmaps are given up after it');
+    assert.deepEqual(h.last().sent, [], 'no later worker probes'); assert.equal(h.tracker.stats.transportReason, 'unmade');
+    h.tracker.reset();
+  }
+});
+
 test('the worker reports the tracking core\'s time and the transport\'s apart; only the core\'s is "milliseconds"', async () => {
   const h = transport();
   // Before any job completed both are zero, not missing.

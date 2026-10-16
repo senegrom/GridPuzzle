@@ -450,7 +450,11 @@ other bitmaps back right, and giving bitmaps up there restarted acquisition
 and retired the reading before the scene saw its content change. So bitmaps
 are given up only at the third frame lost in a row, refused or unmade, with
 no bitmap job completed in between, in the camera session: the freeze, Clear
-and Restart do not end the run, a completed bitmap job does. A browser that
+and Restart do not end the run, a completed bitmap job does. A frame made
+before such a reset can lose its bitmap after it; when that loss is the third
+in a row and the worker after the reset has decided for the camera's own
+readback, that worker has no bitmap to lose and is kept, and bitmaps are given
+up for the workers after it. A browser that
 can read no frame back that way loses two frames, a fraction of a second,
 before its tracking moves to the camera's own readback. The diagnostic report
 counts the lost frames of each cause (`tracking.refusedFrames`,
@@ -1006,7 +1010,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   in a row (a
   completed bitmap job ends the run, a reset does not; the cause that of the
   last), a refused frame proving nothing to a later bitmap job's deadline, a
-  bitmap failure after the give-up only counted, the other bitmap failures
+  bitmap failure after the give-up only counted, the third in a row of a frame
+  made before a reset keeping the worker after it that decided for the
+  camera's own readback and giving bitmaps up after it, the other bitmap failures
   that give bitmaps up without a failure, with their causes, and the later ones
   that count (a worker that dies once a bitmap job of it completed, idle or on
   the camera's own readback: its queued bitmap closed, and bitmaps kept for the
