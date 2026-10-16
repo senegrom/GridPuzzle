@@ -516,6 +516,35 @@ test("a browser that loses two of every three bitmap frames keeps bitmaps, the r
   assert.deepEqual(h.open(), []);
 });
 
+// Only a lost frame hurries the next sample. A queued frame that a newer one
+// replaced is retired with an AbortError too, but must not: with replies
+// slower than the interval the queued frame is replaced every interval, and
+// hurrying then would have the camera sample every frame it is shown.
+test("a queued frame replaced by a newer one does not hurry the next sample", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  await h.advance(1000);
+  h.replyDelay(700); await h.advance(1500);
+  const dropped = h.camera.stats.tracking.dropped, snapshots = () => h.ops.filter((o) => o.op === "drawImage" && o.source === h.video).length;
+  const before = snapshots();
+  await h.advance(3000);
+  assert.ok(h.camera.stats.tracking.dropped - dropped >= 3, `${h.camera.stats.tracking.dropped - dropped} queued frames replaced`);
+  assert.ok(snapshots() - before <= 12, `${snapshots() - before} snapshots in 3 s at a settled reading's interval`);
+  assert.equal(h.camera.stats.tracking.refusedFrames + h.camera.stats.tracking.unmadeFrames, 0);
+});
+
+// A frame lost after the camera closed (its bitmap failed after the close)
+// adds nothing to the diagnostics, which may serve another scan by then.
+test("a frame lost after the camera closed leaves the diagnostics of the next scan alone", async (t) => {
+  const h = simulation(t);
+  h.holdBitmaps(true);
+  assert.ok(await h.until(() => h.held > 0, 1000), "the first detection's anchor bitmap is being made");
+  h.camera.stop(); h.diagnostics.begin("photo", { type: "sudoku", rows: 9, cols: 9 });
+  await h.failHeldBitmaps(); await h.advance(100);
+  assert.deepEqual(h.diagnostics.snapshot().tracking, {}, "the photo scan has no tracking section");
+  assert.deepEqual(h.open(), []);
+});
+
 // The camera's own readback (the only transport here) of a snapshot of a video
 // with no picture to draw, transparent wherever the worker checks a bitmap's
 // readback, is lost alone, counted, and never reaches the tracking core.
@@ -549,6 +578,9 @@ test("on the camera's own readback, a frame with no picture during a tracked rea
 test("on the camera's own readback, frames with no picture while aiming build no anchor, and the grid is read from the frames after them", async (t) => {
   const h = simulation(t, { transport: "imagedata" });
   h.noPicture(3);
+  assert.ok(await h.until(() => h.camera.stats.tracking.blankReadbacks === 1, 2000), "the first detection's frame is lost");
+  assert.deepEqual(h.jobs(), [], "nothing was sent to the worker");
+  assert.equal(h.diagnostics.snapshot().tracking.blankReadbacks, 1, "the export counts it with no verification yet");
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
   assert.equal(h.camera.stats.tracking.blankReadbacks, 3);
   assert.deepEqual(h.runs.filter((r) => r.empty), [], "the tracking core got none of them");
@@ -572,6 +604,7 @@ for (const [name, provoke, cause] of [
   assert.ok(await h.until(() => h.reasons().includes("tracking-transport"), 3000), "the transport is given up");
   const counted = cause === "refused" ? "refusedFrames" : "unmadeFrames";
   assert.equal(h.camera.stats.tracking[counted], REFUSAL_LIMIT, "at the REFUSAL_LIMIT-th frame lost in a row");
+  assert.equal(h.diagnostics.snapshot().tracking[counted], REFUSAL_LIMIT, "the export has it at the give-up, before any verification");
   assert.deepEqual(h.jobs().filter((p) => p.bitmap?.label === "blank"), [], "no blank bitmap reaches the worker");
   // The first detections' anchors failed: their own frame stays the newest
   // picture scanned, as after any tracking failure.
