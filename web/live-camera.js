@@ -4,7 +4,7 @@ import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
-import { createLiveTracker, isLostFrame, lostFrame } from "./live-tracker.js";
+import { createLiveTracker, isLostFrame, lostFrame, REFUSAL_LIMIT } from "./live-tracker.js";
 import { pictureless } from "./live-tracking-pixels.js";
 import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
@@ -49,6 +49,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, detection = null, epoch = 0, lastDetect = -Infinity, trackAfter = -Infinity, anchorMs = 0;
   let ownVerifiedAt = -Infinity;
+  // Verification frames of the camera's own readback lost in a row, for want
+  // of a picture (live-tracker.js), since the last verification that
+  // completed; see track().
+  let lostInRow = 0;
   let raw = null, guide = null, guideFrame = null, displayed = null;
   // "live" while frames are sampled, tracked and read. The first render that
   // shows a verified, unique and complete solution freezes the view: the
@@ -583,6 +587,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // change of settings and a tracking failure each start a new epoch.
       if (owner !== epoch) { frame.bitmap?.close(); return; }
       const result = await tracker.verify({ ...frame, anchors });
+      lostInRow = 0;
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
       // Fence by snapshot time: a reply is adopted while its own snapshot is
       // within STALE and newer than the last adopted one, also after an older
@@ -634,10 +639,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // retired one; it is counted in the export at once, and the next frame
       // is sampled at once rather than an interval later: at a settled
       // reading's 250 ms, waiting would age the adopted frame past the live
-      // tier, which marks the view as catching up for LIVE_SETTLE.
+      // tier, which marks the view as catching up for LIVE_SETTLE. Every lost
+      // bitmap frame does so: their losses end when a bitmap job completes or
+      // bitmaps are given up (REFUSAL_SPAN). On the camera's own readback,
+      // which gives nothing up, only the first REFUSAL_LIMIT - 1 in a row do,
+      // as many as the tracker rides out on bitmaps whenever they come: a
+      // video that keeps having no picture would otherwise be read back here,
+      // in full, at its frame rate.
       if (isLostFrame(error)) {
         reportCounts();
-        if (active && owner === epoch) scheduler.expedite();
+        if (active && owner === epoch && (tracker.transport === "bitmap" || ++lostInRow < REFUSAL_LIMIT)) scheduler.expedite();
       }
       // The frame the worker failed on is kept as the picture scanned, unless
       // a newer one is.

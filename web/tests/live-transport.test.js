@@ -500,9 +500,12 @@ for (const [name, provoke, cause, reason] of [
 // keeps bitmaps: every completed job ends the run. With the frame after each
 // lost one sampled at once, a third of its frames are still verified often
 // enough for the live tier, and the reading and its outline stay; only the
-// export's counts show the losses.
-test("a browser that loses two of every three bitmap frames keeps bitmaps, the reading and the live tier", async (t) => {
-  const h = simulation(t);
+// export's counts show the losses. Also at a camera's 30 frames a second,
+// where a detection's anchor takes one of the bitmaps now and then, so that
+// more than two verification frames in a row can be lost: every lost bitmap
+// frame hurries the next sample.
+for (const fps of [0, 30]) test(`a browser that loses two of every three bitmap frames keeps bitmaps, the reading and the live tier${fps ? `, at ${fps} frames a second` : ""}`, async (t) => {
+  const h = simulation(t, { fps });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
   await h.advance(1000);
   const workers = h.workers.length, reasons = h.reasons().length, completed = h.camera.stats.tracking.completed;
@@ -593,19 +596,21 @@ test("a frame lost after the camera closed leaves the diagnostics of the next sc
 // with no picture to draw, transparent wherever the worker checks a bitmap's
 // readback, is lost alone, counted, and never reaches the tracking core.
 // Before, it was verified on nothing and adopted without a proof, so the
-// outline and the reading's counts blinked for one frame.
-test("on the camera's own readback, a frame with no picture during a tracked reading is lost alone: no blink, the live tier kept", async (t) => {
+// outline and the reading's counts blinked for one frame. Two in a row (two
+// ticks of a video with no picture) keep the live tier too: each hurries the
+// next sample.
+for (const n of [1, REFUSAL_LIMIT - 1]) test(`on the camera's own readback, ${n === 1 ? "a frame" : `${n} frames in a row`} with no picture during a tracked reading ${n === 1 ? "is" : "are"} lost alone: no blink, the live tier kept`, async (t) => {
   const h = simulation(t, { transport: "imagedata" });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
   await h.advance(1000);
   const workers = h.workers.length, reasons = h.reasons().length, completed = h.camera.stats.tracking.completed;
-  h.noPicture(1);
+  h.noPicture(n);
   const overlays = new Set(), recognised = new Set(), tiers = new Set();
   for (let i = 0; i < 200; i++) {
     await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); tiers.add(h.view.dataset.delayed);
   }
   const tracking = h.camera.stats.tracking;
-  assert.equal(tracking.blankReadbacks, 1, "one frame lost"); assert.equal(tracking.refusedFrames + tracking.unmadeFrames, 0);
+  assert.equal(tracking.blankReadbacks, n, "the frames lost"); assert.equal(tracking.refusedFrames + tracking.unmadeFrames, 0);
   assert.ok(tracking.completed > completed, "the frames after it are verified");
   assert.equal(tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
   assert.equal(h.workers.length, workers); assert.equal(h.reads, 1, "the reading is not read again");
@@ -614,7 +619,7 @@ test("on the camera's own readback, a frame with no picture during a tracked rea
   assert.deepEqual(h.runs.filter((r) => r.empty), [], "no pixel of it reaches the tracking core");
   assert.deepEqual(h.reasons().slice(reasons).filter((r) => ["worker-error", "tracking-transport"].includes(r)), []);
   const report = h.diagnostics.snapshot().tracking;
-  assert.equal(report.transport, "imagedata"); assert.equal(report.blankReadbacks, 1, "the export counts it");
+  assert.equal(report.transport, "imagedata"); assert.equal(report.blankReadbacks, n, "the export counts them");
 });
 
 // While aiming, such a readback builds no anchor: the detection's candidate is
@@ -628,6 +633,29 @@ test("on the camera's own readback, frames with no picture while aiming build no
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
   assert.equal(h.camera.stats.tracking.blankReadbacks, 3);
   assert.deepEqual(h.runs.filter((r) => r.empty), [], "the tracking core got none of them");
+  assert.equal(h.camera.stats.tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
+});
+
+// A video that keeps having no picture (on an iPhone, the GPU process failing
+// to convert the camera's frames, say) on the camera's own readback, which
+// nothing gives up: only the first REFUSAL_LIMIT - 1 frames lost in a row
+// hurry the next sample, and the rest are read back at the sampling interval,
+// not at the video's 30 frames a second, each a full readback on the main
+// thread. Here the grid is not found on them either, so no anchor is built.
+test("on the camera's own readback, a video that keeps having no picture is read back at the sampling interval, not at its frame rate", async (t) => {
+  const h = simulation(t, { transport: "imagedata", fps: 30 });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  await h.advance(1000);
+  const before = h.readbacks().length, lost0 = h.camera.stats.tracking.blankReadbacks;
+  h.noPicture(1e9); h.aim(null);
+  await h.advance(2000);
+  const times = h.readbacks().slice(before).map((r) => r.at), gaps = times.slice(1).map((at, i) => at - times[i]);
+  assert.ok(gaps.length >= REFUSAL_LIMIT, `${times.length} readbacks`);
+  assert.ok(gaps.slice(0, REFUSAL_LIMIT - 1).every((gap) => gap <= 34), `hurried: ${gaps}`);
+  assert.ok(gaps.slice(REFUSAL_LIMIT - 1).every((gap) => gap >= 100), `then the interval: ${gaps}`);
+  assert.ok(times.length <= 2000 / 100 + REFUSAL_LIMIT, `${times.length} readbacks in 2 s`);
+  assert.equal(h.camera.stats.tracking.blankReadbacks - lost0, times.length, "each one lost");
+  assert.deepEqual(h.runs.filter((r) => r.empty), []);
   assert.equal(h.camera.stats.tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
 });
 
