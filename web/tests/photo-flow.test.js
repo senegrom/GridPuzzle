@@ -1179,7 +1179,7 @@ for (const proposed of [false, true]) test(`maximum cage warnings plus photo con
   assert.throws(() => puzzleDefinition(h.state), /review/i);
 });
 
-for (const turns of [0, 1, 3]) test(`a reading taken ${turns} quarter turns off turns the crop corners with it`, async t => {
+for (const turns of [0, 1, 2, 3]) test(`a reading taken ${turns} quarter turns off turns the crop corners with it`, async t => {
   const h = photoHarness(t), puzzle = makePuzzle('latinsquare', 2); puzzle.cells[0] = 2;
   const before = h.state.corners.map(p => ({ ...p }));
   h.setFound({ puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
