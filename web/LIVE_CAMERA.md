@@ -562,7 +562,9 @@ has gone silent is abandoned only after a second without one and two
 independent advances of the playback counters, with dropped frames subtracted;
 a timer or the media clock alone cannot authorize the switch, and callbacks
 from before the switch are fenced. Repeated starts and shutdown fence every old
-callback.
+callback. No frame is processed while the video has no current frame
+(`readyState` below `HAVE_CURRENT_DATA`): drawing such a video draws nothing,
+so its snapshot would be transparent. Before, only `HAVE_NOTHING` was skipped.
 
 Frames are processed at most every 100 ms, back off to 250 ms once a reading
 is settled and up to 300 ms when recent worker timing calls for it; the

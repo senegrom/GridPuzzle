@@ -38,6 +38,18 @@ for (const native of [true, false]) test(`expedite() processes the next new fram
  h.scheduler.expedite();next(4);assert.equal(h.frames.length,2,'a repeated frame is still no new frame');
  h.scheduler.stop();
 });
+// A video without a current frame draws nothing (HTML's drawImage), so a
+// snapshot of it would be transparent: before HAVE_CURRENT_DATA no frame is
+// processed or makes the view fresh, whatever the clocks say.
+for (const native of [true, false]) test(`a video without a current frame (readyState 0 or 1) is not processed, native ${native}`, () => {
+ const h=harness(native);h.scheduler.start();let n=0;
+ const next=()=>{n++;if(native)h.present(n);else{h.video.currentTime=n;h.advance(100);}};
+ for(const state of [0,1]){h.video.readyState=state;next();next();assert.equal(h.frames.length,0,`readyState ${state}`);assert.equal(h.scheduler.fresh,false);}
+ h.video.readyState=2;next();assert.equal(h.frames.length,1,'HAVE_CURRENT_DATA: processed');assert.equal(h.scheduler.fresh,true);
+ h.video.readyState=1;h.advance(200);next();assert.equal(h.frames.length,1,'its picture gone again: not processed');
+ h.video.readyState=4;next();assert.equal(h.frames.length,2,'HAVE_ENOUGH_DATA: processed');
+ h.scheduler.stop();
+});
 test('independent heartbeat still expires a view when native frame callbacks stop',()=>{
  const h=harness();h.scheduler.start();h.present(1);h.advance(600);assert.equal(h.scheduler.fresh,false);assert.equal(h.beats.at(-1),false);
  assert.equal(h.frames.length,1);h.scheduler.stop();assert.equal(h.timers.size,0);assert.equal(h.callbacks.size,0);
