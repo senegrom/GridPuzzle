@@ -762,10 +762,11 @@ image (3,907 rows, both engines) is exactly the reading predicted from it.
   show two or more numbers with a 2, 3 or 5.
 - One press: the change build read every photograph whose glyphs read
   upright-shaped that way (617; the others take the quarter-turn check or
-  neither, as on master). The 13 turned are wichtounet-newspaper photographs
-  stored a quarter turn off, which one press leaves upside down (image1024,
+  neither, as on master). The 13 turned are wichtounet photographs stored a
+  quarter turn off, which one press leaves upside down (newspaper image1024,
   1031, 1038, 1039, 1040 and 1043, and the originals of those and of 1041);
-  image1024 reads 24 of 24 instead of 3. Cell by cell 298 clues become right
+  image1024 reads 24 of 24 instead of 3. Three more of those 18 take the check
+  and fall short of the bar. Cell by cell 298 clues become right
   and one is lost, flagged (the 4 at r6c0 of image1038's original); no cell
   gains an unflagged error.
 - Two presses: the change build read every photograph the check reads again
