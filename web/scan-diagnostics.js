@@ -12,6 +12,8 @@ const OVERLAYS = ['none','outline'];
 const TRANSPORTS = ['bitmap','imagedata'];
 const TRANSPORT_REASONS = ['probe','mismatch','no-pixels','unreadable','no-bitmaps','probe-failed',
   'timeout','refused','untransferable','unmade','unanswered'];
+// The tracking section's fields of the latest verification's frame (tracking()).
+const FRAME_KEYS = ['frame','ageMilliseconds','verified','tier','mismatch','region'];
 // The handshake probe's values read back on a mismatch: channel values of the
 // tracker's synthetic 2 x 2 probe (never camera pixels), at most 64.
 const probeValues = value => Array.isArray(value) && value.length <= 64 && value.every(v => Number.isInteger(v) && v >= 0 && v <= 255) ? [...value] : null;
@@ -53,6 +55,30 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
     return { milliseconds: number(total), percent: Object.fromEntries(OVERLAYS.map(mode => [mode, total ? number(100 * (times[mode] ?? 0) / total) : null])) };
   }
   function notify() { for (const listener of listeners) { try { listener(); } catch { /* Diagnostics cannot interrupt scanning. */ } } }
+  // The tracker's part of the tracking section: its counts, and the transport
+  // tracking used last, why (with the probe's values on a mismatch), and how
+  // long that worker's handshake took from its start. A reset (the freeze,
+  // Clear, a close) leaves the tracker none until its next worker decides,
+  // which must not erase the one the scan used.
+  function trackerOf(stats) {
+    const decided = TRANSPORTS.includes(stats?.transport);
+    const transport = decided ? stats.transport : tracking.transport ?? null;
+    const transportReason = decided ? (TRANSPORT_REASONS.includes(stats.transportReason) ? stats.transportReason : null) : tracking.transportReason ?? null;
+    const handshakeMilliseconds = decided ? number(stats.handshakeMilliseconds) : tracking.handshakeMilliseconds ?? null;
+    const probePixels = decided ? probeValues(stats.probePixels) : tracking.probePixels ?? null;
+    const out = {};
+    // refusedFrames and unmadeFrames: the camera session's frames lost to a
+    // bitmap the worker could not read back (refusedIncomplete, refusedBlank,
+    // refusedFailed: by the worker's reason) or the camera could not make
+    // (REFUSAL_LIMIT in live-tracker.js); blankReadbacks: those lost to a
+    // readback of the camera's own with no picture. Kept by the tracker across
+    // resets.
+    for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors',
+      'refusedFrames','refusedIncomplete','refusedBlank','refusedFailed','unmadeFrames','blankReadbacks']) out[key] = number(stats?.[key]);
+    out.transport = transport; out.transportReason = transportReason; out.handshakeMilliseconds = handshakeMilliseconds;
+    out.probePixels = probePixels;
+    return out;
+  }
   function event(value) {
     const next = STAGES.has(value.stage) ? value.stage : stage;
     const why = REASONS.has(value.reason) ? value.reason : 'failed';
@@ -117,25 +143,7 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         lastMetricFrame = frame.frame;
         workerMetrics.add(stats?.milliseconds); transportMetrics.add(stats?.transportMilliseconds); ageMetrics.add(frame.age);
       }
-      // The transport tracking used last, why (with the probe's values on a
-      // mismatch), and how long that worker's handshake took from its start:
-      // a reset (the freeze, Clear, a close) leaves the tracker none until its
-      // next worker decides, which must not erase the one the scan used.
-      const decided = TRANSPORTS.includes(stats?.transport);
-      const transport = decided ? stats.transport : tracking.transport ?? null;
-      const transportReason = decided ? (TRANSPORT_REASONS.includes(stats.transportReason) ? stats.transportReason : null) : tracking.transportReason ?? null;
-      const handshakeMilliseconds = decided ? number(stats.handshakeMilliseconds) : tracking.handshakeMilliseconds ?? null;
-      const probePixels = decided ? probeValues(stats.probePixels) : tracking.probePixels ?? null;
-      tracking = {};
-      // refusedFrames and unmadeFrames: the camera session's frames lost to a
-      // bitmap the worker could not read back or the camera could not make
-      // (REFUSAL_LIMIT in live-tracker.js); blankReadbacks: those lost to a
-      // readback of the camera's own with no picture. Kept by the tracker
-      // across resets.
-      for (const key of ['submitted','completed','dropped','failures','milliseconds','transportMilliseconds','active','queuedFrames','queuedAnchors',
-        'refusedFrames','unmadeFrames','blankReadbacks']) tracking[key] = number(stats?.[key]);
-      tracking.transport = transport; tracking.transportReason = transportReason; tracking.handshakeMilliseconds = handshakeMilliseconds;
-      tracking.probePixels = probePixels;
+      tracking = trackerOf(stats);
       tracking.frame = number(frame.frame); tracking.ageMilliseconds = number(frame.age); tracking.verified = !!frame.matched;
       tracking.tier = frame.stale ? 'delayed' : 'live';
       if (MISMATCHES.has(frame.rejection?.reason)) {
@@ -143,6 +151,14 @@ export function createScanDiagnostics({ now = () => performance.now(), build = '
         const region = frame.rejection.region;
         if (Number.isInteger(region) && region >= 0 && region < 4096) tracking.region = region;
       }
+    },
+    // Between verifications (a frame lost to its pixels, bitmaps given up),
+    // which tracking() alone would report only at the next one: the tracker's
+    // counts and transport now. The fields of the latest verification's frame
+    // stay, and no metric is added.
+    trackingStats(stats) {
+      const frame = Object.fromEntries(FRAME_KEYS.filter(key => Object.hasOwn(tracking, key)).map(key => [key, tracking[key]]));
+      tracking = { ...trackerOf(stats), ...frame };
     },
     scheduling(stats) {
       scheduling = { mode: stats.mode === 'video-frame' ? 'video-frame' : 'fallback', fresh: !!stats.fresh, callbackStalled: !!stats.callbackStalled };

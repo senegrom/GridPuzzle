@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createLiveCamera } from "../live-camera.js";
 import { createLiveTracker, PROBE, HANDSHAKE_WAIT, VERIFY_DEADLINE, REFUSAL_LIMIT } from "../live-tracker.js";
-import { createPixelReader } from "../live-tracking-pixels.js";
+import { createPixelReader, REFUSALS } from "../live-tracking-pixels.js";
 import { createTrackingCore } from "../live-tracking-core.js";
 import { createScanDiagnostics } from "../scan-diagnostics.js";
 import { makePuzzle } from "../model.js";
@@ -151,16 +151,19 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
           setTimer(() => {
             if (worker.dead || worker.stuck) return;
             if (crashOnBitmap && message.bitmap) { worker.onerror?.({ message: "worker crashed on a bitmap" }); return; }
-            let data, pixels = message.image;
+            let data, pixels = message.image, refusal;
             try {
               if (failing) throw Error("injected worker failure");
               // The bitmap as it arrives in the worker: the size it was made
               // at (the camera's copy is detached by the transfer).
               const { bitmap: sent } = message, received = sent && { width: sent.made[0], height: sent.made[1], grid: sent.grid, empty: !!sent.empty, close() {} };
-              if ("bitmap" in message) try { pixels = reader({ bitmap: received, width: message.width, height: message.height }); } catch { pixels = null; }
+              if ("bitmap" in message) try { pixels = reader({ bitmap: received, width: message.width, height: message.height }); }
+              catch (error) { pixels = null; refusal = REFUSALS.includes(error?.refusal) ? error.refusal : "failed"; }
+              // An injected refusal gives no reason (the tracker counts it as "failed").
               const refused = message.bitmap && (bitmapError || refusals > 0);
               if (refused && !bitmapError) refusals--;
-              if (refused || "bitmap" in message && !pixels) data = { id: message.id, error: "bitmap-unsupported" };
+              if (refused) data = { id: message.id, error: "bitmap-unsupported" };
+              else if ("bitmap" in message && !pixels) data = { id: message.id, error: "bitmap-unsupported", refusal };
               else {
                 runs.push({ op: message.op, bitmap: !!message.bitmap, empty: !!message.bitmap?.empty || pixels?.data?.[3] === 0 });
                 const result = core.run({ ...message, image: pixels });
@@ -442,12 +445,13 @@ test("a frozen view, Clear and a closed camera leave no bitmap open, and every q
 // gave bitmaps up for the session and retired the reading. The next frame is
 // sampled at once, so the view stays on the live tier: a settled reading's
 // next frame 250-300 ms later would age the adopted frame past 500 ms, and
-// mark the view as catching up for two seconds.
-for (const [name, provoke, cause] of [
-  ["the worker refuses one frame's bitmap", (h) => h.refuseNext(1), "refused"],
-  ["one frame's bitmap draws nothing in the worker", (h) => h.nextBitmap("empty"), "refused"],
-  ["one frame's bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.nextBitmap("blank"), "unmade"],
-  ["one frame's bitmap cannot be made", (h) => h.nextBitmap("fail"), "unmade"],
+// mark the view as catching up for two seconds. The export counts a refused
+// frame by the worker's reason too (a refusal without one as "failed").
+for (const [name, provoke, cause, reason] of [
+  ["the worker refuses one frame's bitmap", (h) => h.refuseNext(1), "refused", "refusedFailed"],
+  ["one frame's bitmap draws nothing in the worker", (h) => h.nextBitmap("empty"), "refused", "refusedBlank"],
+  ["one frame's bitmap is not its snapshot's size (WebKit's blank 1 x 1)", (h) => h.nextBitmap("blank"), "unmade", null],
+  ["one frame's bitmap cannot be made", (h) => h.nextBitmap("fail"), "unmade", null],
 ]) test(`when ${name} during a tracked reading, that frame alone is lost: the reading, its outline and bitmaps stay`, async (t) => {
   const h = simulation(t);
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
@@ -480,6 +484,8 @@ for (const [name, provoke, cause] of [
   const report = h.diagnostics.snapshot().tracking;
   assert.equal(report.transport, "bitmap"); assert.equal(report.transportReason, "probe", "the export still says why bitmaps are used");
   assert.equal(report[counted], 1, "and counts the lost frame"); assert.equal(report[other], 0);
+  const byReason = ["refusedIncomplete", "refusedBlank", "refusedFailed"].map((key) => [key, report[key]]);
+  assert.deepEqual(byReason, byReason.map(([key]) => [key, key === reason ? 1 : 0]), "a refused frame by the worker's reason");
 });
 
 // A browser that loses two of every three bitmap frames (none has been seen)
@@ -676,6 +682,8 @@ test("a bitmap that cannot be made for a frame the freeze retired is lost alone:
   assert.ok(await h.until(() => h.camera.view === "frozen", 1000), "the solved view freezes meanwhile");
   const help = h.help, writes = h.writes.length, reasons = h.reasons().length, held = h.held;
   assert.ok(held >= 1 && held < REFUSAL_LIMIT, `${held} bitmaps held`);
+  const frozenReport = h.diagnostics.snapshot();
+  assert.equal(frozenReport.tracking.unmadeFrames, 0);
   await h.failHeldBitmaps(); await h.advance(1000);
   assert.equal(h.camera.view, "frozen");
   assert.equal(h.help, help, "the frozen help line stays");
@@ -683,6 +691,14 @@ test("a bitmap that cannot be made for a frame the freeze retired is lost alone:
   assert.deepEqual(h.reasons().slice(reasons), [], "no event while frozen");
   assert.equal(h.camera.stats.recovery.failures, 0);
   assert.equal(h.camera.stats.tracking.unmadeFrames, held, "each lost frame counted");
+  // The export counts them at once, with no verification since: the report of
+  // the frozen scan has them. Its latest verification's frame and the
+  // metrics stay as they were.
+  const report0 = h.diagnostics.snapshot();
+  assert.equal(report0.tracking.unmadeFrames, held, "the frozen scan's export counts the lost frames");
+  for (const key of ["frame", "ageMilliseconds", "verified", "tier", "transport", "transportReason"])
+    assert.deepEqual(report0.tracking[key], frozenReport.tracking[key], key);
+  assert.deepEqual(report0.performance.trackingFrameAge, frozenReport.performance.trackingFrameAge, "no metric added");
   assert.deepEqual(h.open(), []);
   h.holdBitmaps(false); h.camera.resume();
   assert.ok(await h.until(() => h.camera.view === "frozen" || h.view.dataset.recognised === "4", 10000), "read again after Clear");

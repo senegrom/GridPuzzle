@@ -563,6 +563,29 @@ test('a frame whose bitmap the worker refuses is lost alone: its job fails as re
   }
 });
 
+// The worker says why it refused a bitmap (REFUSALS in live-tracking-pixels.js):
+// it did not arrive whole, it read back with a transparent pixel, or reading it
+// back failed. The tracker counts the refused frames by that reason beside the
+// total; a reply without a known reason counts as "failed". The reasons only
+// count: each frame is lost the same way.
+test('a refused frame is counted by the worker\'s reason as well as in the total', async () => {
+  const h = transport(); await h.handshake();
+  const refuse = async (extra) => {
+    const p = h.tracker.verify(h.frame()), lost = assert.rejects(p, { name: 'AbortError' });
+    h.reply(h.last(), { result: undefined, error: 'bitmap-unsupported', ...extra }); await lost;
+  };
+  const complete = async () => { const p = h.tracker.verify(h.frame()); h.reply(); await p; };
+  for (const extra of [{ refusal: 'incomplete' }, { refusal: 'blank' }, { refusal: 'blank' }, { refusal: 'failed' }, {}, { refusal: 'constructor' }, { refusal: 'PRIVATE' }]) {
+    await refuse(extra); await complete();
+  }
+  const { refusedFrames, refusedIncomplete, refusedBlank, refusedFailed, unmadeFrames } = h.tracker.stats;
+  assert.deepEqual({ refusedFrames, refusedIncomplete, refusedBlank, refusedFailed, unmadeFrames },
+    { refusedFrames: 7, refusedIncomplete: 1, refusedBlank: 2, refusedFailed: 4, unmadeFrames: 0 });
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers.length, 1);
+  assert.equal(Object.keys(h.tracker.stats).some(key => /PRIVATE|constructor/.test(key)), false);
+  h.tracker.reset();
+});
+
 // As after a reply, the next job goes out after the continuation of the lost
 // frame's caller, not before it: a caller that resets the tracker there closes
 // the queued frame's bitmap rather than posting it to the worker the reset
@@ -748,13 +771,14 @@ test('the actual tracking worker announces its start, and without OffscreenCanva
   assert.deepEqual(await next(), { started: true });
   thread.postMessage({ op: 'probe', bitmap: { width: 2, height: 2 } });
   assert.deepEqual(await next(), { probe: { pixels: null } });
+  // Refused with why: without an OffscreenCanvas, drawing it failed.
   thread.postMessage({ op: 'verify', id: 4, bitmap: { width: 64, height: 64 }, width: 64, height: 64, anchors: [] });
-  assert.deepEqual(await next(), { id: 4, error: 'bitmap-unsupported' });
+  assert.deepEqual(await next(), { id: 4, error: 'bitmap-unsupported', refusal: 'failed' });
   // A bitmap that arrived as null (WebKit from iOS 18, when it could not move
   // the bitmap to the worker) is a bitmap that cannot be read back, not a
   // frame without pixels for the tracking core.
   thread.postMessage({ op: 'verify', id: 6, bitmap: null, width: 64, height: 64, anchors: [] });
-  assert.deepEqual(await next(), { id: 6, error: 'bitmap-unsupported' });
+  assert.deepEqual(await next(), { id: 6, error: 'bitmap-unsupported', refusal: 'incomplete' });
   const pixels = image();
   thread.postMessage({ op: 'verify', id: 5, image: pixels, anchors: [] }, [pixels.data.buffer]);
   const reply = await next();
@@ -910,7 +934,7 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   // A bitmap of the right size that draws nothing leaves the canvas
   // transparent: it is answered as unreadable, not tracked as a blank frame.
   thread.postMessage({ op: 'verify', id: 9, bitmap: { pixels: [], width: 64, height: 64 }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
-  assert.deepEqual(await next(), { id: 9, error: 'bitmap-unsupported' });
+  assert.deepEqual(await next(), { id: 9, error: 'bitmap-unsupported', refusal: 'blank' });
 });
 
 // A worker that dies (its error event) while its first bitmap job is in it

@@ -83,11 +83,17 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // does not end the run). A browser that can read no frame back that way loses
 // REFUSAL_LIMIT - 1 frames before its tracking moves to the camera's own
 // readback. stats.refusedFrames and stats.unmadeFrames count the frames lost
-// for each cause. On the camera's own readback, a readback with no picture at
+// for each cause, and refusedIncomplete, refusedBlank and refusedFailed the
+// refused ones by the worker's reason (REFUSALS in live-tracking-pixels.js).
+// On the camera's own readback, a readback with no picture at
 // all (transparent wherever the worker checks a bitmap's) is lost the same way
 // (readbackBlank, counted in stats.blankReadbacks), and gives nothing up,
 // since there is nothing to fall back to.
 export const REFUSAL_LIMIT = 3;
+// The stats key of each reason the worker gives for refusing a bitmap
+// (REFUSALS in live-tracking-pixels.js); a reply without a known one counts
+// as "failed".
+const REFUSED = Object.freeze({ incomplete: 'refusedIncomplete', blank: 'refusedBlank', failed: 'refusedFailed' });
 export const PROBE = Object.freeze([200, 40, 90, 255, 30, 160, 220, 255, 250, 250, 250, 255, 10, 10, 10, 255]);
 const matches = pixels => pixels?.length === PROBE.length && PROBE.every((value, i) => Math.abs(pixels[i] - value) <= 2);
 // The probe as a bitmap of a page canvas, as the camera's snapshots are; null
@@ -123,7 +129,7 @@ export function createLiveTracker({
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
   let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0;
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0,
-    refusedFrames: 0, unmadeFrames: 0, blankReadbacks: 0 };
+    refusedFrames: 0, refusedIncomplete: 0, refusedBlank: 0, refusedFailed: 0, unmadeFrames: 0, blankReadbacks: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
   // one does nothing.
   const discard = job => { try { job?.data.bitmap?.close?.(); } catch { /* closed already */ } };
@@ -140,16 +146,17 @@ export function createLiveTracker({
   function fail(message) { stats.failures++; reset(Error(message)); }
   // Not a tracking failure: the next worker uses the ImageData transport.
   function giveUp(cause) { givenUp = cause; reset(unsupported()); }
-  // A bitmap frame lost for `cause`, "refused" or "unmade" (REFUSAL_LIMIT):
-  // counted, and the REFUSAL_LIMIT-th in a row gives bitmaps up. Whether that
-  // reset the worker. A frame made for a worker before bitmaps were given up
+  // A bitmap frame lost for `cause`, "refused" (with the worker's reason) or
+  // "unmade" (REFUSAL_LIMIT): counted, and the REFUSAL_LIMIT-th in a row gives
+  // bitmaps up. Whether that reset the worker. A frame made for a worker before bitmaps were given up
   // is only counted: its loss must not reset the worker that replaced it.
   // Nor may a frame made for a worker before a reset reset the worker after
   // it, once that worker's handshake decided for the camera's own readback:
   // it has no bitmap to lose. It is kept, and bitmaps are given up for the
   // workers after it.
-  function lose(cause) {
+  function lose(cause, refusal) {
     stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
+    if (cause === 'refused') stats[Object.hasOwn(REFUSED, refusal) ? REFUSED[refusal] : REFUSED.failed]++;
     if (givenUp || ++lost < REFUSAL_LIMIT) return false;
     if (transport === 'imagedata') { givenUp = cause; return false; }
     giveUp(cause); return true;
@@ -230,7 +237,7 @@ export function createLiveTracker({
       // The worker could not read this frame's bitmap back (and closed it):
       // the frame is lost, and the next job goes out as after a reply.
       if (data.error === 'bitmap-unsupported' && job.data.bitmap) {
-        if (lose('refused')) return;
+        if (lose('refused', data.refusal)) return;
         clearTimer(deadline); deadline = null; active = null;
         job.reject(lostFrame()); queueMicrotask(dispatch); return;
       }

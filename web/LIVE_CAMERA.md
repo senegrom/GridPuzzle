@@ -815,8 +815,16 @@ deadline, got an unreadable reply or the worker died in it).
 session's frames lost to a bitmap the worker could not read back, or the
 camera could not make or got of another size; each cost that frame alone, so
 an export with `bitmap` and `probe` and a count above 0 had frames lost
-without giving bitmaps up. `tracking.blankReadbacks` counts the frames lost
-on the camera's own readback because it had no picture.
+without giving bitmaps up. `tracking.refusedIncomplete`,
+`tracking.refusedBlank` and `tracking.refusedFailed` split the refused ones
+by the worker's reason: the bitmap did not arrive whole (null, 0 × 0 or
+smaller than the tracking pixels), it read back with a transparent pixel, or
+drawing or reading it back failed. `tracking.blankReadbacks` counts the
+frames lost on the camera's own readback because it had no picture. These
+counts reach the export when a frame is lost and when bitmaps are given up,
+not only with the next verification, so a scan that freezes, aims or closes
+right after a loss still reports it; the fields of the latest verification's
+frame stay as they were.
 `tracking.handshakeMilliseconds` is the time from the worker's start to its
 handshake's decision (none without a handshake). `performance.trackingWorker`
 is the tracking core's time and `performance.trackingTransport` the worker's
@@ -1040,11 +1048,13 @@ Unit tests (`node --test web/tests/*.test.js`):
   next worker), the core's time apart from the transport's, and the real
   worker module drawing a bitmap through a stand-in `OffscreenCanvas`, timed on
   a clock only its draw moves, and answering a bitmap that arrived null or
-  drew nothing as one it cannot read back. `live-tracking-pixels.test.js`: the
+  drew nothing as one it cannot read back, with why (a refused frame counted
+  by that reason as well). `live-tracking-pixels.test.js`: the
   worker's readback (one canvas, sized on change, cleared, the whole bitmap
-  drawn, closed on every path, and refused for a bitmap that did not arrive
-  whole or a readback with a transparent pixel, also one only in its last
-  column, its last row or a corner), and the looser check of the camera's own
+  drawn, closed on every path, and refused, with the reason the worker
+  reports, for a bitmap that did not arrive whole or a readback with a
+  transparent pixel, also one only in its last column, its last row or a
+  corner), and the looser check of the camera's own
   readback (lost only when transparent at every point: a partly transparent
   one, at an edge, a corner or a half, is kept).
 - `live-transport.test.js`: the camera with the bitmap transport on the
@@ -1064,9 +1074,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   anchor, one frame lost to its bitmap during a tracked reading (refused,
   drawing nothing, of another size or not made: no restart, no new worker,
   the reading not read again and its outline never gone, the view never off
-  the live tier, the export still saying `probe` and counting the frame;
-  `diagnostic-report.test.js`: those counts, numbers only, kept across a
-  reset), two of every three frames lost (bitmaps, the reading, its outline
+  the live tier, the export still saying `probe` and counting the frame, a
+  refused one by the worker's reason; `diagnostic-report.test.js`: those
+  counts, numbers only, kept across a reset, and taken between verifications
+  without touching the latest one's frame or the metrics), two of every three
+  frames lost (bitmaps, the reading, its outline
   and the live tier kept), a readback of the camera's own with no picture
   lost alone during a tracked reading (no blink of the outline or the counts,
   the live tier kept, counted) and while aiming (no anchor built on one), and
@@ -1083,7 +1095,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   grid read on the camera's own readback (after a Restart a new worker probes
   again, and a second stuck one gives bitmaps up); a bitmap that cannot be
   made for a frame the freeze retired is lost alone, leaving the frozen view,
-  and the scan after Clear probes for bitmaps again.
+  counted at once in the frozen scan's export, and the scan after Clear
+  probes for bitmaps again.
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker

@@ -33,6 +33,12 @@ export function pictureless({ width, height, data }) {
   }
   return true;
 }
+// Why a bitmap was refused, which the worker reports with its refusal for the
+// diagnostic report: "incomplete" (it did not arrive whole) or "blank" (it
+// read back with a transparent pixel); an error without a reason (no 2D
+// context, or drawing or reading it back threw) is "failed".
+export const REFUSALS = Object.freeze(["incomplete", "blank", "failed"]);
+const refusal = (reason, message) => Object.assign(Error(message), { refusal: reason });
 export function createPixelReader(makeCanvas = (width, height) => new OffscreenCanvas(width, height)) {
   let canvas = null;
   return function pixelsOf({ bitmap, width, height }) {
@@ -40,7 +46,7 @@ export function createPixelReader(makeCanvas = (width, height) => new OffscreenC
       // A bitmap that did not arrive whole: WebKit delivers one it could not
       // move to this thread as null (from iOS 18) or as 0 × 0 (iOS 16.4 to
       // 17), and a snapshot's bitmap is never smaller than its tracking pixels.
-      if (!(bitmap?.width >= width && bitmap?.height >= height)) throw Error("The bitmap did not arrive whole.");
+      if (!(bitmap?.width >= width && bitmap?.height >= height)) throw refusal("incomplete", "The bitmap did not arrive whole.");
       canvas ??= makeCanvas(width, height);
       // Assigning a size resets the canvas, so only a new size is assigned.
       if (canvas.width !== width) canvas.width = width;
@@ -51,7 +57,7 @@ export function createPixelReader(makeCanvas = (width, height) => new OffscreenC
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(bitmap, 0, 0, width, height);
       const image = ctx.getImageData(0, 0, width, height);
-      if (!opaque(image)) throw Error("The bitmap drew nothing.");
+      if (!opaque(image)) throw refusal("blank", "The bitmap drew nothing.");
       return image;
     } finally {
       // The bitmap was transferred here: it is closed on every path.

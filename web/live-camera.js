@@ -518,6 +518,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // The next newly presented frame verifies this candidate. Do not sample
       // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
+      if (isLostFrame(error)) reportCounts();
       if (job.anchoring && current()) { job.failed = trackingFailed(error, owner); return; }
       if (current()) { guide = guideFrame = null; session.invalidate(); guidance(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
@@ -532,6 +533,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (detection === job) detection = null;
     }
   }
+  // The tracker's counts of lost frames reach the export when a frame is
+  // lost, and when bitmaps are given up, not only with the next verification:
+  // a scan that freezes, aims or closes after them still reports them. Only
+  // while the camera is on: a closed camera's diagnostics may serve a photo.
+  function reportCounts() { if (active) diagnostics?.trackingStats?.(tracker.stats); }
   // Whether the failure was handled: the caller's frame, the one the worker
   // failed on, is then kept as the picture scanned unless a newer one is
   // (see `scanned`). An AbortError is none: a retired request, or a frame
@@ -559,6 +565,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // tracking failure: no back-off, no Restart. A detection in flight is
   // abandoned, not cancelled, so the geometry worker stays warm.
   function transportRestart() {
+    reportCounts();
     epoch++; dropProofs(); discardCandidate(); abandonDetection();
     guide = guideFrame = null; session.invalidate("tracking-transport");
     lastDetect = trackAfter = ownVerifiedAt = -Infinity;
@@ -623,12 +630,15 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
         rejection: Object.values(result.rejections ?? {})[0] });
     } catch (error) {
-      // A frame lost to its bitmap (live-tracker.js) is dropped like a retired
-      // one, and the next frame is sampled at once rather than an interval
-      // later: at a settled reading's 250 ms, waiting would age the adopted
-      // frame past the live tier, which marks the view as catching up for
-      // LIVE_SETTLE.
-      if (isLostFrame(error) && active && owner === epoch && view === "live") scheduler.expedite();
+      // A frame lost to its pixels (live-tracker.js) is dropped like a
+      // retired one; it is counted in the export at once, and the next frame
+      // is sampled at once rather than an interval later: at a settled
+      // reading's 250 ms, waiting would age the adopted frame past the live
+      // tier, which marks the view as catching up for LIVE_SETTLE.
+      if (isLostFrame(error)) {
+        reportCounts();
+        if (active && owner === epoch && view === "live") scheduler.expedite();
+      }
       // The frame the worker failed on is kept as the picture scanned, unless
       // a newer one is.
       if (trackingFailed(error, owner) && !kept) { keepScanned(image, at); kept = true; }

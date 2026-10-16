@@ -75,7 +75,8 @@ for (const [name, options, expected] of [
   ["when drawing fails", { draw: () => { throw new DOMException("detached", "InvalidStateError"); } }, /detached/],
 ]) test(`the bitmap is closed ${name}`, () => {
   const f = fakes(options), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
-  assert.throws(() => pixelsOf({ bitmap, width: 64, height: 64 }), expected);
+  assert.throws(() => pixelsOf({ bitmap, width: 64, height: 64 }), (error) => expected.test(error.message) && error.refusal === undefined,
+    "an error without a reason, which the worker reports as \"failed\"");
   assert.equal(bitmap.closed, 1);
 });
 
@@ -100,7 +101,7 @@ for (const [name, make] of [
   ["one row short", (f) => f.bitmap(960, 1279)],
 ]) test(`a bitmap that did not arrive whole (${name}) is not read back`, () => {
   const f = fakes(), pixelsOf = createPixelReader(f.makeCanvas), bitmap = make(f);
-  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), /did not arrive whole/);
+  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), { message: /did not arrive whole/, refusal: "incomplete" });
   assert.deepEqual(f.made, []); assert.deepEqual(f.ops, []);
   if (bitmap) assert.equal(bitmap.closed, 1);
   // The reader still serves the next bitmap.
@@ -112,7 +113,7 @@ for (const [name, make] of [
 // that is no camera snapshot, which is opaque, and is not taken for one.
 for (const paint of ["none", "left"]) test(`a readback left ${paint === "none" ? "transparent" : "transparent in part"} by its bitmap is refused`, () => {
   const f = fakes({ paint }), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
-  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), /drew nothing/);
+  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), { message: /drew nothing/, refusal: "blank" });
   assert.equal(bitmap.closed, 1);
   assert.deepEqual(f.ops.map(([op]) => op), ["getContext", "clearRect", "drawImage", "getImageData"], "drawn and read back, then refused");
 });
