@@ -598,19 +598,21 @@ test("a frame lost after the camera closed leaves the diagnostics of the next sc
 // Before, it was verified on nothing and adopted without a proof, so the
 // outline and the reading's counts blinked for one frame. Two in a row (two
 // ticks of a video with no picture) keep the live tier too: each hurries the
-// next sample.
-for (const n of [1, REFUSAL_LIMIT - 1]) test(`on the camera's own readback, ${n === 1 ? "a frame" : `${n} frames in a row`} with no picture during a tracked reading ${n === 1 ? "is" : "are"} lost alone: no blink, the live tier kept`, async (t) => {
+// next sample. So does the next such pair, a verification later.
+for (const n of [1, REFUSAL_LIMIT - 1]) test(`on the camera's own readback, ${n === 1 ? "a frame" : `${n} frames in a row`} with no picture during a tracked reading ${n === 1 ? "is" : "are"} lost alone: no blink, the live tier kept, also the next time`, async (t) => {
   const h = simulation(t, { transport: "imagedata" });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
   await h.advance(1000);
   const workers = h.workers.length, reasons = h.reasons().length, completed = h.camera.stats.tracking.completed;
-  h.noPicture(n);
   const overlays = new Set(), recognised = new Set(), tiers = new Set();
-  for (let i = 0; i < 200; i++) {
-    await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); tiers.add(h.view.dataset.delayed);
+  for (let round = 0; round < 2; round++) {
+    h.noPicture(n);
+    for (let i = 0; i < 200; i++) {
+      await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); tiers.add(h.view.dataset.delayed);
+    }
   }
   const tracking = h.camera.stats.tracking;
-  assert.equal(tracking.blankReadbacks, n, "the frames lost"); assert.equal(tracking.refusedFrames + tracking.unmadeFrames, 0);
+  assert.equal(tracking.blankReadbacks, 2 * n, "the frames lost"); assert.equal(tracking.refusedFrames + tracking.unmadeFrames, 0);
   assert.ok(tracking.completed > completed, "the frames after it are verified");
   assert.equal(tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
   assert.equal(h.workers.length, workers); assert.equal(h.reads, 1, "the reading is not read again");
@@ -619,7 +621,7 @@ for (const n of [1, REFUSAL_LIMIT - 1]) test(`on the camera's own readback, ${n 
   assert.deepEqual(h.runs.filter((r) => r.empty), [], "no pixel of it reaches the tracking core");
   assert.deepEqual(h.reasons().slice(reasons).filter((r) => ["worker-error", "tracking-transport"].includes(r)), []);
   const report = h.diagnostics.snapshot().tracking;
-  assert.equal(report.transport, "imagedata"); assert.equal(report.blankReadbacks, n, "the export counts them");
+  assert.equal(report.transport, "imagedata"); assert.equal(report.blankReadbacks, 2 * n, "the export counts them");
 });
 
 // While aiming, such a readback builds no anchor: the detection's candidate is
