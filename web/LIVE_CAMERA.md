@@ -456,7 +456,8 @@ lost verification the next presented frame is sampled at once rather than an
 interval later: at a settled reading's 250 ms the adopted frame would pass the
 live tier's 500 ms before the next one was adopted, which marks the view as
 catching up for two seconds (in the fake-clock simulation it did after any one
-lost frame, and no longer does).
+lost frame, and no longer does). Every lost bitmap frame hurries the next one;
+on the camera's own readback only the first two in a row do (below).
 
 The camera's own readback, where bitmaps are not used, loses a frame with no
 picture at all the same way: transparent at every one of the worker's 9 × 9
@@ -469,24 +470,47 @@ before the worker read bitmaps back. That check is looser than the worker's
 on purpose: the camera's own readback is where every bitmap failure falls
 back to, and an engine that leaves a scaled snapshot's edge partly
 transparent, or the fingerprinting noise below, must not cost it every frame.
+Only the first two such frames in a row since the last verification hurry
+the next sample, as many as the tracker rides out on bitmaps whenever they
+come: a video that keeps having no picture (on an iPhone, the GPU process
+failing to convert the camera's frames) would otherwise be read back in full
+on the main thread at its frame rate, 25-33 times a second at 30 frames a
+second in the simulation, against 4-6 at the sampling interval. Two in a row
+keep the live tier; with only the first hurried, the view was marked as
+catching up in 8-10 of 10 phases.
 
 One lost frame says little about the browser: on CI, WebKit refused one
 frame's bitmap in live_noise's changed-content scene (2026-10-14) after
 reading the scan's other bitmaps back right, and giving bitmaps up there
 restarted acquisition and retired the reading before the scene saw its
-content change. So bitmaps are given up only at the third frame lost in a
-row, refused or unmade, with no bitmap job completed in between, in the
-camera session: the freeze, Clear and Restart do not end the run, a
-completed bitmap job does. A frame made
-before such a reset can lose its bitmap after it; when that loss is the third
-in a row and the worker after the reset has decided for the camera's own
-readback, that worker has no bitmap to lose and is kept, and bitmaps are given
-up for the workers after it. A browser that can read no frame back that way
-loses two frames, a fraction of a second, before its tracking moves to the
-camera's own readback. One that loses up to two frames of every three keeps
+content change. So bitmaps are given up only when frames keep being lost: at
+a frame lost that is at least the third in a row, refused or unmade, with no
+bitmap job completed in between, and comes half a second or more after the
+first of them (`REFUSAL_SPAN`), in the camera session: the freeze, Clear and
+Restart do not end the run, a completed bitmap job does. The count alone
+followed the sampling: with the frame after each lost one sampled at once,
+and two bitmaps made of one snapshot when a tick both detects and verifies,
+three frames in a row were lost within 70-100 ms at 30 frames a second, and
+in the simulation's sweep (ten phases of a settled reading) bursts of bitmap
+failures of 100-250 ms gave bitmaps up in 2-7 of 10 phases, where none had
+before the sampling was hurried. Half a second is what three verification
+frames of a settled reading, 250 ms apart, spanned before: no burst of up to
+500 ms gives bitmaps up now, one of 650 ms does in 4-6 of 10 phases and one
+of 800 ms in 9-10. A frame made before such a reset can lose its bitmap after
+it; when that loss gives bitmaps up and the worker after the reset has
+decided for the camera's own readback, that worker has no bitmap to lose and
+is kept, and bitmaps are given up for the workers after it. A browser that
+can read no frame back that way loses the anchors of its detections, at
+least 300 ms apart, so it still loses two frames, a fraction of a second,
+before its tracking moves to the camera's own readback. A failure that starts
+during a tracked reading gives bitmaps up 0.5-0.75 s later, after 11-18 lost
+frames at 30 frames a second in the simulation (each hurrying the next) or 7
+on the fallback clock. One that loses up to two frames of every three keeps
 bitmaps, since each completed job ends the run; with each lost frame replaced
 at once by the next, a third of its frames still kept the simulation's view
-on the live tier with its reading and outline (no such browser has been
+on the live tier with its reading and outline, also at 30 frames a second,
+where a detection's anchor takes one of the bitmaps now and then and more
+than two verification frames in a row are lost (no such browser has been
 seen; the counts below would show one). The diagnostic report counts the lost
 frames of each cause (`tracking.refusedFrames`, `tracking.unmadeFrames`); its
 transport and reason stay the worker's until bitmaps are given up.
@@ -503,14 +527,14 @@ bitmaps back. An unmade frame is mostly a snapshot canvas without a buffer
 17.1, fingerprinting protection (on in Private Browsing) adds noise to every
 2D draw, the probe's and each frame's, and can lower an opaque pixel's alpha:
 the handshake then mostly decides `mismatch`, or every frame is refused and
-bitmaps are given up at the third. The rule's one limit: three losses in a row
-from a passing condition (memory pressure that lasts, a GPU process restarted
-while the capture survives, iOS 16's canvas memory cap before a collection)
-still give bitmaps up for the rest of the camera session; closing and
-reopening the camera probes for them again. CI's WebKit, on Linux, moves
-bitmaps between threads and plays its synthetic camera through other code
-than an iPhone's, so its lost frames say little about phones; an iPhone's
-export is the evidence for them.
+bitmaps are given up at the third. The rule's one limit: losses in a row for
+half a second from a passing condition (memory pressure that lasts, a GPU
+process restarted while the capture survives, iOS 16's canvas memory cap
+before a collection) still give bitmaps up for the rest of the camera
+session; closing and reopening the camera probes for them again. CI's
+WebKit, on Linux, moves bitmaps between threads and plays its synthetic
+camera through other code than an iPhone's, so its lost frames say little
+about phones; an iPhone's export is the evidence for them.
 
 Bitmaps given up are no tracking failure: they are given up for the rest of
 the camera session, the worker is reset with its anchors, and the camera
@@ -843,7 +867,8 @@ after a second such worker in the camera session, bitmaps are given up and
 every later worker says `timeout` too); once bitmaps were given up in the camera session
 for another cause, that cause: `refused` (the worker could not read a bitmap
 back) or `unmade` (the camera could not make a bitmap of its snapshot, or got
-one of another size), each for the third frame lost in a row,
+one of another size), each for the frame that made the losses persist (the
+third or a later one in a row, half a second or more after the first),
 `untransferable`, or `unanswered` (a worker's first bitmap job reached its
 deadline, got an unreadable reply or the worker died in it).
 `tracking.refusedFrames` and `tracking.unmadeFrames` count the camera
@@ -1072,9 +1097,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   a frame whose bitmap the worker refuses or the camera cannot make lost alone
   (its job failing as a retired one, the worker, its transport and the queued
   job going on, the frame counted, a refused one by the worker's reason as
-  well), bitmaps given up at the third such frame in a row (every completed
-  bitmap job ends the run, not only a worker's first, a reset does not; the
-  cause that of the last), a refused frame proving nothing to a later bitmap
+  well), bitmaps given up at the third such frame in a row once half a second
+  has passed since the first of them (frames within it lost alone however
+  many, two lost alone however far apart; every completed bitmap job ends the
+  run and its span, not only a worker's first, a reset does not; the cause
+  that of the last), a refused frame proving nothing to a later bitmap
   job's deadline, a bitmap failure after the give-up only counted (also
   before the next worker starts), the third in a row of a frame made before a
   reset keeping the worker after it that decided for the camera's own
@@ -1117,19 +1144,25 @@ Unit tests (`node --test web/tests/*.test.js`):
   refused one by the worker's reason; `diagnostic-report.test.js`: those
   counts, numbers only, kept across a reset, and taken between verifications
   without touching the latest one's frame or the metrics), two of every three
-  frames lost (bitmaps, the reading, its outline and the live tier kept), a
-  queued frame replaced by a newer one not hurrying the next sample, a frame
-  lost after the camera closed adding nothing to the next scan's
-  diagnostics, a readback of the camera's own with no picture lost alone
-  during a tracked reading (no blink of the outline or the counts, the live
-  tier kept, counted) and while aiming (no anchor built on one, the export
-  counting it before any verification), and the restart once frames are lost
-  in every frame (at the third, once, at once, without a failure, back-off or
-  Restart, the export counting the third at the give-up, the detection in
-  flight abandoned rather than cancelled, a waiting candidate discarded and
-  the outline gone before the next frame, no anchor of the old worker asked
-  for, the frame the bitmaps were given up on kept as the newest picture
-  scanned, the grid read again, and the cause in the export). Bitmaps that are
+  frames lost (bitmaps, the reading, its outline and the live tier kept, also
+  at 30 frames a second), a burst of bitmap failures shorter than half a
+  second at 30 frames a second (bitmaps and the reading kept, though it lost
+  three frames in a row) and a failure that lasts (bitmaps given up once half
+  a second has passed since the first loss), a queued frame replaced by a
+  newer one not hurrying the next sample, a frame lost after the camera
+  closed adding nothing to the next scan's diagnostics, a readback of the
+  camera's own with no picture lost alone during a tracked reading, one or
+  two in a row (no blink of the outline or the counts, the live tier kept,
+  counted), and while aiming (no anchor built on one, the export counting it
+  before any verification), a video that keeps having no picture read back
+  at the sampling interval after two hurried samples, not at its 30 frames a
+  second, and the restart once frames are lost in every frame (at the third,
+  once, at once, without a failure, back-off or Restart, the export counting
+  the third at the give-up, the detection in flight abandoned rather than
+  cancelled, a waiting candidate discarded and the outline gone before the
+  next frame, no anchor of the old worker asked for, the frame the bitmaps
+  were given up on kept as the newest picture scanned, the grid read again,
+  and the cause in the export). Bitmaps that are
   not their snapshot's size, or draw nothing in the worker's reader, are lost
   until bitmaps are given up at the third in a row: no anchor or proof is
   built on one, and a grid that moved after its reading freezes where it is.
