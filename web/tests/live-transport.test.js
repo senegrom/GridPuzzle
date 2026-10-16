@@ -55,8 +55,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     holdBitmaps = false, blankBitmaps = false, emptyBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
   // One-shot faults: the next `refusals` bitmap jobs are answered
   // "bitmap-unsupported"; each entry of `upcoming` is what the next bitmap the
-  // camera makes turns out as ("fail", "blank" 1 x 1 or "empty"); `reads`
-  // counts full reads.
+  // camera makes turns out as ("fail", "blank" 1 x 1, "empty" or "ok");
+  // `reads` counts full reads.
   let refusals = 0, reads = 0;
   const upcoming = [];
   const timers = new Map(), nodes = new Map(), ops = [], created = [], posts = [], bitmaps = [], held = [], results = [], workers = [], rejections = [];
@@ -437,7 +437,10 @@ test("a frozen view, Clear and a closed camera leave no bitmap open, and every q
 // worker read bitmaps back, such a frame's own readback was adopted with no
 // proof, and the outline blinked); bitmaps stay, and the export counts the
 // frame while still saying why bitmaps are used. Before, any one of these
-// gave bitmaps up for the session and retired the reading.
+// gave bitmaps up for the session and retired the reading. The next frame is
+// sampled at once, so the view stays on the live tier: a settled reading's
+// next frame 250-300 ms later would age the adopted frame past 500 ms, and
+// mark the view as catching up for two seconds.
 for (const [name, provoke, cause] of [
   ["the worker refuses one frame's bitmap", (h) => h.refuseNext(1), "refused"],
   ["one frame's bitmap draws nothing in the worker", (h) => h.nextBitmap("empty"), "refused"],
@@ -450,9 +453,13 @@ for (const [name, provoke, cause] of [
   assert.equal(h.reads, 1); assert.equal(h.camera.stats.tracking.transport, "bitmap");
   const workers = h.workers.length, jobs = h.jobs().length, reasons = h.reasons().length;
   const counted = cause === "refused" ? "refusedFrames" : "unmadeFrames", other = cause === "refused" ? "unmadeFrames" : "refusedFrames";
+  assert.equal(h.camera.stats.scheduling.intervalMilliseconds, 250, "a settled reading's interval");
   provoke(h);
-  const overlays = new Set(), recognised = new Set();
-  for (let i = 0; i < 200; i++) { await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); }
+  const overlays = new Set(), recognised = new Set(), tiers = new Set(), labels = new Set();
+  for (let i = 0; i < 200; i++) {
+    await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised);
+    tiers.add(h.view.dataset.delayed); labels.add(h.view.attributes["aria-label"]);
+  }
   const tracking = h.camera.stats.tracking;
   assert.equal(tracking[counted], 1, "one frame lost"); assert.equal(tracking[other], 0);
   assert.deepEqual(h.reasons().slice(reasons).filter((r) => r === "tracking-transport"), [], "no restart");
@@ -461,6 +468,8 @@ for (const [name, provoke, cause] of [
   assert.equal(h.reads, 1, "the reading is not read again");
   assert.deepEqual([...overlays], ["outline"], "its outline never leaves the view");
   assert.deepEqual([...recognised], ["4"], "nor does its reading");
+  assert.deepEqual([...tiers], ["0"], "the view stays on the live tier");
+  assert.ok([...labels].every((label) => !/catching up/.test(label)), JSON.stringify([...labels]));
   assert.equal(h.camera.stats.recovery.failures, 0); assert.equal(h.restartHidden(), true);
   assert.ok(h.jobs().slice(jobs).filter((p) => p.bitmap).length >= 5, "later frames go on as bitmaps");
   assert.deepEqual(h.runs.filter((r) => r.empty), [], "no pixel of the lost frame reaches the tracking core");
@@ -469,6 +478,34 @@ for (const [name, provoke, cause] of [
   const report = h.diagnostics.snapshot().tracking;
   assert.equal(report.transport, "bitmap"); assert.equal(report.transportReason, "probe", "the export still says why bitmaps are used");
   assert.equal(report[counted], 1, "and counts the lost frame"); assert.equal(report[other], 0);
+});
+
+// A browser that loses two of every three bitmap frames (none has been seen)
+// keeps bitmaps: every completed job ends the run. With the frame after each
+// lost one sampled at once, a third of its frames are still verified often
+// enough for the live tier, and the reading and its outline stay; only the
+// export's counts show the losses.
+test("a browser that loses two of every three bitmap frames keeps bitmaps, the reading and the live tier", async (t) => {
+  const h = simulation(t);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  await h.advance(1000);
+  const workers = h.workers.length, reasons = h.reasons().length, completed = h.camera.stats.tracking.completed;
+  for (let i = 0; i < 40; i++) h.nextBitmap("empty", "blank", "ok");
+  const overlays = new Set(), recognised = new Set(), tiers = new Set();
+  for (let i = 0; i < 600; i++) {
+    await h.advance(10); overlays.add(h.view.dataset.overlay); recognised.add(h.view.dataset.recognised); tiers.add(h.view.dataset.delayed);
+  }
+  const tracking = h.camera.stats.tracking;
+  assert.ok(h.upcoming > 0, "still losing frames at the end");
+  assert.ok(tracking.refusedFrames >= 10 && tracking.unmadeFrames >= 10, JSON.stringify(tracking));
+  assert.ok(tracking.completed - completed >= 10, `${tracking.completed - completed} jobs completed in 6 s`);
+  assert.equal(tracking.transport, "bitmap"); assert.equal(tracking.transportReason, "probe");
+  assert.deepEqual(h.reasons().slice(reasons).filter((r) => r === "tracking-transport"), [], "bitmaps kept");
+  assert.equal(h.workers.length, workers); assert.equal(h.reads, 1, "the reading is not read again");
+  assert.deepEqual([...overlays], ["outline"]); assert.deepEqual([...recognised], ["4"]);
+  assert.deepEqual([...tiers], ["0"], "on the live tier");
+  assert.deepEqual(h.runs.filter((r) => r.empty), [], "no lost frame's pixels reach the tracking core");
+  assert.deepEqual(h.open(), []);
 });
 
 // Bitmap frames lost persistently (every frame here) are no tracking failure:

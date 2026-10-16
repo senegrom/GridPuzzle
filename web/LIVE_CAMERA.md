@@ -440,7 +440,12 @@ every later such frame would match at the detection's corners, so no pixel of
 one reaches the tracking core. The lost frame's job fails as a retired one:
 the camera drops the frame and keeps the reading, its proofs, the adopted
 frame and its outline, with no failure, no restart and no new worker; a lost
-anchor is a candidate that is not offered, and detection tries again. (Before
+anchor is a candidate that is not offered, and detection tries again. After a
+lost verification the next presented frame is sampled at once rather than an
+interval later: at a settled reading's 250 ms the adopted frame would pass the
+live tier's 500 ms before the next one was adopted, which marks the view as
+catching up for two seconds (in the fake-clock simulation it did after any one
+lost frame, and no longer does). (Before
 the worker read bitmaps back, the camera's own readback of such a snapshot
 reached the tracking core: no anchor verified on it, the frame was adopted
 without a proof, and the outline blinked for about a frame.) One lost frame
@@ -454,9 +459,13 @@ and Restart do not end the run, a completed bitmap job does. A frame made
 before such a reset can lose its bitmap after it; when that loss is the third
 in a row and the worker after the reset has decided for the camera's own
 readback, that worker has no bitmap to lose and is kept, and bitmaps are given
-up for the workers after it. A browser that
-can read no frame back that way loses two frames, a fraction of a second,
-before its tracking moves to the camera's own readback. The diagnostic report
+up for the workers after it. A browser that can read no frame back that way
+loses two frames, a fraction of a second, before its tracking moves to the
+camera's own readback. One that loses up to two frames of every three keeps
+bitmaps, since each completed job ends the run; with each lost frame replaced
+at once by the next, a third of its frames still kept the simulation's view
+on the live tier with its reading and outline (no such browser has been
+seen; the counts below would show one). The diagnostic report
 counts the lost frames of each cause (`tracking.refusedFrames`,
 `tracking.unmadeFrames`); its transport and reason stay the worker's until
 bitmaps are given up.
@@ -557,7 +566,9 @@ callback.
 
 Frames are processed at most every 100 ms, back off to 250 ms once a reading
 is settled and up to 300 ms when recent worker timing calls for it; the
-latest-frame queue stays bounded. Since the video is the display, a processed
+latest-frame queue stays bounded. The frame after a lost verification is
+processed at once, whatever the interval (see "How the frames reach the
+worker"). Since the video is the display, a processed
 frame is sampled (drawn from the video into a snapshot of at most 1600 pixels)
 only for the pipeline's own work: to verify a pending candidate, the guide or
 a reading, and once per detection. While the camera aims at no grid that is
@@ -1040,9 +1051,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   queued jobs' bitmaps not handed over), verifications that reject every
   anchor, one frame lost to its bitmap during a tracked reading (refused,
   drawing nothing, of another size or not made: no restart, no new worker,
-  the reading not read again and its outline never gone, the export still
-  saying `probe` and counting the frame; `diagnostic-report.test.js`: those
-  counts, numbers only, kept across a reset), and the restart once frames are
+  the reading not read again and its outline never gone, the view never off
+  the live tier, the export still saying `probe` and counting the frame;
+  `diagnostic-report.test.js`: those counts, numbers only, kept across a
+  reset), two of every three frames lost (bitmaps, the reading, its outline
+  and the live tier kept), and the restart once frames are
   lost in every frame (at the
   third, once, at once, without a failure, back-off or Restart, the detection
   in flight abandoned rather than cancelled, a waiting candidate discarded and

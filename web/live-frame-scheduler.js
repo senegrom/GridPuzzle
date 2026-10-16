@@ -100,6 +100,10 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
       if (callback !== null) { try { video.cancelVideoFrameCallback(callback); } catch { /* already retired */ } }
       callback = null; lastSeen = -Infinity;
     },
+    // The next new frame is processed whatever the interval, once: the camera
+    // lost the frame it processed last (live-camera.js), whose evidence would
+    // otherwise be replaced only an interval later.
+    expedite() { lastProcessed = -Infinity; },
     get fresh() { return running && now() - lastSeen <= 500; },
     get stats() { return { mode: native ? 'video-frame' : 'fallback', observed, processed, skipped, duplicates, discarded,
       intervalMilliseconds: boundedInterval(), fallbacks, callbackStalled: native && now() - lastNative >= 1000, fresh: running && now() - lastSeen <= 500 }; },

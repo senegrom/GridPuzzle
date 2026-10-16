@@ -3,8 +3,10 @@ const cancelled = () => new DOMException('Tracking request retired', 'AbortError
 // the tracker gives them up and resets, and the camera starts acquisition again.
 const unsupported = () => new DOMException('Bitmaps cannot reach background tracking here.', 'NotSupportedError');
 // One frame lost to its bitmap (see REFUSAL_LIMIT): no failure, and the camera
-// drops the frame as it drops a retired one.
-const lostFrame = () => new DOMException('The bitmap of this frame could not be tracked.', 'AbortError');
+// drops the frame as it drops a retired one. isLostFrame tells it from a
+// retired request: the camera then samples its next frame at once.
+const lostFrame = () => Object.assign(new DOMException('The bitmap of this frame could not be tracked.', 'AbortError'), { lostFrame: true });
+export const isLostFrame = error => error?.name === 'AbortError' && error.lostFrame === true;
 // Each operation fails closed after its own deadline. A verification later than
 // two seconds is useless to the delayed tier. An anchor is built from the whole
 // grid and re-matches every retained anchor: on noisy real photographs it

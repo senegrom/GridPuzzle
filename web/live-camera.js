@@ -4,7 +4,7 @@ import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
-import { createLiveTracker } from "./live-tracker.js";
+import { createLiveTracker, isLostFrame } from "./live-tracker.js";
 import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
@@ -614,6 +614,12 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
         rejection: Object.values(result.rejections ?? {})[0] });
     } catch (error) {
+      // A frame lost to its bitmap (live-tracker.js) is dropped like a retired
+      // one, and the next frame is sampled at once rather than an interval
+      // later: at a settled reading's 250 ms, waiting would age the adopted
+      // frame past the live tier, which marks the view as catching up for
+      // LIVE_SETTLE.
+      if (isLostFrame(error) && active && owner === epoch && view === "live") scheduler.expedite();
       // The frame the worker failed on is kept as the picture scanned, unless
       // a newer one is.
       if (trackingFailed(error, owner) && !kept) { keepScanned(image, at); kept = true; }

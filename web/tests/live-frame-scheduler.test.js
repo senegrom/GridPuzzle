@@ -25,6 +25,19 @@ test('load pacing caps image work without accumulating a queue or inventing fram
  assert.equal(h.frames.length,2);assert.equal(h.callbacks.size,1);assert.equal(h.scheduler.stats.skipped,14);
  h.pace(9999);assert.equal(h.scheduler.stats.intervalMilliseconds,300);h.pace(0);assert.equal(h.scheduler.stats.intervalMilliseconds,100);h.scheduler.stop();
 });
+// The camera lost the frame it processed last: the next new frame is
+// processed at once, whatever the interval, and the interval holds again
+// after it.
+for (const native of [true, false]) test(`expedite() processes the next new frame at once, once, native ${native}`, () => {
+ const h=harness(native);h.pace(250);h.scheduler.start();
+ const next=n=>{if(native)h.present(n);else{h.video.currentTime=n/10;h.advance(100);}};
+ next(1);assert.equal(h.frames.length,1);
+ next(2);assert.equal(h.frames.length,1,'within the interval: skipped');
+ h.scheduler.expedite();next(3);assert.equal(h.frames.length,2,'expedited: processed at once');
+ next(4);assert.equal(h.frames.length,2,'the interval holds again after it');
+ h.scheduler.expedite();next(4);assert.equal(h.frames.length,2,'a repeated frame is still no new frame');
+ h.scheduler.stop();
+});
 test('independent heartbeat still expires a view when native frame callbacks stop',()=>{
  const h=harness();h.scheduler.start();h.present(1);h.advance(600);assert.equal(h.scheduler.fresh,false);assert.equal(h.beats.at(-1),false);
  assert.equal(h.frames.length,1);h.scheduler.stop();assert.equal(h.timers.size,0);assert.equal(h.callbacks.size,0);
