@@ -739,6 +739,19 @@ test('a frame whose bitmap fails after bitmaps were given up is counted and lost
   h.tracker.reset();
 });
 
+// Also before the next worker starts: frames prepared before the give-up whose
+// bitmaps fail then are only counted, however many, and the cause stays.
+test('frames whose bitmaps fail after bitmaps were given up, before the next worker starts, are only counted', async () => {
+  const h = transport(); await h.handshake();
+  h.last().refuse = data => !!data.bitmap;
+  await assert.rejects(h.tracker.verify(h.frame()), { name: 'NotSupportedError' });
+  for (let i = 0; i <= REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError', `lost alone (${i + 1})`);
+  assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT + 1);
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'untransferable', 'the cause stays');
+  assert.equal(h.workers.length, 2); assert.deepEqual(h.last().sent, []);
+  h.tracker.reset();
+});
+
 // A frame made for a bitmap worker before a reset (the freeze, Clear, Restart)
 // can lose its bitmap after it, once the next worker's handshake has decided
 // for the camera's own readback (a mismatch, no pixels, or a worker replaced
