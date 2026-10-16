@@ -993,17 +993,17 @@ Unit tests (`node --test web/tests/*.test.js`):
   that has not answered the probe when its second wait ends on time replaced
   at once, its first wait that ended on time, or one that ended late, renewed
   so that the answer after it decides, each worker with a renewal of its own,
-  the
-  renewals bounded by the anchor deadline on a page whose timers all fire
+  the renewals bounded by the anchor deadline on a page whose timers all fire
   late, the worker after the next reset probing again and a second worker
   replaced so giving bitmaps up, and a worker that never starts failing as
   its first anchor would have), jobs waiting for it, a reset rejecting its
-  waiters, every bitmap transferred or closed, the next
-  job posted only after a reply's continuation (so a freeze there closes its
-  bitmap rather than posting it to the ended worker), a frame whose bitmap the
-  worker refuses or the camera cannot make lost alone (its job failing as a
-  retired one, the worker, its transport and the queued job going on, the
-  frame counted), bitmaps given up at the third such frame in a row (a
+  waiters, every bitmap transferred or closed, the next job posted only after
+  the continuation of a reply or of a lost frame (so a reset there, such as
+  the freeze's, closes its bitmap rather than posting it to the ended worker),
+  a frame whose bitmap the worker refuses or the camera cannot make lost alone
+  (its job failing as a retired one, the worker, its transport and the queued
+  job going on, the frame counted), bitmaps given up at the third such frame
+  in a row (a
   completed bitmap job ends the run, a reset does not; the cause that of the
   last), a refused frame proving nothing to a later bitmap job's deadline, a
   bitmap failure after the give-up only counted, the other bitmap failures
