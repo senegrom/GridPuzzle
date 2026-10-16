@@ -474,10 +474,10 @@ One lost frame says little about the browser: on CI, WebKit refused one
 frame's bitmap in live_noise's changed-content scene (2026-10-14) after
 reading the scan's other bitmaps back right, and giving bitmaps up there
 restarted acquisition and retired the reading before the scene saw its
-content change. So bitmaps
-are given up only at the third frame lost in a row, refused or unmade, with
-no bitmap job completed in between, in the camera session: the freeze, Clear
-and Restart do not end the run, a completed bitmap job does. A frame made
+content change. So bitmaps are given up only at the third frame lost in a
+row, refused or unmade, with no bitmap job completed in between, in the
+camera session: the freeze, Clear and Restart do not end the run, a
+completed bitmap job does. A frame made
 before such a reset can lose its bitmap after it; when that loss is the third
 in a row and the worker after the reset has decided for the camera's own
 readback, that worker has no bitmap to lose and is kept, and bitmaps are given
@@ -612,8 +612,8 @@ Frames are processed at most every 100 ms, back off to 250 ms once a reading
 is settled and up to 300 ms when recent worker timing calls for it; the
 latest-frame queue stays bounded. The frame after a lost verification is
 processed at once, whatever the interval (see "How the frames reach the
-worker"). Since the video is the display, a processed
-frame is sampled (drawn from the video into a snapshot of at most 1600 pixels)
+worker"). Since the video is the display, a processed frame is sampled
+(drawn from the video into a snapshot of at most 1600 pixels)
 only for the pipeline's own work: to verify a pending candidate, the guide or
 a reading, and once per detection. While the camera aims at no grid that is
 one snapshot per detection, every 300 ms, which detection gets itself; no
@@ -1071,29 +1071,31 @@ Unit tests (`node --test web/tests/*.test.js`):
   the freeze's, closes its bitmap rather than posting it to the ended worker),
   a frame whose bitmap the worker refuses or the camera cannot make lost alone
   (its job failing as a retired one, the worker, its transport and the queued
-  job going on, the frame counted), bitmaps given up at the third such frame
-  in a row (every completed bitmap job ends the run, not only a worker's
-  first, a reset does not; the cause that of the last), a refused frame proving nothing to a later bitmap job's deadline, a
-  bitmap failure after the give-up only counted, the third in a row of a frame
-  made before a reset keeping the worker after it that decided for the
-  camera's own readback and giving bitmaps up after it, and giving them up at
-  once, ending the worker, while that worker's handshake still runs, the
-  other bitmap failures
-  that give bitmaps up without a failure, with their causes, and the later ones
-  that count (a worker that dies once a bitmap job of it completed, idle or on
-  the camera's own readback: its queued bitmap closed, and bitmaps kept for the
-  next worker), the core's time apart from the transport's, and the real
-  worker module drawing a bitmap through a stand-in `OffscreenCanvas`, timed on
-  a clock only its draw moves, and answering a bitmap that arrived null or
-  drew nothing as one it cannot read back, with why (a refused frame counted
-  by that reason as well). `live-tracking-pixels.test.js`: the
-  worker's readback (one canvas, sized on change, cleared, the whole bitmap
-  drawn, closed on every path, and refused, with the reason the worker
-  reports, for a bitmap that did not arrive whole or a readback with a
-  transparent pixel, also one only in its last column, its last row or a
-  corner), and the looser check of the camera's own
+  job going on, the frame counted, a refused one by the worker's reason as
+  well), bitmaps given up at the third such frame in a row (every completed
+  bitmap job ends the run, not only a worker's first, a reset does not; the
+  cause that of the last), a refused frame proving nothing to a later bitmap
+  job's deadline, a bitmap failure after the give-up only counted (also
+  before the next worker starts), the third in a row of a frame made before a
+  reset keeping the worker after it that decided for the camera's own
+  readback and giving bitmaps up after it, and giving them up at once, ending
+  the worker, while that worker's handshake still runs, the other bitmap
+  failures that give bitmaps up without a failure, with their causes, and the
+  later ones that count (a worker that dies once a bitmap job of it
+  completed, idle or on the camera's own readback: its queued bitmap closed,
+  and bitmaps kept for the next worker), the core's time apart from the
+  transport's, and the real worker module drawing a bitmap through a
+  stand-in `OffscreenCanvas`, timed on a clock only its draw moves, and
+  answering a bitmap that arrived null or drew nothing as one it cannot read
+  back, with why. `live-tracking-pixels.test.js`: the worker's readback (one
+  canvas, sized on change, cleared, the whole bitmap drawn, closed on every
+  path, and refused, with its reason, for a bitmap that did not arrive whole
+  or a readback with a transparent pixel, also one only in its last column,
+  its last row or a corner), and the looser check of the camera's own
   readback (lost only when transparent at every point: a partly transparent
-  one, at an edge, a corner or a half, is kept).
+  one, at an edge, a corner or a half, is kept). `live-frame-scheduler.test.js`
+  also covers the next frame processed at once after a lost one, and no frame
+  before the video has a current one.
 - `live-transport.test.js`: the camera with the bitmap transport on the
   production camera, tracker and tracking core with a fake clock: no tracking
   readback on the main thread, every job carrying a transferred bitmap of a
@@ -1115,13 +1117,16 @@ Unit tests (`node --test web/tests/*.test.js`):
   refused one by the worker's reason; `diagnostic-report.test.js`: those
   counts, numbers only, kept across a reset, and taken between verifications
   without touching the latest one's frame or the metrics), two of every three
-  frames lost (bitmaps, the reading, its outline
-  and the live tier kept), a readback of the camera's own with no picture
-  lost alone during a tracked reading (no blink of the outline or the counts,
-  the live tier kept, counted) and while aiming (no anchor built on one), and
-  the restart once frames are lost in every frame (at the
-  third, once, at once, without a failure, back-off or Restart, the detection
-  in flight abandoned rather than cancelled, a waiting candidate discarded and
+  frames lost (bitmaps, the reading, its outline and the live tier kept), a
+  queued frame replaced by a newer one not hurrying the next sample, a frame
+  lost after the camera closed adding nothing to the next scan's
+  diagnostics, a readback of the camera's own with no picture lost alone
+  during a tracked reading (no blink of the outline or the counts, the live
+  tier kept, counted) and while aiming (no anchor built on one, the export
+  counting it before any verification), and the restart once frames are lost
+  in every frame (at the third, once, at once, without a failure, back-off or
+  Restart, the export counting the third at the give-up, the detection in
+  flight abandoned rather than cancelled, a waiting candidate discarded and
   the outline gone before the next frame, no anchor of the old worker asked
   for, the frame the bitmaps were given up on kept as the newest picture
   scanned, the grid read again, and the cause in the export). Bitmaps that are
