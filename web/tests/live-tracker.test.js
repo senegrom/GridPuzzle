@@ -792,12 +792,13 @@ test('a frame whose bitmap fails after bitmaps were given up is counted and lost
 });
 
 // Also before the next worker starts: frames prepared before the give-up whose
-// bitmaps fail then are only counted, however many, and the cause stays.
+// bitmaps fail then are only counted, however many and however long after
+// the first of them, and the cause stays.
 test('frames whose bitmaps fail after bitmaps were given up, before the next worker starts, are only counted', async () => {
   const h = transport(); await h.handshake();
   h.last().refuse = data => !!data.bitmap;
   await assert.rejects(h.tracker.verify(h.frame()), { name: 'NotSupportedError' });
-  for (let i = 0; i <= REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError', `lost alone (${i + 1})`);
+  for (let i = 0; i <= REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError', `lost alone (${i + 1})`); h.tick(REFUSAL_SPAN); }
   assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT + 1);
   assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'untransferable', 'the cause stays');
   assert.equal(h.workers.length, 2); assert.deepEqual(h.last().sent, []);
@@ -833,6 +834,24 @@ test('the REFUSAL_LIMIT-th lost frame in a row, made before a reset, keeps the w
     assert.deepEqual(h.last().sent, [], 'no later worker probes'); assert.equal(h.tracker.stats.transportReason, 'unmade');
     h.tracker.reset();
   }
+});
+
+// The span holds for such a frame too: the REFUSAL_LIMIT-th lost in a row,
+// made before a reset and lost within REFUSAL_SPAN of the first, is only
+// counted, and the worker after the next reset probes for bitmaps again.
+test('the REFUSAL_LIMIT-th lost frame in a row, made before a reset and lost within REFUSAL_SPAN of the first, gives nothing up', async () => {
+  const h = transport(); await h.handshake();
+  for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  h.tracker.reset();
+  const ready = h.tracker.ready(); await flush(); h.started(); h.answer(null);
+  assert.equal(await settled(ready), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'no-pixels');
+  h.tick(REFUSAL_SPAN - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'that frame alone is lost');
+  assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT);
+  h.tracker.reset();
+  assert.equal(await h.handshake(), 'bitmap', 'the worker after the next reset probes again');
+  assert.equal(h.tracker.stats.transportReason, 'probe');
+  h.tracker.reset();
 });
 
 test('the worker reports the tracking core\'s time and the transport\'s apart; only the core\'s is "milliseconds"', async () => {
