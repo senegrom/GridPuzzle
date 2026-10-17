@@ -457,16 +457,22 @@ export function confidentDigits(found) {
   return confidentValues(found).length;
 }
 // Of those, the numbers that show which way up the page is: any with a 2, 3
-// or 5. Read upside down, 0s, 1s and 8s read as themselves, 6s and 9s as each
-// other, most 2s as 4s and many 4s as 7s, all with confidence, but a number
-// with a 2, 3 or 5 reads with confidence only a 27th as often as on the same
-// page upright (web/OCR_QUALITY.md, "Half turns").
+// or 5. Read upside down, 0s, 1s and most 8s read as themselves, 6s and 9s as
+// each other, most 2s as 4s and many 4s as 7s, all with confidence, but a
+// number with a 2, 3 or 5 reads with confidence only a 27th as often as on the
+// same page upright (web/OCR_QUALITY.md, "Half turns").
 export function wayUpDigits(found) {
   return confidentValues(found).filter((value) => /[235]/.test(String(value))).length;
 }
 // Scanner.halfTurn keeps a reading taken half a turn round only with at least
-// this many: no upright corpus page it reads again had more than one.
+// HALF_TURN_BAR such numbers, and only when it also reads clearly better than
+// the first: more confident digits, and at least HALF_TURN_FLOOR of them (or
+// half its value regions, on a page with fewer clues). Upside down, some
+// handwriting fonts read an upright page's 8s, 3s or 5s as confident 3s and
+// 5s, so those numbers alone can turn an upright page; but every such reading
+// measured had fewer confident digits than the upright one, or 9 at most.
 export const HALF_TURN_BAR = 5;
+export const HALF_TURN_FLOOR = 12;
 // Median height/width of single, clue-sized value glyphs (at least half the
 // 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
 // Infinity without six such glyphs, which is no evidence either way.
@@ -613,10 +619,13 @@ export class Scanner {
   // poorly in a telling way: it still reads digits with confidence, but not
   // one with a 2, 3 or 5 (wayUpDigits). Only such a poor reading is read once
   // more half a turn round, and that reading is kept when it has at least
-  // HALF_TURN_BAR numbers with a 2, 3 or 5. A reading without one confident
-  // digit shows nothing of the way up and is not read again.
+  // HALF_TURN_BAR numbers with a 2, 3 or 5 and reads clearly better: more
+  // confident digits than the first, and at least HALF_TURN_FLOOR (or half
+  // its value regions). A reading without one confident digit shows nothing
+  // of the way up and is not read again.
   async halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check) {
-    if (!confidentDigits(found) || wayUpDigits(found)) return found;
+    const confident = confidentDigits(found);
+    if (!confident || wayUpDigits(found)) return found;
     check();
     onProgress("Checking which way up the photograph is…", null);
     check();
@@ -632,7 +641,10 @@ export class Scanner {
       return found;
     }
     check();
-    if (wayUpDigits(turned) < HALF_TURN_BAR) return found;
+    const turnedConfident = confidentDigits(turned),
+      turnedValues = turned.entries.filter((e) => e.kind === "value").length;
+    if (wayUpDigits(turned) < HALF_TURN_BAR || turnedConfident <= confident
+      || turnedConfident < Math.min(HALF_TURN_FLOOR, turnedValues / 2)) return found;
     return {
       ...turned,
       turns: 2,

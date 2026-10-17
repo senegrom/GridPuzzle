@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scanner, confidentDigits, wayUpDigits, glyphAspect, HALF_TURN_BAR } from "../scanner.js";
+import { Scanner, confidentDigits, wayUpDigits, glyphAspect, HALF_TURN_BAR, HALF_TURN_FLOOR } from "../scanner.js";
 import { turnCorners } from "../geometry.js";
 
 // Scanner.orient's half-turn check, with readOnce replaced by the readings a
@@ -121,13 +121,37 @@ test("the half-turned reading must read HALF_TURN_BAR numbers with a 2, 3 or 5",
   const shown = (n, { rest = 0, flagged = [] } = {}) =>
     board([...[2, 3, 5, 23, 35, 52].slice(0, n), ...Array(rest).fill(8)], { flagged, extra: 30 });
   for (const [turned, turns, why] of [
-    [shown(HALF_TURN_BAR), 2, "enough"],
+    [shown(HALF_TURN_BAR, { rest: 10 }), 2, "enough"],
     [shown(HALF_TURN_BAR - 1, { rest: 20 }), undefined, "one short, however many 8s"],
-    [shown(HALF_TURN_BAR - 1, { flagged: [2, 3, 5] }), undefined, "one short, flagged ones aside"],
+    [shown(HALF_TURN_BAR - 1, { rest: 10, flagged: [2, 3, 5] }), undefined, "one short, flagged ones aside"],
   ]) {
     const fake = reader([unsure(), turned]);
     assert.equal((await read(fake)).turns, turns, why);
     assert.equal(fake.calls.length, 2);
+  }
+});
+test("the half-turned reading must also read clearly better: more confident digits, HALF_TURN_FLOOR or half its regions", async () => {
+  assert.equal(HALF_TURN_FLOOR, 12);
+  // Five numbers with a 2, 3 or 5 and `rest` confident 8s, among `extra`
+  // value regions that read nothing.
+  const turned = (rest, extra = 30) => board([2, 3, 5, 23, 35, ...Array(rest).fill(8)], { extra });
+  const fourteen = () => board([8, 9, 6, 1, 8, 9, 6, 1, 8, 9, 6, 1, 4, 7], { extra: 26 });
+  for (const [first, half, turns, why] of [
+    // Upside down, an upright page in some handwriting fonts reads its 8s, 3s
+    // or 5s as confident 3s and 5s, and little else: five such numbers alone.
+    [unsure(), turned(0), undefined, "five such numbers and nothing else"],
+    [unsure(), turned(HALF_TURN_FLOOR - 6), undefined, "one short of the floor"],
+    [unsure(), turned(HALF_TURN_FLOOR - 5), 2, "the floor"],
+    // A page with fewer clues needs half its value regions: 8 of 16.
+    [board([8], { extra: 15 }), turned(3, 8), 2, "half the regions of a small page"],
+    [board([8], { extra: 15 }), turned(2, 9), undefined, "one short of half the regions"],
+    // More confident digits than the first reading, not as many.
+    [fourteen(), turned(9, 26), undefined, "as many as the first"],
+    [fourteen(), turned(10, 26), 2, "one more than the first"],
+  ]) {
+    const fake = reader([first, half]);
+    assert.equal((await read(fake)).turns, turns, why);
+    assert.equal(fake.calls.length, 2, why);
   }
 });
 test("glyphs exactly as tall as wide count as upright-shaped, too few glyphs as no evidence", async () => {
@@ -237,4 +261,66 @@ test("real: lexski-mixed train-e7u07n8vxc8c1, an upright screenshot read poorly,
   const fake = reader([first, turned]);
   assert.equal(await read(fake), first);
   assert.deepEqual(fake.calls, [corners, halfTurned]);
+});
+// Three upright pages, recorded the same way, whose half-turned readings show
+// five or more confident numbers with a 2, 3 or 5 that are not there: the
+// bar alone turned each of them upside down (Chromium; review of 2026-10-17).
+test("real: upright pages that read spurious 3s and 5s half a turn round stay upright", async () => {
+  const cases = [
+    // rozet-render sudoku_0009 with its printed 3 pasted into the six empty
+    // cells whose solution is a 3, saved as JPEG at quality 40. Upright, every
+    // 3 reads flagged; upside down, seven read as confident 3s.
+    ["rozet3 r3d33~q40", 6, 8, real({ 0: 9, 1: 2, 3: 3, 5: 6, 10: 2, 11: 8, 14: 1, 18: 1, 21: 2, 23: 9, 26: 2, 27: 2, 28: 2,
+      33: 2, 34: 4, 40: 2, 42: 1, 44: 9, 45: 3, 52: 5, 53: 6, 54: 8, 55: 4, 56: 9, 58: 7, 61: 3, 68: 2, 74: 2 },
+    [3, 5, 10, 11, 14, 18, 26, 28, 33, 40, 44, 45, 52, 53, 54, 58, 61, 68, 74, 75, 76, 21, 27, 1],
+    [[0, 32, 62], [1, 31, 55], [3, 32, 58], [5, 32, 59], [10, 32, 57], [11, 31, 60], [14, 31, 62], [18, 31, 62], [21, 32, 56],
+      [23, 32, 62], [26, 31, 58], [27, 32, 55], [28, 31, 59], [33, 32, 58], [34, 33, 60], [40, 31, 57], [42, 27, 57], [44, 32, 62],
+      [45, 31, 58], [52, 34, 55], [53, 33, 60], [54, 31, 59], [55, 33, 60], [56, 32, 62], [58, 31, 62], [61, 32, 58], [68, 32, 57],
+      [74, 31, 57], [75, 34, 55], [76, 33, 60]]),
+    real({ 4: 9, 6: 3, 12: 3, 19: 3, 26: 8, 27: 9, 35: 3, 38: 2, 40: 3, 47: 3, 52: 8, 53: 4, 54: 3, 69: 8, 70: 3, 75: 9, 77: 3, 79: 4 },
+      [4, 5, 6, 22, 24, 25, 26, 27, 28, 36, 46, 47, 52, 53, 57, 59, 62, 66, 69, 75, 79, 80],
+      [[4, 33, 60], [5, 34, 55], [6, 31, 57], [12, 32, 57], [19, 32, 58], [22, 31, 60], [24, 32, 61], [25, 33, 56], [26, 31, 59],
+        [27, 33, 60], [28, 34, 55], [35, 31, 58], [36, 32, 61], [38, 27, 56], [40, 31, 57], [46, 33, 56], [47, 32, 57], [52, 31, 59],
+        [53, 32, 55], [54, 31, 57], [57, 32, 60], [59, 32, 56], [62, 31, 59], [66, 31, 59], [69, 31, 60], [70, 32, 56], [75, 32, 59],
+        [77, 32, 56], [79, 31, 55], [80, 32, 59]])],
+    // A Sudoku of 1s, 4s, 6s, 7s, 8s and 9s printed in Bradley Hand ITC:
+    // upside down, seven of its 8s read as confident 3s.
+    ["Bradley Hand, no 2, 3 or 5", 7, 9, real({ 3: 4, 5: 8, 6: 7, 12: 1, 16: 9, 19: 6, 29: 4, 31: 4, 33: 1, 38: 4, 39: 6, 51: 6,
+      52: 8, 54: 4, 55: 7, 58: 9, 62: 8, 70: 6, 71: 9, 74: 1, 75: 4 },
+    [2, 5, 6, 19, 27, 30, 31, 38, 39, 42, 51, 52, 55, 62, 64, 70, 75, 76, 23, 29, 3],
+    [[2, 46, 57], [3, 35, 40], [5, 30, 38], [6, 46, 48], [12, 31, 35], [16, 46, 57], [19, 35, 36], [23, 46, 57], [27, 35, 36],
+      [29, 35, 39], [30, 46, 57], [31, 31, 39], [33, 31, 35], [38, 30, 38], [39, 35, 36], [42, 46, 57], [51, 35, 37], [52, 30, 38],
+      [54, 36, 38], [55, 46, 48], [58, 46, 57], [62, 30, 39], [64, 30, 38], [70, 35, 36], [71, 46, 56], [74, 31, 35], [75, 30, 38],
+      [76, 35, 36]]),
+    real({ 4: 2, 5: 3, 9: 6, 10: 2, 16: 3, 18: 3, 22: 6, 26: 4, 28: 3, 29: 9, 38: 6, 41: 9, 42: 3, 49: 3, 50: 6, 53: 2, 57: 6,
+      61: 9, 75: 3, 77: 1, 78: 6 },
+    [4, 6, 10, 22, 25, 26, 29, 38, 41, 47, 50, 51, 53, 57, 61, 64, 68, 74, 77],
+    [[4, 35, 36], [5, 30, 38], [6, 31, 35], [9, 46, 56], [10, 35, 36], [16, 30, 38], [18, 30, 39], [22, 46, 57], [25, 46, 48],
+      [26, 36, 38], [28, 30, 38], [29, 35, 37], [38, 46, 57], [41, 35, 36], [42, 30, 38], [47, 31, 35], [49, 31, 39], [50, 46, 57],
+      [51, 35, 39], [53, 35, 36], [57, 46, 57], [61, 35, 36], [64, 46, 57], [68, 31, 35], [74, 46, 48], [75, 30, 38], [77, 35, 40],
+      [78, 46, 57]])],
+    // Nine 8s in Bradley Hand on grey: upside down, five read as confident
+    // 3s. Upright it reads only two confident digits, so the half-turned
+    // reading has more, but 8 in all.
+    ["Bradley Hand, nine 8s, grey", 2, 8, real({ 0: 2, 5: 4, 9: 3, 13: 7, 24: 4, 25: 4, 31: 2, 38: 2, 46: 2, 50: 4, 52: 2, 61: 4,
+      62: 8, 64: 8, 66: 7, 71: 9, 72: 9, 74: 1, 75: 2 },
+    [0, 5, 6, 7, 9, 13, 14, 24, 27, 31, 36, 38, 46, 47, 49, 52, 55, 61, 62, 64, 66, 74, 75, 25, 50],
+    [[0, 34, 26], [5, 30, 40], [6, 44, 49], [7, 34, 31], [9, 29, 40], [13, 44, 49], [14, 39, 35], [24, 30, 39], [25, 29, 39],
+      [27, 30, 38], [31, 29, 40], [36, 31, 33], [38, 29, 39], [46, 34, 55], [47, 45, 47], [49, 30, 34], [50, 35, 42], [52, 29, 38],
+      [55, 45, 47], [61, 30, 37], [62, 30, 39], [64, 29, 39], [66, 44, 35], [71, 46, 56], [72, 46, 58], [74, 29, 33], [75, 29, 38]]),
+    real({ 5: 3, 8: 6, 9: 6, 16: 8, 18: 3, 25: 2, 28: 3, 31: 5, 34: 6, 42: 8, 49: 3, 53: 9, 56: 3, 66: 9, 67: 4, 71: 3, 73: 4,
+      75: 3 },
+    [6, 8, 14, 16, 18, 19, 25, 30, 31, 33, 34, 44, 55, 66, 67, 73, 74, 75, 80],
+    [[5, 29, 38], [6, 29, 33], [8, 46, 58], [9, 46, 56], [14, 44, 35], [16, 29, 39], [18, 30, 39], [19, 30, 37], [25, 45, 47],
+      [28, 29, 38], [30, 35, 42], [31, 30, 34], [33, 45, 47], [34, 34, 55], [42, 29, 39], [44, 31, 33], [49, 29, 40], [53, 30, 38],
+      [55, 29, 39], [56, 30, 39], [66, 39, 35], [67, 44, 49], [71, 29, 40], [73, 34, 31], [74, 44, 49], [75, 30, 40], [80, 34, 26]])],
+  ];
+  for (const [name, confident, turnedConfident, first, turned] of cases) {
+    assert.equal(confidentDigits(first), confident, name); assert.equal(wayUpDigits(first), 0, name);
+    assert.equal(confidentDigits(turned), turnedConfident, name);
+    assert.ok(wayUpDigits(turned) >= HALF_TURN_BAR, `${name}: the bar alone would turn it`);
+    const fake = reader([first, turned]);
+    assert.equal(await read(fake), first, name);
+    assert.deepEqual(fake.calls, [corners, halfTurned], name);
+  }
 });
