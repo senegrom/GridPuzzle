@@ -137,9 +137,9 @@ bar alone could turn an upright page. Whole-cell value boxes (a median of
 exactly 1, as Kakuro entries have) say nothing of the glyphs and are not
 checked. The reading then says the photograph was upside down and carries
 `turns: 2`; the photo flow turns the crop corners two places and keeps the box
-layout, and waits for review as for a quarter turn. "Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
-measurements. The live camera, targeted re-reads and non-square grids keep
-their orientation.
+layout, and waits for review as for a quarter turn. "Half turns" in
+[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements. The live camera,
+targeted re-reads and non-square grids keep their orientation.
 
 ## Clue-focused live-camera quality
 
