@@ -475,7 +475,7 @@ the next sample, as many as the tracker rides out on bitmaps whenever they
 come: a video that keeps having no picture (on an iPhone, the GPU process
 failing to convert the camera's frames) would otherwise be read back in full
 on the main thread at its frame rate, 25-33 times a second at 30 frames a
-second in the simulation, against 4-6 at the sampling interval. Two in a row
+second in the simulation, against 3-6 at the sampling interval. Two in a row
 keep the live tier; with only the first hurried, the view was marked as
 catching up in 8-10 of 10 phases. A third in a row, sampled an interval
 later, marks it in 1 of 10 phases at 30 frames a second (in none while every
