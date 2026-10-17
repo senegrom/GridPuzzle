@@ -46,11 +46,17 @@ test("only numbers with a 2, 3 or 5 show which way up a reading is", () => {
   found.puzzle.cells[20] = 0; found.puzzle.cells[21] = 69; found.puzzle.cells[22] = 35;
   assert.equal(confidentDigits(found), 20);
   assert.equal(wayUpDigits(found), 6, "2, 3, 5, 12, 23 and 35; never 0, 1, 4, 6, 7, 8, 9, 10, 16, 18, 19, 47, 69 or 81");
+  // Any digit counts, not only the last: Hidato and Numbrix numbers.
+  assert.equal(wayUpDigits(board([21, 50, 31, 8])), 3, "21, 50 and 31");
   // A digit flagged only for its size still counts, as in confidentDigits.
   const sized = { ...board([2, 3]), noteSized: [1] };
   sized.uncertain = [1];
   assert.equal(wayUpDigits(sized), 2);
   assert.equal(wayUpDigits({ ...board([2, 3]), uncertain: [1] }), 1);
+  // A Kakuro or Str8ts reading's blocked "#" cells are no digits at all.
+  const blocked = board([8, 9, 2]);
+  blocked.puzzle.cells[40] = "#"; blocked.puzzle.cells[41] = "#";
+  assert.equal(confidentDigits(blocked), 3); assert.equal(wayUpDigits(blocked), 1);
 });
 test("an upside-down page is read half a turn round and kept when its digits read clearly better that way", async () => {
   const turned = upright(), fake = reader([inverted(), turned]), progress = [];
@@ -74,6 +80,10 @@ test("a reading without one confident digit is not read again", async () => {
   const first = board([], { flagged: [2, 3, 5, 1, 8], extra: 20 }), fake = reader([first, upright()]);
   assert.equal(await read(fake), first);
   assert.equal(fake.calls.length, 1);
+  // One confident digit is enough to be read again.
+  const one = reader([board([8], { flagged: [2, 3, 5], extra: 20 }), upright()]);
+  assert.equal((await read(one)).turns, 2);
+  assert.equal(one.calls.length, 2);
 });
 test("a page that reads well is never read again, even with no digit that shows the way up", async () => {
   // Half its value regions or more read as confident digits: 6s, 9s, 1s and
@@ -173,10 +183,40 @@ test("glyphs exactly as tall as wide, as whole-cell boxes are, and too few glyph
   assert.equal(await read(fake), few); assert.equal(fake.calls.length, 1);
 });
 test("a sideways page takes the quarter-turn check and never a half-turned read", async () => {
-  const sideways = board([9, 8], { extra: 20, w: 50, h: 34 }), fake = reader([sideways, upright(), board([])]);
-  const found = await read(fake);
-  assert.deepEqual(fake.calls, [corners, turnCorners(corners, 1), turnCorners(corners, 3)]);
-  assert.equal(found.turns, 1);
+  // Glyphs well wider than tall, and only slightly wider (0.9).
+  for (const h of [34, 45]) {
+    const sideways = board([9, 8], { extra: 20, w: 50, h }), fake = reader([sideways, upright(), board([])]);
+    const found = await read(fake);
+    assert.deepEqual(fake.calls, [corners, turnCorners(corners, 1), turnCorners(corners, 3)], `aspect ${h / 50}`);
+    assert.equal(found.turns, 1);
+  }
+});
+test("the half-turned read is a silent, full and cancellable read that reports to the scan's diagnostics", async () => {
+  // Every argument of each readOnce call, and what the call does with them:
+  // the second call reports progress and a diagnostic, and calls its check
+  // after a new scan has started meanwhile.
+  const progress = [], diagnostics = [], calls = [];
+  let checked = null;
+  const fake = { epoch: 0, cancel() {}, orient: Scanner.prototype.orient, halfTurn: Scanner.prototype.halfTurn,
+    async readOnce(...args) {
+      calls.push(args);
+      const [, , , , , onProgress, options, targetCells, check] = args;
+      onProgress("Straightening the photograph…", null);
+      options.onDiagnostic?.({ call: calls.length });
+      if (calls.length === 1) return inverted();
+      assert.equal(targetCells, null, "a full read, not a targeted one");
+      fake.epoch++;
+      try { check(); checked = "passed"; } catch (error) { checked = error.name; }
+      fake.epoch--;
+      return upright();
+    } };
+  const found = await read(fake, { onDiagnostic: (event) => diagnostics.push(event) }, 9, 9, (text) => progress.push(text));
+  assert.equal(found.turns, 2);
+  assert.deepEqual(calls.map((args) => args[1]), [corners, halfTurned]);
+  assert.deepEqual(progress, ["Straightening the photograph…", "Checking which way up the photograph is…"],
+    "the half-turned read's own progress stays off the status line");
+  assert.deepEqual(diagnostics, [{ call: 1 }, { call: 2 }], "its diagnostics reach the scan's");
+  assert.equal(checked, "AbortError", "it is cancelled with the scan");
 });
 test("live previews, targeted re-reads and non-square grids never read a half turn", async () => {
   for (const [options, rows, cols] of [[{ orient: false }, 9, 9], [{ cells: [0] }, 9, 9], [{}, 6, 9]]) {
