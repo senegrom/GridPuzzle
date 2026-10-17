@@ -928,7 +928,9 @@ export function setupPhotoFlow({
           ...(reviewAllCells ? found.puzzle.cells.keys() : []),
         ]),
         cageUncertain: new Set(found.cageUncertain || []),
-        needsReview: found.needsReview || needsBoxReview || reviewAllCells,
+        // A reading the app turned itself (Scanner.orient) is a guess its
+        // first note asks the user to check: shown, and never auto-solved.
+        needsReview: found.needsReview || Boolean(found.turns) || needsBoxReview || reviewAllCells,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
         // A reading taken turned (see Scanner.orient) keeps the crop in step,

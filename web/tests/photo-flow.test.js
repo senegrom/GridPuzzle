@@ -989,7 +989,7 @@ function photoHarness(t) {
     puzzleSource: 7, photoSource: 7, photoRows: 2, photoCols: 2,
     uncertain: new Set([0]), cageUncertain: new Set(), blackReadings: [], needsReview: true,
     notes: [], play: fitPlay(puzzle, []), hints: new Set(), selected: [], history: [] };
-  let epoch = 0, capture, found, saved, detection = null;
+  let epoch = 0, capture, found, saved, detection = null, solves = 0;
   const errors = [], stopTask = () => ++epoch;
   const storage = { set: (_key, value) => { saved = value; }, get: key => key === 'gridpuzzle-session-v1' ? saved : null };
   const setLayout = layout => {
@@ -1003,7 +1003,7 @@ function photoHarness(t) {
     detect: async () => detection ?? ({ rows: found.puzzle.rows, cols: found.puzzle.cols, confidence: .99, corners: state.corners }),
   }, stopTask, invalidate: stopTask, begin: stopTask, finish() {}, fail: e => errors.push(e.message),
   render() {}, status() {}, remember() {}, persist: () => saveSession(storage, state), drawBoard() {},
-  clearPhotoMapping() { state.rectified = state.photoSource = null; }, solveNow() {}, boxDefault: boxShape,
+  clearPhotoMapping() { state.rectified = state.photoSource = null; }, solveNow() { solves++; }, boxDefault: boxShape,
   setLayout, getJobId: () => epoch, setDeadline() {}, savePicture: async () => true,
   liveFactory({ diagnostics }) { return {
     start() { diagnostics.event({ stage: 'checking', reason: 'read-complete', found: capture.found }); },
@@ -1016,7 +1016,7 @@ function photoHarness(t) {
   } });
   const diag = (id = 'scan-diagnostics') => Object.fromEntries(
     ['prepare', 'image-toggle', 'preview', 'error', 'image', 'download'].map(key => [key, $(id + '/' + key)]));
-  return { $, state, errors, storage, encoded, diag, setLayout,
+  return { $, state, errors, storage, encoded, diag, setLayout, solves: () => solves,
     setFound: value => { found = value; }, setCapture: value => { capture = value; },
     setDetection: value => { detection = value; } };
 }
@@ -1187,6 +1187,17 @@ for (const turns of [0, 1, 2, 3]) test(`a reading taken ${turns} quarter turns o
   h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
   assert.equal(h.state.puzzle.cells[0], 2);
   assert.deepEqual(h.state.corners, before.map((_, i) => before[(i + turns) % 4]));
+});
+// The app's own turn is a guess its first note asks the user to check: with
+// auto-solve on and no cell flagged, a turned reading still waits for review.
+for (const turns of [0, 1, 2, 3]) test(`a reading the app turned ${turns} quarter turns ${turns ? 'waits for review' : 'auto-solves'} with no cell flagged`, async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = true;
+  h.setFound({ ...cleanReading(), ...(turns ? { turns, notes: ['The photograph was read turned: check the clues against the photograph.'] } : {}) });
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.uncertain.size, 0);
+  assert.equal(h.state.needsReview, turns > 0);
+  assert.equal(h.solves(), turns ? 0 : 1);
 });
 
 test('notes have one bounded session/backup contract without losing flags, pending evidence or Play', t => {
