@@ -477,7 +477,11 @@ failing to convert the camera's frames) would otherwise be read back in full
 on the main thread at its frame rate, 25-33 times a second at 30 frames a
 second in the simulation, against 4-6 at the sampling interval. Two in a row
 keep the live tier; with only the first hurried, the view was marked as
-catching up in 8-10 of 10 phases.
+catching up in 8-10 of 10 phases. A third in a row, sampled an interval
+later, marks it in 1 of 10 phases at 30 frames a second (in none while every
+one hurried); on the fallback clock three in a row mark it in all 10 either
+way. The run counts the camera's own readbacks only: the bitmap frames lost
+before bitmaps were given up are not in it.
 
 One lost frame says little about the browser: on CI, WebKit refused one
 frame's bitmap in live_noise's changed-content scene (2026-10-14) after
@@ -496,24 +500,30 @@ failures of 100-250 ms gave bitmaps up in 2-7 of 10 phases, where none had
 before the sampling was hurried. Half a second is what three verification
 frames of a settled reading, 250 ms apart, spanned before: no burst of up to
 500 ms gives bitmaps up now, one of 650 ms does in 4-6 of 10 phases and one
-of 800 ms in 9-10. A frame made before such a reset can lose its bitmap after
-it; when that loss gives bitmaps up and the worker after the reset has
+of 800 ms in all 10. A frame made before such a reset can lose its bitmap
+after it; when that loss gives bitmaps up and the worker after the reset has
 decided for the camera's own readback, that worker has no bitmap to lose and
 is kept, and bitmaps are given up for the workers after it. A browser that
 can read no frame back that way loses the anchors of its detections, at
 least 300 ms apart, so it still loses two frames, a fraction of a second,
 before its tracking moves to the camera's own readback. A failure that starts
-during a tracked reading gives bitmaps up 0.5-0.75 s later, after 11-18 lost
+during a tracked reading gives bitmaps up 0.54-0.8 s later, after 11-18 lost
 frames at 30 frames a second in the simulation (each hurrying the next) or 7
 on the fallback clock. One that loses up to two frames of every three keeps
 bitmaps, since each completed job ends the run; with each lost frame replaced
 at once by the next, a third of its frames still kept the simulation's view
 on the live tier with its reading and outline, also at 30 frames a second,
 where a detection's anchor takes one of the bitmaps now and then and more
-than two verification frames in a row are lost (no such browser has been
-seen; the counts below would show one). The diagnostic report counts the lost
-frames of each cause (`tracking.refusedFrames`, `tracking.unmadeFrames`); its
-transport and reason stay the worker's until bitmaps are given up.
+than two verification frames in a row are lost. So does one that loses more,
+as long as its runs of lost frames end within half a second: three of every
+four lost kept bitmaps, the reading and the live tier at 30 frames a second,
+but on the fallback clock, which samples at most every 100 ms (a browser
+without `requestVideoFrameCallback`), the view was marked as catching up for
+5.5 of 6 seconds, where the count alone gave bitmaps up at the first three in
+a row and read the board again (no such browser has been seen; the counts
+below would show one). The diagnostic report counts the lost frames of each
+cause (`tracking.refusedFrames`, `tracking.unmadeFrames`); its transport and
+reason stay the worker's until bitmaps are given up.
 
 On an iPhone the two causes sort the failures differently from what their
 names suggest (WebKit's release branches safari-7615 to safari-7623, iOS 16.4
@@ -1103,9 +1113,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   run and its span, not only a worker's first, a reset does not; the cause
   that of the last), a refused frame proving nothing to a later bitmap
   job's deadline, a bitmap failure after the give-up only counted (also
-  before the next worker starts), the third in a row of a frame made before a
-  reset keeping the worker after it that decided for the camera's own
-  readback and giving bitmaps up after it, and giving them up at once, ending
+  before the next worker starts, however long after the first), the third in
+  a row of a frame made before a reset keeping the worker after it that
+  decided for the camera's own readback and giving bitmaps up after it
+  (within half a second of the first it gives nothing up, and the worker
+  after the next reset probes again), and giving them up at once, ending
   the worker, while that worker's handshake still runs, the other bitmap
   failures that give bitmaps up without a failure, with their causes, and the
   later ones that count (a worker that dies once a bitmap job of it
@@ -1152,11 +1164,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   newer one not hurrying the next sample, a frame lost after the camera
   closed adding nothing to the next scan's diagnostics, a readback of the
   camera's own with no picture lost alone during a tracked reading, one or
-  two in a row (no blink of the outline or the counts, the live tier kept,
-  counted), and while aiming (no anchor built on one, the export counting it
-  before any verification), a video that keeps having no picture read back
-  at the sampling interval after two hurried samples, not at its 30 frames a
-  second, and the restart once frames are lost in every frame (at the third,
+  two in a row, and again a verification later (no blink of the outline or
+  the counts, the live tier kept, counted), and while aiming (no anchor built
+  on one, the export counting it before any verification), a video that
+  keeps having no picture read back at the sampling interval after two
+  hurried samples, not at its 30 frames a second, the first two such frames
+  after bitmaps were given up hurrying their samples as well (the bitmap
+  frames lost before the give-up are not counted with them), and the
+  restart once frames are lost in every frame (at the third,
   once, at once, without a failure, back-off or Restart, the export counting
   the third at the give-up, the detection in flight abandoned rather than
   cancelled, a waiting candidate discarded and the outline gone before the
