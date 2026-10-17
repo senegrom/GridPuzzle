@@ -661,6 +661,40 @@ test("on the camera's own readback, a video that keeps having no picture is read
   assert.equal(h.camera.stats.tracking.failures, 0); assert.equal(h.camera.stats.recovery.failures, 0);
 });
 
+// That bound counts the camera's own readbacks only: bitmap frames lost before
+// bitmaps were given up are not in it. A failure that lasts gives bitmaps up
+// during a tracked reading at 30 frames a second, after a dozen verification
+// frames lost to their bitmaps (each hurrying the next sample, and none of
+// them completed). On the camera's own readback after it, the first
+// REFUSAL_LIMIT - 1 frames with no picture that would verify the next
+// detection's candidate still hurry their samples, as on a camera that never
+// had bitmaps.
+test("after bitmaps are given up, the camera's own readback still hurries the sample after its first frames with no picture: lost bitmap frames are not counted", async (t) => {
+  const h = simulation(t, { fps: 30 });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read");
+  await h.advance(1000);
+  const reasons = h.reasons().length, posted = h.jobs().length;
+  h.emptyBitmaps(true);
+  assert.ok(await h.until(() => h.reasons().slice(reasons).includes("tracking-transport"), 2000), "bitmaps given up");
+  h.emptyBitmaps(false);
+  const lost = h.jobs().slice(posted).filter((p) => p.op === "verify" && p.bitmap?.empty).length;
+  assert.ok(lost >= REFUSAL_LIMIT, `${lost} verification frames lost to their bitmaps first`);
+  const restartedAt = h.now;
+  assert.ok(await h.until(() => h.jobs().some((p) => p.op === "anchor" && p.image && p.at >= restartedAt), 2000),
+    "a detection's anchor on the camera's own readback");
+  const before = h.readbacks().length, blank0 = h.camera.stats.tracking.blankReadbacks;
+  h.noPicture(REFUSAL_LIMIT - 1);
+  assert.ok(await h.until(() => h.readbacks().length >= before + REFUSAL_LIMIT, 2000), "its candidate's verification frames");
+  const frames = h.readbacks().slice(before, before + REFUSAL_LIMIT), gaps = frames.slice(1).map((r, i) => r.at - frames[i].at);
+  assert.deepEqual(frames.map((r) => r.result.data[3] === 0), [...Array(REFUSAL_LIMIT - 1).fill(true), false], "with no picture, then one");
+  assert.equal(h.camera.stats.tracking.blankReadbacks - blank0, REFUSAL_LIMIT - 1, "lost");
+  assert.ok(gaps.every((gap) => gap <= 34), `each hurried the next sample: ${gaps}`);
+  assert.equal(h.camera.stats.tracking.transport, "imagedata");
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 5000), "read again on the camera's own readback");
+  assert.deepEqual(h.runs.filter((r) => r.empty), []);
+  assert.equal(h.camera.stats.recovery.failures, 0);
+});
+
 // Bitmap frames lost persistently (every frame here) are no tracking failure:
 // at the REFUSAL_LIMIT-th lost in a row the tracker gives bitmaps up and
 // resets; the camera restarts acquisition at once on its own readback, with
