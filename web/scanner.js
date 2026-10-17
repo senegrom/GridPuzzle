@@ -475,7 +475,9 @@ export const HALF_TURN_BAR = 5;
 export const HALF_TURN_FLOOR = 12;
 // Median height/width of single, clue-sized value glyphs (at least half the
 // 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
-// Infinity without six such glyphs, which is no evidence either way.
+// Infinity without six such glyphs, which is no evidence either way; exactly
+// 1 when the middle box is a whole cell (Kakuro entries, cell-filling blobs),
+// which is none either.
 export function glyphAspect(values) {
   const heights = values.map((e) => e.h).sort((a, b) => a - b);
   if (heights.length < 6) return Infinity;
@@ -576,14 +578,14 @@ export class Scanner {
   // Printed clue glyphs are taller than wide, so the turn shows as glyphs
   // wider than tall, and as a poor reading. Both quarter turns are then read
   // and one is kept only when it reads clearly more confident digits. A half
-  // turn keeps upright-shaped glyphs, so a poor reading of those takes the
-  // half-turn check instead (halfTurn).
+  // turn keeps upright-shaped glyphs, so a poor reading of glyphs taller than
+  // wide takes the half-turn check instead (halfTurn).
   async orient(found, canvas, corners, type, rows, cols, onProgress, options, check) {
     const confident = confidentDigits(found),
       values = found.entries.filter((e) => e.kind === "value"),
       aspect = glyphAspect(values);
     if (confident >= values.length / 2) return found;
-    if (aspect >= 1 && aspect < Infinity)
+    if (aspect > 1 && aspect < Infinity)
       return this.halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check);
     if (!(aspect < 1)) return found;
     let best = { found, confident, turns: 0 };

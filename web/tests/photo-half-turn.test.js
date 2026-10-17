@@ -154,10 +154,17 @@ test("the half-turned reading must also read clearly better: more confident digi
     assert.equal(fake.calls.length, 2, why);
   }
 });
-test("glyphs exactly as tall as wide count as upright-shaped, too few glyphs as no evidence", async () => {
+test("glyphs exactly as tall as wide, as whole-cell boxes are, and too few glyphs are no evidence of a half turn", async () => {
+  // Kakuro entries and cell-filling blobs are whole cells: a median of
+  // exactly 1 says nothing of the glyphs, so no other read, as on master.
   const square = board([8, 9], { extra: 20, w: 40, h: 40 });
   assert.equal(glyphAspect(square.entries), 1);
   let fake = reader([square, upright()]);
+  assert.equal(await read(fake), square); assert.equal(fake.calls.length, 1);
+  // Glyphs any taller than wide are upright-shaped.
+  const taller = board([8, 9], { extra: 20, w: 40, h: 41 });
+  assert.ok(glyphAspect(taller.entries) > 1);
+  fake = reader([taller, upright()]);
   assert.equal((await read(fake)).turns, 2);
   // Five value regions give no glyph aspect at all.
   const few = board([8, 9], { extra: 3 });
