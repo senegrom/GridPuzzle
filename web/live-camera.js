@@ -4,7 +4,8 @@ import { qualityMessage } from './scan-quality.js';
 import { Scanner } from "./scanner.js";
 import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
-import { createLiveTracker } from "./live-tracker.js";
+import { createLiveTracker, isLostFrame, lostFrame, REFUSAL_LIMIT } from "./live-tracker.js";
+import { pictureless } from "./live-tracking-pixels.js";
 import { createLiveSession, releaseImage } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
@@ -48,6 +49,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   let active = false, detection = null, epoch = 0, lastDetect = -Infinity, trackAfter = -Infinity, anchorMs = 0;
   let ownVerifiedAt = -Infinity;
+  // Verification frames of the camera's own readback lost in a row, for want
+  // of a picture (live-tracker.js), since the last verification that
+  // completed; see track().
+  let lostInRow = 0;
   let raw = null, guide = null, guideFrame = null, displayed = null;
   // "live" while frames are sampled, tracked and read. The first render that
   // shows a verified, unique and complete solution freezes the view: the
@@ -155,16 +160,26 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // done here ("imagedata", as before, and for a tracker without transports).
   // Once the transport is known, the readback or the bitmap's copy of the
   // snapshot happens in the caller's tick; until then it waits for the
-  // handshake. A bitmap that cannot be made gives bitmaps up, and so does one
+  // handshake. A bitmap that cannot be made loses its frame, and so does one
   // that is not the snapshot's size: WebKit resolves with a blank 1 × 1
   // bitmap when it cannot allocate the copy (createBlankImageBuffer in its
   // ImageBitmap.cpp). Stretched over the tracking pixels, that would give an
   // anchor with nothing in it, which every later blank frame "verifies" at the
-  // detection's corners whatever the camera does.
+  // detection's corners whatever the camera does. The tracker's error for a
+  // lost frame is an AbortError, which drops that frame alone; only losses
+  // that persist give bitmaps up (REFUSAL_LIMIT in live-tracker.js). A
+  // readback of the camera's own that is transparent at every point the
+  // worker checks a bitmap's at is a snapshot of a video that had no picture
+  // to draw: that frame is lost too rather than verified (or anchored) on
+  // nothing (live-tracking-pixels.js).
   async function contentFrame(image) {
     const [width, height] = trackingSize(image), size = [image.width, image.height];
     const transport = !tracker.ready ? "imagedata" : tracker.transport ?? await tracker.ready();
-    if (transport !== "bitmap") return { image: contentPixels(image), width, height };
+    if (transport !== "bitmap") {
+      const pixels = contentPixels(image);
+      if (pictureless(pixels)) throw tracker.readbackBlank?.() ?? lostFrame();
+      return { image: pixels, width, height };
+    }
     let bitmap;
     try { bitmap = await createImageBitmap(image); } catch { throw tracker.bitmapFailed(); }
     if (bitmap.width !== size[0] || bitmap.height !== size[1]) { bitmap.close(); throw tracker.bitmapFailed(); }
@@ -507,6 +522,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // The next newly presented frame verifies this candidate. Do not sample
       // the video here: a delayed detector must not refresh a stalled feed.
     } catch (error) {
+      if (isLostFrame(error)) reportCounts();
       if (job.anchoring && current()) { job.failed = trackingFailed(error, owner); return; }
       if (current()) { guide = guideFrame = null; session.invalidate(); guidance(error.message || "Cannot find the grid. Adjust the camera."); }
     } finally {
@@ -521,9 +537,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (detection === job) detection = null;
     }
   }
+  // The tracker's counts of lost frames reach the export when a frame is
+  // lost, and when bitmaps are given up, not only with the next verification:
+  // a scan that freezes, aims or closes after them still reports them. Only
+  // while the camera is on: a closed camera's diagnostics may serve a photo.
+  function reportCounts() { if (active) diagnostics?.trackingStats?.(tracker.stats); }
   // Whether the failure was handled: the caller's frame, the one the worker
   // failed on, is then kept as the picture scanned unless a newer one is
-  // (see `scanned`).
+  // (see `scanned`). An AbortError is none: a retired request, or a frame
+  // lost to its bitmap (live-tracker.js), which the caller drops, keeping the
+  // reading, its proofs and the adopted frame.
   function trackingFailed(error, owner) {
     if (!active || owner !== epoch || error?.name === "AbortError") return false;
     if (error?.name === "NotSupportedError") { transportRestart(); return true; }
@@ -539,12 +562,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     render();
     return true;
   }
-  // The tracker gave bitmaps up and reset itself (live-tracker.js): its worker,
-  // and every anchor in it, is gone. Acquisition starts again on pixels read
-  // back here. That is no tracking failure: no back-off, no Restart. A
-  // detection in flight is abandoned, not cancelled, so the geometry worker
-  // stays warm.
+  // The tracker gave bitmaps up and reset itself (live-tracker.js: bitmap
+  // frames kept being lost, or one could not be transferred, or a worker's
+  // first bitmap job went unanswered): its worker, and every anchor in it, is
+  // gone. Acquisition starts again on pixels read back here. That is no
+  // tracking failure: no back-off, no Restart. A detection in flight is
+  // abandoned, not cancelled, so the geometry worker stays warm.
   function transportRestart() {
+    reportCounts();
     epoch++; dropProofs(); discardCandidate(); abandonDetection();
     guide = guideFrame = null; session.invalidate("tracking-transport");
     lastDetect = trackAfter = ownVerifiedAt = -Infinity;
@@ -562,6 +587,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // change of settings and a tracking failure each start a new epoch.
       if (owner !== epoch) { frame.bitmap?.close(); return; }
       const result = await tracker.verify({ ...frame, anchors });
+      lostInRow = 0;
       if (active && owner === epoch) diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: false });
       // Fence by snapshot time: a reply is adopted while its own snapshot is
       // within STALE and newer than the last adopted one, also after an older
@@ -609,6 +635,21 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       diagnostics?.tracking(tracker.stats, { frame: id, age: now() - at, matched: !!guide, stale: delayedTier(),
         rejection: Object.values(result.rejections ?? {})[0] });
     } catch (error) {
+      // A frame lost to its pixels (live-tracker.js) is dropped like a
+      // retired one; it is counted in the export at once, and the next frame
+      // is sampled at once rather than an interval later: at a settled
+      // reading's 250 ms, waiting would age the adopted frame past the live
+      // tier, which marks the view as catching up for LIVE_SETTLE. Every lost
+      // bitmap frame does so: their losses end when a bitmap job completes or
+      // bitmaps are given up (REFUSAL_SPAN). On the camera's own readback,
+      // which gives nothing up, only the first REFUSAL_LIMIT - 1 in a row do,
+      // as many as the tracker rides out on bitmaps whenever they come: a
+      // video that keeps having no picture would otherwise be read back here,
+      // in full, at its frame rate.
+      if (isLostFrame(error)) {
+        reportCounts();
+        if (active && owner === epoch && (tracker.transport === "bitmap" || ++lostInRow < REFUSAL_LIMIT)) scheduler.expedite();
+      }
       // The frame the worker failed on is kept as the picture scanned, unless
       // a newer one is.
       if (trackingFailed(error, owner) && !kept) { keepScanned(image, at); kept = true; }

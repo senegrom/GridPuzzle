@@ -53,6 +53,20 @@ async function begin() {
     state.stream?.getVideoTracks().forEach(t=>t.requestFrame?.());
   }
   draw();paint();const stream=source.captureStream(12);state.stream=stream;video.srcObject=stream;
+  // Lost frames on demand (live-tracker.js, REFUSAL_LIMIT): each entry of
+  // state.inject is what the next bitmap of a 480 x 640 snapshot (the camera's
+  // frames; the handshake's probe is 2 x 2) turns into: "transparent", a
+  // bitmap of the right size that reads back transparent, which the worker
+  // refuses (WebKit on CI once refused one frame so); "tiny", 1 x 1 (WebKit's
+  // blank bitmap when it cannot allocate the copy), which the camera refuses;
+  // or null, the frame's own. Only a camera whose handshake decided for
+  // bitmaps makes any.
+  const makeBitmap=window.createImageBitmap;state.inject=[];state.injected=[];
+  if(makeBitmap)window.createImageBitmap=(image,...rest)=>{
+    const kind=image?.width===480&&image?.height===640&&state.inject.length?state.inject.shift():null;
+    if(kind)state.injected.push(kind);
+    return kind==='transparent'?makeBitmap(new ImageData(480,640)):kind==='tiny'?makeBitmap(new ImageData(1,1)):makeBitmap(image,...rest);
+  };
   const clock=setInterval(paint,80),reader=new Scanner();
   const camera=createLiveCamera({$:id=>document.getElementById(id),video,canvas:out,diagnostics,
     getSettings:()=>({type:'auto',rows:9,cols:9,boxRows:3,boxCols:3,enabled:true,autoSolve:false}),
@@ -64,7 +78,7 @@ async function begin() {
     try{const shot=camera.capture();if(shot.found)found={cells:[...shot.found.puzzle.cells],type:shot.found.puzzle.type,
       review:shot.found.needsReview,refining:!!shot.found.refining,uncertain:[...(shot.found.uncertain??[])]};
       shot.photo.width=shot.photo.height=shot.annotated.width=shot.annotated.height=0;}catch{/* no accepted frame */}
-    return{found,expected:[...values],reads:state.reads,completed:state.completed,ticks:state.ticks,
+    return{found,expected:[...values],reads:state.reads,completed:state.completed,ticks:state.ticks,injected:[...state.injected],
       diagnostic:diagnostics.snapshot(),status:document.getElementById('camera-help').textContent};
   };
   // The witness pixel of the frame the camera adopted last (its proofs' frame;
@@ -79,6 +93,7 @@ async function begin() {
     try{await Promise.race([video.play(),new Promise((_,reject)=>{deadline=setTimeout(()=>reject(Error('Noisy video did not start')),20000);})]);
       camera.start();state.started=true;}catch(e){state.error=e.message;}finally{clearTimeout(deadline);}};
   state.stop=()=>{camera.stop();clearInterval(clock);stream.getTracks().forEach(t=>t.stop());reader.cancel();
+    if(makeBitmap)window.createImageBitmap=makeBitmap;
     video.srcObject=null;video.remove();out.remove();start.remove();source.width=source.height=template.width=template.height=0;};
 }
 async function run(){const server=await serve();try{
@@ -103,14 +118,44 @@ async function run(){const server=await serve();try{
       const restored=await page.waitForFunction(()=>{const v=noiseState.snapshot();return v.found?v:false;},null,{timeout:10000});
       report.restored=await restored.jsonValue();await restored.dispose();
       assert.equal(report.restored.reads,1,'brief obstruction should not discard finished OCR');
-      await page.evaluate(()=>noiseState.change());
+      // Where the handshake decided for bitmaps (not Windows WebKit, whose
+      // workers have no OffscreenCanvas), a frame whose bitmap reads back
+      // transparent and one whose bitmap is 1 x 1, two good frames apart,
+      // during the tracked reading: each is lost alone, so the reading stays,
+      // read once, and so do bitmaps.
+      const bitmaps=report.restored.diagnostic.tracking.transport==='bitmap';
+      if(bitmaps){
+        await page.evaluate(()=>noiseState.inject.push('transparent',null,null,'tiny'));
+        const lost=await page.waitForFunction(()=>{if(noiseState.inject.length)return false;const v=noiseState.snapshot(),t=v.diagnostic.tracking;
+          return t.refusedFrames>=1&&t.unmadeFrames>=1&&v.found?v:false;},null,{timeout:15000});
+        report.lost=await lost.jsonValue();await lost.dispose();
+        assert.deepEqual(report.lost.injected,['transparent','tiny']);
+        assert.equal(report.lost.reads,1,'a lost frame does not retire the reading');
+        assert.deepEqual(report.lost.found.cells,report.lost.expected);
+        assert.equal(report.lost.diagnostic.tracking.transport,'bitmap');assert.equal(report.lost.diagnostic.tracking.transportReason,'probe');
+        assert.equal(report.lost.diagnostic.events.some(e=>e.reason==='tracking-transport'),false,'bitmaps are not given up');
+        // The export splits the refused frames by the worker's reason (the
+        // injected one reads back transparent: refusedBlank; any other is
+        // this engine losing a frame by itself).
+        const t=report.lost.diagnostic.tracking;
+        assert.equal(t.refusedIncomplete+t.refusedBlank+t.refusedFailed,t.refusedFrames,'every refused frame has its reason');
+      }else report.lost='not applicable: the handshake decided for the camera\'s own readback';
+      // The change, and (with bitmaps) a frame lost right after it, as CI's
+      // WebKit lost one there: the reading is still retired as changed content.
+      await page.evaluate(lose=>{noiseState.change();if(lose)noiseState.inject.push('transparent');},bitmaps);
       const changed=await page.waitForFunction(()=>{const v=noiseState.snapshot();return noiseState.completed>=2&&v.found?.cells[1]===3?v:false;},null,{timeout:60000});
       report.changed=await changed.jsonValue();await changed.dispose();
       assert.equal(report.changed.reads,2);assert.deepEqual(report.changed.found.cells,report.changed.expected);
       assert.ok(report.changed.diagnostic.events.some(e=>e.reason==='content-changed'));
+      if(bitmaps){
+        assert.deepEqual(report.changed.injected,['transparent','tiny','transparent']);
+        assert.equal(report.changed.diagnostic.tracking.transport,'bitmap');
+        assert.equal(report.changed.diagnostic.events.some(e=>e.reason==='tracking-transport'),false,'bitmaps are not given up');
+      }
       report.checks=['auto type, automatic grid detection and real OCR complete on independently noisy video',
         '22 clues and all blank cells unchanged; one initial full read','covered pixels cannot carry old metadata',
-        'changed 8 to 3 retires original reading and triggers fresh OCR'];
+        ...(bitmaps?['a frame whose bitmap reads back transparent and one whose bitmap is 1 x 1 are each lost alone: the reading stays, read once, on bitmaps']:[]),
+        `changed 8 to 3 retires original reading and triggers fresh OCR${bitmaps?', also with a frame lost right after the change':''}`];
       await page.screenshot({path:`browser-artifacts/${name}-live-noise.png`});
     }finally{report.final=await page.evaluate(()=>window.noiseState?.snapshot()).catch(()=>null);
       await page.evaluate(()=>window.noiseState?.stop()).catch(()=>{});}

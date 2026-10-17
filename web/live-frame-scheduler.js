@@ -24,8 +24,11 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
       return `frames:${video.webkitDecodedFrameCount}`;
     return Number.isFinite(video.currentTime) ? `time:${video.currentTime}` : null;
   }
+  // A video without a current frame (HAVE_NOTHING or HAVE_METADATA) draws
+  // nothing (HTML's drawImage), so a snapshot of it would be transparent: no
+  // frame is processed before the video has one (HAVE_CURRENT_DATA, 2).
   function observe(value) {
-    if (!video.videoWidth || !video.videoHeight || video.readyState === 0 || video.paused === true || video.ended === true || value === null) return;
+    if (!video.videoWidth || !video.videoHeight || video.readyState < 2 || video.paused === true || video.ended === true || value === null) return;
     const [kind, count] = value.split(':'), [previousKind, previous] = (token ?? '').split(':');
     if (kind === previousKind && Number(count) <= Number(previous)) { duplicates++; return; }
     token = value;
@@ -100,6 +103,10 @@ export function createFrameScheduler({ video, onFrame, onHeartbeat = () => {},
       if (callback !== null) { try { video.cancelVideoFrameCallback(callback); } catch { /* already retired */ } }
       callback = null; lastSeen = -Infinity;
     },
+    // The next new frame is processed whatever the interval, once: the camera
+    // lost the frame it processed last (live-camera.js), whose evidence would
+    // otherwise be replaced only an interval later.
+    expedite() { lastProcessed = -Infinity; },
     get fresh() { return running && now() - lastSeen <= 500; },
     get stats() { return { mode: native ? 'video-frame' : 'fallback', observed, processed, skipped, duplicates, discarded,
       intervalMilliseconds: boundedInterval(), fallbacks, callbackStalled: native && now() - lastNative >= 1000, fresh: running && now() - lastSeen <= 500 }; },

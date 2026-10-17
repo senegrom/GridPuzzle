@@ -142,6 +142,59 @@ test('the export says why tracking used its transport and how long the handshake
  t=d.snapshot().tracking;assert.equal(t.transportReason,null,'a new scan has none yet');assert.equal(t.handshakeMilliseconds,null);
 });
 
+// Frames lost to their bitmaps (live-tracker.js, REFUSAL_LIMIT), or to a
+// readback of the camera's own with no picture: one costs only
+// itself, so the transport and its reason stay; the export counts them per
+// cause, as numbers the tracker keeps across its resets, and a new scan
+// starts with none.
+test('the export counts the frames lost to a bitmap the worker refused or the camera could not make, or to a blank readback, beside the transport',()=>{
+ const d=createScanDiagnostics();d.begin('live',{});
+ d.tracking({transport:'bitmap',transportReason:'probe',refusedFrames:0,unmadeFrames:0},{frame:1,age:30,matched:true});
+ let t=d.snapshot().tracking;assert.equal(t.refusedFrames,0);assert.equal(t.unmadeFrames,0);
+ d.tracking({transport:'bitmap',transportReason:'probe',refusedFrames:1,unmadeFrames:2},{frame:2,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['bitmap','probe',1,2]);
+ // A reset (the freeze, Clear) leaves the tracker no transport but its counts.
+ d.tracking({transport:null,refusedFrames:1,unmadeFrames:2},{frame:3,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['bitmap','probe',1,2]);
+ d.tracking({transport:'imagedata',transportReason:'refused',refusedFrames:3,unmadeFrames:2},{frame:4,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.refusedFrames,t.unmadeFrames],['imagedata','refused',3,2]);
+ // The refused ones by the worker's reason; on the camera's own readback, the
+ // frames lost to a readback with no picture.
+ d.tracking({transport:'imagedata',transportReason:'refused',refusedFrames:3,refusedIncomplete:1,refusedBlank:2,refusedFailed:0,unmadeFrames:2,blankReadbacks:4},{frame:5,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual([t.refusedFrames,t.refusedIncomplete,t.refusedBlank,t.refusedFailed,t.unmadeFrames,t.blankReadbacks],[3,1,2,0,2,4]);
+ const counts=['refusedFrames','refusedIncomplete','refusedBlank','refusedFailed','unmadeFrames','blankReadbacks'];
+ d.tracking({transport:'imagedata',refusedFrames:'PRIVATE',refusedIncomplete:'PRIVATE',refusedBlank:{},refusedFailed:[1],unmadeFrames:{},blankReadbacks:[1]},{frame:6,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual(counts.map(key=>t[key]),counts.map(()=>null));
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+ d.begin('live',{});d.tracking({},{frame:1,age:30,matched:true});
+ t=d.snapshot().tracking;assert.deepEqual(counts.map(key=>t[key]),counts.map(()=>null),'a new scan has none yet');
+});
+
+// A frame lost, or bitmaps given up, between two verifications: the camera
+// passes the tracker's stats at once (trackingStats), so a scan that freezes,
+// aims or closes after them still reports them. The counts and the transport
+// are the tracker's then; the latest verification's frame fields stay, and no
+// metric is added.
+test('between verifications the export takes the tracker\'s counts and keeps the latest verification\'s frame',()=>{
+ let time=0;const d=createScanDiagnostics({now:()=>time});d.begin('live',{});
+ d.trackingStats({transport:null,unmadeFrames:1,refusedFrames:0});
+ let t=d.snapshot().tracking;assert.equal(t.unmadeFrames,1,'also before any verification');assert.equal(t.transport,null);
+ assert.equal(Object.hasOwn(t,'frame'),false,'and no frame of its own');
+ d.tracking({transport:'bitmap',transportReason:'probe',handshakeMilliseconds:4,milliseconds:20,transportMilliseconds:9,unmadeFrames:1,refusedFrames:0},
+  {frame:7,age:30,matched:true,stale:true,rejection:{reason:'cell-content',region:3}});
+ const before=d.snapshot();time=100;
+ d.trackingStats({transport:'bitmap',transportReason:'probe',handshakeMilliseconds:4,milliseconds:20,transportMilliseconds:9,unmadeFrames:1,refusedFrames:1,refusedBlank:1});
+ t=d.snapshot().tracking;
+ assert.deepEqual([t.refusedFrames,t.refusedBlank,t.unmadeFrames],[1,1,1]);
+ assert.deepEqual([t.frame,t.ageMilliseconds,t.verified,t.tier,t.mismatch,t.region],[7,30,true,'delayed','cell-content',3],'the latest verification\'s frame');
+ for(const key of ['trackingWorker','trackingTransport','trackingFrameAge'])assert.deepEqual(d.snapshot().performance[key],before.performance[key],`no ${key} sample`);
+ // After a reset (bitmaps given up, the freeze) the tracker has no transport: the scan's stays.
+ d.trackingStats({transport:null,refusedFrames:3,refusedBlank:3,unmadeFrames:1});
+ t=d.snapshot().tracking;assert.deepEqual([t.transport,t.transportReason,t.handshakeMilliseconds,t.refusedFrames],['bitmap','probe',4,3]);
+ d.trackingStats({transport:'bitmap',refusedFrames:'PRIVATE'});
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);assert.equal(d.snapshot().tracking.refusedFrames,null);
+});
+
 // On a mismatch the export keeps the values the probe read back: channel
 // values of the tracker's synthetic 2 x 2 probe, at most 64 integers 0-255.
 test('the export keeps the probe values of a mismatch, from an allowlist, kept across a reset',()=>{

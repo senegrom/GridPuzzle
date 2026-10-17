@@ -387,23 +387,39 @@ bitmap transport needs all sixteen values within 2. A wrong value, a worker
 without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's WebKit on
 Windows), a probe that cannot be made or transferred, or a reply that cannot
 be received mean the camera's own readback. So does a worker that has not
-answered 300 ms after its start (its first message: loading its modules is no
-part of the transport): it may be stuck on the probe, with every job queued
-behind it, so it is replaced at once by one on the camera's own readback,
-with no failure counted. A wait whose timer fires more than 50 ms late ran
-behind a long task on the main thread, which the answer may have waited for
-(in Chromium a new worker's first `OffscreenCanvas` use waits for the page's
-task to end, and WebKit runs an overdue timer before a reply that is already
-queued, so a busy main thread alone would time the handshake out in both),
-so it is renewed, until the anchor deadline after the worker's start: a
-worker held back by a task that ends more than 50 ms after the wait's end is
-kept, and one that never answers is still replaced on a page that stays
-busy. A task that ends within those 50 ms still times the handshake out, as
-the timer then counts as on time. A worker replaced so
-costs bitmaps only itself: the worker after the next reset (the freeze,
-Clear, Restart) probes again, and only a second worker replaced so in the
-camera session gives bitmaps up for the rest of it. A worker that never
-starts fails as its first anchor would have. Jobs wait for the decision.
+answered when its second 300-ms wait ends on time, 600 ms after its start (its
+first message: loading its modules is no part of the transport): it may be
+stuck on the probe, with every job queued behind it, so it is replaced at once
+by one on the camera's own readback, with no failure counted. A wait whose
+timer fires more than 50 ms late ran behind a long task on the main thread,
+which the answer may have waited for. In Chromium a new worker's first
+`OffscreenCanvas` use waits for the page's task to end. On an iPhone a
+worker's first bitmap or canvas does too: WebKit sets up the worker's
+connection to its GPU process on the main thread and blocks the worker until
+that is done (`callOnMainRunLoopAndWait` in `RemoteRenderingBackendProxy`, in
+every release branch from safari-7615, iOS 16.4, to main). And WebKit
+delivers a reply that reached the page during a long task only after a timer
+that came due during it. A busy main thread alone would time the handshake
+out in each. So such a wait is renewed, until the anchor deadline after the
+worker's start: a worker held back by a task that ends more than 50 ms after
+the wait's end is kept, and one that never answers is still replaced on a
+page that stays busy. A task that ends within those 50 ms holds the answer
+back just the same while its timer counts as on time: with one wait, a task
+ending 300-340 ms after the worker's start timed the handshake out in every
+Chromium trial and in WebKit at 310-330 ms. So the first wait that ends on
+time is renewed too, once per worker, and an answer that comes during the
+renewed wait decides (in Chromium it came a median of under a millisecond
+after the task's end, at most 139 ms on a loaded host; on an iPhone the GPU
+process's set-up for the worker comes after it). The renewal costs a stuck
+worker, which has never been seen, 300 ms more: it is replaced 600 ms after
+its start instead of 300. A worker is still replaced when its answer is not
+in by the end of its first wait and a task then ends within 50 ms after the
+end of its second: two such tasks in a row, or an answer slower than 300 ms
+and one such task. With one wait that worker was replaced at its first. A
+worker replaced so costs bitmaps only itself: the worker after the next reset
+(the freeze, Clear, Restart) probes again, and only a second worker replaced
+so in the camera session gives bitmaps up for the rest of it. A worker that
+never starts fails as its first anchor would have. Jobs wait for the decision.
 On seven corpus photographs, at their own size and scaled to a phone's
 snapshot, and on the live suites' scenes, the two give the same pixels in
 Chromium, bit for bit, and the same proofs and verdicts through shifts,
@@ -419,28 +435,131 @@ corners, whatever both were drawn as.
 Every bitmap is transferred or closed: the worker closes each one it reads
 back, the tracker each one it does not transfer (a replaced queued frame, a
 reset, a failed post, a job prepared for a worker of the other transport), and
-the camera one whose frame or detection was retired while it was made. A
-bitmap failure is no tracking failure: bitmaps are given up for the rest of
+the camera one whose frame or detection was retired while it was made.
+
+A frame whose bitmap fails is lost alone. The worker refuses a bitmap it
+cannot read back: no 2D context there, a bitmap that arrived null, 0 × 0 or
+smaller than the tracking pixels, or a readback with a transparent pixel at
+one of 9 × 9 points, which a snapshot of the camera's picture never has: a
+bitmap that drew nothing there, or a snapshot of a video that had no picture
+to draw (a video draws nothing while it has no current frame, and the
+snapshot's canvas starts transparent). The camera loses a frame whose bitmap
+it cannot make, or that is not its snapshot's size (WebKit's answer when it
+cannot allocate the copy is a blank 1 × 1 bitmap). Tracked, a bitmap that is
+no picture of its snapshot would give an anchor with nothing in it, which
+every later such frame would match at the detection's corners, so no pixel of
+one reaches the tracking core. The lost frame's job fails as a retired one:
+the camera drops the frame and keeps the reading, its proofs, the adopted
+frame and its outline, with no failure, no restart and no new worker; a lost
+anchor is a candidate that is not offered, and detection tries again. After a
+lost verification the next presented frame is sampled at once rather than an
+interval later: at a settled reading's 250 ms the adopted frame would pass the
+live tier's 500 ms before the next one was adopted, which marks the view as
+catching up for two seconds (in the fake-clock simulation it did after any one
+lost frame, and no longer does). Every lost bitmap frame hurries the next one;
+on the camera's own readback only the first two in a row do (below).
+
+The camera's own readback, where bitmaps are not used, loses a frame with no
+picture at all the same way: transparent at every one of the worker's 9 × 9
+points, it is a snapshot of a video that had no picture to draw, or a
+readback that failed into zeros. It is counted and gives nothing up. Before,
+such a readback reached the tracking core: no anchor verified on it, the frame
+was adopted without a proof, and the outline and the reading's counts blinked
+for a frame (300 ms in the simulation), as they did for any such snapshot
+before the worker read bitmaps back. That check is looser than the worker's
+on purpose: the camera's own readback is where every bitmap failure falls
+back to, and an engine that leaves a scaled snapshot's edge partly
+transparent, or the fingerprinting noise below, must not cost it every frame.
+Only the first two such frames in a row since the last verification hurry
+the next sample, as many as the tracker rides out on bitmaps whenever they
+come: a video that keeps having no picture (on an iPhone, the GPU process
+failing to convert the camera's frames) would otherwise be read back in full
+on the main thread at its frame rate, 25-33 times a second at 30 frames a
+second in the simulation, against 3-6 at the sampling interval. Two in a row
+keep the live tier; with only the first hurried, the view was marked as
+catching up in 8-10 of 10 phases. A third in a row, sampled an interval
+later, marks it in 1 of 10 phases at 30 frames a second (in none while every
+one hurried); on the fallback clock three in a row mark it in all 10 either
+way. The run counts the camera's own readbacks only: the bitmap frames lost
+before bitmaps were given up are not in it.
+
+One lost frame says little about the browser: on CI, WebKit refused one
+frame's bitmap in live_noise's changed-content scene (2026-10-14) after
+reading the scan's other bitmaps back right, and giving bitmaps up there
+restarted acquisition and retired the reading before the scene saw its
+content change. So bitmaps are given up only when frames keep being lost: at
+a frame lost that is at least the third in a row, refused or unmade, with no
+bitmap job completed in between, and comes half a second or more after the
+first of them (`REFUSAL_SPAN`), in the camera session: the freeze, Clear and
+Restart do not end the run, a completed bitmap job does. The count alone
+followed the sampling: with the frame after each lost one sampled at once,
+and two bitmaps made of one snapshot when a tick both detects and verifies,
+three frames in a row were lost within 70-100 ms at 30 frames a second, and
+in the simulation's sweep (ten phases of a settled reading) bursts of bitmap
+failures of 100-250 ms gave bitmaps up in 2-7 of 10 phases, where none had
+before the sampling was hurried. Half a second is what three verification
+frames of a settled reading, 250 ms apart, spanned before: no burst of up to
+500 ms gives bitmaps up now, one of 650 ms does in 4-6 of 10 phases and one
+of 800 ms in all 10. A frame made before such a reset can lose its bitmap
+after it; when that loss gives bitmaps up and the worker after the reset has
+decided for the camera's own readback, that worker has no bitmap to lose and
+is kept, and bitmaps are given up for the workers after it. A browser that
+can read no frame back that way loses the anchors of its detections, at
+least 300 ms apart, so it still loses two frames, a fraction of a second,
+before its tracking moves to the camera's own readback. A failure that starts
+during a tracked reading gives bitmaps up 0.54-0.8 s later, after 11-18 lost
+frames at 30 frames a second in the simulation (each hurrying the next) or 7
+on the fallback clock. One that loses up to two frames of every three keeps
+bitmaps, since each completed job ends the run; with each lost frame replaced
+at once by the next, a third of its frames still kept the simulation's view
+on the live tier with its reading and outline, also at 30 frames a second,
+where a detection's anchor takes one of the bitmaps now and then and more
+than two verification frames in a row are lost. So does one that loses more,
+as long as its runs of lost frames end within half a second: three of every
+four lost kept bitmaps, the reading and the live tier at 30 frames a second,
+but on the fallback clock, which samples at most every 100 ms (a browser
+without `requestVideoFrameCallback`), the view was marked as catching up for
+5.5 of 6 seconds, where the count alone gave bitmaps up at the first three in
+a row and read the board again (no such browser has been seen; the counts
+below would show one). The diagnostic report counts the lost frames of each
+cause (`tracking.refusedFrames`, `tracking.unmadeFrames`); its transport and
+reason stay the worker's until bitmaps are given up.
+
+On an iPhone the two causes sort the failures differently from what their
+names suggest (WebKit's release branches safari-7615 to safari-7623, iOS 16.4
+to 26). From iOS 17.4 (safari-7618), a bitmap whose memory the GPU process
+cannot allocate reaches the worker as null, 0 × 0, or a transparent bitmap of
+its full size, and a failed readback in the worker is filled with zeros (in
+the report: `refusedIncomplete` or `refusedBlank`), so a refused frame
+there mostly means memory or transfer trouble, not a browser that cannot read
+bitmaps back. An unmade frame is mostly a snapshot canvas without a buffer
+(iOS 16 caps all canvases' memory) or WebKit's blank 1 × 1. On iOS 17.0 and
+17.1, fingerprinting protection (on in Private Browsing) adds noise to every
+2D draw, the probe's and each frame's, and can lower an opaque pixel's alpha:
+the handshake then mostly decides `mismatch`, or every frame is refused and
+bitmaps are given up at the third. The rule's one limit: losses in a row for
+half a second from a passing condition (memory pressure that lasts, a GPU
+process restarted while the capture survives, iOS 16's canvas memory cap
+before a collection) still give bitmaps up for the rest of the camera
+session; closing and reopening the camera probes for them again. CI's
+WebKit, on Linux, moves bitmaps between threads and plays its synthetic
+camera through other code than an iPhone's, so its lost frames say little
+about phones; an iPhone's export is the evidence for them.
+
+Bitmaps given up are no tracking failure: they are given up for the rest of
 the camera session, the worker is reset with its anchors, and the camera
 starts acquisition again at once on its own readback, with no back-off and no
-Restart (a `tracking-transport` event; the diagnostic report gives the cause).
-These give bitmaps up whenever they happen: the worker cannot read a bitmap
-back (no 2D context there, a bitmap that arrived null, 0 × 0 or smaller than
-the tracking pixels, or a readback with a transparent pixel, which a camera
-snapshot never has: a bitmap that drew nothing), a bitmap cannot be
-transferred, or the camera cannot make one or gets one of another size than
-its snapshot (WebKit's answer when it cannot allocate the copy is a blank
-1 × 1 bitmap). Tracked, a bitmap that is no picture of its snapshot would give
-an anchor with nothing in it, which every later such frame would match at the
-detection's corners. These give bitmaps up only before any bitmap job of the
-worker has completed, and count as tracking failures, as before, once one
-has: a reply that cannot be received, a job's deadline, and the worker dying
-with a bitmap job in it. A bitmap that cannot be made for a frame the freeze
-has retired gives bitmaps up too, with no restart and no event while the view
-is frozen; the scans after Clear report the cause. The worker reports the
-tracking core's time apart from the transport's draw and readback, and only
-the core's paces the frames, so moving the readback into the worker does not
-slow them.
+Restart (a `tracking-transport` event; the diagnostic report gives the cause,
+for lost frames that of the frame that made the losses persist). A bitmap
+that cannot be transferred gives them up whenever it happens. These give
+bitmaps up only before any bitmap job of the worker has completed, and count
+as tracking failures, as before, once one has: a reply that cannot be
+received, a job's deadline, and the worker dying with a bitmap job in it; a
+frame the worker refused completes no job. A bitmap that cannot be made for a
+frame the freeze has retired is lost and counted, with no event while the
+view is frozen. The worker reports the tracking core's time apart from the
+transport's draw and readback, and only the core's paces the frames, so
+moving the readback into the worker does not slow them.
 
 ### Live and delayed views
 
@@ -519,12 +638,16 @@ has gone silent is abandoned only after a second without one and two
 independent advances of the playback counters, with dropped frames subtracted;
 a timer or the media clock alone cannot authorize the switch, and callbacks
 from before the switch are fenced. Repeated starts and shutdown fence every old
-callback.
+callback. No frame is processed while the video has no current frame
+(`readyState` below `HAVE_CURRENT_DATA`): drawing such a video draws nothing,
+so its snapshot would be transparent. Before, only `HAVE_NOTHING` was skipped.
 
 Frames are processed at most every 100 ms, back off to 250 ms once a reading
 is settled and up to 300 ms when recent worker timing calls for it; the
-latest-frame queue stays bounded. Since the video is the display, a processed
-frame is sampled (drawn from the video into a snapshot of at most 1600 pixels)
+latest-frame queue stays bounded. The frame after a lost verification is
+processed at once, whatever the interval (see "How the frames reach the
+worker"). Since the video is the display, a processed frame is sampled
+(drawn from the video into a snapshot of at most 1600 pixels)
 only for the pipeline's own work: to verify a pending candidate, the guide or
 a reading, and once per detection. While the camera aims at no grid that is
 one snapshot per detection, every 300 ms, which detection gets itself; no
@@ -717,8 +840,9 @@ shown on the wrong frame. Start/Stop cycles reset the pipeline, a repeated Start
 is idempotent, and retired detector clean-up or solver errors cannot cancel a
 newer request. Stop releases the scratch canvases, the newest scanned frame
 and any pending read samples as well as the timers and workers. A bitmap
-transport failure is none of these failures: it switches to the camera's own
-readback and starts acquisition again (see "How the frames reach the worker").
+transport failure is none of these failures: a frame whose bitmap fails is
+lost alone, and bitmaps given up switch to the camera's own readback and start
+acquisition again (see "How the frames reach the worker").
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -748,14 +872,29 @@ off; `tracking.probePixels` then holds the values the 2 × 2 probe read back),
 `no-pixels` (the worker could not draw it), `unreadable` (its answer could not
 be received), `no-bitmaps` (the page makes none) or `probe-failed` (the probe
 could not be made or transferred); without a handshake, `timeout` (the worker
-replacing one with no answer within the handshake's wait; after a second
-such worker in the camera session, bitmaps are given up and every later
-worker says `timeout` too); once bitmaps were given up in the camera session
+replacing one with no answer when the handshake's second wait ended on time;
+after a second such worker in the camera session, bitmaps are given up and
+every later worker says `timeout` too); once bitmaps were given up in the camera session
 for another cause, that cause: `refused` (the worker could not read a bitmap
-back), `untransferable`, `unmade` (the camera could not make a bitmap of its
-snapshot, or got one of another size) or `unanswered` (a worker's first
-bitmap job reached its deadline, got an unreadable reply or the worker died
-in it).
+back) or `unmade` (the camera could not make a bitmap of its snapshot, or got
+one of another size), each for the frame that made the losses persist (the
+third or a later one in a row, half a second or more after the first),
+`untransferable`, or `unanswered` (a worker's first bitmap job reached its
+deadline, got an unreadable reply or the worker died in it).
+`tracking.refusedFrames` and `tracking.unmadeFrames` count the camera
+session's frames lost to a bitmap the worker could not read back, or the
+camera could not make or got of another size; each cost that frame alone, so
+an export with `bitmap` and `probe` and a count above 0 had frames lost
+without giving bitmaps up. `tracking.refusedIncomplete`,
+`tracking.refusedBlank` and `tracking.refusedFailed` split the refused ones
+by the worker's reason: the bitmap did not arrive whole (null, 0 × 0 or
+smaller than the tracking pixels), it read back with a transparent pixel, or
+drawing or reading it back failed. `tracking.blankReadbacks` counts the
+frames lost on the camera's own readback because it had no picture. These
+counts reach the export when a frame is lost and when bitmaps are given up,
+not only with the next verification, so a scan that freezes, aims or closes
+right after a loss still reports it; the fields of the latest verification's
+frame stay as they were.
 `tracking.handshakeMilliseconds` is the time from the worker's start to its
 handshake's decision (none without a handshake). `performance.trackingWorker`
 is the tracking core's time and `performance.trackingTransport` the worker's
@@ -954,26 +1093,48 @@ Unit tests (`node --test web/tests/*.test.js`):
   the default probe (a 2 × 2 page canvas holding the four colours), the
   handshake's decision (every way to the camera's own readback, none of them a
   failure, each with its reason and time for the diagnostic report, a worker
-  that has not answered the probe when the wait ends on time replaced at once,
-  a wait that ended late renewed so that the answer after it decides, the
-  renewals bounded by the anchor deadline on a page whose timers all fire
+  that has not answered the probe when its second wait ends on time replaced
+  at once, its first wait that ended on time, or one that ended late, renewed
+  so that the answer after it decides, each worker with a renewal of its own
+  (also the one probing after a worker was replaced for missing the wait),
+  the renewals bounded by the anchor deadline on a page whose timers all fire
   late, the worker after the next reset probing again and a second worker
   replaced so giving bitmaps up, and a worker that never starts failing as
   its first anchor would have), jobs waiting for it, a reset rejecting its
-  waiters, every bitmap transferred or closed, the next
-  job posted only after a reply's continuation (so a freeze there closes its
-  bitmap rather than posting it to the ended worker), the bitmap failures that
-  give bitmaps up without a failure, with their causes, and the later ones
-  that count (a worker that dies once a bitmap job of it completed, idle or on
-  the camera's own readback: its queued bitmap closed, and bitmaps kept for the
-  next worker), the core's time apart from the transport's, and the real
-  worker module drawing a bitmap through a stand-in `OffscreenCanvas`, timed on
-  a clock only its draw moves, and answering a bitmap that arrived null or
-  drew nothing as one it cannot read back. `live-tracking-pixels.test.js`: the
-  worker's readback (one canvas, sized on change, cleared, the whole bitmap
-  drawn, closed on every path, and refused for a bitmap that did not arrive
-  whole or a readback with a transparent pixel, also one only in its last
-  column, its last row or a corner).
+  waiters, every bitmap transferred or closed, the next job posted only after
+  the continuation of a reply or of a lost frame (so a reset there, such as
+  the freeze's, closes its bitmap rather than posting it to the ended worker),
+  a frame whose bitmap the worker refuses or the camera cannot make lost alone
+  (its job failing as a retired one, the worker, its transport and the queued
+  job going on, the frame counted, a refused one by the worker's reason as
+  well), bitmaps given up at the third such frame in a row once half a second
+  has passed since the first of them (frames within it lost alone however
+  many, two lost alone however far apart; every completed bitmap job ends the
+  run and its span, not only a worker's first, a reset does not; the cause
+  that of the last), a refused frame proving nothing to a later bitmap
+  job's deadline, a bitmap failure after the give-up only counted (also
+  before the next worker starts, however long after the first), the third in
+  a row of a frame made before a reset keeping the worker after it that
+  decided for the camera's own readback and giving bitmaps up after it
+  (within half a second of the first it gives nothing up, and the worker
+  after the next reset probes again), and giving them up at once, ending
+  the worker, while that worker's handshake still runs, the other bitmap
+  failures that give bitmaps up without a failure, with their causes, and the
+  later ones that count (a worker that dies once a bitmap job of it
+  completed, idle or on the camera's own readback: its queued bitmap closed,
+  and bitmaps kept for the next worker), the core's time apart from the
+  transport's, and the real worker module drawing a bitmap through a
+  stand-in `OffscreenCanvas`, timed on a clock only its draw moves, and
+  answering a bitmap that arrived null or drew nothing as one it cannot read
+  back, with why. `live-tracking-pixels.test.js`: the worker's readback (one
+  canvas, sized on change, cleared, the whole bitmap drawn, closed on every
+  path, and refused, with its reason, for a bitmap that did not arrive whole
+  or a readback with a transparent pixel, also one only in its last column,
+  its last row or a corner), and the looser check of the camera's own
+  readback (lost only when transparent at every point: a partly transparent
+  one, at an edge, a corner or a half, is kept). `live-frame-scheduler.test.js`
+  also covers the next frame processed at once after a lost one, and no frame
+  before the video has a current one.
 - `live-transport.test.js`: the camera with the bitmap transport on the
   production camera, tracker and tracking core with a fake clock: no tracking
   readback on the main thread, every job carrying a transferred bitmap of a
@@ -988,19 +1149,44 @@ Unit tests (`node --test web/tests/*.test.js`):
   again after the back-off), verification replies too late to adopt (their
   frames released, the ones in time adopted, and at every moment only the
   queued jobs' bitmaps not handed over), verifications that reject every
-  anchor, and the restart on a bitmap failure (once, at once, without a
-  failure, back-off or Restart, the detection in flight abandoned rather than
+  anchor, one frame lost to its bitmap during a tracked reading (refused,
+  drawing nothing, of another size or not made: no restart, no new worker,
+  the reading not read again and its outline never gone, the view never off
+  the live tier, the export still saying `probe` and counting the frame, a
+  refused one by the worker's reason; `diagnostic-report.test.js`: those
+  counts, numbers only, kept across a reset, and taken between verifications
+  without touching the latest one's frame or the metrics), two of every three
+  frames lost (bitmaps, the reading, its outline and the live tier kept, also
+  at 30 frames a second), a burst of bitmap failures shorter than half a
+  second at 30 frames a second (bitmaps and the reading kept, though it lost
+  three frames in a row) and a failure that lasts (bitmaps given up once half
+  a second has passed since the first loss), a queued frame replaced by a
+  newer one not hurrying the next sample, a frame lost after the camera
+  closed adding nothing to the next scan's diagnostics, a readback of the
+  camera's own with no picture lost alone during a tracked reading, one or
+  two in a row, and again a verification later (no blink of the outline or
+  the counts, the live tier kept, counted), and while aiming (no anchor built
+  on one, the export counting it before any verification), a video that
+  keeps having no picture read back at the sampling interval after two
+  hurried samples, not at its 30 frames a second, the first two such frames
+  after bitmaps were given up hurrying their samples as well (the bitmap
+  frames lost before the give-up are not counted with them), and the
+  restart once frames are lost in every frame (at the third,
+  once, at once, without a failure, back-off or Restart, the export counting
+  the third at the give-up, the detection in flight abandoned rather than
   cancelled, a waiting candidate discarded and the outline gone before the
-  next frame, no anchor of the old worker asked for, the frame the bitmap
-  failed on kept as the newest picture scanned, the grid read again, and the
-  cause in the export). Bitmaps that are not their snapshot's size, or draw
-  nothing in the worker's reader, give bitmaps up at the first one: no anchor
-  or proof is built on one, and a grid that moved after its reading freezes
-  where it is. A worker stuck on its probe, or dying on its first bitmap job,
-  leaves the grid read on the camera's own readback (after a Restart a new
-  worker probes again, and a second stuck one gives bitmaps up); a bitmap
-  failure for a frame the freeze retired leaves the frozen view, and the next
-  scan's export gives its cause.
+  next frame, no anchor of the old worker asked for, the frame the bitmaps
+  were given up on kept as the newest picture scanned, the grid read again,
+  and the cause in the export). Bitmaps that are
+  not their snapshot's size, or draw nothing in the worker's reader, are lost
+  until bitmaps are given up at the third in a row: no anchor or proof is
+  built on one, and a grid that moved after its reading freezes where it is.
+  A worker stuck on its probe, or dying on its first bitmap job, leaves the
+  grid read on the camera's own readback (after a Restart a new worker probes
+  again, and a second stuck one gives bitmaps up); a bitmap that cannot be
+  made for a frame the freeze retired is lost alone, leaving the frozen view,
+  counted at once in the frozen scan's export, and the scan after Clear
+  probes for bitmaps again.
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
@@ -1086,7 +1272,13 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 - `live_noise_regressions.cjs` runs automatic type and grid detection, the real
   tracking worker and Tesseract on a continually re-noised grey and blue
   synthetic board, then covers it and changes a digit; labels score output only,
-  and no user photograph is committed. Diagnostics without imagery cannot
+  and no user photograph is committed. Where the handshake decided for bitmaps
+  it also loses frames on purpose (the page's `createImageBitmap` turns the
+  next frames into a bitmap that reads back transparent, which the worker
+  refuses, or a 1 × 1 one, which the camera refuses): one of each during the
+  tracked reading, which stays, read once, on bitmaps, and one right after the
+  change, which must still retire the reading as changed content (as CI's
+  WebKit once lost a frame there). Diagnostics without imagery cannot
   establish an exact visual cause.
 - `live_soak_regressions.cjs` runs twenty camera sessions per browser with
   resolution changes and delayed replies from the real tracking worker, with
