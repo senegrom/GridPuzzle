@@ -13,6 +13,13 @@ test('diagnostics export an allowlist, not arbitrary input, photos, notes, answe
  assert.equal(report.lastReading.cells[0],1);assert.equal(report.stageMilliseconds.reading,50);assert.equal(report.counters.fullReads,1);
  puzzle.cells[0]=4;assert.equal(d.snapshot().lastReading.cells[0],1,'no caller-owned mutable reference is retained');
 });
+test('a reading the scanner turned itself reports its turns, and nothing else does',()=>{
+ const d=createScanDiagnostics();d.begin('photo',{type:'sudoku',rows:4,cols:4});
+ const reported=turns=>{d.event({stage:'checking',reason:'read-complete',found:{puzzle:makePuzzle('sudoku',4),turns}});return d.snapshot().lastReading.turns;};
+ for(const turns of [1,2,3])assert.equal(reported(turns),turns);
+ for(const turns of [undefined,0,4,-1,1.5,'2','PRIVATE',null])assert.equal(reported(turns),0,String(turns));
+ assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
+});
 test('diagnostic event history is bounded and snapshots are independent',()=>{
  const d=createScanDiagnostics();d.begin('live',{});
  for(let i=0;i<300;i++)d.event({stage:i%2?'reading':'checking',reason:'started',targets:[1,2]});

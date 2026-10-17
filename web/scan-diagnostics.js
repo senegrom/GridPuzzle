@@ -31,7 +31,9 @@ function readingOf(found) {
   if (!p || !Array.isArray(p.cells) || p.cells.length > 625) return null;
   return { ...settingsOf(p), cells: p.cells.map(v => v === '#' || v === null || (Number.isInteger(v) && v >= 0 && v <= 625) ? v : null),
     cellUncertain: indices(found.cellUncertain ?? found.uncertain), cageUncertain: indices(found.cageUncertain),
-    markedCells: indices(found.markedCells), needsReview: !!found.needsReview };
+    markedCells: indices(found.markedCells), needsReview: !!found.needsReview,
+    // Quarter turns the scanner turned a still photograph's reading by itself.
+    turns: [1, 2, 3].includes(found.turns) ? found.turns : 0 };
 }
 
 // In-memory, bounded and allowlisted. No image bytes, original filenames,

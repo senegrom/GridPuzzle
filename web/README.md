@@ -209,7 +209,8 @@ reading, checking and solving, with specific reasons where the pipeline knows
 them. It is a bounded in-memory trace, not telemetry.
 
 **Preview diagnostic report** freezes a JSON report containing the build,
-settings, timings, grid geometry, last recognized cells/review flags and bounded
+settings, timings, grid geometry, last recognized cells/review flags (and the
+quarter turns a still photograph's reading was turned by itself) and bounded
 tracking/cancellation counters. It excludes photographs, filenames, URLs,
 stack traces, user notes, Play answers and solver solutions by default. Download
 is a separate user action and no report is automatically uploaded or persisted.
