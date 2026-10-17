@@ -708,9 +708,8 @@ of solving automatically. 6s and 9s count on neither side, nor do 0s, 1s, 8s,
 nothing of the way up. Nor is one whose glyphs measure exactly as tall as wide
 at the median, as whole-cell value boxes do (Kakuro entries, cell-filling
 blobs): that says nothing of the glyphs, and master returns it unchanged too.
-As for quarter turns,
-only still photographs of square grids are checked; the live camera, targeted
-re-reads and non-square grids are not.
+As for quarter turns, only still photographs of square grids are checked; the
+live camera, targeted re-reads and non-square grids are not.
 
 **What keeps upright pages upright.** Three things, and the bar alone is not
 enough.
