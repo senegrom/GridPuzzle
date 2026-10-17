@@ -705,9 +705,10 @@ upside down. The photo flow turns the crop corners with it and, as for any
 reading the scanner turned itself, shows the note and waits for review instead
 of solving automatically. 6s and 9s count on neither side, nor do 0s, 1s, 8s,
 4s and 7s. A reading without a confident digit is not read again: it shows
-nothing of the way up. Nor is one whose middle value box is exactly as tall as
-wide, as whole-cell boxes are (Kakuro entries, cell-filling blobs): that says
-nothing of the glyphs, and master leaves it unread too. As for quarter turns,
+nothing of the way up. Nor is one whose glyphs measure exactly as tall as wide
+at the median, as whole-cell value boxes do (Kakuro entries, cell-filling
+blobs): that says nothing of the glyphs, and master returns it unchanged too.
+As for quarter turns,
 only still photographs of square grids are checked; the live camera, targeted
 re-reads and non-square grids are not.
 
