@@ -45,7 +45,10 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 **Solve clear, unambiguous scans automatically** applies to both still-photo
 recognition and live previews. Switching it off preserves OCR but cancels any
 pending live solve and hides blue answers. Switching it on can use the same
-verified reading; a late response from an earlier solve cannot reappear.
+verified reading; a late response from an earlier solve cannot reappear. A
+still photograph the scanner read turned (a page photographed sideways or
+upside down, see [SCAN_INPUT.md](SCAN_INPUT.md)) is never clear: its reading
+waits for review with a note asking to check the clues against the photograph.
 
 **Wait up to 3 s for clearer clues before freezing**, below it and off by
 default, applies to the live camera's frozen solution. Off, a solved reading
