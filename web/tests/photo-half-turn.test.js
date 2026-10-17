@@ -252,6 +252,28 @@ test("cancellation from the progress message stops before the half-turned read s
   await assert.rejects(read(fake, {}, 9, 9, () => fake.epoch++), { name: "AbortError" });
   assert.equal(fake.calls.length, 1);
 });
+test("the half-turned read is given the scan's diagnostics and nothing else of its options", async () => {
+  // A preview would draw the upside-down crop, and evidence is keyed by the
+  // cells of the first reading's frame, which half a turn moves.
+  const given = [], onDiagnostic = () => {}, fake = reader([inverted(), upright()]), readOnce = fake.readOnce;
+  fake.readOnce = function (...args) { given.push(args[6]); return readOnce.apply(this, args); };
+  const options = { onDiagnostic, onPreview: () => {}, skipEvidence: { 3: "evidence" } };
+  assert.equal((await read(fake, options)).turns, 2);
+  assert.equal(given[0], options, "the first read is the scan's own");
+  assert.deepEqual(Object.keys(given[1]), ["onDiagnostic"]);
+  assert.equal(given[1].onDiagnostic, onDiagnostic);
+});
+test("only value regions count toward the floor: black-cell clues, cage labels and Kakuro sums do not", async () => {
+  // Eight confident digits, five with a 2, 3 or 5, among 16 value regions:
+  // half of them, so enough however many other regions the reading has.
+  for (const kind of ["blackvalue", "label", "across"]) {
+    const turned = board([2, 3, 5, 23, 35, 8, 8, 8], { extra: 8 });
+    for (let i = 0; i < 12; i++) turned.entries.push({ kind, cell: 40 + i, x: 0, y: 0, w: 34, h: 50 });
+    const fake = reader([board([8], { extra: 15 }), turned]);
+    assert.equal((await read(fake)).turns, 2, kind);
+    assert.equal(fake.calls.length, 2, kind);
+  }
+});
 
 // Two real cases: readings recorded with master 889181c in Chromium from
 // corpus photographs (unflagged and flagged values, value-region boxes as
