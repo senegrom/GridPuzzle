@@ -1188,16 +1188,17 @@ for (const turns of [0, 1, 2, 3]) test(`a reading taken ${turns} quarter turns o
   assert.equal(h.state.puzzle.cells[0], 2);
   assert.deepEqual(h.state.corners, before.map((_, i) => before[(i + turns) % 4]));
 });
-// The app's own turn is a guess its first note asks the user to check: with
-// auto-solve on and no cell flagged, a turned reading still waits for review.
-for (const turns of [0, 1, 2, 3]) test(`a reading the app turned ${turns} quarter turns ${turns ? 'waits for review' : 'auto-solves'} with no cell flagged`, async t => {
+// The app's own half turn is a guess its first note asks the user to check:
+// with auto-solve on and no cell flagged, a half-turned reading still waits for
+// review. Quarter-turned readings auto-solve, as unturned ones do.
+for (const turns of [0, 1, 2, 3]) test(`a reading the app turned ${turns} quarter turns ${turns === 2 ? 'waits for review' : 'auto-solves'} with no cell flagged`, async t => {
   const h = photoHarness(t);
   h.$('auto-solve').checked = true;
   h.setFound({ ...cleanReading(), ...(turns ? { turns, notes: ['The photograph was read turned: check the clues against the photograph.'] } : {}) });
   h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
   assert.equal(h.state.uncertain.size, 0);
-  assert.equal(h.state.needsReview, turns > 0);
-  assert.equal(h.solves(), turns ? 0 : 1);
+  assert.equal(h.state.needsReview, turns === 2);
+  assert.equal(h.solves(), turns === 2 ? 0 : 1);
 });
 
 test('notes have one bounded session/backup contract without losing flags, pending evidence or Play', t => {

@@ -928,9 +928,11 @@ export function setupPhotoFlow({
           ...(reviewAllCells ? found.puzzle.cells.keys() : []),
         ]),
         cageUncertain: new Set(found.cageUncertain || []),
-        // A reading the app turned itself (Scanner.orient) is a guess its
-        // first note asks the user to check: shown, and never auto-solved.
-        needsReview: found.needsReview || Boolean(found.turns) || needsBoxReview || reviewAllCells,
+        // A reading the app turned half a turn itself (Scanner.halfTurn) is a
+        // guess its first note asks the user to check, and a wrong half turn
+        // swaps 6s and 9s into confident clues: shown, and never auto-solved.
+        // Quarter-turned readings auto-solve as before.
+        needsReview: found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
         // A reading taken turned (see Scanner.orient) keeps the crop in step,

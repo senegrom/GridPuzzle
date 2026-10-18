@@ -701,9 +701,9 @@ the crop turned half a turn. That reading is kept only when both hold:
   with fewer.
 
 The kept reading carries `turns: 2` and a first note saying the photograph was
-upside down. The photo flow turns the crop corners with it and, as for any
-reading the scanner turned itself, shows the note and waits for review instead
-of solving automatically. 6s and 9s count on neither side, nor do 0s, 1s, 8s,
+upside down. The photo flow turns the crop corners with it and, unlike a
+quarter-turned reading, shows the note and waits for review instead of solving
+automatically. 6s and 9s count on neither side, nor do 0s, 1s, 8s,
 4s and 7s. A reading without a confident digit is not read again: it shows
 nothing of the way up. Nor is one whose glyphs measure exactly as tall as wide
 at the median, as whole-cell value boxes do (Kakuro entries, cell-filling

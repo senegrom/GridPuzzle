@@ -117,9 +117,7 @@ confident digits, both quarter turns are read through the same crop with its
 corners turned, and one is kept only when it reads clearly more confident
 digits (at least 8, and at least twice the upright count plus 3). The reading
 then says so in its first note and carries `turns`; the photo flow turns its
-crop corners with it. A reading the scanner turned itself is a guess: the photo
-flow shows its note and waits for review, and does not solve it automatically
-however few cells are flagged.
+crop corners with it.
 
 A half turn keeps upright-shaped glyphs, so a poor reading of upright-shaped
 glyphs (median height/width above 1) takes a half-turn check instead. Read
@@ -137,9 +135,11 @@ bar alone could turn an upright page. Whole-cell value boxes (a median of
 exactly 1, as Kakuro entries have) say nothing of the glyphs and are not
 checked. The reading then says the photograph was upside down and carries
 `turns: 2`; the photo flow turns the crop corners two places and keeps the box
-layout, and waits for review as for a quarter turn. "Half turns" in
-[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements. The live camera,
-targeted re-reads and non-square grids keep their orientation.
+layout. Unlike a quarter-turned reading, it then waits for review: the photo
+flow shows its note and does not solve it automatically however few cells are
+flagged. "Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
+measurements. The live camera, targeted re-reads and non-square grids keep
+their orientation.
 
 ## Clue-focused live-camera quality
 
