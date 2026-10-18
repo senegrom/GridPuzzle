@@ -449,13 +449,35 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
 }
 // Cells whose digit carries no review flag: what a reading has to offer. A
 // digit highlighted only for its size still counts, since it was read clearly.
-export function confidentDigits(found) {
+function confidentValues(found) {
   const uncertain = new Set(found.uncertain ?? []), noteSized = new Set(found.noteSized ?? []);
-  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && (!uncertain.has(cell) || noteSized.has(cell))).length;
+  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && (!uncertain.has(cell) || noteSized.has(cell)));
 }
+export function confidentDigits(found) {
+  return confidentValues(found).length;
+}
+// Of those, the numbers that show which way up the page is: any with a 2, 3
+// or 5. Read upside down, 0s, 1s and most 8s read as themselves, 6s and 9s as
+// each other, most 2s as 4s and many 4s as 7s, all with confidence, but a
+// number with a 2, 3 or 5 reads with confidence only a 27th as often as on the
+// same page upright (web/OCR_QUALITY.md, "Half turns").
+export function wayUpDigits(found) {
+  return confidentValues(found).filter((value) => /[235]/.test(String(value))).length;
+}
+// Scanner.halfTurn keeps a reading taken half a turn round only with at least
+// HALF_TURN_BAR such numbers, and only when it also reads clearly better than
+// the first: more confident digits, and at least HALF_TURN_FLOOR of them (or
+// half its value regions, on a page with fewer clues). Upside down, some
+// handwriting fonts read an upright page's 8s, 3s or 5s as confident 3s and
+// 5s, so those numbers alone can turn an upright page; but every such reading
+// measured had fewer confident digits than the upright one, or 9 at most.
+export const HALF_TURN_BAR = 5;
+export const HALF_TURN_FLOOR = 12;
 // Median height/width of single, clue-sized value glyphs (at least half the
 // 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
-// Infinity without six such glyphs, which is no evidence either way.
+// Infinity without six such glyphs, which is no evidence either way; exactly
+// 1 when the middle box is a whole cell (Kakuro entries, cell-filling blobs),
+// which is none either.
 export function glyphAspect(values) {
   const heights = values.map((e) => e.h).sort((a, b) => a - b);
   if (heights.length < 6) return Infinity;
@@ -556,12 +578,16 @@ export class Scanner {
   // Printed clue glyphs are taller than wide, so the turn shows as glyphs
   // wider than tall, and as a poor reading. Both quarter turns are then read
   // and one is kept only when it reads clearly more confident digits. A half
-  // turn keeps upright-shaped glyphs, and a poor reading alone is too common
-  // (handwriting, blur) to pay for another read: Rotate covers that case.
+  // turn keeps upright-shaped glyphs, so a poor reading of glyphs taller than
+  // wide takes the half-turn check instead (halfTurn).
   async orient(found, canvas, corners, type, rows, cols, onProgress, options, check) {
     const confident = confidentDigits(found),
-      values = found.entries.filter((e) => e.kind === "value");
-    if (!(glyphAspect(values) < 1) || confident >= values.length / 2) return found;
+      values = found.entries.filter((e) => e.kind === "value"),
+      aspect = glyphAspect(values);
+    if (confident >= values.length / 2) return found;
+    if (aspect > 1 && aspect < Infinity)
+      return this.halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check);
+    if (!(aspect < 1)) return found;
     let best = { found, confident, turns: 0 };
     for (const turns of [1, 3]) {
       check();
@@ -589,6 +615,42 @@ export class Scanner {
       ...best.found,
       turns: best.turns,
       notes: [`The photograph was read turned a quarter turn ${best.turns === 1 ? "anticlockwise" : "clockwise"}: its digits read clearly better that way, so the crop corners were turned with it. Check the clues against the photograph.`, ...best.found.notes],
+    };
+  }
+  // A page photographed upside down keeps upright-shaped glyphs and reads
+  // poorly in a telling way: it still reads digits with confidence, but not
+  // one with a 2, 3 or 5 (wayUpDigits). Only such a poor reading is read once
+  // more half a turn round, and that reading is kept when it has at least
+  // HALF_TURN_BAR numbers with a 2, 3 or 5 and reads clearly better: more
+  // confident digits than the first, and at least HALF_TURN_FLOOR (or half
+  // its value regions). A reading without one confident digit shows nothing
+  // of the way up and is not read again.
+  async halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check) {
+    const confident = confidentDigits(found);
+    if (!confident || wayUpDigits(found)) return found;
+    check();
+    onProgress("Checking which way up the photograph is…", null);
+    check();
+    let turned;
+    try {
+      turned = await this.readOnce(canvas, turnCorners(corners, 2), type, rows, cols, () => {},
+        { onDiagnostic: options.onDiagnostic }, null, check);
+    } catch (error) {
+      // As for a quarter turn: an optional reading may fail, but never a
+      // cancellation, and never with an obsolete reading returned.
+      check();
+      if (error?.name === "AbortError") throw error;
+      return found;
+    }
+    check();
+    const turnedConfident = confidentDigits(turned),
+      turnedValues = turned.entries.filter((e) => e.kind === "value").length;
+    if (wayUpDigits(turned) < HALF_TURN_BAR || turnedConfident <= confident
+      || turnedConfident < Math.min(HALF_TURN_FLOOR, turnedValues / 2)) return found;
+    return {
+      ...turned,
+      turns: 2,
+      notes: ["The photograph was upside down: its digits read clearly better turned half a turn, so the crop corners were turned with it. Check the clues against the photograph.", ...turned.notes],
     };
   }
   async readOnce(canvas, corners, type, rows, cols, onProgress, { onPreview = () => {}, skipEvidence = {}, onDiagnostic = () => {} }, targetCells, check) {

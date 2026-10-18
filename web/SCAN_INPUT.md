@@ -109,7 +109,7 @@ or added to training data.
 
 The EXIF tag is only as good as the phone's guess, and a page shot flat on a
 table is labelled with whichever way the phone happened to be held: the corpus
-holds 18 such photographs (16 a quarter turn off, 2 a half turn). A still
+holds 21 such photographs (19 a quarter turn off, 2 a half turn). A still
 photograph therefore checks its own reading (`Scanner.orient`): clue glyphs
 are taller than wide, so when the clue-sized single glyphs are wider than tall
 (median height/width under 1) and fewer than half the value regions read as
@@ -117,9 +117,28 @@ confident digits, both quarter turns are read through the same crop with its
 corners turned, and one is kept only when it reads clearly more confident
 digits (at least 8, and at least twice the upright count plus 3). The reading
 then says so in its first note and carries `turns`; the photo flow turns its
-crop corners with it. Half turns keep upright-shaped glyphs and are left to
-Rotate: a poor reading alone is too common (handwriting, blur) to pay for
-another read. The live camera, targeted re-reads and non-square grids keep
+crop corners with it.
+
+A half turn keeps upright-shaped glyphs, so a poor reading of upright-shaped
+glyphs (median height/width above 1) takes a half-turn check instead. Read
+upside down, a page's 0s, 1s and 8s still read as themselves, its 6s and 9s as
+each other, most 2s as 4s and many 4s as 7s, all with confidence, but numbers
+with a 2, 3 or 5 read with confidence only a 27th as often as on the same page
+upright. So a poor reading with at least one confident digit and not one with
+a 2, 3 or 5 is read once more through the crop turned half a turn, and that
+reading is kept only when at least 5 of its confident numbers have a 2, 3 or 5
+(`HALF_TURN_BAR`) and it reads clearly better: more confident digits than the
+first reading, and at least 12 (`HALF_TURN_FLOOR`), or half its value regions
+on a page with fewer. The second condition matters: some handwriting fonts
+read an upright page's 8s, 3s or 5s as confident 3s and 5s upside down, so the
+bar alone could turn an upright page. Whole-cell value boxes (a median of
+exactly 1, as Kakuro entries have) say nothing of the glyphs and are not
+checked. The reading then says the photograph was upside down and carries
+`turns: 2`; the photo flow turns the crop corners two places and keeps the box
+layout. Unlike a quarter-turned reading, it then waits for review: the photo
+flow shows its note and does not solve it automatically however few cells are
+flagged. "Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
+measurements. The live camera, targeted re-reads and non-square grids keep
 their orientation.
 
 ## Clue-focused live-camera quality
@@ -168,8 +187,11 @@ boundaries, review flags and clue-vs-grid focus ranking. `photo-import.test.js`,
 `photo-orientation-entries.test.js`, `photo-orientation-agreement.test.js` and
 `webp-import.test.js` cover the import's orientation handling, and
 `photo-import-queue.test.js` and `photo-detail-queue.test.js` the shared decode
-queue. Camera lifecycle tests cover quality guidance, recovery and manual
-capture.
+queue. `photo-orientation.test.js`, `photo-half-turn.test.js` and
+`scanner-orientation-recovery.test.js` cover a still photograph's own
+quarter- and half-turn checks, `photo-orientation-transactions.test.js` the
+photo flow taking a turned reading. Camera lifecycle tests cover quality
+guidance, recovery and manual capture.
 
 `scripts/scan_input_regressions.cjs` runs real image decoding in Chromium and
 mobile WebKit (all eight EXIF orientations plus user turns), original-photo

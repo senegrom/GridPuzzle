@@ -13,7 +13,7 @@ function reading(regions, digits, [w, h] = [34, 50]) {
 }
 function reader(readings) {
   const calls = [];
-  return { calls, epoch: 0, cancel() {}, orient: Scanner.prototype.orient,
+  return { calls, epoch: 0, cancel() {}, orient: Scanner.prototype.orient, halfTurn: Scanner.prototype.halfTurn,
     async readOnce(_canvas, quad, ...rest) { calls.push(quad); return readings[calls.length - 1]; } };
 }
 const read = (fake, options = {}, rows = 9, cols = 9) =>
@@ -56,7 +56,9 @@ test("a digit highlighted only for its size still counts toward a turn", async (
   const found = await read(reader([reading(20, 0, [50, 34]), turned, reading(20, 0)]));
   assert.equal(found.turns, 1); assert.equal(confidentDigits(found), 8);
 });
-test("upright-shaped glyphs or a good reading never pay for a turned read", async () => {
+test("a good reading, or upright-shaped glyphs whose digits show the way up, never pay for a turned read", async () => {
+  // reading(20, 2) reads a 1 and a 2, and a 2 shows the way up
+  // (photo-half-turn.test.js).
   for (const first of [reading(20, 2), reading(20, 12, [50, 34])]) {
     const fake = reader([first]);
     assert.equal(await read(fake), first); assert.equal(fake.calls.length, 1);

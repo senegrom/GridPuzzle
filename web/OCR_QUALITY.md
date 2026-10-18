@@ -293,7 +293,7 @@ after the range check, at least six of them). Taken over every value region
 before the OCR, regions that read nothing and note-heavy grids skew it: the same
 cut flags 49 correct clues instead of 39 and catches 260 errors instead of 266.
 A digit highlighted only for its size still counts as read clearly when
-`Scanner.orient` weighs a quarter turn.
+`Scanner.orient` weighs a quarter or a half turn.
 
 Measured on the whole corpus with `scoreVersion: 4` (Chromium, 2026-10-02),
 against master 7f6269a: the baseline above with #118's re-reads of
@@ -513,7 +513,10 @@ their new rows. The same run read a control of 108 unchanged images, up to five
 from each set, and every one read exactly as before. The twelve images whose
 still-photo detection the settling check changes (`web/GRID_DETECTION.md`,
 "Settling the corners") were read again with it on 2026-10-13, and the table has
-their new rows too; see the end of this section.
+their new rows too; see the end of this section. The two photographs stored
+upside down, wichtounet image1083 and its original, were read again with the
+half-turn check on 2026-10-16 (and again, identically, with its final rule on
+2026-10-17), and the table has their new rows as well; see "Half turns".
 
 | set | images | clues right | unflagged | perfect | grid found | read through unconfirmed corners | failed to read |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -536,11 +539,11 @@ their new rows too; see the end of this section.
 | sudoku/rozet-handwritten | 400 | 15,543 / 17,821 | 20 | 89 | 388 | 22 |  |
 | sudoku/rozet-newspaper | 9 | 247 / 250 | 0 | 6 | 9 | 0 |  |
 | sudoku/rozet-render | 100 | 2,285 / 2,498 | 12 | 57 | 100 | 0 |  |
-| sudoku/wichtounet-newspaper | 203 | 4,606 / 5,902 | 39 | 46 | 194 | 10 |  |
-| sudoku/wichtounet-originals | 46 | 1,263 / 1,328 | 7 | 35 | 45 | 1 |  |
+| sudoku/wichtounet-newspaper | 203 | 4,633 / 5,902 | 31 | 47 | 194 | 10 |  |
+| sudoku/wichtounet-originals | 46 | 1,289 / 1,328 | 0 | 35 | 45 | 1 |  |
 | sudoku/wichtounet-solved | 200 | 9,125 / 16,200 | 74 | 0 | 155 | 48 |  |
 | sudoku/wichtounet-solved-extra | 5 | 253 / 361 | 2 | 0 | 4 | 1 |  |
-| all | 3,978 | 119,729 / 149,672 | 229 | 1,602 | 3,582 | 455 | 5 |
+| all | 3,978 | 119,782 / 149,672 | 214 | 1,603 | 3,582 | 455 | 5 |
 
 The five failures are the Kakuro photo renders that read no clues.
 
@@ -632,7 +635,9 @@ readings change: 127 to 147 right, but 36 to 40 unflagged errors, every new
 one a 6 read as 9 or a 9 as 6. Neither build checks for a half turn: the
 orientation check runs only when glyphs are wider than tall, so both read
 these pages upside down, and the better-placed quad reads their 6s and 9s with
-more confidence. In WebKit, 249 previews detected in all four turns take 7
+more confidence. The half-turn check ("Half turns", below) now turns six of
+the twelve of them that are upside down, and the 14 hold 13 unflagged errors
+instead of 40. In WebKit, 249 previews detected in all four turns take 7
 placements, none farther from the target corners, and wichtounet-originals
 image1024 reads 24 of 24 instead of 3 turned the wrong way. No Kakuro, Killer,
 Str8ts, Slitherlink, Futoshiki or other non-Sudoku image changes in any of
@@ -651,6 +656,198 @@ wichtounet-solved image1087. No cell gains an unflagged error. In WebKit
 master already turns wichtounet-newspaper image1024 (23 of 24 right, 24 with
 the check), and turns its original the wrong way (1 of 24 right, 8 unflagged
 errors), which the check turns the right way (24 of 24).
+
+## Half turns
+
+A page photographed upside down keeps upright-shaped glyphs, so the
+quarter-turn check, which runs only when glyphs read wider than tall, never ran
+on it, and such a page was read upside down. Two corpus photographs are stored
+that way, wichtounet-newspaper image1083 and its original. Every corpus image
+was also read turned half a turn, as two presses of Rotate leave it (Chromium,
+master 889181c, through the import as the benchmark reads it, 2026-10-16), and
+3,956 of the 3,977 readings were upside down: 24,230 of 144,357 clues right and
+14,432 unflagged errors, scored against the target turned with the page,
+against 116,350 and 229 for the same images as stored (Kakuro, whose clues have
+no turned form, left out).
+
+What an upside-down page reads. In 4,629 upside-down readings of the families
+whose clues are cell values (Sudoku, Latin square, Str8ts, Slitherlink, Hidato,
+Numbrix; the half-turned copies' own readings and the upright images read again
+half a turn round), printed digits read with confidence as follows:
+
+| printed | read upside down, with confidence |
+|---|---|
+| 0, 1, 8 | as themselves (464, 1,074 and 5,970 times; an 8 also as a 3, 293 times) |
+| 6, 9 | as each other (6,782 and 7,361 times) |
+| 2 | as a 4 (3,324 times), hardly ever as a 2 (53) |
+| 4 | as a 7 (620) or a 4 (434) |
+| 3, 5, 7 | seldom at all (258, 232 and 20 times as themselves) |
+
+The 4,253 poor readings of upright-shaped glyphs below, from upright and from
+upside-down copies, were each read both ways. Their confident numbers with a 2,
+3 or 5 came to 27,267 the right way up and 1,005 upside down, a 27th. Numbers
+with a 4 or 7 came to 17,205 and 4,008, a quarter, since upside-down 2s and 4s
+read as 4s and 7s; numbers of 0s, 1s, 6s, 8s and 9s alone to 33,648 and 21,063.
+
+**The check** (`Scanner.halfTurn` in `web/scanner.js`). A poor reading (fewer
+than half its value regions read as confident digits) of upright-shaped glyphs
+(median height/width above 1, from at least six glyphs) that has at least one
+confident digit and not one number with a 2, 3 or 5 is read once more through
+the crop turned half a turn. That reading is kept only when both hold:
+- at least 5 of its confident numbers have a 2, 3 or 5 (`HALF_TURN_BAR`); a
+  number counts when any of its digits does;
+- it reads clearly better: more confident digits than the first reading, and
+  at least 12 of them (`HALF_TURN_FLOOR`), or half its value regions on a page
+  with fewer.
+
+The kept reading carries `turns: 2` and a first note saying the photograph was
+upside down. The photo flow turns the crop corners with it and, unlike a
+quarter-turned reading, shows the note and waits for review instead of solving
+automatically. 6s and 9s count on neither side, nor do 0s, 1s, 8s,
+4s and 7s. A reading without a confident digit is not read again: it shows
+nothing of the way up. Nor is one whose glyphs measure exactly as tall as wide
+at the median, as whole-cell value boxes do (Kakuro entries, cell-filling
+blobs): that says nothing of the glyphs, and master returns it unchanged too.
+As for quarter turns, only still photographs of square grids are checked; the
+live camera, targeted re-reads and non-square grids are not.
+
+**What keeps upright pages upright.** Three things, and the bar alone is not
+enough.
+- The cue. An upright page read poorly usually still reads a 2, 3 or 5 with
+  confidence, and is not read again. As stored, 84 of the 3,952 upright corpus
+  photographs take the check in Chromium (lexski-mixed 46, rozet-handwritten
+  30, wichtounet-newspaper 4, 4 others), and 63 of the 445 upright ones in the
+  WebKit sample below. The pages the cue holds can read many such numbers half
+  a turn round: lexski train-0tp6fatzfsoc1 reads 8 as stored and up to 9
+  re-captured, train-hh3v4hvzxync1 5 or 6, wichtounet-solved image1080 and
+  image210 scaled to 60% 5.
+- The bar. Half a turn round, 74 and 56 of the upright pages that take the
+  check read no confident number with a 2, 3 or 5 and the rest one, four
+  short. Sideways readings that take it (20 at one or three presses of Rotate
+  in Chromium, 14 in WebKit) read at most one too.
+- Reading clearly better. Some fonts read an upright page's 8s, 3s or 5s as
+  confident 3s and 5s upside down while its upright 2s, 3s and 5s read
+  flagged, so neither the cue nor the bar holds. The bar alone turned six such
+  pages upside down, in both engines, and Rotate could not undo them, since
+  the turned page read again showed the same numbers: synthetic upright Sudoku
+  pages printed in Bradley Hand ITC (only 1s, 4s, 6s, 7s, 8s and 9s, or nine
+  8s among 27 givens), and rozet-render sudoku_0009 with its printed 3 pasted
+  into the six empty cells whose solution is a 3. Their half-turned readings
+  had 6 to 9 confident digits of 27 to 30 value regions; three of them are
+  kept as recorded tests. The lexski pages above read 13 to 21 half a turn
+  round against 24 to 36 upright. Of every upright or sideways reading
+  measured whose half-turned reading clears the bar (54, with synthetic,
+  edited and re-captured pages), none reads clearly better, the closest by 3
+  confident digits (that Bradley Hand page in Chromium and one edited rozet
+  page, 9 against 12).
+
+Reading clearly better costs few rescues. At two presses in Chromium the bar
+alone turns 1,541 upside-down copies and the check keeps 1,494; the other 47
+read as on master (46 with 6 to 11 confident digits, and lexski
+val-ptd1u655hbcc1, whose value boxes are whole cells). In WebKit it keeps 267
+of 273. On the same Chromium data, for upside-down copies turned, clues right
+and unflagged errors at two presses, and the margin to the closest upright or
+sideways reading:
+
+| rule | turned | clues right | unflagged | margin |
+|---|---:|---:|---:|---:|
+| bar 5 alone | 1,541 | 70,886 | 4,566 | six turned wrongly |
+| bar 5, floor 10 | 1,516 | 70,260 | 4,594 | 1 |
+| bar 5, floor 11 | 1,503 | 69,875 | 4,612 | 2 |
+| **bar 5, floor 12** (the check) | 1,494 | 69,651 | 4,624 | 3 |
+| bar 5, floor 13 | 1,474 | 69,067 | 4,656 | 4 |
+| bar 5, floor 14 | 1,461 | 68,731 | 4,674 | 4 |
+| bar 4, floor 12 | 1,596 | 71,721 | 4,321 | 3 |
+
+Every row also requires more confident digits than the first reading. A bar
+of 4 with the same floor would turn 102 more copies, and the upright and
+sideways pages that take the check would still fall three short of it.
+Counting 4s and 7s as well, as the draft this replaced did ({2, 3, 4, 5, 7},
+read again when at most one shows), reads 191 upright photographs again, and
+one of them, lexski train-jlyi8eny0iwc1, reads four confident 4s upside down.
+Two upright lexski screenshots that take the check read five confident 4s half
+a turn round (train-aa1tenu7iohc1 and train-e7u07n8vxc8c1, the second kept as a
+test).
+
+**Cost.** The check is one more full reading of the photograph, through the
+same crop. On the 84 upright photographs that take it in Chromium, that reading
+took 1.1 s at the median, 2.46 s at the 90th percentile and 4.97 s at most on
+this loaded desktop, about as long as their first reading (also 1.1 s at the
+median), and 119 s in all against the corpus's 6,988 s of reading (1.7%). In
+WebKit the 63 took 1.62 s at the median and 3.01 s at most. Kakuro pages, whose
+value boxes are whole cells, do not pay for it. Nothing else is read again.
+
+**Measured** (master 889181c against a build of the check, b635433, through the
+import as the benchmark reads them, 2026-10-17; the later commits change no
+reading). "As stored" is scored as the v5 table above scores it; turned copies
+are scored with each reading in its own frame, a reading left upside down
+against the target turned with it (Kakuro only upright). Presses count presses
+of Rotate:
+
+| engine, presses | photographs | read again | turned upright | turned wrongly | clues right | unflagged | perfect |
+|---|---:|---:|---:|---:|---|---|---|
+| Chromium, as stored | 3,978 | 86 | 2 | 0 | 119,728 → 119,781 of 149,672 | 229 → 214 | 1,602 → 1,603 |
+| Chromium, one | 617 | 30 | 13 | 0 | 296 → 593 of 17,668 | 94 → 34 | 0 → 8 |
+| Chromium, two | 3,978 | 2,160 | 1,494 | 0 | 24,230 → 69,651 of 144,357 | 14,432 → 4,624 | 21 → 799 |
+| Chromium, three | 656 | 7 | 0 | 0 | 775 of 17,875 either way | 27 | 9 |
+| WebKit, as stored | 456 | 65 | 2 | 0 | 14,654 → 14,709 of 20,460 | 47 → 32 | 125 → 127 |
+| WebKit, one | 60 | 25 | 12 | 0 | 119 → 395 of 1,857 | 63 → 13 | 0 → 8 |
+| WebKit, two | 447 | 359 | 267 | 0 | 3,599 → 12,014 of 19,494 | 2,378 → 411 | 7 → 140 |
+| WebKit, three | 29 | 5 | 0 | 0 | 57 of 846 either way | 0 | 0 |
+
+Grid found, unconfirmed corners and failures are the same on both sides in
+every row. No upright or sideways page is turned and no turn is lost in any of
+them. Every reading of the check's build is exactly the one predicted from
+master's own half-turned reading of the same image (2,484 readings, both
+engines).
+- As stored, only image1083 and its original change: turned, 28 and 27 of 28
+  clues right instead of 1, unflagged errors 8 and 7 to none. Fresh master
+  reads 119,728 clues right, one fewer than the table's two stale WebP rows;
+  the table above keeps those rows and adds this change's two. The check's
+  build read the 106 photographs the bar alone read again (its 86 among them)
+  and 60 others; every reading but those two is master's. The rest cannot
+  reach the extra reading: they read well, their glyphs are wider than tall,
+  exactly as tall as wide or too few to measure, their grid is not square, or
+  they show a 2, 3 or 5.
+- One press: the 30 read again are 13 sideways readings and 17 upside-down
+  ones, from the 19 photographs stored a quarter turn off (wichtounet-newspaper
+  image1024, 1031, 1036, 1038, 1039, 1040, 1041 and 1043 and their originals,
+  and wichtounet-solved-extra image2002, 2004 and 2005), which one press leaves
+  upside down. 13 turn (image1024 reads 24 of 24 instead of 3); the image1036 pair and
+  solved-extra 2004 and 2005 read three and two numbers with a 2, 3 or 5 and
+  fall short. Cell by cell 298 clues become right and one is lost, flagged (the
+  4 at r6c0 of image1038's original); no cell gains an unflagged error.
+- Two presses: the check's build read 1,700 photographs, every one the bar
+  alone turned among them; the check keeps a subset of those, so no other can
+  change. Cell by cell 45,771 clues become right and 350 that master read
+  upside down are lost, all of them flagged, 287 missed by the upright reading
+  too. 31 cells gain an unflagged error: on 17 the upright reading makes the
+  same error, on 9 it reads the same digit flagged, and 5 are errors of the
+  turned reading's own. No image's unflagged errors rise (1,415 of the 1,494
+  turned fall, 79 stay), and clues right fall on one image only,
+  janko-slitherlink-1139-photo (4 to 3 of 73), read through unconfirmed
+  corners so every cell is flagged, as its upright reading (3 of 73) is. On the
+  measured images 1s read right go from 3,356 to 6,572 (6,778 upright), and in
+  no family fewer.
+- Three presses: 7 sideways readings are read again and none turns.
+- WebKit: as stored, the bar alone's 80 and 30 others; two presses, its 273
+  turns, 37 more it read again and 20 others; one and three presses,
+  Chromium's 60 and 29. At two presses 8 cells gain an unflagged error (4 the
+  same as Chromium's upright reading, 1 the same digit flagged there, 3 the
+  turned reading's own) and 35 clues are lost, all flagged; no image's
+  unflagged errors rise and no image reads fewer clues right.
+
+**Not caught.** Of the 3,956 upside-down readings in Chromium, 1,494 are
+turned. In the check's own order the rest are: 128 of non-square Kakuro and
+Slitherlink grids, never checked; 121 read well enough upside down; 716 have
+fewer than six measurable value glyphs (KenKen and Killer clues are cage
+labels, Hidato and Numbrix numbers several glyphs, and sparse Futoshiki pages
+have few clues); 64 read as glyphs wider than tall and take the quarter-turn
+check instead; 103 have whole-cell value boxes; 260 have no confident digit;
+404 read a 2, 3 or 5 with confidence upside down (287 of them one: upside-down
+3s and 5s read as themselves, 8s as 3s); 620 are read again but short of the
+bar (147 of them with four numbers with a 2, 3 or 5, 170 with three); and 46
+clear the bar but do not read clearly better.
 
 ## Alternatives tried
 

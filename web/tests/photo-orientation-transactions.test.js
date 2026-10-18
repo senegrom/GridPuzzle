@@ -108,6 +108,8 @@ for (const size of [4, 9]) test(`${size}×${size} square boxes stay unchanged`, 
 for (const turns of [0, 2]) test(`turn ${turns} does not transpose rectangular boxes`, async t => {
   const h = harness(t); await h.read(reading('sudoku', 6, turns, [3, 2]));
   layoutIs(h, [3, 2]); assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.state.corners, turnCorners(h.corners, turns));
+  assert.equal(conflicts(h.state.puzzle).size, 0);
 });
 test('repeat Read uses the already rotated layout and crop, without rotating twice', async t => {
   const h = harness(t); await h.read(reading()); const corners = structuredClone(h.state.corners);
