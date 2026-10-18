@@ -771,8 +771,8 @@ test).
 
 **Cost.** The check is one more full reading of the photograph, through the
 same crop. On the 84 upright photographs that take it in Chromium, that reading
-took 1.14 s at the median, 2.46 s at the 90th percentile and 4.97 s at most on
-this loaded desktop, about as long as their first reading (1.12 s at the
+took 1.1 s at the median, 2.46 s at the 90th percentile and 4.97 s at most on
+this loaded desktop, about as long as their first reading (also 1.1 s at the
 median), and 119 s in all against the corpus's 6,988 s of reading (1.7%). In
 WebKit the 63 took 1.62 s at the median and 3.01 s at most. Kakuro pages, whose
 value boxes are whole cells, do not pay for it. Nothing else is read again.
