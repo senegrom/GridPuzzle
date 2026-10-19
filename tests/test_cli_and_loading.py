@@ -420,6 +420,35 @@ def test_cli_exit_status_reports_whether_the_puzzle_has_a_solution():
     assert usage_error.stderr.startswith("usage: gridpuzzle ")
 
 
+@pytest.mark.parametrize(
+    ("puzzle", "error"),
+    (
+        # A bare value string: only --class can say what it is.
+        ("11..", "Puzzle string contains no :: class separator "
+                 "(pass --class to parse bare value strings)"),
+        # Self-describing strings: --class would parse the "Class::" prefix or
+        # the CSP-Rules form as values, and offers no CSP-Rules family anyway.
+        ("Sudoku::....", "Cannot parse puzzle input with class Sudoku: "
+                         "Cannot infer equal square Sudoku boxes from grid side 2"),
+        ("Futoshiki::....<<", "Cannot parse puzzle input with class Futoshiki: "
+                              "Cannot infer Futoshiki size from length 6; expected 3n²-2n"),
+        ("KillerSudoku::aaaa:a10", "Cannot parse puzzle input with class KillerSudoku: "
+                                   "Cannot infer equal square Sudoku boxes from grid side 2"),
+        ("Kenken::ab:a+1b+2", "Cannot parse puzzle input with class Kenken: "
+                              "Cannot infer KenKen side length from non-square length 2"),
+        ("Sodoku::1...", "Puzzle class 'sodoku' is not supported; choose one of diagonallatinsquare, "
+                         "futoshiki, kenken, killersudoku, latinsquare, pandiagonallatinsquare, sudoku"),
+        ("(solve 2 2 9 . . .)", "Slitherlink clue 9 at (0, 0) is outside 0..4"),
+        ("(solve 1 1 4", "CSP-Rules solve form is not closed"),
+    ),
+)
+def test_cli_suggests_class_only_where_it_can_help(puzzle, error):
+    result = _gridpuzzle("--str", puzzle)
+
+    assert result.returncode == 2
+    assert result.stderr.splitlines()[-1] == f"gridpuzzle: error: {error}"
+
+
 def test_cli_puzzle_module_that_fails_to_load_is_an_input_error(tmp_path):
     # It used to escape as a traceback with status 1, which says "no solution".
     (tmp_path / "broken_puzzle.py").write_text("g = 1 / 0\n", encoding="utf-8")

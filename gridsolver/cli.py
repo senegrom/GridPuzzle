@@ -218,7 +218,14 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
                 space_sep=args.space_separated,
             )
         except (TypeError, ValueError) as exc:
-            parser.error(f"{exc} (pass --class to parse bare value strings)")
+            from gridsolver.abstract_grids.csp_rules_loading import is_csp_rules_text
+
+            # --class helps only a string with neither a :: class prefix nor
+            # a CSP-Rules form: it would parse either of those as values.
+            text = args.puzzle_string
+            self_describing = "::" in text or is_csp_rules_text(text)
+            hint = "" if self_describing else " (pass --class to parse bare value strings)"
+            parser.error(f"{exc}{hint}")
     try:
         return create_from_str_and_class(
             args.puzzle_string,
