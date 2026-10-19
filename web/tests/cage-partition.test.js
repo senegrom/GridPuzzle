@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cagePartition, prepareScan } from "../scan-analysis.js";
+import { cagePartition, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
 import { cageLabelCrop, puzzleFromReadings } from "../scanner.js";
 import { readOperator } from "../cage-operator.js";
 import { thresholdGray } from "../geometry.js";
@@ -176,25 +176,6 @@ function fakeCanvas(width = 0, height = 0) {
   canvas.getContext = () => context;
   return canvas;
 }
-test("a cage clue on grey paper keeps its ink, and its paper and margin stay white", (t) => {
-  const previous = globalThis.document;
-  globalThis.document = { createElement: () => fakeCanvas() };
-  t.after(() => { globalThis.document = previous; });
-  // An 80 x 40 clue box (so no scaling) holding a stroke of ink at 60, on
-  // the paper of a dim photograph (170) and of a clean print (245).
-  for (const paper of [170, 245]) {
-    const source = fakeCanvas(200, 100);
-    source.rgba = new Uint8ClampedArray(200 * 100 * 4).fill(paper);
-    for (let y = 25; y < 55; y++) for (let x = 30; x < 36; x++) source.rgba.fill(60, 4 * (y * 200 + x), 4 * (y * 200 + x) + 3);
-    const { canvas: out, ink } = cageLabelCrop({ x: 20, y: 20, w: 80, h: 40 }, source), at = (x, y) => out.rgba[4 * (y * out.width + x)];
-    assert.deepEqual([out.width, out.height], [112, 72]);
-    assert.equal(at(16 + 12, 16 + 20), 0, `stroke on paper ${paper}`);
-    assert.equal(at(16 + 60, 16 + 30), 255, `paper ${paper}`);
-    assert.equal(at(4, 4), 255, `margin on paper ${paper}`);
-    // The ink handed to the operator reader is the same picture, 1 for ink.
-    assert.deepEqual([ink[(16 + 20) * 112 + 16 + 12], ink[(16 + 30) * 112 + 16 + 60], ink[4 * 112 + 4]], [1, 0, 0]);
-  }
-});
 // The scanner reads a KenKen clue's operator from the ink and core that
 // cageLabelCrop hands over, so the crop must lay the clue box out as
 // readOperator expects: at (16, 16) and 40 px high. This 50 x 20 px clue box
@@ -215,5 +196,24 @@ test("a KenKen clue's operator reads from the crop cageLabelCrop makes of it", (
     const crop = cageLabelCrop({ x: 20, y: 20, w: 50, h: 20 }, source);
     assert.deepEqual([crop.canvas.width, crop.canvas.height], [132, 72]);
     assert.equal(readOperator(crop.ink, 132, 72, crop.core), sign, sign);
+  }
+});
+test("a cage clue on grey paper keeps its ink, and its paper and margin stay white", (t) => {
+  const previous = globalThis.document;
+  globalThis.document = { createElement: () => fakeCanvas() };
+  t.after(() => { globalThis.document = previous; });
+  // An 80 x 40 clue box (so no scaling) holding a stroke of ink at 60, on
+  // the paper of a dim photograph (170) and of a clean print (245).
+  for (const paper of [170, 245]) {
+    const source = fakeCanvas(200, 100);
+    source.rgba = new Uint8ClampedArray(200 * 100 * 4).fill(paper);
+    for (let y = 25; y < 55; y++) for (let x = 30; x < 36; x++) source.rgba.fill(60, 4 * (y * 200 + x), 4 * (y * 200 + x) + 3);
+    const { canvas: out, ink } = cageLabelCrop({ x: 20, y: 20, w: 80, h: 40 }, source), at = (x, y) => out.rgba[4 * (y * out.width + x)];
+    assert.deepEqual([out.width, out.height], [112, 72]);
+    assert.equal(at(16 + 12, 16 + 20), 0, `stroke on paper ${paper}`);
+    assert.equal(at(16 + 60, 16 + 30), 255, `paper ${paper}`);
+    assert.equal(at(4, 4), 255, `margin on paper ${paper}`);
+    // The ink handed to the operator reader is the same picture, 1 for ink.
+    assert.deepEqual([ink[(16 + 20) * 112 + 16 + 12], ink[(16 + 30) * 112 + 16 + 60], ink[4 * 112 + 4]], [1, 0, 0]);
   }
 });
