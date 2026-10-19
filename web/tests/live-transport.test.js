@@ -1111,9 +1111,17 @@ test("a 25 x 25 grid whose verifications take 2.5 s fails nothing; the help line
   assert.equal(h.camera.stats.candidate, 1, "the candidate waits for a reply in time");
   await h.advance(5000);
   assert.equal(h.help, TOO_SLOW, "the line stays while the replies are late");
+  assert.equal(h.camera.adoptedFrame(), null, "no frame was adopted");
   h.replyDelay(20);
+  assert.ok(await h.until(() => h.camera.adoptedFrame() !== null, 5000), "a reply in time is adopted");
+  const adoptedAt = h.now;
+  // Back to the aiming text at the next heartbeat, not only once a reading
+  // starts: the candidate the reply verified is the scene's first frame.
+  assert.ok(await h.until(() => h.help !== TOO_SLOW, 300), "the line gives way");
+  assert.ok(h.now - adoptedAt <= 200, `at the next heartbeat (${h.now - adoptedAt} ms after the adoption)`);
+  assert.equal(h.help, "Hold the grid steady. Recognition and solution appear here automatically.");
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 10000), "read once replies come in time");
-  assert.notEqual(h.help, TOO_SLOW, "the line gives way");
+  assert.notEqual(h.help, TOO_SLOW);
   assert.equal(h.camera.stats.recovery.failures, 0);
   assert.deepEqual(h.open(), []);
 });

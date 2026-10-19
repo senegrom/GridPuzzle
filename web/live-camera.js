@@ -66,6 +66,8 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // before, such a reply failed the worker at two seconds, and with a longer
   // deadline the camera would wait on the candidate in silence.
   let lateReplies = 0, lateEpoch = -1;
+  // Whether the last heartbeat held that line (TOO_SLOW_HELP).
+  let slowHeld = false;
   let raw = null, guide = null, guideFrame = null, displayed = null;
   // "live" while frames are sampled, tracked and read. The first render that
   // shows a verified, unique and complete solution freezes the view: the
@@ -720,17 +722,24 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // camera that has delivered no frame a second after start or Clear says
     // so; the line gives way to the aiming text when the first one arrives.
     const firstFrame = !seenFrame && now() - startedAt >= 1000;
+    // The line that tracking cannot keep up gives way to the aiming text once
+    // a reply is adopted again, unless a reading's status takes its place (the
+    // session writes that with its next verified frame).
+    const wasSlow = slowHeld; slowHeld = false;
     if (recovery.blocked) session.hold('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
     else if (!scheduler.fresh && seenFrame) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
     else if (firstFrame) session.hold('Waiting for the camera to deliver a picture…');
-    else if (tooSlow()) session.hold(TOO_SLOW_HELP);
+    else if (tooSlow()) { session.hold(TOO_SLOW_HELP); slowHeld = true; }
     else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
     // A solved reading that is not frozen yet keeps its hold (holdSolved): the
     // wait's text while it waits for a fresh frame or a retry (readyToFreeze).
     // No solution is shown over live video meanwhile.
     else if (solvedPreview(session.preview)) holdSolved();
-    else { session.hold(null); if (awaitingFirstFrame) say(aiming()); }
+    else {
+      session.hold(null);
+      if (awaitingFirstFrame || (wasSlow && lateEpoch === epoch && !session.busy && !session.preview)) say(aiming());
+    }
     awaitingFirstFrame = firstFrame && !recovery.blocked;
     render(); updateRestartControl();
     diagnostics?.scheduling?.(scheduler.stats);
