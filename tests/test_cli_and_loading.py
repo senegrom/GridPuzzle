@@ -257,9 +257,13 @@ def test_every_shipped_example_loads_on_the_normal_file_route():
     # above a CSP-Rules solve form must be a ; or # comment: fifteen Mebane
     # Slitherlink files, whose first line was a bare "Mellon rating = N",
     # failed here with "no :: class separator".
+    # The puzzle files Examples/NOTICE.md lists: the .clp, .sdk and .pzl
+    # files and one .txt Latin square (the other .txt files are notes and
+    # the GPL text).
     puzzles = sorted(
         path for path in (_ROOT / "Examples").rglob("*")
         if path.suffix in {".clp", ".sdk", ".pzl"}
+        or (path.suffix == ".txt" and path.name not in {"README.txt", "COPYING-GPL-3.0.txt"})
     )
     failures = {}
     for path in puzzles:
