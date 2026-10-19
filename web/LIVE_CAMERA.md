@@ -699,8 +699,9 @@ region must match independently. Structural strips keep their measured ink
 contrast instead of stretching thin grid lines to black, and a smaller change
 budget preserves small constraints without turning registration jitter into
 constant rereading. Labels, inequality signs, cage edges and both ink
-polarities all take part; unchanged solved scenes keep their battery-saving
-backoff.
+polarities all take part; an unchanged settled reading keeps the 250 ms
+backoff (see "Frame scheduling and painting"), and a solved one freezes, after
+which nothing is sampled until Clear.
 
 When two signatures are compared, the polarity and the contrast stretch come
 from the reference region and apply to both, so they cannot flip between two
