@@ -285,14 +285,21 @@ sets, which have no other clues.
 - The value tiles that cut through clues also shared the OCR atlas with the
   clue tiles, and without them more clues read: Chromium gains 1,013 cages and
   loses 223, WebKit gains 1,016 and loses 206. The losses are spread thin: 61
-  of the 600 cage boards end with fewer cages right in Chromium, by 1 to 10. A
-  cage stays under structural review, so none of them is unflagged, and they
-  were judged worth the gain.
+  of the 600 cage boards end with fewer cages right in Chromium, by 1 to 10,
+  and 65 in WebKit, by 1 to 5. A cage stays under structural review, so none of
+  them is unflagged, and they were judged worth the gain.
 - On the sum-only set, Killer printed the usual way, master read the first
   digit of 463 sums (457 in WebKit) as a confident given, on 83 of its 120
   boards, and read 45% of its cages right against 78% on the `+` set. With the
   change it reads 66% (Chromium 1,844, WebKit 1,860 of 2,799), and the `+` set
   78% (2,525 and 2,548 of 3,234).
+
+Skipping value regions on cage boards altogether, which the review measured
+best, reads almost the same. On the same sets in Chromium it reads one cage
+more (on the thick set) and no digit at all on a cage board, where this change
+reads 60, all flagged. But it could never read a digit printed in a cage's cell
+(rare, and absent from the corpus), so such a given would be lost without a
+flag. It was not taken; that is for the owner to decide.
 
 ## Unread Futoshiki signs
 
