@@ -303,8 +303,10 @@ pixels; detection keeps its 640-pixel budget.
 
 Each read stays anchored to its captured pixels, and verification compares with
 that anchor, never with a chain of drifting successor frames; background pixels
-and timers are not the authority for identifying the puzzle. One current-frame
-verification cache is cleared on every camera tick. The fitted corners must
+and timers are not the authority for identifying the puzzle. No verification
+result is cached across camera ticks: each worker operation computes the
+frame's grayscale and integral image once for all the anchors it checks. The
+fitted corners must
 stay within 16 pixels of where the anchor last matched, so a grid that jumps
 further cannot be found by verification alone. The next detection finds it:
 when an anchor operation matches a retained anchor at the new detection, it
