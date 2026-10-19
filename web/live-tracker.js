@@ -177,13 +177,13 @@ export function createLiveTracker({
   function giveUp(cause) { givenUp = cause; reset(unsupported()); }
   // A bitmap frame lost for `cause`, "refused" (with the worker's reason) or
   // "unmade" (REFUSAL_LIMIT): counted, and one that is at least the
-  // REFUSAL_LIMIT-th in a row, REFUSAL_SPAN or more after the first of them,
-  // gives bitmaps up. Whether that reset the worker. A frame made for a worker
-  // before bitmaps were given up is only counted: its loss must not reset the
-  // worker that replaced it. Nor may a frame made for a worker before a reset
-  // reset the worker after it, once that worker's handshake decided for the
-  // camera's own readback: it has no bitmap to lose. It is kept, and bitmaps
-  // are given up for the workers after it.
+  // REFUSAL_LIMIT-th in a row, REFUSAL_SPAN or more of tracking time after the
+  // first of them, gives bitmaps up. Whether that reset the worker. A frame
+  // made for a worker before bitmaps were given up is only counted: its loss
+  // must not reset the worker that replaced it. Nor may a frame made for a
+  // worker before a reset reset the worker after it, once that worker's
+  // handshake decided for the camera's own readback: it has no bitmap to lose.
+  // It is kept, and bitmaps are given up for the workers after it.
   function lose(cause, refusal) {
     stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
     if (cause === 'refused') stats[Object.hasOwn(REFUSED, refusal) ? REFUSED[refusal] : REFUSED.failed]++;
