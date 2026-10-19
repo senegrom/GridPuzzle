@@ -340,6 +340,12 @@ function photographs(t, layout) {
       await $("photo-file").onchange({ target: { files: [new Blob([png])], value: "photo" } });
       assert.deepEqual(errors, []);
     },
+    // Find grid again on the same photograph, which now finds n × n.
+    async findGrid(n) {
+      size = n;
+      await $("detect-photo").onclick();
+      assert.deepEqual(errors, []);
+    },
     // Read with the controls as they stand.
     async read() {
       const before = solves.length;
@@ -386,6 +392,16 @@ test("a confirmed suggestion no longer holds a repeat Read of the same photograp
   assert.deepEqual(outcome(await flow.scan(6)), gated);
   flow.confirm();
   assert.deepEqual(outcome(await flow.read()), clear);
+});
+test("confirming the reading of an earlier suggestion does not retire a newer one", async (t) => {
+  const flow = photographs(t, { rows: 9, cols: 9, boxRows: 3, boxCols: 3 });
+  assert.deepEqual(outcome(await flow.scan(6)), gated);
+  // Find grid finds 8 × 8 on the same photograph: a new suggestion, 2 × 4,
+  // while the board is still the 6 × 6 reading, which the user then confirms.
+  await flow.findGrid(8);
+  flow.confirm();
+  const read = await flow.read();
+  assert.deepEqual(outcome(read), gated); assert.deepEqual(read.boxes, [2, 4]);
 });
 test("an unconfirmed suggestion still waits for confirmation on the next photograph", async (t) => {
   const flow = photographs(t, { rows: 9, cols: 9, boxRows: 3, boxCols: 3 });
