@@ -273,9 +273,10 @@ sets, which have no other clues.
   the benchmark's. On master the cage boards held 826 confident invented digits
   under structural review alone in Chromium, on 230 of the 600 boards (812 in
   WebKit), every one in a cage's head cell and 822 of them (807) the first
-  digit of its clue; 228 (226) contradict the solution, so even a full digit
-  review left those boards without a solution. Futoshiki scores the same under
-  both versions: its one digit error was already under digit review.
+  digit of its clue. 228 (226) contradict the solution, and since the digit
+  review never visited them, Solve found no solution on those boards even after
+  it. Futoshiki scores the same under both versions: its one digit error was
+  already under digit review.
 - With the change no board has an unflagged error in either engine, and no
   image's count rose. The digits still read on cage boards, 60 in Chromium and
   62 in WebKit, all on photo renders, are all under digit review.
