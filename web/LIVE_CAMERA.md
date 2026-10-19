@@ -357,10 +357,17 @@ frame and one pending detector-anchor request. Up to eight worker-owned anchors
 are retained, with the current reading and reference anchors protected from
 eviction, and the worker keeps grayscale evidence, not extra RGBA source copies.
 Stop, settings changes and errors terminate the worker and fence its replies.
-Each operation fails closed after its own deadline: two seconds for a
-verification, twenty for an anchor. With one shared two-second deadline, every
-anchor on a device whose verifications approach two seconds failed and ended in
-Restart.
+Each operation fails closed after its own deadline: twenty seconds for an
+anchor, and for a verification two seconds for up to three 9 × 9 anchors' cells
+(243), longer in proportion for more (about five seconds for one 25 × 25
+anchor, fifteen for three), up to the anchor's twenty. With one shared
+two-second deadline, every anchor on a device whose verifications approach two
+seconds failed and ended in Restart. With two seconds for every verification,
+a 25 × 25 grid on a phone four times slower than the desktop below (about two
+seconds for one anchor) failed the worker at every verification: its anchors
+were dropped, tracking backed off, and the third failure paused it. A reply
+that comes more than two seconds after its frame is still too late to adopt
+(see "Live and delayed views"), but it is no failure.
 
 Verification cost grows with the anchors it checks, since each one is a
 registration and a full content comparison. An anchor operation re-matches
@@ -372,7 +379,12 @@ therefore verifies one anchor per frame where it used to verify three or four.
 Each operation computes the frame's grayscale and integral image once for all
 its anchors. On six noisy real photographs in desktop Chromium at 960 and 1280
 pixels (2026-09-24), a verification of one anchor takes 51-66 ms (63-79 ms
-before these changes), and of three anchors 140-177 ms (194-244 ms). An anchor
+before these changes), and of three anchors 140-177 ms (194-244 ms). Its work
+grows with the grid's cells, since every cell, label region and boundary strip
+is compared: on synthetic blurred, noisy 960 × 1280 frames with every anchor
+verified (the tracking core in Node, CPU time on a Zen 4 desktop, 2026-10-19),
+one anchor took 63 ms at 9 × 9, 217 ms at 16 × 16 and 484 ms at 25 × 25, and
+three 202, 625 and 1468 ms. An anchor
 with three retained anchors costs 1.1 to 1.2 times a verification of the same
 three, and 19-27 ms to build alone. Earlier ratios of ten times (a synthetic
 9x9 board) and 67-131 times (photographs) compared against verifying an
@@ -637,7 +649,14 @@ help line announces "Aligning the grid" only once the view has stayed
 unverified for two seconds, because verified replies can arrive that far
 apart; announcing every gap alternated it with the status six to eight times
 every five seconds. A worker that never answers reaches the failure, backoff
-and Restart path (see Recovery). Neither tier promises that image copying and
+and Restart path (see Recovery). One that answers, but too late to adopt each
+time, as a 25 × 25 grid's verifications can on a slow phone, fails nothing:
+from the third such reply in a row the help line says "This grid takes too
+long to track live on this device. Save a picture to read it in the editor."
+until a reply is adopted, and the export records a `tracking-late` event.
+Before, such a verification failed the worker at two seconds; with a longer
+deadline and nothing more, the camera would have waited on its candidate in
+silence. Neither tier promises that image copying and
 rendering are off-thread. A frozen solution is never marked as catching up: it
 is the frame the solution was verified on, which the freeze takes at most half
 a second old, or after its three-second wait at most two.
@@ -883,7 +902,10 @@ newer request. Stop releases the scratch canvases, the newest scanned frame
 and any pending read samples as well as the timers and workers. A bitmap
 transport failure is none of these failures: a frame whose bitmap fails is
 lost alone, and bitmaps given up switch to the camera's own readback and start
-acquisition again (see "How the frames reach the worker").
+acquisition again (see "How the frames reach the worker"). Nor is a
+verification that answers within its deadline, which grows with the grid, but
+too late to adopt: the help line says that the grid takes too long to track
+live and to save a picture (see "Live and delayed views").
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -1144,7 +1166,13 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
   tracking worker and targeted retries; `clue-reread.test.js`: the editor's
-  per-clue re-read. `live-tracker.test.js` also covers the pixel transport:
+  per-clue re-read. `live-tracker.test.js` also covers a verification's
+  deadline growing with its anchors' cells (two seconds up to three 9 × 9
+  anchors, about five for one 25 × 25 anchor, at most the anchor deadline;
+  only anchors the worker was asked to keep count, and none of a worker
+  before a reset; a 25 × 25 grid's answer after two seconds is no failure,
+  one that never comes fails at its own deadline, a 9 × 9 grid's at two
+  seconds), and the pixel transport:
   the default probe (a 2 × 2 page canvas holding the four colours), the
   handshake's decision (every way to the camera's own readback, none of them a
   failure, each with its reason and time for the diagnostic report, a worker
@@ -1208,7 +1236,12 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame queued (a counted failure, the queued bitmap closed, bitmaps used
   again after the back-off), verification replies too late to adopt (their
   frames released, the ones in time adopted, and at every moment only the
-  queued jobs' bitmaps not handed over), verifications that reject every
+  queued jobs' bitmaps not handed over), a 25 × 25 grid whose every
+  verification takes 2.5 s (no failure, the worker kept, from the third late
+  reply in a row the help line saying that the grid takes too long to track
+  live, one `tracking-late` event, the grid read once replies come in time)
+  and a 9 × 9 grid's verification of 2.1 s still failing the worker at two
+  seconds, verifications that reject every
   anchor, one frame lost to its bitmap during a tracked reading (refused,
   drawing nothing, of another size or not made: no restart, no new worker,
   the reading not read again and its outline never gone, the view never off
@@ -1373,7 +1406,11 @@ accuracy gain.
 
 Tracking and content checks can conservatively reject a blurred or aliased
 frame, which hides overlays rather than inventing confidence. Large motion is
-handled by redetection, not unbounded registration. No neural network or
+handled by redetection, not unbounded registration. A large grid on a slow
+phone may take longer to verify than the two seconds a verified frame stays
+current: the camera then says so and asks for a saved picture rather than
+showing an older frame (no live suite covers grids larger than 9 × 9; the
+unit tests' simulation does). No neural network or
 solver-derived recognition is used, and the higher-detail checks are not a
 speed-up. Report registration coverage, retention, time to first reading,
 cancellations and false stale displays separately from static digit accuracy.

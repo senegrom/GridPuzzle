@@ -40,6 +40,10 @@ const SOLVED_WAITING = "Solution found — hold the grid steady for a moment…"
 // solved, for a fresh frame and, with the setting "Wait up to 3 s for clearer
 // clues before freezing" (freezeWait), for retries of its uncertain clues.
 const REFINE_WAIT = 3000;
+// Verification replies in a row that come too late to adopt (lateReply) from
+// which the help line says that tracking cannot keep up (TOO_SLOW_HELP).
+const LATE_LIMIT = 3;
+const TOO_SLOW_HELP = "This grid takes too long to track live on this device. Save a picture to read it in the editor.";
 const COUNTED = ["recognised", "uncertain", "unknown", "solution"];
 const frozenLabel = (counts) => `Frozen picture of the solved puzzle: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread, ${counts.solution} solution entries. Live results are not confirmed.`;
 
@@ -53,6 +57,15 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // of a picture (live-tracker.js), since the last verification that
   // completed; see track().
   let lostInRow = 0;
+  // Verification replies of the epoch `lateEpoch` that came in a row too late
+  // to adopt, their snapshot older than STALE: the worker answers, slower than
+  // the view can use, as a 25 × 25 grid can on a slow phone (a verification's
+  // deadline grows with its anchors' cells, live-tracker.js). That is no
+  // tracking failure: nothing is retired, and tracking goes on. From
+  // LATE_LIMIT on the help line says so (heartbeat) until a reply is adopted;
+  // before, such a reply failed the worker at two seconds, and with a longer
+  // deadline the camera would wait on the candidate in silence.
+  let lateReplies = 0, lateEpoch = -1;
   let raw = null, guide = null, guideFrame = null, displayed = null;
   // "live" while frames are sampled, tracked and read. The first render that
   // shows a verified, unique and complete solution freezes the view: the
@@ -583,6 +596,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     say(aiming());
     render();
   }
+  // A reply of this epoch too late to adopt (see `lateReplies`); the export
+  // records when they first reach LATE_LIMIT.
+  function lateReply() {
+    if (lateEpoch !== epoch) { lateEpoch = epoch; lateReplies = 0; }
+    if (++lateReplies === LATE_LIMIT) diagnostics?.event({ stage: 'tracking', reason: 'tracking-late' });
+  }
+  const tooSlow = () => lateEpoch === epoch && lateReplies >= LATE_LIMIT;
   // Called by the tick only with anchors to verify.
   async function track(image, key, owner) {
     const id = ++frameSerial, at = now(), anchors = verifyIds();
@@ -599,7 +619,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // Fence by snapshot time: a reply is adopted while its own snapshot is
       // within STALE and newer than the last adopted one, also after an older
       // snapshot was dropped past STALE. A frozen view keeps its frame.
-      if (!active || view !== "live" || owner !== epoch || key !== settingsKey || at <= adoptedAt || now() - at > STALE_TRACK_AGE) return;
+      if (!active || view !== "live" || owner !== epoch || key !== settingsKey || at <= adoptedAt) return;
+      if (now() - at > STALE_TRACK_AGE) { lateReply(); return; }
+      lateReplies = 0;
       // Display this operation's actual source snapshot, never project a late
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
@@ -701,6 +723,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     if (recovery.blocked) session.hold('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
     else if (!scheduler.fresh && seenFrame) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
     else if (firstFrame) session.hold('Waiting for the camera to deliver a picture…');
+    else if (tooSlow()) session.hold(TOO_SLOW_HELP);
     else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
     // A solved reading that is not frozen yet keeps its hold (holdSolved): the

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT, REFUSAL_SPAN } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, VERIFY_CELLS, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT, REFUSAL_SPAN } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -45,6 +45,86 @@ test('an anchor has its own, longer deadline; a verification keeps two seconds',
   tracker.verify({image:image(),anchors:[]}).catch(()=>{});tracker.reset();
   assert.deepEqual(delays,[ANCHOR_DEADLINE,VERIFY_DEADLINE]);
   assert.equal(VERIFY_DEADLINE,2000);assert.ok(ANCHOR_DEADLINE>=10*VERIFY_DEADLINE,'about ten verifications per anchor');
+});
+// A verification's work grows with the cells of the anchors it checks: one
+// 25 x 25 anchor costs about 7.7 times one 9 x 9 anchor. VERIFY_DEADLINE
+// covers VERIFY_CELLS, three 9 x 9 anchors; more cells get proportionally
+// longer, up to ANCHOR_DEADLINE. The tracker takes the cells from the anchor
+// jobs that built the anchors. Before, every verification had two seconds, so
+// a 25 x 25 grid on a phone four times slower than a desktop failed the worker
+// at every verification.
+function deadlines() {
+  const delays = [], workers = [], timers = new Map();
+  const tracker = createLiveTracker({ makeWorker() {
+    const worker = { sent: [], postMessage(data) { this.sent.push(data); }, terminate() { this.terminated = true; } };
+    workers.push(worker); return worker;
+  }, setTimer(fn, ms) { delays.push(ms); timers.set(delays.length, { fn, ms }); return delays.length; }, clearTimer(id) { timers.delete(id); } });
+  const reply = result => { const w = workers.at(-1); w.onmessage({ data: { id: w.sent.at(-1).id, result, milliseconds: 3 } }); };
+  let serial = 0;
+  return { tracker, workers, reply,
+    // The delays of the timers still pending, and firing those of one delay.
+    pending: () => [...timers.values()].map(t => t.ms),
+    fire(ms) { for (const [id, t] of [...timers]) if (t.ms === ms) { timers.delete(id); t.fn(); } },
+    // An anchor of rows x cols built by the worker, which keeps `keep`.
+    async anchor(rows, cols, keep = []) {
+      const done = tracker.anchor({ image: image(), corners: [], rows, cols, anchors: keep });
+      const id = ++serial; reply({ anchor: { id, matches: {} } }); await done; return id;
+    },
+    // The deadline of a verification of `anchors`, answered at once.
+    async verify(anchors) {
+      const done = tracker.verify({ image: image(), anchors }), ms = delays.at(-1);
+      reply({ proofs: {} }); await done; return ms;
+    },
+    restart() { tracker.reset(); serial = 0; } };
+}
+test('a verification\'s deadline grows with the cells of the anchors it checks; up to three 9 x 9 anchors keep two seconds', async () => {
+  const h = deadlines(), scaled = cells => Math.min(ANCHOR_DEADLINE, VERIFY_DEADLINE * Math.max(1, cells / VERIFY_CELLS));
+  assert.equal(VERIFY_CELLS, 3 * 81);
+  const a = await h.anchor(9, 9), b = await h.anchor(9, 9, [a]), c = await h.anchor(9, 9, [a, b]);
+  assert.equal(await h.verify([a]), VERIFY_DEADLINE, 'one 9 x 9 anchor');
+  assert.equal(await h.verify([a, b, c]), VERIFY_DEADLINE, 'three 9 x 9 anchors');
+  assert.equal(await h.verify([a, a, a]), VERIFY_DEADLINE, 'an anchor counts once');
+  assert.equal(await h.verify([]), VERIFY_DEADLINE, 'no anchor');
+  assert.equal(await h.verify([77]), VERIFY_DEADLINE, 'an anchor the worker does not have costs nothing');
+  const d = await h.anchor(9, 9, [a, b, c]);
+  assert.equal(await h.verify([a, b, c, d]), scaled(4 * 81), 'four 9 x 9 anchors');
+  // An anchor job that does not keep an anchor: the camera no longer verifies it.
+  const big = await h.anchor(25, 25, [a]);
+  assert.equal(await h.verify([a, b, c, d, big]), scaled(81 + 625), 'only the kept anchors and the new one count');
+  const e = await h.anchor(16, 16, [big]), f = await h.anchor(25, 25, [big, e]), g = await h.anchor(25, 25, [big, e, f]);
+  assert.equal(await h.verify([e]), scaled(256), 'one 16 x 16 anchor');
+  assert.ok(Math.abs(scaled(625) - 5144) < 1, 'one 25 x 25 anchor: about five seconds');
+  assert.equal(await h.verify([big]), scaled(625));
+  assert.equal(await h.verify([big, f, g]), scaled(3 * 625), 'three 25 x 25 anchors: about fifteen seconds');
+  const many = [big, f, g];
+  for (let i = 0; i < 3; i++) many.push(await h.anchor(25, 25, many));
+  assert.equal(await h.verify(many), ANCHOR_DEADLINE, 'six 25 x 25 anchors: at most the anchor deadline');
+  // A new worker has built nothing (its anchors are numbered from one again):
+  // an id of the old worker's 25 x 25 anchor costs it nothing.
+  h.restart();
+  assert.equal(await h.verify([big]), VERIFY_DEADLINE, 'the old worker\'s anchors cost the new one nothing');
+});
+test('a 25 x 25 grid\'s verification that answers after two seconds is no failure; one that never answers fails at its own deadline, a 9 x 9 grid\'s at two seconds', async () => {
+  const h = deadlines(), long = VERIFY_DEADLINE * 625 / VERIFY_CELLS;
+  const big = await h.anchor(25, 25);
+  let done = h.tracker.verify({ image: image(), anchors: [big] });
+  assert.deepEqual(h.pending(), [long], 'one deadline runs, about five seconds');
+  // Two seconds pass with no answer: nothing fails, and the late answer is taken.
+  h.fire(VERIFY_DEADLINE);
+  h.reply({ proofs: { [big]: { corners: [] } } });
+  assert.ok((await settled(done)).proofs[big], 'the answer after two seconds is taken');
+  assert.equal(h.tracker.stats.failures, 0, 'no failure');
+  assert.equal(h.workers.length, 1, 'the worker, and its anchors, are kept');
+  done = h.tracker.verify({ image: image(), anchors: [big] });
+  const failed = assert.rejects(done, /timed out/);
+  h.fire(VERIFY_DEADLINE); h.fire(long); await failed;
+  assert.equal(h.tracker.stats.failures, 1, 'one that never answers fails at its own deadline');
+  assert.equal(h.workers[0].terminated, true);
+  const small = deadlines(), nine = await small.anchor(9, 9);
+  const smallFailed = assert.rejects(small.tracker.verify({ image: image(), anchors: [nine] }), /timed out/);
+  assert.deepEqual(small.pending(), [VERIFY_DEADLINE]);
+  small.fire(VERIFY_DEADLINE); await smallFailed;
+  assert.equal(small.tracker.stats.failures, 1, 'a 9 x 9 grid\'s verification still fails when its two seconds are up');
 });
 test('stop rejects active and queued work and late old-worker replies cannot settle a restart',async()=>{
   const h=harness(),a=h.tracker.verify({image:image(),anchors:[]}),b=h.tracker.verify({image:image(),anchors:[]});

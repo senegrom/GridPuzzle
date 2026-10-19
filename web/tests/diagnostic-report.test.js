@@ -124,6 +124,9 @@ test('the tracking transport and its time are reported apart from the tracking c
  assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
  d.event({stage:'tracking',reason:'tracking-transport'});assert.equal(d.snapshot().events.at(-1).reason,'tracking-transport');
  assert.equal(typeof REASON_LABELS['tracking-transport'],'string');
+ // Verification replies that keep coming too late to adopt (live-camera.js).
+ d.event({stage:'tracking',reason:'tracking-late'});assert.equal(d.snapshot().events.at(-1).reason,'tracking-late');
+ assert.equal(typeof REASON_LABELS['tracking-late'],'string');
  d.begin('live',{});assert.equal(d.snapshot().performance.trackingTransport.count,0,'a new scan starts a new window');
 });
 

@@ -51,9 +51,12 @@ const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(w
 // (the worker never finishes the probe, so it answers nothing after it).
 // `fps`: the video presents this many frames a second through
 // requestVideoFrameCallback, the frame scheduler's own clock; without, the
-// scheduler's fallback clock samples at its 100-ms heartbeat.
+// scheduler's fallback clock samples at its 100-ms heartbeat. `size`: the
+// grid's rows and columns, as detected, set and read (the printed grid stays
+// the 4 x 4 one; its anchors have size x size cells, which a verification's
+// deadline grows with).
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
-  startMs = 10, solve = null, fps = 0 } = {}) {
+  startMs = 10, solve = null, fps = 0, size = CELLS } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
     holdBitmaps = false, blankBitmaps = false, emptyBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
   // One-shot faults: the next `refusals` bitmap jobs are answered
@@ -185,7 +188,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       return worker;
     } });
   const diagnostics = createScanDiagnostics({ now: () => time }), detections = [];
-  diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4 });
+  diagnostics.begin("live", { type: "latinsquare", rows: size, cols: size });
   // The tick metric's call, in the order of everything else.
   const ticking = diagnostics.ticking;
   diagnostics.ticking = (ms) => { ops.push({ op: "ticking", at: time }); ticking(ms); };
@@ -196,17 +199,17 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     video.cancelVideoFrameCallback = (id) => clearTimer(id);
   }
   const reading = () => {
-    const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells = [1, 2, 3, 4, ...Array(12).fill(null)];
+    const puzzle = makePuzzle("latinsquare", size, size); puzzle.cells = [1, 2, 3, 4, ...Array(size * size - 4).fill(null)];
     return { puzzle, cellUncertain: [], markedCells: [], notes: [] };
   };
   const live = { ...settings };
   const camera = createLiveCamera({ tracker, $, canvas: view, diagnostics, video,
-    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve: !!solve, ...live }),
+    getSettings: () => ({ type: "latinsquare", rows: size, cols: size, boxRows: 2, boxCols: 2, enabled: true, autoSolve: !!solve, ...live }),
     detector: { detect(input) {
       const sx = (input.width - 1) / (W - 1), sy = (input.height - 1) / (H - 1), at = grid;
       detections.push(time);
       return new Promise((resolve) => setTimer(() => resolve(at
-        ? { confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
+        ? { confidence: .99, rows: size, cols: size, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
         : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), detectMs));
     }, cancel() { cancels++; } },
     reader: { read: () => { reads++; return new Promise((resolve) => setTimer(() => resolve(reading()), 500)); }, cancel() {} },
@@ -1085,4 +1088,39 @@ test("verifications that reject every anchor leave no bitmap open, and the moved
   assert.ok(jobs.length > 0 && jobs.every((p) => p.bitmap && p.bitmap.transferred), "on transferred bitmaps");
   assert.equal(h.camera.stats.recovery.failures, 0);
   assert.deepEqual(h.open(), []);
+});
+
+// A verification's deadline grows with the cells of its anchors
+// (live-tracker.js). On a phone four times slower than a desktop a 25 x 25
+// grid's verification takes more than two seconds: before, each one failed
+// the worker (worker-error, back-off, and a pause at the third). Now it fails
+// nothing, but its reply comes more than two seconds after its frame, too late
+// to adopt: from the third such reply in a row the help line says that
+// tracking cannot keep up and to save a picture, and the export records it,
+// until a reply is adopted. A 9 x 9 grid's verification still has two seconds.
+const TOO_SLOW = "This grid takes too long to track live on this device. Save a picture to read it in the editor.";
+test("a 25 x 25 grid whose verifications take 2.5 s fails nothing; the help line says tracking cannot keep up until a reply comes in time", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  assert.ok(await h.until(() => h.help === TOO_SLOW, 30000), `the help line says so (${h.help})`);
+  assert.equal(h.camera.stats.recovery.failures, 0, "no tracking failure");
+  assert.deepEqual(h.reasons().filter((r) => r.startsWith("worker-")), [], "no worker error, back-off or pause");
+  assert.equal(h.workers.length, 1, "the worker, and its anchors, are kept");
+  assert.deepEqual(h.reasons().filter((r) => r === "tracking-late"), ["tracking-late"], "the export records it once");
+  assert.equal(h.restartHidden(), true, "Restart would not help");
+  assert.equal(h.camera.stats.candidate, 1, "the candidate waits for a reply in time");
+  await h.advance(5000);
+  assert.equal(h.help, TOO_SLOW, "the line stays while the replies are late");
+  h.replyDelay(20);
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 10000), "read once replies come in time");
+  assert.notEqual(h.help, TOO_SLOW, "the line gives way");
+  assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.deepEqual(h.open(), []);
+});
+test("a 9 x 9 grid's verification that takes 2.1 s still fails the worker at two seconds", async (t) => {
+  const h = simulation(t, { size: 9 });
+  h.replyDelay(2100);
+  assert.ok(await h.until(() => h.reasons().includes("worker-error"), 10000), "the worker fails");
+  assert.equal(h.camera.stats.recovery.failures, 1);
+  assert.notEqual(h.help, TOO_SLOW);
 });
