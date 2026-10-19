@@ -687,17 +687,16 @@ export function setupPhotoFlow({
     state.photo = canvas;
     cropRevision = {};
     clearPhotoMapping();
-    // The photograph shows at once, on the crop the detector proposes when
-    // it finds no grid, unconfirmed: if detection then fails or is stopped,
-    // the handles are there to move, and a Read through them puts every cell
-    // under review instead of doing nothing.
+    // The photograph starts on the crop the detector proposes when it finds
+    // no grid, unconfirmed, shown while detection runs: if detection then
+    // fails or is stopped, the handles are there to move, and a Read through
+    // them puts every cell under review instead of doing nothing.
     state.corners = fallbackCorners(canvas.width, canvas.height);
     unconfirmedCorners = true;
     detectedLayout = null;
     state.result = null;
     $("photo-panel").hidden = false;
     render();
-    drawCrop();
     await detectPhoto(canvas);
   }
   // Re-detection is not adoption of a new photograph or a puzzle edit. Keep
@@ -707,6 +706,8 @@ export function setupPhotoFlow({
     diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", "Photo processing stays on this device.");
     try {
+      // The photograph and its current crop show while the detector works.
+      drawCrop();
       const found = await scanner.detect(canvas);
       if (id !== getJobId()) return;
       clearPhotoMapping();

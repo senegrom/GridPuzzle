@@ -1452,3 +1452,13 @@ test("Stop during grid detection leaves a new photograph on the fallback crop, s
   assert.deepEqual(h.errors, []);
   await fallbackCropReads(h, 800, 600);
 });
+test("a crop editor that cannot draw reports it, also on Rotate, instead of throwing", async (t) => {
+  const h = cropHarness(t);
+  h.setDetect(async () => ({ rows: 2, cols: 2, confidence: 0.99, corners: fallback(800, 600) }));
+  await h.import(); assert.deepEqual(h.errors, []);
+  // iOS can refuse a canvas context under memory pressure.
+  h.$("crop-canvas").getContext = () => null;
+  h.$("rotate-photo").onclick(); await tick(); await tick();
+  assert.equal(h.errors.length, 1);
+  assert.deepEqual([h.state.photo.width, h.state.photo.height], [600, 800]);
+});
