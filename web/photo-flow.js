@@ -3,7 +3,7 @@ import { fitReviewNotes } from "./session.js";
 import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
-import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
+import { TYPES, checkShape, conflicts, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { fallbackCorners, turnCorners, validQuad } from "./geometry.js";
 import { importPhoto } from "./photo-import.js";
 import { createLiveCamera } from "./live-camera.js";
@@ -934,6 +934,10 @@ export function setupPhotoFlow({
         blackReadings,
         uncertain: new Set([
           ...(found.cellUncertain ?? found.uncertain),
+          // The reader flags duplicates under the size's default boxes, but
+          // the board is solved under the boxes just set: a digit repeated in
+          // one of those is flagged too, so it never solves automatically.
+          ...conflicts(found.puzzle),
           ...blackReadings.map((entry) => entry.cell),
           ...(reviewAllCells ? found.puzzle.cells.keys() : []),
         ]),

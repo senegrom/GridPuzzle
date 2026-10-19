@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setupPhotoFlow } from "../photo-flow.js";
-import { boxShape, makePuzzle } from "../model.js";
+import { boxShape, conflicts, makePuzzle } from "../model.js";
+import { puzzleFromReadings } from "../scanner.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 function deferred() {
@@ -241,3 +242,42 @@ for (const type of ["sudoku", "killersudoku"])
       assert.equal(reads, 0); assert.equal(flow.errors.length, 1);
       assert.equal(flow.state.puzzle, accepted);
     });
+
+// The reader checks a reading for duplicates under the size's default boxes
+// (2 × 3 for 6 × 6); the photo flow sets the chosen boxes afterwards and
+// solves under those. A digit repeated inside a chosen box must be flagged,
+// so that a misread never solves automatically.
+const digit = (cell, text) => ({ kind: "value", cell, text, confidence: 96, x: 0, y: 0, w: 10, h: 30 });
+function readingOf(entries) {
+  return async (_photo, _corners, type, rows, cols) => ({
+    ...puzzleFromReadings({ entries: entries.map((entry) => ({ ...entry })), black: Array(rows * cols).fill(false),
+      meta: { rows, cols, boxes: true }, mask: new Uint8Array(100), width: 10, height: 10,
+      // One cage per row keeps a Killer partition out of the way.
+      cageAreas: type === "killersudoku" ? Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => r * cols + c)) : null },
+    type, rows, cols),
+    rectified: { width: 600, height: 600, getContext() {} },
+  });
+}
+// Two 4s at r1c1 and r3c2: inside one 3 × 2 box, in two different 2 × 3 boxes.
+const repeatedIn3x2 = [digit(0, "4"), digit(13, "4"), digit(3, "1"), digit(10, "2"), digit(20, "3"), digit(33, "5")];
+for (const type of ["sudoku", "killersudoku"])
+  test(`${type}: a digit repeated inside a chosen 3 × 2 box is flagged and never solves automatically`, async (t) => {
+    const flow = photoFlow(t, { type });
+    flow.scanner.read = readingOf(repeatedIn3x2);
+    await flow.click("detect-photo");
+    await flow.click("read-photo");
+    assert.deepEqual(flow.errors, []);
+    assert.deepEqual([flow.state.puzzle.boxRows, flow.state.puzzle.boxCols], [3, 2]);
+    assert.deepEqual([...conflicts(flow.state.puzzle)].sort((a, b) => a - b), [0, 13]);
+    assert.deepEqual([...flow.state.uncertain].sort((a, b) => a - b), [0, 13]);
+    assert.equal(flow.solves.length, 0);
+  });
+test("the same digits in two different chosen boxes are not flagged and solve automatically", async (t) => {
+  const flow = photoFlow(t, { layout: { rows: 6, cols: 6, boxRows: 2, boxCols: 3 } });
+  flow.scanner.read = readingOf(repeatedIn3x2);
+  await flow.click("detect-photo");
+  await flow.click("read-photo");
+  assert.deepEqual(flow.errors, []);
+  assert.deepEqual([...flow.state.uncertain], []);
+  assert.equal(flow.solves.length, 1);
+});
