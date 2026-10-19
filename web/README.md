@@ -109,7 +109,11 @@ metadata, separately from puzzle JSON. Choosing Str8ts restores compatible
 numbered clues. Saving that cell explicitly or confirming the transcription
 clears the pending evidence; Undo restores it with the prior edit.
 Find grid preserves puzzle edit history and does not discard the old crop
-or mapping on failure or cancellation. Read puzzle also stages its candidate:
+or mapping on failure or cancellation. A new or rotated photograph is shown at
+once on the crop the detector proposes when it finds no grid (8% in from each
+edge), unconfirmed, until detection answers; if detection fails or is stopped,
+that crop stays, its handles can be moved, and a Read through it highlights
+every cell. Read puzzle also stages its candidate:
 failed/cancelled reads of an unchanged crop preserve the accepted solution,
 photo mapping, Play cache and undo history. A new Read click cancels earlier
 work even when the new dimensions, boxes or crop fail validation. Actual crop
