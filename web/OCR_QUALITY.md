@@ -178,14 +178,19 @@ KenKen board with at least two thick lines (the central 4% of the edge at most
 cell, from a crop binarized at the Otsu threshold of its clue box, in the
 atlas. Every cage
 stays under structural review ("check cage"), and an operator impossible for
-the cage's size still drops it with a note.
+the cage's size still drops it with a note. A head cell's value region starts
+below its clue box, and every digit read on a cage board goes to digit review
+("Digits on cage boards", below).
 
 The corpus gained a thick-bordered KenKen set for this (`janko-kenken-thick`).
 Measured with `scoreVersion: 3` on the four cage sets (Chromium, 2026-09-28),
 cages right before → after: dashed KenKen 0 → 1,108 of 2,508, thick KenKen 4 →
 1,451 of 2,508 (its 13 boards that failed to read now read), janko Sumdoku
 0 → 1,244 of 2,139, generated Killer 0 → 1,961 of 3,234; unflagged errors stay
-0 and every cell of a cage board is highlighted, as before. Partitions alone are
+0 and every cell of a cage board is highlighted, as before. (Those 0s, and the
+later ones on these sets, counted the structural review as a flag on the
+digits it covers; scored as the app reviews digits they were not 0: "Digits on
+cage boards", below.) Partitions alone are
 exact on 359 of 360 dashed boards and 103 of 107 thick ones; the clue reading
 is what is left, with the dashed set's ÷ mostly read as "+". Nothing is claimed
 for real photographs, which the corpus does not have for these families.
@@ -210,6 +215,84 @@ sets rose from 3,865 to 4,547 of 5,008 clues (683 fixed, 1 broken), cages right
 from 3,118 to 3,539 of 5,016, while Sumdoku, all sums, lost one cage of 2,139
 (two clues misread on photo renders) and Killer Sudoku, whose clues are never
 shape-read, is unchanged. It costs a KenKen board about 2-5 ms.
+
+## Digits on cage boards
+
+A cage's clue is printed at the top of its head cell, in the box
+`CAGE_LABEL_BOX` gives for the print style (down to 0.40 of the cell for the
+thick style, 0.44 inside a dashed outline). Every cell also had a value region
+from 0.16 of the cell down, cage boards included, so a head cell's value region
+cut through the clue. Where the clue reached about a third of the cell down, as
+the corpus's clues do, the region held the lower part of the clue's first
+digit, and the three readers agreed on it as a given at confidence 90-99. That
+digit carried only the cage's structural review: the guided digit review skips
+"check cage", and saving the cage cleared the cell's last highlight, so Solve
+answered "No solution to these clues" with nothing pointing at the digit. None
+of the corpus's 600 KenKen and Killer targets has a given, so every digit read
+on these boards is invented.
+
+Since 2026-10-19 the cage partition comes first, and a head cell's value region
+starts below its clue box; other cells keep theirs, and a digit printed below a
+head's clue is still read. A cage puzzle rarely prints a digit in its cells,
+and part of a clue can still reach a value region (a larger clue, a crop
+placed off the grid), so every digit read on a cage board goes to digit review
+(`cellUncertain`), with a note saying why. Saving a cage settles its structural
+review only; a digit's flag stays until the digit is checked.
+
+The benchmark could not see these digits: up to `scoreVersion: 5` it counted
+the structural review as a flag on the digits it covers. `scoreVersion: 6`
+(`corpus/SOURCES.md`) flags a digit only where the photo flow's digit review
+visits it. The cage sets, Futoshiki, the sum-only Killer set added for this
+(`killersudoku/generated-render-sum-only`, `corpus/SOURCES.md`) and Sudoku's
+generated renders as a control were read on master ce0ea11 and with the change,
+in both engines (2026-10-19), all scored with version 6; the version 5 column
+scores master's readings the old way. Clues right counts cages on the cage
+sets, which have no other clues.
+
+| set | engine | clues right, master → change | unflagged: master v5 / master v6 / change | invented | perfect |
+|---|---|---:|---:|---:|---:|
+| kenken/janko-kenken | Chromium | 1,571 → 1,640 / 2,508 | 0 / 210 / 0 | 528 → 0 | 1 → 13 |
+| | WebKit | 1,588 → 1,652 | 0 / 202 / 0 | 519 → 0 | 1 → 13 |
+| kenken/janko-kenken-thick | Chromium | 1,968 → 2,086 / 2,508 | 0 / 148 / 0 | 527 → 6 | 7 → 33 |
+| | WebKit | 1,974 → 2,103 | 0 / 147 / 0 | 516 → 6 | 8 → 30 |
+| kenken/janko-killersudoku | Chromium | 1,572 → 1,576 / 2,139 | 0 / 2 / 0 | 121 → 0 | 21 → 26 |
+| | WebKit | 1,593 → 1,605 | 0 / 3 / 0 | 120 → 0 | 19 → 26 |
+| killersudoku/generated-render | Chromium | 2,510 → 2,525 / 3,234 | 0 / 3 / 0 | 247 → 25 | 29 → 36 |
+| | WebKit | 2,533 → 2,548 | 0 / 3 / 0 | 251 → 28 | 31 → 36 |
+| killersudoku/generated-render-sum-only | Chromium | 1,260 → 1,844 / 2,799 | 0 / 463 / 0 | 916 → 38 | 0 → 10 |
+| | WebKit | 1,270 → 1,860 | 0 / 457 / 0 | 917 → 37 | 0 → 10 |
+| futoshiki/janko-futoshiki | Chromium | 1,988 / 1,989, unchanged | 0 / 0 / 0 | 0 | 119 |
+| | WebKit | 1,989 / 1,989, unchanged | 0 / 0 / 0 | 0 | 120 |
+| futoshiki/newspaper-photo | Chromium | 4 / 15, unchanged | 0 / 0 / 0 | 24 | 0 |
+| | WebKit | 4 / 15, unchanged | 0 / 0 / 0 | 25 | 0 |
+| sudoku/generated-render | Chromium | 2,704 / 2,706, unchanged | 0 / 0 / 0 | 0 | 118 |
+| | WebKit | 2,705 / 2,706, unchanged | 0 / 0 / 0 | 0 | 119 |
+
+- Master's Chromium rows under version 5 are the version 5 baseline's rows
+  ("Readings at another size than the detector found"), so these readings are
+  the benchmark's. On master the cage boards held 826 confident invented digits
+  under structural review alone in Chromium, on 230 of the 600 boards (812 in
+  WebKit), every one in a cage's head cell and 822 of them (807) the first
+  digit of its clue; 228 (226) contradict the solution, so even a full digit
+  review left those boards without a solution. Futoshiki scores the same under
+  both versions: its one digit error was already under digit review.
+- With the change no board has an unflagged error in either engine, and no
+  image's count rose. The digits still read on cage boards, 60 in Chromium and
+  62 in WebKit, all on photo renders, are all under digit review.
+- Futoshiki and the Sudoku control read the same, image for image. No board is
+  turned, before or after: every cell of a cage board is under structural
+  review, so none of its digits counts as confident for the orientation checks.
+- The value tiles that cut through clues also shared the OCR atlas with the
+  clue tiles, and without them more clues read: Chromium gains 1,013 cages and
+  loses 223, WebKit gains 1,016 and loses 206. The losses are spread thin: 61
+  of the 600 cage boards end with fewer cages right in Chromium, by 1 to 10. A
+  cage stays under structural review, so none of them is unflagged, and they
+  were judged worth the gain.
+- On the sum-only set, Killer printed the usual way, master read the first
+  digit of 463 sums (457 in WebKit) as a confident given, on 83 of its 120
+  boards, and read 45% of its cages right against 78% on the `+` set. With the
+  change it reads 66% (Chromium 1,844, WebKit 1,860 of 2,799), and the `+` set
+  78% (2,525 and 2,548 of 3,234).
 
 ## Unread Futoshiki signs
 
@@ -546,6 +629,10 @@ half-turn check on 2026-10-16 (and again, identically, with its final rule on
 | all | 3,978 | 119,782 / 149,672 | 214 | 1,603 | 3,582 | 455 | 5 |
 
 The five failures are the Kakuro photo renders that read no clues.
+`scoreVersion: 6` re-scores the four cage rows and Futoshiki's, with the
+readings of 2026-10-19 before and after the value-region change: "Digits on
+cage boards". Scored that way, master's four cage rows held 210, 148, 2 and 3
+unflagged errors in Chromium.
 
 Read through the import, the 84 changed images have 33 fewer clues right and 2
 more unflagged errors than through the runner's loader (119,693 and 229 before):

@@ -79,7 +79,7 @@ Newsprint handling now uses solid-cell statistics to distinguish true black sepa
 
 The measured results on those crops and on the generated fixtures are in [TESTING.md](TESTING.md); current measurements are retained in the workflow reports.
 
-Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised.
+Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. A digit read in a cell of a KenKen or Killer Sudoku puzzle is always highlighted for digit review, however clearly it was read: such puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised.
 
 No automated suite is a physical-device test. VoiceOver and physical usability, autofocus and exposure, installed-mode camera behaviour, storage eviction, airplane-mode use, decoder memory and phone speed still require hardware testing, and generated fixtures are regression baselines, not substitutes for it.
 
