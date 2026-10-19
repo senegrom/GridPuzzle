@@ -1,12 +1,23 @@
 // One reusable OCR engine per Scanner. Cancellation is cooperative between
 // recognition calls, with a hard deadline for a stuck engine. No images persist.
+import { updateAdvice as offeredUpdate } from "./offline.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 export function createOCRRuntime({
   makeWorker = () => new Worker(new URL("./ocr-host-worker.js", import.meta.url), { type: "classic" }),
   setTimer = setTimeout, clearTimer = clearTimeout,
+  // Advice for OCR that cannot load on a page an offered update replaces.
+  updateAdvice = offeredUpdate,
 } = {}) {
-  let worker = null, active = null, queued = null, serial = 0;
+  let worker = null, loaded = false, active = null, queued = null, serial = 0;
   let deadline = null, warmDeadline = null;
+  // A failure before the host's engine is ready is a failure to load OCR.
+  // While an app update is offered, that is most likely this build's OCR
+  // files gone from the server after a deploy (web/README.md, "Offline
+  // behaviour"), which only the update fixes; it fixes nothing worse.
+  const failure = (message) => {
+    const advice = loaded ? "" : updateAdvice("try again");
+    return Error(advice ? `Recognition could not load. ${advice}` : message);
+  };
   const clear = () => { clearTimer(deadline); deadline = null; };
   function destroy(error = aborted()) {
     clear(); clearTimer(warmDeadline); warmDeadline = null;
@@ -30,24 +41,25 @@ export function createOCRRuntime({
       active = queued; queued = null;
       const job = active;
       deadline = setTimer(() => {
-        if (active === job) destroy(Error("Printed-clue recognition timed out. Retry a clearer picture."));
+        if (active === job) destroy(failure("Printed-clue recognition timed out. Retry a clearer picture."));
       }, 90000);
       worker.postMessage({ ...job.payload, id: job.id, keepAlive: true });
     } catch (error) { destroy(error); }
   }
   function ensure() {
     if (worker) return;
-    const owned = makeWorker(); worker = owned;
+    const owned = makeWorker(); worker = owned; loaded = false;
     owned.onerror = (error) => {
-      if (worker === owned) destroy(Error(error.message || "Printed-clue recognition failed."));
+      if (worker === owned) destroy(failure(error.message || "Printed-clue recognition failed."));
     };
     owned.onmessageerror = () => {
       if (worker === owned) destroy(Error("Could not receive printed-clue recognition."));
     };
     owned.onmessage = ({ data }) => {
       if (worker !== owned) return;
-      if (data?.fatal) { destroy(Error(data.error || "Printed-clue recognition failed.")); return; }
+      if (data?.fatal) { destroy(failure(data.error || "Printed-clue recognition failed.")); return; }
       if (data?.type === "ready") {
+        loaded = true;
         clearTimer(warmDeadline); warmDeadline = null;
         return;
       }
@@ -65,12 +77,15 @@ export function createOCRRuntime({
       if (!data.result && !data.error && data.cancelled !== true) return;
       clear(); active = null;
       if (!job.cancelled) {
-        if (data.error) job.reject(Error(data.error));
+        if (data.error) job.reject(failure(data.error));
         else if (data.cancelled) job.reject(aborted());
         else job.resolve(data.result);
       }
       dispatch();
     };
+    // Every host loads its engine before its first request: its "ready"
+    // tells a failure to load OCR from a failure to read.
+    owned.postMessage({ type: "warm" });
   }
   function prepare() {
     if (worker) return;
@@ -78,9 +93,8 @@ export function createOCRRuntime({
       ensure();
       const owned = worker;
       warmDeadline = setTimer(() => {
-        if (worker === owned) destroy(Error("OCR loading timed out. Go online and retry."));
+        if (worker === owned) destroy(failure("OCR loading timed out. Go online and retry."));
       }, 90000);
-      worker.postMessage({ type: "warm" });
     } catch (error) { destroy(error); }
   }
   function cancel() {
