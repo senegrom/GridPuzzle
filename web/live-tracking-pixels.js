@@ -35,10 +35,16 @@ export function pictureless({ width, height, data }) {
 }
 // Why a bitmap was refused, which the worker reports with its refusal for the
 // diagnostic report: "incomplete" (it did not arrive whole) or "blank" (it
-// read back with a transparent pixel); an error without a reason (no 2D
-// context, or drawing or reading it back threw) is "failed".
+// read back with a transparent pixel; the error carries the values read back
+// as `pixels`); an error without a reason (no 2D context, or drawing or
+// reading it back threw) is "failed".
 export const REFUSALS = Object.freeze(["incomplete", "blank", "failed"]);
-const refusal = (reason, message) => Object.assign(Error(message), { refusal: reason });
+const refusal = (reason, message, pixels = null) => Object.assign(Error(message), { refusal: reason, pixels });
+// The worker cannot draw at all: no OffscreenCanvas (iOS before 16.4), a
+// canvas that cannot be made, or no 2D context for it. Such an error is
+// marked `undrawable`, so the handshake's answer tells this worker apart from
+// one that drew the probe and could not read it back (live-tracking-worker.js).
+const undrawable = (error) => Object.assign(error instanceof Error ? error : Error(String(error)), { undrawable: true });
 export function createPixelReader(makeCanvas = (width, height) => new OffscreenCanvas(width, height)) {
   let canvas = null;
   return function pixelsOf({ bitmap, width, height }) {
@@ -47,17 +53,17 @@ export function createPixelReader(makeCanvas = (width, height) => new OffscreenC
       // move to this thread as null (from iOS 18) or as 0 × 0 (iOS 16.4 to
       // 17), and a snapshot's bitmap is never smaller than its tracking pixels.
       if (!(bitmap?.width >= width && bitmap?.height >= height)) throw refusal("incomplete", "The bitmap did not arrive whole.");
-      canvas ??= makeCanvas(width, height);
+      try { canvas ??= makeCanvas(width, height); } catch (error) { throw undrawable(error); }
       // Assigning a size resets the canvas, so only a new size is assigned.
       if (canvas.width !== width) canvas.width = width;
       if (canvas.height !== height) canvas.height = height;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      if (!ctx) throw Error("No 2D canvas in the tracking worker.");
+      if (!ctx) throw undrawable(Error("No 2D canvas in the tracking worker."));
       // A snapshot that drew nothing must not leave the previous frame's pixels.
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(bitmap, 0, 0, width, height);
       const image = ctx.getImageData(0, 0, width, height);
-      if (!opaque(image)) throw refusal("blank", "The bitmap drew nothing.");
+      if (!opaque(image)) throw refusal("blank", "The bitmap drew nothing.", image.data);
       return image;
     } finally {
       // The bitmap was transferred here: it is closed on every path.

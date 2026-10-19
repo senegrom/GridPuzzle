@@ -27,8 +27,9 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // anchor is verified on pixels resampled the way it was built: the tracker
 // transfers a bitmap of PROBE, a 2 x 2 canvas of four known colours, and the
 // worker draws it and reads it back. "bitmap" needs all sixteen values within
-// 2. Anything else means "imagedata": a wrong value, no OffscreenCanvas or 2D
-// context in the worker (before iOS 16.4), a bitmap that cannot be made or
+// 2. Anything else means "imagedata": a wrong value, a probe the worker
+// refuses as it would refuse such a frame, no OffscreenCanvas or 2D context in
+// the worker (before iOS 16.4), a bitmap that cannot be made or
 // transferred, a reply that cannot be received, or no reply within
 // HANDSHAKE_WAIT. That wait starts when the worker has started (its first
 // message), since loading its modules is no part of the transport; a worker
@@ -56,11 +57,13 @@ export const HANDSHAKE_WAIT = 300, HANDSHAKE_LATE = 50;
 // Why a worker uses its transport (stats.transportReason, for the diagnostic
 // report, so an "imagedata" from a phone tells an old iOS from a slow or
 // failed handshake). From its handshake: "probe" (the probe read back right:
-// bitmap), "mismatch" (a value off; stats.probePixels then holds the values
-// read back), "no-pixels" (the worker could not draw it: no OffscreenCanvas
-// or 2D context there), "unreadable" (its answer could not be received),
-// "no-bitmaps" (this thread makes no bitmaps), "probe-failed" (the probe could
-// not be made or transferred). Without a handshake: "timeout" (the worker
+// bitmap), "mismatch" (a value off, also an alpha below 255, for which the
+// worker refuses the probe as it would every frame; stats.probePixels then
+// holds the values read back), "no-pixels" (the worker cannot draw at all:
+// no OffscreenCanvas or 2D context there), "unreadable" (its answer could not
+// be received), "no-bitmaps" (this thread makes no bitmaps), "probe-failed"
+// (the probe could not be made or transferred, arrived in the worker null or
+// 0 x 0, or failed to draw or read back there). Without a handshake: "timeout" (the worker
 // replacing one that did not answer its probe, see HANDSHAKE_WAIT; once a
 // second worker missed it, bitmaps are given up and every later worker says
 // "timeout" too). Once bitmaps have been given up for another cause, every
@@ -239,12 +242,18 @@ export function createLiveTracker({
         return;
       }
       if (data?.probe) {
-        const pixels = data.probe.pixels;
+        const { pixels, refusal } = data.probe;
         if (transport !== null) return;
-        if (matches(pixels)) decide('bitmap', 'probe');
-        else if (!pixels) decide('imagedata', 'no-pixels');
-        // The values read back go to the diagnostic report (at most a 4 x 4 readback's).
-        else decide('imagedata', 'mismatch', Array.isArray(pixels) ? pixels.slice(0, 64) : null);
+        if (!refusal && matches(pixels)) decide('bitmap', 'probe');
+        // A value read back off, also one the worker refused the probe for
+        // (an alpha below 255, which matches() would tolerate within 2 but
+        // for which the worker refuses every frame): the values read back go
+        // to the diagnostic report (at most a 4 x 4 readback's).
+        else if (pixels || refusal === 'blank') decide('imagedata', 'mismatch', Array.isArray(pixels) ? pixels.slice(0, 64) : null);
+        // Refused for arriving incomplete, or for a draw or readback that failed.
+        else if (refusal) decide('imagedata', 'probe-failed');
+        // No pixels and no refusal: the worker cannot draw at all.
+        else decide('imagedata', 'no-pixels');
         return;
       }
       if (!active || data?.id !== active.id) return;

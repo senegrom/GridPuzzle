@@ -401,10 +401,12 @@ Otherwise the camera does the readback itself, as before. Each worker uses one
 of the two, decided by a handshake when it starts, so every anchor is verified
 on pixels resampled the way it was built: the tracker transfers a bitmap of a
 2 × 2 canvas of four known colours, which the worker draws and reads back. The
-bitmap transport needs all sixteen values within 2. A wrong value, a worker
-without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's WebKit on
-Windows), a probe that cannot be made or transferred, or a reply that cannot
-be received mean the camera's own readback. So does a worker that has not
+bitmap transport needs all sixteen values within 2, read back from a probe the
+worker would not refuse as a frame (see below: an alpha below 255 anywhere is
+refused, though within 2). A wrong value, a probe the worker refuses so, a
+worker without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's
+WebKit on Windows), a probe that cannot be made or transferred, or a reply
+that cannot be received mean the camera's own readback. So does a worker that has not
 answered when its second 300-ms wait ends on time, 600 ms after its start (its
 first message: loading its modules is no part of the transport): it may be
 stuck on the probe, with every job queued behind it, so it is replaced at once
@@ -895,10 +897,16 @@ later worker answers one). `tracking.transportReason` says why, from a fixed
 list, so an `imagedata` from a phone tells an iOS without a 2D
 `OffscreenCanvas` in workers from a slow or failed handshake: from the
 worker's handshake `probe` (bitmaps work), `mismatch` (a value read back was
-off; `tracking.probePixels` then holds the values the 2 × 2 probe read back),
-`no-pixels` (the worker could not draw it), `unreadable` (its answer could not
-be received), `no-bitmaps` (the page makes none) or `probe-failed` (the probe
-could not be made or transferred); without a handshake, `timeout` (the worker
+off, also an alpha below 255, for which the worker refuses the probe as it
+would every frame; `tracking.probePixels` then holds the values the 2 × 2
+probe read back), `no-pixels` (the worker cannot draw at all: it has no 2D
+`OffscreenCanvas`), `unreadable` (its answer could not be received),
+`no-bitmaps` (the page makes none) or `probe-failed` (the probe could not be
+made or transferred, arrived in the worker null or 0 × 0, or failed to draw or
+read back there); before, the worker answered every probe it could not read
+back as one without pixels, so the report said `no-pixels`, and blamed a
+missing `OffscreenCanvas`, for fingerprinting noise or a probe lost on its way
+too. Without a handshake it is `timeout` (the worker
 replacing one with no answer when the handshake's second wait ended on time;
 after a second such worker in the camera session, bitmaps are given up and
 every later worker says `timeout` too); once bitmaps were given up in the camera session
@@ -1161,7 +1169,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   transport's, and the real worker module drawing a bitmap through a
   stand-in `OffscreenCanvas`, timed on a clock only its draw moves, and
   answering a bitmap that arrived null or drew nothing as one it cannot read
-  back, with why. `live-tracking-pixels.test.js`: the worker's readback (one
+  back, with why; its answers to the probe, each decided by the real tracker
+  (`no-pixels` only without a 2D context or `OffscreenCanvas`, an alpha of 254
+  or a probe that drew nothing a `mismatch` with the values read back, a probe
+  that arrived null or 0 × 0 or failed to draw `probe-failed`). `live-tracking-pixels.test.js`: the worker's readback (one
   canvas, sized on change, cleared, the whole bitmap drawn, closed on every
   path, and refused, with its reason, for a bitmap that did not arrive whole
   or a readback with a transparent pixel, also one only in its last column,

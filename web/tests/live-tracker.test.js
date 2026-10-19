@@ -140,6 +140,9 @@ function transport({ probe = 'bitmap' } = {}) {
     started: (w = last()) => w.onmessage({ data: { started: true } }),
     // `answered`: the values of the latest answer to a probe.
     answer(pixels = [...PROBE], w = last()) { this.answered = pixels; w.onmessage({ data: { probe: { pixels } } }); },
+    // The worker refuses the probe as it would refuse a frame, saying why,
+    // with the values it read back if it read any.
+    refused(refusal, pixels = null, w = last()) { this.answered = pixels; w.onmessage({ data: { probe: { pixels, refusal } } }); },
     reply: (w = last(), extra = {}) => w.onmessage({ data: { id: w.sent.at(-1).id, result: { proofs: {} }, milliseconds: 3, transportMilliseconds: 7, ...extra } }),
     fire(ms) { for (const [id, t] of [...timers]) if (t.ms === ms) { timers.delete(id); t.fn(); } },
     delays: () => [...timers.values()].map(t => t.ms).sort((a, b) => a - b),
@@ -181,6 +184,15 @@ for (const [name, setup, act, reason] of [
   // All sixteen values count, the alpha channel's too.
   ['an alpha value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 7 ? v - 3 : v)); }, 'mismatch'],
   ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }, 'no-pixels'],
+  // A probe the worker refuses as it would refuse a frame is no worker
+  // without a canvas: an alpha below 255 is a mismatch with the values read
+  // back, also one within matches()' tolerance of 2 (every frame would be
+  // refused for it), and one that did not arrive whole, or failed to draw or
+  // read back, a probe that failed.
+  ['a probe refused for an alpha of 254', {}, async h => { h.started(); h.refused('blank', PROBE.map((v, i) => i === 7 ? v - 1 : v)); }, 'mismatch'],
+  ['a probe refused for drawing nothing', {}, async h => { h.started(); h.refused('blank', Array(16).fill(0)); }, 'mismatch'],
+  ['a probe that did not arrive whole in the worker', {}, async h => { h.started(); h.refused('incomplete'); }, 'probe-failed'],
+  ['a probe the worker failed to draw or read back', {}, async h => { h.started(); h.refused('failed'); }, 'probe-failed'],
   ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }, 'mismatch'],
   ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }, 'mismatch'],
   // The report keeps at most a 4 x 4 readback's values.
@@ -1039,6 +1051,74 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   // transparent: it is answered as unreadable, not tracked as a blank frame.
   thread.postMessage({ op: 'verify', id: 9, bitmap: { pixels: [], width: 64, height: 64 }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
   assert.deepEqual(await next(), { id: 9, error: 'bitmap-unsupported', refusal: 'blank' });
+});
+
+// The real worker's answer to the probe, decided by the real tracker: the
+// report says "no-pixels" only for a worker that cannot draw at all (no 2D
+// context here; no OffscreenCanvas in the test above). A probe the worker
+// refuses as it would refuse a frame says why: an alpha below 255, also one
+// within matches()' tolerance of 2, is a mismatch with the values read back
+// (iOS 17.0 and 17.1 add such noise in Private Browsing), and a probe that
+// did not arrive whole, or failed to draw, is one that failed. Before, the
+// worker answered each of them with no pixels, and the report blamed a
+// missing OffscreenCanvas.
+test('the actual tracking worker answers a probe it cannot read back with why, and the tracker tells the causes apart', async t => {
+  const url = new URL('../live-tracking-worker.js', import.meta.url).href;
+  // A stand-in OffscreenCanvas whose draw keeps the "bitmap"'s pixels (and
+  // throws for one marked `throws`); `context: false` gives no 2D context.
+  const thread = (context) => {
+    const script = `const {parentPort}=require('node:worker_threads');
+class OffscreenCanvas{constructor(w,h){this.width=w;this.height=h;}getContext(){if(!${context})return null;const c=this;return{clearRect(){c.pixels=null;},
+drawImage(b){if(b.throws)throw new Error('detached');c.pixels=b.pixels;},
+getImageData(x,y,w,h){return{width:w,height:h,data:Uint8ClampedArray.from({length:w*h*4},(_,i)=>c.pixels?.[i]??0)};}};}}
+global.OffscreenCanvas=OffscreenCanvas;global.self={postMessage:m=>parentPort.postMessage(m)};
+import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
+    const worker = new NodeWorker(script, { eval: true }); t.after(() => worker.terminate()); return worker;
+  };
+  // The tracker's decision on an answer, through a worker that relays it.
+  async function decided(answer) {
+    let relay;
+    const tracker = createLiveTracker({ setTimer: () => 0, clearTimer() {}, now: () => 0,
+      probe: () => Promise.resolve({ width: 2, height: 2, close() {} }),
+      makeWorker() { relay = { postMessage() {}, terminate() {} }; return relay; } });
+    const ready = tracker.ready(); await flush();
+    relay.onmessage({ data: { started: true } }); relay.onmessage({ data: answer });
+    const transport = await settled(ready), { transportReason, probePixels } = tracker.stats;
+    tracker.reset();
+    return { transport, transportReason, probePixels };
+  }
+  // A thread's messages are not kept for a listener added later: each start
+  // message is listened for as the thread is made.
+  const draws = thread(true), drawsStarted = nextMessage(draws);
+  assert.deepEqual(await drawsStarted, { started: true });
+  const at = (i, d) => PROBE.map((v, k) => (k === i ? v + d : v));
+  for (const [name, bitmap, answer, decision] of [
+    ['read back right', { pixels: [...PROBE], width: 2, height: 2 }, { pixels: [...PROBE] },
+      { transport: 'bitmap', transportReason: 'probe', probePixels: null }],
+    ['a colour off by 3', { pixels: at(5, 3), width: 2, height: 2 }, { pixels: at(5, 3) },
+      { transport: 'imagedata', transportReason: 'mismatch', probePixels: at(5, 3) }],
+    ['an alpha of 254', { pixels: at(7, -1), width: 2, height: 2 }, { pixels: at(7, -1), refusal: 'blank' },
+      { transport: 'imagedata', transportReason: 'mismatch', probePixels: at(7, -1) }],
+    ['a probe that drew nothing', { pixels: [], width: 2, height: 2 }, { pixels: Array(16).fill(0), refusal: 'blank' },
+      { transport: 'imagedata', transportReason: 'mismatch', probePixels: Array(16).fill(0) }],
+    ['a probe that arrived as null', null, { pixels: null, refusal: 'incomplete' },
+      { transport: 'imagedata', transportReason: 'probe-failed', probePixels: null }],
+    ['a probe that arrived 0 x 0', { pixels: [], width: 0, height: 0 }, { pixels: null, refusal: 'incomplete' },
+      { transport: 'imagedata', transportReason: 'probe-failed', probePixels: null }],
+    ['a probe whose draw failed', { pixels: [...PROBE], width: 2, height: 2, throws: true }, { pixels: null, refusal: 'failed' },
+      { transport: 'imagedata', transportReason: 'probe-failed', probePixels: null }],
+  ]) {
+    draws.postMessage({ op: 'probe', bitmap });
+    const reply = await nextMessage(draws);
+    assert.deepEqual(reply, { probe: answer }, `${name}: the worker's answer`);
+    assert.deepEqual(await decided(reply), decision, `${name}: the tracker's decision`);
+  }
+  const blind = thread(false), blindStarted = nextMessage(blind);
+  assert.deepEqual(await blindStarted, { started: true });
+  blind.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE], width: 2, height: 2 } });
+  const reply = await nextMessage(blind);
+  assert.deepEqual(reply, { probe: { pixels: null } }, 'no 2D context: no pixels and no refusal');
+  assert.deepEqual(await decided(reply), { transport: 'imagedata', transportReason: 'no-pixels', probePixels: null });
 });
 
 // A worker that dies (its error event) while its first bitmap job is in it

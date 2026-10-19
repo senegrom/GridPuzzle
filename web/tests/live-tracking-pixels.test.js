@@ -70,22 +70,28 @@ test("one canvas serves every frame; its size is assigned only when it changes",
   f.ops.forEach(([op], i) => { if (op === "drawImage") assert.equal(f.ops[i - 1][0], "clearRect"); });
 });
 
-for (const [name, options, expected] of [
-  ["without a 2D context", { context: false }, /No 2D canvas/],
-  ["when drawing fails", { draw: () => { throw new DOMException("detached", "InvalidStateError"); } }, /detached/],
+// Neither error has a reason, which the worker reports as "failed" for a
+// frame. A worker without a 2D context cannot draw at all, which its error
+// says (`undrawable`), so the handshake's answer tells that worker apart from
+// one whose draw failed (live-tracking-worker.js).
+for (const [name, options, expected, undrawable] of [
+  ["without a 2D context", { context: false }, /No 2D canvas/, true],
+  ["when drawing fails", { draw: () => { throw new DOMException("detached", "InvalidStateError"); } }, /detached/, undefined],
 ]) test(`the bitmap is closed ${name}`, () => {
   const f = fakes(options), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
-  assert.throws(() => pixelsOf({ bitmap, width: 64, height: 64 }), (error) => expected.test(error.message) && error.refusal === undefined,
+  assert.throws(() => pixelsOf({ bitmap, width: 64, height: 64 }),
+    (error) => expected.test(error.message) && error.refusal === undefined && error.undrawable === undrawable,
     "an error without a reason, which the worker reports as \"failed\"");
   assert.equal(bitmap.closed, 1);
 });
 
-test("the bitmap is closed when no canvas can be made (no OffscreenCanvas in the worker)", () => {
+test("the bitmap is closed when no canvas can be made (no OffscreenCanvas in the worker), which cannot draw at all", () => {
   const bitmap = { width: 2, height: 2, closed: 0, close() { this.closed++; } };
-  assert.throws(() => createPixelReader()({ bitmap, width: 2, height: 2 }), ReferenceError, "Node has no OffscreenCanvas");
+  assert.throws(() => createPixelReader()({ bitmap, width: 2, height: 2 }),
+    (error) => error instanceof ReferenceError && error.undrawable === true, "Node has no OffscreenCanvas");
   assert.equal(bitmap.closed, 1);
   const thrower = createPixelReader(() => { throw Error("out of memory"); }), other = { width: 2, height: 2, closed: 0, close() { this.closed++; } };
-  assert.throws(() => thrower({ bitmap: other, width: 2, height: 2 }), /out of memory/);
+  assert.throws(() => thrower({ bitmap: other, width: 2, height: 2 }), { message: /out of memory/, undrawable: true });
   assert.equal(other.closed, 1);
 });
 
@@ -113,7 +119,13 @@ for (const [name, make] of [
 // that is no camera snapshot, which is opaque, and is not taken for one.
 for (const paint of ["none", "left"]) test(`a readback left ${paint === "none" ? "transparent" : "transparent in part"} by its bitmap is refused`, () => {
   const f = fakes({ paint }), pixelsOf = createPixelReader(f.makeCanvas), bitmap = f.bitmap();
-  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }), { message: /drew nothing/, refusal: "blank" });
+  let refused = null;
+  assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }),
+    (error) => { refused = error; return /drew nothing/.test(error.message) && error.refusal === "blank"; });
+  // The values read back go with the refusal (the handshake's answer reports
+  // a refused probe's), and the error is no worker that cannot draw.
+  assert.equal(refused.pixels.length, 960 * 1280 * 4); assert.equal(refused.pixels[3], paint === "left" ? 255 : 0);
+  assert.equal(refused.undrawable, undefined);
   assert.equal(bitmap.closed, 1);
   assert.deepEqual(f.ops.map(([op]) => op), ["getContext", "clearRect", "drawImage", "getImageData"], "drawn and read back, then refused");
 });
