@@ -113,6 +113,65 @@ test("the Frozen chip's text meets WCAG AA contrast for its small bold type", ()
   assert.ok(contrast(text, background) >= 4.5, `${text} on ${background} is ${contrast(text, background).toFixed(2)}:1`);
 });
 
+// WCAG 2.5.3 (Label in Name): a speech-input user says the words a control
+// shows, so its accessible name begins with them. The name is the
+// aria-label, else the text outside aria-hidden parts; symbols such as ✕, ↺
+// and ▣ are not words anyone says.
+test("every button's accessible name begins with the words it shows", () => {
+  const html = read("index.html"), text = (markup) => markup.replace(/<[^>]+>/g, "");
+  const words = (value) => value.replace(/&amp;/g, "&").replace(/&\w+;/g, " ")
+    .replace(/[^\p{L}\p{N}&]+/gu, " ").trim().toLowerCase();
+  const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
+  assert.ok(buttons.length > 20, "the page's buttons");
+  for (const [, attributes, content] of buttons) {
+    const shown = words(text(content));
+    if (!shown) continue;
+    const label = attributes.match(/\baria-label="([^"]*)"/)?.[1];
+    const name = words(label ?? text(content.replace(/<span aria-hidden="true">[\s\S]*?<\/span>/g, "")));
+    assert.ok(name.startsWith(shown), `${attributes.trim()}: its name "${name}" does not begin with "${shown}"`);
+  }
+});
+
+// The stroke and its width a board cell's square gets from style.css: the
+// rules for ".cell-hit" and "<.classes and :focus> .cell-hit", by specificity
+// and then order, for a cell with `classes` (and focus, if `focused`).
+function cellStroke(stylesheet, classes, focused) {
+  const css = stylesheet.replace(/\/\*[\s\S]*?\*\//g, "");
+  const root = Object.fromEntries([...css.match(/:root\s*\{([^}]*)\}/)[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)]
+    .map(([, name, value]) => [name, value.trim()]));
+  const won = {};
+  [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].forEach(([, selectors, body], order) => {
+    for (const selector of selectors.split(",").map((s) => s.trim())) {
+      const compound = /^((?:\.[\w-]+|:focus)*) ?\.cell-hit$/.exec(selector)?.[1];
+      if (compound === undefined) continue;
+      const parts = compound.match(/\.[\w-]+|:focus/g) ?? [];
+      if (!parts.every((part) => part === ":focus" ? focused : classes.includes(part.slice(1)))) continue;
+      for (const [, property, value] of body.matchAll(/(stroke(?:-width)?)\s*:\s*([^;]+);/g)) {
+        const rank = [parts.length, order], held = won[property];
+        if (!held || rank[0] > held.rank[0] || (rank[0] === held.rank[0] && rank[1] > held.rank[1]))
+          won[property] = { rank, value: value.trim().replace(/var\((--[\w-]+)\)/, (_, name) => root[name]) };
+      }
+    }
+  });
+  return { stroke: won.stroke?.value, width: won["stroke-width"]?.value };
+}
+
+// WCAG 2.4.7 (Focus Visible): in the Cages and Inequalities tools Enter and
+// Space select the focused cell, so focus sits on a selected cell after
+// every selection, and it must still show there.
+test("a focused board cell keeps a visible mark when it is also selected", () => {
+  const css = read("style.css"), look = (classes, focused) => cellStroke(css, ["board-cell", ...classes], focused);
+  assert.notDeepEqual(look([], true), look([], false), "focus marks a plain cell");
+  for (const state of [[], ["uncertain"], ["conflict"]]) {
+    const selected = [...state, "selected"];
+    assert.notDeepEqual(look(selected, true), look(selected, false), `focus on a selected ${state.join(" ")} cell`);
+  }
+  // Non-text contrast (WCAG 1.4.11) of that mark against the selected fill.
+  const fill = css.match(/\.board-cell\.selected \.cell-hit\s*\{[^}]*fill:\s*(#[0-9a-f]{6})/i)[1];
+  const mark = look(["selected"], true).stroke;
+  assert.ok(contrast(mark, fill) >= 3, `${mark} on ${fill} is ${contrast(mark, fill).toFixed(2)}:1`);
+});
+
 const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
 function section(first, last) {
