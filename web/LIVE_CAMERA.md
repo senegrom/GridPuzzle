@@ -165,7 +165,14 @@ for three seconds offers Start preview too, frames that arrive later take it
 back (also after a failed retry), and the camera says when no picture has
 arrived a second after Clear.
 Start preview offered while the view is live never clears a solution that
-freezes during its playback. If the camera cannot be turned back on, the frozen
+freezes during its playback. Start preview makes the video a new player
+(pause, `srcObject` and `load()`), whose count of presented frames starts from
+zero, so on the live view the camera's frame scheduler starts over once that
+player plays (`replay()`) and scans its frames at once. Before, the scheduler
+took them for repeats of the old player's frames until their count passed
+the old one (on WebKit that includes the frames counted while paused at the
+freeze, so minutes of frames): nothing was scanned, and the frame check
+offered Start preview again while the video visibly played. If the camera cannot be turned back on, the frozen
 view stays with the reason (a refused permission in plain words), and Save
 picture still works.
 
@@ -694,7 +701,8 @@ presents the video itself. While the view is frozen the scheduler is stopped:
 no video-frame callback, heartbeat, snapshot or readback runs, and Clear
 starts it again with new tokens, taking the first frame the video reports only
 as a baseline (`discardFirst`), so the first frame scanned was presented after
-the tap.
+the tap. Start preview on the live view starts it again too, since the new
+player it makes counts its frames from zero (see Clear above).
 
 ## Noticing changed print
 
@@ -994,7 +1002,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame scanned after Clear presented after the tap; refused, interrupted,
   stalled and silent playback, Start preview's live retry when a solution
   freezes meanwhile, and its offer taken back when frames come, also after the
-  retry itself failed; an app switch or an ended track turning the camera off
+  retry itself failed; on the WebKit model, Start preview on the live view
+  scanning the new player's frames at once (`live-camera-recovery.test.js`:
+  the camera's `replay()` starting its scheduler over); an app switch or an ended track turning the camera off
   without closing the panel (also while Clear waits for playback, whose
   interrupted play() then blames nothing), reported to the diagnostics, with a
   later app switch keeping the line that says why; getUserMedia again on Clear,

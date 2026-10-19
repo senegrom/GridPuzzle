@@ -363,6 +363,29 @@ test('thirty open/close cycles release source/scratch canvases and timers, inclu
  }
 });
 
+// The page makes the video a new player on a live view (Start preview: pause,
+// srcObject and load), whose clock and frame counts start again from zero.
+// replay() starts the frame scheduler over, so the new player's frames are
+// scanned at once; before, every one was taken for a repeat of the old
+// player's until its clock passed the old one. A closed camera ignores it.
+test("replay() starts the frame scheduler over for a new player whose clock starts again", async (t) => {
+  const h = harness(t); await h.advance(1000);
+  assert.ok(h.camera.stats.scheduling.processed > 0);
+  // The new player: its clock starts again from zero.
+  const loaded = h.now;
+  Object.defineProperty(h.video, "currentTime", { configurable: true, get: () => (h.now - loaded) / 1000 });
+  const processed = h.camera.stats.scheduling.processed;
+  await h.advance(600);
+  assert.equal(h.camera.stats.scheduling.processed, processed, "without a restart its frames count as repeats");
+  assert.ok(h.camera.stats.scheduling.duplicates > 0); assert.equal(h.camera.stats.scheduling.fresh, false);
+  h.camera.replay();
+  await h.advance(100);
+  assert.equal(h.camera.stats.scheduling.processed, 1, "after replay() the next frame is processed");
+  assert.equal(h.camera.stats.scheduling.fresh, true);
+  h.camera.stop(); h.camera.replay();
+  assert.equal(h.timers.size, 0, "a closed camera starts no scheduler");
+});
+
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 // --- live-camera: a detected grid that contradicts the chosen rules --------

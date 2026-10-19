@@ -803,6 +803,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       scheduler.start({ discardFirst: true }); updateRestartControl();
       onViewChange?.("live");
     },
+    // The page made the video a new player while the view is live (Start
+    // preview: pause, srcObject and load, or a stream attached again). A new
+    // player counts its presented frames from zero, so the frame scheduler,
+    // which takes a count no higher than the last one's for a repeat, would
+    // scan none of them until the count passed the old player's (frames
+    // counted while paused at a freeze included, on WebKit). It starts over
+    // with new tokens; the frozen view and a closed camera have none running.
+    replay() {
+      if (!active || view !== "live") return;
+      scheduler.stop(); scheduler.start();
+    },
     restart() {
       if (!active || view !== "live") return;
       epoch++; scheduler.stop(); cancelDetection(); tracker.reset(); discardCandidate();

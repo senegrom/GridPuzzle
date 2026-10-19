@@ -309,6 +309,12 @@ export function setupPhotoFlow({
       if (clearing && live.view === "frozen") live.resume?.();
       // A solution that froze while a live retry played stays as it is.
       if (live.view !== "live") return;
+      // A live retry plays a new player (the tap's load, or a stream attached
+      // again), whose count of presented frames starts from zero: the live
+      // camera's frame scheduler starts over, or it would take every frame
+      // for a repeat until the count passed the old player's. Clear's
+      // resume() starts it afresh already.
+      if (!clearing) live.replay?.();
       $("take-photo").focus?.();
       watchFrames(epoch);
     } catch (error) {
