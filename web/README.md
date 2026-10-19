@@ -188,10 +188,13 @@ asset list, a stored one first (the waiting update's), then the origin's
 current `assets.json`, and fetches that URL instead; bytes whose digest differs
 are never served. Installation still stores only the app shell and the Python
 runtime, not the OCR runtime. If the deploy changed the file, so that nothing
-identical exists (a new OCR runtime), recognition reports that it could not
-load and **Download for offline use** that this version's files are no longer
-on the server; while an update is offered, both tell the user to use its
-button, since retrying cannot bring the old files back.
+identical exists (a new OCR runtime), retrying cannot bring the old file back
+and only the update helps. While one is offered, a read whose OCR fails to load
+online says that recognition could not load, and **Download for offline use**
+that this version's files are no longer on the server, and both name the
+update's button instead of showing the browser's error or "Stay online and
+retry". A read that fails offline, or whose OCR download runs out of time,
+keeps its own message.
 
 The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Of the two Tesseract core loaders it stores only the one this device will load, chosen with the same WebAssembly SIMD test Tesseract.js uses (both where WebAssembly cannot be probed); both stay on the server. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 

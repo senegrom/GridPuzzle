@@ -177,14 +177,34 @@ for (const reply of ["warm-up", "request"])
     await assert.rejects(read, { message: ADVICE });
   });
 
-test("the timeout of an OCR load that never finished names the offered update", async (t) => {
+// A deploy's missing files fail at once; a deadline that expires is a slow
+// download, which the update does not bring any faster.
+test("an OCR deadline that expires keeps its own message while an update is offered", async (t) => {
   const h = runtime(t, "Update app & reload"), read = h.api.recognize({ png: "a" });
   [...h.timers.values()].find((timer) => timer.ms === 90000).fn();
-  await assert.rejects(read, { message: ADVICE });
+  await assert.rejects(read, { message: "Printed-clue recognition timed out. Retry a clearer picture." });
+  const warming = runtime(t, "Update app & reload");
+  warming.api.prepare();
+  const later = warming.api.recognize({ png: "a" });
+  [...warming.timers.values()].find((timer) => timer.ms === 90000).fn();
+  await assert.rejects(later, { message: "OCR loading timed out. Go online and retry." });
 });
 
 test("without an offered update a failure to load OCR keeps its own message", async (t) => {
   const h = runtime(t, ""), read = h.api.recognize({ png: "a" });
+  h.message({ error: IMPORT, fatal: true });
+  await assert.rejects(read, { message: IMPORT });
+});
+
+// Offline the network is the cause, and the update would not load OCR.
+test("offline, a failure to load OCR keeps its own message while an update is offered", async (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "navigator", original);
+    else delete globalThis.navigator;
+  });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
+  const h = runtime(t, "Update app & reload"), read = h.api.recognize({ png: "a" });
   h.message({ error: IMPORT, fatal: true });
   await assert.rejects(read, { message: IMPORT });
 });

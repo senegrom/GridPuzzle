@@ -10,12 +10,14 @@ export function createOCRRuntime({
 } = {}) {
   let worker = null, loaded = false, active = null, queued = null, serial = 0;
   let deadline = null, warmDeadline = null;
-  // A failure before the host's engine is ready is a failure to load OCR.
-  // While an app update is offered, that is most likely this build's OCR
-  // files gone from the server after a deploy (web/README.md, "Offline
-  // behaviour"), which only the update fixes; it fixes nothing worse.
+  // An error before the host's engine is ready is a failure to load OCR.
+  // Online, while an app update is offered, that is most likely this build's
+  // OCR files gone from the server after a deploy (web/README.md, "Offline
+  // behaviour"), which only the update fixes. Offline it is the network's,
+  // and a deadline that expires is a slow download: those keep their own
+  // messages.
   const failure = (message) => {
-    const advice = loaded ? "" : updateAdvice("try again");
+    const advice = loaded || globalThis.navigator?.onLine === false ? "" : updateAdvice("try again");
     return Error(advice ? `Recognition could not load. ${advice}` : message);
   };
   const clear = () => { clearTimer(deadline); deadline = null; };
@@ -41,7 +43,7 @@ export function createOCRRuntime({
       active = queued; queued = null;
       const job = active;
       deadline = setTimer(() => {
-        if (active === job) destroy(failure("Printed-clue recognition timed out. Retry a clearer picture."));
+        if (active === job) destroy(Error("Printed-clue recognition timed out. Retry a clearer picture."));
       }, 90000);
       worker.postMessage({ ...job.payload, id: job.id, keepAlive: true });
     } catch (error) { destroy(error); }
@@ -93,7 +95,7 @@ export function createOCRRuntime({
       ensure();
       const owned = worker;
       warmDeadline = setTimer(() => {
-        if (worker === owned) destroy(failure("OCR loading timed out. Go online and retry."));
+        if (worker === owned) destroy(Error("OCR loading timed out. Go online and retry."));
       }, 90000);
     } catch (error) { destroy(error); }
   }
