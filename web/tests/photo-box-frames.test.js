@@ -199,6 +199,14 @@ for (const quarter of [1, 3]) {
     assert.equal(h.turns.at(-1), quarter); solvedAsPrinted(h, 2);
   });
 }
+for (const quarter of [1, 3])
+  test(`an upright photograph, then the next one lying ${quarter} quarter turns round: both keep the printed boxes`, async t => {
+    const h = harness(t, printedControls);
+    await h.photograph(0); await h.read();
+    assert.equal(h.turns.at(-1), 0); solvedAsPrinted(h, 1);
+    await h.photograph(quarter); await h.read();
+    assert.equal(h.turns.at(-1), quarter); solvedAsPrinted(h, 2);
+  });
 test('Rotate that turns a sideways page upright keeps the printed boxes', async t => {
   const h = harness(t, printedControls);
   await h.photograph(3); await h.read(); solvedAsPrinted(h, 1);
