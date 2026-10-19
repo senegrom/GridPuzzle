@@ -417,22 +417,23 @@ def _files(path: str) -> set[str]:
     }
 
 
-def _deployment_inputs() -> set[str]:
-    """The repository files the deployment workflow's build and gate read.
+def _scanner_inputs(workflow: str, *modules: str) -> set[str]:
+    """The repository files a workflow of scanner jobs reads.
 
-    The build's `ROOT / "..."` inputs, the scripts the jobs run and every
-    relative module those load, the browser unit tests (a push runs them)
-    with theirs, and the fixture directories the suites name.
+    The workflow and setup-scanner, the build's `ROOT / "..."` inputs (the
+    jobs build the site, or download one built from them), the scripts the
+    jobs run and `modules`, every relative module those load, and the
+    fixture directories the suites name.
     """
     action = _GITHUB / "actions" / "setup-scanner" / "action.yml"
-    text = _workflow("browser-pages.yml") + action.read_text(encoding="utf-8")
-    inputs = _files(".github/workflows/browser-pages.yml")
+    text = _workflow(workflow) + action.read_text(encoding="utf-8")
+    inputs = _files(f".github/workflows/{workflow}")
     inputs |= _files(".github/actions/setup-scanner")
     build = (_ROOT / "scripts" / "build_web.py").read_text(encoding="utf-8")
     for name in re.findall(r'ROOT / "([^"]+)"', build):
         inputs |= _files(name)
     pending = re.findall(r"(?:node|python) (scripts/[\w.-]+)", text)
-    pending += [f"web/tests/{test.name}" for test in (_ROOT / "web" / "tests").glob("*.test.js")]
+    pending += modules
     seen = set()
     while pending:
         path = pending.pop()
@@ -450,6 +451,13 @@ def _deployment_inputs() -> set[str]:
         for directory in re.findall(r"""["'](Examples/BrowserScanner/[^"']*)["']""", source):
             inputs |= _files(directory)
     return inputs
+
+
+def _deployment_inputs() -> set[str]:
+    """The repository files the deployment workflow's build and gate read,
+    the browser unit tests (a push runs them) with theirs included."""
+    tests = [f"web/tests/{test.name}" for test in (_ROOT / "web" / "tests").glob("*.test.js")]
+    return _scanner_inputs("browser-pages.yml", *tests)
 
 
 @pytest.mark.gate
@@ -500,6 +508,39 @@ def test_every_change_that_runs_scanner_quality_runs_the_deployment_gate():
     assert {path for path in probes if _filter_selects(quality, path)} - {
         path for path in probes if _filter_selects(gate, path)
     } == set()
+
+
+# What Scanner quality's jobs build into the site but its suites never use:
+# the solver and the licence texts. The suites read clues and solve nothing
+# (external_replay hands its scanner a solver that throws), and a failed
+# warm-up of the app's solver stays in its worker. Every change to these
+# runs the deployment gate, which builds the same site and solves.
+_SCANNER_QUALITY_UNUSED = ("gridsolver/**", "LICENSE", "third_party/licenses/**")
+
+
+def test_scanner_quality_runs_on_what_its_suites_read():
+    """Four of its suites run in no other workflow, so a pull request that
+    changes only a module one of them loads, a fixture it names or a script
+    its jobs run must still run them: every such file is in the changes
+    job's paths."""
+    paths = _changes_paths(_workflow("scan-input.yml"))
+    inputs = {path for path in _scanner_inputs("scan-input.yml") if not path.endswith(".md")}
+    for path in (
+        ".github/actions/setup-scanner/action.yml",
+        "Examples/BrowserScanner/Newspaper/ground-truth.json",
+        "scripts/build_web.py",
+        "scripts/external_replay_regressions.cjs",
+        "scripts/fetch_live_fixtures.py",
+        "scripts/harness.cjs",
+        "scripts/ocr_quality_regressions.cjs",
+        "scripts/recognition_fragments_regressions.cjs",
+    ):
+        assert path in inputs, path
+    unused = {path for path in inputs if _filter_selects(_SCANNER_QUALITY_UNUSED, path)}
+    assert unused, "the site no longer packs the solver and licences: drop the exemption"
+    gate = _push_paths(_workflow("browser-pages.yml"))
+    assert {path for path in unused if not _filter_selects(gate, path)} == set()
+    assert {path for path in inputs - unused if not _filter_selects(paths, path)} == set()
 
 
 @pytest.mark.gate
