@@ -687,6 +687,41 @@ test("the shutter during a retry of a solved reading freezes it and saves its so
   assert.match(h.help, FROZEN);
 });
 
+// A targeted retry's progress stays off the help line, a polite live region:
+// the session's status names the retry ("Re-reading 1 unclear clues…") while
+// it runs, and the camera's holds stay. The reader reports progress as
+// Scanner.readOnce does: the straightening at once, then the OCR engine's
+// loading and its steps. Before, each such line was written to the help line
+// over the status or the hold, and the next heartbeat wrote the hold back.
+const PROGRESS = ["Straightening the photograph…", "Loading printed-clue recognition…", "Reading printed clues…", "Reading printed clues…", "Checking printed clues…"];
+const RE_READING = "Re-reading 1 unclear clues from a clearer frame…";
+const reportingRetry = (ms) => (found, cells, at, { progress, setTimer }) => new Promise((resolve) => {
+  progress(PROGRESS[0], null);
+  PROGRESS.slice(1).forEach((line, i) => setTimer(() => progress(line, null), (i + 1) * ms / PROGRESS.length));
+  setTimer(() => resolve(retryResult(found, cells)), ms);
+});
+test("a retry's progress stays off the help line, which names the retry", async (t) => {
+  const h = simulation(t, { autoSolve: false, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
+    readCells: reportingRetry(600) });
+  assert.ok(await h.until(() => h.view.dataset.uncertain === "1", 5000), "the reading is shown");
+  const from = h.writes.length;
+  assert.ok(await h.until(() => h.counts.retries === 1, 5000));
+  await h.advance(700);
+  const lines = h.writes.slice(from).map((w) => w.text);
+  assert.deepEqual(lines.filter((line) => PROGRESS.includes(line)), [], `the help line said ${JSON.stringify(lines)}`);
+  assert.equal(lines.filter((line) => line === RE_READING).length, 1, "the retry is named once");
+});
+
+test("while a solved reading waits to freeze, a retry's progress leaves the wait's text alone", async (t) => {
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
+    readCells: reportingRetry(4000) });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const from = h.writes.length;
+  assert.ok(await h.until(() => h.counts.retries === 1, 3000));
+  assert.ok(await h.until(() => h.frozen(), 3000));
+  assert.deepEqual(h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text), [], "nothing was written over the wait's text");
+});
+
 // A retry whose merge changes a clue withdraws the solution, which belonged
 // to the old clues: the reading is solved again and freezes with the new
 // clue, its three seconds still counted from the first solved render.

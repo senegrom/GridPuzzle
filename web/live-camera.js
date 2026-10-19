@@ -252,8 +252,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       found.needsReview = true;
       return found;
     },
+    // A targeted retry's progress stays off the help line: the session's
+    // status names the retry ("Re-reading N unclear clues…") while it runs.
+    // The reader's own lines ("Straightening the photograph…", then one per
+    // OCR step) went through say, which writes whatever the camera holds or
+    // the session says: each was announced in the polite live region, and
+    // the next heartbeat wrote the held line back.
     readCells: typeof reader.readCells === 'function' ? (frame, found, cells) =>
-      reader.readCells(frame.image, frame.corners, found, cells, say,
+      reader.readCells(frame.image, frame.corners, found, cells, () => {},
         { onDiagnostic: event => diagnostics?.event(event) }) : null,
     onEvent: event => diagnostics?.event(event),
     solve: (puzzle) => { prepareSolver(); return solver.solve(puzzle); },

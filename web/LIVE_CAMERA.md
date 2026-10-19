@@ -810,7 +810,13 @@ explicitly confirmed clues are not replaced; absent marks cannot delete earlier
 clues. Changed proposals remain uncertain and require review, and solver
 answers do not participate. While a retry runs the reading keeps its result,
 so a solved reading stays solved (see the freeze's wait above); a merge that
-changes a clue withdraws it, and the reading is solved again. A failed or timed-out targeted read retires only
+changes a clue withdraws it, and the reading is solved again. The help line
+names the retry ("Re-reading 1 unclear clues from a clearer frame…") while
+it runs; the reader's progress lines stay off it. Before, each of them
+("Straightening the photograph…", then one per OCR step) was written over the
+status and over whatever the camera held there (the freeze's wait, a stalled
+feed), and the next heartbeat wrote the held line back, every line announced
+in the polite live region. A failed or timed-out targeted read retires only
 its own request: the preceding full reading and its source stay available, but
 only current identity verification can authorize their display, and a late
 reply cannot restore a retired scene or replace a newer retry. Each cell has two
@@ -1048,7 +1054,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   the freeze nor takes the wait's text off the help line, and its late reply
   changes nothing; the shutter during a retry freezes the solution and saves
   it; a retry that changes a clue withdraws the solution, and the reading is
-  solved again and frozen with the new clue. From its first frame the camera records the setting
+  solved again and frozen with the new clue. A retry's progress stays off
+  the help line, which names the retry once, or keeps the wait's text. From its first frame the camera records the setting
   with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
   stands), the counted status without automatic solving and hiding with
