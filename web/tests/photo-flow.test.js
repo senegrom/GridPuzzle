@@ -1350,3 +1350,103 @@ for (const outcome of ["success", "failure", "cancel"])
     if (outcome !== "success") { assert.equal(s.corners, corners); assert.equal(h.counts().mappingsCleared, 0); }
     restoreEdit(s, s.history.pop()); assert.equal(s.puzzle.cells[0], 2);
   });
+
+// A new photograph is shown at once on the crop the detector proposes when it
+// finds no grid, unconfirmed. When detection fails or is stopped, that crop
+// stays: drawn, with handles to move, and a Read through it reviews every cell
+// (before, the crop was empty, the editor kept the previous picture and Read
+// did nothing at all).
+function png(width, height) {
+  const bytes = new Uint8Array(45), view = new DataView(bytes.buffer);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
+  view.setUint32(16, width); view.setUint32(20, height); bytes.set([73, 69, 78, 68], 37);
+  return new Blob([bytes], { type: "image/png" });
+}
+function cropHarness(t) {
+  const descriptors = ["document", "createImageBitmap"].map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]);
+  t.after(() => { for (const [k, d] of descriptors) { if (d) Object.defineProperty(globalThis, k, d); else delete globalThis[k]; } });
+  const noop = () => {};
+  // Every canvas records what is drawn into it.
+  const canvas = (width = 600, height = 600) => {
+    const draws = [], ctx = new Proxy({ drawImage(source) { draws.push(source); } }, { get: (o, k) => o[k] ?? noop });
+    return { width, height, draws, getContext: () => ctx };
+  };
+  const nodes = new Map(), $ = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { ...canvas(300, 150), id, value: "", checked: false, hidden: false, style: {},
+      scrollIntoView: noop, focus: noop });
+    return nodes.get(id);
+  };
+  globalThis.document = { createElement: () => canvas(), addEventListener: noop, body: { classList: { add: noop, remove: noop } } };
+  globalThis.createImageBitmap = async () => ({ width: 800, height: 600, close: noop });
+  const puzzle = makePuzzle("latinsquare", 2);
+  const state = { puzzle, photo: null, corners: null, history: [], uncertain: new Set(), cageUncertain: new Set(),
+    blackReadings: [], notes: [], play: fitPlay(puzzle, []), hints: new Set(), selected: [] };
+  const setLayout = (layout) => {
+    state.layout = { ...layout };
+    for (const [k, id] of [["rows", "rows"], ["cols", "cols"], ["boxRows", "box-rows"], ["boxCols", "box-cols"]]) $(id).value = String(layout[k]);
+  };
+  setLayout({ rows: 2, cols: 2, boxRows: 1, boxCols: 2 }); $("puzzle-type").value = "latinsquare";
+  let epoch = 0, detect = async () => { throw Error("Image processing failed"); };
+  const errors = [], reads = [], stopTask = () => ++epoch;
+  setupPhotoFlow({ $, state, scanner: {
+    detect: (image) => detect(image),
+    async read(_image, corners, type, rows, cols) {
+      reads.push(corners);
+      const read = makePuzzle(type, rows, cols); read.cells[0] = 1;
+      return { puzzle: read, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [], rectified: canvas() };
+    },
+  }, stopTask, invalidate: stopTask, begin: stopTask, finish: noop, fail: (e) => errors.push(e.message), render: noop,
+  status: noop, remember: () => rememberEdit(state), persist: noop, drawBoard: noop, clearPhotoMapping: noop, solveNow: noop,
+  boxDefault: boxShape, setLayout, getJobId: () => epoch, setDeadline: noop });
+  return { $, state, errors, reads, stopTask, setDetect(fn) { detect = fn; },
+    import: () => $("photo-file").onchange({ target: { files: [png(800, 600)], value: "photo" } }),
+    async read() { $("read-photo").onclick(); await tick(); } };
+}
+const fallback = (width, height) => [{ x: width * 0.08, y: height * 0.08 }, { x: width * 0.92, y: height * 0.08 },
+  { x: width * 0.92, y: height * 0.92 }, { x: width * 0.08, y: height * 0.92 }];
+// The crop editor shows the photograph, and a Read through the fallback crop
+// reads it with every cell under review and the note that says why.
+async function fallbackCropReads(h, width, height) {
+  const crop = h.$("crop-canvas");
+  assert.deepEqual(h.state.corners, fallback(width, height));
+  assert.deepEqual([crop.width, crop.height], [width, height]);
+  assert.equal(crop.draws.at(-1), h.state.photo, "the crop editor shows this photograph");
+  await h.read();
+  assert.deepEqual(h.reads.at(-1), fallback(width, height));
+  assert.equal(h.state.puzzle.cells[0], 1);
+  assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.needsReview, true);
+  assert.match(h.state.notes[0], /not found automatically/);
+}
+test("a new photograph whose grid detection fails keeps the fallback crop, shown and readable", async (t) => {
+  const h = cropHarness(t);
+  await h.import();
+  assert.deepEqual(h.errors, ["Image processing failed"]);
+  assert.deepEqual([h.state.photo.width, h.state.photo.height], [800, 600]);
+  await fallbackCropReads(h, 800, 600);
+});
+test("a rotated photograph whose grid detection fails shows the rotated picture on the fallback crop", async (t) => {
+  const h = cropHarness(t);
+  h.setDetect(async (image) => ({ rows: 2, cols: 2, confidence: 0.99,
+    corners: [{ x: 10, y: 10 }, { x: image.width - 10, y: 10 }, { x: image.width - 10, y: image.height - 10 }, { x: 10, y: image.height - 10 }] }));
+  await h.import(); assert.deepEqual(h.errors, []);
+  const before = h.state.photo;
+  h.setDetect(async () => { throw Error("Image processing timed out. Go online and retry."); });
+  h.$("rotate-photo").onclick(); await tick(); await tick();
+  assert.equal(h.errors.length, 1);
+  assert.notEqual(h.state.photo, before); assert.deepEqual([h.state.photo.width, h.state.photo.height], [600, 800]);
+  await fallbackCropReads(h, 600, 800);
+});
+test("Stop during grid detection leaves a new photograph on the fallback crop, shown and readable", async (t) => {
+  const h = cropHarness(t), pending = deferred();
+  h.setDetect(() => pending.promise);
+  const imported = h.import();
+  for (let i = 0; i < 20 && !h.state.photo; i++) await tick();
+  // Shown while the detector works, before any answer.
+  assert.deepEqual(h.state.corners, fallback(800, 600));
+  assert.equal(h.$("crop-canvas").draws.at(-1), h.state.photo);
+  h.stopTask();
+  pending.resolve({ rows: 2, cols: 2, confidence: 0.99, corners: [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }] });
+  await imported;
+  assert.deepEqual(h.errors, []);
+  await fallbackCropReads(h, 800, 600);
+});

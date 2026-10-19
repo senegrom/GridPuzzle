@@ -4,7 +4,7 @@ import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
 import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
-import { turnCorners, validQuad } from "./geometry.js";
+import { fallbackCorners, turnCorners, validQuad } from "./geometry.js";
 import { importPhoto } from "./photo-import.js";
 import { createLiveCamera } from "./live-camera.js";
 import { overlayCells } from "./live-overlay.js";
@@ -652,10 +652,17 @@ export function setupPhotoFlow({
     state.photo = canvas;
     cropRevision = {};
     clearPhotoMapping();
-    state.corners = null;
+    // The photograph shows at once, on the crop the detector proposes when
+    // it finds no grid, unconfirmed: if detection then fails or is stopped,
+    // the handles are there to move, and a Read through them puts every cell
+    // under review instead of doing nothing.
+    state.corners = fallbackCorners(canvas.width, canvas.height);
+    unconfirmedCorners = true;
+    detectedLayout = null;
     state.result = null;
     $("photo-panel").hidden = false;
     render();
+    drawCrop();
     await detectPhoto(canvas);
   }
   // Re-detection is not adoption of a new photograph or a puzzle edit. Keep

@@ -68,6 +68,16 @@ export function thresholdGray(g, w, h, window = 25, bias = 12, ceiling = 215) {
 export function turnCorners(corners, turns) {
   return corners.map((_, i) => corners[(i + turns) % 4]);
 }
+// The crop the detector proposes when it finds no grid, 8% in from each edge
+// of the picture. A new photograph's crop starts there in the photo flow too.
+export function fallbackCorners(width, height) {
+  return [
+    { x: width * 0.08, y: height * 0.08 },
+    { x: width * 0.92, y: height * 0.08 },
+    { x: width * 0.92, y: height * 0.92 },
+    { x: width * 0.08, y: height * 0.92 },
+  ];
+}
 // Otsu's threshold of a 256-bin gray histogram: the cut that maximises the
 // between-class variance, with values at or below it as ink. 127 when every
 // sample has the same value.
@@ -980,12 +990,7 @@ function findIn(image, b, thorough = true) {
   candidates.sort((p, q) => q.area - p.area);
   if (!candidates.length)
     return {
-      corners: [
-        { x: w * 0.08, y: h * 0.08 },
-        { x: w * 0.92, y: h * 0.08 },
-        { x: w * 0.92, y: h * 0.92 },
-        { x: w * 0.08, y: h * 0.92 },
-      ],
+      corners: fallbackCorners(w, h),
       confidence: 0,
       rows: 0,
       cols: 0,
