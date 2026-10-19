@@ -10,10 +10,12 @@ keep their own terms.
   distribution (https://github.com/denis-berthier/CSP-Rules-V2.1), which is
   licensed under the GNU General Public License v3. This repository's history
   begins with that distribution, and its examples were merged in December 2021.
-  The puzzle files keep their original headers; their solving transcripts were
-  later removed, as `README.txt` explains, and the notes have since been
-  edited here. They are redistributed under GPL-3.0, whose full text is in
-  `COPYING-GPL-3.0.txt` next to this file.
+  The puzzle files keep their original headers (in the Mebane Slitherlink
+  files, the `Mellon rating = N` line is now a `;` comment, so that the normal
+  file route reads them); their solving transcripts were later removed, as
+  `README.txt` explains, and the notes have since been edited here. They are
+  redistributed under GPL-3.0, whose full text is in `COPYING-GPL-3.0.txt`
+  next to this file.
 - **Newspaper transcriptions: the `.pzl` files.** Files with `times` in their
   names were transcribed from puzzles published in The Times. The puzzles
   remain the copyright of their publisher, are kept only as solver test data,
