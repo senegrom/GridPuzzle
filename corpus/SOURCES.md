@@ -9,7 +9,7 @@ The corpus directory (default `E:\OneDrive\Coding\PuzzleCorpus`, override with
 fetchers, the renderer, the generated index and this note — lives here in the
 repository.
 
-    <family>/<set>/<name>.<jpg|png|webp>
+    <family>/<set>/<name>.<jpg|jpeg|png|webp>
     <family>/<set>/<name>.json
 
 Every image has a target. A target is:
@@ -200,7 +200,9 @@ and no stated licence.
 ## Target correctness and scoring
 
 The contents table above records the September 14, 2026 rebuild, in which every
-rendered target passed `corpus/validate_target.py`. Killer cages now grow only
+rendered target passed `corpus/validate_target.py`, and `janko-kenken-thick`,
+rendered and validated the same way on September 28; pairing the two rozet
+labels crosswise on October 4 (see above) changed no count. Killer cages now grow only
 through cells with distinct solution digits (the September 13 build had 17
 cages with a repeated digit across 14 puzzles), and the renderer rejects invalid
 stored solutions (including changed givens, sums, inequalities and blocked
