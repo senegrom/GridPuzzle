@@ -509,9 +509,21 @@ reading the scan's other bitmaps back right, and giving bitmaps up there
 restarted acquisition and retired the reading before the scene saw its
 content change. So bitmaps are given up only when frames keep being lost: at
 a frame lost that is at least the third in a row, refused or unmade, with no
-bitmap job completed in between, and comes half a second or more after the
-first of them (`REFUSAL_SPAN`), in the camera session: the freeze, Clear and
-Restart do not end the run, a completed bitmap job does. The count alone
+bitmap job completed in between, and comes half a second or more of tracking
+time after the first of them (`REFUSAL_SPAN`), in the camera session: the
+freeze, Clear and Restart do not end the run, since they say nothing about
+bitmaps (a broken browser must not get three fresh tries after each), a
+completed bitmap job does. Tracking time stops at the tracker's reset (the
+freeze, Restart, a settings change, a tracking failure, closing the camera)
+and runs again once the camera next asks for a frame to be tracked, so the
+time a frozen view is looked at, a back-off, or a re-acquisition after
+Restart or Clear before a grid is found, is no part of the half second; the
+time before the reset and after the ask is. Before, wall-clock time counted:
+two frames lost as the view froze and one lost after Clear half a minute later
+gave bitmaps up for the rest of the camera session (in the fake-clock
+simulation the scan after Clear then read all 11 of its tracking frames back
+on the main thread), and so did two frames lost before a Restart and one lost
+anchor after a re-acquisition of more than half a second. The count alone
 followed the sampling: with the frame after each lost one sampled at once,
 and two bitmaps made of one snapshot when a tick both detects and verifies,
 three frames in a row were lost within 70-100 ms at 30 frames a second, and
@@ -1154,7 +1166,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   has passed since the first of them (frames within it lost alone however
   many, two lost alone however far apart; every completed bitmap job ends the
   run and its span, not only a worker's first, a reset does not; the cause
-  that of the last), a refused frame proving nothing to a later bitmap
+  that of the last; the time from a reset until the camera asks for a frame
+  again no part of the span, also for a run begun by frames made before the
+  reset), a refused frame proving nothing to a later bitmap
   job's deadline, a bitmap failure after the give-up only counted (also
   before the next worker starts, however long after the first), the third in
   a row of a frame made before a reset keeping the worker after it that
@@ -1232,7 +1246,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   again, and a second stuck one gives bitmaps up); a bitmap that cannot be
   made for a frame the freeze retired is lost alone, leaving the frozen view,
   counted at once in the frozen scan's export, and the scan after Clear
-  probes for bitmaps again.
+  probes for bitmaps again; two lost as the view freezes and one after Clear
+  half a minute later are lost alone too, the scan going on with bitmaps.
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker

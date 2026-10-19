@@ -578,14 +578,14 @@ test('a frame whose bitmap the worker refuses is lost alone: its job fails as re
 });
 
 // While the next worker's handshake still runs, that worker may decide for
-// bitmaps: the REFUSAL_LIMIT-th loss in a row (REFUSAL_SPAN after the first)
-// then gives bitmaps up at once, ending the probing worker, and its waiters
-// get the give-up's error.
+// bitmaps: the REFUSAL_LIMIT-th loss in a row (REFUSAL_SPAN of tracking time
+// after the first, here the handshake's) then gives bitmaps up at once,
+// ending the probing worker, and its waiters get the give-up's error.
 test('the REFUSAL_LIMIT-th lost frame in a row during the next worker\'s handshake gives bitmaps up at once', async () => {
   const h = transport(); await h.handshake();
   for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
-  h.tracker.reset(); h.tick(REFUSAL_SPAN);
-  const ready = h.tracker.ready(), given = assert.rejects(ready, { name: 'NotSupportedError' }); await flush(); h.started();
+  h.tracker.reset();
+  const ready = h.tracker.ready(), given = assert.rejects(ready, { name: 'NotSupportedError' }); await flush(); h.tick(REFUSAL_SPAN); h.started();
   assert.equal(h.last().sent[0]?.op, 'probe', 'the next worker probes');
   assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the give-up');
   await given;
@@ -704,6 +704,49 @@ test('frames lost in a row are lost alone until REFUSAL_SPAN after the first of 
   assert.equal(h.workers[0].terminated, true, 'given up REFUSAL_SPAN after the first');
   assert.equal(await settled(h.tracker.ready()), 'imagedata');
   assert.equal(h.tracker.stats.transportReason, 'refused'); assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// A reset (the freeze, Restart, closing the camera) keeps the run's count,
+// since it says nothing about bitmaps, but no frame is tracked from the reset
+// until the camera asks for one again (ready, anchor or verify), and that
+// time is no part of the run's REFUSAL_SPAN: a frozen view looked at for half
+// a minute, or a closed camera, says nothing about the browser either. The
+// tracking time before the reset and after the ask counts. Before, two frames
+// lost, a reset, half a minute and one more frame lost gave bitmaps up.
+test('time with no frame tracked, from a reset until the camera asks for a frame again, is no part of REFUSAL_SPAN', async () => {
+  const h = transport(); await h.handshake();
+  h.tick(100);
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError'); h.tick(100); }
+  h.tracker.reset(); h.tick(30000);
+  assert.equal(await h.handshake(), 'bitmap', 'the worker after the reset probes again');
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the REFUSAL_LIMIT-th in a row, 30 s but 200 ms of tracking after the first, is lost alone');
+  h.tick(REFUSAL_SPAN - 200 - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'just within REFUSAL_SPAN of tracking time');
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers[1].terminated, undefined);
+  h.tick(1);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the count carried over the reset: REFUSAL_SPAN of tracking time after the first');
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unmade');
+  assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// Frames made before a reset can lose their bitmaps after it (verification
+// frames being made as the view freezes): such a run starts while no frame is
+// tracked, and its clock stands until the camera asks for a frame again, so
+// one more frame lost after Clear, however much later, is lost alone.
+test('a run that starts while no frame is tracked counts no time until the camera asks for a frame again', async () => {
+  const h = transport(); await h.handshake();
+  h.tracker.reset(); // The freeze.
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { h.tick(5); assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'a frame the freeze retired'); }
+  h.tick(30000); // The frozen view.
+  assert.equal(await h.handshake(), 'bitmap', 'Clear: the camera asks for a frame');
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the first frame lost after Clear is lost alone');
+  h.tick(REFUSAL_SPAN - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  h.tick(1);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'REFUSAL_SPAN of tracking time after the run began');
+  assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT + 2);
   h.tracker.reset();
 });
 

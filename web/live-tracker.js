@@ -86,10 +86,15 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // tracking core. One such frame says little about the browser, so bitmaps are
 // given up only when the losses persist: at a frame lost that is at least the
 // REFUSAL_LIMIT-th in a row, with no bitmap job completed in between, and
-// comes REFUSAL_SPAN or more after the first of them, in the tracker's life
-// (the camera session; a reset does not end the run). Persistence is measured
-// in time as well, since the count alone follows the sampling: the camera
-// samples the frame after a lost one at once, and a tick that detects and
+// comes REFUSAL_SPAN or more of tracking time after the first of them, in the
+// tracker's life (the camera session; a reset does not end the run, since a
+// freeze, Clear or Restart says nothing about bitmaps). Tracking time stops
+// at a reset (the freeze, Restart, a settings change, a tracking failure,
+// closing the camera) and runs again once the camera next asks for a frame
+// to be tracked (ready, anchor or verify): the time a frozen view is looked
+// at, a closed camera or a back-off says nothing about the browser either.
+// Persistence is measured in time as well, since the count alone follows the
+// sampling: the camera samples the frame after a lost one at once, and a tick that detects and
 // verifies makes two bitmaps of one snapshot, so a condition that passes
 // within a tenth of a second can lose three in a row. Three verification
 // frames of a settled reading, 250 ms apart, span 500 ms: that was the count's
@@ -140,9 +145,16 @@ export function createLiveTracker({
   // has completed; whether a worker of this tracker was replaced for missing
   // the wait; once bitmaps have been given up, why (every later worker then
   // uses the camera's readback); and how many bitmap frames in a row were
-  // lost, since when (REFUSAL_LIMIT).
+  // lost, since when on the tracking clock (REFUSAL_LIMIT).
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
   let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0, lostSince = null;
+  // The tracking clock (REFUSAL_LIMIT): now() less the time with no frame
+  // tracked, from a reset (`idleSince`) until the camera next asks for a
+  // frame. Before, a run of frames lost at the freeze and one lost after
+  // Clear half a minute later gave bitmaps up: that half minute counted.
+  let idleSince = null, idle = 0;
+  const trackingTime = () => (idleSince ?? now()) - idle;
+  function tracking() { if (idleSince !== null) { idle += now() - idleSince; idleSince = null; } }
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0,
     refusedFrames: 0, refusedIncomplete: 0, refusedBlank: 0, refusedFailed: 0, unmadeFrames: 0, blankReadbacks: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
@@ -151,6 +163,8 @@ export function createLiveTracker({
   function reset(error = cancelled()) {
     clearTimer(deadline); deadline = null;
     clearTimer(handshake); handshake = null;
+    // No frame is tracked until the camera asks for one again.
+    idleSince ??= now();
     // No worker: no transport, and the next worker has completed no bitmap job.
     const old = worker; worker = null; transport = reason = mismatched = startedAt = handshakeMs = null; proven = false;
     for (const job of [active, frame, anchor]) { discard(job); job?.reject(error); }
@@ -174,8 +188,8 @@ export function createLiveTracker({
     stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
     if (cause === 'refused') stats[Object.hasOwn(REFUSED, refusal) ? REFUSED[refusal] : REFUSED.failed]++;
     if (givenUp) return false;
-    if (lost++ === 0) lostSince = now();
-    if (lost < REFUSAL_LIMIT || now() - lostSince < REFUSAL_SPAN) return false;
+    if (lost++ === 0) lostSince = trackingTime();
+    if (lost < REFUSAL_LIMIT || trackingTime() - lostSince < REFUSAL_SPAN) return false;
     if (transport === 'imagedata') { givenUp = cause; return false; }
     giveUp(cause); return true;
   }
@@ -314,6 +328,7 @@ export function createLiveTracker({
     }
   }
   function submit(data) {
+    tracking();
     return new Promise((resolve, reject) => {
       const job = { data, id: ++serial, resolve, reject }; stats.submitted++;
       if (data.op === 'anchor') { if (anchor) { stats.dropped++; discard(anchor); anchor.reject(cancelled()); } anchor = job; }
@@ -326,7 +341,9 @@ export function createLiveTracker({
     verify: data => submit({ ...data, op: 'verify' }),
     // The transport of the worker, starting one if there is none, once its
     // handshake has decided it; a reset meanwhile rejects with its error.
+    // The camera asks for it, and so for a frame to be tracked, after a reset.
     ready() {
+      tracking();
       try { ensure(); } catch (error) {
         fail(error?.message || 'Background tracking is unavailable.');
         return Promise.reject(error);

@@ -850,6 +850,35 @@ test("a bitmap that cannot be made for a frame the freeze retired is lost alone:
   assert.equal(report.unmadeFrames, held, "the export counts the lost frame");
 });
 
+// Two frames lost as the view freezes and one after Clear, half a minute
+// later, are three in a row (the freeze ends no run), but the frozen half
+// minute is no tracking time: the frame lost after Clear is lost alone, and
+// the scan goes on with bitmaps. Before, it gave bitmaps up for the rest of
+// the camera session, which then read every frame back on the main thread.
+test("frames lost as the view freezes and one lost after Clear half a minute later are lost alone: frozen time is no part of REFUSAL_SPAN", async (t) => {
+  let solved;
+  const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read; the solver has not answered");
+  h.holdBitmaps(true);
+  assert.ok(await h.until(() => h.held >= REFUSAL_LIMIT - 1, 2000), "two verification bitmaps are being made");
+  solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
+  assert.ok(await h.until(() => h.camera.view === "frozen", 3000), "the solved view freezes meanwhile");
+  const lostAtFreeze = h.held;
+  await h.failHeldBitmaps(); h.holdBitmaps(false);
+  assert.equal(h.camera.stats.tracking.unmadeFrames, lostAtFreeze, `${lostAtFreeze} frames lost at the freeze`);
+  await h.advance(30000);
+  const reasons = h.reasons().length;
+  h.camera.resume();
+  h.nextBitmap("fail"); // The first bitmap after Clear, the first detection's anchor's, cannot be made.
+  assert.ok(await h.until(() => h.camera.view === "frozen" || h.view.dataset.recognised === "4", 10000), "read again after Clear");
+  assert.equal(h.upcoming, 0); assert.equal(h.camera.stats.tracking.unmadeFrames, lostAtFreeze + 1, "the frame after Clear was lost");
+  assert.ok(!h.reasons().slice(reasons).includes("tracking-transport"), "bitmaps are not given up");
+  assert.equal(h.workers.length, 2, "the worker after Clear is kept");
+  const after = h.jobs().filter((p) => p.at >= h.workers[1].createdAt);
+  assert.ok(after.length > 0 && after.every((p) => p.bitmap), "and gets bitmaps");
+  assert.equal(h.readbacks().length, 0, "no tracking pixels are read back on the main thread");
+});
+
 test("a stop during the handshake ends the waiting anchor and releases its snapshot", async (t) => {
   const h = simulation(t, { transport: "silent", startMs: 100000 });
   assert.ok(await h.until(() => h.camera.stats.tracking.active === 1 && h.posts.length === 1, 1000), "the handshake runs");
