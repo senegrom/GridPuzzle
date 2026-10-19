@@ -18,7 +18,7 @@ python scripts/build_web.py
 python -m http.server 8000 --directory _site
 ```
 
-Camera permissions require localhost or HTTPS. The existing `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs Python and browser unit tests, executes the real Chromium/mobile-WebKit Python and OCR acceptance suites (including the real-newspaper fixtures), uploads that tested artifact, and deploys it through the repository's `github-pages` environment.
+Camera permissions require localhost or HTTPS. The existing `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs the browser unit tests (on pushes and manual runs; on pull requests `Browser branch tests` runs them), executes the real Chromium/mobile-WebKit Python and OCR acceptance suites (including the real-newspaper fixtures), uploads that tested artifact, and deploys it through the repository's `github-pages` environment. The Python test suite runs in the separate `CI` workflow, which the deployment does not wait for.
 
 The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. The build verifies every npm tarball against a pinned SHA-512 integrity value before unpacking it and ships only the LSTM Tesseract cores the bundled model uses. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
 
