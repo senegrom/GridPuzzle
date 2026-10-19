@@ -162,8 +162,9 @@ function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = 
     if (read) return read(args[6].onPreview, setTimer);
     return new Promise((resolve) => setTimer(() => resolve(reading()), 500));
   }, cancel() {} };
-  // Scanner.readCells(image, corners, found, cells, progress, options).
-  if (readCells) reader.readCells = (...args) => { counts.retries++; return readCells(args[2], args[3], time); };
+  // Scanner.readCells(image, corners, found, cells, progress, options); the
+  // stub also gets the reader's progress callback and the fake clock's timer.
+  if (readCells) reader.readCells = (...args) => { counts.retries++; return readCells(args[2], args[3], time, { progress: args[4], setTimer }); };
   // Without `freezeWait` the settings carry no such key: off is the default.
   const settings = { type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve,
     ...(freezeWait === undefined ? {} : { freezeWait }) };
@@ -628,6 +629,83 @@ test("a merged retry keeps the freeze's three seconds running", async (t) => {
   assert.equal(h.counts.retries, 1, "one retry was read and merged");
   const waited = h.now - since;
   assert.ok(waited >= 2800 && waited <= 3300, `froze ${waited} ms after the reading was first shown solved, not three seconds after the merge`);
+});
+
+// A targeted retry is a proposal, as a full re-read is: the reading keeps its
+// solution while the retry runs, and only a merge that changes a clue
+// withdraws it. A clearer frame late in the wait starts a retry that the
+// three seconds cannot outlast: the view freezes at three seconds on the
+// solution as it stands (the retry ends with the freeze), the help line keeps
+// the wait's text throughout, and a reply after the freeze changes nothing.
+// Before, the retry withdrew the solution while it ran: the view froze only
+// once it ended (here 5.5 s after the solution), and the help line said
+// "Re-reading 1 unclear clues…" meanwhile.
+const RETRY_MS = 4000;
+const slowRetry = (started) => (found, cells, at, { setTimer }) => {
+  started.push(at);
+  return new Promise((resolve) => setTimer(() => resolve(retryResult(found, cells)), RETRY_MS));
+};
+test("with the wait on, a retry that outlasts the three seconds does not hold the freeze or the wait's text", async (t) => {
+  const started = [];
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
+    readCells: slowRetry(started) });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now, from = h.writes.length;
+  assert.ok(await h.until(() => started.length === 1 || h.frozen(), 3000));
+  assert.equal(h.camera.view, "live", "a clearer frame started a retry within the wait");
+  assert.ok(since + 3000 - started[0] < RETRY_MS, `the retry, started ${started[0] - since} ms into the wait, outlasts it`);
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  const waited = h.now - since;
+  assert.ok(waited >= 2800 && waited <= 3200, `froze ${waited} ms after the solution was first rendered, its retry still running`);
+  assert.deepEqual(h.writes.slice(from).filter((w) => w.view === "live").map((w) => w.text), [], "the help line kept the wait's text");
+  assert.match(h.help, FROZEN);
+  assert.equal(h.view.dataset.solution, "12"); assert.equal(h.view.dataset.uncertain, "1", "the yellow clue stays flagged in the picture");
+  const picture = h.on(h.view).length;
+  await h.advance(RETRY_MS);
+  assert.equal(h.camera.view, "frozen"); assert.equal(h.on(h.view).length, picture, "the retry's late reply changes nothing");
+  assert.equal(h.counts.reads, 1); assert.equal(h.counts.solves, 1);
+});
+
+// The shutter ends the wait at once: also while a retry of the solved reading
+// runs, it freezes the solution on its own verified frame and saves it (the
+// retry ends with the freeze). Before, a capture during the retry saved a live
+// picture without the solution.
+test("the shutter during a retry of a solved reading freezes it and saves its solution", async (t) => {
+  const started = [];
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(reading({ uncertain: [1], marked: [0, 1, 2, 3] })), quality: sharper,
+    readCells: slowRetry(started) });
+  assert.ok(await h.until(() => started.length === 1, 5000));
+  await h.advance(300);
+  assert.equal(h.camera.view, "live", "the retry runs");
+  assert.equal(h.help, WAITING);
+  const raw = h.raw(), from = h.ops.length, shot = h.camera.capture();
+  assert.equal(shot.frozen, true); assert.equal(h.camera.view, "frozen");
+  assert.equal(h.raw(), raw, "frozen on the frame the solution was verified on");
+  assert.equal(h.on(h.view, from).filter(blueDigit).length, 12, "the picture carries the solution");
+  assert.deepEqual(h.on(shot.annotated).map((o) => o.source), [h.view], "the saved picture is the frozen one");
+  assert.equal(shot.found.puzzle.cells[1], 2); assert.equal(h.view.dataset.solution, "12");
+  assert.match(h.help, FROZEN);
+});
+
+// A retry whose merge changes a clue withdraws the solution, which belonged
+// to the old clues: the reading is solved again and freezes with the new
+// clue, its three seconds still counted from the first solved render.
+test("a retry that changes a clue withdraws the solution, and the reading is solved again before the freeze", async (t) => {
+  // Two clues read, the second uncertain; a clearer frame reads it as 3.
+  const twoClues = () => { const found = reading({ uncertain: [1], marked: [0, 1] }); found.puzzle.cells = [1, 2, ...Array(14).fill(null)]; return found; };
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(twoClues()), quality: sharper,
+    readCells: (found, cells) => {
+      const result = retryResult(found, cells);
+      result.puzzle.cells[1] = 3; result.entries = result.entries.map((entry) => ({ ...entry, text: "3" }));
+      return Promise.resolve(result);
+    } });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now;
+  assert.ok(await h.until(() => h.frozen(), 4000));
+  assert.ok(h.now - since <= 3300, `froze ${h.now - since} ms after the first solved render`);
+  assert.equal(h.counts.retries >= 1 && h.counts.solves, 2, "solved again after the merge");
+  assert.ok(h.on(h.view).some((o) => o.op === "fillText" && o.style === SCAN_COLOURS.uncertain && o.text === "3?"), "the frozen picture has the retried clue, still flagged");
+  assert.equal(h.view.dataset.solution, "14");
 });
 
 // The live video shows no clue digits, so the help line names the unclear

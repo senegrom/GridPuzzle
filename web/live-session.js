@@ -148,7 +148,13 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   function startRecovery(sample, cells) {
     const base = stored, id = ++generation, oldResult = base.result, oldSolveFinished = base.solveFinished;
     activeSample = sample; best = null; pending = true; lastRecovery = now();
-    solveGeneration++; solving = false; cancelSolve(); base.result = null; base.solveFinished = false;
+    // A retry is a proposal, as a full re-read is: the reading keeps its
+    // result while the retry runs, and only a merge that changes a clue
+    // withdraws it (commitRecovery). So a solved reading stays solved: the
+    // camera's freeze, which waits for retries at most three seconds, and its
+    // shutter freeze it with its solution, and the help line keeps the
+    // wait's text. No solve runs here (`pending`); cancelling is a fence.
+    solveGeneration++; solving = false; cancelSolve();
     for (const cell of cells) recoveryAttempts.set(cell, (recoveryAttempts.get(cell) ?? 0) + 1);
     const previous = new Map(recoveryQuality?.cells?.map(c => [c.cell, c]) ?? []);
     for (const item of sample.quality?.cells ?? []) if (cells.includes(item.cell)) previous.set(item.cell, item);

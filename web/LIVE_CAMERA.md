@@ -106,6 +106,17 @@ wait, freezing the view at once on the solution's own frame, whatever its age,
 and saving that picture: no retry can run after the shutter. The three seconds
 belong to the reading's own frame: a blink of the grid, a merged retry or a
 new solve keep them running, and only a new full reading starts them again.
+A retry is a proposal, as a full re-read is: the reading keeps its solution
+while the retry runs, so the three seconds or the shutter freeze it as it
+stands, ending the retry, and the help line keeps the wait's text. Only a
+merge that changes a clue withdraws the solution, which belonged to the old
+clues: the reading is solved again and, once the three seconds have passed,
+freezes as soon as it is. Before, every retry withdrew the solution while it
+ran: the freeze waited for the retry to end (in the fake-clock simulation a
+retry from 1.5 s to 5.5 s froze the view at 5.5 s, and one that never
+answered kept it live until the retry's 90-second deadline), the help line
+said "Re-reading 1 unclear clues from a clearer frame…" meanwhile, and the
+shutter saved a live picture without the solution.
 
 Freezing ends all frame work: no frame is sampled, and no detection,
 tracking, OCR, retry or solve runs, while replies already in flight are fenced
@@ -797,7 +808,9 @@ must match the same rules and original content, and both original and retry
 samples must be reverified before its results can apply. Confident or
 explicitly confirmed clues are not replaced; absent marks cannot delete earlier
 clues. Changed proposals remain uncertain and require review, and solver
-answers do not participate. A failed or timed-out targeted read retires only
+answers do not participate. While a retry runs the reading keeps its result,
+so a solved reading stays solved (see the freeze's wait above); a merge that
+changes a clue withdraws it, and the reading is solved again. A failed or timed-out targeted read retires only
 its own request: the preceding full reading and its source stay available, but
 only current identity verification can authorize their display, and a late
 reply cannot restore a retired scene or replace a newer retry. Each cell has two
@@ -1031,7 +1044,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame reported after Clear was scanned, in that camera session only. A frame
   exactly half a second old is fresh, for the capture, the freeze and the help
   line, which then says nothing about a wait, and the freeze's wait ends at
-  exactly three seconds. From its first frame the camera records the setting
+  exactly three seconds. A retry that outlasts the three seconds neither holds
+  the freeze nor takes the wait's text off the help line, and its late reply
+  changes nothing; the shutter during a retry freezes the solution and saves
+  it; a retry that changes a clue withdraws the solution, and the reading is
+  solved again and frozen with the new clue. From its first frame the camera records the setting
   with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
   stands), the counted status without automatic solving and hiding with
