@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { setupPhotoFlow } from "../photo-flow.js";
 import { boxShape, conflicts, makePuzzle } from "../model.js";
 import { puzzleFromReadings } from "../scanner.js";
+import { rememberEdit, restoreEdit } from "../edit-history.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 function deferred() {
@@ -326,7 +327,7 @@ function photographs(t, layout) {
   setupPhotoFlow({
     $, state, scanner, stopTask, invalidate: stopTask, begin: () => ++epoch,
     finish: noop, fail: (error) => errors.push(error.message), render: noop,
-    status: noop, remember: noop, persist: noop, drawBoard: noop, clearPhotoMapping: noop,
+    status: noop, remember: () => rememberEdit(state), persist: noop, drawBoard: noop, clearPhotoMapping: noop,
     solveNow: () => { confirm(); solves.push(structuredClone(state.puzzle)); },
     boxDefault: boxShape, setLayout, getJobId: () => epoch, setDeadline: noop,
   });
@@ -356,6 +357,8 @@ function photographs(t, layout) {
         boxes: [state.puzzle.boxRows, state.puzzle.boxCols] };
     },
     async scan(n) { await flow.photograph(n); return flow.read(); },
+    // Undo as app.js does it: the board, then the controls from its layout.
+    undo() { restoreEdit(state, state.history.pop()); setLayout(state.layout || state.puzzle); },
   };
   return flow;
 }
@@ -402,6 +405,18 @@ test("confirming the reading of an earlier suggestion does not retire a newer on
   flow.confirm();
   const read = await flow.read();
   assert.deepEqual(outcome(read), gated); assert.deepEqual(read.boxes, [2, 4]);
+});
+test("Undo of a repeat Read brings back the reading the suggestion came with: confirming it retires the suggestion", async (t) => {
+  const flow = photographs(t, { rows: 9, cols: 9, boxRows: 3, boxCols: 3 });
+  assert.deepEqual(outcome(await flow.scan(6)), gated);
+  // Read the same photograph again, unconfirmed, and undo that Read: the
+  // board is the first reading again, and the suggestion is that reading's.
+  assert.deepEqual(outcome(await flow.read()), gated);
+  flow.undo();
+  assert.equal(flow.state.needsReview, true);
+  flow.confirm();
+  const read = await flow.read();
+  assert.deepEqual(outcome(read), clear); assert.deepEqual(read.boxes, [2, 3]);
 });
 test("an unconfirmed suggestion still waits for confirmation on the next photograph", async (t) => {
   const flow = photographs(t, { rows: 9, cols: 9, boxRows: 3, boxCols: 3 });
