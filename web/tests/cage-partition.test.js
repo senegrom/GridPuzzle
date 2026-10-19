@@ -66,7 +66,8 @@ test("prepareScan reads one clue region per cage, at its head, placed by the pri
     assert.ok(labels.every((e) => e.cageLabel));
     // The lower cage's head is cell 8, whose corner is at (0, 200): its clue region
     // starts inside the dashed outline (8 px in) for the inset style and just past
-    // the 8 px border line for the thick style, in pixels measured on the corpus.
+    // the 8 px border line for the thick style. The pixels are written out rather
+    // than taken from CAGE_LABEL_BOX, so a change to the boxes must change them too.
     const head = labels.find((e) => e.cell === 8);
     assert.deepEqual([head.x, head.y, head.w, head.h], { inset: [11, 212, 69, 32], thick: [5, 204, 70, 36] }[style], style);
   }
