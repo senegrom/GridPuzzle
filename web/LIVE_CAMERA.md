@@ -931,7 +931,7 @@ hashes and every success and failure. The downloaded files stay in
 pinned SHA-256 instead of downloading it again. The two CI jobs that fetch the
 slice restore that directory from the Actions cache, keyed by the script that
 holds the pins, and save it after a miss, so they need huggingface.co only
-when the cache is cold or a pin changed.
+when the cache is cold or the script changed.
 
 Source and attribution: Lexski (CC0),
 https://huggingface.co/datasets/Lexski/sudoku-image-recognition

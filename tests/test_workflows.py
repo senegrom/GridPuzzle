@@ -423,7 +423,11 @@ def _scanner_inputs(workflow: str, *modules: str) -> set[str]:
     The workflow and setup-scanner, the build's `ROOT / "..."` inputs (the
     jobs build the site, or download one built from them), the scripts the
     jobs run and `modules`, every relative module those load, and the
-    fixture directories the suites name.
+    fixture directories the suites name. A module counts as loaded when
+    require() or createRequire(import.meta.url)() names it by a literal
+    relative path; one loaded by a path built at run time, such as
+    require(path.join(__dirname, "x.cjs")), is missed, so scripts load
+    their modules by literal paths.
     """
     action = _GITHUB / "actions" / "setup-scanner" / "action.yml"
     text = _workflow(workflow) + action.read_text(encoding="utf-8")
@@ -857,7 +861,8 @@ def test_ci_tests_the_lowest_versions_pyproject_allows():
 _FIRST_WITHOUT_ADVISORIES = {
     # 12.3.0 fixes 13 CVEs, among them CVE-2026-59205 (a heap write in
     # ImageCms), CVE-2026-59199 (paste and crop out of bounds) and
-    # CVE-2026-54058; 12.1.1 and 12.2.0 fixed five more.
+    # CVE-2026-54058. 11.3.0 has 12 of them, and six more that 12.1.1 and
+    # 12.2.0 fixed.
     "pillow": "12.3",
     # CVE-2025-71176, pytest's temporary directory handling
     "pytest": "9.0.3",

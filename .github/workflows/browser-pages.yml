@@ -166,9 +166,12 @@ jobs:
         run: node -e "const fs=require('node:fs');if(JSON.parse(fs.readFileSync('_site/build-info.json')).build!==process.env.GITHUB_SHA.slice(0,12))process.exit(1)"
       # The pinned picture slice comes from the cache once a run has saved it:
       # fetch_live_fixtures.py checks every file it finds there against its
-      # SHA-256 pin and downloads only a missing or different one, so a
-      # deployment needs huggingface.co only when the cache is cold or a pin
-      # changed. The key is the script, which holds the pins. GitHub drops a
+      # SHA-256 pin and downloads only a missing or different one. The key is
+      # the script, which holds the pins and decides where the store keeps
+      # each file, so a deployment needs huggingface.co only when the cache
+      # is cold or the script changed. A saved cache is never replaced: under
+      # a key of the pins alone, a script that moved the files would keep
+      # restoring the old layout and download on every run. GitHub drops a
       # cache no run has used for a week, so a quiet spell costs a download.
       - name: Restore the pinned external pictures
         id: live-fixtures

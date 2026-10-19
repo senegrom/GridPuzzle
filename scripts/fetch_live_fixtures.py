@@ -9,8 +9,8 @@ block a run.
 The files are kept in STORE, and a later run uses a stored file instead of
 downloading it again when it still matches its pin. CI restores STORE from
 its cache, keyed by this file, so a run needs the dataset's host only when
-the cache is cold or a pin changed; a stored file that does not match its
-pin is downloaded again.
+the cache is cold or this file changed; a stored file that does not match
+its pin is downloaded again.
 """
 from __future__ import annotations
 import base64
