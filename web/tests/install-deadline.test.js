@@ -126,6 +126,36 @@ for (const [stage, fault] of [['asset-put', 'reject'], ['manifest-put', 'reject'
     assert.equal(await h.storage.stores.get(metaName)?.match(scope + 'assets.json'), undefined);
   });
 }
+// An update's shell may reuse a content-addressed entry that is damaged on
+// this device (a partial write, an eviction during a put). Installation
+// re-hashes every reused entry; requests trust stored bytes, so nothing else
+// would catch it before the new build serves it.
+const stored = storage => storage.stores.get(contentName).match(scope + '.gridpuzzle-cache/' + hash);
+async function damaged() {
+  const storage = memoryCaches();
+  await (await storage.caches.open(contentName)).put(scope + '.gridpuzzle-cache/' + hash, new Response('CORRUPT partial write'));
+  return storage;
+}
+test('installation re-hashes a stored shell entry and replaces damaged bytes before publishing', async t => {
+  const storage = await damaged(), h = await harness(t, null, 'stall', storage); await h.settled;
+  assert.equal(h.outcome, 'success');
+  assert.ok(h.operations.includes('asset-fetch'), 'the damaged entry is downloaded again');
+  assert.equal(await (await stored(storage)).text(), body);
+  assert.ok(h.operations.lastIndexOf('asset-put') < h.operations.indexOf('manifest-put'));
+});
+test('installation reuses a stored shell entry whose bytes verify', async t => {
+  const storage = memoryCaches();
+  await (await storage.caches.open(contentName)).put(scope + '.gridpuzzle-cache/' + hash, new Response(body));
+  const h = await harness(t, null, 'stall', storage); await h.settled;
+  assert.equal(h.outcome, 'success');
+  assert.ok(!h.operations.includes('asset-fetch'), 'verified identical bytes are not downloaded again');
+});
+test('a damaged stored entry whose download is wrong too cannot install', async t => {
+  const storage = await damaged(), h = await harness(t, null, 'integrity', storage); await h.settled;
+  assert.match(h.outcome.message, /Asset changed during download/);
+  assert.equal(await storage.stores.get(metaName)?.match(scope + 'assets.json'), undefined);
+  assert.equal(await stored(storage), undefined, 'the damaged entry is not kept');
+});
 test('healthy installation verifies and stores the shell before publishing its manifest', async t => {
   const h = await harness(t); await h.settled;
   assert.equal(h.outcome, 'success'); assert.equal(h.timers.size, 0); assert.equal(h.claims, 0);
