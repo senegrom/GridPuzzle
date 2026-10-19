@@ -15,7 +15,10 @@
    corners to be set and, read unchanged, highlights every cell, so every cell
    of such a reading counts as flagged. So does every cell of a reading at the
    target's size when the detector found a lattice of another size, which the
-   flow holds unconfirmed the same way. --true-corners reads through the
+   flow holds unconfirmed the same way. Otherwise a cell's digit counts as
+   flagged only where the flow's digit review would visit it: a cage's or a
+   sign's structural highlight is not a flag on the digits it covers
+   (scoreVersion 6 in corpus/SOURCES.md). --true-corners reads through the
    target's outline instead, pulled onto the frame where it lies on or past
    the edge, as a user dragging the handles there would.
 
@@ -26,26 +29,21 @@
      node corpus/benchmark.cjs --list names.txt   (one "set/name" per line)
 
    Serves --site (default _site), writes --out (default
-   browser-artifacts/corpus-benchmark.json) and prints a summary.              */
-const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata } = require("./benchmark-runner.cjs");
+   browser-artifacts/corpus-benchmark.json) and prints a summary. Options are
+   --family, --set, --variant, --list, --limit, --engine, --site, --out and
+   --corpus, each with a value (`--name value` or `--name=value`), and the flag
+   --true-corners; anything else stops the run before it starts.             */
+const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata, parseBenchmarkOptions } = require("./benchmark-runner.cjs");
 
 const BASE = "http://127.0.0.1:8780/";
-function parseOptions(args) {
-  const options = { corpus: process.env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
-    family: null, set: null, variant: null, list: null, limit: 0, engine: "chromium", trueCorners: false,
-    site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
-  for (let i = 0; i < args.length; i++) {
-    const flag = args[i].replace(/^--/, "");
-    if (flag === "true-corners") options.trueCorners = true;
-    else if (flag in options) options[flag] = flag === "limit" ? Number(args[++i]) : args[++i];
-  }
-  return options;
-}
+const parseOptions = (args) => parseBenchmarkOptions(args);
 
 async function main(args = process.argv.slice(2)) {
-  const options = parseOptions(args), items = selectImages(options);
+  let options;
+  try { options = parseOptions(args); }
+  catch (error) { console.error(`${error.message}. See the header of corpus/benchmark.cjs for the options.`); return 2; }
+  const items = selectImages(options);
   if (!items.length) { console.error("no matching images under", options.corpus); return 2; }
-  if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
   console.log(`${items.length} images from ${options.corpus}`);
   console.log(`Recognition uses reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detector proposals"}. Not fully automatic.`);
   const controller = new AbortController();
@@ -59,7 +57,8 @@ async function main(args = process.argv.slice(2)) {
       reportMetadata: photoFlowMetadata(options) });
   } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
   for (const row of report.summary) {
-    console.log(`${row.set}: ${row.correct}/${row.printed} clues, ${row.unsafe} unflagged, `
+    console.log(`${row.set}: ${row.correct}/${row.printed} clues (${row.wrong} wrong, ${row.missed} missed, `
+      + `${row.invented} invented), ${row.unsafe} unflagged, `
       + `${row.topologyWrong} topology errors, ${row.perfect}/${row.images} perfect, `
       + `grid found ${row.gridFound}/${row.images} (${row.unconfirmed} read through unconfirmed corners), `
       + `flags on ${row.flaggedCorrect} correct clues and ${row.flaggedEmpty}/${row.emptyCells} empty cells, `

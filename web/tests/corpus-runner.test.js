@@ -56,7 +56,7 @@ function harness(t, faults = {}) {
 test("normal runs score all images, checkpoint and close every resource", async t => {
   const h = harness(t, { checkpoint: true }); const report = await h.run();
   assert.equal(report.status, "complete"); assert.equal(report.summary[0].perfect, 3);
-  assert.equal(report.scoreVersion, 5);
+  assert.equal(report.scoreVersion, 6);
   assert.deepEqual(report.recognition, { type: "reference", dimensions: "reference",
     corners: "detected-or-full-frame", clueValues: "not-supplied" });
   assert.deepEqual(h.saved().recognition, report.recognition);
@@ -126,6 +126,44 @@ test("checkpoint write errors still trigger cleanup and a final diagnostic write
   const report = await h.run();
   assert.equal(report.status, "failed"); assert.match(report.failure, /disk failure/);
   assert.equal(h.saved().results.length, 1); assert.equal(h.events.at(-1), "server killed");
+});
+
+// On Windows a reader holding the report open (a progress check, an editor)
+// makes the replacing rename fail with EPERM until it closes. That must cost a
+// checkpoint at most, never the run.
+const busy = (code = "EPERM") => Object.assign(Error(`${code}: operation not permitted, rename`), { code });
+test("a checkpoint the report's reader blocks is skipped, and the run goes on", async t => {
+  const h = harness(t); let writes = 0; const logged = [];
+  h.deps.log = line => logged.push(line);
+  h.deps.writeReport = (file, report) => {
+    if (++writes === 3) throw busy();
+    writeReport(file, report);
+  };
+  const report = await h.run();
+  assert.equal(report.status, "complete"); assert.equal(report.failure, null);
+  assert.equal(h.calls, 3); assert.equal(h.saved().completedImages, 3); assert.equal(h.saved().summary[0].perfect, 3);
+  const warnings = logged.filter(line => line.includes("checkpoint"));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /checkpoint after image 2 not saved, the report is held open \(EPERM/);
+  assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+});
+test("the report's rename is retried while the file is held open, then reported", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-report-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "report.json");
+  for (const code of ["EPERM", "EACCES", "EBUSY"]) {
+    let calls = 0;
+    writeReport(file, { code }, { wait: 1, rename(from, to) { if (++calls < 3) throw busy(code); fs.renameSync(from, to); } });
+    assert.equal(calls, 3); assert.deepEqual(JSON.parse(fs.readFileSync(file)), { code });
+  }
+  let calls = 0;
+  assert.throws(() => writeReport(file, { lost: true }, { attempts: 4, wait: 1, rename() { calls++; throw busy(); } }), /EPERM/);
+  assert.equal(calls, 4); assert.deepEqual(JSON.parse(fs.readFileSync(file)), { code: "EBUSY" });
+  // Any other failure is not retried.
+  calls = 0;
+  assert.throws(() => writeReport(file, {}, { wait: 1, rename() { calls++; throw Object.assign(Error("no space"), { code: "ENOSPC" }); } }), /no space/);
+  assert.equal(calls, 1);
+  assert.deepEqual(fs.readdirSync(dir), ["report.json"], "no temporary file is left behind");
 });
 
 test("unwritable initial report allocates no browser or server", async t => {

@@ -50,12 +50,22 @@ function summarize(results) {
   });
 }
 
-function writeReport(file, report) {
+// Windows refuses to replace a file that another process holds open (someone
+// reading the report to check progress, an editor, a virus scanner): the
+// rename fails with EPERM, EACCES or EBUSY until that handle closes. Such a
+// hold is brief, so the rename is retried for about five seconds.
+const BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
+const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function writeReport(file, report, { rename = fs.renameSync, attempts = 20, wait = 250 } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(report, null, 1) + "\n");
-    fs.renameSync(temporary, file);
+    for (let attempt = 1; ; attempt++) {
+      try { rename(temporary, file); return; }
+      catch (error) { if (!BUSY.has(error?.code) || attempt >= attempts) throw error; }
+      pause(wait);
+    }
   } finally { fs.rmSync(temporary, { force: true }); }
 }
 
@@ -137,7 +147,14 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
         Object.assign(row, await abortable(measureItem(page, item), signal));
       } catch (error) { row.error = message(error); itemError = error; }
       results.push(row);
-      persist(output, report());
+      // A report still held open after the retries costs this checkpoint,
+      // not the run: the next image's checkpoint or the final save writes it.
+      // Any other write failure (a full or lost disk) still ends the run.
+      try { persist(output, report()); }
+      catch (error) {
+        if (!BUSY.has(error?.code)) throw error;
+        log(`  checkpoint after image ${index + 1} not saved, the report is held open (${message(error)})`);
+      }
       // Invalid input is local to this image. A lost browser or interrupt is
       // a run failure, not thousands of misleading individual scan failures.
       if (signal?.aborted || page.isClosed() || !browser.isConnected())
@@ -210,10 +227,16 @@ function photoFlowHarness(options) {
     corners: options.trueCorners ? "target, pulled onto the frame" : "detector, any confidence", read: "photoDetail" };
 }
 
-// A reading through unconfirmed corners has every cell highlighted.
+// The cells whose digits the photo flow puts under review (state.uncertain in
+// web/photo-flow.js readPhoto), which the scorer takes as `uncertain`: the
+// reading's digit channel (cellUncertain, which holds every black-cell reading
+// too) and, through unconfirmed corners, every cell. Structural review
+// (cageUncertain) stays its own channel; the scorer counts it where a flag
+// costs a check, not as a flag on a digit (scoreVersion 6).
 function photoFlowReview(reading, unconfirmed) {
-  if (!unconfirmed) return reading;
-  return { ...reading, uncertain: [...new Set([...(reading.uncertain || []), ...reading.read.cells.keys()])] };
+  const digits = new Set([...(reading.cellUncertain || []), ...(reading.blackReadings || [])]);
+  if (unconfirmed) for (const cell of reading.read.cells.keys()) digits.add(cell);
+  return { ...reading, uncertain: [...digits] };
 }
 
 // In the page, in three steps so that the corners are chosen in Node.
@@ -246,11 +269,14 @@ async function readGrid({ corners, type, rows, cols }) {
   try {
     detail = await photoDetail(window.benchCanvas, corners);
     const result = await window.benchScanner.read(detail.image, detail.corners, type, rows, cols);
+    // Both flag channels as the scanner returns them; photoFlowReview turns
+    // them into the photo flow's digit review.
     return { ms: performance.now() - started, detail: detail.enhanced, detailNote: detail.note || null,
       read: { cells: result.puzzle.cells, cages: result.puzzle.cages || [],
         clues: result.puzzle.clues || [], inequalities: result.puzzle.inequalities || [],
         black: result.puzzle.black || [] },
-      uncertain: result.uncertain, cageUncertain: result.cageUncertain || [],
+      cellUncertain: result.cellUncertain || [], cageUncertain: result.cageUncertain || [],
+      blackReadings: (result.blackReadings || []).map((entry) => entry.cell),
       ocr: result.timings ? Math.round(result.timings.ocr) : null };
   } catch (error) { return { error: `read: ${error.message}`, detail: detail?.enhanced ?? null }; }
   finally { detail?.release(); }
@@ -290,6 +316,30 @@ async function photoFlowMeasure(page, item, options) {
   return { ...row, ocr: reading.ocr, ...score(target, photoFlowReview({ ...reading, corners: reported }, unconfirmed)) };
 }
 
+// corpus/benchmark.cjs's command line: `--name value` or `--name=value` for
+// each option below, and the flag --true-corners. An unknown option, a missing
+// or malformed value is an error, never a silent fall-back to the whole corpus
+// in Chromium.
+const BENCHMARK_OPTIONS = ["corpus", "family", "set", "variant", "list", "limit", "engine", "site", "out"];
+function parseBenchmarkOptions(args, env = process.env) {
+  const options = { corpus: env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
+    family: null, set: null, variant: null, list: null, limit: 0, engine: "chromium", trueCorners: false,
+    site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
+  for (let i = 0; i < args.length; i++) {
+    const match = /^--([a-z-]+)(?:=(.*))?$/s.exec(args[i]);
+    const name = match?.[1];
+    if (name === "true-corners" && match[2] === undefined) { options.trueCorners = true; continue; }
+    if (!name || !BENCHMARK_OPTIONS.includes(name)) throw Error(`Unknown option: ${args[i]}`);
+    const value = match[2] ?? args[++i];
+    if (!value || (match[2] === undefined && value.startsWith("--"))) throw Error(`Missing value for --${name}`);
+    options[name] = value;
+  }
+  if (!/^\d+$/.test(String(options.limit))) throw Error("Limit must be a nonnegative whole number");
+  options.limit = Number(options.limit);
+  if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
+  return options;
+}
+
 // The corpus images a benchmark reads: by family, set and variant, a --list file
 // of "set/name" lines, and a limit.
 function selectImages(options) {
@@ -304,5 +354,6 @@ function selectImages(options) {
   return options.limit ? found.slice(0, options.limit) : found;
 }
 
-module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
-  previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata, PHOTO_MAX_SIDE, CONFIRMED };
+module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages, parseBenchmarkOptions,
+  previewSize, readingCorners, readGrid, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
+  PHOTO_MAX_SIDE, CONFIRMED };

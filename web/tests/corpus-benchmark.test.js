@@ -6,8 +6,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
 // already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
-const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata } =
-  createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
+const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
+  parseBenchmarkOptions } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 const { SCORE_VERSION } = createRequire(import.meta.url)("../../corpus/score.cjs");
 
 test("the preview's scale from the original's pixels is its side ratio, whichever way it was turned", () => {
@@ -56,10 +56,12 @@ test("true corners are scaled with the photograph and pulled onto the frame wher
   assert.equal(readingCorners({ detection: { corners: ["proposal"], confidence: 0.94 }, truth: null, size, trueCorners: true }).corners[0], "proposal");
 });
 
-test("a reading through unconfirmed corners flags every cell", () => {
-  const reading = { read: { cells: [1, null, 3, 4] }, uncertain: [2] };
-  assert.equal(photoFlowReview(reading, false), reading);
+test("a reading's digit flags are its digit channel, and every cell through unconfirmed corners", () => {
+  // Structural review (cell 3) is not digit review; black-cell readings are.
+  const reading = { read: { cells: [1, null, 3, 4] }, cellUncertain: [2], cageUncertain: [3], blackReadings: [1] };
+  assert.deepEqual(photoFlowReview(reading, false), { ...reading, uncertain: [2, 1] });
   assert.deepEqual(photoFlowReview(reading, true).uncertain.sort(), [0, 1, 2, 3]);
+  assert.deepEqual(photoFlowReview(reading, true).cageUncertain, [3]);
 });
 
 test("the benchmark reads through the proposal, flags every cell when it is unconfirmed, and scores corners of a found grid", async (t) => {
@@ -78,7 +80,8 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
       if (fn.name === "detectGrid") return { detected: 5, detection: { corners: proposal, confidence, rows, cols } };
       // Read through the original's detail (or not); one cell misread: 2 read as 9.
       return { ms: 10, detail, detailNote: detail ? "Clues read from the original photo detail." : null,
-        read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] }, uncertain: [], cageUncertain: [], ocr: 7 };
+        read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] },
+        cellUncertain: [], cageUncertain: [], blackReadings: [], ocr: 7 };
     } };
     const row = await photoFlowMeasure(page, { file, target, mime: "image/png" }, options);
     return { row, calls };
@@ -142,4 +145,32 @@ test("photo-flow reports record the scorer's version, the harness rules and the 
     assert.deepEqual(meta.recognition, { type: "reference", dimensions: "reference",
       corners: trueCorners ? "reference-when-available" : "detector-proposal", clueValues: "not-supplied" });
   }
+});
+
+// A typo must not turn a targeted measurement into an hours-long run over the
+// whole corpus in Chromium, or measure another engine or corner mode.
+test("benchmark options are checked: unknown options, missing or malformed values stop the run", () => {
+  const env = { PUZZLE_CORPUS: "corpus-root" };
+  const parse = (...args) => parseBenchmarkOptions(args, env);
+  assert.deepEqual(parse(), { corpus: "corpus-root", family: null, set: null, variant: null, list: null, limit: 0,
+    engine: "chromium", trueCorners: false, site: "_site", out: "browser-artifacts/corpus-benchmark.json" });
+  const chosen = parse("--family", "kenken", "--set=janko-kenken", "--variant", "photo", "--limit", "5",
+    "--engine=webkit", "--true-corners", "--site", "../other/_site", "--out", "a.json", "--list", "names.txt", "--corpus", "elsewhere");
+  assert.deepEqual(chosen, { corpus: "elsewhere", family: "kenken", set: "janko-kenken", variant: "photo", list: "names.txt",
+    limit: 5, engine: "webkit", trueCorners: true, site: "../other/_site", out: "a.json" });
+  for (const [args, message] of [
+    [["--familly", "sudoku"], /^Unknown option: --familly$/],
+    [["--true-corner"], /^Unknown option: --true-corner$/],
+    [["--trueCorners", "--family", "kakuro"], /^Unknown option: --trueCorners$/],
+    [["--limit", "5", "--bogus"], /^Unknown option: --bogus$/],
+    [["sudoku"], /^Unknown option: sudoku$/],
+    [["--set"], /^Missing value for --set$/],
+    [["--set", "--limit", "5"], /^Missing value for --set$/],
+    [["--list="], /^Missing value for --list$/],
+    [["--variant"], /^Missing value for --variant$/],
+    [["--limit", "abc"], /^Limit must be a nonnegative whole number$/],
+    [["--limit", "-5"], /^Limit must be a nonnegative whole number$/],
+    [["--limit", "2.5"], /^Limit must be a nonnegative whole number$/],
+    [["--engine", "firefox"], /^Engine must be chromium or webkit$/],
+  ]) assert.throws(() => parse(...args), { message }, args.join(" "));
 });
