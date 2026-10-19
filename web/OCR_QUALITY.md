@@ -276,8 +276,9 @@ Measured on the corpus with `scoreVersion: 3` (Chromium, 2026-09-28):
 
 The removed inventions become flagged empty cells. Half the clue height, or an
 extra small-and-off-centre test, also took handwritten answers and clues in
-misaligned cells (up to 267 correct clues in one set) and were rejected; 0.4
-loses at most 26 in any set. Removing note regions changes the OCR atlas, so
+misaligned cells (up to 267 correct clues in one set, replayed on the per-cell
+records of the run before) and were rejected; in the run above, 0.4 loses at
+most 26 in any set (wichtounet-solved). Removing note regions changes the OCR atlas, so
 other cells' votes can change as well; the totals include that. The rule is
 covered by `web/tests/candidate-notes.test.js`.
 

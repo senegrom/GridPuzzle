@@ -630,7 +630,8 @@ export function prepareScan(image, type, rows, cols) {
 // of its value glyphs). Relative heights keep small newspaper fonts, and a
 // grid with fewer than four glyphs has no norm. Measured on the corpus, 0.5
 // or an extra small-and-off-centre test also took handwritten answers and
-// clues in misaligned cells; 0.4 loses at most 44 correct clues in any set.
+// clues in misaligned cells; 0.4 loses at most 26 correct clues in any set
+// (the corpus run in OCR_QUALITY.md, "Pencil candidate notes").
 export function candidateNotes(entries) {
   const values = entries.filter((entry) => entry.kind === "value");
   if (values.length < 4) return new Set();
