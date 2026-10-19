@@ -10,4 +10,9 @@ transcripts these files were distributed with -- the derivation step by step,
 its timing and the machine it ran on, none of which the loaders read -- were
 removed; they remain in this repository's history.
 
+The normal file route reads a file's first line that is not blank or a ; or #
+comment, so a header above a CSP-Rules solve form is a comment: the Mebane
+Slitherlink files' rating line, which came as "Mellon rating = N", is
+";Mellon rating = N".
+
 Where applicable, source websites or authors are identified by the nested folder names and local README files.

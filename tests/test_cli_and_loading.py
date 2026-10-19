@@ -241,6 +241,50 @@ def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
         "LatinSquare::\n. .\n. .\n# (solve 1 1 4)"
     )
 
+
+# The corpora whose values are space-separated tokens, as
+# tests/test_examples_sudoku*.py load them (--space-separated on the CLI).
+_SPACE_SEPARATED_CORPORA = frozenset((
+    "Examples/Sudoku/16x16",
+    "Examples/Sudoku/25x25+",
+    "Examples/Sudoku/CLIPS-puzzles-big",
+))
+
+
+def test_every_shipped_example_loads_on_the_normal_file_route():
+    # README: the retained corpora are first-class inputs of `gridpuzzle
+    # --file`. Detection reads only the first meaningful line, so a header
+    # above a CSP-Rules solve form must be a ; or # comment: fifteen Mebane
+    # Slitherlink files, whose first line was a bare "Mellon rating = N",
+    # failed here with "no :: class separator".
+    puzzles = sorted(
+        path for path in (_ROOT / "Examples").rglob("*")
+        if path.suffix in {".clp", ".sdk", ".pzl"}
+    )
+    failures = {}
+    for path in puzzles:
+        folder = path.parent.relative_to(_ROOT).as_posix()
+        try:
+            create_from_file(path, space_sep=folder in _SPACE_SEPARATED_CORPORA)
+        except (TypeError, ValueError) as exc:
+            failures[path.relative_to(_ROOT).as_posix()] = str(exc)
+
+    assert sum(path.parent.name == "Mebane" and "Slitherlink" in path.parts for path in puzzles) == 16
+    assert failures == {}
+
+
+def test_cli_solves_a_mebane_slitherlink_file_with_its_rating_header():
+    puzzle = "Examples/Slitherlink/Mebane/#I.0-5x5-W1-L30.clp"
+    header = (_ROOT / puzzle).read_text(encoding="utf-8").splitlines()[0]
+    assert header.endswith("Mellon rating = 1")
+
+    result = _gridpuzzle("--file", puzzle, "--max-solutions", "1")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert "Solution 0" in result.stdout
+
+
 def test_loader_and_cli_imports_do_not_eagerly_load_puzzle_families():
     command = (
         "import sys; "

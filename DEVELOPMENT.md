@@ -89,6 +89,8 @@ Format detection is deliberately conservative:
 
 Never detect format from a `.clp` suffix or by searching the complete file. Historical files often contain appended solver transcripts with later `(solve ...)` text.
 
+A header above a solve form must therefore be a `;` or `#` comment, as the Mebane Slitherlink files' `;Mellon rating = N` line is. `tests/test_cli_and_loading.py` loads every shipped example through this route.
+
 ### Key design decisions
 
 **The public solve API is non-mutating.**
