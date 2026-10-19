@@ -5,7 +5,8 @@
    node corpus/detect_benchmark.cjs [--site _site] [--limit N] [--set names] [--out file.json]
    --set takes one name or a comma-separated list; each matches any set whose
    "family/set" key contains it, for example --set lexski,newspaper
-   Reports use the versioned envelope documented in web/GRID_DETECTION.md. */
+   Reports use the versioned envelope documented in web/TESTING.md ("Puzzle
+   image corpus and benchmarks"). */
 const fs = require("node:fs");
 const { corpusImages, runBenchmark } = require("./benchmark-runner.cjs");
 const BASE = "http://127.0.0.1:8782/";
