@@ -47,7 +47,11 @@ export function setupPhotoFlow({
     // a corner moves: a Read at another size reads cells that are not the
     // grid's, and comes back entirely under review too.
     detectedLayout = null,
+    // Boxes the controls took from the grid's size alone, which a reading
+    // with them asks the user to confirm, and that reading's source once one
+    // was taken (settleProposal).
     proposedBoxLayout = null,
+    proposalSource = null,
     live = null,
     pendingPlayback = null,
     playbackTimer = null,
@@ -75,7 +79,7 @@ export function setupPhotoFlow({
     const owner = photoOwner(), before = {
       corners: state.corners.map((p) => ({ ...p })),
       proposedBoxLayout: proposedBoxLayout && { ...proposedBoxLayout },
-      unconfirmedCorners, revision: cropRevision,
+      proposalSource, unconfirmedCorners, revision: cropRevision,
     }, after = {};
     const previous = state.history?.at(-1);
     remember();
@@ -89,6 +93,7 @@ export function setupPhotoFlow({
       if (photoOwner() === owner && cropRevision === after) {
         state.corners = before.corners.map((p) => ({ ...p }));
         proposedBoxLayout = before.proposedBoxLayout && { ...before.proposedBoxLayout };
+        proposalSource = before.proposalSource;
         unconfirmedCorners = before.unconfirmedCorners;
         cropRevision = before.revision;
       } else {
@@ -641,6 +646,29 @@ export function setupPhotoFlow({
       (key) => a[key] === b[key],
     );
   }
+  // Whether the grid's size settles its boxes: only 4, 9 and 25 cells a side
+  // have a single box shape (2 × 2, 3 × 3, 5 × 5). 6 has two (2 × 3 and
+  // 3 × 2), 16 three, and a prime size none but its rows, so there boxes
+  // taken from the size are a suggestion to confirm.
+  function boxesSettled(n) {
+    const [boxRows, boxCols] = boxDefault(n);
+    if (boxRows !== boxCols || boxRows < 2) return false;
+    for (let a = 2; a < boxRows; a++) if (n % a === 0) return false;
+    return true;
+  }
+  // A suggestion stands until the user decides the boxes: by setting others
+  // (the controls no longer show it), or by confirming the reading it came
+  // with. Solve, Check and Hint clear a board's review (app.js
+  // confirmTranscription), and edits keep a board's source, so a board from
+  // that reading with no review left has been confirmed. Checked before a
+  // Read uses the suggestion, and before a new photograph resets the board's
+  // source.
+  function settleProposal() {
+    if (!proposedBoxLayout) return;
+    const confirmed = proposalSource !== null && state.puzzleSource === proposalSource && !state.needsReview;
+    if (confirmed || !sameLayout(proposedBoxLayout, currentLayout()))
+      proposedBoxLayout = proposalSource = null;
+  }
   // The box controls describe the printed puzzle, upright: its boxes as they
   // stand on the board, which is how every reading comes back (Scanner.orient
   // turns a sideways or upside-down photograph's reading upright). No turn of
@@ -651,6 +679,7 @@ export function setupPhotoFlow({
     return { rows: cols, cols: rows, boxRows, boxCols };
   }
   async function acceptPhoto(canvas) {
+    settleProposal();
     diagnostics.begin("photo", { ...currentLayout(), type: $("puzzle-type").value, autoSolve: $("auto-solve").checked });
     invalidate();
     state.history = [];
@@ -701,9 +730,11 @@ export function setupPhotoFlow({
         )
           setLayout(layout);
         else {
-          const [boxRows, boxCols] = boxDefault(found.rows);
-          proposedBoxLayout = { rows: found.rows, cols: found.cols, boxRows, boxCols };
-          setLayout(proposedBoxLayout);
+          const [boxRows, boxCols] = boxDefault(found.rows),
+            layout = { rows: found.rows, cols: found.cols, boxRows, boxCols };
+          proposedBoxLayout = boxesSettled(found.rows) ? null : layout;
+          proposalSource = null;
+          setLayout(layout);
         }
       }
       drawCrop();
@@ -824,6 +855,7 @@ export function setupPhotoFlow({
     // Supersede earlier OCR before preflight, just as a new import does.
     stopTask();
     drag = -1;
+    settleProposal();
     const rows = Number($("rows").value),
       cols = Number($("cols").value),
       type = $("puzzle-type").value;
@@ -962,6 +994,7 @@ export function setupPhotoFlow({
       rememberPhotoRead();
       clearPhotoMapping();
       Object.assign(state, next);
+      if (needsBoxReview) proposalSource = id;
       diagnostics.event({stage:"checking",reason:"read-complete",found});
       persist();
       render({ replaceDraft: true });

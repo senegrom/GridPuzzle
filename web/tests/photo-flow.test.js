@@ -1138,8 +1138,8 @@ test('a reviewed live capture is confirmed at its own size, whatever an earlier 
   assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.notes[0], resizedNote('2 × 2', '3 × 3'));
 });
 
-function cageWarnings() {
-  const n = 9, cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];
+function cageWarnings(n = 9) {
+  const cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];
   let serial = 0;
   for (let r = 0; r < n; r++) for (let c = 0; c < n;) {
     const length = Math.min(r + 1, n - c);
@@ -1159,8 +1159,10 @@ function cageWarnings() {
   rectified: canvas(900, 900) };
 }
 
+// With suggested boxes the board is 12 × 12: a 9 × 9 board's 3 × 3 boxes are
+// its only shape, so detection no longer suggests them for review.
 for (const proposed of [false, true]) test(`maximum cage warnings plus photo context round-trip, suggested boxes ${proposed}`, async t => {
-  const h = photoHarness(t), found = cageWarnings(), originalNotes = [...found.notes]; assert.equal(found.notes.length, 8);
+  const h = photoHarness(t), found = cageWarnings(proposed ? 12 : 9), originalNotes = [...found.notes]; assert.equal(found.notes.length, 8);
   h.setFound(found); h.setLayout(found.puzzle); h.$('puzzle-type').value = 'killersudoku';
   if (proposed) {
     h.setLayout({ ...found.puzzle, boxRows: 0 });

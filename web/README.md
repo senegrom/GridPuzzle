@@ -115,6 +115,14 @@ photo mapping, Play cache and undo history. A new Read click cancels earlier
 work even when the new dimensions, boxes or crop fail validation. Actual crop
 or photograph changes still invalidate incompatible mappings.
 
+Box height and Box width describe the printed Sudoku as it stands upright,
+whichever way the photograph lies (see [SCAN_INPUT.md](SCAN_INPUT.md)). When
+they do not fit the grid detection finds, they take the size's usual boxes;
+where the size allows other boxes too (any size but 4, 9 and 25), readings
+with these suggested boxes wait for review until the user confirms one (Solve,
+Check or Hint) or sets other boxes. A digit read twice inside one of the
+chosen boxes is always highlighted for review.
+
 ## Session backups and imported definitions
 
 **Export session backup** writes a versioned `gridpuzzle-backup` envelope around
