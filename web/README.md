@@ -44,7 +44,8 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 
 **Solve clear, unambiguous scans automatically** applies to both still-photo
 recognition and live previews. Switching it off preserves OCR but cancels any
-pending live solve and hides blue answers. Switching it on can use the same
+pending live solve, so the live view does not freeze; a view already frozen
+keeps its solution until Clear. Switching it on can use the same
 verified reading; a late response from an earlier solve cannot reappear. A
 still photograph the scanner read upside down (turned half a turn, see
 [SCAN_INPUT.md](SCAN_INPUT.md)) is never clear: its reading waits for review
@@ -73,7 +74,7 @@ for full checking and unique solutions.
 
 Automatic recognition is a proposal, not proof. A faint or cropped clue can look like an intentionally blank cell, so an **automatically identified puzzle type always requires one rules confirmation**, including boxed Sudoku. Structural families such as Str8ts remain review-gated. An explicitly selected type represents a separate user decision, but uncertainty flags still block silent trust of suspect readings.
 
-A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly. The live camera may show a clearly labelled provisional solution without interrupting the view; unread printed marks, inconsistent clues and nonunique results block blue entries. Captured readings transferred to the editor retain their uncertainty and still require the normal rules confirmation.
+A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly. The live camera shows a solution only on a frozen view: the frame the solution was verified on, labelled PREVIEW, stays until Clear. Unread printed marks, inconsistent clues and nonunique results block blue entries. Captured readings transferred to the editor retain their uncertainty and still require the normal rules confirmation.
 
 Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the bounded Tesseract atlas call. When a scan has at most 150 numeric crops, every single-glyph digit is then re-read on its own, once from its binary crop and once from its grayscale crop, and the three readings vote: unanimity clears the review flag even at low individual scores, any disagreement keeps it. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
 
