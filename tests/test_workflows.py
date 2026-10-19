@@ -627,10 +627,19 @@ def test_every_leg_of_a_matrix_job_uploads_under_its_own_name(name):
             assert upload and "${{ matrix." in upload.group(1), f"{name} {job_id}: {upload and upload.group(1)}"
 
 
+# The CPython feature releases that have a final release, which setup-python
+# takes even for a leg that allows prereleases. actions/python-versions
+# published 3.15.0 on 2026-10-10, and weekly run 38544326268 then set up
+# "CPython (3.15.0)" for the leg still labelled "Python 3.15 prerelease".
+# Add each feature release when its final release is out.
+_FINAL_RELEASES = {"3.14", "3.15"}
+
+
 def test_each_forward_compatibility_leg_is_named_for_the_python_it_sets_up():
     """Its version, free-threaded when it is, and prerelease exactly when it
     allows prereleases, which only a CPython without a final release needs:
-    setup-python takes the final release once there is one."""
+    setup-python takes the final release once there is one. So a leg allows
+    prereleases exactly when its version is not in _FINAL_RELEASES."""
     job = _jobs(_workflow("forward-compatibility.yml"))["compatibility"]
     assert "    name: ${{ matrix.label }}\n" in job
     legs = re.findall(
@@ -643,6 +652,12 @@ def test_each_forward_compatibility_leg_is_named_for_the_python_it_sets_up():
         built = " free-threaded" if freethreaded == "true" else ""
         upcoming = " prerelease" if prereleases == "true" else ""
         assert label == f"Python {version}{built}{upcoming}"
+        released = version in _FINAL_RELEASES
+        assert (prereleases == "true") != released, (
+            f"{label}: setup-python takes {version}'s final release"
+            if released
+            else f"{label}: {version} has no final release in _FINAL_RELEASES"
+        )
 
 
 # The Ubuntu release of each Playwright image variant.
