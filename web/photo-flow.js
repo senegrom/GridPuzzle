@@ -644,7 +644,7 @@ export function setupPhotoFlow({
   function transposeLayout({ rows, cols, boxRows, boxCols }) {
     return { rows: cols, cols: rows, boxRows: boxCols, boxCols: boxRows };
   }
-  async function acceptPhoto(canvas, auto = false) {
+  async function acceptPhoto(canvas) {
     diagnostics.begin("photo", { ...currentLayout(), type: $("puzzle-type").value, autoSolve: $("auto-solve").checked });
     invalidate();
     state.history = [];
@@ -656,11 +656,11 @@ export function setupPhotoFlow({
     state.result = null;
     $("photo-panel").hidden = false;
     render();
-    await detectPhoto(canvas, auto);
+    await detectPhoto(canvas);
   }
   // Re-detection is not adoption of a new photograph or a puzzle edit. Keep
   // undo history and the old crop/mapping intact until a current result exists.
-  async function detectPhoto(canvas, auto = false) {
+  async function detectPhoto(canvas) {
     const id = begin();
     diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", "Photo processing stays on this device.");
@@ -701,7 +701,6 @@ export function setupPhotoFlow({
           : "Drag the numbered handles. Set rows and columns in Grid size & settings.",
       );
       $("photo-panel").scrollIntoView({ block: "start", behavior: "smooth" });
-      if (auto && found.confidence > 0.85) await readPhoto();
     } catch (e) {
       if (id === getJobId()) {
         finish();
