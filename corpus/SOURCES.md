@@ -118,9 +118,10 @@ the targets, including the corners, are exact by construction.
 **janko.at** — <https://www.janko.at/Raetsel/>. Around 6000 published puzzles
 across our families, each page carrying a plain-text block with the printed
 clues and the solution; the site renders its grids in the browser and serves no
-images. `corpus/fetch_janko.py` caches 40 pages per family (80 for Kendoku),
+images. `corpus/fetch_janko.py` caches 40 pages per family (`--count`),
 spaced across each collection, one request every three seconds with an
-identifying user agent. `corpus/parse_janko.py` converts them: it keeps the
+identifying user agent; the `janko-kenken` puzzles come from 80 Kendoku
+pages, a second run (see Rebuilding). `corpus/parse_janko.py` converts them: it keeps the
 first copy of a block a page prints twice, drops the Kendoku pages whose
 multi-cell cages print no operator (the operation is left to be deduced, which
 the app cannot model), and checks every reading against the published solution
@@ -165,6 +166,7 @@ fresh render of `janko-kenken` would switch that set to ASCII.
 python -m pip install -e ".[dev,corpus]" # renderer dependencies and tooling tests
 python corpus/build_corpus.py          # fetch and normalise the downloaded sets
 python corpus/fetch_janko.py           # cache puzzle data, ~15 minutes, polite
+python corpus/fetch_janko.py --only kenken --count 80  # janko-kenken's 80 pages
 python corpus/render_puzzles.py        # draw the rendered sets
 node corpus/benchmark.cjs --family sudoku --set wichtounet-newspaper --limit 50
 ```
