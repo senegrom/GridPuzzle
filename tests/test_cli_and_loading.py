@@ -449,6 +449,28 @@ def test_cli_suggests_class_only_where_it_can_help(puzzle, error):
     assert result.stderr.splitlines()[-1] == f"gridpuzzle: error: {error}"
 
 
+@pytest.mark.parametrize(
+    ("argv", "option"),
+    (
+        (("--file", ""), "-f/--file"),
+        (("--file=",), "-f/--file"),
+        (("--module", ""), "-m/--module"),
+        (("--module=",), "-m/--module"),
+    ),
+)
+def test_cli_rejects_an_empty_file_or_module_name(argv, option, capsys):
+    # An empty value read as not given and fell through to the --str branch,
+    # whose error handler then failed on None: a traceback and status 3,
+    # which says the solver itself failed.
+    with pytest.raises(SystemExit) as exit_info:
+        main([*argv, "--colour", "No"])
+
+    assert exit_info.value.code == 2
+    error = capsys.readouterr().err
+    assert "Traceback" not in error
+    assert error.splitlines()[-1] == f"gridpuzzle: error: argument {option}: must not be empty"
+
+
 def test_cli_puzzle_module_that_fails_to_load_is_an_input_error(tmp_path):
     # It used to escape as a traceback with status 1, which says "no solution".
     (tmp_path / "broken_puzzle.py").write_text("g = 1 / 0\n", encoding="utf-8")

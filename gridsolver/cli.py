@@ -49,6 +49,14 @@ def _solution_limit(raw_value: str) -> int:
     return value
 
 
+def _non_empty(raw_value: str) -> str:
+    # The input is dispatched on --module and --file being truthy: an empty
+    # one would read as not given and fall through to the --str branch.
+    if not raw_value:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return raw_value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         # not the script path, which on Windows is Scripts\gridpuzzle
@@ -64,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "-m",
         "--module",
+        type=_non_empty,
         help="Python module containing puzzle object g",
     )
     source.add_argument(
@@ -72,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="puzzle_string",
         help="Puzzle string",
     )
-    source.add_argument("-f", "--file", help="Puzzle file")
+    source.add_argument("-f", "--file", type=_non_empty, help="Puzzle file")
     source.add_argument(
         "-e",
         "--example",
