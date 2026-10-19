@@ -627,6 +627,24 @@ def test_every_leg_of_a_matrix_job_uploads_under_its_own_name(name):
             assert upload and "${{ matrix." in upload.group(1), f"{name} {job_id}: {upload and upload.group(1)}"
 
 
+def test_each_forward_compatibility_leg_is_named_for_the_python_it_sets_up():
+    """Its version, free-threaded when it is, and prerelease exactly when it
+    allows prereleases, which only a CPython without a final release needs:
+    setup-python takes the final release once there is one."""
+    job = _jobs(_workflow("forward-compatibility.yml"))["compatibility"]
+    assert "    name: ${{ matrix.label }}\n" in job
+    legs = re.findall(
+        r'^          - label: (.+)\n            python-version: "([\d.]+)"\n'
+        r"            freethreaded: (true|false)\n            allow-prereleases: (true|false)\n",
+        job, re.M,
+    )
+    assert legs and len(legs) == job.count("- label: ")
+    for label, version, freethreaded, prereleases in legs:
+        built = " free-threaded" if freethreaded == "true" else ""
+        upcoming = " prerelease" if prereleases == "true" else ""
+        assert label == f"Python {version}{built}{upcoming}"
+
+
 # The Ubuntu release of each Playwright image variant.
 _UBUNTU_RELEASES = {"noble": "24.04", "resolute": "26.04"}
 

@@ -186,8 +186,8 @@ Corpus modules that are intentionally excluded from every push carry the
 `slow` marker at module scope and are selected explicitly by extended CI. A
 forward-compatibility workflow, weekly, on demand and on pull requests that
 change Python code, additionally runs the bounded suite on free-threaded
-Python 3.14, with the GIL required off, and on the Python 3.15 prerelease,
-with warnings treated as errors.
+Python 3.14, with the GIL required off, and on Python 3.15, with warnings
+treated as errors.
 
 The extended workflow runs weekly, on demand and on every push to master that
 changes `gridsolver/`, the example corpora, the corpus runner or its timeout
