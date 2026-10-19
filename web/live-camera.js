@@ -501,9 +501,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       }
       try { checkShape(puzzle); } catch (error) {
         // The detected grid contradicts the chosen rules (a 9 × 6 board for
-        // Sudoku, a 12 × 12 Str8ts). Keep the outline, skip the cell overlay
-        // and say why instead of failing every frame.
-        guide = corners; guideFrame = null; session.invalidate();
+        // Sudoku, a 12 × 12 Str8ts): no anchor is built, so nothing is
+        // verified and no outline or reading is shown, and the help line says
+        // why instead of failing every frame.
+        guide = guideFrame = null; session.invalidate();
         guidance(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
         return;
       }

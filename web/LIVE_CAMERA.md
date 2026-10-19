@@ -54,9 +54,9 @@ flagged for review can take part in a labelled preview but stay yellow.
 **Review captured clues** carries the inferred family and box settings and
 every OCR warning into the editor, where Solve, Check and Hint still need the
 usual confirmation. If the detected grid contradicts the selected rules (a
-9 × 6 board while Sudoku is selected, a 12 × 12 Str8ts), the outline is shown
-with the reason and no cell overlay is attempted until the type or the grid
-settings change.
+9 × 6 board while Sudoku is selected, a 12 × 12 Str8ts), the help line gives
+the reason and asks to change the puzzle type or the grid settings; such a
+grid is neither outlined nor read.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
@@ -1105,7 +1105,8 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-camera-recovery.test.js`: settings changes (a change of automatic
   solving or the freeze's wait leaves a pending detection alone), the
   detection deadline, Start/Stop cycles and retired completions, with a
-  controlled detector, clock and canvas, and the diagnostics' picture while
+  controlled detector, clock and canvas, a detected grid that does not fit
+  the rules (the reason held on the help line, no outline), and the diagnostics' picture while
   tracking is paused (the video's current frame, unverified;
   `diagnostic-retirement.test.js` checks that the report releases such a frame
   once encoded).

@@ -366,6 +366,8 @@ test('thirty open/close cycles release source/scratch canvases and timers, inclu
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 // --- live-camera: a detected grid that contradicts the chosen rules --------
+// The reason goes to the help line; no anchor is built for such a grid, so
+// nothing verifies it and no outline is drawn (LIVE_CAMERA.md).
 test("a detected grid that does not fit the selected rules shows the reason instead of failing every frame", async (t) => {
   const timers = new Map(); let serial = 0, time = 0;
   const nodes = new Map(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
@@ -375,7 +377,10 @@ test("a detected grid that does not fit the selected rules shows the reason inst
   globalThis.document = { createElement: () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} }) };
   t.after(() => { globalThis.document = previous; });
   const detections = [], invalidations = [];
-  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: { width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} },
+  // The display canvas counts the outlines stroked on it.
+  let strokes = 0;
+  const view = { width: 700, height: 700, dataset: {}, getContext: () => ({ ...context, stroke() { strokes++; } }), setAttribute() {} };
+  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: view,
     getSettings: () => ({ type: "sudoku", rows: 9, cols: 9, boxRows: 3, boxCols: 3, enabled: true }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() {} },
     reader: { read() { return new Promise(() => {}); }, cancel() {} },
@@ -390,4 +395,5 @@ test("a detected grid that does not fit the selected rules shows the reason inst
   assert.match($("camera-help").textContent, /Detected 9 × 6, which does not fit Sudoku/);
   await advance(300);
   assert.match($("camera-help").textContent, /does not fit Sudoku/, "the message survives further frames instead of a per-tick error");
+  assert.equal(view.dataset.overlay, "none", "no outline is drawn"); assert.equal(strokes, 0);
 });
