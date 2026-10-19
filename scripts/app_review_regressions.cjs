@@ -56,6 +56,29 @@ async function arithmeticChecks(page, report) {
   }
   report.checks.push('Kakuro Play immediately highlights duplicate/impossible sum and clears it after a valid edit');
 }
+// Keyboard focus on the board (WCAG 2.4.7). In the Cages and Inequalities
+// tools Enter and Space select the focused cell, so focus sits on a selected
+// cell after every selection: its square, as the browser draws it, must differ
+// from a selected square without focus.
+async function focusChecks(page, report) {
+  report.focus = {};
+  for (const [type, size, tool] of [['killersudoku', 9, 'cage'], ['futoshiki', 4, 'inequality']]) {
+    await page.evaluate(async([type,size])=>{const {makePuzzle}=await import('./model.js');reviewApp.loadPuzzle(makePuzzle(type,size));},[type,size]);
+    await page.selectOption('#edit-tool',tool);
+    await page.focus('#board [data-cell="0"]');
+    await page.keyboard.press('Enter');await page.keyboard.press('ArrowRight');await page.keyboard.press(' ');
+    const square=cell=>page.evaluate(cell=>{
+      const rect=document.querySelector(`#board [data-cell="${cell}"] .cell-hit`),style=getComputedStyle(rect);
+      return {focused:document.activeElement===rect.parentNode,selected:rect.parentNode.classList.contains('selected'),stroke:style.stroke,width:style.strokeWidth};
+    },cell);
+    const focused=await square(1),other=await square(0);
+    assert.deepEqual([focused.focused,focused.selected,other.focused,other.selected],[true,true,false,true],tool);
+    assert.notDeepEqual([focused.stroke,focused.width],[other.stroke,other.width],`${tool}: focus shows on a selected cell`);
+    report.focus[tool]={focused,other};
+  }
+  await page.selectOption('#edit-tool','value');
+  report.checks.push('keyboard focus stays visible on a selected board cell in the Cages and Inequalities tools');
+}
 async function preferenceChecks(page, report) {
   await page.evaluate(async()=>{
     const {Scanner}=await import('./scanner.js'),{makePuzzle}=await import('./model.js');
@@ -89,6 +112,8 @@ async function preferenceChecks(page, report) {
   await page.waitForFunction(()=>!document.getElementById('start-camera').hidden || document.getElementById('video').videoWidth>0);
   if(await page.locator('#start-camera').isVisible())await page.click('#start-camera');
   await page.waitForFunction(()=>/Automatic solving is off/.test(document.getElementById('camera-help').textContent));
+  // WCAG 2.5.3: the shutter is named by the words it shows, as the help says them.
+  assert.equal(await page.getByRole('button',{name:'Save picture',exact:true}).count(),1,'the shutter is named "Save picture"');
   assert.equal(await page.evaluate(()=>reviewSolves.length),0);assert.equal(await page.evaluate(()=>reviewReads),1);
   assert.equal(Number(await page.locator('#live-preview').getAttribute('data-solution')),0);
   assert.equal(await page.locator('#camera-panel').getAttribute('aria-modal'),'true');
@@ -138,7 +163,8 @@ async function run() {
     await engines('app-review.json', async (page, report) => {
       report.checks = [];
       try {
-        await backupChecks(page, report, server.base); await arithmeticChecks(page, report); await preferenceChecks(page, report);
+        await backupChecks(page, report, server.base); await arithmeticChecks(page, report); await focusChecks(page, report);
+        await preferenceChecks(page, report);
       } catch (error) {
         report.statusText = await page.textContent('#status-text').catch(() => null);
         report.camera = await page.textContent('#camera-help').catch(() => null);

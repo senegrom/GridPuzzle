@@ -1,8 +1,10 @@
-/* Real DOM, photo overlays and Pyodide. OCR completion is controlled explicitly. */
+/* Real DOM, photo overlays and Pyodide. OCR completion is controlled
+   explicitly, except in stale_build_checks.cjs, which reads with the real OCR. */
 const assert = require("node:assert/strict");
 const { serve, engines, main } = require("./harness.cjs");
 const { photoImports, offlineInstall } = require("./import_safety_checks.cjs");
 const { webpImports } = require("./webp_import_checks.cjs");
+const { staleBuild } = require("./stale_build_checks.cjs");
 const state = (page) => page.evaluate(() => photoApp.getState());
 async function exercise(page, report, base) {
   report.checks = [];
@@ -107,6 +109,7 @@ async function run() {
       await photoImports(page, report, server.base);
       await webpImports(page, report, server.base);
       await offlineInstall(browser, report);
+      await staleBuild(browser, report);
       await exercise(page, report, server.base);
       console.log(`${name}: photo Read transaction regressions passed`);
     });
