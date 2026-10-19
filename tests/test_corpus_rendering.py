@@ -144,3 +144,62 @@ assert any(source[0] == 'janko-sudoku' for source in r.sources(0, r.random.Rando
     result = subprocess.run([sys.executable, "corpus/fetch_janko.py", "--count", "1", "--only", "sudoku"],
                             cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0 and "1/1" in result.stdout, result.stdout + result.stderr
+
+
+def test_sum_only_cage_labels_drop_only_the_plus():
+    assert renderer.cage_label({"target": 15, "op": "+"}) == "15+"
+    assert renderer.cage_label({"target": 15, "op": "+"}, sum_only=True) == "15"
+    assert renderer.cage_label({"target": 15}, sum_only=True) == "15"
+    # KenKen operators stay, sum-only or not; a one-cell "=" cage prints none.
+    for op, sign in (("-", "-"), ("*", "x"), ("/", "/"), ("=", "")):
+        assert renderer.cage_label({"target": 2, "op": op}, sum_only=True) == f"2{sign}"
+
+
+def test_a_sum_only_killer_drawing_differs_from_the_plus_one_only_in_cage_heads():
+    from corpus.generate_puzzles import gen_killersudoku
+    puzzle, solution = gen_killersudoku(random.Random(3), 6)
+    validate_target(puzzle, solution)
+    drawn = {only: renderer.draw_puzzle(puzzle, random.Random(7), faces=(None,), sum_only=only) for only in (False, True)}
+    (plus, corners), (alone, alone_corners) = drawn[False], drawn[True]
+    assert corners == alone_corners and plus.size == alone.size
+    a, b = plus.convert("L"), alone.convert("L")
+    cell = (corners[1][0] - corners[0][0]) / puzzle["cols"]
+    heads = {min(cage["cells"]) for cage in puzzle["cages"]}
+    changed = [(x, y) for y in range(a.height) for x in range(a.width) if a.getpixel((x, y)) != b.getpixel((x, y))]
+    assert changed, "the '+' signs are gone"
+    for x, y in changed:
+        r, c = int((y - corners[0][1]) // cell), int((x - corners[0][0]) // cell)
+        assert r * puzzle["cols"] + c in heads and (y - corners[0][1]) - r * cell < cell / 2, (x, y)
+
+
+def test_the_sum_only_killer_set_comes_last_from_its_own_stream(monkeypatch):
+    monkeypatch.setattr(renderer, "parse_janko", lambda *args, **kwargs: {})
+    whole, shared = random.Random(1), random.Random(1)
+    slugs = [(slug, family, style) for slug, family, *_, style in renderer.sources(2, whole)]
+    assert slugs[-1] == ("generated-render-sum-only", "killersudoku", "sum-only")
+    assert all(style is None for *_, style in slugs[:-1])
+    # The shared stream is left exactly where the earlier sets leave it.
+    for slug, family, *_ in renderer.sources(2, shared):
+        if (slug, family) == ("generated-render", "killersudoku"):
+            break
+    assert whole.getstate() == shared.getstate()
+    (_, _, _, _, _, puzzles, _, _), = [s for s in renderer.sources(2, random.Random(5)) if s[0] == "generated-render-sum-only"]
+    again = [s for s in renderer.sources(2, random.Random(6)) if s[0] == "generated-render-sum-only"][0][5]
+    assert puzzles == again, "its puzzles do not depend on the shared stream"
+    assert len(puzzles) == 2 and all(p["type"] == "killersudoku" for _, p, _ in puzzles)
+    assert all(cage["op"] == "+" for _, p, _ in puzzles for cage in p["cages"])
+
+
+def test_the_sum_only_killer_set_renders_the_same_alone_as_in_a_full_run(tmp_path):
+    rendered = {}
+    for run, extra in (("alone", ["--set", "generated-render-sum-only"]), ("full", [])):
+        env = isolated_env(tmp_path / run)
+        result = subprocess.run([sys.executable, "-c",
+            "from corpus import fonts; fonts.CANDIDATES=(); from corpus.render_puzzles import main; raise SystemExit(main())",
+            "--per-family", "1", *extra], cwd=ROOT, env=env, text=True, capture_output=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+        folder = Path(env["PUZZLE_CORPUS"]) / "killersudoku" / "generated-render-sum-only"
+        rendered[run] = {path.name: path.read_bytes() for path in sorted(folder.iterdir())}
+    assert len(rendered["alone"]) == 6 and rendered["alone"] == rendered["full"]
+    target = json.loads(rendered["alone"]["killersudoku-000-clean.json"])
+    validate_target(target["puzzle"], target["solution"])

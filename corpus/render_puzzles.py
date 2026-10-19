@@ -80,12 +80,28 @@ def dashed(draw: ImageDraw.ImageDraw, start: tuple[float, float], end: tuple[flo
                    (x0 + (x1 - x0) * b, y0 + (y1 - y0) * b)], fill=INK, width=width)
 
 
-def draw_puzzle(puzzle: dict, rng: random.Random, *, faces=None, cage_style: str = "dashed") -> tuple[Image.Image, list]:
+# A cage clue's operator as printed: ASCII, so that a font without the
+# mathematical signs cannot draw a replacement box. "=" (a one-cell KenKen cage)
+# prints no sign.
+SIGNS = {"+": "+", "-": "-", "*": "x", "/": "/", "=": ""}
+
+
+def cage_label(cage: dict, *, sum_only: bool = False) -> str:
+    """The clue printed in a cage's head cell: its target and operator, or for
+    ``sum_only`` a sum's target alone, as Killer Sudoku is usually printed."""
+    op = cage.get("op", "+")
+    return f"{cage['target']}{'' if sum_only and op == '+' else SIGNS.get(op, '')}"
+
+
+def draw_puzzle(puzzle: dict, rng: random.Random, *, faces=None, cage_style: str = "dashed",
+                sum_only: bool = False) -> tuple[Image.Image, list]:
     """Draw one puzzle; return the image and its grid corners in pixels.
 
     Cages are drawn as dashed outlines inset in their cells (``dashed``, the
     Killer Sudoku convention and this corpus's first KenKen style) or as thick
-    lines on the cell edges between cages (``thick``, the usual KenKen print)."""
+    lines on the cell edges between cages (``thick``, the usual KenKen print).
+    ``sum_only`` prints a sum cage's target without its "+" (cage_label); it
+    changes no random draw, so a puzzle drawn both ways differs only there."""
     rows, cols = puzzle["rows"], puzzle["cols"]
     kind = puzzle["type"]
     cell = rng.choice([52, 60, 68, 76])
@@ -157,7 +173,6 @@ def draw_puzzle(puzzle: dict, rng: random.Random, *, faces=None, cage_style: str
     if kind in ("killersudoku", "kenken") and cage_style == "thick":
         # Thick lines on the cell edges that separate two cages, as KenKen is
         # usually printed; the clue sits in the head cell's top-left corner.
-        signs = {"+": "+", "-": "-", "*": "x", "/": "/", "=": ""}
         heavy = thick + 1
         for cage in puzzle.get("cages", []):
             members = set(cage["cells"])
@@ -171,10 +186,9 @@ def draw_puzzle(puzzle: dict, rng: random.Random, *, faces=None, cage_style: str
         for cage in puzzle.get("cages", []):
             if cage.get("target") is not None:
                 x0, y0, _, _ = box(min(cage["cells"]))
-                label = f"{cage['target']}{signs.get(cage.get('op', '+'), '')}"
+                label = cage_label(cage, sum_only=sum_only)
                 draw.text((x0 + max(5, cell // 12), y0 + max(4, cell // 14)), label, font=small, fill=INK)
     elif kind in ("killersudoku", "kenken"):
-        signs = {"+": "+", "-": "-", "*": "x", "/": "/", "=": ""}
         for cage in puzzle.get("cages", []):
             members = set(cage["cells"])
             for index in members:
@@ -192,7 +206,7 @@ def draw_puzzle(puzzle: dict, rng: random.Random, *, faces=None, cage_style: str
             head = min(members)
             if cage.get("target") is not None:
                 x0, y0, _, _ = box(head)
-                label = f"{cage['target']}{signs.get(cage.get('op', '+'), '')}"
+                label = cage_label(cage, sum_only=sum_only)
                 draw.text((x0 + max(6, cell // 9), y0 + max(4, cell // 12)), label, font=small, fill=INK)
 
     if kind == "futoshiki":
@@ -283,12 +297,18 @@ def variants(image: Image.Image, corners: list, rng: random.Random):
 # --------------------------------------------------------------------------
 # Building
 # --------------------------------------------------------------------------
-def sources(per_family: int, rng: random.Random):
+# How a styled set is drawn (draw_puzzle's keywords).
+STYLES = {"thick": {"cage_style": "thick"}, "sum-only": {"sum_only": True}}
+SUM_ONLY_KILLER = "generated-render-sum-only"
+
+
+def sources(per_family: int, rng: random.Random, seed: int = 20260913):
     """(slug, family, origin, licence, url, [(name, payload, solution)], note, style).
 
     ``style`` is None for the original sets, which share the run's random
     stream in this order; a styled set comes last and draws from its own
-    stream, so adding one leaves every earlier set byte-identical."""
+    stream (``seed`` names it), so adding one leaves every earlier set
+    byte-identical and it renders the same alone as in a full run."""
     janko = parse_janko(JANKO_CACHE, per_family)
     for (collection, family), puzzles in sorted(janko.items()):
         yield (f"janko-{collection}", family,
@@ -316,6 +336,23 @@ def sources(per_family: int, rng: random.Random):
                "https://www.janko.at/Raetsel/", kenken,
                "The janko-kenken puzzles again, drawn the way KenKen is usually printed: thick lines "
                "between cages instead of dashed outlines inset in the cells.", "thick")
+    # Killer Sudoku as it is usually printed, the sum alone in each cage
+    # ("15", not "15+"). Its puzzles come from its own stream, not from the
+    # shared one the generated "+" set (the control) was carved from.
+    own = random.Random(f"{seed}:{SUM_ONLY_KILLER}:puzzles")
+    puzzles = []
+    for index in range(per_family):
+        try:
+            puzzle, solution = FAMILIES["killersudoku"](own)
+        except Exception:  # noqa: BLE001 - a generator may give up on a layout
+            continue
+        puzzles.append((f"killersudoku-{index:03d}", puzzle, solution))
+    if puzzles:
+        yield (SUM_ONLY_KILLER, "killersudoku",
+               "generated by corpus/generate_puzzles.py, printed with each cage's sum alone",
+               "none required (produced locally)", "", puzzles,
+               "Killer Sudoku printed the usual way, each cage's sum without a '+'; generated-render, "
+               "which prints '15+', is its control.", "sum-only")
 
 
 def main() -> int:
@@ -338,7 +375,7 @@ def main() -> int:
 
     rng = random.Random(args.seed)
     entries, described = [], {}
-    for slug, family, origin, licence, url, puzzles, note, style in sources(args.per_family, rng):
+    for slug, family, origin, licence, url, puzzles, note, style in sources(args.per_family, rng, args.seed):
         if (args.only and family not in args.only) or (args.set and slug not in args.set):
             continue
         # A styled set draws from its own stream (see sources).
@@ -357,7 +394,7 @@ def main() -> int:
             except Exception as error:  # noqa: BLE001
                 print(f"  {family}/{name}: rejected by target validation: {error}")
                 continue
-            image, corners = draw_puzzle(puzzle, draw_rng, faces=faces, cage_style=style or "dashed")
+            image, corners = draw_puzzle(puzzle, draw_rng, faces=faces, **STYLES.get(style, {}))
             for variant, picture, placed, suffix, options in variants(image, corners, draw_rng):
                 stem = f"{name}-{variant}"
                 path = folder / f"{stem}.{suffix}"
