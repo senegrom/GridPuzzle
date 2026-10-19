@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { cagePartition, prepareScan } from "../scan-analysis.js";
 import { cageLabelCrop, puzzleFromReadings } from "../scanner.js";
+import { readOperator } from "../cage-operator.js";
 import { thresholdGray } from "../geometry.js";
 
 // A 4 x 4 board of 100 px cells: thin grid lines, then cage borders in the chosen style.
@@ -192,5 +193,27 @@ test("a cage clue on grey paper keeps its ink, and its paper and margin stay whi
     assert.equal(at(4, 4), 255, `margin on paper ${paper}`);
     // The ink handed to the operator reader is the same picture, 1 for ink.
     assert.deepEqual([ink[(16 + 20) * 112 + 16 + 12], ink[(16 + 30) * 112 + 16 + 60], ink[4 * 112 + 4]], [1, 0, 0]);
+  }
+});
+// The scanner reads a KenKen clue's operator from the ink and core that
+// cageLabelCrop hands over, so the crop must lay the clue box out as
+// readOperator expects: at (16, 16) and 40 px high. This 50 x 20 px clue box
+// on grey paper ("0" and a sign) comes out at twice its size.
+test("a KenKen clue's operator reads from the crop cageLabelCrop makes of it", (t) => {
+  const previous = globalThis.document;
+  globalThis.document = { createElement: () => fakeCanvas() };
+  t.after(() => { globalThis.document = previous; });
+  const signs = { "+": [[12, 9, 20, 11], [15, 6, 17, 14]], "-": [[12, 9, 18, 11]], "/": [[12, 9, 20, 11], [15, 6, 17, 8], [15, 12, 17, 14]] };
+  for (const [sign, strokes] of Object.entries(signs)) {
+    const source = fakeCanvas(100, 60);
+    source.rgba = new Uint8ClampedArray(100 * 60 * 4).fill(170);
+    const ink = (x0, y0, x1, y1) => {
+      for (let y = 20 + y0; y < 20 + y1; y++) for (let x = 20 + x0; x < 20 + x1; x++) source.rgba.fill(60, 4 * (y * 100 + x), 4 * (y * 100 + x) + 3);
+    };
+    ink(2, 3, 10, 5); ink(2, 15, 10, 17); ink(2, 3, 4, 17); ink(8, 3, 10, 17); // an 8 x 14 px "0"
+    for (const stroke of strokes) ink(...stroke); // "÷" reads as "/"
+    const crop = cageLabelCrop({ x: 20, y: 20, w: 50, h: 20 }, source);
+    assert.deepEqual([crop.canvas.width, crop.canvas.height], [132, 72]);
+    assert.equal(readOperator(crop.ink, 132, 72, crop.core), sign, sign);
   }
 });
