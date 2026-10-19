@@ -1,4 +1,6 @@
-/* Detection-only measurement at the live (640) and photo (1600) scales.
+/* Detection-only measurement at the live camera's size (640) and the photo
+   flow's (1600), both through findGrid's default, the still photograph's path
+   (thorough); the live camera's thorough: false path is not measured.
    Uses the same checkpoint/cleanup lifecycle as the OCR benchmark.
    node corpus/detect_benchmark.cjs [--site _site] [--limit N] [--set names] [--out file.json]
    --set takes one name or a comma-separated list; each matches any set whose

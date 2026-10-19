@@ -198,9 +198,12 @@ is a measurement, not a gate.
 
 `node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
 detector alone over every corpus image with corner ground truth, at the live
-and photograph scales, and prints per set how many grids were found with the
-right size and corners within 3% of the diagonal, how many quads the line
-stage rejected, and the time per frame (`--engine webkit` switches browser);
+camera's and the photo flow's sizes (640 and 1600 pixels), both through the
+still photograph's path (`findGrid`'s default; the live camera's
+`thorough: false` is not measured), and prints per set how many grids were
+found with the right size and corners within 3% of the diagonal, how many
+quads the line stage rejected, and the time per frame (`--engine webkit`
+switches browser);
 `web/GRID_DETECTION.md` explains the stages and records the measurements.
 
 Both benchmarks share one checkpointing runner. The report is saved before
