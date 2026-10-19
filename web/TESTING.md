@@ -134,7 +134,13 @@ later still: a solve with the box as installed, two page loads, a solve on a
 cold interpreter and the three-second wait. Without its first solve it took
 5.3 to 9.5 s in three local Chromium runs (2026-10-08), where the whole suite
 took 65 to 99 s; with it, 7.2 to 10.8 s in three runs whose whole suite took
-68 to 86 s.
+68 to 86 s. Two phases came with it: "viewfinder layers", the first, which
+starts the camera on a phone, a tablet and a desktop screen to check that the
+canvas and the video share one box, and "live capture with automatic
+solving off", after "320 px", a live capture that does not freeze. In run
+39142492063 (2026-10-18) they took 0.7 and 1.6 s in Chromium and 20.9 and
+10.2 s in WebKit, of 69.6 and 205.0 s in all. `web/tests/suite-docs.test.js`
+fails when this section does not name a phase the suite times.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
