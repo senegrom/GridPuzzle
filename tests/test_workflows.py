@@ -690,6 +690,35 @@ def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
     assert re.findall(r'"([^"]+)"', families.group(1)) == ["DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono"]
 
 
+def test_the_external_pictures_come_from_the_cache_when_it_holds_them():
+    """Every job that fetches the pinned picture slice restores the fetch
+    script's store from the cache first and saves it after a miss, so a
+    deployment needs huggingface.co only when the cache is cold or a pin
+    changed. The key is the script, which holds the pins; the script checks
+    every restored file against its pin, so a stale or damaged cache costs a
+    download, never a different picture."""
+    from scripts.fetch_live_fixtures import STORE
+
+    fetching = {
+        f"{path.name} {job_id}": job
+        for path in sorted((_GITHUB / "workflows").glob("*.yml"))
+        for job_id, job in _jobs(path.read_text(encoding="utf-8")).items()
+        if "python scripts/fetch_live_fixtures.py" in job
+    }
+    assert set(fetching) == {"browser-pages.yml live-acceptance", "scan-input.yml live"}
+    for name, job in fetching.items():
+        restore = _step(job, "uses: actions/cache/restore@")
+        save = _step(job, "uses: actions/cache/save@")
+        fetch = _step(job, "run: python scripts/fetch_live_fixtures.py\n")
+        assert job.index(restore) < job.index(fetch) < job.index(save), name
+        cache = re.search(r"^        id: (\S+)$", restore, re.M).group(1)
+        for step in (restore, save):
+            assert f"\n          path: {STORE.as_posix()}\n" in step, name
+        assert "\n          key: live-fixtures-${{ hashFiles('scripts/fetch_live_fixtures.py') }}\n" in restore, name
+        assert f"\n        if: steps.{cache}.outputs.cache-hit != 'true'\n" in save, name
+        assert f"\n          key: ${{{{ steps.{cache}.outputs.cache-primary-key }}}}\n" in save, name
+
+
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)
 
 

@@ -104,8 +104,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-scanner
+      # from the cache when it holds the pinned slice, as the deployment
+      # gate's live-acceptance job explains
+      - name: Restore the pinned external pictures
+        id: live-fixtures
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: live-fixtures/source
+          key: live-fixtures-${{ hashFiles('scripts/fetch_live_fixtures.py') }}
       - name: Fetch bounded external picture tests
         run: python scripts/fetch_live_fixtures.py
+      - name: Save the pinned external pictures
+        if: steps.live-fixtures.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: live-fixtures/source
+          key: ${{ steps.live-fixtures.outputs.cache-primary-key }}
       - name: External pictures through automatic detection, tracking and OCR
         run: node scripts/external_replay_regressions.cjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

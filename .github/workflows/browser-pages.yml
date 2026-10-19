@@ -164,8 +164,27 @@ jobs:
           build: "false"
       - name: Verify exact deployment build
         run: node -e "const fs=require('node:fs');if(JSON.parse(fs.readFileSync('_site/build-info.json')).build!==process.env.GITHUB_SHA.slice(0,12))process.exit(1)"
+      # The pinned picture slice comes from the cache once a run has saved it:
+      # fetch_live_fixtures.py checks every file it finds there against its
+      # SHA-256 pin and downloads only a missing or different one, so a
+      # deployment needs huggingface.co only when the cache is cold or a pin
+      # changed. The key is the script, which holds the pins. GitHub drops a
+      # cache no run has used for a week, so a quiet spell costs a download.
+      - name: Restore the pinned external pictures
+        id: live-fixtures
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: live-fixtures/source
+          key: live-fixtures-${{ hashFiles('scripts/fetch_live_fixtures.py') }}
       - name: Fetch bounded external picture tests
         run: python scripts/fetch_live_fixtures.py
+      # Parallel jobs may race to save the same key; the losers only warn.
+      - name: Save the pinned external pictures
+        if: steps.live-fixtures.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: live-fixtures/source
+          key: ${{ steps.live-fixtures.outputs.cache-primary-key }}
       - name: Moving-video acceptance before deployment
         run: node scripts/live_motion_regressions.cjs
       - name: Integrated backup, preferences and modal regressions
