@@ -117,7 +117,12 @@ confident digits, both quarter turns are read through the same crop with its
 corners turned, and one is kept only when it reads clearly more confident
 digits (at least 8, and at least twice the upright count plus 3). The reading
 then says so in its first note and carries `turns`; the photo flow turns its
-crop corners with it.
+crop corners with it. Box height and Box width describe the printed puzzle as
+it stands upright, which is how every reading comes back, so they apply as set:
+no turned reading changes them, nor does Find grid, Rotate or the next
+photograph, however it lies (Rotate swaps only the rows and columns of a grid
+that is not square, which is never turned). Boxes suggested from the grid size
+are that size's usual ones (2 × 3 for 6 × 6), never transposed.
 
 A half turn keeps upright-shaped glyphs, so a poor reading of upright-shaped
 glyphs (median height/width above 1) takes a half-turn check instead. Read

@@ -32,7 +32,9 @@ function photoHarness(t,size,turns){
  expected.cells=Array.from({length:size*size},(_,i)=>{const r=Math.floor(i/size),c=i%size;return (Math.floor(r/2)+(r%2)*(size/2)+c)%size+1;});
  const found={puzzle:structuredClone(expected),turns,notes:[],cellUncertain:[],uncertain:[],cageUncertain:[],needsReview:true,rectified:canvas()};
  const setLayout=l=>{state.layout={...l};for(const [key,id] of [['rows','rows'],['cols','cols'],['boxRows','box-rows'],['boxCols','box-cols']])$(id).value=String(l[key]);};
- setLayout({rows:size,cols:size,boxRows:size/2,boxCols:2});$('puzzle-type').value='sudoku';
+ // The controls hold the printed puzzle's boxes, upright, as the reading comes
+ // back (until the 2026-10-19 review they started transposed, in the photo's frame).
+ setLayout({rows:size,cols:size,boxRows:2,boxCols:size/2});$('puzzle-type').value='sudoku';
  let epoch=0,saved=null; const storage={set:(_key,value)=>{saved=value;},get:()=>saved}; const errors=[];let readImpl=async()=>found, detection={rows:size,cols:size,corners,confidence:.99};
  const flow=setupPhotoFlow({$,state,scanner:{read:(...args)=>readImpl(...args),detect:async()=>detection},
    stopTask:()=>++epoch,invalidate:()=>++epoch,begin:()=>++epoch,finish(){},fail:e=>errors.push(e.message),render(){},status(){},remember(){rememberEdit(state);},persist(){saveSession(storage,state);},drawBoard(){},
@@ -51,7 +53,8 @@ for(const turns of [1,3])test(`undo then repeat Read keeps crop and rectangular 
  assert.ok(h.state.history.length); h.undo();
  assert.deepEqual(h.state.corners,h.corners);
  assert.equal(h.state.rectified,null); assert.equal(h.state.photoSource,null);
- assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[3,2]);
+ // The Read never changed the printed boxes, so its Undo has none to restore.
+ assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[2,3]);
  // Simulate the recognizer's orientation relative to the requested crop: if
  // undo restored the original corners, auto-orient again; if not, it is upright.
  h.setReader(async (_image, quad)=>({...h.found,puzzle:structuredClone(h.expected),
@@ -66,13 +69,15 @@ for(const turns of [1,3])test(`undo cannot clear unconfirmed box-layout warnings
  h.setDetection({rows:6,cols:6,corners:h.corners,confidence:.99});
  await h.$('detect-photo').onclick();
  assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[2,3]);
- const puzzle=makePuzzle('sudoku',6); puzzle.boxRows=3;puzzle.boxCols=2;
- puzzle.cells=Array.from({length:36},(_,cell)=>{const row=Math.floor(cell/6);return (Math.floor(row/3)+(row%3)*2+cell%6)%6+1;});
+ // The size's standard boxes, as printed and read upright.
+ const puzzle=makePuzzle('sudoku',6); puzzle.boxRows=2;puzzle.boxCols=3;
+ puzzle.cells=Array.from({length:36},(_,cell)=>{const row=Math.floor(cell/6);return (Math.floor(row/2)+(row%2)*3+cell%6)%6+1;});
  const found={puzzle,turns,notes:[],cellUncertain:[],uncertain:[],cageUncertain:[],needsReview:false,rectified:canvas()};
  h.setReader(async()=>structuredClone({...found,rectified:null}));
  h.$('read-photo').onclick();await tick();
  assert.deepEqual(h.errors,[]);assert.equal(h.state.needsReview,true);
- assert.match(h.state.notes.join(' '),/Box layout 3 rows × 2 columns was suggested/);
+ assert.equal(conflicts(h.state.puzzle).size,0);
+ assert.match(h.state.notes.join(' '),/Box layout 2 rows × 3 columns was suggested/);
  const rotated=structuredClone(h.state.corners);
  h.undo();
  h.setReader(async(_image,quad)=>({...structuredClone({...found,rectified:null}),
@@ -109,7 +114,7 @@ test('successive photo reads undo in order, including a read with no rotation',a
  h.undo();assert.deepEqual(h.state.corners,rotated);
  assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[2,3]);
  h.undo();assert.deepEqual(h.state.corners,h.corners);
- assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[3,2]);
+ assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[2,3]);
 });
 
 for(const change of ['keyboard','pointer','detect'])test(`${change} crop changes after Read are not overwritten by an older undo`,async t=>{
@@ -165,7 +170,7 @@ test('a failed re-detection leaves the accepted photo undo valid',async t=>{
  const h=photoHarness(t,6,3);await readPhoto(h);
  h.setDetection(null);await h.$('detect-photo').onclick();assert.equal(h.errors.length,1);
  h.undo();assert.deepEqual(h.state.corners,h.corners);
- assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[3,2]);
+ assert.deepEqual([h.state.layout.boxRows,h.state.layout.boxCols],[2,3]);
 });
 
 test('Undo cancels an in-flight read, and its late result cannot rotate the crop again',async t=>{

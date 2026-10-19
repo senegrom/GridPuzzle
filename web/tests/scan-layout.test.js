@@ -153,16 +153,31 @@ test("preserving a box layout never clears the scanner's own uncertainty", async
   assert.equal(flow.solves.length, 0);
 });
 
-test("rotating a square photograph also rotates its chosen non-square boxes", async (t) => {
+// The box controls describe the printed puzzle, upright, and a reading comes
+// back upright however the photograph lies, so Rotate keeps them. (It used to
+// transpose them with the photograph, which put them in another frame than
+// the reading's: photo-geometry-1 of the 2026-10-19 review.)
+test("rotating a square photograph keeps its chosen non-square boxes", async (t) => {
   const flow = photoFlow(t);
   await flow.click("rotate-photo");
-  assert.deepEqual(flow.state.layout, { rows: 6, cols: 6, boxRows: 2, boxCols: 3 });
+  assert.deepEqual(flow.state.layout, { rows: 6, cols: 6, boxRows: 3, boxCols: 2 });
   await flow.click("read-photo");
   assert.deepEqual(flow.errors, []);
   assert.equal(flow.solves.length, 1);
-  assert.deepEqual([flow.solves[0].boxRows, flow.solves[0].boxCols], [2, 3]);
+  assert.deepEqual([flow.solves[0].boxRows, flow.solves[0].boxCols], [3, 2]);
   await flow.click("rotate-photo");
   assert.deepEqual(flow.state.layout, { rows: 6, cols: 6, boxRows: 3, boxCols: 2 });
+});
+
+test("rotating a photograph of a grid that is not square swaps its rows and columns, not its boxes", async (t) => {
+  const flow = photoFlow(t, { type: "numbrix", layout: { rows: 4, cols: 6, boxRows: 2, boxCols: 3 } });
+  // No lattice found: only Rotate keeps the controls in step with the crop.
+  flow.scanner.detect = async () => ({ rows: 0, cols: 0, confidence: 0.3,
+    corners: [{ x: 10, y: 10 }, { x: 590, y: 10 }, { x: 590, y: 590 }, { x: 10, y: 590 }] });
+  await flow.click("rotate-photo");
+  assert.deepEqual(flow.state.layout, { rows: 6, cols: 4, boxRows: 2, boxCols: 3 });
+  await flow.click("rotate-photo");
+  assert.deepEqual(flow.state.layout, { rows: 4, cols: 6, boxRows: 2, boxCols: 3 });
 });
 
 test("rotating a proposed box layout preserves the need to confirm it", async (t) => {
@@ -172,7 +187,8 @@ test("rotating a proposed box layout preserves the need to confirm it", async (t
   await flow.click("read-photo");
   assert.deepEqual(flow.errors, []);
   assert.equal(flow.state.needsReview, true);
-  assert.deepEqual([flow.state.puzzle.boxRows, flow.state.puzzle.boxCols], [3, 2]);
+  assert.deepEqual([flow.state.puzzle.boxRows, flow.state.puzzle.boxCols], [2, 3]);
+  assert.match(flow.state.notes.join(" "), /2 rows × 3 columns.*not read from the photograph/);
   assert.equal(flow.solves.length, 0);
 });
 

@@ -641,8 +641,14 @@ export function setupPhotoFlow({
       (key) => a[key] === b[key],
     );
   }
-  function transposeLayout({ rows, cols, boxRows, boxCols }) {
-    return { rows: cols, cols: rows, boxRows: boxCols, boxCols: boxRows };
+  // The box controls describe the printed puzzle, upright: its boxes as they
+  // stand on the board, which is how every reading comes back (Scanner.orient
+  // turns a sideways or upside-down photograph's reading upright). No turn of
+  // the photograph or of the crop changes them. A quarter turn swaps only the
+  // grid's rows and columns as the crop meets them, which matters only for a
+  // grid that is not square, and such a grid is never turned by a reading.
+  function swapAxes({ rows, cols, boxRows, boxCols }) {
+    return { rows: cols, cols: rows, boxRows, boxCols };
   }
   async function acceptPhoto(canvas) {
     diagnostics.begin("photo", { ...currentLayout(), type: $("puzzle-type").value, autoSolve: $("auto-solve").checked });
@@ -729,10 +735,11 @@ export function setupPhotoFlow({
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(state.photo, 0, 0);
     rotatePhotoSource(state.photo, c);
-    // A quarter-turn swaps the box orientation as well as the grid axes.
-    setLayout(transposeLayout(currentLayout()));
+    // The grid's axes turn with the photograph; its boxes are the printed
+    // puzzle's and stay (swapAxes).
+    setLayout(swapAxes(currentLayout()));
     if (proposedBoxLayout)
-      proposedBoxLayout = transposeLayout(proposedBoxLayout);
+      proposedBoxLayout = swapAxes(proposedBoxLayout);
     void acceptPhoto(c);
   };
   $("hide-photo").onclick = () => ($("photo-panel").hidden = true);
@@ -893,15 +900,12 @@ export function setupPhotoFlow({
       if (id !== getJobId()) return;
       // Snapshot settings belong to this scan. Validate the complete candidate
       // before committing history, state or autosave, including automatic type.
-      // Automatic quarter-turns rotate the grid axes, not just the clue
-      // positions. Rectangular boxes must follow the crop into that frame.
-      const quarterTurn = found.turns % 2 === 1,
-        readLayout = quarterTurn
-          ? transposeLayout({ rows, cols, boxRows, boxCols })
-          : { rows, cols, boxRows, boxCols };
+      // The reading comes back upright, however the reader turned it, and the
+      // box controls describe the printed puzzle upright (swapAxes): they
+      // apply as set. Only a square grid is turned, so rows and columns hold.
       if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
-        found.puzzle.boxRows = readLayout.boxRows;
-        found.puzzle.boxCols = readLayout.boxCols;
+        found.puzzle.boxRows = boxRows;
+        found.puzzle.boxCols = boxCols;
       }
       checkShape(found.puzzle);
       const blackReadings = fitBlackReadings(found.puzzle, found.blackReadings),
@@ -915,7 +919,7 @@ export function setupPhotoFlow({
         );
       if (needsBoxReview)
         notes.push(
-          `Box layout ${readLayout.boxRows} rows × ${readLayout.boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
+          `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
         );
       // Prepare every editable field before touching history or accepted state.
       const next = {
@@ -954,14 +958,6 @@ export function setupPhotoFlow({
       rememberPhotoRead();
       clearPhotoMapping();
       Object.assign(state, next);
-      if (quarterTurn) {
-        // Commit the controls and proposal only with the validated reading,
-        // after the undo snapshot. A repeat Read uses the rotated layout and
-        // still asks for confirmation of boxes suggested by detection.
-        setLayout(readLayout);
-        if (proposedBoxLayout)
-          proposedBoxLayout = transposeLayout(proposedBoxLayout);
-      }
       diagnostics.event({stage:"checking",reason:"read-complete",found});
       persist();
       render({ replaceDraft: true });
