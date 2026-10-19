@@ -817,6 +817,33 @@ def test_ci_tests_the_lowest_versions_pyproject_allows():
     assert 'python scripts/lower_bounds.py "$EXTRAS" | tee "$constraints"' in action
 
 
+# For each requirement whose older releases have published advisories (OSV,
+# 2026-10-19), the first release without any. pyproject.toml's lower bounds
+# stay at or above these, so that no installation it allows, the
+# lower-bounds job's included, gets a release with a known vulnerability.
+_FIRST_WITHOUT_ADVISORIES = {
+    # 12.3.0 fixes 13 CVEs, among them CVE-2026-59205 (a heap write in
+    # ImageCms), CVE-2026-59199 (paste and crop out of bounds) and
+    # CVE-2026-54058; 12.1.1 and 12.2.0 fixed five more.
+    "pillow": "12.3",
+    # CVE-2025-71176, pytest's temporary directory handling
+    "pytest": "9.0.3",
+}
+
+
+def test_no_lower_bound_allows_a_release_with_a_published_advisory():
+    project = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    requirements = [*project["dependencies"]]
+    for extra in project["optional-dependencies"].values():
+        requirements += extra
+    bounds = {}
+    for requirement in requirements:
+        name, minimum = re.fullmatch(r"([A-Za-z0-9._-]+)>=([\d.]+)", requirement).groups()
+        bounds[_requirement_name(name)] = minimum
+    for name, fixed in _FIRST_WITHOUT_ADVISORIES.items():
+        assert _release(bounds[name]) >= _release(fixed), f"{name}>={bounds[name]} allows releases fixed in {fixed}"
+
+
 def _collect(*arguments: str, cwd: Path = _ROOT) -> set[str]:
     """The node ids pytest itself collects with these arguments."""
     result = subprocess.run(
