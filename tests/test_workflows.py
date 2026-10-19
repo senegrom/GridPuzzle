@@ -77,6 +77,12 @@ def _needs(job: str) -> list[str]:
     return [name.strip() for name in match.group(1).strip("[]").split(",")]
 
 
+def _gated(jobs: dict[str, str]) -> list[str]:
+    """The jobs a changes job gates, in file order: all but it, the result
+    job and the jobs that run only on master."""
+    return [job for job, body in jobs.items() if job not in ("changes", "result") and _MASTER_ONLY not in body]
+
+
 def _changes_paths(text: str) -> list[str]:
     """The patterns a workflow's changes job passes to changed-paths."""
     match = re.search(
@@ -138,17 +144,14 @@ def test_every_pull_request_runs_the_workflow(name):
 def test_the_changes_job_gates_every_job_and_the_result_job_checks_them(name):
     jobs = _jobs(_workflow(name))
     assert {"changes", "result"} <= jobs.keys()
-    gated = []
-    for job, body in jobs.items():
-        if job in ("changes", "result") or _MASTER_ONLY in body:
-            continue
-        needs = _needs(body)
+    gated = _gated(jobs)
+    for index, job in enumerate(gated):
+        needs = _needs(jobs[job])
         if "changes" in needs:
-            assert "    if: needs.changes.outputs.relevant == 'true'\n" in body, job
+            assert "    if: needs.changes.outputs.relevant == 'true'\n" in jobs[job], job
         else:
             # skipped along with the gated job it needs
-            assert needs and set(needs) <= set(gated), f"{job} is not gated"
-        gated.append(job)
+            assert needs and set(needs) <= set(gated[:index]), f"{job} is not gated"
     assert gated, f"{name} gates nothing"
     result = jobs["result"]
     assert "    if: always()\n" in result
@@ -163,6 +166,25 @@ def test_the_changes_job_gates_every_job_and_the_result_job_checks_them(name):
         "relevant: ${{ github.event_name != 'pull_request' || "
         "steps.diff.outputs.relevant == 'true' }}"
     ) in changes
+
+
+@pytest.mark.gate
+def test_a_deployment_waits_for_every_job_its_result_job_checks():
+    """deploy does not need the result job, so it publishes as soon as the
+    jobs it needs have succeeded. Those must be every gated job, a job split
+    out of live-acceptance later as much as the ones there are now, and
+    configure, which checks that Pages is set up."""
+    deployments = {}
+    for path in sorted((_GITHUB / "workflows").glob("*.yml")):
+        jobs = _jobs(path.read_text(encoding="utf-8"))
+        for job, body in jobs.items():
+            if re.search(r"^    environment:$", body, re.M):
+                deployments[f"{path.name} {job}"] = (set(_needs(body)), set(_gated(jobs)))
+    assert deployments.keys() == {"browser-pages.yml deploy"}
+    for deployment, (needs, gated) in deployments.items():
+        assert {"build", "live-acceptance", "live-camera"} <= gated
+        assert gated <= needs, f"{deployment} publishes without waiting for {sorted(gated - needs)}"
+        assert "configure" in needs, deployment
 
 
 @pytest.mark.gate
