@@ -108,3 +108,18 @@ test("a KenKen target above the limit names the range without blank advice", (t)
   assert.equal(h.$("status-text").textContent, "Use a whole number from 1 to 1000000000000.");
   assert.equal(JSON.stringify(h.state.puzzle), before);
 });
+// Saving a cage settles its structural review ("check cage"), never a digit
+// flag: a digit read in a cage's cell (often part of the cage's own clue)
+// stays highlighted for the digit review until it is checked.
+test("Save cage clears its cells' cage review and keeps their digit review", (t) => {
+  const h = harness(t), puzzle = model.makePuzzle("kenken", 2);
+  puzzle.cells[0] = 1;
+  h.loadPuzzle(puzzle, { uncertain: [0], cageUncertain: [0, 1, 2, 3], needsReview: true, notes: [], editing: "cages" });
+  h.state.selected = [0, 1]; h.$("cage-target").value = "3"; h.$("cage-op").value = "+";
+  h.$("save-cage").onclick();
+  assert.equal(h.$("status-text").textContent, "Cage saved.");
+  assert.equal(JSON.stringify(h.state.puzzle.cages), JSON.stringify([{ cells: [0, 1], target: 3, op: "+" }]));
+  assert.equal(JSON.stringify([...h.state.cageUncertain].sort()), "[2,3]");
+  assert.equal(JSON.stringify([...h.state.uncertain]), "[0]");
+  assert.equal(h.state.puzzle.cells[0], 1);
+});

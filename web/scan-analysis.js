@@ -352,8 +352,9 @@ export function cagePartition(mask, g, w, h, rows, cols, type) {
   }
   return { areas: [...groups.values()], style };
 }
-// Where a cage's clue is printed, as fractions of its head (top-left) cell:
-// inside the dashed outline for inset style, in the corner for thick style.
+// Where a cage's clue is printed, as fractions of its head (top-left) cell
+// ([x0, y0, x1, y1]): inside the dashed outline for inset style, in the corner
+// for thick style. The head cell's value region starts below it.
 export const CAGE_LABEL_BOX = { inset: [0.11, 0.12, 0.8, 0.44], thick: [0.05, 0.04, 0.75, 0.4] };
 
 export function prepareScan(image, type, rows, cols) {
@@ -502,6 +503,16 @@ export function prepareScan(image, type, rows, cols) {
       ...(segments ? { segments } : {}),
     } };
   }
+  // Cages: the partition comes first, since each cage's clue is printed in its
+  // head (top-left) cell, in the box CAGE_LABEL_BOX gives for the print style.
+  let cageAreas = null, labelBox = null;
+  const heads = new Set();
+  if (isCage(type)) {
+    const { areas, style } = cagePartition(mask, g, w, h, rows, cols, type);
+    cageAreas = areas;
+    labelBox = CAGE_LABEL_BOX[style];
+    for (const cells of areas) heads.add(Math.min(...cells));
+  }
   function region(kind, cell, x, y, rw, rh, invert = false, other = null) {
     const args = [kind, cell, x, y, rw, rh, invert, other],
       original = extractRegion(...args),
@@ -554,15 +565,19 @@ export function prepareScan(image, type, rows, cols) {
             true,
           );
         }
-      } else
+      } else {
+        // A cage head's value region starts below its clue box: cut through
+        // the clue, it read the clue's first digit as a confident given.
+        const top = heads.has(i) ? Math.max(0.16, labelBox[3]) : 0.16;
         region(
           "value",
           i,
           (c + 0.14) * cw,
-          (r + 0.16) * ch,
+          (r + top) * ch,
           0.72 * cw,
-          0.72 * ch,
+          (0.88 - top) * ch,
         );
+      }
       // Structural probes are expensive and can turn a shadow into false
       // cage/sign evidence. Once a true solid block is present, the black-cell
       // families provide the useful structural signal instead.
@@ -610,13 +625,11 @@ export function prepareScan(image, type, rows, cols) {
       unreadCells.push(entries[i].cell);
       entries.splice(i, 1);
     }
-  // Cages: the partition, then one clue region per cage in its head cell,
-  // placed by the print style. Its text is read from a binarized crop.
-  let cageAreas = null;
-  if (isCage(type)) {
-    const { areas, style } = cagePartition(mask, g, w, h, rows, cols, type), [x0, y0, x1, y1] = CAGE_LABEL_BOX[style];
-    cageAreas = areas;
-    for (const cells of areas) {
+  // One clue region per cage in its head cell, placed by the print style. Its
+  // text is read from a binarized crop.
+  if (cageAreas) {
+    const [x0, y0, x1, y1] = labelBox;
+    for (const cells of cageAreas) {
       const head = Math.min(...cells), r = Math.floor(head / cols), c = head % cols;
       entries.push({ kind: "label", cell: head, other: null, x: Math.round((c + x0) * cw), y: Math.round((r + y0) * ch),
         w: Math.round((x1 - x0) * cw), h: Math.round((y1 - y0) * ch), invert: false, text: "", confidence: 0, cageLabel: true });
