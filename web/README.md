@@ -183,10 +183,11 @@ A deploy replaces the whole site, so the previous build's versioned URLs stop
 existing while one of its pages is still open: its own worker keeps serving it
 until the user chooses **Update app & reload**. When a file that page never
 stored is missing under its own URL (the OCR runtime, until a first scan or
-**Download for offline use**), the worker looks for the same SHA-256 in a newer
-asset list, a stored one first (the waiting update's), then the origin's
-current `assets.json`, and fetches that URL instead; bytes whose digest differs
-are never served. Installation still stores only the app shell and the Python
+**Download for offline use**), the worker looks for the same SHA-256 in the
+other asset lists it has stored, newest first (after a deploy, the waiting
+update's), then in the origin's current `assets.json`, read past the browser's
+HTTP cache, and fetches that URL instead; bytes whose digest differs are never
+served. Installation still stores only the app shell and the Python
 runtime, not the OCR runtime. If the deploy changed the file, so that nothing
 identical exists (a new OCR runtime), retrying cannot bring the old file back
 and only the update helps. While one is offered, a read whose OCR fails to load

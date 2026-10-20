@@ -126,7 +126,8 @@ async function buildAssets(build){
   }catch{return [];}
 }
 // The origin's current asset list, whichever build it describes; none when
-// it cannot be read.
+// it cannot be read. GitHub Pages lets browsers keep every file for ten
+// minutes, so the HTTP cache may still hold the list a deploy replaced.
 async function originAssets(signal){
   try{
     const response=await fetch(new Request(url("assets.json"),{cache:"reload",signal}));
@@ -136,10 +137,10 @@ async function originAssets(signal){
 }
 /* A deploy replaces the whole site, so an older build's versioned URLs stop
    existing while its pages and its worker still run, until the user chooses
-   "Update app & reload". A newer manifest may list the same bytes under its
-   own URL: a stored one (the waiting build's), newest first, then the
-   origin's current one. A copy is accepted only if its digest matches;
-   nothing is substituted because its name matches. */
+   "Update app & reload". Another manifest may list the same bytes under its
+   own URL: the other stored ones, newest first (after a deploy, the waiting
+   build's), then the origin's current one. A copy is accepted only if its
+   digest matches; nothing is substituted because its name matches. */
 async function relocated(asset,signal){
   const tried=new Set([asset.path]);
   const from=async assets=>{
@@ -271,8 +272,9 @@ self.addEventListener("fetch",event=>{
       // An outgoing build's URL may no longer exist on the origin. Identical
       // bytes under the current immutable URL are a safe cache-miss fallback;
       // never substitute a dependency merely because its filename matches.
-      // verifiedAsset() looks further, in newer manifests, when that URL is
-      // missing too, as a page of this worker's own build finds after a deploy.
+      // verifiedAsset() looks further, in the other manifests (relocated()),
+      // when that URL is missing too, as a page of this worker's own build
+      // finds after a deploy.
       const equivalent=historical&&assets.find(current=>current.sha256===asset.sha256);
       const response=await verifiedAsset(equivalent||asset,{requireStorage:false,trustStored:true});
       // A digest cache may reuse a module downloaded under another build's URL.
