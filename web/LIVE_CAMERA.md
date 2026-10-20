@@ -929,7 +929,12 @@ the **test** split of Lexski/sudoku-image-recognition at revision 733559b. It
 fails on revision changes, missing data and oversized files, and the selection
 is made before running the scanner, not by keeping only pictures it can read.
 The images stay untracked; reports keep the source revision, selection, file
-hashes and every success and failure.
+hashes and every success and failure. The downloaded files stay in
+`live-fixtures/source/`, and a later run uses each one that still matches its
+pinned SHA-256 instead of downloading it again. The two CI jobs that fetch the
+slice restore that directory from the Actions cache, keyed by the script that
+holds the pins, and save it after a miss, so they need huggingface.co only
+when the cache is cold or the script changed.
 
 Source and attribution: Lexski (CC0),
 https://huggingface.co/datasets/Lexski/sudoku-image-recognition

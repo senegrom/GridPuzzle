@@ -5,6 +5,12 @@ revision, and must match a pinned SHA-256: the metadata that selects the
 slice and each selected image. The dataset's current HEAD is never
 consulted, so a later upstream commit can neither change the slice nor
 block a run.
+
+The files are kept in STORE, and a later run uses a stored file instead of
+downloading it again when it still matches its pin. CI restores STORE from
+its cache, keyed by this file, so a run needs the dataset's host only when
+the cache is cold or this file changed; a stored file that does not match
+its pin is downloaded again.
 """
 from __future__ import annotations
 import base64
@@ -41,8 +47,13 @@ IMAGE_SHA256 = {
     "images/r4k4memgy6ac1.webp": "e774200ec2795618af85f017c910c6ec626adde3d8807ed58896492bc21f3b76",
 }
 
-# Every deployment fetches the slice, so a brief outage or rate limit at the
-# host must not fail it: a few attempts, with pauses that double.
+OUT = Path("live-fixtures")
+# The pinned files by their path in the dataset's test split, as downloaded.
+STORE = OUT / "source"
+
+# A deployment whose cache is cold downloads the slice, so a brief outage or
+# rate limit at the host must not fail it: a few attempts, with pauses that
+# double.
 ATTEMPTS = 4
 FIRST_PAUSE = 2.0
 MAX_PAUSE = 30.0
@@ -85,9 +96,30 @@ def verified(data: bytes, expected: str, name: str) -> bytes:
         raise ValueError(f"{name} has SHA-256 {actual}, not the pinned {expected}")
     return data
 
+def fetch(name: str, limit: int, expected: str, sources: dict[str, int]) -> bytes:
+    """The test split's file `name` at REVISION: the stored copy when it
+    matches its pin, else a download, which is checked and then stored.
+    `sources` counts the files taken from each."""
+    stored = STORE / name
+    try:
+        data = stored.read_bytes()
+    except FileNotFoundError:
+        pass
+    else:
+        if hashlib.sha256(data).hexdigest() == expected:
+            sources["stored"] += 1
+            return data
+        print(f"{stored.as_posix()} is not the pinned file; downloading it again", file=sys.stderr, flush=True)
+    url = f"{SOURCE}/resolve/{REVISION}/data/test/{quote(name, safe='/')}"
+    data = verified(download(url, limit), expected, name)
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    stored.write_bytes(data)
+    sources["downloaded"] += 1
+    return data
+
 def run() -> None:
-    base = f"{SOURCE}/resolve/{REVISION}/data/test"
-    metadata = verified(download(f"{base}/metadata.jsonl", 4 * 1024 * 1024), METADATA_SHA256, "metadata.jsonl")
+    sources = {"stored": 0, "downloaded": 0}
+    metadata = fetch("metadata.jsonl", 4 * 1024 * 1024, METADATA_SHA256, sources)
     records = [json.loads(line) for line in metadata.decode("utf-8").splitlines() if line.strip()]
     # Pick before running ANY recognizer; do not filter difficult/pencil cells.
     records.sort(key=lambda r: hashlib.sha256(r["file_name"].encode()).hexdigest())
@@ -106,8 +138,7 @@ def run() -> None:
         points.sort(key=lambda p: math.atan2(p[1] - cy, p[0] - cx))
         first = min(range(4), key=lambda i: sum(points[i]))
         points = points[first:] + points[:first]
-        data = verified(download(f"{base}/{quote(str(relative), safe='/')}", MAX_FILE),
-                        IMAGE_SHA256[str(relative)], str(relative))
+        data = fetch(str(relative), MAX_FILE, IMAGE_SHA256[str(relative)], sources)
         suffix = relative.suffix.lower()
         mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(suffix)
         if mime is None:
@@ -117,12 +148,12 @@ def run() -> None:
                          "data": f"data:{mime};base64," + base64.b64encode(data).decode("ascii")})
     if [fixture["name"] for fixture in fixtures] != list(IMAGE_SHA256):
         raise ValueError("Incomplete external test slice")
-    out = Path("live-fixtures")
-    out.mkdir(exist_ok=True)
+    OUT.mkdir(exist_ok=True)
     report = {"source": SOURCE, "revision": REVISION, "license": "CC0-1.0", "selection": "first 12 SHA256(file_name)-sorted records of test split, without performance filtering",
               "metadata_sha256": METADATA_SHA256, "fixtures": fixtures}
-    (out / "fixtures.json").write_text(json.dumps(report), encoding="utf-8")
-    print(f"Fetched {len(fixtures)} fixed test images from {SOURCE}@{REVISION}")
+    (OUT / "fixtures.json").write_text(json.dumps(report), encoding="utf-8")
+    print(f"Fetched {len(fixtures)} fixed test images from {SOURCE}@{REVISION} "
+          f"({sources['stored']} files matched in {STORE.as_posix()}, {sources['downloaded']} downloaded)")
 
 if __name__ == "__main__":
     run()

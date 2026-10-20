@@ -77,6 +77,58 @@ def test_changed_metadata_is_refused_before_any_image_is_fetched(dataset):
     assert not report.exists()
 
 
+def _url(name: str) -> str:
+    return f"{fetch.SOURCE}/resolve/{fetch.REVISION}/data/test/{name}"
+
+
+def test_a_run_with_the_files_stored_downloads_nothing(dataset):
+    """CI restores the store from its cache: with every pinned file there, a
+    run needs no download and writes the same report."""
+    _, requested, report = dataset
+    fetch.run()
+    first = report.read_bytes()
+    assert (fetch.STORE / "metadata.jsonl").is_file()
+    requested.clear()
+    report.unlink()
+    fetch.run()
+    assert requested == []
+    assert report.read_bytes() == first
+
+
+def test_a_stored_file_that_is_not_its_pin_is_downloaded_again(dataset):
+    served, requested, report = dataset
+    fetch.run()
+    first = report.read_bytes()
+    damaged, missing = list(fetch.IMAGE_SHA256)[3], list(fetch.IMAGE_SHA256)[7]
+    (fetch.STORE / damaged).write_bytes(b"damaged")
+    (fetch.STORE / missing).unlink()
+    requested.clear()
+    fetch.run()
+    assert requested == [_url(damaged), _url(missing)]
+    assert report.read_bytes() == first
+    assert (fetch.STORE / damaged).read_bytes() == served[_url(damaged)]
+
+
+def test_stored_metadata_that_is_not_its_pin_is_downloaded_again(dataset):
+    served, requested, report = dataset
+    fetch.run()
+    (fetch.STORE / "metadata.jsonl").write_bytes(b'{"file_name": "images/elsewhere.webp"}\n')
+    requested.clear()
+    fetch.run()
+    assert requested == [_url("metadata.jsonl")]
+    assert (fetch.STORE / "metadata.jsonl").read_bytes() == served[_url("metadata.jsonl")]
+
+
+def test_a_refused_download_is_not_stored(dataset):
+    served, _, report = dataset
+    name = list(fetch.IMAGE_SHA256)[5]
+    served[_url(name)] += b" altered"
+    with pytest.raises(ValueError, match=f"{name} has SHA-256"):
+        fetch.run()
+    assert not (fetch.STORE / name).exists()
+    assert not report.exists()
+
+
 _URL = f"{fetch.SOURCE}/resolve/{fetch.REVISION}/data/test/metadata.jsonl"
 
 
