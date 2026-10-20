@@ -6,7 +6,7 @@ import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
 import { createLiveTracker, isLostFrame, lostFrame, REFUSAL_LIMIT } from "./live-tracker.js";
 import { pictureless } from "./live-tracking-pixels.js";
-import { createLiveSession, releaseImage } from "./live-session.js";
+import { createLiveSession, releaseImage, boxGuess, SET_BOXES } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
 
@@ -33,6 +33,12 @@ function copyCanvas(source) {
 // The help line while the view is frozen, and the condition for freezing: the
 // result under which blue cells and Slitherlink edges are drawn (live-overlay.js).
 const FROZEN_HELP = "Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.";
+// The frozen help for a reading solved with a box layout guessed from the
+// grid's size (boxGuess in live-session.js): the freeze says so.
+const frozenHelp = (found) => {
+  const guess = boxGuess(found);
+  return guess ? `Solution preview — frozen, solved with ${guess}. ${SET_BOXES} Save picture keeps this picture; Clear returns to the live camera.` : FROZEN_HELP;
+};
 const solvedPreview = (preview) => preview?.result?.status === "unique" && preview.result.complete === true;
 // The help line while a solved reading waits to freeze (readyToFreeze).
 const SOLVED_WAITING = "Solution found — hold the grid steady for a moment…";
@@ -256,6 +262,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const boxed = (found) => {
         if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
           found.puzzle.boxRows = frame.boxRows; found.puzzle.boxCols = frame.boxCols;
+          // Boxes guessed from the grid's size (see locate) are marked for the
+          // messages about the reading's solution, and noted for the editor's
+          // review as the photo flow notes a box layout it suggested.
+          if (frame.guessedBoxes) {
+            found.guessedBoxes = true;
+            const note = `Box layout ${frame.boxRows} rows × ${frame.boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`;
+            if (!found.notes?.includes(note)) found.notes = [...(found.notes ?? []), note];
+          }
         }
         return found;
       };
@@ -470,7 +484,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     canvas.setAttribute?.("data-view", "frozen");
     diagnostics?.overlay?.(null);
     diagnostics?.event({ stage: "complete", reason: "frozen" });
-    say(FROZEN_HELP);
+    say(frozenHelp(frozen.preview.found));
     updateRestartControl();
     onViewChange?.("frozen");
   }
@@ -508,6 +522,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const selected = settings.rows === rows && settings.cols === cols &&
         ["auto", "sudoku", "killersudoku"].includes(settings.type);
       const [br, bc] = selected ? [settings.boxRows, settings.boxCols] : boxShape(rows);
+      // Boxes guessed from the grid's size, the settings being for another
+      // size or type, that are not square: a 6 × 6 Sudoku's boxes are 2 rows ×
+      // 3 columns or 3 × 2, and the guess can be the wrong one. A reading of
+      // the frame then says so wherever it shows a result (boxGuess).
+      const guessedBoxes = !selected && br !== bc;
       const puzzle = makePuzzle(settings.type === "auto" ? "hidato" : settings.type, rows, cols);
       // Auto validates the boxes only after recognition chooses a boxed type.
       // Other families must never inherit hidden, possibly incomplete inputs.
@@ -531,7 +550,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (!current()) return;
       if (!anchor) { session.suspend(); return; }
       const frame = { image, corners, width: image.width, height: image.height,
-        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
+        rows, cols, boxRows: br, boxCols: bc, guessedBoxes, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
         anchor };
       frame.warning = qualityMessage(found.quality) ||
         (!found.quality?.assessable && found.sharpness < 60 ? "Move closer and hold still for sharper numbers." : "");

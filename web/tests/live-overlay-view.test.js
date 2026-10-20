@@ -791,7 +791,8 @@ test("with the wait on, a merged retry that changes a clue freezes only once the
   assert.equal(grid.jobs[1].clue, 3, "the changed puzzle is solved again");
   assert.ok(grid.jobs[1].started + 3000 > since + 3000, "and its solve outlasts the wait");
   assert.ok(await h.until(() => h.frozen(), 6000));
-  assert.ok(grid.jobs[1].answered <= h.now, `frozen ${h.now - since} ms after the first solved render, its solve answering at ${grid.jobs[1].answered - since} ms`);
+  assert.ok(grid.jobs[1].answered <= h.now, `frozen ${h.now - since} ms after the first solved render, ${grid.jobs[1].answered === undefined
+    ? "before the changed puzzle's solve answered" : `its solve answering at ${grid.jobs[1].answered - since} ms`}`);
   assert.deepEqual(blueDigits(h), NEW_SOLUTION.filter((_, cell) => LATIN_CLUES[cell] === null), "the frozen picture draws the new solution");
   assert.ok(h.on(h.view).some((o) => o.op === "fillText" && o.style === SCAN_COLOURS.uncertain && o.text === "3?"), "beside the retried clue");
 });

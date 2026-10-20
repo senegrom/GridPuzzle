@@ -35,13 +35,16 @@ export function overlayCells(found, result = null) {
 // The live video shows no clue digits, so the cells meant are named by the
 // legend entry that counts them, not by a colour on screen.
 const UNREAD = "Some printed marks could not be read (unread clue ? in the legend). Move closer for a clearer read.";
+// The blocker for readings that break the rules (live-session.js names a box
+// layout guessed from the grid's size, in which they may only seem to).
+export const CONFLICTING = "Conflicting readings (uncertain ? in the legend) must be corrected before a solution can be shown.";
 export function previewBlocker(found) {
   try {
     const p = found.puzzle;
     checkSolveReady(p);
     if (!p.cells.some(Number.isInteger) && !p.cages.length && !p.clues.length && !p.inequalities.length)
       return "No printed clues were read yet. Move closer for a clearer read.";
-    if (conflicts(p).size) return "Conflicting readings (uncertain ? in the legend) must be corrected before a solution can be shown.";
+    if (conflicts(p).size) return CONFLICTING;
     const marked = new Set(found.markedCells ?? []);
     for (const cell of Array.isArray(found.markedCells) ? [] : found.cellUncertain ?? found.uncertain ?? [])
       if (p.cells[cell] === null) return UNREAD;

@@ -5,7 +5,7 @@ const REASONS = new Set(['ready','started','stopped','reset','settings-or-detect
   'retry-skipped','retry-exhausted','video-stalled','clearer-frame-needed','targeted-complete','retry-expired','retry-rejected','retry-failed','retry-timeout',
   'worker-error','worker-paused','worker-backoff','worker-restarted','tracking-pending','unique','multiple','no-solution','invalid','unfinished','failed','cancelled',
   'manual-corners','review-required','auto-solve-off','alignment-rejected','frozen','cleared','camera-released','tracking-transport',
-  'tracking-late']);
+  'tracking-late','grid-sideways','grid-upside-down']);
 const MISMATCHES = new Set(['cell-content','structural-content','invalid-content','geometry-mismatch','missing-anchor']);
 // The live camera's data-overlay modes over live video.
 const OVERLAYS = ['none','outline'];
@@ -212,4 +212,6 @@ export const REASON_LABELS = Object.freeze({ 'no-grid': 'No convincing grid foun
   'camera-released': 'The camera was turned off while the solution was frozen. Clear turns it back on.',
   'tracking-transport': 'Bitmaps could not reach background tracking, so tracking reads the camera pixels on the main thread from now on and started again from a fresh frame.',
   'tracking-late': 'Background tracking answered, but too late to show: this grid takes too long to track live on this device. Save a picture to read it in the editor.',
+  'grid-sideways': 'The grid looks sideways: its numbers read poorly and look wider than tall. The live camera never turns a reading, and a clearer frame cannot help: turn the page or the phone, or save the picture, review it and press Read puzzle under Adjust scan, which checks which way up a photograph is.',
+  'grid-upside-down': 'The grid looks upside down: its numbers read poorly, and not one confident number has a 2, 3 or 5. The live camera never turns a reading, and a clearer frame cannot help: turn the page or the phone, or save the picture, review it and press Read puzzle under Adjust scan, which checks which way up a photograph is.',
 });

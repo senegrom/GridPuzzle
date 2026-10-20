@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makePuzzle } from '../model.js';
-import { createLiveSession } from '../live-session.js';
+import { createLiveSession, turnedPage } from '../live-session.js';
 function state() {
   const puzzle = makePuzzle('latinsquare', 2); puzzle.cells[0] = 1;
   return { puzzle, uncertain: new Set([0]), cageUncertain: new Set(), needsReview: true,
@@ -248,7 +248,7 @@ test('a finished retry waits for its own frame to verify, and is dropped five se
  assert.equal(h.s.preview.found.puzzle.cells[1],2,'not applied while its frame does not verify');
  for(const at of [3000,6000,6600]){h.setTime(at);h.s.validate();assert.equal(h.s.settled,false,`still waiting to be applied at ${at} ms`);}
  h.setTime(6700);h.s.validate();
- assert.ok(h.events.includes('retry-expired'));assert.ok(!h.events.includes('targeted-complete'));
+ assert.ok(h.events.includes('retry-expired'),'dropped more than five seconds after it finished');assert.ok(!h.events.includes('targeted-complete'));
  assert.equal(h.s.settled,true);assert.equal(h.s.preview.found.puzzle.cells[1],2);
  assert.equal(h.s.preview.result,SOLVED,'the reading keeps its solution');assert.equal(h.solves.length,1);
  const later=retrySession(t),frame=await retryOfSolved(later);
@@ -257,4 +257,107 @@ test('a finished retry waits for its own frame to verify, and is dropped five se
  later.show(frame);later.setTime(3100);later.s.validate();
  assert.equal(later.s.preview.found.puzzle.cells[1],3,'applied once its frame verifies, within the five seconds');
  assert.ok(later.events.includes('targeted-complete'));
+});
+
+// A Sudoku whose boxes the camera guessed from the grid's size and that are
+// not square (found.guessedBoxes, live-camera.js): a reading the guess leaves
+// without a single solution, or in conflict, names the guess and the settings
+// that replace it instead of asking to move closer. With boxes from the
+// settings the messages stay as they were.
+function boxedSession(t,cells,{guessed=true}={}){
+ const statuses=[],solves=[];
+ const s=createLiveSession({read:async()=>{const puzzle=makePuzzle('sudoku',6);puzzle.cells=[...cells];
+   return {puzzle,markedCells:cells.flatMap((v,i)=>v===null?[]:[i]),cellUncertain:[],notes:[],...(guessed?{guessedBoxes:true}:{})};},
+  solve:()=>{const d=defer();solves.push(d);return d.promise;},cancelRead(){},cancelSolve(){},onChange(){},onStatus:m=>statuses.push(m),
+  isCurrent:()=>true,sameScene:()=>true});
+ const corners=[{x:0,y:0},{x:60,y:0},{x:60,y:60},{x:0,y:60}];
+ s.start();t.after(()=>s.stop());
+ for(let i=0;i<2;i++)s.observe({key:'6',width:61,height:61,corners,sharpness:200,image:{width:61,height:61}});
+ return {s,statuses,solves};
+}
+const SET_BOXES_TEXT='If the printed boxes differ, close the camera and set Rows, Columns, Box height and Box width in Grid size & settings.';
+test('a reading with a guessed box layout that is not square names it and the settings when it has no single solution',async t=>{
+ const clue=[1,...Array(35).fill(null)];
+ for(const [answer,guessed,plain] of [
+  [{status:'no-solution',complete:true,solutions:[]},'No solution with boxes of 2 rows × 3 columns, guessed from the grid size.','No solution to these readings — move closer or review the clues.'],
+  [{status:'multiple',complete:true,solutions:[]},'More than one solution with boxes of 2 rows × 3 columns, guessed from the grid size.','More than one solution — check the readings and puzzle type.']]){
+  const h=boxedSession(t,clue);await flush();
+  assert.equal(h.solves.length,1);assert.equal(h.s.preview.found.puzzle.boxRows,2);
+  h.solves[0].resolve(answer);await flush();
+  assert.equal(h.statuses.at(-1),`${guessed} ${SET_BOXES_TEXT}`);
+  const chosen=boxedSession(t,clue,{guessed:false});await flush();
+  chosen.solves[0].resolve(answer);await flush();
+  assert.equal(chosen.statuses.at(-1),plain,'boxes from the settings keep the message');
+ }
+});
+test('readings in conflict in a guessed box layout that is not square name it and the settings',async t=>{
+ // Two 1s in the first 2 x 3 box, which 3 x 2 boxes would keep apart.
+ const clash=[1,null,null,null,null,null,null,null,1,...Array(27).fill(null)];
+ const h=boxedSession(t,clash);await flush();
+ assert.equal(h.solves.length,0,'not solved');
+ assert.equal(h.statuses.at(-1),`Conflicting readings (uncertain ? in the legend) with boxes of 2 rows × 3 columns, guessed from the grid size. ${SET_BOXES_TEXT}`);
+ const chosen=boxedSession(t,clash,{guessed:false});await flush();
+ assert.equal(chosen.statuses.at(-1),'Conflicting readings (uncertain ? in the legend) must be corrected before a solution can be shown.');
+});
+
+// A live reading is never turned, but the help line names the turn its page
+// looks to lie at, by the cue the still photograph's check reads its turns
+// on (turnedPage): in a poor reading, glyphs wider than tall (a quarter turn),
+// or upright-shaped glyphs read with confidence without one number with a 2,
+// 3 or 5 (half a turn). Moving closer and waiting for a clearer frame, which
+// the help line asked for, cannot mend such a page. The 4 x 4 reading here
+// has 12 printed marks, 4 of them read with confidence (`digits`, in cells
+// 0, 5, 10 and 15); `size` is every mark's glyph box, [height, width].
+function turnedFound({digits=[1,1,4,4],size=[40,28],uncertain=[]}={}){
+ const marked=[0,1,2,3,4,5,6,7,8,10,12,15],puzzle=makePuzzle('latinsquare',4);
+ [0,5,10,15].forEach((cell,i)=>{puzzle.cells[cell]=digits[i];});
+ return {puzzle,markedCells:[...marked],cellUncertain:[...uncertain],uncertain:[...uncertain],cageUncertain:[],notes:[],
+  entries:marked.map(cell=>({cell,kind:'value',h:size[0],w:size[1],text:Number.isInteger(puzzle.cells[cell])?String(puzzle.cells[cell]):'',
+   confidence:Number.isInteger(puzzle.cells[cell])?90:0}))};
+}
+function turnedSession(t,options={}){
+ let time=0;const statuses=[],events=[],found=()=>turnedFound(options);
+ const s=createLiveSession({read:async()=>found(),readCells:()=>new Promise(()=>{}),solve:()=>new Promise(()=>{}),cancelRead(){},cancelSolve(){},
+  onChange(){},onStatus:m=>statuses.push(m),onEvent:e=>events.push(e.reason),isCurrent:()=>true,sameScene:()=>true,now:()=>time});
+ const corners=[{x:0,y:0},{x:99,y:0},{x:99,y:99},{x:0,y:99}];
+ const observe=()=>s.observe({key:'4',rows:4,cols:4,width:100,height:100,corners,image:{width:100,height:100},sharpness:20,
+  quality:{score:20,cellPixels:30,cells:[{cell:0,score:20,contrast:100}]}});
+ s.start();t.after(()=>s.stop());observe();observe();
+ return {s,statuses,events,found,observe,setTime(v){time=v;}};
+}
+const SIDEWAYS='The grid looks sideways. Turn the page or the phone a quarter turn so the numbers stand upright; if they already do, move closer.';
+const UPSIDE_DOWN='The grid looks upside down. Turn the page or the phone half a turn so the numbers stand upright; if they already do, move closer.';
+test('a poor reading of glyphs wider than tall says the grid looks sideways, not to move closer, and is not turned',async t=>{
+ const h=turnedSession(t,{size:[20,40]});await flush();
+ assert.equal(h.statuses.at(-1),SIDEWAYS,'in place of the unread clues\' "Move closer"');
+ assert.deepEqual(h.events.filter(e=>e.startsWith('grid-')),['grid-sideways']);
+ assert.deepEqual(h.s.preview.found.puzzle.cells,h.found().puzzle.cells,'the reading is shown as it was read');
+ // Waiting for a clearer frame of an uncertain clue: the turn, again.
+ const w=turnedSession(t,{size:[20,40],uncertain:[0]});await flush();
+ w.setTime(2000);w.observe();
+ assert.equal(w.statuses.at(-1),SIDEWAYS,'in place of "Waiting for a clearer frame"');
+ assert.equal(w.events.at(-1),'grid-sideways');assert.ok(!w.events.includes('clearer-frame-needed'));
+});
+test('a poor reading of upright glyphs without a 2, 3 or 5 says the grid looks upside down; one with a 2 does not',async t=>{
+ const h=turnedSession(t);await flush();
+ assert.equal(h.statuses.at(-1),UPSIDE_DOWN);
+ assert.deepEqual(h.events.filter(e=>e.startsWith('grid-')),['grid-upside-down']);
+ const two=turnedSession(t,{digits:[1,2,4,4]});await flush();
+ assert.equal(two.statuses.at(-1),'Some printed marks could not be read (unread clue ? in the legend). Move closer for a clearer read.');
+ assert.deepEqual(two.events.filter(e=>e.startsWith('grid-')),[]);
+ // Nor does a reading without a confident digit, or one of glyphs as tall
+ // as wide, which say nothing of the way up.
+ const none=turnedSession(t,{uncertain:[0,5,10,15]});await flush();
+ assert.match(none.statuses.at(-1),/^Some printed marks could not be read/);
+ const square=turnedSession(t,{size:[30,30]});await flush();
+ assert.match(square.statuses.at(-1),/^Some printed marks could not be read/);
+});
+test('the turn cue needs a poor reading of at least six glyphs',()=>{
+ const found=turnedFound();
+ assert.equal(turnedPage(found),'upside-down','4 confident of 12 value regions');
+ found.puzzle.cells[1]=4;found.puzzle.cells[2]=1;assert.equal(turnedPage(found),null,'6 confident of 12');
+ found.puzzle.cells[2]=null;assert.equal(turnedPage(found),'upside-down','5 confident of 12');
+ const few=turnedFound({digits:[1,1,null,null],size:[20,40]});
+ assert.equal(turnedPage(few),'sideways');
+ assert.equal(turnedPage({...few,entries:few.entries.slice(0,5)}),null,'five glyphs say nothing either way');
 });
