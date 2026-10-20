@@ -789,7 +789,8 @@ test("with the wait on, a merged retry that changes a clue freezes only once the
   assert.ok(await h.until(() => grid.jobs.length === 2 || h.frozen(), 3000), "the retry merged within the wait");
   assert.equal(h.camera.view, "live");
   assert.equal(grid.jobs[1].clue, 3, "the changed puzzle is solved again");
-  assert.ok(grid.jobs[1].started + 3000 > since + 3000, "and its solve outlasts the wait");
+  assert.ok(await h.until(() => h.now >= since + 3000 || h.frozen(), 4000));
+  assert.equal(grid.jobs[1].answered, undefined, "and its solve outlasts the wait's three seconds");
   assert.ok(await h.until(() => h.frozen(), 6000));
   assert.ok(grid.jobs[1].answered <= h.now, `frozen ${h.now - since} ms after the first solved render, ${grid.jobs[1].answered === undefined
     ? "before the changed puzzle's solve answered" : `its solve answering at ${grid.jobs[1].answered - since} ms`}`);

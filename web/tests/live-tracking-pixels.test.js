@@ -122,9 +122,12 @@ for (const paint of ["none", "left"]) test(`a readback left ${paint === "none" ?
   let refused = null;
   assert.throws(() => pixelsOf({ bitmap, width: 960, height: 1280 }),
     (error) => { refused = error; return /drew nothing/.test(error.message) && error.refusal === "blank"; });
-  // The values read back go with the refusal (the handshake's answer reports
-  // a refused probe's), and the error is no worker that cannot draw.
-  assert.equal(refused.pixels.length, 960 * 1280 * 4); assert.equal(refused.pixels[3], paint === "left" ? 255 : 0);
+  // The first values read back go with the refusal (the handshake's answer
+  // reports a refused probe's, all 16 of them): a copy of at most a 4 x 4
+  // readback's, not the frame's whole readback. The error is no worker that
+  // cannot draw.
+  assert.equal(refused.pixels.length, 64); assert.equal(refused.pixels[3], paint === "left" ? 255 : 0);
+  assert.equal(refused.pixels.buffer.byteLength, 64, "a copy, not a view of the whole readback");
   assert.equal(refused.undrawable, undefined);
   assert.equal(bitmap.closed, 1);
   assert.deepEqual(f.ops.map(([op]) => op), ["getContext", "clearRect", "drawImage", "getImageData"], "drawn and read back, then refused");

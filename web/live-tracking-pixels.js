@@ -35,8 +35,10 @@ export function pictureless({ width, height, data }) {
 }
 // Why a bitmap was refused, which the worker reports with its refusal for the
 // diagnostic report: "incomplete" (it did not arrive whole) or "blank" (it
-// read back with a transparent pixel; the error carries the values read back
-// as `pixels`); an error without a reason (no 2D context, or drawing or
+// read back with a transparent pixel; the error carries a copy of the first
+// values read back as `pixels`, at most a 4 x 4 readback's, which is all the
+// handshake's answer reports, so a refused frame's error does not hold its
+// whole readback); an error without a reason (no 2D context, or drawing or
 // reading it back threw) is "failed".
 export const REFUSALS = Object.freeze(["incomplete", "blank", "failed"]);
 const refusal = (reason, message, pixels = null) => Object.assign(Error(message), { refusal: reason, pixels });
@@ -63,7 +65,7 @@ export function createPixelReader(makeCanvas = (width, height) => new OffscreenC
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(bitmap, 0, 0, width, height);
       const image = ctx.getImageData(0, 0, width, height);
-      if (!opaque(image)) throw refusal("blank", "The bitmap drew nothing.", image.data);
+      if (!opaque(image)) throw refusal("blank", "The bitmap drew nothing.", image.data.slice(0, 64));
       return image;
     } finally {
       // The bitmap was transferred here: it is closed on every path.
