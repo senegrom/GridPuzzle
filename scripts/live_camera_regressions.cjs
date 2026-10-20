@@ -504,6 +504,73 @@ async function run() {
           await idlePage(page,server.base);await fixture(page);
           report.checks.push("Review captured clues highlights in the editor the clue the captured picture shows yellow, with the reading's note, under review");
         });
+        for(const outcome of ["turned","as it lies"])await time(`a captured reading that looks upside down, read again ${outcome}`,async()=>{
+          // A live reading that shows the half-turn cue (upright-shaped glyphs,
+          // confident digits but fewer than half of them, none a 2 or a 3)
+          // reaches the editor with every digit highlighted under the note that
+          // the page may be upside down, while the editor reads the captured
+          // still again as a photograph. That reading is held until released
+          // here: taken turned, it replaces the board under review; read the way
+          // it lies, the capture keeps only its own flags and note. Either way
+          // the check's task ends.
+          await page.evaluate(async(outcome)=>{
+            const {Scanner}=await import("./scanner.js"),{makePuzzle}=await import("./model.js");
+            const cells=[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1],flagged=cells.flatMap((n,i)=>n===2||n===3?[i]:[]);
+            let release;const held=new Promise(resolve=>{release=resolve;});
+            window.checkReads=[];window.releaseCheck=()=>release();
+            Scanner.prototype.read=async function(image,corners,type,rows,cols,onProgress,options={}){
+              const puzzle=makePuzzle("sudoku",4);
+              if(options.orient===false){
+                puzzle.cells=[...cells];
+                return {puzzle,cellUncertain:flagged,uncertain:flagged,cageUncertain:[],markedCells:cells.flatMap((n,i)=>n===null?[]:[i]),
+                  entries:cells.flatMap((n,cell)=>n===null?[]:[{kind:"value",cell,text:String(n),confidence:flagged.includes(cell)?40:95,h:30,w:20}]),
+                  needsReview:true,notes:["The stubbed live reading's note."],rectified:livePaper};
+              }
+              checkReads.push(options.orient);await held;
+              puzzle.cells=outcome==="turned"?[2,null,4,3,4,3,null,1,1,4,3,null,3,2,1,4]:[...cells];
+              return {puzzle,turns:outcome==="turned"?2:0,cellUncertain:[],uncertain:[],cageUncertain:[],needsReview:false,rectified:livePaper,
+                notes:outcome==="turned"?["The photograph was upside down: its digits read clearly better turned half a turn, so the crop corners were turned with it. Check the clues against the photograph."]:[]};
+            };
+            Scanner.prototype.readCells=async()=>({identicalCrops:true,ocrStats:{calls:0}});
+          },outcome);
+          await startLive(page);
+          await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+          await page.click("#take-photo");
+          await page.waitForFunction(()=>!document.getElementById("use-live-capture").hidden);
+          await page.click("#use-live-capture");
+          await page.waitForFunction(()=>checkReads.length===1);
+          const editor=()=>page.evaluate(()=>{const s=liveApp.getState();return {cells:s.puzzle.cells,cellUncertain:s.cellUncertain.sort((a,b)=>a-b),
+            needsReview:s.needsReview,busy:s.busy,highlighted:document.querySelectorAll("#board g.board-cell.uncertain").length,
+            note:document.getElementById("review-note").textContent,status:document.getElementById("status-text").textContent,
+            stop:!document.getElementById("stop").hidden,solve:!document.getElementById("solve").disabled};});
+          const checking=await editor(),digits=[0,1,2,3,4,6,7,8,9,11,12,13,14,15];
+          assert.notEqual(await page.evaluate(()=>checkReads[0]),false,"the still is read with orientation on");
+          assert.deepEqual(checking.cellUncertain,digits,"every digit is highlighted while the check runs");
+          assert.equal(checking.highlighted,digits.length);
+          assert.match(checking.note,/The page may be upside down in the captured picture, so every digit read is highlighted\. Adjust scan → Read puzzle checks which way up it is\./);
+          assert.match(checking.note,/The stubbed live reading's note\./);
+          assert.equal(checking.status,"Checking which way up the captured picture is…");
+          assert.deepEqual([checking.busy,checking.stop,checking.solve],[true,true,false],"the check is a running task");
+          await page.evaluate(()=>releaseCheck());
+          await page.waitForFunction(()=>!liveApp.getState().busy);
+          const after=await editor();
+          report.capturedTurnCheck={...report.capturedTurnCheck,[outcome]:{checking,after}};
+          assert.deepEqual([after.busy,after.stop,after.solve],[false,false,true],"the check's task ended");
+          assert.equal(after.needsReview,true);
+          if(outcome==="turned"){
+            assert.deepEqual(after.cells,[2,null,4,3,4,3,null,1,1,4,3,null,3,2,1,4]);
+            assert.deepEqual(after.cellUncertain,[]);assert.equal(after.highlighted,0);
+            assert.match(after.note,/The photograph was upside down/);assert.doesNotMatch(after.note,/The page may be/);
+            assert.equal(after.status,"Captured clues read again, turned the right way up.");
+          }else{
+            assert.deepEqual(after.cells,[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1]);
+            assert.deepEqual(after.cellUncertain,[1,2,4,7,8,11,13,14]);assert.equal(after.highlighted,8);
+            assert.match(after.note,/The stubbed live reading's note\./);assert.doesNotMatch(after.note,/The page may be/);
+            assert.equal(after.status,"Captured clues ready for review.");
+          }
+          await idlePage(page,server.base);await fixture(page);
+          report.checks.push(`a captured reading that looks upside down reaches the editor with every digit highlighted under the turn note while its still is read again; read ${outcome}, ${outcome==="turned"?"the turned reading replaces it under review":"it keeps its own flags and note"}, and the check's task ends`);
+        });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.
         await page.evaluate(async()=>{

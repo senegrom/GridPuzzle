@@ -538,7 +538,20 @@ export function setupPhotoFlow({
   const CAPTURE_READY = ["Captured clues ready for review.",
     "The saved picture is unchanged. Confirm the clues and rules before solving or playing."],
     CAPTURE_CHECK = ["Checking which way up the captured picture is…",
-      "Its clues may be turned. The captured reading stays on the board until the check ends."];
+      "Its digits may be turned, so every one stays highlighted until the check ends."],
+    CAPTURE_UNCHECKED = ["Captured clues ready for review.",
+      "Which way up the captured picture is could not be checked, so every digit stays highlighted."];
+  // The first note of a capture whose live reading looks turned (turnCue). It
+  // and the highlight on every digit stay until the check reads the picture
+  // the way it lies or a turned reading replaces the board, so a check that is
+  // stopped or fails leaves them.
+  const turnNote = (cue) => `The page may be ${cue === "half" ? "upside down" : "sideways"} in the captured picture, so every digit read is highlighted. Adjust scan → Read puzzle checks which way up it is.`;
+  // The cells of a reading that hold a digit or a value region: what a turned
+  // page reads wrong with confidence (6s and 9s as each other, 2s as 4s).
+  function valueCells({ puzzle, entries }) {
+    const read = new Set((entries ?? []).flatMap((entry) => (entry.kind === "value" ? [entry.cell] : [])));
+    return puzzle.cells.flatMap((value, cell) => (Number.isInteger(value) || read.has(cell) ? [cell] : []));
+  }
   $("retake-photo").onclick = openCamera;
   $("use-live-capture").onclick = () => {
     if (!captured) return;
@@ -553,17 +566,32 @@ export function setupPhotoFlow({
     }
     try {
       checkShape(found.puzzle);
+      // The live camera reads each frame the way it lies (it reads with
+      // orient: false), but a capture is a still photograph. When its reading
+      // shows what makes Scanner.orient try a turn (a poor reading of glyphs
+      // wider than tall, or of upright-shaped glyphs with confident digits but
+      // none with a 2, 3 or 5: an upside-down page reads 6s and 9s as each
+      // other and 2s as 4s, all with confidence), the still is read again as
+      // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
+      // grid is ever turned.
+      const cue = found.puzzle.rows === found.puzzle.cols ? turnCue(found) : null,
+        // The capture's own review: its flagged clues, and any digit repeated
+        // under the boxes it was read with, which the captured picture shows
+        // yellow and a photograph's Read flags too.
+        review = {
+          uncertain: new Set([...(found.cellUncertain ?? found.uncertain ?? []), ...conflicts(found.puzzle)]),
+          notes: fitReviewNotes([...found.notes]),
+        };
       const next = {
         photo: picture.photo, corners: picture.corners,
         puzzle: found.puzzle, play: fitPlay(found.puzzle, []), hints: new Set(),
-        // The capture's flagged clues, and any digit repeated under the boxes
-        // it was read with, which the captured picture shows yellow and a
-        // photograph's Read flags too.
-        uncertain: new Set([...(found.cellUncertain ?? found.uncertain ?? []), ...conflicts(found.puzzle)]),
+        // Until the check ends, every digit is under review, and the first
+        // note says why (turnNote).
+        uncertain: new Set([...review.uncertain, ...(cue ? valueCells(found) : [])]),
         blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
         cageUncertain: new Set(found.cageUncertain ?? []),
-        needsReview: true, notes: fitReviewNotes([...found.notes]), rectified: found.rectified,
-        photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
+        needsReview: true, notes: cue ? fitReviewNotes([turnNote(cue), ...review.notes]) : [...review.notes],
+        rectified: found.rectified, photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
       // A capture is a new photograph: it resets the board's source, so a
       // suggestion whose reading was confirmed retires first (settleProposal).
@@ -591,18 +619,8 @@ export function setupPhotoFlow({
         found: { ...found, needsReview: true } });
       persist(); render({ replaceDraft: true });
       warmSolver?.();
-      // The live camera reads each frame the way it lies, never turned (it
-      // reads with orient: false), but a capture is a still photograph. When
-      // its reading shows what makes Scanner.orient try a turn (a poor reading
-      // of glyphs wider than tall, or of upright-shaped glyphs with confident
-      // digits but none with a 2, 3 or 5: an upside-down page reads 6s and 9s
-      // as each other and 2s as 4s, all with confidence), the still is read
-      // again as Read puzzle reads a photograph. A reading taken turned then
-      // replaces the live one (readPhoto's `capture`). Only a square grid is
-      // ever turned.
-      const check = found.puzzle.rows === found.puzzle.cols && turnCue(found);
-      status(...(check ? CAPTURE_CHECK : CAPTURE_READY));
-      if (check) void readPhoto({ capture: true });
+      status(...(cue ? CAPTURE_CHECK : CAPTURE_READY));
+      if (cue) void readPhoto({ capture: review });
     } catch (error) { fail(error); }
   };
   $("choose-photo").onclick = () => $("photo-file").click();
@@ -872,13 +890,16 @@ export function setupPhotoFlow({
       drawCrop();
     }
   };
-  // `capture`: the orientation check of a capture handed to the editor. The
-  // still is read as any photograph, but its reading replaces the capture's
-  // only when taken turned, and then waits for review like every capture
-  // (also a quarter turn, which a photograph's Read solves automatically);
-  // Undo brings the capture's reading back. Read the way it lies, or not read
-  // at all, the capture's own reading stays.
-  async function readPhoto({ capture = false } = {}) {
+  // `capture`: the orientation check of a capture handed to the editor, with
+  // the capture's own review (its flagged clues and notes). The still is read
+  // as any photograph, but its reading replaces the capture's only when taken
+  // turned, and then waits for review like every capture (also a quarter
+  // turn, which a photograph's Read solves automatically); Undo brings the
+  // capture's reading back as it was on the board. Read the way it lies, the
+  // capture's reading keeps its own review again. Stopped or failed, the check
+  // changes nothing: every digit stays highlighted under the note that the
+  // page may be turned.
+  async function readPhoto({ capture = null } = {}) {
     if (!state.photo || !state.corners) return;
     // A new Read owns the next outcome even when its settings are invalid.
     // Supersede earlier OCR before preflight, just as a new import does.
@@ -945,8 +966,9 @@ export function setupPhotoFlow({
     const id = begin();
     setDeadline(() => {
       if (id === getJobId())
-        stopTask(
-          "Recognition timed out. Check the connection and try a clearer photograph.",
+        stopTask(capture
+          ? "Checking which way up the captured picture is took too long."
+          : "Recognition timed out. Check the connection and try a clearer photograph.",
         );
     }, 120000);
     try {
@@ -964,7 +986,12 @@ export function setupPhotoFlow({
       } finally { detail.release(); }
       if (id !== getJobId()) return;
       if (capture && !found.turns) {
+        // Nothing changed the board meanwhile: every edit stops the check.
         finish();
+        state.uncertain = new Set(capture.uncertain);
+        state.notes = [...capture.notes];
+        persist();
+        render();
         status(...CAPTURE_READY);
         return;
       }
@@ -1017,7 +1044,7 @@ export function setupPhotoFlow({
         // swaps 6s and 9s into confident clues: shown, and never auto-solved.
         // Quarter-turned readings auto-solve as before, except a capture's,
         // which waits for review like every capture.
-        needsReview: capture || found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
+        needsReview: capture !== null || found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
         // A reading taken turned (see Scanner.orient) keeps the crop in step,
@@ -1058,8 +1085,9 @@ export function setupPhotoFlow({
       if (id === getJobId()) {
         finish();
         diagnostics.event({stage:"error",reason:"failed"});
-        // The check is optional: the capture's own reading stays.
-        if (capture) status(...CAPTURE_READY);
+        // The check is optional: the capture's reading stays, every digit
+        // still highlighted under the note that the page may be turned.
+        if (capture) status(...CAPTURE_UNCHECKED);
         else fail(e);
       }
     }
