@@ -58,6 +58,47 @@ usual confirmation. If the detected grid contradicts the selected rules (a
 the reason and asks to change the puzzle type or the grid settings; such a
 grid is neither outlined nor read.
 
+A Sudoku whose size the grid settings are not for (they are 9 × 9 by default)
+gets its boxes from its size: 3 × 3 for 9 × 9, 2 rows × 3 columns for 6 × 6,
+3 × 4 for 12 × 12. A square guess is the usual layout. One that is not can be
+the wrong one, since a 6 × 6 Sudoku's boxes are 2 × 3 or 3 × 2 alike, and the
+solver is given the guess: with tall boxes the reading mostly has no solution
+or conflicts in the guessed boxes, and now and then a wrong unique solution
+(about 2 to 4 % of random 6 × 6 Sudokus with 3 × 2 boxes in the review's
+probe). Such a reading says so wherever it shows a result. When it has no
+solution or several, or its readings conflict, the help line names the guessed
+layout and the settings that replace it ("If the printed boxes differ, close
+the camera and set Rows, Columns, Box height and Box width in Grid size &
+settings.") instead of asking to move closer; the frozen help says the
+solution was found with the guessed boxes; and the reading carries the photo
+flow's note for a box layout suggested from the grid size into the editor
+after **Review captured clues**. Before, the help line said "No solution to
+these readings — move closer or review the clues." on every re-read, and the
+freeze said nothing of the boxes. The live view does not try the transposed
+layout. Boxes from the settings (the grid's size set, and Sudoku, Killer
+Sudoku or automatic detection chosen) are used as they are.
+
+The live camera never turns a reading: only a still photograph is checked for
+a quarter or a half turn, by reading it again turned ([SCAN_INPUT.md](SCAN_INPUT.md),
+"Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md)). Aimed at a page lying
+sideways or upside down it reads the page as it lies, poorly, and neither
+moving closer nor a clearer frame can help. The help line then says the grid
+looks sideways or upside down and to turn the page or the phone so the numbers
+stand upright, or to move closer if they already do. It goes by the cue the
+still check reads its turns on, from the reading's own glyphs: a poor reading
+(fewer than half its value regions read as confident digits) of glyphs wider
+than tall lies a quarter turn off; one of upright-shaped glyphs that reads
+confident digits but not one number with a 2, 3 or 5, half a turn. That line
+takes the place of "Move closer for a clearer read", a conflict or no-solution
+message, "Waiting for a clearer frame of the unclear clues…" and the
+retries' end, and the export records `grid-sideways` or `grid-upside-down`
+(in place of `clearer-frame-needed` while it waits). The cue is no proof (84
+of the 3,952 upright corpus photographs show the half-turn cue in Chromium,
+most of them handwritten or mixed pages), hence the second half of the line.
+The reading itself is shown as it was read, and one that solves anyway still
+freezes. Before, such a page got "Move closer" or "Conflicting readings…",
+then "Waiting for a clearer frame…" for as long as it stayed in view.
+
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
 released as soon as recognition has used it. Recognition has a 90-second
@@ -848,7 +889,10 @@ The original reading anchor is never replaced by a chain of retries. A retry
 must match the same rules and original content, and both original and retry
 samples must be reverified before its results can apply. Confident or
 explicitly confirmed clues are not replaced; absent marks cannot delete earlier
-clues. Changed proposals remain uncertain and require review, and solver
+clues. A finished retry waits for both frames to verify for at most five
+seconds; after that it is dropped (`retry-expired`), and the reading keeps its
+clues and its result, so that a retry whose own frame stopped verifying, while
+the reading's still does, cannot keep the reading unsettled. Changed proposals remain uncertain and require review, and solver
 answers do not participate. While a retry runs the reading keeps its result,
 so a solved reading stays solved (see the freeze's wait above); a merge that
 changes a clue withdraws it, and the reading is solved again. The help line
@@ -1106,12 +1150,32 @@ Unit tests (`node --test web/tests/*.test.js`):
   the freeze nor takes the wait's text off the help line, and its late reply
   changes nothing; the shutter during a retry freezes the solution and saves
   it; a retry that changes a clue withdraws the solution, and the reading is
-  solved again and frozen with the new clue. A retry's progress stays off
+  solved again and frozen with the new clue; with a solver that solves the
+  grid, a changed clue whose solve outlasts the wait keeps the view live until
+  it answers and freezes with the new solution, and one that leaves no
+  solution never freezes the old one. A reading retired before it froze leaves
+  the next one its own three seconds, on old frames and with the setting on. A
+  verification answered after a newer snapshot's (the production tracker's
+  answers held and handed over newest first) leaves the newer one adopted. A
+  retry's progress stays off
   the help line, which names the retry once, or keeps the wait's text. From its first frame the camera records the setting
   with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
   stands), the counted status without automatic solving and hiding with
-  nothing ever found (no loss clock, nothing written), and
+  nothing ever found (no loss clock, nothing written), a merged retry that
+  changes a clue (the solution withdrawn, the changed puzzle solved, and no
+  solution kept when it has none; a clue read as before keeps the solution), a
+  finished retry that waits for its own frame and is dropped five seconds
+  after it finished, the messages for boxes guessed from the grid's size, and
+  the turn cue (`turnedPage`: sideways and upside down in place of "Move
+  closer" and the wait for a clearer frame; nothing for a reading with a 2, no
+  confident digit, square glyph boxes, half its regions confident or fewer than
+  six glyphs; the reading left as read; `diagnostic-report.test.js`: its two
+  reasons, labelled);
+  `live-guessed-boxes.test.js` runs the production camera on a 6 × 6 grid
+  under the 9 × 9 settings (the solver given 2 × 3 boxes, the frozen help, the
+  no- and multiple-solution lines and the editor's note) and checks that boxes
+  from the settings and a square guess are not flagged; and
   `photo-flow.test.js` the shutter drawing a live capture's stored picture on
   the panel, with that picture's label and counts, and the camera reading the
   freeze's wait from its checkbox at every call, which the diagnostics record
