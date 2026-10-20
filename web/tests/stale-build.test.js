@@ -15,7 +15,7 @@ const OCR = (build) => `vendor/${build}/tesseract/tesseract.min.js`;
 const MODEL = (build) => `vendor/${build}/tessdata/eng.traineddata.gz`;
 const hash = (body) => createHash("sha256").update(body).digest("hex");
 function deploys() {
-  const { caches, stores } = memoryCaches(), requests = [], served = new Map(), runtimes = { [X]: "6.0.1" };
+  const { caches, stores } = memoryCaches(), requests = [], modes = [], served = new Map(), runtimes = { [X]: "6.0.1" };
   let live = X, clients = [], offline = false;
   // Each build's files; vendor/ bytes are the same in every build unless a
   // deploy brings another OCR runtime.
@@ -30,7 +30,7 @@ function deploys() {
   const assets = (build) => Object.entries(files(build)).map(([path, data]) => ({ path, sha256: hash(data) }));
   const fetch = async (request) => {
     const path = request.url.slice(scope.length);
-    requests.push(path);
+    requests.push(path); modes.push(request.cache);
     if (offline) throw TypeError("Network offline");
     if (path === "assets.json") return new Response(JSON.stringify({ build: live, assets: assets(live) }));
     if (served.has(path)) return served.get(path)();
@@ -38,7 +38,8 @@ function deploys() {
     return new Response(body ?? "Not found", { status: body === undefined ? 404 : 200 });
   };
   return {
-    files, requests, stores,
+    // `modes` holds each request's HTTP cache mode, in the order of `requests`.
+    files, requests, modes, stores,
     clients(ids) { clients = ids.map((id) => ({ id, type: "window", url: scope })); },
     offline(value) { offline = value; },
     // The origin now serves only `build` (with OCR runtime `runtime`).
@@ -92,6 +93,9 @@ test("before the newer build is installed, the origin's own manifest names the c
   assert.equal(response.status, 200);
   assert.equal(await response.text(), h.files(X)[OCR(X)]);
   assert.deepEqual(since(h, start), [OCR(X), "assets.json", OCR(Y)]);
+  // GitHub Pages lets browsers keep every file for ten minutes, so the HTTP
+  // cache could still hold the list of the build the deploy replaced.
+  assert.equal(h.modes[start + 1], "reload", "the origin's list is read past the HTTP cache");
 });
 
 test("a copy is never served when its bytes do not match the digest, whatever a manifest claims", async () => {
@@ -176,6 +180,29 @@ for (const reply of ["warm-up", "request"])
     h.message(reply === "request" ? { id: 1, error: IMPORT } : { error: IMPORT, fatal: true });
     await assert.rejects(read, { message: ADVICE });
   });
+
+// The host's own error event before its engine is ready (its script did not
+// load, which fires an event without a message, or it threw an error it did
+// not catch) is a failure to load OCR as well.
+for (const [shape, event] of [["without a message", {}], ["with a message", { message: `Uncaught NetworkError: ${IMPORT}` }]])
+  test(`a host's error event ${shape} before its engine is ready names the offered update`, async (t) => {
+    const h = runtime(t, "Update app & reload"), read = h.api.recognize({ png: "a" });
+    h.workers[0].onerror(event);
+    await assert.rejects(read, { message: ADVICE });
+  });
+
+// Whether OCR loaded is known per host: a host that replaces a ready one and
+// cannot load OCR names the offered update too.
+test("a replacement host that cannot load OCR names the offered update although an earlier host was ready", async (t) => {
+  const h = runtime(t, "Update app & reload"), first = h.api.recognize({ png: "a" });
+  h.message({ type: "ready" });
+  h.message({ error: "engine crashed", fatal: true });
+  await assert.rejects(first, { message: "engine crashed" }, "a ready host's failure is not a failure to load");
+  const second = h.api.recognize({ png: "b" });
+  assert.equal(h.workers.length, 2, "a new host");
+  h.message({ error: IMPORT, fatal: true });
+  await assert.rejects(second, { message: ADVICE });
+});
 
 // A deploy's missing files fail at once; a deadline that expires is a slow
 // download, which the update does not bring any faster.

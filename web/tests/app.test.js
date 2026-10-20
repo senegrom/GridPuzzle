@@ -115,8 +115,10 @@ test("the Frozen chip's text meets WCAG AA contrast for its small bold type", ()
 
 // WCAG 2.5.3 (Label in Name): a speech-input user says the words a control
 // shows, so its accessible name begins with them. The name is the
-// aria-label, else the text outside aria-hidden parts; symbols such as ✕, ↺
-// and ▣ are not words anyone says.
+// aria-label, else the text outside aria-hidden parts. Symbols such as ✕, ↺
+// and ▣ are not words anyone says: the words shown are compared without
+// them, and the name must not begin with one either (a shutter named
+// "▣ Save picture" puts the symbol before the words).
 test("every button's accessible name begins with the words it shows", () => {
   const html = read("index.html"), text = (markup) => markup.replace(/<[^>]+>/g, "");
   const words = (value) => value.replace(/&amp;/g, "&").replace(/&\w+;/g, " ")
@@ -127,8 +129,9 @@ test("every button's accessible name begins with the words it shows", () => {
     const shown = words(text(content));
     if (!shown) continue;
     const label = attributes.match(/\baria-label="([^"]*)"/)?.[1];
-    const name = words(label ?? text(content.replace(/<span aria-hidden="true">[\s\S]*?<\/span>/g, "")));
-    assert.ok(name.startsWith(shown), `${attributes.trim()}: its name "${name}" does not begin with "${shown}"`);
+    const name = (label ?? text(content.replace(/<span aria-hidden="true">[\s\S]*?<\/span>/g, ""))).trim();
+    assert.match(name, /^[\p{L}\p{N}]/u, `${attributes.trim()}: its name "${name}" begins with a symbol`);
+    assert.ok(words(name).startsWith(shown), `${attributes.trim()}: its name "${words(name)}" does not begin with "${shown}"`);
   }
 });
 
@@ -158,13 +161,16 @@ function cellStroke(stylesheet, classes, focused) {
 
 // WCAG 2.4.7 (Focus Visible): in the Cages and Inequalities tools Enter and
 // Space select the focused cell, so focus sits on a selected cell after
-// every selection, and it must still show there.
+// every selection, and it must still show there. A stroke of the selection's
+// own colour, a pixel or two wider, is not a mark anyone tells apart: focus
+// changes the colour.
 test("a focused board cell keeps a visible mark when it is also selected", () => {
   const css = read("style.css"), look = (classes, focused) => cellStroke(css, ["board-cell", ...classes], focused);
   assert.notDeepEqual(look([], true), look([], false), "focus marks a plain cell");
   for (const state of [[], ["uncertain"], ["conflict"]]) {
-    const selected = [...state, "selected"];
-    assert.notDeepEqual(look(selected, true), look(selected, false), `focus on a selected ${state.join(" ")} cell`);
+    const selected = [...state, "selected"], focused = look(selected, true), plain = look(selected, false);
+    assert.notEqual(focused.stroke, plain.stroke,
+      `focus on a selected ${state.join(" ")} cell changes its colour, not only its width: ${JSON.stringify([focused, plain])}`);
   }
   // Non-text contrast (WCAG 1.4.11) of that mark against the selected fill.
   const fill = css.match(/\.board-cell\.selected \.cell-hit\s*\{[^}]*fill:\s*(#[0-9a-f]{6})/i)[1];

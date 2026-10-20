@@ -59,7 +59,8 @@ async function arithmeticChecks(page, report) {
 // Keyboard focus on the board (WCAG 2.4.7). In the Cages and Inequalities
 // tools Enter and Space select the focused cell, so focus sits on a selected
 // cell after every selection: its square, as the browser draws it, must differ
-// from a selected square without focus.
+// from a selected square without focus in colour, not only by a pixel or two
+// of width.
 async function focusChecks(page, report) {
   report.focus = {};
   for (const [type, size, tool] of [['killersudoku', 9, 'cage'], ['futoshiki', 4, 'inequality']]) {
@@ -73,7 +74,7 @@ async function focusChecks(page, report) {
     },cell);
     const focused=await square(1),other=await square(0);
     assert.deepEqual([focused.focused,focused.selected,other.focused,other.selected],[true,true,false,true],tool);
-    assert.notDeepEqual([focused.stroke,focused.width],[other.stroke,other.width],`${tool}: focus shows on a selected cell`);
+    assert.notEqual(focused.stroke,other.stroke,`${tool}: focus changes the colour of a selected cell's square (${focused.stroke} ${focused.width}, other ${other.stroke} ${other.width})`);
     report.focus[tool]={focused,other};
   }
   await page.selectOption('#edit-tool','value');
