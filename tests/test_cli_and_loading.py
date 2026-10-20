@@ -242,6 +242,75 @@ def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
     )
 
 
+# CSP-Rules texts whose solve form follows uncommented header lines, like the
+# Mebane Slitherlink files' "Mellon rating = N" line. Without a :: outside
+# comments a text cannot be class-prefixed, so its first solve form (outside
+# comments and quoted strings) is read, as the corpus runner reads it.
+_HEADED_CSP_RULES_TEXTS = {
+    "rating line": "Mellon rating = 1\n\n\n(solve\n1 1\n4\n)\n",
+    "header lines with a colon": "Source: Mebane\nrated 2\n(solve 1 1 4)\n",
+    ":: only in comments": "; Sudoku::...\nMellon rating = 1 ; a::b\n(solve 1 1 4)\n",
+    "a quoted fake form above": '"archived (solve 1 2 . .)"\n(solve 1 1 4)\n',
+}
+
+
+@pytest.mark.parametrize("route", ("file", "str"))
+@pytest.mark.parametrize(
+    "text", list(_HEADED_CSP_RULES_TEXTS.values()), ids=list(_HEADED_CSP_RULES_TEXTS)
+)
+def test_csp_rules_form_below_uncommented_header_lines_is_read(text, route, tmp_path):
+    from gridsolver.abstract_grids.csp_rules_loading import is_csp_rules_text
+    from gridsolver.grid_classes.slitherlink import Slitherlink
+
+    if route == "file":
+        puzzle = tmp_path / "headed.txt"
+        puzzle.write_text(text, encoding="utf-8")
+        grid = create_from_file(puzzle)
+    else:
+        grid = create_from_str(text)
+
+    assert is_csp_rules_text(text)
+    assert isinstance(grid, Slitherlink)
+    assert grid.clues == ((4,),)
+
+
+@pytest.mark.parametrize(
+    ("text", "error"),
+    (
+        # A :: outside comments may be a class separator, so the class path
+        # reads the text with its own messages, also when a solver transcript
+        # holds a later, uncommented solve form.
+        ("LatinSquare::1...\n(solve 1 1 4)", "Cannot parse puzzle input with class LatinSquare: "),
+        ("Source: a::b\n(solve 1 1 4)", "Puzzle class 'source: a' is not supported; "),
+        # No solve form outside comments and quoted strings: a bare value string.
+        ("Mellon rating = 1", "Puzzle string contains no :: class separator"),
+        ("11..\n; (solve 1 1 4)", "Puzzle string contains no :: class separator"),
+        ("11..\n# (solve 1 1 4)", "Puzzle string contains no :: class separator"),
+        ('11.. "(solve 1 1 4)"', "Puzzle string contains no :: class separator"),
+    ),
+)
+def test_text_with_a_class_separator_or_no_solve_form_keeps_the_class_path(text, error, tmp_path):
+    from gridsolver.abstract_grids.csp_rules_loading import is_csp_rules_text
+
+    puzzle = tmp_path / "puzzle.clp"
+    puzzle.write_text(text, encoding="utf-8")
+
+    assert not is_csp_rules_text(text)
+    with pytest.raises(ValueError, match=f"^{re.escape(error)}"):
+        create_from_str(text)
+    with pytest.raises(ValueError, match=f"^{re.escape(error)}"):
+        create_from_file(puzzle)
+
+
+def test_a_leading_solve_form_is_read_despite_a_later_class_separator():
+    from gridsolver.grid_classes.slitherlink import Slitherlink
+
+    grid = create_from_str("(solve 1 1 4)\nLatinSquare::1...")
+
+    assert isinstance(grid, Slitherlink)
+    assert grid.clues == ((4,),)
+
+
 # The corpora whose values are space-separated tokens, as
 # tests/test_examples_sudoku*.py load them (--space-separated on the CLI).
 _SPACE_SEPARATED_CORPORA = frozenset((
@@ -253,10 +322,9 @@ _SPACE_SEPARATED_CORPORA = frozenset((
 
 def test_every_shipped_example_loads_on_the_normal_file_route():
     # README: the retained corpora are first-class inputs of `gridpuzzle
-    # --file`. Detection reads only the first meaningful line, so a header
-    # above a CSP-Rules solve form must be a ; or # comment: fifteen Mebane
-    # Slitherlink files, whose first line was a bare "Mellon rating = N",
-    # failed here with "no :: class separator".
+    # --file`. Fifteen Mebane Slitherlink files open with a bare "Mellon
+    # rating = N" line above their solve form; while detection read only the
+    # first meaningful line, they failed here with "no :: class separator".
     # The puzzle files Examples/NOTICE.md lists: the .clp, .sdk and .pzl
     # files and one .txt Latin square (the other .txt files are notes and
     # the GPL text).
@@ -277,12 +345,43 @@ def test_every_shipped_example_loads_on_the_normal_file_route():
     assert failures == {}
 
 
+def test_every_csp_rules_example_gives_the_corpus_runners_grid():
+    # The corpus runner reads a file's first solve form wherever it is; the
+    # normal file route must read that same form, below a header too.
+    from gridsolver.abstract_grids.csp_rules_loading import create_from_csp_rules_file
+
+    puzzles = sorted(
+        path
+        for family in ("Hidato", "Kakuro", "Numbrix", "Slitherlink")
+        for path in (_ROOT / "Examples" / family).rglob("*.clp")
+    )
+    differences = {}
+    for path in puzzles:
+        name = path.relative_to(_ROOT).as_posix()
+        try:
+            if create_from_file(path) != create_from_csp_rules_file(path):
+                differences[name] = "a different grid"
+        except (TypeError, ValueError) as exc:
+            differences[name] = str(exc)
+
+    assert sum(path.parent.name == "Mebane" and "Slitherlink" in path.parts for path in puzzles) == 16
+    assert differences == {}
+
+
 def test_cli_solves_a_mebane_slitherlink_file_with_its_rating_header():
     puzzle = "Examples/Slitherlink/Mebane/#I.0-5x5-W1-L30.clp"
     header = (_ROOT / puzzle).read_text(encoding="utf-8").splitlines()[0]
     assert header.endswith("Mellon rating = 1")
 
     result = _gridpuzzle("--file", puzzle, "--max-solutions", "1")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert "Solution 0" in result.stdout
+
+
+def test_cli_solves_a_csp_rules_string_below_a_header_line():
+    result = _gridpuzzle("--str", "Mellon rating = 1\n(solve 1 1 4)", "--max-solutions", "1")
 
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
@@ -444,6 +543,11 @@ def test_cli_exit_status_reports_whether_the_puzzle_has_a_solution():
                          "futoshiki, kenken, killersudoku, latinsquare, pandiagonallatinsquare, sudoku"),
         ("(solve 2 2 9 . . .)", "Slitherlink clue 9 at (0, 0) is outside 0..4"),
         ("(solve 1 1 4", "CSP-Rules solve form is not closed"),
+        # Below a header line, with no :: outside comments, a solve form is
+        # still CSP-Rules; one in a comment makes no CSP-Rules text.
+        ("Mellon rating = 1\n(solve 2 2 9 . . .)", "Slitherlink clue 9 at (0, 0) is outside 0..4"),
+        ("11.. ; (solve 1 1 4)", "Puzzle string contains no :: class separator "
+                                 "(pass --class to parse bare value strings)"),
     ),
 )
 def test_cli_suggests_class_only_where_it_can_help(puzzle, error):
@@ -504,12 +608,16 @@ def test_cli_internal_error_exits_3_with_its_traceback(monkeypatch, capsys):
         (("--module", "gridsolver.examples.sudoku"), "--module"),
         (("--str", "(solve 1 1 4)"), "CSP-Rules"),
         (("--file", "{csp_file}"), "CSP-Rules"),
+        (("--str", "Mellon rating = 1\n(solve 1 1 4)"), "CSP-Rules"),
+        (("--file", "{headed_csp_file}"), "CSP-Rules"),
     ),
 )
 def test_cli_rejects_layout_flags_its_input_ignores(source, kind, flag, tmp_path, capsys):
     csp_file = tmp_path / "loop.clp"
     csp_file.write_text("(solve 1 1 4)\n", encoding="utf-8")
-    argv = [part.format(csp_file=csp_file) for part in source]
+    headed_csp_file = tmp_path / "headed.clp"
+    headed_csp_file.write_text("Mellon rating = 1\n(solve 1 1 4)\n", encoding="utf-8")
+    argv = [part.format(csp_file=csp_file, headed_csp_file=headed_csp_file) for part in source]
 
     with pytest.raises(SystemExit) as exit_info:
         main([*argv, flag])
