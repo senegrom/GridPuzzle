@@ -208,8 +208,10 @@ arrived a second after Clear.
 Start preview offered while the view is live never clears a solution that
 freezes during its playback. Start preview makes the video a new player
 (pause, `srcObject` and `load()`), whose count of presented frames starts from
-zero, so on the live view the camera's frame scheduler starts over once that
-player plays (`replay()`) and scans its frames at once. Before, the scheduler
+zero, so on the live view the camera's frame scheduler starts over at the tap
+(`replay()`, as for a stream attached again) and scans that player's frames
+at once, also when its play() times out or is interrupted and the frames come
+later. Before, the scheduler
 took them for repeats of the old player's frames until their count passed
 the old one (on WebKit that includes the frames counted while paused at the
 freeze, so minutes of frames): nothing was scanned, and the frame check
@@ -1095,7 +1097,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   stalled and silent playback, Start preview's live retry when a solution
   freezes meanwhile, and its offer taken back when frames come, also after the
   retry itself failed; on the WebKit model, Start preview on the live view
-  scanning the new player's frames at once (`live-camera-recovery.test.js`:
+  scanning the new player's frames at once, also when its play() times out
+  and the frames come later (`live-camera-recovery.test.js`:
   the camera's `replay()` starting its scheduler over); an app switch or an ended track turning the camera off
   without closing the panel (also while Clear waits for playback, whose
   interrupted play() then blames nothing), reported to the diagnostics, with a
