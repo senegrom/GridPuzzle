@@ -64,7 +64,9 @@ async function main(args = process.argv.slice(2)) {
   let options;
   try { options = parseOptions(args); }
   catch (error) { console.error(`${error.message}. See the header of corpus/benchmark.cjs for the options.`); return 2; }
-  const items = selectImages(options);
+  let items;
+  try { items = selectImages(options); }
+  catch (error) { console.error(`Cannot select images: ${error.message}`); return 2; }
   if (!items.length) { console.error("no matching images under", options.corpus); return 2; }
   console.log(`${items.length} images from ${options.corpus}`);
   console.log(`Recognition uses reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detector proposals"}. Not fully automatic.`);

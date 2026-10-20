@@ -75,3 +75,14 @@ def test_a_bad_option_stops_the_benchmark_before_it_selects_images_or_starts_a_b
     assert run.stdout == ""
     assert run.stderr.strip() == (
         "Unknown option: --familly. See the header of corpus/benchmark.cjs for the options.")
+
+
+def test_a_missing_list_or_corpus_stops_the_benchmark_with_a_message(tmp_path):
+    for args, named in ((["--list", "absent.txt", "--corpus", str(tmp_path)], "absent.txt"),
+                        (["--corpus", str(tmp_path / "absent")], "absent")):
+        run = subprocess.run([NODE, str(CLI), *args], cwd=tmp_path,
+                             capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert run.returncode == 2, args
+        assert run.stdout == "", args
+        (line,) = run.stderr.strip().splitlines()
+        assert line.startswith("Cannot select images: ENOENT: no such file or directory") and named in line, line

@@ -198,8 +198,8 @@ detector's, which separates recognition from detection; `--engine webkit`
 switches browser. Results go to `browser-artifacts/corpus-benchmark.json`. It
 is a measurement, not a gate. An unknown option, a missing value, a limit
 that is not a nonnegative whole number or an engine other than chromium or
-webkit stops it before it starts; `--name=value` works as well as
-`--name value`.
+webkit stops it before it starts, with a message, as does a missing `--list`
+file or corpus directory; `--name=value` works as well as `--name value`.
 
 `node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
 detector alone over every corpus image with corner ground truth, at the live
