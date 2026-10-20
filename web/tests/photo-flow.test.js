@@ -1573,12 +1573,21 @@ test("Stop during grid detection leaves a new photograph on the fallback crop, s
   await fallbackCropReads(h, 800, 600);
 });
 test("a crop editor that cannot draw reports it, also on Rotate, instead of throwing", async (t) => {
-  const h = cropHarness(t);
-  h.setDetect(async () => ({ rows: 2, cols: 2, confidence: 0.99, corners: fallback(800, 600) }));
+  const h = cropHarness(t), found = (image) => [{ x: 20, y: 30 }, { x: image.width - 20, y: 30 },
+    { x: image.width - 20, y: image.height - 30 }, { x: 20, y: image.height - 30 }];
+  const detected = [];
+  h.setDetect(async (image) => { detected.push(image); return { rows: 2, cols: 2, confidence: 0.99, corners: found(image) }; });
   await h.import(); assert.deepEqual(h.errors, []);
   // iOS can refuse a canvas context under memory pressure.
   h.$("crop-canvas").getContext = () => null;
   h.$("rotate-photo").onclick(); await tick(); await tick();
   assert.equal(h.errors.length, 1);
   assert.deepEqual([h.state.photo.width, h.state.photo.height], [600, 800]);
+  // The drawing shown while the detector works must not cost the detection:
+  // the rotated photograph's grid is still found, and Read uses it.
+  assert.deepEqual(detected.map((image) => [image.width, image.height]), [[800, 600], [600, 800]]);
+  assert.deepEqual(h.state.corners, found(h.state.photo));
+  await h.read();
+  assert.deepEqual(h.reads.at(-1), found(h.state.photo));
+  assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
 });

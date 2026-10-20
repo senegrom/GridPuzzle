@@ -746,8 +746,10 @@ export function setupPhotoFlow({
     diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", "Photo processing stays on this device.");
     try {
-      // The photograph and its current crop show while the detector works.
-      drawCrop();
+      // The photograph and its current crop show while the detector works. A
+      // crop canvas the browser refuses (iOS under memory pressure) must not
+      // cost the detection: the drawing after it reports the failure.
+      try { drawCrop(); } catch {}
       const found = await scanner.detect(canvas);
       if (id !== getJobId()) return;
       clearPhotoMapping();
