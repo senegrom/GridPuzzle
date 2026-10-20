@@ -218,7 +218,9 @@ attempted independently and never replaces the primary failure. On Windows a
 process holding the report open (someone checking progress, an editor) makes
 the replacing rename fail; the runner retries it for about five seconds, and a
 checkpoint that still cannot be saved is skipped with a warning, for the next
-checkpoint or the final save to write. Any other write failure ends the run. The command
+checkpoint or the final save to write. A final save still held after that keeps
+the new report beside the old one (`<report>.<pid>.tmp`) and names it in the
+error. Any other write failure ends the run. The command
 exits nonzero for an incomplete run, any failed image or a failed clean-up, and
 a hard kill or lost disk access keeps only the last checkpoint. The detection
 benchmark writes a `formatVersion` 1 object rather than a bare array: per-image

@@ -53,20 +53,26 @@ function summarize(results) {
 // Windows refuses to replace a file that another process holds open (someone
 // reading the report to check progress, an editor, a virus scanner): the
 // rename fails with EPERM, EACCES or EBUSY until that handle closes. Such a
-// hold is brief, so the rename is retried for about five seconds.
+// hold is brief, so the rename is retried for about five seconds. A report
+// still held after that is kept beside it, and the error names that file: the
+// final save must not lose every result since the last checkpoint.
 const BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
 const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function writeReport(file, report, { rename = fs.renameSync, attempts = 20, wait = 250 } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
+  let kept = false;
   try {
     fs.writeFileSync(temporary, JSON.stringify(report, null, 1) + "\n");
     for (let attempt = 1; ; attempt++) {
       try { rename(temporary, file); return; }
-      catch (error) { if (!BUSY.has(error?.code) || attempt >= attempts) throw error; }
+      catch (error) {
+        if (!BUSY.has(error?.code)) throw error;
+        if (attempt >= attempts) { kept = true; error.message += `; the report is kept as ${temporary}`; throw error; }
+      }
       pause(wait);
     }
-  } finally { fs.rmSync(temporary, { force: true }); }
+  } finally { if (!kept) fs.rmSync(temporary, { force: true }); }
 }
 
 async function abortable(promise, signal) {

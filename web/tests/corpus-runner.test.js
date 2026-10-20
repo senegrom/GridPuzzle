@@ -157,8 +157,12 @@ test("the report's rename is retried while the file is held open, then reported"
     assert.equal(calls, 3); assert.deepEqual(JSON.parse(fs.readFileSync(file)), { code });
   }
   let calls = 0;
-  assert.throws(() => writeReport(file, { lost: true }, { attempts: 4, wait: 1, rename() { calls++; throw busy(); } }), /EPERM/);
+  const kept = `${file}.${process.pid}.tmp`;
+  assert.throws(() => writeReport(file, { lost: false }, { attempts: 4, wait: 1, rename() { calls++; throw busy(); } }),
+    { message: `EPERM: operation not permitted, rename; the report is kept as ${kept}` });
   assert.equal(calls, 4); assert.deepEqual(JSON.parse(fs.readFileSync(file)), { code: "EBUSY" });
+  // Held throughout, the new report is kept beside the old one rather than lost.
+  assert.deepEqual(JSON.parse(fs.readFileSync(kept)), { lost: false });
   // Any other failure is not retried.
   calls = 0;
   assert.throws(() => writeReport(file, {}, { wait: 1, rename() { calls++; throw Object.assign(Error("no space"), { code: "ENOSPC" }); } }), /no space/);
