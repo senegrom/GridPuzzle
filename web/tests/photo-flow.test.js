@@ -1308,6 +1308,34 @@ test('the captures above carry every field of a review: flagged clues, structure
   assert.equal(killer.cageUncertain.length, 81);
   assert.ok(hidato.notes.length >= 2 && killer.notes.length === 8);
 });
+// A box suggestion retires once the reading it came with is confirmed, also
+// when a live capture, a new photograph, replaces that board before the next
+// Read: the capture resets the board's source, so it settles the suggestion
+// first, as an imported photograph does.
+test('a suggestion confirmed before a live capture stays retired: the next 6 × 6 Read solves', async t => {
+  const h = photoHarness(t), sixBySix = () => {
+    const puzzle = makePuzzle('sudoku', 6); for (let c = 0; c < 6; c++) puzzle.cells[c] = c + 1;
+    return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
+      rectified: canvas(200, 200) };
+  };
+  const boxNote = () => h.state.notes.some(note => /was suggested from the grid size/.test(note));
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.$('auto-solve').checked = true; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, true); assert.ok(boxNote()); assert.equal(h.solves(), 0);
+  h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix(), needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.needsReview, true);
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(boxNote(), false); assert.equal(h.state.needsReview, false);
+  assert.deepEqual([h.state.puzzle.boxRows, h.state.puzzle.boxCols], [2, 3]);
+  assert.equal(h.solves(), 1);
+});
 
 function readings(text = "3") {
   return { entries: [

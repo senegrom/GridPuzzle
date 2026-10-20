@@ -562,6 +562,9 @@ export function setupPhotoFlow({
         needsReview: true, notes: fitReviewNotes([...found.notes]), rectified: found.rectified,
         photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
+      // A capture is a new photograph: it resets the board's source, so a
+      // suggestion whose reading was confirmed retires first (settleProposal).
+      settleProposal();
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
       cropRevision = {};
