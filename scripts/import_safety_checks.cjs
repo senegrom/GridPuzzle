@@ -63,7 +63,22 @@ async function photoImports(page, report, base) {
     assert.equal(row.detail.enhanced,row.width>1600);
     assert.deepEqual(row.detail.colors,orientations[row.orientation-1],`detail rotation/mirroring: ${JSON.stringify(row)}`);
   }
-  report.photoImport={nativeJPEG:true,cases:rows};
+  // A HEIC header (web/tests/heif-fixture.js) over image data no decoder can
+  // read: the browser makes no bitmap, and the import refuses the photo by
+  // name without a full decode.
+  const { heic } = await import('../web/tests/heif-fixture.js');
+  const heicImport = await page.evaluate(async (encoded) => {
+    const { importPhoto } = await import('./photo-import.js');
+    const decode = Image.prototype.decode; let fullDecodes = 0;
+    Image.prototype.decode = function () { fullDecodes++; return decode.call(this); };
+    try {
+      await importPhoto(new File([Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0))], 'IMG_0001.HEIC', { type: 'image/heic' }));
+      return { accepted: true, fullDecodes };
+    } catch (error) { return { message: error.message, fullDecodes }; }
+    finally { Image.prototype.decode = decode; }
+  }, Buffer.from(heic({ rotation: 1 })).toString('base64'));
+  assert.deepEqual(heicImport, { message: 'This browser cannot open HEIC photos. Choose the photo from the Photo Library, which converts it to JPEG, or export it as JPEG, PNG or WebP, then try again.', fullDecodes: 0 });
+  report.photoImport={nativeJPEG:true,cases:rows,heic:heicImport};
 }
 async function offlineInstall(browser, report) {
   // The transaction suites block service workers; this lifecycle check needs
