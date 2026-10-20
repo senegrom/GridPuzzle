@@ -69,6 +69,17 @@ function page(quarter) {
   const frame = [{ x: 100, y: 100 }, { x: 500, y: 100 }, { x: 500, y: 500 }, { x: 100, y: 500 }];
   return frame.map((_, i) => frame[(i + quarter) % 4]);
 }
+// The page's cells as a frame shows them with the page lying `quarter`
+// quarter turns clockwise: printed cell (r, c) at (c, 5 - r) for one turn.
+function framed(cells, quarter) {
+  let out = [...cells];
+  for (let k = 0; k < quarter; k++) {
+    const turned = Array(36).fill(null);
+    out.forEach((value, i) => { turned[(i % 6) * 6 + 5 - Math.floor(i / 6)] = value; });
+    out = turned;
+  }
+  return out;
+}
 // The same corners as the detector reports them: in the image's frame.
 function imageFrame(printed) {
   const first = key => [...printed].sort((p, q) => key(p) - key(q))[0];
@@ -85,8 +96,9 @@ function harness(t, controls) {
   const originals = ['document', 'window', 'navigator', 'createImageBitmap'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   const nodes = new Map();
   const $ = id => {
-    if (!nodes.has(id)) nodes.set(id, { ...makeCanvas(), id, value: '', style: {}, dataset: {}, hidden: false, checked: false,
-      addEventListener() {}, focus() {}, scrollIntoView() {}, setAttribute() {}, removeAttribute() {} });
+    if (!nodes.has(id)) nodes.set(id, { ...makeCanvas(), id, value: '', textContent: '', style: {}, dataset: {}, hidden: false,
+      checked: false, addEventListener() {}, focus() {}, scrollIntoView() {}, setAttribute() {}, removeAttribute() {},
+      pause() {}, load() {}, async play() {} });
     return nodes.get(id);
   };
   for (const id of ['scan-diagnostics', 'live-diagnostics'])
@@ -94,8 +106,9 @@ function harness(t, controls) {
   globalThis.document = { createElement: () => makeCanvas(), addEventListener() {}, removeEventListener() {},
     body: { classList: { add() {}, remove() {} } } };
   globalThis.window = { addEventListener() {} };
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
-  let next = null;
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+    mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop() {}, addEventListener() {} }] }) } } });
+  let next = null, captured = null;
   // The next file's decoded picture: the page, lying as the photograph shows it.
   globalThis.createImageBitmap = async () => ({ width: 600, height: 600, printed: next, close() {} });
   const puzzle = makePuzzle('sudoku', 9);
@@ -126,7 +139,10 @@ function harness(t, controls) {
     const { boxRows, boxCols, cells } = state.puzzle, all = solutions(cells, boxRows, boxCols);
     solved.push({ boxes: [boxRows, boxCols], unique: all.length === 1, printed: all.length === 1 && String(all[0]) === String(PRINTED) });
   },
-  boxDefault: boxShape, setLayout, getJobId: () => epoch, setDeadline() {} });
+  boxDefault: boxShape, setLayout, getJobId: () => epoch, setDeadline() {}, savePicture: async () => true,
+  // The live camera: Save picture keeps `captured`.
+  liveFactory: () => ({ start() {}, stop() {}, capture: () => captured,
+    diagnosticSource: () => ({ image: captured.photo, verified: true }) }) });
   t.after(() => {
     flow.stopCamera();
     for (const [key, descriptor] of originals) {
@@ -147,6 +163,22 @@ function harness(t, controls) {
       const before = turns.length;
       $('read-photo').onclick(); await tick();
       assert.deepEqual(errors, []); assert.equal(turns.length, before + 1, 'the reader ran');
+    },
+    // A live capture of the page lying `quarter` turns round, handed to the
+    // editor with Review captured clues. The live camera reads the grid as the
+    // frame shows it, through the tracker's corners in the image's frame, with
+    // the box controls as set, and never turns (live-camera.js): its reading
+    // is the page turned, under review.
+    async capture(quarter, reading = {}) {
+      const printed = page(quarter), puzzle = makePuzzle('sudoku', 6);
+      [puzzle.boxRows, puzzle.boxCols] = [Number($('box-rows').value), Number($('box-cols').value)];
+      puzzle.cells = framed(GIVENS, quarter);
+      captured = { photo: makeCanvas(600, 600, printed), annotated: makeCanvas(), corners: imageFrame(printed), createdAt: 1,
+        found: { puzzle, notes: [], rectified: makeCanvas(), cellUncertain: [], cageUncertain: [], blackReadings: [],
+          needsReview: true, ...reading } };
+      await $('camera').onclick(); $('take-photo').onclick(); await tick();
+      $('use-live-capture').onclick(); await tick();
+      assert.deepEqual(errors, []);
     },
     async findGrid() { await $('detect-photo').onclick(); },
     async rotate() { $('rotate-photo').onclick(); await tick(); await tick(); },
@@ -240,3 +272,42 @@ for (const quarter of [1, 3])
     assert.deepEqual(h.boxes(), [2, 3]); assert.equal(h.state.needsReview, true);
     assert.match(h.state.notes.join(' '), /Box layout 2 rows × 3 columns was suggested from the grid size/);
   });
+// A suggestion that a half-turned Read came with stays as it is, still to
+// confirm: the repeat Reads, upright now that the crop turned with the first,
+// ask again and solve nothing.
+test('a box layout suggested from the grid size survives a half-turned Read: the repeat Reads still ask to confirm it', async t => {
+  const h = harness(t, { rows: 9, cols: 9, boxRows: 3, boxCols: 3 });
+  await h.photograph(2);
+  assert.deepEqual(h.controls(), [6, 6, 2, 3]);
+  await h.read();
+  assert.equal(h.turns.at(-1), 2);
+  for (const repeat of [false, true, true]) {
+    if (repeat) { await h.read(); assert.equal(h.turns.at(-1), 0); }
+    assert.deepEqual(h.boxes(), [2, 3]); assert.deepEqual(h.controls(), [6, 6, 2, 3]);
+    assert.equal(h.state.needsReview, true); assert.equal(h.solved.length, 0);
+    assert.match(h.state.notes.join(' '), /Box layout 2 rows × 3 columns was suggested from the grid size/);
+  }
+});
+// A live capture of a sideways page keeps the boxes as set, the printed ones,
+// on the camera's frame. Turned upright in the editor, by Rotate or by the
+// Read's own quarter turn, the page is read with them.
+for (const quarter of [1, 3]) {
+  test(`a live capture of a page lying ${quarter} quarter turns round, turned upright by Rotate, is read with the printed boxes`, async t => {
+    const h = harness(t, printedControls);
+    await h.capture(quarter);
+    assert.deepEqual(h.boxes(), [2, 3]); assert.deepEqual(h.controls(), [6, 6, 2, 3]);
+    assert.equal(h.state.needsReview, true); assert.deepEqual(h.state.puzzle.cells, framed(GIVENS, quarter));
+    for (let press = quarter; press < 4; press++) {
+      await h.rotate();
+      assert.deepEqual(h.controls(), [6, 6, 2, 3]);
+    }
+    await h.read();
+    assert.equal(h.turns.at(-1), 0); solvedAsPrinted(h, 1);
+  });
+  test(`a live capture of a page lying ${quarter} quarter turns round, read again as it lies, is turned with the printed boxes`, async t => {
+    const h = harness(t, printedControls);
+    await h.capture(quarter);
+    await h.read();
+    assert.equal(h.turns.at(-1), quarter); solvedAsPrinted(h, 1);
+  });
+}
