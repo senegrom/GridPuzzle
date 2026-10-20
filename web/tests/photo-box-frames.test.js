@@ -311,3 +311,19 @@ for (const quarter of [1, 3]) {
     assert.equal(h.turns.at(-1), quarter); solvedAsPrinted(h, 1);
   });
 }
+// A live reading of a sideways page reads its glyphs wider than tall and few
+// clues with confidence, which makes Review captured clues read the still
+// again as a photograph: turned upright, with the printed boxes, and under
+// review like every capture.
+for (const quarter of [1, 3])
+  test(`a live capture of a page lying ${quarter} quarter turns round whose reading shows the turn is read again upright, with the printed boxes`, async t => {
+    const h = harness(t, printedControls), cells = framed(GIVENS, quarter), clues = cells.flatMap((v, i) => v === null ? [] : [i]);
+    const entries = clues.map(cell => ({ kind: 'value', cell, text: String(cells[cell]), confidence: 40, h: 20, w: 30 }));
+    await h.capture(quarter, { entries, cellUncertain: clues, uncertain: clues, notes: ['10 cells need checking.'] });
+    await tick();
+    assert.deepEqual(h.turns, [quarter], 'the still was read again, and turned');
+    assert.deepEqual(h.state.puzzle.cells, GIVENS);
+    assert.deepEqual(h.boxes(), [2, 3]); assert.deepEqual(h.controls(), [6, 6, 2, 3]);
+    assert.equal(h.state.needsReview, true); assert.equal(h.solved.length, 0);
+    assert.match(h.state.notes[0], /read turned/);
+  });

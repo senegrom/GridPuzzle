@@ -6,6 +6,7 @@ import { rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.j
 import { TYPES, checkShape, conflicts, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
 import { fallbackCorners, turnCorners, validQuad } from "./geometry.js";
 import { importPhoto } from "./photo-import.js";
+import { turnCue } from "./scanner.js";
 import { createLiveCamera } from "./live-camera.js";
 import { overlayCells } from "./live-overlay.js";
 import { cameraModal } from "./camera-modal.js";
@@ -534,6 +535,10 @@ export function setupPhotoFlow({
     } finally { saving = false; $("take-photo").disabled = false; }
   }
   $("take-photo").onclick = () => void takePhoto();
+  const CAPTURE_READY = ["Captured clues ready for review.",
+    "The saved picture is unchanged. Confirm the clues and rules before solving or playing."],
+    CAPTURE_CHECK = ["Checking which way up the captured picture is…",
+      "Its clues may be turned. The captured reading stays on the board until the check ends."];
   $("retake-photo").onclick = openCamera;
   $("use-live-capture").onclick = () => {
     if (!captured) return;
@@ -580,7 +585,18 @@ export function setupPhotoFlow({
         found: { ...found, needsReview: true } });
       persist(); render({ replaceDraft: true });
       warmSolver?.();
-      status("Captured clues ready for review.", "The saved picture is unchanged. Confirm the clues and rules before solving or playing.");
+      // The live camera reads each frame the way it lies, never turned (it
+      // reads with orient: false), but a capture is a still photograph. When
+      // its reading shows what makes Scanner.orient try a turn (a poor reading
+      // of glyphs wider than tall, or of upright-shaped glyphs with confident
+      // digits but none with a 2, 3 or 5: an upside-down page reads 6s and 9s
+      // as each other and 2s as 4s, all with confidence), the still is read
+      // again as Read puzzle reads a photograph. A reading taken turned then
+      // replaces the live one (readPhoto's `capture`). Only a square grid is
+      // ever turned.
+      const check = found.puzzle.rows === found.puzzle.cols && turnCue(found);
+      status(...(check ? CAPTURE_CHECK : CAPTURE_READY));
+      if (check) void readPhoto({ capture: true });
     } catch (error) { fail(error); }
   };
   $("choose-photo").onclick = () => $("photo-file").click();
@@ -850,7 +866,13 @@ export function setupPhotoFlow({
       drawCrop();
     }
   };
-  async function readPhoto() {
+  // `capture`: the orientation check of a capture handed to the editor. The
+  // still is read as any photograph, but its reading replaces the capture's
+  // only when taken turned, and then waits for review like every capture
+  // (also a quarter turn, which a photograph's Read solves automatically);
+  // Undo brings the capture's reading back. Read the way it lies, or not read
+  // at all, the capture's own reading stays.
+  async function readPhoto({ capture = false } = {}) {
     if (!state.photo || !state.corners) return;
     // A new Read owns the next outcome even when its settings are invalid.
     // Supersede earlier OCR before preflight, just as a new import does.
@@ -926,11 +948,16 @@ export function setupPhotoFlow({
       try {
         if (id !== getJobId()) return;
         found = await scanner.read(detail.image, detail.corners, type, rows, cols,
-          (text, p) => { if (id === getJobId()) status(text, "", "info", p); },
+          (text, p) => { if (id === getJobId()) status(...(capture ? CAPTURE_CHECK : [text, ""]), "info", p); },
           {onDiagnostic:event => { if (id === getJobId()) diagnostics.event(event); }});
         if (detail.note) found.notes = [...found.notes, detail.note];
       } finally { detail.release(); }
       if (id !== getJobId()) return;
+      if (capture && !found.turns) {
+        finish();
+        status(...CAPTURE_READY);
+        return;
+      }
       // Snapshot settings belong to this scan. Validate the complete candidate
       // before committing history, state or autosave, including automatic type.
       // The reading comes back upright, however the reader turned it, and the
@@ -978,8 +1005,9 @@ export function setupPhotoFlow({
         // A reading the app turned half a turn itself (Scanner.halfTurn) is a
         // guess its first note asks the user to check, and a wrong half turn
         // swaps 6s and 9s into confident clues: shown, and never auto-solved.
-        // Quarter-turned readings auto-solve as before.
-        needsReview: found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
+        // Quarter-turned readings auto-solve as before, except a capture's,
+        // which waits for review like every capture.
+        needsReview: capture || found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
         // A reading taken turned (see Scanner.orient) keeps the crop in step,
@@ -1001,7 +1029,9 @@ export function setupPhotoFlow({
       render({ replaceDraft: true });
       $("photo-panel").hidden = true;
       warmSolver?.();
-      status(
+      if (capture) status("Captured clues read again, turned the right way up.",
+        "Check the clues and rules against the picture before solving or playing.");
+      else status(
         "Puzzle read.",
         `${type === "auto" ? `${TYPES[state.puzzle.type]} suggested` : TYPES[state.puzzle.type]}. Check highlighted cells and the puzzle rules.`,
       );
@@ -1018,7 +1048,9 @@ export function setupPhotoFlow({
       if (id === getJobId()) {
         finish();
         diagnostics.event({stage:"error",reason:"failed"});
-        fail(e);
+        // The check is optional: the capture's own reading stays.
+        if (capture) status(...CAPTURE_READY);
+        else fail(e);
       }
     }
   }

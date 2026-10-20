@@ -486,6 +486,20 @@ export function glyphAspect(values) {
       .map((e) => e.h / e.w).sort((a, b) => a - b);
   return ratios.length < 6 ? Infinity : ratios[ratios.length >> 1];
 }
+// The turn a reading's own evidence asks Scanner.orient to try: none for a
+// reading with confident digits in at least half its value regions; for a
+// poorer one, "quarter" when its glyphs are wider than tall, and "half" when
+// they are taller than wide and it reads confident digits but none that shows
+// the way up (Scanner.halfTurn). A reading without six measurable glyphs, or
+// whose glyphs are as tall as wide, asks for none.
+export function turnCue(found) {
+  const values = (found.entries ?? []).filter((e) => e.kind === "value"),
+    confident = confidentDigits(found);
+  if (confident >= values.length / 2) return null;
+  const aspect = glyphAspect(values);
+  if (aspect > 1 && aspect < Infinity) return confident && !wayUpDigits(found) ? "half" : null;
+  return aspect < 1 ? "quarter" : null;
+}
 export class Scanner {
   constructor() {
     this.epoch = 0;
@@ -581,13 +595,10 @@ export class Scanner {
   // turn keeps upright-shaped glyphs, so a poor reading of glyphs taller than
   // wide takes the half-turn check instead (halfTurn).
   async orient(found, canvas, corners, type, rows, cols, onProgress, options, check) {
-    const confident = confidentDigits(found),
-      values = found.entries.filter((e) => e.kind === "value"),
-      aspect = glyphAspect(values);
-    if (confident >= values.length / 2) return found;
-    if (aspect > 1 && aspect < Infinity)
+    const cue = turnCue(found), confident = confidentDigits(found);
+    if (cue === "half")
       return this.halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check);
-    if (!(aspect < 1)) return found;
+    if (cue !== "quarter") return found;
     let best = { found, confident, turns: 0 };
     for (const turns of [1, 3]) {
       check();
