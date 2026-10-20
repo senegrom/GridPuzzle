@@ -708,8 +708,9 @@ automatically. 6s and 9s count on neither side, nor do 0s, 1s, 8s,
 nothing of the way up. Nor is one whose glyphs measure exactly as tall as wide
 at the median, as whole-cell value boxes do (Kakuro entries, cell-filling
 blobs): that says nothing of the glyphs, and master returns it unchanged too.
-As for quarter turns, only still photographs of square grids are checked; the
-live camera, targeted re-reads and non-square grids are not.
+As for quarter turns, only still photographs of square grids are checked,
+among them a live capture handed to the editor ("Live captures" below); the
+live camera's own reading, targeted re-reads and non-square grids are not.
 
 **What keeps upright pages upright.** Three things, and the bar alone is not
 enough.
@@ -848,6 +849,44 @@ check instead; 103 have whole-cell value boxes; 260 have no confident digit;
 3s and 5s read as themselves, 8s as 3s); 620 are read again but short of the
 bar (147 of them with four numbers with a 2, 3 or 5, 170 with three); and 46
 clear the bar but do not read clearly better.
+
+**Live captures.** The live camera reads each frame the way it lies, so a
+capture of an upside-down page reached the editor with confident 6/9 and 2-to-4
+swaps, unflagged and with no word of the turn, although Read puzzle turned the
+same picture. Review captured clues now runs the check's cue on the live
+reading (`turnCue` in `web/scanner.js`, which `Scanner.orient` itself uses; on
+200,000 random readings it decides exactly as the inline code it replaced).
+When the cue asks for a turn on a square grid, the captured still is read
+again as Read puzzle reads a photograph, through the live tracker's corners,
+and only a reading taken turned replaces the live one; it names the turn in its
+first note and waits for review, a quarter turn too. Any turn is therefore one
+the still photograph's rule takes on that picture, and the live reading itself
+does not change. Measured with Chromium 156's file-backed fake camera playing
+a corpus page lying on a table, turned (Y4M clips of six frames with Gaussian
+noise of σ 2, looped), the app at 047276b with its default settings (type
+auto, automatic capture and solving on), 2026-10-20; each scene was watched
+until it froze or settled, then Save picture and Review captured clues; clues
+scored cell by cell in the page's frame, the live reading in the camera's:
+
+| janko-sudoku page | turned | live view | handed over: right, flagged, wrong unflagged | check | after the check |
+|---|---|---|---|---|---|
+| 0001-clean | 180° | not frozen | 4 of 33, 22, 8 (four 2→4, four 9→6) | half, 2.8 s | turned: 33 of 33, 2, 0 |
+| 0033-print | 180° | not frozen | 8 of 32, 24, 8 (seven 6↔9, one 2→4) | half, 2.1 s | turned: 32 of 32, 1, 0 |
+| 0001-clean | 90° | not frozen | 0 of 33, 32, 1 (5→1) | quarter, 9.2 s | turned: 33 of 33, 2, 0 |
+| 0065-photo | 180° | not frozen | 8 of 26, 26, 0 | no cue (no confident digit) | unchanged |
+| 0033-print | 270° | no fresh reading | (to the crop editor; Read turns it, 32 of 32) | not run | unchanged |
+| 0001-clean, 0033-print, 0065-photo | 0° | frozen in 3.1, 2.9, 2.5 s | all right, 2, 2 and 1, 0 | no cue | unchanged |
+
+The 17 confident wrong clues the turned captures used to hand over are gone,
+no upright capture took the check, and no cell gained an unflagged error.
+Highlighting every value cell instead, the review's other suggestion, would
+also have left none unflagged, but the board would have stayed upside down or
+sideways with 4, 8 and 0 clues right and every clue to check by hand. A check
+that does not turn the still leaves the live reading as handed over, as Read
+puzzle leaves a photograph's reading, so an upside-down capture the still
+photograph's rule cannot turn (above) keeps its swaps. The check costs one more
+reading of the capture, only when its live reading shows the cue (a quarter
+turn reads both quarter turns).
 
 ## Alternatives tried
 
