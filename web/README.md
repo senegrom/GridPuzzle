@@ -95,10 +95,14 @@ The documents beside this one:
 
 ## Photo imports and retained readings
 
-JPEG, PNG and WebP dimensions are checked before decoding. WebP lossy,
+JPEG, PNG, WebP and HEIC dimensions are checked before decoding. WebP lossy,
 lossless and extended headers are supported. Unrecognized or incomplete
 headers are rejected with an export-to-JPEG/PNG/WebP message rather than
-using compressed byte count as a decoded-pixel budget. The app requests
+using compressed byte count as a decoded-pixel budget. A HEIC, the iPhone's
+own format, reaches the app when it is picked through Choose File (the Files
+app) or in Mac Safari; picked from the Photo Library it arrives as a JPEG.
+Safari 17 and later decode it; elsewhere it is refused with a message that
+names HEIC and points to the Photo Library. The app requests
 resized bitmaps when available (from Safari before 17.2, which refuses the
 `from-image` orientation option, without that option; see
 [SCAN_INPUT.md](SCAN_INPUT.md)), refuses images over 120 megapixels, and

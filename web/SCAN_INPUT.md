@@ -83,13 +83,35 @@ unverified, and a squeezed preview would be visible.
   Orientation entry of another type or count, stray bytes between JPEG
   segments, more than 4096 segments or chunks) imports the photo as the
   browser shows it, through the same single width.
+- HEIC, the iPhone's own format, reaches the import only from Choose File
+  (the Files app) on an iPhone, or in Mac Safari: the Photo Library hands over
+  a JPEG. It is HEIF (ISO/IEC 23008-12, a `ftyp` brand of `heic`, `heix` or
+  `mif1`; AVIF, which shares the layout, stays out), and its size is the
+  primary item's `ispe` (`pitm`, then its properties in `iprp`: `ipco` and
+  `ipma`), on an iPhone a grid of tiles: never a tile's, the thumbnail's or a
+  gain map's. Its `irot` (a quarter turn or two) and `imir` (a mirror) take
+  the place of the EXIF orientation, which is not read, and the browser
+  applies them. Safari 17 and later decode HEIC with ImageIO; that its turn
+  follows `irot` is unverified on a phone, so the import asks for one width,
+  planned on the axes `irot` declares, and the preview keeps the browser's
+  aspect ratio, never squeezed. That width keeps a bitmap the browser turned
+  the other way within twice 1600 pixels, which costs a smaller preview only
+  for a photo longer than 2:1. A browser that makes no HEIC bitmap (Safari
+  before 17, Chrome, Firefox) cannot decode it at all, so no full decode is
+  tried.
 
 The import refuses a photo only in these cases:
 
 - larger than 30 MB: "Please choose a photo smaller than 30 MB."
 - dimensions not readable from the first 512 KB (another format, or a damaged
   header): "The photo dimensions could not be checked safely. Export it as
-  JPEG, PNG or WebP, then try again."
+  JPEG, PNG or WebP, then try again." For a HEIC (its `meta` box must lie in
+  those 512 KB): "The HEIC photo's dimensions could not be checked safely.
+  Choose the photo from the Photo Library, which converts it to JPEG, or
+  export it as JPEG, PNG or WebP, then try again."
+- a HEIC the browser cannot decode: "This browser cannot open HEIC photos.
+  Choose the photo from the Photo Library, which converts it to JPEG, or
+  export it as JPEG, PNG or WebP, then try again."
 - a width or height of 0: "The image is empty."
 - more than 120 million pixels: "This photo is too large to decode safely on a
   phone. Use a smaller camera resolution or crop it first."
