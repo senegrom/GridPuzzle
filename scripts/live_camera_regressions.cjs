@@ -436,7 +436,7 @@ async function run() {
             report.sideways=sideways;
             assert.equal(sideways.view,"live","a page lying sideways does not freeze");assert.equal(sideways.solution,0);
             assert.match(sideways.help,/^The grid looks sideways\. Turn the page or the phone a quarter turn/,"the help line still names the turn");
-            assert.ok(!sideways.texts.some(text=>/^Waiting for a clearer frame|^Some printed marks could not be read/.test(text)),
+            assert.ok(!sideways.texts.some(text=>/^Waiting for a clearer frame|^Some printed marks could not be read|^No printed clues were read yet/.test(text)),
               `nor asked to move closer or wait for a clearer frame (${JSON.stringify(sideways.texts)})`);
             assert.ok(sideways.events.includes("grid-sideways"),`the export records the turn (${JSON.stringify(sideways.events)})`);
             await page.click("#close-camera");
