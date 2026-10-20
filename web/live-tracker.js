@@ -100,9 +100,12 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // tracker's life (the camera session; a reset does not end the run, since a
 // freeze, Clear or Restart says nothing about bitmaps). Tracking time stops
 // at a reset (the freeze, Restart, a settings change, a tracking failure,
-// closing the camera) and runs again once the camera next asks for a frame
-// to be tracked (ready, anchor or verify): the time a frozen view is looked
-// at, a closed camera or a back-off says nothing about the browser either.
+// closing the camera) and runs again once the next worker's handshake has
+// decided its transport, or a frame is handed over (anchor or verify): no
+// bitmap frame can be tracked before, so the time a frozen view is looked at,
+// a closed camera, a back-off, or a new worker's start and handshake (on an
+// iPhone its first canvas waits for the GPU process's set-up) says nothing
+// about the browser either.
 // Persistence is measured in time as well, since the count alone follows the
 // sampling: the camera samples the frame after a lost one at once, and a tick that detects and
 // verifies makes two bitmaps of one snapshot, so a condition that passes
@@ -159,9 +162,12 @@ export function createLiveTracker({
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
   let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0, lostSince = null;
   // The tracking clock (REFUSAL_LIMIT): now() less the time with no frame
-  // tracked, from a reset (`idleSince`) until the camera next asks for a
-  // frame. Before, a run of frames lost at the freeze and one lost after
-  // Clear half a minute later gave bitmaps up: that half minute counted.
+  // tracked, from a reset (`idleSince`, which a second reset in that time
+  // leaves as it is) until the next worker's transport is decided (decide) or
+  // a frame is handed over (submit). Before, a run of frames lost at the
+  // freeze and one lost after Clear half a minute later gave bitmaps up: that
+  // half minute counted, and so, once the clock ran again from ready(), did a
+  // new worker's start and handshake of half a second.
   let idleSince = null, idle = 0;
   const trackingTime = () => (idleSince ?? now()) - idle;
   function tracking() { if (idleSince !== null) { idle += now() - idleSince; idleSince = null; } }
@@ -194,7 +200,9 @@ export function createLiveTracker({
   function reset(error = cancelled()) {
     clearTimer(deadline); deadline = null;
     clearTimer(handshake); handshake = null;
-    // No frame is tracked until the camera asks for one again.
+    // No frame is tracked until the next worker's transport is decided. A
+    // second reset before then (a settings change at the first tick after
+    // Clear) keeps the idle time's start.
     idleSince ??= now();
     // No worker: no transport, and the next worker has completed no bitmap job.
     const old = worker; worker = null; transport = reason = mismatched = startedAt = handshakeMs = null; proven = false;
@@ -225,6 +233,8 @@ export function createLiveTracker({
     giveUp(cause); return true;
   }
   function decide(value, why, values = null) {
+    // Frames can be tracked from here on (the tracking clock runs again).
+    tracking();
     transport = value; reason = why; mismatched = values;
     handshakeMs = startedAt === null ? null : time(now() - startedAt);
     clearTimer(handshake); handshake = null;
@@ -374,9 +384,9 @@ export function createLiveTracker({
     verify: data => submit({ ...data, op: 'verify' }),
     // The transport of the worker, starting one if there is none, once its
     // handshake has decided it; a reset meanwhile rejects with its error.
-    // The camera asks for it, and so for a frame to be tracked, after a reset.
+    // The tracking clock runs again at that decision, not at this call: the
+    // worker's start and handshake track no frame.
     ready() {
-      tracking();
       try { ensure(); } catch (error) {
         fail(error?.message || 'Background tracking is unavailable.');
         return Promise.reject(error);

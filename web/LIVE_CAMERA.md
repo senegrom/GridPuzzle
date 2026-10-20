@@ -567,16 +567,22 @@ time after the first of them (`REFUSAL_SPAN`), in the camera session: the
 freeze, Clear and Restart do not end the run, since they say nothing about
 bitmaps (a broken browser must not get three fresh tries after each), a
 completed bitmap job does. Tracking time stops at the tracker's reset (the
-freeze, Restart, a settings change, a tracking failure, closing the camera)
-and runs again once the camera next asks for a frame to be tracked, so the
-time a frozen view is looked at, a back-off, or a re-acquisition after
-Restart or Clear before a grid is found, is no part of the half second; the
-time before the reset and after the ask is. Before, wall-clock time counted:
-two frames lost as the view froze and one lost after Clear half a minute later
+freeze, Restart, a settings change, a tracking failure, closing the camera;
+a second reset before it runs again keeps its start) and runs again once the
+next worker's handshake has decided its transport, since no bitmap frame can
+be tracked before, so the time a frozen view is looked at, a back-off, a
+re-acquisition after Restart or Clear before a grid is found, and the next
+worker's start and handshake are no part of the half second; the time before
+the reset and after the decision is. Before, wall-clock time counted: two
+frames lost as the view froze and one lost after Clear half a minute later
 gave bitmaps up for the rest of the camera session (in the fake-clock
 simulation the scan after Clear then read all 11 of its tracking frames back
 on the main thread), and so did two frames lost before a Restart and one lost
-anchor after a re-acquisition of more than half a second. The count alone
+anchor after a re-acquisition of more than half a second. With the clock
+running again at the camera's first ask after the reset, they still did
+whenever the worker after Clear took 460 ms or more to start and answer its
+probe, which an iPhone's first canvas in a worker can take (it waits for the
+GPU process's set-up, see the handshake above). The count alone
 followed the sampling: with the frame after each lost one sampled at once,
 and two bitmaps made of one snapshot when a tick both detects and verifies,
 three frames in a row were lost within 70-100 ms at 30 frames a second, and
@@ -1258,9 +1264,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   has passed since the first of them (frames within it lost alone however
   many, two lost alone however far apart; every completed bitmap job ends the
   run and its span, not only a worker's first, a reset does not; the cause
-  that of the last; the time from a reset until the camera asks for a frame
-  again no part of the span, also for a run begun by frames made before the
-  reset), a refused frame proving nothing to a later bitmap
+  that of the last; the time from a reset until the next worker's handshake
+  decides no part of the span, also for a run begun by frames made before the
+  reset, for a worker that takes 600 ms to start, and with a second reset
+  before the decision), a refused frame proving nothing to a later bitmap
   job's deadline, a bitmap failure after the give-up only counted (also
   before the next worker starts, however long after the first), the third in
   a row of a frame made before a reset keeping the worker after it that
