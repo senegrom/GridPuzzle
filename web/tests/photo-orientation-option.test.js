@@ -72,7 +72,8 @@ for (let value = 1; value <= 8; value++)
       assert.deepEqual([image.width, image.height], expected, `${w}x${ht}: the preview is the oriented photo at 1600 px`);
       assert.equal(calls.length, 2); assert.equal(calls[0].imageOrientation, 'from-image');
       assert.equal('imageOrientation' in calls[1], false, 'the retry leaves the option to the default');
-      // A quarter turn asks for one width, so the bitmap's own axes show the turn.
+      // A quarter turn asks for the turned photo's short side alone (here its
+      // width), so the bitmap's own axes show the turn.
       assert.deepEqual([calls[1].resizeWidth, calls[1].resizeHeight], value >= 5 ? [expected[0], undefined] : expected);
       assert.equal(h.fullDecodes.length, 0, 'no full-size decode, so no 24 MP refusal');
       assert.ok(h.bitmaps.at(-1).closed);
@@ -91,6 +92,39 @@ for (const value of [5, 6, 7, 8])
     await assert.rejects(importPhoto(jpeg(5712, 4284, value)), /cannot downscale this large photo/);
     assert.equal(h.fullDecodes.length, 1); assert.ok(h.bitmaps.every((b) => b.closed));
   });
+
+// A JPEG stored portrait with a quarter-turn EXIF is landscape once turned. Its
+// retry names only the turned photo's height, the short side, so the preview is
+// the one Safari 17.2 and later make (one width planned for a portrait result
+// shrank it by the aspect ratio: 1200 x 900 instead of 1600 x 1200 for 4:3),
+// and a bitmap the engine did not turn comes back within the preview's short
+// side.
+const STORED_PORTRAIT = [[3024, 4032], [4000, 5000], [4284, 5712], [800, 3200], [400, 1600]];
+for (const value of [5, 6, 7, 8]) {
+  test(`EXIF ${value}: a photo stored portrait keeps its full landscape preview on the retry`, async (t) => {
+    const h = engine(t);
+    for (const [w, ht] of STORED_PORTRAIT) {
+      const before = h.calls.length, { image } = await importPhoto(jpeg(w, ht, value)), calls = h.calls.slice(before);
+      const expected = fit(ht, w);
+      assert.deepEqual([image.width, image.height], expected, `${w}x${ht}: the oriented photo at 1600 px`);
+      assert.equal(calls.length, 2);
+      assert.deepEqual([calls[1].resizeWidth, calls[1].resizeHeight], [undefined, expected[1]]);
+      assert.equal(h.fullDecodes.length, 0); assert.ok(h.bitmaps.at(-1).closed);
+      assert.equal(image.draws.at(-1).source, h.bitmaps.at(-1));
+    }
+  });
+
+  test(`EXIF ${value}: a photo stored portrait that the retry did not turn goes to the full decode`, async (t) => {
+    const h = engine(t, { turns: false });
+    for (const [w, ht] of STORED_PORTRAIT) {
+      const expected = fit(ht, w), result = await importPhoto(jpeg(w, ht, value)).catch((error) => error), bitmap = h.bitmaps.at(-1);
+      assert.ok(bitmap.closed); assert.equal(bitmap.turned, false);
+      assert.ok(Math.max(bitmap.width, bitmap.height) <= expected[1], `${w}x${ht}: ${bitmap.width}x${bitmap.height} within the preview's short side`);
+      if (w * ht > 24e6) assert.match(result.message, /cannot downscale this large photo/);
+      else assert.deepEqual([result.image.width, result.image.height], expected, `${w}x${ht}: turned by <img>, never squeezed`);
+    }
+  });
+}
 
 test('an orientation that keeps the axes keeps both requested dimensions on the retry', async (t) => {
   // Without a quarter turn the axes are the same whoever orients the photo.

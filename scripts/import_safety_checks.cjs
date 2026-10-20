@@ -17,7 +17,10 @@ async function photoImports(page, report, base) {
       const distances=palette.map(rgb=>rgb.reduce((d,v,i)=>d+(v-value[i])**2,0));
       return distances.indexOf(Math.min(...distances));
     });
-    for (const [width,height] of [[1600,400],[400,1600],[3200,800]]) {
+    // 800 x 3200 is stored portrait and larger than its preview: turned a
+    // quarter (EXIF 5-8), its refused-"from-image" retry names only the
+    // turned photo's height.
+    for (const [width,height] of [[1600,400],[400,1600],[3200,800],[800,3200]]) {
       const canvas = document.createElement('canvas'); canvas.width=width; canvas.height=height;
       const ctx=canvas.getContext('2d');
       for(const [i,[x,y]]of [[0,[0,0]],[1,[width/2,0]],[2,[width/2,height/2]],[3,[0,height/2]]]) {
@@ -51,16 +54,16 @@ async function photoImports(page, report, base) {
     return rows;
   });
   const orientations=[[0,1,2,3],[1,0,3,2],[2,3,0,1],[3,2,1,0],[0,3,2,1],[3,0,1,2],[2,1,0,3],[1,2,3,0]];
-  assert.equal(rows.length,48);
+  assert.equal(rows.length,64);
   for(const row of rows) {
     const scale=Math.min(1,1600/Math.max(row.width,row.height)),size=[Math.round(row.width*scale),Math.round(row.height*scale)];
     if(row.orientation>=5)size.reverse();
     assert.deepEqual(row.decodes,[size],`bounded native bitmap: ${JSON.stringify(row)}`);
     assert.deepEqual(row.preview,size);assert.deepEqual(row.colors,orientations[row.orientation-1],`rotation/mirroring: ${JSON.stringify(row)}`);
-    // Only the 3200 x 800 original has more detail than its preview.
-    const original=row.orientation>=5?[row.height,row.width]:[row.width,row.height];
-    assert.deepEqual(row.detail.enhanced?row.detail.decodes:[],row.width>1600?[original]:[],`original detail: ${JSON.stringify(row)}`);
-    assert.equal(row.detail.enhanced,row.width>1600);
+    // Only the 3200 x 800 and 800 x 3200 originals have more detail than their previews.
+    const original=row.orientation>=5?[row.height,row.width]:[row.width,row.height],larger=Math.max(row.width,row.height)>1600;
+    assert.deepEqual(row.detail.enhanced?row.detail.decodes:[],larger?[original]:[],`original detail: ${JSON.stringify(row)}`);
+    assert.equal(row.detail.enhanced,larger);
     assert.deepEqual(row.detail.colors,orientations[row.orientation-1],`detail rotation/mirroring: ${JSON.stringify(row)}`);
   }
   // A HEIC header (web/tests/heif-fixture.js) over image data no decoder can

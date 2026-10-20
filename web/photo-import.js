@@ -194,7 +194,11 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
       [resizeWidth, resizeHeight] = turned ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
     size = { resizeWidth, resizeHeight };
     axes = [resizeWidth, resizeHeight];
-    if (!turned) retry = size;
+    // A quarter turn's retry names only the turned photo's short side: a
+    // bitmap the engine turned comes back at the full preview size, whatever
+    // its aspect ratio, and one it did not turn comes back within that short
+    // side, its long side across `axes`.
+    retry = !turned ? size : resizeWidth <= resizeHeight ? { resizeWidth } : { resizeHeight };
   }
   check();
   return withPhotoDecode(async () => {
@@ -208,9 +212,10 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
         // orientation (whatwg/html#7210; WebKit's ImageBitmap.cpp on
         // safari-7615-branch), so ask again without the option. Where the
         // engine must turn the photo a quarter, both dimensions would hide a
-        // turn it skipped, so `retry` is then one width that fits either way
-        // round, and a bitmap whose long side lies across the turned photo's
-        // goes to the full decode below, which the browser turns itself.
+        // turn it skipped, so `retry` then names one dimension, the turned
+        // photo's short side, and a bitmap whose long side lies across the
+        // turned photo's goes to the full decode below, which the browser
+        // turns itself.
         if (error?.name === 'TypeError') {
           check();
           try { bitmap = await createImageBitmap(decodeFile, { ...retry, resizeQuality: 'high' }); }

@@ -69,12 +69,15 @@ unverified, and a squeezed preview would be visible.
   `ImageBitmap.cpp` on safari-7615-branch; whatwg/html#7210), so the import
   asks again without the option, for the same bounded size, except where the
   browser must turn the photo a quarter: there both dimensions would hide a
-  turn it skipped, so the retry asks for the one width that fits either way
-  round, and a bitmap whose long side lies across the turned photo's is closed
-  and the photo goes to the full decode, which the browser turns itself. The
-  original-detail decode retries the same way. Before, both decodes failed on
-  those versions: every photo was decoded at full size (and refused over 24
-  megapixels), and no Read used the original's detail.
+  turn it skipped, so the retry names one dimension, the turned photo's short
+  side (its width when the turned photo is portrait, its height when it is
+  landscape). A bitmap the browser turned comes back at the full preview size,
+  as on later versions, whatever the aspect ratio; one it did not turn comes
+  back within that short side, its long side across the turned photo's, and
+  is closed, and the photo goes to the full decode, which the browser turns
+  itself. The original-detail decode retries the same way. Before, both
+  decodes failed on those versions: every photo was decoded at full size (and
+  refused over 24 megapixels), and no Read used the original's detail.
 - WebP decoders differ in whether they apply EXIF at all. The import rewrites
   the two bytes of the orientation value to 1 in a copy of the encoded file,
   without decoding or copying pixels, decodes that copy as stored, and applies
