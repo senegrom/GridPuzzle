@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
-const { runDetectionBenchmark, items: discover, parseOptions, LIVE } = createRequire(import.meta.url)("../../corpus/detect_benchmark.cjs");
+import { findGrid } from "../geometry.js";
+const require = createRequire(import.meta.url);
+const { runDetectionBenchmark, items: discover, parseOptions, LIVE } = require("../../corpus/detect_benchmark.cjs");
+// The scanner_settings gate's picture; loading the gate needs no Playwright.
+const { dotLattice } = require("../../scripts/detect_benchmark_regressions.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function harness(t, faults = {}, args = []) {
@@ -144,6 +149,30 @@ test("--live measures at the size and in the way web/live-camera.js detects a fr
   assert.deepEqual(LIVE, { scale: 640, thorough: false });
   assert.match(camera, new RegExp(`scale = Math\\.min\\(1, ${LIVE.scale} / Math\\.max\\(image\\.width, image\\.height\\)\\)`));
   assert.match(camera, /detector\.detect\(small, \{ thorough: false\b/);
+});
+test("the gate's lattice of dots is a PNG the photograph's path reads and the live camera's does not", () => {
+  // Decoded here as a browser would: chunks with valid CRCs, one IDAT of
+  // unfiltered greyscale rows.
+  const png = dotLattice(), chunks = new Map();
+  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  for (let at = 8; at < png.length;) {
+    const length = png.readUInt32BE(at), type = png.toString("latin1", at + 4, at + 8);
+    assert.equal(png.readUInt32BE(at + 8 + length), zlib.crc32(png.subarray(at + 4, at + 8 + length)), `${type} CRC`);
+    chunks.set(type, png.subarray(at + 8, at + 8 + length)); at += 12 + length;
+  }
+  assert.deepEqual([...chunks.keys()], ["IHDR", "IDAT", "IEND"]);
+  const header = chunks.get("IHDR"), width = header.readUInt32BE(0), height = header.readUInt32BE(4);
+  assert.deepEqual([width, height, ...header.subarray(8)], [640, 640, 8, 0, 0, 0, 0]);
+  const rows = zlib.inflateSync(chunks.get("IDAT")), data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    assert.equal(rows[y * (width + 1)], 0);
+    for (let x = 0; x < width; x++) data.fill(rows[y * (width + 1) + 1 + x], (y * width + x) * 4, (y * width + x) * 4 + 3);
+  }
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  const image = { width, height, data }, photograph = findGrid(image), live = findGrid(image, { thorough: LIVE.thorough });
+  assert.equal(photograph.confidence, .94); assert.deepEqual([photograph.rows, photograph.cols], [10, 10]);
+  assert.deepEqual(photograph.corners.map(p => [Math.round(p.x), Math.round(p.y)]), [[70, 70], [510, 70], [510, 510], [70, 510]]);
+  assert.ok(live.confidence < .9, `the live camera's path has no dot lattice: ${live.confidence}`);
 });
 test("--live is a flag without a value, off by default", () => {
   assert.equal(parseOptions([]).live, false);
