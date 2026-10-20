@@ -240,7 +240,7 @@ and reaches below it, so a clue alone is not read as a digit, and a given
 printed under a clue is read as before, whole, even when the print breaks it in
 pieces. Other cells are unchanged. A first version (2026-10-19) started the
 head's value region at the bottom of the clue box instead; that cut the top
-third off such a given ("Givens in cage heads", below). A board read as `auto`
+third off such a given (the givens measured below). A board read as `auto`
 and then taken for KenKen or Killer has no partition when its value regions are
 read, so this does not apply to it.
 
@@ -268,8 +268,8 @@ sets, which have no other clues.
 | | WebKit | 1,974 → 2,103 | 0 / 147 / 0 | 516 → 6 | 8 → 30 |
 | kenken/janko-killersudoku | Chromium | 1,572 → 1,576 / 2,139 | 0 / 2 / 0 | 121 → 0 | 21 → 26 |
 | | WebKit | 1,593 → 1,605 | 0 / 3 / 0 | 120 → 0 | 19 → 26 |
-| killersudoku/generated-render | Chromium | 2,510 → 2,525 / 3,234 | 0 / 3 / 0 | 247 → 25 | 29 → 36 |
-| | WebKit | 2,533 → 2,548 | 0 / 3 / 0 | 251 → 28 | 31 → 36 |
+| killersudoku/generated-render | Chromium | 2,510 → 2,525 / 3,234 | 0 / 3 / 0 | 247 → 24 | 29 → 36 |
+| | WebKit | 2,533 → 2,548 | 0 / 3 / 0 | 251 → 27 | 31 → 36 |
 | killersudoku/generated-render-sum-only | Chromium | 1,260 → 1,844 / 2,799 | 0 / 463 / 0 | 916 → 38 | 0 → 10 |
 | | WebKit | 1,270 → 1,860 | 0 / 457 / 0 | 917 → 37 | 0 → 10 |
 | futoshiki/janko-futoshiki | Chromium | 1,988 / 1,989, unchanged | 0 / 0 / 0 | 0 | 119 |
@@ -289,8 +289,8 @@ sets, which have no other clues.
   it. Futoshiki scores the same under both versions: its one digit error was
   already under digit review.
 - With the change no board has an unflagged error in either engine, and no
-  image's count rose. The digits still read on cage boards, 60 in Chromium and
-  62 in WebKit, all on photo renders, are all under digit review.
+  image's count rose. The digits still read on cage boards, 59 in Chromium and
+  61 in WebKit, all on photo renders, are all under digit review.
 - Futoshiki and the Sudoku control read the same, image for image. No board is
   turned, before or after: every cell of a cage board is under structural
   review, so none of its digits counts as confident for the orientation checks.
@@ -298,22 +298,46 @@ sets, which have no other clues.
   clue tiles, and without them more clues read: Chromium gains 1,013 cages and
   loses 223, WebKit gains 1,016 and loses 206. The losses are spread thin: 61
   of the 600 cage boards end with fewer cages right in Chromium, by 1 to 10,
-  and 65 in WebKit, by 1 to 5. A cage stays under structural review, so none of
-  them is unflagged, and they were judged worth the gain.
+  and 65 in WebKit, by 1 to 5. Of the cages lost, 194 (181 in WebKit) now read
+  with no target, a visible blank, 28 (23) with another clue, and 1 (2) not as
+  that cage at all. A cage stays under structural review, so none of them is
+  unflagged, and they were judged worth the gain.
 - On the sum-only set, Killer printed the usual way, master read the first
   digit of 463 sums (457 in WebKit) as a confident given, on 83 (82) of its
   120 boards, and read 45% of its cages right against 78% on the `+` set. With
   the change it reads 66% (Chromium 1,844, WebKit 1,860 of 2,799), and the `+`
-  set 78% (2,525 and 2,548 of 3,234).
+  set 78% and 79% (2,525 and 2,548 of 3,234).
+
+No corpus cage target has a given, so givens printed on cage boards were
+measured apart (2026-10-20). 48 of the corpus's cage puzzles, 12 each of thick
+KenKen, dashed KenKen, `+` Killer and sum-only Killer, were drawn with the
+renderer's own `draw_puzzle`, with every cage head and every fifth other cell
+printed with its solution digit, in the three variants: 144 images, with 2,937
+givens in head cells and 648 in other cells. Givens read right:
+
+| givens | engine | master | first version (clue box cut) | this change | no value regions |
+|---|---|---:|---:|---:|---:|
+| in head cells, of 2,937 | Chromium | 2,762 | 1,644 | 2,762 | 0 |
+| | WebKit | 2,764 | 1,661 | 2,764 | 0 |
+| in other cells, of 648 | Chromium | 644 | 644 | 644 | 0 |
+| | WebKit | 643 | 643 | 643 | 0 |
+
+The change reads every one of these images as master does, cells and cages
+alike, in both engines, and adds only the digit flag: master's one given error
+without a digit flag (WebKit, a 4 read as 3 at confidence 98) is flagged. The
+first version's cut took the top third off a centred given, whose ink spans
+about 0.24 to 0.72 of the cell, so most 5s, 6s and 7s read wrong or as
+nothing, though always flagged.
 
 Skipping value regions on cage boards altogether, which the review measured
-best, reads almost the same. On the same sets it reads one cage more in each
-engine (on the thick set), loses none, and reads no digit at all on a cage
-board, where this change reads 60 in Chromium and 62 in WebKit, all flagged.
-Its perfect boards and the Futoshiki and Sudoku controls are the same. But it
-could never read a digit printed in a cage's cell (rare, and absent from the
-corpus), so such a given would be lost without a flag. It was not taken; that
-is for the owner to decide.
+best, reads almost the same on the corpus. On the same sets it reads one cage
+more in each engine (on the thick set), loses none, and reads no digit at all
+on a cage board, where this change reads 59 in Chromium and 61 in WebKit, all
+flagged. Its perfect boards and the Futoshiki and Sudoku controls are the
+same. But it never reads a digit printed in a cage's cell: none of the 3,585
+givens above, of which 2,414 in Chromium and 2,427 in WebKit are lost without
+a digit flag (the others sit in cells flagged for a cage conflict). It was not
+taken; that is for the owner to decide.
 
 ## Unread Futoshiki signs
 
