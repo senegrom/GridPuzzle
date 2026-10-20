@@ -928,8 +928,12 @@ export function setupPhotoFlow({
       fail(error);
       return;
     }
-    diagnostics.configure({ type, rows, cols, boxRows, boxCols, autoSolve: $("auto-solve").checked });
-    diagnostics.geometry({ rows, cols, corners: state.corners, width: state.photo.width, height: state.photo.height, coordinateSpace: "source-preview" });
+    // A capture's check keeps the capture's report (its settings, geometry and
+    // reading) until a turned reading replaces the capture's own.
+    if (!capture) {
+      diagnostics.configure({ type, rows, cols, boxRows, boxCols, autoSolve: $("auto-solve").checked });
+      diagnostics.geometry({ rows, cols, corners: state.corners, width: state.photo.width, height: state.photo.height, coordinateSpace: "source-preview" });
+    }
     // Keep the accepted board, solution and still-valid photo mapping until
     // a complete replacement is ready. Crop edits already invalidate mapping.
     const id = begin();

@@ -205,3 +205,17 @@ for (const [what, live] of Object.entries(unchecked))
     assert.deepEqual(h.state.puzzle.cells, found.puzzle.cells); assert.equal(h.state.needsReview, true);
     assert.equal(h.statuses.at(-1), "Captured clues ready for review.");
   });
+
+for (const turns of [0, 2])
+  test(`the diagnostic report ${turns ? "takes the turned reading" : "keeps the capture's reading through a check that leaves it"}`, async (t) => {
+    const h = harness(t), found = upsideDown(), answer = h.answer();
+    await h.review(found);
+    answer.resolve(turns ? turned(turns) : { ...upright(), cellUncertain: [], uncertain: [], needsReview: false });
+    await settle();
+    const panel = (key) => h.$("scan-diagnostics/" + key);
+    panel("prepare").onclick();
+    const report = JSON.parse(panel("preview").textContent);
+    assert.equal(report.source, "photo");
+    assert.deepEqual(report.lastReading.cells, (turns ? upright() : found).puzzle.cells);
+    assert.deepEqual(report.geometry.corners, h.corners);
+  });
