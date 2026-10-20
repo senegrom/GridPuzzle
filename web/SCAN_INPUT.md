@@ -140,7 +140,8 @@ flow shows its note and does not solve it automatically however few cells are
 flagged. "Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
 measurements. The live camera, targeted re-reads and non-square grids keep
 their orientation; the live camera's help line says when a page looks sideways
-or upside down, from the same cue ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
+or upside down, from the same cue, upside down only from five confident
+digits, since no re-read confirms it there ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 ## Clue-focused live-camera quality
 

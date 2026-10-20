@@ -1329,9 +1329,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   queued jobs' bitmaps not handed over), a 25 × 25 grid whose every
   verification takes 2.5 s (no failure, the worker kept, from the third late
   reply in a row the help line saying that the grid takes too long to track
-  live, one `tracking-late` event, the grid read once replies come in time)
-  and a 9 × 9 grid's verification of 2.1 s still failing the worker at two
-  seconds, verifications that reject every
+  live, one `tracking-late` event, the grid read once replies come in time;
+  two late replies and one in time never bringing the line, the third
+  bringing it at the next heartbeat, and a tracking failure's own line not
+  written over by it) and a 9 × 9 grid's verification of 2.1 s still failing
+  the worker at two seconds, verifications that reject every
   anchor, one frame lost to its bitmap during a tracked reading (refused,
   drawing nothing, of another size or not made: no restart, no new worker,
   the reading not read again and its outline never gone, the view never off
@@ -1370,7 +1372,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   made for a frame the freeze retired is lost alone, leaving the frozen view,
   counted at once in the frozen scan's export, and the scan after Clear
   probes for bitmaps again; two lost as the view freezes and one after Clear
-  half a minute later are lost alone too, the scan going on with bitmaps.
+  half a minute later are lost alone too, the scan going on with bitmaps,
+  also when the worker after Clear takes 600 ms to start and when the video's
+  frame size changed while frozen (a second reset at Clear's first tick).
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
