@@ -74,16 +74,18 @@ function reading({ uncertain = [], marked = [] } = {}) {
 // `rejectVerify(true)` the printed content matches no anchor any more;
 // `jitter(px)` moves every proof's corners by that much, alternately up and
 // down, and `warp(fn)` maps them with fn(corners, n) for the n-th reply.
-// `solve` is "unique", "deferred" (h.solveJobs) or a function; `read`
-// replaces the 500-ms reader; `readCells` adds the reader's targeted retry;
-// `quality(n)` is the n-th detection's quality report. `freezeWait` is the
-// setting "Wait up to 3 s for clearer clues before freezing" (unset: off, the
-// default), which `h.settings` changes while the camera runs. Every canvas
-// records drawImage, clearRect, fillRect, fillText (with the fill colour) and
-// the outline's path and stroke (colour and width), in one list of
-// operations; the legend's data-count writes are counted.
+// `solve` is "unique", "deferred" (h.solveJobs) or a function given the
+// puzzle and the fake clock ({ setTimer, now }); `read` replaces the 500-ms
+// reader; `readCells` adds the reader's targeted retry; `quality(n)` is the
+// n-th detection's quality report. `freezeWait` is the setting "Wait up to 3 s
+// for clearer clues before freezing" (unset: off, the default), which
+// `h.settings` changes while the camera runs. `wrapTracker(tracker, now)`
+// returns what the camera gets in place of the production tracker. Every
+// canvas records drawImage, clearRect, fillRect, fillText (with the fill
+// colour) and the outline's path and stroke (colour and width), in one list
+// of operations; the legend's data-count writes are counted.
 function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = null, readCells = null, quality = null, replyMs = 20,
-  frame: [W, H] = [SIZE, SIZE], grid: [x, y] = [120, 110], viewSize = [W, H] } = {}) {
+  frame: [W, H] = [SIZE, SIZE], grid: [x, y] = [120, 110], viewSize = [W, H], wrapTracker = null } = {}) {
   let time = 0, serial = 0, frozenTime = null, hold = false, detections = 0, rejectAll = false, jitter = 0, warp = null, replies = 0, countWrites = 0;
   const timers = new Map(), nodes = new Map(), ops = [], created = [], held = [], solveJobs = [], renders = [];
   const counts = { reads: 0, retries: 0, solves: 0 };
@@ -168,7 +170,7 @@ function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = 
   // Without `freezeWait` the settings carry no such key: off is the default.
   const settings = { type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve,
     ...(freezeWait === undefined ? {} : { freezeWait }) };
-  const camera = createLiveCamera({ tracker, $, canvas: view, diagnostics, video,
+  const camera = createLiveCamera({ tracker: wrapTracker ? wrapTracker(tracker, () => time) : tracker, $, canvas: view, diagnostics, video,
     getSettings: () => ({ ...settings }),
     detector: { detect() {
       const n = ++detections;
@@ -176,10 +178,10 @@ function simulation(t, { autoSolve = true, freezeWait, solve = "unique", read = 
         quality: quality?.(n), corners: cornersAt(x, y).map(small) }), 50));
     }, cancel() {} },
     reader,
-    solver: { solve() {
+    solver: { solve(puzzle) {
       counts.solves++;
       if (solve === "deferred") { const job = deferred(); solveJobs.push(job); return job.promise; }
-      return typeof solve === "function" ? solve() : Promise.resolve(unique());
+      return typeof solve === "function" ? solve(puzzle, { setTimer, now: () => time }) : Promise.resolve(unique());
     }, cancel() {}, invalidate() {} },
     now: () => time, setTimer, clearTimer });
   viewNow = () => camera.view;
@@ -743,6 +745,69 @@ test("a retry that changes a clue withdraws the solution, and the reading is sol
   assert.equal(h.view.dataset.solution, "14");
 });
 
+// That withdrawal holds when the changed puzzle takes longer to solve than
+// the rest of the wait: the view stays live until its solve answers, then
+// freezes with its solution, and a clue that leaves no solution never
+// freezes. Here the solver solves the grid itself (cell 1 read as 2, retried
+// as 3), so the old and the new solutions differ. A merge that kept the old
+// result froze it at three seconds beside the new clue, a second 3 in the top
+// row, and kept it through the no-solution answer.
+const LATIN_CLUES = [null, 2, null, null, null, 1, 4, null, 1, null, null, null, 4, null, null, null];
+const OLD_SOLUTION = [3, 2, 1, 4, 2, 1, 4, 3, 1, 4, 3, 2, 4, 3, 2, 1], NEW_SOLUTION = [2, 3, 1, 4, 3, 1, 4, 2, 1, 4, 2, 3, 4, 2, 3, 1];
+// With 3 in cell 1 these clues have no solution (with 2, one).
+const NO_SOLUTION_CLUES = [1, 2, null, null, 3, 4, null, null, null, null, 4, 1, null, null, 2, null];
+function cluesRead(clues) {
+  const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells = [...clues];
+  return { puzzle, cellUncertain: [1], markedCells: clues.flatMap((value, cell) => value === null ? [] : [cell]), notes: [] };
+}
+// A retry of cell 1 that reads 3 and answers `ms` after it starts.
+const readsThree = (ms) => (found, cells, at, { setTimer }) => new Promise((resolve) => setTimer(() => {
+  const result = retryResult(found, cells);
+  result.puzzle.cells[1] = 3; result.entries = result.entries.map((entry) => ({ ...entry, text: "3" }));
+  resolve(result);
+}, ms));
+// Solves the grid, by the value of cell 1: the solution given for it, or
+// none. The first solve answers at once, later ones after `ms`.
+function gridSolver(solutions, ms) {
+  const jobs = [];
+  return { jobs, solve: (puzzle, { setTimer, now }) => new Promise((resolve) => {
+    const job = { clue: puzzle.cells[1], started: now() }, cells = solutions.get(puzzle.cells[1]);
+    jobs.push(job);
+    setTimer(() => {
+      job.answered = now();
+      resolve(cells ? { status: "unique", complete: true, solutions: [{ cells: [...cells] }] } : { status: "no-solution", complete: true, solutions: [] });
+    }, jobs.length === 1 ? 20 : ms);
+  }) };
+}
+const blueDigits = (h) => h.on(h.view).filter(blueDigit).map((o) => Number(o.text));
+test("with the wait on, a merged retry that changes a clue freezes only once the changed puzzle is solved, with its solution", async (t) => {
+  const grid = gridSolver(new Map([[2, OLD_SOLUTION], [3, NEW_SOLUTION]]), 3000);
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(cluesRead(LATIN_CLUES)), quality: sharper,
+    readCells: readsThree(500), solve: grid.solve });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  const since = h.now;
+  assert.ok(await h.until(() => grid.jobs.length === 2 || h.frozen(), 3000), "the retry merged within the wait");
+  assert.equal(h.camera.view, "live");
+  assert.equal(grid.jobs[1].clue, 3, "the changed puzzle is solved again");
+  assert.ok(grid.jobs[1].started + 3000 > since + 3000, "and its solve outlasts the wait");
+  assert.ok(await h.until(() => h.frozen(), 6000));
+  assert.ok(grid.jobs[1].answered <= h.now, `frozen ${h.now - since} ms after the first solved render, its solve answering at ${grid.jobs[1].answered - since} ms`);
+  assert.deepEqual(blueDigits(h), NEW_SOLUTION.filter((_, cell) => LATIN_CLUES[cell] === null), "the frozen picture draws the new solution");
+  assert.ok(h.on(h.view).some((o) => o.op === "fillText" && o.style === SCAN_COLOURS.uncertain && o.text === "3?"), "beside the retried clue");
+});
+
+test("with the wait on, a merged retry whose new clue leaves no solution never freezes the old one", async (t) => {
+  const grid = gridSolver(new Map([[2, [1, 2, 3, 4, 3, 4, 1, 2, 2, 3, 4, 1, 4, 1, 2, 3]]]), 20);
+  const h = simulation(t, { freezeWait: true, read: () => Promise.resolve(cluesRead(NO_SOLUTION_CLUES)), quality: sharper,
+    readCells: readsThree(500), solve: grid.solve });
+  assert.ok(await h.until(() => h.help === WAITING, 5000));
+  assert.ok(await h.until(() => grid.jobs.length === 2 && grid.jobs[1].answered !== undefined, 3000), "the changed puzzle was solved");
+  assert.equal(grid.jobs[1].clue, 3);
+  assert.equal(await h.until(() => h.frozen(), 6000), false, "no freeze");
+  assert.equal(h.view.dataset.solution, "0");
+  assert.ok(h.writes.some((w) => w.text === "No solution to these readings — move closer or review the clues."), "the help line said there is no solution");
+});
+
 // The live video shows no clue digits, so the help line names the unclear
 // clues by the legend entry that counts them.
 test("waiting for a clearer frame of an uncertain clue, the help line points to its legend entry", async (t) => {
@@ -842,6 +907,32 @@ test("turning the wait on while a solved reading waits for a fresh frame keeps i
   assert.equal(configures.calls, 0, "the settings did not start over");
   assert.equal(h.counts.reads, 1); assert.equal(h.counts.solves, 1, "one reading, solved once");
 });
+
+// Each solved reading waits its own three seconds: the wait is keyed to the
+// reading's sample frame, and a reading retired before it froze (here by a
+// change of the settings that identify a reading) leaves nothing behind. The
+// next one waits three seconds from its own first solved render for a fresh
+// frame (every verified frame is 600 ms old here) or, with the wait on, for
+// its retries. A wait kept from the first reading froze it at once on an old
+// frame, or before its retries.
+for (const [label, options] of [["every verified frame older than half a second", { replyMs: 600 }],
+  ["the wait on and a retry left", { freezeWait: true, ...RETRYABLE }]]) {
+  test(`a solved reading retired before it froze leaves the next one its own three seconds (${label})`, async (t) => {
+    const h = simulation(t, options);
+    assert.ok(await h.until(() => h.help === WAITING, 15000), "the first reading is solved and waits to freeze");
+    const reads = h.counts.reads;
+    await h.advance(1000);
+    assert.equal(h.camera.view, "live");
+    h.settings.boxRows = 1; h.settings.boxCols = 4;
+    assert.ok(await h.until(() => h.counts.reads > reads, 15000), "a new reading starts");
+    assert.equal(h.camera.view, "live", "the first one was retired, not frozen");
+    assert.ok(await h.until(() => h.counts.solves === 2 && (h.frozen() || h.help === WAITING), 15000), "the new reading is solved");
+    const solved = h.now;
+    assert.ok(await h.until(() => h.frozen(), 4000));
+    const waited = h.now - solved;
+    assert.ok(waited >= 2800 && waited <= 3200, `the new reading froze ${waited} ms after it was solved`);
+  });
+}
 
 // The camera configures the scan's diagnostics with all the settings it
 // reads, also the two that do not identify the reading: from the first frame
@@ -1220,4 +1311,38 @@ test("adoptedFrame is the adopted snapshot itself, or null", async (t) => {
   assert.equal(h.raw(), first, "the same object each time");
   assert.ok(await h.until(() => h.raw() !== first, 500), "the next adopted reply replaces it");
   assert.equal(first.width, 0, "a replaced snapshot is released");
+});
+
+// A reply is adopted only for a snapshot newer than the adopted one. The
+// tracker answers in submission order, but a snapshot reaches it through its
+// pixels (contentFrame), and on the bitmap transport createImageBitmap can
+// resolve out of order. Here the production tracker's answers are held and
+// handed to the camera newest first: the older snapshot's late answer must
+// not step the view back to it.
+test("a verification answered after a newer snapshot's leaves the newer one adopted", async (t) => {
+  const gate = { holding: false, held: [] };
+  const h = simulation(t, { autoSolve: false, wrapTracker: (real, now) => new Proxy(real, { get(target, key) {
+    if (key === "verify") return (data) => {
+      const submitted = now(), answer = target.verify(data);
+      if (!gate.holding) return answer;
+      return new Promise((resolve, reject) => answer.then(
+        (result) => gate.held.push({ submitted, release: () => resolve(result) }),
+        (error) => gate.held.push({ submitted, failed: true, release: () => reject(error) })));
+    };
+    const value = target[key];
+    return typeof value === "function" ? value.bind(target) : value;
+  } }) });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 15000), "a reading is shown");
+  await h.advance(500);
+  gate.holding = true;
+  assert.ok(await h.until(() => gate.held.filter((job) => !job.failed).length >= 2, 2000), "two answers held");
+  gate.holding = false;
+  const [older, newer] = gate.held.filter((job) => !job.failed).slice(-2);
+  assert.ok(older.submitted < newer.submitted);
+  const sampled = () => h.created.find((c) => c.canvas === h.raw())?.at;
+  newer.release(); await h.advance(1);
+  assert.equal(sampled(), newer.submitted, "the newer snapshot is adopted");
+  older.release(); await h.advance(1);
+  assert.equal(sampled(), newer.submitted, "the older snapshot's late answer does not replace it");
+  assert.equal(h.view.dataset.overlay, "outline");
 });

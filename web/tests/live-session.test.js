@@ -183,3 +183,78 @@ test('refining holds while any marked uncertain clue has a retry left',async t=>
  h.retries[1].resolve(h.retry(2));await flush();
  assert.equal(h.s.refining,true,'cell 1 is spent, but cell 2 still has both retries');
 });
+
+// A solved reading's targeted retry with automatic solving on. Cell 1 of a
+// 3 x 3 grid is a marked, uncertain clue read as 2; the retry reads it as
+// `value`. Every frame verifies unless hidden, so that the reading's own
+// frame and the retry's can be told apart.
+function retrySession(t,{value=3}={}){
+ let time=0;const hidden=new Set(),reads=[],retries=[],solves=[],events=[],statuses=[];
+ const found=()=>{const puzzle=makePuzzle('latinsquare',3);puzzle.cells=[1,2,null,null,null,null,null,null,null];
+  return {puzzle,cellUncertain:[1],cageUncertain:[],markedCells:[0,1],uncertain:[1],needsReview:true,notes:[],
+   entries:[{cell:1,kind:'value',text:'2',confidence:0,evidence:'first'}]};};
+ const s=createLiveSession({read:()=>{const d=defer();reads.push(d);return d.promise;},
+  readCells:(sample,base,cells)=>new Promise(resolve=>retries.push({cells,resolve})),
+  solve:p=>{const d=defer();solves.push({...d,cells:[...p.cells]});return d.promise;},cancelRead(){},cancelSolve(){},
+  onChange(){},onStatus:m=>statuses.push(m),onEvent:e=>events.push(e.reason),autoSolve:()=>true,
+  isCurrent:f=>!hidden.has(f),sameScene:()=>true,now:()=>time});
+ const corners=[{x:0,y:0},{x:99,y:0},{x:99,y:99},{x:0,y:99}];
+ const frame=score=>({key:'same',rows:3,cols:3,width:100,height:100,corners,image:{width:100,height:100},sharpness:score,
+  quality:{score,cellPixels:30,cells:[{cell:1,score,contrast:100}]}});
+ const retried=()=>{const r=found();r.puzzle.cells[1]=value;
+  return {...r,targetCells:[1],blackLayout:[],entries:[{cell:1,kind:'value',text:String(value),confidence:99,evidence:'retry'}]};};
+ s.start();t.after(()=>s.stop());
+ return {s,reads,retries,solves,events,statuses,frame,found,retried,setTime(v){time=v;},hide:f=>hidden.add(f),show:f=>hidden.delete(f)};
+}
+const SOLVED={status:'unique',complete:true,solutions:[{cells:[1,2,3,2,3,1,3,1,2]}]};
+// Reads and solves the reading, then starts the retry from a clearer frame
+// 1.6 s later, which it returns.
+async function retryOfSolved(h){
+ h.s.observe(h.frame(20));h.s.observe(h.frame(20));
+ h.reads[0].resolve(h.found());await flush();
+ h.solves[0].resolve(SOLVED);await flush();
+ assert.equal(h.s.preview.result,SOLVED);
+ h.setTime(1600);const clearer=h.frame(60);h.s.observe(clearer);
+ assert.equal(h.retries.length,1,'a clearer frame starts the retry');
+ assert.equal(h.s.preview.result,SOLVED,'the reading keeps its solution while the retry runs');
+ return clearer;
+}
+// A merge that changes a clue withdraws the solution, which belonged to the
+// old clues, and the changed puzzle is solved again; a clue read as before
+// keeps it. Keeping the old result beside a changed clue let the camera
+// freeze a solution of other clues, and kept it through a no-solution answer.
+test('a merged retry that changes a clue withdraws the solution and solves the changed puzzle',async t=>{
+ const h=retrySession(t);await retryOfSolved(h);
+ h.retries[0].resolve(h.retried());await flush();
+ assert.equal(h.s.preview.found.puzzle.cells[1],3,'the retry was applied');
+ assert.equal(h.s.preview.result,null,'the old clues\' solution is withdrawn');
+ assert.equal(h.solves.length,2);assert.equal(h.solves[1].cells[1],3,'the changed puzzle is solved');
+ h.solves[1].resolve({status:'no-solution',complete:true,solutions:[]});await flush();
+ assert.equal(h.s.preview.result,null,'a clue that leaves no solution leaves none');
+ assert.equal(h.statuses.at(-1),'No solution to these readings — move closer or review the clues.');
+ const same=retrySession(t,{value:2});await retryOfSolved(same);
+ same.retries[0].resolve(same.retried());await flush();
+ assert.ok(same.events.includes('targeted-complete'));
+ assert.equal(same.s.preview.result,SOLVED,'a clue read as before keeps the solution');assert.equal(same.solves.length,1);
+});
+// A finished retry is applied only once both the reading's frame and the
+// retry's own verify, and is given up five seconds after it finished: a
+// retry whose frame stopped verifying while the reading's still does would
+// otherwise wait for ever, keeping the reading unsettled and every later
+// read and retry off.
+test('a finished retry waits for its own frame to verify, and is dropped five seconds after it finished',async t=>{
+ const h=retrySession(t),clearer=await retryOfSolved(h);
+ h.hide(clearer);h.retries[0].resolve(h.retried());await flush();
+ assert.equal(h.s.preview.found.puzzle.cells[1],2,'not applied while its frame does not verify');
+ for(const at of [3000,6000,6600]){h.setTime(at);h.s.validate();assert.equal(h.s.settled,false,`still waiting to be applied at ${at} ms`);}
+ h.setTime(6700);h.s.validate();
+ assert.ok(h.events.includes('retry-expired'));assert.ok(!h.events.includes('targeted-complete'));
+ assert.equal(h.s.settled,true);assert.equal(h.s.preview.found.puzzle.cells[1],2);
+ assert.equal(h.s.preview.result,SOLVED,'the reading keeps its solution');assert.equal(h.solves.length,1);
+ const later=retrySession(t),frame=await retryOfSolved(later);
+ later.hide(frame);later.retries[0].resolve(later.retried());await flush();
+ later.setTime(3000);later.s.validate();assert.equal(later.s.preview.found.puzzle.cells[1],2);
+ later.show(frame);later.setTime(3100);later.s.validate();
+ assert.equal(later.s.preview.found.puzzle.cells[1],3,'applied once its frame verifies, within the five seconds');
+ assert.ok(later.events.includes('targeted-complete'));
+});
