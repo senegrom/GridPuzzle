@@ -62,7 +62,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `app_review_regressions.cjs` | file download/import, camera-preference races, the frozen solution's Clear (tab order, a setting changed while frozen) and modal behaviour in the real UI | `live-acceptance` |
 | `browser_regressions.cjs` | generated OCR, perspective and review regressions on the production scanner | `build` |
 | `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
-| `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
+| `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it; `--live` measures the live camera's quick path (a lattice of dots, a grid to the photograph's path, is none in its column) | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
@@ -174,7 +174,7 @@ run until CI's job limit.
 - **Grid detection and layout:** `grid-lines.test.js` pins each rule of the line stage on synthetic warps (thin and light-grey lines, digit columns, a dropped line, a stray line, cage walls, the one-axis fallback); `grid-size-range.test.js` checks rounded large-grid pitches and rectangular counts through `estimateGrid` and `findGrid`; `scan-layout.test.js` and `live-camera-recovery.test.js` keep irrelevant hidden box values from blocking non-boxed families while invalid Sudoku and Killer boxes still block recognition.
 - **Service worker and updates:** `runtime-update.test.js` changes WASM, standard-library and lock-file bytes across builds and checks online and offline routing, the full Python installation, activation races and cache cleanup; `offline-retry.test.js` drives the production service worker with controlled network failures and its own deadline clock; `offline-lifecycle.test.js`, `offline-update.test.js` and `offline-core-choice.test.js` cover preparation, updates and which Tesseract core is stored; `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest coverage without downloading dependencies.
 - **Workers and robustness:** `worker-lifecycle.test.js` covers OCR and scan cancellation and worker cleanup; `solver-worker.test.js` keeps the solver worker's interpreter across Python exceptions and shares one load between a warm-up and the solve that follows; each module's own test file pins its individual fixes from the code reviews (for example `photo-flow.test.js` a captured still surviving page hide and Escape restoring focus, `capture-store.test.js` the saved-picture download reusing its object URL, and `controllers.test.js` a running task disabling Check and Hint).
-- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating) and the benchmark runners' checkpoints and failure handling; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, and `tests/test_corpus_source_layout.py` the collectors. None downloads images.
+- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating) and the benchmark runners' checkpoints and failure handling, the detection report with and without `--live` included; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, and `tests/test_corpus_source_layout.py` the collectors. None downloads images.
 
 ## Offline test method
 
@@ -206,14 +206,16 @@ detector's, which separates recognition from detection; `--engine webkit`
 switches browser. Results go to `browser-artifacts/corpus-benchmark.json`. It
 is a measurement, not a gate.
 
-`node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
+`node corpus/detect_benchmark.cjs [--set names] [--limit N] [--live]` runs the
 detector alone over every corpus image with corner ground truth, at the live
 camera's and the photo flow's sizes (640 and 1600 pixels), both through the
-still photograph's path (`findGrid`'s default; the live camera's
-`thorough: false` is not measured), and prints per set how many grids were
-found with the right size and corners within 3% of the diagonal, how many
-quads the line stage rejected, and the time per frame (`--engine webkit`
-switches browser);
+still photograph's path (`findGrid`'s default), and prints per set how many
+grids were found with the right size and corners within 3% of the diagonal,
+how many quads the line stage rejected, and the time per frame (`--engine
+webkit` switches browser). `--live` adds the live camera's own detection:
+`findGrid(image, { thorough: false })` on the same 640-pixel drawing, the
+size and path `web/live-camera.js` detects a frame with, as a third
+measurement per image and a third line per set ("live at 640");
 `web/GRID_DETECTION.md` explains the stages and records the measurements.
 
 Both benchmarks share one checkpointing runner. The report is saved before
@@ -226,10 +228,16 @@ attempted independently and never replaces the primary failure. The command
 exits nonzero for an incomplete run, any failed image or a failed clean-up, and
 a hard kill or lost disk access keeps only the last checkpoint. The detection
 benchmark writes a `formatVersion` 1 object rather than a bare array: per-image
-measurements sit in `results`, with a per-set, per-scale `summary`. The numeric
-`error` inside each scale is corner error; a top-level row `error` is an input
-or execution failure, excluded from the success metrics and counted as
-`failed`. Malformed targets and undecodable images count toward the per-set
-`--limit`; images without corner truth are excluded. The `scanner_settings`
-gate calls `detect_benchmark_regressions.cjs` for real browser PNG decoding and
-HTTP-server clean-up in both engines.
+measurements sit in `results` (`at640` and `at1600`), with a per-set, per-scale
+`summary`. With `--live` each result also has `live`, the summary has one more
+row per set, which says `thorough: false`, and the report's `live` field
+records what that column measured (`{ "scale": 640, "thorough": false }`);
+without it the report is as it was, its `options` saying `"live": false`. The
+numeric `error` inside each measurement is corner error; a top-level row
+`error` is an input or execution failure, excluded from the success metrics
+and counted as `failed` in every row of its set. Malformed targets and
+undecodable images count toward the per-set `--limit`; images without corner
+truth are excluded. The `scanner_settings` gate calls
+`detect_benchmark_regressions.cjs` for real browser PNG decoding and
+HTTP-server clean-up in both engines, with `--live`, on a lattice of dots that
+the photograph's path reads and the live camera's does not.
