@@ -1202,6 +1202,37 @@ for (const turns of [0, 1, 2, 3]) test(`a reading the app turned ${turns} quarte
   assert.equal(h.state.needsReview, turns === 2);
   assert.equal(h.solves(), turns === 2 ? 0 : 1);
 });
+// The automatic solve after a Read needs every term of its gate. Each reading
+// here is clean apart from one term, and its review stays with it, since the
+// solve would confirm the transcription and clear every flag (solveNow). For a
+// chosen type such as this Latin square nothing else holds back a flagged
+// clue: the scanner's needsReview does not count flagged cells.
+const gated = {
+  'a flagged clue': () => ({ ...cleanReading(), cellUncertain: [0] }),
+  'a flagged structural clue': () => ({ ...cleanReading(), cageUncertain: [1] }),
+  'no given at all': () => ({ ...cleanReading(), puzzle: makePuzzle('latinsquare', 2) }),
+};
+for (const [what, reading] of Object.entries(gated)) test(`a Read with ${what} is not solved automatically and keeps its review`, async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = true;
+  const found = reading(); h.setFound(found);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, false);
+  assert.deepEqual([...h.state.uncertain], found.cellUncertain);
+  assert.deepEqual([...h.state.cageUncertain], found.cageUncertain);
+  assert.equal(h.solves(), 0);
+});
+test('a clean Read is solved automatically only with automatic solving ticked', async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = false;
+  h.setFound(cleanReading());
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, false); assert.equal(h.state.uncertain.size, 0);
+  assert.equal(h.solves(), 0);
+  h.$('auto-solve').checked = true;
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.solves(), 1);
+});
 
 test('notes have one bounded session/backup contract without losing flags, pending evidence or Play', t => {
   const h = photoHarness(t), s = h.state; s.puzzle = makePuzzle('hidato', 2); s.puzzle.cells[0] = '#';
@@ -1244,6 +1275,38 @@ test('capture handoff retires prior diagnostic consent and uses the exact raw ph
   await h.$('camera').onclick();
   assert.equal(diag['image-toggle'].checked, false); assert.equal(diag.download.disabled, true);
   assert.equal(diag.image.src, undefined);
+});
+// Review captured clues hands the capture's own review to the editor, and to
+// the saved session: its flagged clues, its flagged structure (here every cage
+// of a Killer reading), its digits read on black cells (a Hidato reading) and
+// its notes. Without them the board would show nothing to check, and Solve's
+// confirmation would count no highlighted cell.
+const captures = {
+  'a Hidato reading with a digit on a black cell': () => ({ ...scanned(), rectified: canvas(200, 200) }),
+  'a Killer reading with every cage under review': () => cageWarnings(),
+};
+for (const [what, reading] of Object.entries(captures)) test(`Review captured clues copies the review of ${what} to the editor`, async t => {
+  const h = photoHarness(t), found = reading();
+  assert.ok(found.notes.length && (found.cellUncertain.length || found.cageUncertain.length));
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found: { ...found, needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.type, found.puzzle.type);
+  assert.deepEqual([...h.state.uncertain], found.cellUncertain);
+  assert.deepEqual([...h.state.cageUncertain], found.cageUncertain);
+  assert.deepEqual(h.state.blackReadings, found.blackReadings);
+  assert.deepEqual(h.state.notes, found.notes);
+  assert.equal(h.state.needsReview, true);
+  const reloaded = restoreSession(h.storage);
+  assert.deepEqual(reloaded.uncertain, found.cellUncertain);
+  assert.deepEqual(reloaded.cageUncertain, found.cageUncertain);
+  assert.deepEqual(reloaded.blackReadings, found.blackReadings);
+  assert.deepEqual(reloaded.notes, found.notes); assert.equal(reloaded.needsReview, true);
+});
+test('the captures above carry every field of a review: flagged clues, structure, black readings and notes', () => {
+  const [hidato, killer] = Object.values(captures).map(reading => reading());
+  assert.deepEqual(hidato.cellUncertain, [4]); assert.deepEqual(hidato.blackReadings, [{ cell: 4, value: 3 }]);
+  assert.equal(killer.cageUncertain.length, 81);
+  assert.ok(hidato.notes.length >= 2 && killer.notes.length === 8);
 });
 
 function readings(text = "3") {
