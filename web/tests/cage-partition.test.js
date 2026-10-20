@@ -156,13 +156,15 @@ test("a cage head's clue is not read as a digit in its value region", () => {
 test("a given printed in a cage head is read whole, though its top reaches beside its clue", () => {
   for (const style of ["inset", "thick"]) {
     // Centred, as a printed given is: from 0.24 to 0.72 of the cell, beside a
-    // clue reaching 0.34 (and in cell 9, under a wide clue it nearly touches).
-    // Cells 8 and 9 are both heads.
-    const marks = [[8, 20, 12, 27, 34], [8, 46, 24, 54, 72], [9, 14, 12, 70, 22], [9, 46, 24, 54, 72]];
+    // clue reaching 0.34 (in cell 9, under a wide clue it nearly touches; in
+    // cell 1, printed in two pieces, the upper one wholly above the cell's
+    // middle). Cells 1, 8 and 9 are heads.
+    const marks = [[1, 20, 12, 27, 34], [1, 46, 24, 54, 38], [1, 46, 41, 54, 72],
+      [8, 20, 12, 27, 34], [8, 46, 24, 54, 72], [9, 14, 12, 70, 22], [9, 46, 24, 54, 72]];
     const prepared = prepareScan(boardImage(style, marks, [["h", 1], ["v", 0]]), "kenken", 4, 4);
     assert.deepEqual(sorted(prepared.cageAreas).map((cells) => cells[0]), [0, 1, 8, 9], style);
     const read = prepared.entries.filter((e) => e.kind === "value").map(({ cell, y, h }) => [cell, y, h]);
-    assert.deepEqual(read, [[8, 224, 48], [9, 224, 48]], style);
+    assert.deepEqual(read, [[1, 24, 48], [8, 224, 48], [9, 224, 48]], style);
   }
 });
 test("cell value regions are unchanged outside cage boards", () => {
