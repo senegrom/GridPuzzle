@@ -1,12 +1,16 @@
 // One owner for task generations, deadlines, progress and cancellation UI.
-export function createTaskController({ $, scanner, status, onStop }) {
+// Deadlines run on `deadlines`, which app.js gives visible-time.js's: they
+// stop while the page is hidden, so that an app switch cannot run them out.
+// A deadline set with `wallClock` runs on setTimeout's clock instead.
+export function createTaskController({ $, scanner, status, onStop,
+  deadlines = { setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (handle) => clearTimeout(handle) } }) {
   let id = 0,
     busy = false,
     timer = null,
     deadline = null,
     started = 0;
   const clearDeadline = () => {
-    clearTimeout(deadline);
+    deadline?.();
     deadline = null;
   };
   const finish = () => {
@@ -42,9 +46,15 @@ export function createTaskController({ $, scanner, status, onStop }) {
     stop,
     finish,
     clearDeadline,
-    setDeadline(callback, ms) {
+    setDeadline(callback, ms, { wallClock = false } = {}) {
       clearDeadline();
-      deadline = setTimeout(callback, ms);
+      if (wallClock) {
+        const handle = setTimeout(callback, ms);
+        deadline = () => clearTimeout(handle);
+      } else {
+        const handle = deadlines.setTimer(callback, ms);
+        deadline = () => deadlines.clearTimer(handle);
+      }
     },
     begin() {
       stop();

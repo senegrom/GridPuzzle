@@ -164,6 +164,8 @@ The browser rejects malformed dimensions, boxes, Str8ts black metadata (explicit
 
 The 25×25 browser limit is a phone resource policy, not a native solver limit. Str8ts itself is limited to square 2×2 through 9×9 boards. A deadline/cancellation means unfinished, never unsatisfiable or unique.
 
+The deadlines that stop a stuck task (a Read's 120 seconds, an OCR job's and OCR loading's 90, image processing's and the solver runtime's load's 180) count only the time the page is visible (`visible-time.js`). iOS suspends a hidden page, its workers included, while the clock those deadlines ran on goes on, so a Read left running through an app switch or the lock screen used to fail on return with a message that blamed the photo or the connection; now they stop while the page is hidden and go on with the time they had left. A desktop browser keeps working in a hidden tab, where a stuck task is now stopped only once the page is visible again. The **Search limit** is the user's budget on the clock and keeps running while the page is hidden.
+
 ## Offline behaviour
 
 Offline requests are scoped to `/GridPuzzle/`. Root navigation maps to cached `index.html` even when a bookmark/share URL includes query parameters. Runtime assets live in one content-addressed cache keyed by SHA-256, and each build's asset list is stored separately, so an update reuses unchanged verified bytes instead of downloading the whole Pyodide/Tesseract bundle again. Every downloaded asset is digest-verified before it is stored.

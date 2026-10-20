@@ -193,6 +193,9 @@ const tasks = createTaskController({
   $,
   scanner,
   status,
+  // A Read's and a runtime load's deadlines count only the time the page is
+  // visible, as the scanner's own do (visible-time.js).
+  deadlines: scanner.deadlines,
   onStop: (wasBusy) => {
     // Settle private Check/Hint requests as well as terminating their worker.
     const cancel = cancelSolver;
@@ -1188,13 +1191,15 @@ function runSolver(onResult, { silent = false, onCancel = () => {} } = {}) {
           state.solverWarm = true;
           tasks.clearDeadline();
           const seconds = Number($("time-limit").value);
+          // The search limit is the user's budget on the clock, as before:
+          // a desktop browser goes on searching in a hidden tab.
           if (seconds > 0)
             tasks.setDeadline(() => {
               if (id === tasks.id)
                 stopTask(
                   "Search limit reached. Increase the limit to continue from a fresh search.",
                 );
-            }, seconds * 1000);
+            }, seconds * 1000, { wallClock: true });
         }
         return;
       }
