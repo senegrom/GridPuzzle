@@ -120,9 +120,10 @@ test("a cage clue on grey paper keeps its ink, and its paper and margin stay whi
 // A cage's clue sits at the top of its head cell (CAGE_LABEL_BOX). Its first
 // digit used to reach into the head's value region (from 0.16 of the cell
 // down), where all three readers agreed on it as a given digit with
-// confidence 90-99, flagged only "check cage". The head's value region now
-// drops ink lying wholly above the cell's middle (CAGE_CLUE_FLOOR), so a
-// given printed in a head is still read whole; other cells are unchanged.
+// confidence 90-99, flagged only "check cage". Unless substantial ink reaches
+// below the cell's middle, as a printed given's does, the head's value region
+// now drops the ink lying wholly above it (CAGE_CLUE_FLOOR), so a given printed
+// in a head is still read whole; other cells are unchanged.
 function boardImage(style, marks, borders = undefined) {
   const { g } = board({ style, borders });
   for (const [cell, x0, y0, x1, y1] of marks) {

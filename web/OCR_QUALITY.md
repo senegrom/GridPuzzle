@@ -178,8 +178,8 @@ KenKen board with at least two thick lines (the central 4% of the edge at most
 cell, from a crop binarized at the Otsu threshold of its clue box, in the
 atlas. Every cage
 stays under structural review ("check cage"), and an operator impossible for
-the cage's size still drops it with a note. A head cell's value region starts
-below its clue box, and every digit read on a cage board goes to digit review
+the cage's size still drops it with a note. A head cell's clue is not read as a
+digit of the cell, and every digit read on a cage board goes to digit review
 ("Digits on cage boards", below).
 
 The corpus gained a thick-bordered KenKen set for this (`janko-kenken-thick`).
@@ -231,22 +231,33 @@ answered "No solution to these clues" with nothing pointing at the digit. None
 of the corpus's 600 KenKen and Killer targets has a given, so every digit read
 on these boards is invented.
 
-Since 2026-10-19 the cage partition comes first, and a head cell's value region
-starts below its clue box; other cells keep theirs, and a digit printed below a
-head's clue is still read. A cage puzzle rarely prints a digit in its cells,
-and part of a clue can still reach a value region (a larger clue, a crop
-placed off the grid), so every digit read on a cage board goes to digit review
-(`cellUncertain`), with a note saying why. Saving a cage settles its structural
-review only; a digit's flag stays until the digit is checked.
+Since 2026-10-20 the cage partition comes first, and a head cell's value region
+is read as any cell's only when a substantial piece of ink (one `numberBounds`
+would take as a fragment) reaches below the cell's middle (`CAGE_CLUE_FLOOR`).
+Without one, every piece of ink lying wholly above the middle is dropped. The
+clue box ends above the middle, while a digit printed in the cell is centred
+and reaches below it, so a clue alone is not read as a digit, and a given
+printed under a clue is read as before, whole, even when the print breaks it in
+pieces. Other cells are unchanged. A first version (2026-10-19) started the
+head's value region at the bottom of the clue box instead; that cut the top
+third off such a given ("Givens in cage heads", below). A board read as `auto`
+and then taken for KenKen or Killer has no partition when its value regions are
+read, so this does not apply to it.
+
+A cage puzzle rarely prints a digit in its cells, and part of a clue can still
+reach below the middle (a larger clue, a crop placed off the grid), so every
+digit read on a cage board goes to digit review (`cellUncertain`), with a note
+saying why. Saving a cage settles its structural review only; a digit's flag
+stays until the digit is checked.
 
 The benchmark could not see these digits: up to `scoreVersion: 5` it counted
 the structural review as a flag on the digits it covers. `scoreVersion: 6`
 (`corpus/SOURCES.md`) flags a digit only where the photo flow's digit review
 visits it. The cage sets, Futoshiki, the sum-only Killer set added for this
 (`killersudoku/generated-render-sum-only`, `corpus/SOURCES.md`) and Sudoku's
-generated renders as a control were read on master ce0ea11 and with the change,
-in both engines (2026-10-19), all scored with version 6; the version 5 column
-scores master's readings the old way. Clues right counts cages on the cage
+generated renders as a control were read on master ce0ea11 (2026-10-19) and
+with the change (2026-10-20), in both engines, all scored with version 6; the
+version 5 column scores master's readings the old way. Clues right counts cages on the cage
 sets, which have no other clues.
 
 | set | engine | clues right, master → change | unflagged: master v5 / master v6 / change | invented | perfect |
@@ -639,9 +650,9 @@ half-turn check on 2026-10-16 (and again, identically, with its final rule on
 | all | 3,978 | 119,782 / 149,672 | 214 | 1,603 | 3,582 | 455 | 5 |
 
 The five failures are the Kakuro photo renders that read no clues.
-`scoreVersion: 6` re-scores the four cage rows and Futoshiki's, with the
-readings of 2026-10-19 before and after the value-region change: "Digits on
-cage boards". Scored that way, master's four cage rows held 210, 148, 2 and 3
+`scoreVersion: 6` re-scores the four cage rows and Futoshiki's, with readings
+before and after the change to cage heads' value regions (2026-10-19/20):
+"Digits on cage boards". Scored that way, master's four cage rows held 210, 148, 2 and 3
 unflagged errors in Chromium.
 
 Read through the import, the 84 changed images have 33 fewer clues right and 2
