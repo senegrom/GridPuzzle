@@ -43,6 +43,35 @@ export function detectBlackCells(g, w, h, rows, cols) {
   );
 }
 
+// Clear each 8-connected piece of a region's ink (as numberBounds joins it)
+// that lies wholly above row `floor` of the region.
+function clearInkAbove(mask, w, h, floor) {
+  const seen = new Uint8Array(mask.length), stack = [], piece = [];
+  for (let start = 0; start < Math.min(h, floor) * w; start++) {
+    if (!mask[start] || seen[start]) continue;
+    let maxy = 0;
+    piece.length = 0;
+    seen[start] = 1;
+    stack.push(start);
+    while (stack.length) {
+      const at = stack.pop(), y = Math.floor(at / w), x = at % w;
+      piece.push(at);
+      maxy = Math.max(maxy, y);
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if ((!dx && !dy) || xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const next = yy * w + xx;
+          if (mask[next] && !seen[next]) {
+            seen[next] = 1;
+            stack.push(next);
+          }
+        }
+    }
+    if (maxy < floor) for (const at of piece) mask[at] = 0;
+  }
+}
+
 function numberBounds(mask, w, h) {
   const seen = new Uint8Array(mask.length),
     stack = [],
@@ -208,8 +237,9 @@ export function normalizeScanContrast(g) {
 // dark grid lines elsewhere cannot hide a light digit. Preserve original gray
 // pixels for OCR; local thresholding supplies geometry, never a guessed value.
 // `paperFloor` is the lightest a cell's paper may be too dark to be paper:
-// 150 on a bright page, lower on a dim photograph (see prepareScan).
-function lightCellMark(g, width, x, y, w, h, paperFloor = 150) {
+// 150 on a bright page, lower on a dim photograph (see prepareScan). Ink lying
+// wholly above row `clueFloor` is a cage's clue (see prepareScan), not a mark.
+function lightCellMark(g, width, x, y, w, h, paperFloor = 150, clueFloor = 0) {
   const pixels = new Uint8Array(w * h), histogram = new Uint32Array(256);
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
     const value = g[(y + yy) * width + x + xx];
@@ -225,6 +255,7 @@ function lightCellMark(g, width, x, y, w, h, paperFloor = 150) {
   if (paper < paperFloor || contrast < 16) return null; // Shaded panel, flat paper or shallow noise.
   const local = thresholdGray(pixels, w, h, Math.max(9, Math.round(h * .55)),
     Math.max(4, contrast * .15), 256);
+  if (clueFloor > 0) clearInkAbove(local, w, h, clueFloor);
   let minx = w, miny = h, maxx = -1, maxy = -1, area = 0;
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++)
     if (local[yy * w + xx]) {
@@ -354,8 +385,15 @@ export function cagePartition(mask, g, w, h, rows, cols, type) {
 }
 // Where a cage's clue is printed, as fractions of its head (top-left) cell
 // ([x0, y0, x1, y1]): inside the dashed outline for inset style, in the corner
-// for thick style. The head cell's value region starts below it.
+// for thick style.
 export const CAGE_LABEL_BOX = { inset: [0.11, 0.12, 0.8, 0.44], thick: [0.05, 0.04, 0.75, 0.4] };
+// The lower part of a head's clue reaches into the head cell's value region
+// (from 0.16 of the cell down). Read there, its first digit became a confident
+// given that only "check cage" covered. A digit printed in the cell is centred
+// and reaches below the cell's middle, while the clue box ends above it, so
+// the head's value region drops ink lying wholly above the middle: the clue
+// is not read as a digit, and a given printed under it is read whole.
+export const CAGE_CLUE_FLOOR = 0.5;
 
 export function prepareScan(image, type, rows, cols) {
   const w = image.width,
@@ -385,7 +423,10 @@ export function prepareScan(image, type, rows, cols) {
     return darkest;
   };
 
-  function extractRegion(kind, cell, x, y, rw, rh, invert = false, other = null, bounds = null) {
+  // `clueFloor` (a fraction of the cell, for a cage's head): ink lying wholly
+  // above it is the cage's clue and is not read (CAGE_CLUE_FLOOR).
+  function extractRegion(kind, cell, x, y, rw, rh, invert = false, other = null, bounds = null, clueFloor = null) {
+    const cellTop = bounds ? bounds.y : Math.floor(cell / cols) * ch, cellHeight = bounds ? bounds.h : ch;
     if (bounds) {
       const ox = (cell % cols) * cw, oy = Math.floor(cell / cols) * ch;
       x = bounds.x + (x - ox) / cw * bounds.w;
@@ -396,6 +437,8 @@ export function prepareScan(image, type, rows, cols) {
     y = Math.max(0, Math.round(y));
     rw = Math.max(1, Math.min(w - x, Math.round(rw)));
     rh = Math.max(1, Math.min(h - y, Math.round(rh)));
+    // The floor as a row of this region (0: nothing is dropped).
+    const floor = clueFloor === null ? 0 : Math.max(0, Math.round(cellTop + clueFloor * cellHeight) - y);
     const local = new Uint8Array(rw * rh);
     let recoveredMark = false, glyphCount = 1, segments;
     let minx = rw,
@@ -419,6 +462,7 @@ export function prepareScan(image, type, rows, cols) {
       }
     // Filter speckle without cutting a multi-digit clue into a single glyph.
     if (["value", "blackvalue"].includes(kind)) {
+      if (floor > 0) clearInkAbove(local, rw, rh, floor);
       let part = numberBounds(local, rw, rh);
       recoveredMark = Boolean(part?.recoveredMark);
       if (!part && kind === "blackvalue") {
@@ -441,8 +485,8 @@ export function prepareScan(image, type, rows, cols) {
         }
       }
       if (!part && kind === "value") {
-        const recovered = lightCellMark(g, w, x, y, rw, rh, paperFloor) ??
-          (colourfulInk(image.data, w, x, y, rw, rh) ? lightCellMark(darkestChannel(), w, x, y, rw, rh, paperFloor) : null);
+        const recovered = lightCellMark(g, w, x, y, rw, rh, paperFloor, floor) ??
+          (colourfulInk(image.data, w, x, y, rw, rh) ? lightCellMark(darkestChannel(), w, x, y, rw, rh, paperFloor, floor) : null);
         if (recovered) {
           part = recovered.part;
           recoveredMark = true;
@@ -513,11 +557,11 @@ export function prepareScan(image, type, rows, cols) {
     labelBox = CAGE_LABEL_BOX[style];
     for (const cells of areas) heads.add(Math.min(...cells));
   }
-  function region(kind, cell, x, y, rw, rh, invert = false, other = null) {
+  function region(kind, cell, x, y, rw, rh, invert = false, other = null, clueFloor = null) {
     const args = [kind, cell, x, y, rw, rh, invert, other],
-      original = extractRegion(...args),
+      original = extractRegion(...args, null, clueFloor),
       bounds = ["value", "blackvalue"].includes(kind) ? cellBounds?.[cell] : null,
-      refined = bounds ? extractRegion(...args, bounds) : null,
+      refined = bounds ? extractRegion(...args, bounds, clueFloor) : null,
       a = original?.entry, b = refined?.entry;
     // A better boundary is not a reason to disturb an already complete crop.
     // Only adopt newly found ink, or a strict superset of the original glyph's
@@ -565,19 +609,19 @@ export function prepareScan(image, type, rows, cols) {
             true,
           );
         }
-      } else {
-        // A cage head's value region starts below its clue box: cut through
-        // the clue, it read the clue's first digit as a confident given.
-        const top = heads.has(i) ? Math.max(0.16, labelBox[3]) : 0.16;
+      } else
         region(
           "value",
           i,
           (c + 0.14) * cw,
-          (r + top) * ch,
+          (r + 0.16) * ch,
           0.72 * cw,
-          (0.88 - top) * ch,
+          0.72 * ch,
+          false,
+          null,
+          // A cage head's clue is not read as a digit (CAGE_CLUE_FLOOR).
+          heads.has(i) ? CAGE_CLUE_FLOOR : null,
         );
-      }
       // Structural probes are expensive and can turn a shadow into false
       // cage/sign evidence. Once a true solid block is present, the black-cell
       // families provide the useful structural signal instead.

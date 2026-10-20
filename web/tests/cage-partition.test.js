@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cagePartition, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
+import { cagePartition, CAGE_CLUE_FLOOR, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
 import { cageLabelCrop, puzzleFromReadings } from "../scanner.js";
 
 // A 4 x 4 board of 100 px cells: thin grid lines, then cage borders in the chosen style.
@@ -121,10 +121,10 @@ test("a cage clue on grey paper keeps its ink, and its paper and margin stay whi
 // digit used to reach into the head's value region (from 0.16 of the cell
 // down), where all three readers agreed on it as a given digit with
 // confidence 90-99, flagged only "check cage". The head's value region now
-// starts below the clue box; other cells keep theirs, and a digit printed
-// below a head's clue is still read.
-function boardImage(style, marks) {
-  const { g } = board({ style });
+// drops ink lying wholly above the cell's middle (CAGE_CLUE_FLOOR), so a
+// given printed in a head is still read whole; other cells are unchanged.
+function boardImage(style, marks, borders = undefined) {
+  const { g } = board({ style, borders });
   for (const [cell, x0, y0, x1, y1] of marks) {
     const left = (cell % 4) * 100, top = Math.floor(cell / 4) * 100;
     for (let y = top + y0; y < top + y1; y++) for (let x = left + x0; x < left + x1; x++) g[y * 400 + x] = 20;
@@ -133,22 +133,36 @@ function boardImage(style, marks) {
   g.forEach((v, i) => { data[4 * i] = data[4 * i + 1] = data[4 * i + 2] = v; data[4 * i + 3] = 255; });
   return { width: 400, height: 400, data };
 }
-test("a cage head's value region stays below its clue, so the clue's digits are not read as a given", () => {
+test("a cage head's clue is not read as a digit in its value region", () => {
   for (const style of ["inset", "thick"]) {
     const [, y0, , y1] = CAGE_LABEL_BOX[style];
     // A clue glyph in each head (cells 0 and 8), 22 px tall, reaching 0.34
-    // of the cell as the corpus's clues do, and a given in cell 5.
-    const clue = (cell) => [cell, 20, 12, 27, 34], given = [5, 45, 25, 53, 75];
-    const prepared = prepareScan(boardImage(style, [clue(0), clue(8), given]), "kenken", 4, 4);
+    // of the cell as the corpus's clues do, and a given in cell 5. Cell 0's
+    // clue lies wholly inside the value region, which only the faint-mark
+    // recovery would otherwise pick up.
+    const clue = (cell, top = 12) => [cell, 20, top, 27, top + 22], given = [5, 45, 25, 53, 75];
+    const prepared = prepareScan(boardImage(style, [clue(0, 18), clue(8), given]), "kenken", 4, 4);
     const values = prepared.entries.filter((e) => e.kind === "value");
     assert.deepEqual(values.map((e) => e.cell), [5], style);
     assert.deepEqual(prepared.unreadCells, [], style);
-    assert.ok(y0 <= 0.12 && y1 >= 0.34, `${style}: the clue lies in the clue box`);
+    assert.ok(y0 <= 0.12 && y1 >= 0.4 && y1 <= CAGE_CLUE_FLOOR, `${style}: the clues lie in the clue box, above the floor`);
     // A digit printed below the clue box of a head is still read.
     const below = prepareScan(boardImage(style, [clue(8), [8, 45, 50, 53, 85]]), "kenken", 4, 4);
     const read = below.entries.filter((e) => e.kind === "value");
     assert.deepEqual(read.map((e) => e.cell), [8], style);
-    assert.ok(read[0].y >= 200 + y1 * 100 && read[0].y <= 251, `${style}: the mark at y 250, not the clue`);
+    assert.equal(read[0].y, 250, `${style}: the mark at y 250, not the clue`);
+  }
+});
+test("a given printed in a cage head is read whole, though its top reaches beside its clue", () => {
+  for (const style of ["inset", "thick"]) {
+    // Centred, as a printed given is: from 0.24 to 0.72 of the cell, beside a
+    // clue reaching 0.34 (and in cell 9, under a wide clue it nearly touches).
+    // Cells 8 and 9 are both heads.
+    const marks = [[8, 20, 12, 27, 34], [8, 46, 24, 54, 72], [9, 14, 12, 70, 22], [9, 46, 24, 54, 72]];
+    const prepared = prepareScan(boardImage(style, marks, [["h", 1], ["v", 0]]), "kenken", 4, 4);
+    assert.deepEqual(sorted(prepared.cageAreas).map((cells) => cells[0]), [0, 1, 8, 9], style);
+    const read = prepared.entries.filter((e) => e.kind === "value").map(({ cell, y, h }) => [cell, y, h]);
+    assert.deepEqual(read, [[8, 224, 48], [9, 224, 48]], style);
   }
 });
 test("cell value regions are unchanged outside cage boards", () => {
