@@ -74,6 +74,16 @@ test("a deadline set while the page is visible resumes those a missed event left
   c.tick(2000); assert.equal(fired, 1);
 });
 
+// Every new deadline and every visibility change resumes the page's stopped
+// deadlines, so one that fired must have left them: it would fire again.
+test("a deadline that fired stays fired when later deadlines are set or the page is hidden and shown", (t) => {
+  const c = clock(t), p = page(), timers = visibleTimers({ now: c.now, page: p });
+  let fired = 0;
+  timers.setTimer(() => fired++, 1000); c.tick(1000); assert.equal(fired, 1);
+  for (let i = 0; i < 3; i++) { timers.setTimer(() => {}, 5000); c.tick(1000); p.hide(); p.show(); c.tick(1000); }
+  c.tick(60000); assert.equal(fired, 1);
+});
+
 function tasks(t, p) {
   const nodes = new Map(), $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, { setAttribute() {}, hidden: false, disabled: false, textContent: "" });
@@ -155,6 +165,19 @@ test("an OCR job stuck while the page is visible still times out after 90 s of v
   assert.equal(h.workers[0].messages.some((m) => m.cancel === true), false);
   h.c.tick(1); await failed;
   assert.ok(h.workers[0].messages.some((m) => m.cancel === true), "the stuck host is told to stop");
+});
+
+// A cancelled job's recognition call gets 2 s to answer before the engine is
+// replaced; a warm engine must not be thrown away for an app switch.
+test("a cancelled OCR job's 2 s bound counts visible time: an app switch does not replace the engine", async (t) => {
+  const p = page(), h = ocr(t, p), job = h.runtime.recognize({ png: "crop" });
+  h.c.tick(500); h.runtime.cancel();
+  await assert.rejects(job, { name: "AbortError" });
+  h.c.tick(500); p.hide(); h.c.tick(60000); p.show();
+  assert.equal(h.workers.length, 1); assert.notEqual(h.workers[0].terminated, true, "not replaced on return");
+  h.c.tick(1499); assert.equal(h.workers[0].messages.some((m) => m.cancel === true), false);
+  h.c.tick(1);
+  assert.ok(h.workers[0].messages.some((m) => m.cancel === true), "a call stuck while visible is still stopped after 2 s");
 });
 
 test("loading OCR through an app switch does not time out on return", (t) => {
