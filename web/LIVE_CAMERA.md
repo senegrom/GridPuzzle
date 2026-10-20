@@ -68,8 +68,9 @@ the turn named in its first note, and waits for review like every capture, a
 quarter turn too; Undo brings the live reading back as the board showed it.
 Read the way it lies, the live reading keeps only its own warnings again, as
 Read puzzle leaves a photograph read the way it lies. A check that fails, or
-that an edit, Stop, Undo or another task stops (Solve, Check and Hint wait
-while it runs), leaves every digit highlighted under the note, which names
+that an edit, Stop or another task stops (Solve, Check and Hint wait while it
+runs; Undo takes the capture back off the board), leaves every digit
+highlighted under the note, which names
 Adjust scan → Read puzzle as the way to check the turn ("Live captures" in
 [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
