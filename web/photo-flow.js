@@ -609,6 +609,11 @@ export function setupPhotoFlow({
       $("photo-panel").hidden = true;
       setLayout(found.puzzle);
       state.puzzleSource = state.photoSource = getJobId();
+      // A pending box suggestion that a boxed capture was read with is decided
+      // when the user confirms the capture's reading (settleProposal), as when
+      // a photograph's reading came with it.
+      if (["sudoku", "killersudoku"].includes(found.puzzle.type) && sameLayout(proposedBoxLayout, currentLayout()))
+        proposalSource = state.puzzleSource;
       // The stopped camera no longer owns diagnostics. Begin a fresh context
       // for the exact unannotated capture, clearing any earlier image consent.
       diagnostics.begin("photo", { ...found.puzzle, autoSolve: $("auto-solve").checked });
