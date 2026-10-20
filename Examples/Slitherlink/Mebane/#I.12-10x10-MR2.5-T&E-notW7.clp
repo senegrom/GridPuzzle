@@ -1,4 +1,4 @@
-;Mellon rating = 2.5
+Mellon rating = 2.5
 
 
 (solve 

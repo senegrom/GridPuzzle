@@ -369,9 +369,10 @@ def test_every_csp_rules_example_gives_the_corpus_runners_grid():
 
 
 def test_cli_solves_a_mebane_slitherlink_file_with_its_rating_header():
+    # The file as distributed: its rating line above the solve form is no comment.
     puzzle = "Examples/Slitherlink/Mebane/#I.0-5x5-W1-L30.clp"
     header = (_ROOT / puzzle).read_text(encoding="utf-8").splitlines()[0]
-    assert header.endswith("Mellon rating = 1")
+    assert header == "Mellon rating = 1"
 
     result = _gridpuzzle("--file", puzzle, "--max-solutions", "1")
 

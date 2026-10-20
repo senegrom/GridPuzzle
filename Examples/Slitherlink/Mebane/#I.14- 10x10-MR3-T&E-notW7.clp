@@ -1,4 +1,4 @@
-;Mellon rating = 3
+Mellon rating = 3
 
 
 (solve 
