@@ -232,7 +232,13 @@ and the photograph finds 1056.
 ## Measured
 
 Good detections (grid found, right size, corners within 3% of the diagonal)
-at the live scale, per corpus set, before and after the change:
+per corpus set, before and after the change, at 640 pixels (the live camera's
+size) through the still photograph's path, `findGrid`'s default
+(`thorough`), which `corpus/detect_benchmark.cjs` runs. The live camera
+detects with `thorough: false`, without the photograph's extra readings (see
+"A live frame and a photograph"), so it finds fewer grids; with no dot lattice
+it finds no Slitherlink render (none of the 111 at 640 pixels, where this path
+finds 85).
 
 | Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase | + polarity, candidates, runs, dots | + pitch refinement, three mechanisms removed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -327,8 +333,10 @@ map was a second full line stage on every failed estimate.
   farther), and it reaches the live camera and `prepareScan`'s lattice, so it
   is left for a change of its own.
 - `corpus/detect_benchmark.cjs` reproduces the measurement over every corpus
-  image with corner ground truth, at both scales, in a few minutes; it is a
-  measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above
+  image with corner ground truth, at 640 and 1600 pixels through the still
+  photograph's path, in a few minutes; it is a measurement, not a gate, and
+  it does not measure the live camera's `thorough: false` path.
+  `web/tests/grid-lines.test.js` pins each rule above
   on synthetic warps, and `web/tests/grid-size-range.test.js` checks the
   lattice stage and complete detection for every size from 3 to 25 at three
   stroke widths, plus rectangular grids both ways, because pixel-rounded gaps

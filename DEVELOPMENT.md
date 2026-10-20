@@ -197,10 +197,14 @@ setup-project action and its pins. It includes:
 - existing supported example corpora;
 - a 7-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: one job each for the first three, which finish in seconds, and four deterministic shards for Slitherlink, with one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
 - the slow pandiagonal Latin-square corpus;
-- full parallel/sequential enumeration equivalence;
+- the slow deterministic checks: full parallel/sequential enumeration
+  equivalence, the 4x4 and 6x6 Sudoku enumerations, a blank 32x32 Slitherlink
+  search and the 100x100 Sudoku propagation test.
 
-The generated 49x49 through 100x100 propagation tests and broader bounded
-technique-soundness states now complete quickly enough to run on every push.
+The generated 49x49 through 81x81 propagation tests and broader bounded
+technique-soundness states now complete quickly enough to run on every push;
+the 100x100 case (17 s of the bounded suite on 2026-09-24) is marked `slow`
+and runs in the slow deterministic checks.
 
 Corpus reports distinguish:
 

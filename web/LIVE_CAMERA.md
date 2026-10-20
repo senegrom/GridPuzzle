@@ -303,8 +303,10 @@ pixels; detection keeps its 640-pixel budget.
 
 Each read stays anchored to its captured pixels, and verification compares with
 that anchor, never with a chain of drifting successor frames; background pixels
-and timers are not the authority for identifying the puzzle. One current-frame
-verification cache is cleared on every camera tick. The fitted corners must
+and timers are not the authority for identifying the puzzle. No verification
+result is cached across camera ticks: each worker operation computes the
+frame's grayscale and integral image once for all the anchors it checks. The
+fitted corners must
 stay within 16 pixels of where the anchor last matched, so a grid that jumps
 further cannot be found by verification alone. The next detection finds it:
 when an anchor operation matches a retained anchor at the new detection, it
@@ -697,8 +699,9 @@ region must match independently. Structural strips keep their measured ink
 contrast instead of stretching thin grid lines to black, and a smaller change
 budget preserves small constraints without turning registration jitter into
 constant rereading. Labels, inequality signs, cage edges and both ink
-polarities all take part; unchanged solved scenes keep their battery-saving
-backoff.
+polarities all take part; an unchanged settled reading keeps the 250 ms
+backoff (see "Frame scheduling and painting"), and a solved one freezes, after
+which nothing is sampled until Clear.
 
 When two signatures are compared, the polarity and the contrast stretch come
 from the reference region and apply to both, so they cannot flip between two

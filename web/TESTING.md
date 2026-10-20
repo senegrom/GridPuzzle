@@ -67,7 +67,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
-| `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking | `live-acceptance` |
+| `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it; where bitmaps are decided, a frame whose bitmap reads back transparent and one whose bitmap is 1 × 1 are each lost alone (the reading stays, read once, on bitmaps), also right after the change | `live-acceptance` |
 | `live_recovery_regressions.cjs` | degraded-to-clear automatic recovery of one printed cell with nothing injected | `live-acceptance` |
 | `live_soak_regressions.cjs` | twenty camera sessions leave no workers, timers, buffers or open ImageBitmaps behind (every bitmap transferred to a tracking worker or closed) | `live-acceptance` |
@@ -86,11 +86,12 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `solver_update_regressions.cjs` | a two-tab service-worker update while an old solver worker is still initializing | `build` |
 | `structural_capture_regressions.cjs` | changed cage labels, walls and signs invalidate the live view (a frozen solution after Clear); pictures are owned across tabs | inside `review_safety` |
 
-Two suites depend on an earlier step in the same job: `recognition_segments`
+Three suites depend on an earlier step in the same job: `recognition_segments`
 and `scan_input` compare against `browser-artifacts/ocr-quality.json`, which
 `ocr_quality` writes (run alone, they stop with a message saying so), and
-`live_motion` and `external_replay` need `live-fixtures/` from
-`scripts/fetch_live_fixtures.py`.
+`external_replay` needs `live-fixtures/` from `scripts/fetch_live_fixtures.py`.
+`live_motion` tracks those pictures too, but only when `live-fixtures/` is
+there: without it, it skips that part without a word and passes on the rest.
 
 ### Live-camera suite timing
 
@@ -133,7 +134,13 @@ later still: a solve with the box as installed, two page loads, a solve on a
 cold interpreter and the three-second wait. Without its first solve it took
 5.3 to 9.5 s in three local Chromium runs (2026-10-08), where the whole suite
 took 65 to 99 s; with it, 7.2 to 10.8 s in three runs whose whole suite took
-68 to 86 s.
+68 to 86 s. Two phases came with it: "viewfinder layers", the first, which
+starts the camera on a phone, a tablet and a desktop screen to check that the
+canvas and the video share one box, and "live capture with automatic
+solving off", after "320 px", a live capture that does not freeze. In run
+39142492063 (2026-10-18) they took 0.7 and 1.6 s in Chromium and 20.9 and
+10.2 s in WebKit, of 69.6 and 205.0 s in all. `web/tests/suite-docs.test.js`
+fails when this section does not name a phase the suite times.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
@@ -198,9 +205,12 @@ is a measurement, not a gate.
 
 `node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
 detector alone over every corpus image with corner ground truth, at the live
-and photograph scales, and prints per set how many grids were found with the
-right size and corners within 3% of the diagonal, how many quads the line
-stage rejected, and the time per frame (`--engine webkit` switches browser);
+camera's and the photo flow's sizes (640 and 1600 pixels), both through the
+still photograph's path (`findGrid`'s default; the live camera's
+`thorough: false` is not measured), and prints per set how many grids were
+found with the right size and corners within 3% of the diagonal, how many
+quads the line stage rejected, and the time per frame (`--engine webkit`
+switches browser);
 `web/GRID_DETECTION.md` explains the stages and records the measurements.
 
 Both benchmarks share one checkpointing runner. The report is saved before
