@@ -1248,7 +1248,10 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   verified frame, and a pending cancellable solver stub
   isolates retention from repeated-search backoff. It also measures
   static/self and translated-anchor tracking on the twelve Lexski images, which
-  is tracking coverage, not detection or digit accuracy.
+  is tracking coverage, not detection or digit accuracy. Those come from
+  `live-fixtures/` (see "External pictures"); without it the suite says in its
+  log that it skips them, records `corpus: { skipped: ... }` in
+  `live-motion.json` and passes on the rest.
 - `live_recovery_regressions.cjs` blurs one printed clue to simulate lost focus
   (a Gaussian of 2.5 px, only where no structural strip of the content
   comparison samples) and makes it clearer (1 px) in the next phase, through the

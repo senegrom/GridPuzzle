@@ -91,7 +91,10 @@ and `scan_input` compare against `browser-artifacts/ocr-quality.json`, which
 `ocr_quality` writes (run alone, they stop with a message saying so), and
 `external_replay` needs `live-fixtures/` from `scripts/fetch_live_fixtures.py`.
 `live_motion` tracks those pictures too, but only when `live-fixtures/` is
-there: without it, it skips that part without a word and passes on the rest.
+there: without it, it skips that part, says so in its log and in its report
+(`corpus: { skipped: "no live-fixtures/fixtures.json" }` in
+`live-motion.json`) and passes on the rest. `web/tests/live-motion-pictures.test.js`
+covers both cases without a browser.
 
 ### Live-camera suite timing
 
