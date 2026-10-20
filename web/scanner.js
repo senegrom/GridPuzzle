@@ -341,8 +341,8 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
   cageDigits.forEach((i) => uncertain.add(i));
   if (cageDigits.length)
     notes.push(cageDigits.length === 1
-      ? "1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Clear it if it is not printed in the cell."
-      : `${cageDigits.length} highlighted digits were read in cells of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Clear each one that is not printed in its cell.`);
+      ? "1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check it against the photo, and clear it if it is not printed in the cell."
+      : `${cageDigits.length} highlighted digits were read in cells of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check each against the photo, and clear any that is not printed in its cell.`);
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
     // two cells go to structural review (the cage channel), not digit review,

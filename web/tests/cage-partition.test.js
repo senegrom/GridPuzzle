@@ -185,10 +185,10 @@ test("every digit read on a cage board goes to digit review, with a note; elsewh
     const one = read(type, [value(0, "1"), ...labels], { cageAreas: rowsAsCages });
     assert.equal(one.puzzle.cells[0], 1, type);
     assert.deepEqual(one.cellUncertain, [0], type);
-    assert.ok(one.notes.includes("1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Clear it if it is not printed in the cell."), type);
+    assert.ok(one.notes.includes("1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check it against the photo, and clear it if it is not printed in the cell."), type);
     const two = read(type, [value(0, "1"), value(9, "3"), ...labels], { cageAreas: rowsAsCages });
     assert.deepEqual([...two.cellUncertain].sort((a, b) => a - b), [0, 9], type);
-    assert.ok(two.notes.some((note) => note.startsWith("2 highlighted digits were read in cells of this cage puzzle.")), type);
+    assert.ok(two.notes.includes("2 highlighted digits were read in cells of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check each against the photo, and clear any that is not printed in its cell."), type);
     // The digit's flag is digit review's own: the cage review covers the cell too.
     assert.ok(two.cageUncertain.includes(0) && two.uncertain.includes(0), type);
     const none = read(type, labels, { cageAreas: rowsAsCages });
