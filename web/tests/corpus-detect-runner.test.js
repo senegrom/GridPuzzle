@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
-const { runDetectionBenchmark, items: discover, parseOptions } = createRequire(import.meta.url)("../../corpus/detect_benchmark.cjs");
+const { runDetectionBenchmark, items: discover, parseOptions, LIVE } = createRequire(import.meta.url)("../../corpus/detect_benchmark.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function harness(t, faults = {}, args = []) {
@@ -136,6 +136,14 @@ test("invalid detection command options fail explicitly", () => {
   for (const args of [["--limit", "-1"], ["--limit", "1.2"], ["--engine", "unknown"], ["--out"], ["--unknown", "1"],
     ["--live", "true"], ["--set", "--live"], ["live"]])
     assert.throws(() => parseOptions(args));
+});
+test("--live measures at the size and in the way web/live-camera.js detects a frame", () => {
+  // locate(): a copy of the frame at most LIVE.scale pixels on its long side,
+  // detected with { thorough: false }. Change both together.
+  const camera = fs.readFileSync(new URL("../live-camera.js", import.meta.url), "utf8");
+  assert.deepEqual(LIVE, { scale: 640, thorough: false });
+  assert.match(camera, new RegExp(`scale = Math\\.min\\(1, ${LIVE.scale} / Math\\.max\\(image\\.width, image\\.height\\)\\)`));
+  assert.match(camera, /detector\.detect\(small, \{ thorough: false\b/);
 });
 test("--live is a flag without a value, off by default", () => {
   assert.equal(parseOptions([]).live, false);
