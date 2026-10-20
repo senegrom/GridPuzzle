@@ -63,10 +63,11 @@ photograph ("Checking which way up the captured picture is…"). A reading taken
 turned replaces the live one, with the turn named in its first note, and waits
 for review like every capture, a quarter turn too; Undo brings the live
 reading back. Read the way it lies, failed, or stopped by an edit, Solve or
-Stop, the check leaves the live reading as it was handed over. If the detected grid contradicts the selected rules (a
-9 × 6 board while Sudoku is selected, a 12 × 12 Str8ts), the outline is shown
-with the reason and no cell overlay is attempted until the type or the grid
-settings change.
+Stop, the check leaves the live reading as it was handed over ("Live
+captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
+detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
+selected, a 12 × 12 Str8ts), the outline is shown with the reason and no cell
+overlay is attempted until the type or the grid settings change.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
