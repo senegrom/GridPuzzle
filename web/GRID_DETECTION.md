@@ -239,7 +239,9 @@ size) through the still photograph's path, `findGrid`'s default
 detects with `thorough: false`, without the photograph's extra readings (see
 "A live frame and a photograph"), so it finds fewer grids; with no dot lattice
 it finds no Slitherlink render (none of the 111 at 640 pixels, where this path
-finds 85). The benchmark's `--live` measures that path as well.
+finds 85). The benchmark's `--live` measures that path as well; on 2026-10-20
+it found none of the 111 (31 quads without a lattice, 80 nothing), where the
+photograph's path found 85 at 640 and 91 at 1600 pixels.
 
 | Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase | + polarity, candidates, runs, dots | + pitch refinement, three mechanisms removed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

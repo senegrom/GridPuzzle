@@ -211,8 +211,8 @@ detector alone over every corpus image with corner ground truth, at the live
 camera's and the photo flow's sizes (640 and 1600 pixels), both through the
 still photograph's path (`findGrid`'s default), and prints per set how many
 grids were found with the right size and corners within 3% of the diagonal,
-how many quads the line stage rejected, and the time per frame (`--engine
-webkit` switches browser). `--live` adds the live camera's own detection:
+how many quads the line stage rejected, and the time per frame
+(`--engine webkit` switches browser). `--live` adds the live camera's own detection:
 `findGrid(image, { thorough: false })` on the same 640-pixel drawing, the
 size and path `web/live-camera.js` detects a frame with, as a third
 measurement per image and a third line per set ("live at 640");
