@@ -33,10 +33,32 @@
    --family, --set, --variant, --list, --limit, --engine, --site, --out and
    --corpus, each with a value (`--name value` or `--name=value`), and the flag
    --true-corners; anything else stops the run before it starts.             */
-const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata, parseBenchmarkOptions } = require("./benchmark-runner.cjs");
+const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata } = require("./benchmark-runner.cjs");
 
 const BASE = "http://127.0.0.1:8780/";
-const parseOptions = (args) => parseBenchmarkOptions(args);
+// The command line, kept here and out of the runner, which the deployment's
+// gate reads: editing it does not redeploy the app. An unknown option, a
+// missing or malformed value is an error, never a silent fall-back to the
+// whole corpus in Chromium. tests/test_corpus_benchmark_cli.py checks it.
+const OPTIONS = ["corpus", "family", "set", "variant", "list", "limit", "engine", "site", "out"];
+function parseOptions(args, env = process.env) {
+  const options = { corpus: env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
+    family: null, set: null, variant: null, list: null, limit: 0, engine: "chromium", trueCorners: false,
+    site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
+  for (let i = 0; i < args.length; i++) {
+    const match = /^--([a-z-]+)(?:=(.*))?$/s.exec(args[i]);
+    const name = match?.[1];
+    if (name === "true-corners" && match[2] === undefined) { options.trueCorners = true; continue; }
+    if (!name || !OPTIONS.includes(name)) throw Error(`Unknown option: ${args[i]}`);
+    const value = match[2] ?? args[++i];
+    if (!value || (match[2] === undefined && value.startsWith("--"))) throw Error(`Missing value for --${name}`);
+    options[name] = value;
+  }
+  if (!/^\d+$/.test(String(options.limit))) throw Error("Limit must be a nonnegative whole number");
+  options.limit = Number(options.limit);
+  if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
+  return options;
+}
 
 async function main(args = process.argv.slice(2)) {
   let options;

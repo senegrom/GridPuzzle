@@ -316,30 +316,6 @@ async function photoFlowMeasure(page, item, options) {
   return { ...row, ocr: reading.ocr, ...score(target, photoFlowReview({ ...reading, corners: reported }, unconfirmed)) };
 }
 
-// corpus/benchmark.cjs's command line: `--name value` or `--name=value` for
-// each option below, and the flag --true-corners. An unknown option, a missing
-// or malformed value is an error, never a silent fall-back to the whole corpus
-// in Chromium.
-const BENCHMARK_OPTIONS = ["corpus", "family", "set", "variant", "list", "limit", "engine", "site", "out"];
-function parseBenchmarkOptions(args, env = process.env) {
-  const options = { corpus: env.PUZZLE_CORPUS || "E:/OneDrive/Coding/PuzzleCorpus",
-    family: null, set: null, variant: null, list: null, limit: 0, engine: "chromium", trueCorners: false,
-    site: "_site", out: "browser-artifacts/corpus-benchmark.json" };
-  for (let i = 0; i < args.length; i++) {
-    const match = /^--([a-z-]+)(?:=(.*))?$/s.exec(args[i]);
-    const name = match?.[1];
-    if (name === "true-corners" && match[2] === undefined) { options.trueCorners = true; continue; }
-    if (!name || !BENCHMARK_OPTIONS.includes(name)) throw Error(`Unknown option: ${args[i]}`);
-    const value = match[2] ?? args[++i];
-    if (!value || (match[2] === undefined && value.startsWith("--"))) throw Error(`Missing value for --${name}`);
-    options[name] = value;
-  }
-  if (!/^\d+$/.test(String(options.limit))) throw Error("Limit must be a nonnegative whole number");
-  options.limit = Number(options.limit);
-  if (!["chromium", "webkit"].includes(options.engine)) throw Error("Engine must be chromium or webkit");
-  return options;
-}
-
 // The corpus images a benchmark reads: by family, set and variant, a --list file
 // of "set/name" lines, and a limit.
 function selectImages(options) {
@@ -354,6 +330,6 @@ function selectImages(options) {
   return options.limit ? found.slice(0, options.limit) : found;
 }
 
-module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages, parseBenchmarkOptions,
+module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
   previewSize, readingCorners, readGrid, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
   PHOTO_MAX_SIDE, CONFIRMED };

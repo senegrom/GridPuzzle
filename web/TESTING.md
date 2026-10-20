@@ -164,7 +164,7 @@ run until CI's job limit.
 - **Grid detection and layout:** `grid-lines.test.js` pins each rule of the line stage on synthetic warps (thin and light-grey lines, digit columns, a dropped line, a stray line, cage walls, the one-axis fallback); `grid-size-range.test.js` checks rounded large-grid pitches and rectangular counts through `estimateGrid` and `findGrid`; `scan-layout.test.js` and `live-camera-recovery.test.js` keep irrelevant hidden box values from blocking non-boxed families while invalid Sudoku and Killer boxes still block recognition.
 - **Service worker and updates:** `runtime-update.test.js` changes WASM, standard-library and lock-file bytes across builds and checks online and offline routing, the full Python installation, activation races and cache cleanup; `offline-retry.test.js` drives the production service worker with controlled network failures and its own deadline clock; `offline-lifecycle.test.js`, `offline-update.test.js` and `offline-core-choice.test.js` cover preparation, updates and which Tesseract core is stored; `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest coverage without downloading dependencies.
 - **Workers and robustness:** `worker-lifecycle.test.js` covers OCR and scan cancellation and worker cleanup; `solver-worker.test.js` keeps the solver worker's interpreter across Python exceptions and shares one load between a warm-up and the solve that follows; each module's own test file pins its individual fixes from the code reviews (for example `photo-flow.test.js` a captured still surviving page hide and Escape restoring focus, `capture-store.test.js` the saved-picture download reusing its object URL, and `controllers.test.js` a running task disabling Check and Hint).
-- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows included); `corpus-benchmark.test.js` covers the photo-flow harness and the benchmark's option checks, and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
+- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows included); `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
 
 ## Offline test method
 
@@ -196,9 +196,10 @@ or a sign's structural highlight. See `scoreVersion: 6` in
 `corpus/SOURCES.md`. `--true-corners` feeds the target outline instead of the
 detector's, which separates recognition from detection; `--engine webkit`
 switches browser. Results go to `browser-artifacts/corpus-benchmark.json`. It
-is a measurement, not a gate. An unknown option, a missing value or a limit
-that is not a whole number stops it before it starts; `--name=value` works as
-well as `--name value`.
+is a measurement, not a gate. An unknown option, a missing value, a limit
+that is not a nonnegative whole number or an engine other than chromium or
+webkit stops it before it starts; `--name=value` works as well as
+`--name value`.
 
 `node corpus/detect_benchmark.cjs [--set names] [--limit N]` runs the
 detector alone over every corpus image with corner ground truth, at the live

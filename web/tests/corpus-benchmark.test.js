@@ -5,9 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
-// already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
-const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
-  parseBenchmarkOptions } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
+// already reads; the CLI itself stays out of it, so editing it does not redeploy the app (its option
+// checks are tested in tests/test_corpus_benchmark_cli.py).
+const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata } =
+  createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 const { SCORE_VERSION } = createRequire(import.meta.url)("../../corpus/score.cjs");
 
 test("the preview's scale from the original's pixels is its side ratio, whichever way it was turned", () => {
@@ -145,32 +146,4 @@ test("photo-flow reports record the scorer's version, the harness rules and the 
     assert.deepEqual(meta.recognition, { type: "reference", dimensions: "reference",
       corners: trueCorners ? "reference-when-available" : "detector-proposal", clueValues: "not-supplied" });
   }
-});
-
-// A typo must not turn a targeted measurement into an hours-long run over the
-// whole corpus in Chromium, or measure another engine or corner mode.
-test("benchmark options are checked: unknown options, missing or malformed values stop the run", () => {
-  const env = { PUZZLE_CORPUS: "corpus-root" };
-  const parse = (...args) => parseBenchmarkOptions(args, env);
-  assert.deepEqual(parse(), { corpus: "corpus-root", family: null, set: null, variant: null, list: null, limit: 0,
-    engine: "chromium", trueCorners: false, site: "_site", out: "browser-artifacts/corpus-benchmark.json" });
-  const chosen = parse("--family", "kenken", "--set=janko-kenken", "--variant", "photo", "--limit", "5",
-    "--engine=webkit", "--true-corners", "--site", "../other/_site", "--out", "a.json", "--list", "names.txt", "--corpus", "elsewhere");
-  assert.deepEqual(chosen, { corpus: "elsewhere", family: "kenken", set: "janko-kenken", variant: "photo", list: "names.txt",
-    limit: 5, engine: "webkit", trueCorners: true, site: "../other/_site", out: "a.json" });
-  for (const [args, message] of [
-    [["--familly", "sudoku"], /^Unknown option: --familly$/],
-    [["--true-corner"], /^Unknown option: --true-corner$/],
-    [["--trueCorners", "--family", "kakuro"], /^Unknown option: --trueCorners$/],
-    [["--limit", "5", "--bogus"], /^Unknown option: --bogus$/],
-    [["sudoku"], /^Unknown option: sudoku$/],
-    [["--set"], /^Missing value for --set$/],
-    [["--set", "--limit", "5"], /^Missing value for --set$/],
-    [["--list="], /^Missing value for --list$/],
-    [["--variant"], /^Missing value for --variant$/],
-    [["--limit", "abc"], /^Limit must be a nonnegative whole number$/],
-    [["--limit", "-5"], /^Limit must be a nonnegative whole number$/],
-    [["--limit", "2.5"], /^Limit must be a nonnegative whole number$/],
-    [["--engine", "firefox"], /^Engine must be chromium or webkit$/],
-  ]) assert.throws(() => parse(...args), { message }, args.join(" "));
 });
