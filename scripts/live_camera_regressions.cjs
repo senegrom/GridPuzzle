@@ -474,6 +474,36 @@ async function run() {
           await idlePage(page,server.base);await fixture(page);
           report.checks.push("the freeze's wait for clearer clues is off by default, and a solved reading with a retryable yellow clue then freezes without waiting for its retries; ticked through its checkbox it is saved, restored after a reload and recorded in the diagnostics, and holds the same reading for three seconds with the wait's text");
         });
+        await time("a captured reading's review in the editor",async()=>{
+          // Review captured clues copies the capture's own review into the
+          // editor: the frozen picture's yellow clue is the board's highlighted
+          // cell, and the reading's note comes with it. The reading is stubbed
+          // with one flagged clue, as for the freeze's wait above, since the
+          // fixture's own reading may flag none.
+          await page.evaluate(async()=>{
+            const {Scanner}=await import("./scanner.js"),{makePuzzle}=await import("./model.js");
+            Scanner.prototype.read=async()=>{const puzzle=makePuzzle("sudoku",4);puzzle.cells=[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1];
+              return {puzzle,cellUncertain:[0],cageUncertain:[],markedCells:[0,1,2,3,4,6,7,8,9,11,12,13,14,15],needsReview:true,
+                notes:["The stubbed reading's own note."],rectified:livePaper};};
+            Scanner.prototype.readCells=async()=>({identicalCrops:true,ocrStats:{calls:0}});
+          });
+          await startLive(page);
+          await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+          const yellow=Number(await page.locator("#live-preview").getAttribute("data-uncertain"));
+          await page.click("#take-photo");
+          await page.waitForFunction(()=>!document.getElementById("use-live-capture").hidden);
+          assert.match(await page.textContent("#use-live-capture"),/Review captured clues/);
+          await page.click("#use-live-capture");
+          const editor=await page.evaluate(()=>{const s=liveApp.getState();return {cellUncertain:s.cellUncertain,needsReview:s.needsReview,
+            highlighted:[...document.querySelectorAll("#board g.board-cell.uncertain")].length,note:document.getElementById("review-note").textContent};});
+          report.capturedReview={yellow,...editor};
+          assert.equal(yellow,1,"the frozen picture shows the stubbed reading's yellow clue");
+          assert.equal(editor.highlighted,yellow,"the editor highlights as many cells as the captured picture shows yellow");
+          assert.deepEqual(editor.cellUncertain,[0]);assert.equal(editor.needsReview,true);
+          assert.match(editor.note,/The stubbed reading's own note\./);
+          await idlePage(page,server.base);await fixture(page);
+          report.checks.push("Review captured clues highlights in the editor the clue the captured picture shows yellow, with the reading's note, under review");
+        });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.
         await page.evaluate(async()=>{
