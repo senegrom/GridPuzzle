@@ -97,8 +97,8 @@ def is_csp_rules_text(text: object) -> bool:
 
     Historical class-prefixed puzzle files often retain solver transcripts that
     contain later ``(solve ...)`` text, so the whole text is searched only when
-    it has no ``::``. A text without a solve form, such as a bare value string,
-    is not CSP-Rules, and a ``.clp`` suffix decides nothing.
+    it has no ``::`` outside comments. A text without a solve form, such as a
+    bare value string, is not CSP-Rules, and a ``.clp`` suffix decides nothing.
     """
     if not isinstance(text, str):
         return False

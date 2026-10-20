@@ -196,9 +196,7 @@ def test_specialized_loaders_validate_flags_before_mutation():
 
 
 
-def test_csp_detection_uses_first_meaningful_line_not_suffix_or_transcript(
-    tmp_path,
-):
+def test_csp_detection_ignores_the_clp_suffix_and_a_commented_transcript(tmp_path):
     legacy = tmp_path / "legacy.clp"
     legacy.write_text(
         "# retained comment\n"
@@ -245,12 +243,14 @@ def test_class_prefixed_string_is_not_misdetected_from_later_transcript():
 # CSP-Rules texts whose solve form follows uncommented header lines, like the
 # Mebane Slitherlink files' "Mellon rating = N" line. Without a :: outside
 # comments a text cannot be class-prefixed, so its first solve form (outside
-# comments and quoted strings) is read, as the corpus runner reads it.
+# comments and quoted strings) is read, as the corpus runner reads it, also
+# when header text stands before it on the same line.
 _HEADED_CSP_RULES_TEXTS = {
     "rating line": "Mellon rating = 1\n\n\n(solve\n1 1\n4\n)\n",
     "header lines with a colon": "Source: Mebane\nrated 2\n(solve 1 1 4)\n",
     ":: only in comments": "; Sudoku::...\nMellon rating = 1 ; a::b\n(solve 1 1 4)\n",
     "a quoted fake form above": '"archived (solve 1 2 . .)"\n(solve 1 1 4)\n',
+    "header text on the form's line": "Puzzle: (solve 1 1 4)\n",
 }
 
 
@@ -282,6 +282,13 @@ def test_csp_rules_form_below_uncommented_header_lines_is_read(text, route, tmp_
         # holds a later, uncommented solve form.
         ("LatinSquare::1...\n(solve 1 1 4)", "Cannot parse puzzle input with class LatinSquare: "),
         ("Source: a::b\n(solve 1 1 4)", "Puzzle class 'source: a' is not supported; "),
+        # Any :: outside comments counts: not only on the first line or above
+        # the form, and also inside a quoted string. (The message shows the
+        # class name's repr, so a newline in it reads as \n.)
+        ("Rated\nLatinSquare::1234\n(solve 1 1 4)", r"Puzzle class 'rated\nlatinsquare' is not supported; "),
+        ("Rated\n(solve 1 1 4)\nLatinSquare::1234",
+         r"Puzzle class 'rated\n(solve 1 1 4)\nlatinsquare' is not supported; "),
+        ('Rated "a::b"\n(solve 1 1 4)', "Puzzle class 'rated \"a' is not supported; "),
         # No solve form outside comments and quoted strings: a bare value string.
         ("Mellon rating = 1", "Puzzle string contains no :: class separator"),
         ("11..\n; (solve 1 1 4)", "Puzzle string contains no :: class separator"),
