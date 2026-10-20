@@ -242,6 +242,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason),
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
+    // How long the next workers take to start (their first message).
+    startDelay(ms) { startMs = ms; },
     failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
     emptyBitmaps(value) { emptyBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
     refuseNext(n = 1) { refusals = n; }, nextBitmap(...kinds) { upcoming.push(...kinds); }, noPicture(n = 1) { pictureless = n; },
@@ -858,7 +860,18 @@ test("a bitmap that cannot be made for a frame the freeze retired is lost alone:
 // minute is no tracking time: the frame lost after Clear is lost alone, and
 // the scan goes on with bitmaps. Before, it gave bitmaps up for the rest of
 // the camera session, which then read every frame back on the main thread.
-test("frames lost as the view freezes and one lost after Clear half a minute later are lost alone: frozen time is no part of REFUSAL_SPAN", async (t) => {
+// Also when the worker after Clear takes 600 ms to start (an iPhone's first
+// canvas in a worker waits for the GPU process's set-up): its start and
+// handshake track no frame either, and when the clock ran again at the
+// camera's first ask, they gave bitmaps up. And when the video's frame size
+// changed while the view was frozen (the phone turned, or the camera's
+// resolution changed): Clear's first tick then resets the tracker a second
+// time, which must not move the idle time's start.
+for (const [variant, change] of [
+  ["", () => {}],
+  [" (the worker after Clear takes 600 ms to start)", (h) => h.startDelay(600)],
+  [" (the video's frame size changed while frozen)", (h) => { h.video.videoWidth *= 2; h.video.videoHeight *= 2; }],
+]) test(`frames lost as the view freezes and one lost after Clear half a minute later are lost alone: frozen time is no part of REFUSAL_SPAN${variant}`, async (t) => {
   let solved;
   const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read; the solver has not answered");
@@ -870,6 +883,7 @@ test("frames lost as the view freezes and one lost after Clear half a minute lat
   await h.failHeldBitmaps(); h.holdBitmaps(false);
   assert.equal(h.camera.stats.tracking.unmadeFrames, lostAtFreeze, `${lostAtFreeze} frames lost at the freeze`);
   await h.advance(30000);
+  change(h);
   const reasons = h.reasons().length;
   h.camera.resume();
   h.nextBitmap("fail"); // The first bitmap after Clear, the first detection's anchor's, cannot be made.
@@ -1131,4 +1145,42 @@ test("a 9 x 9 grid's verification that takes 2.1 s still fails the worker at two
   assert.ok(await h.until(() => h.reasons().includes("worker-error"), 10000), "the worker fails");
   assert.equal(h.camera.stats.recovery.failures, 1);
   assert.notEqual(h.help, TOO_SLOW);
+});
+// The line needs LATE_LIMIT (3) late replies in a row: two, then one in time,
+// never bring it, and the third brings it at the next heartbeat.
+test("two verification replies in a row too late, then one in time: the help line never says tracking cannot keep up", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  const verifies = () => h.jobs().filter((p) => p.op === "verify");
+  assert.ok(await h.until(() => verifies().length >= 2, 30000), "two verifications posted");
+  h.replyDelay(20);
+  assert.ok(await h.until(() => h.camera.adoptedFrame() !== null, 10000), "the third is adopted");
+  await h.advance(500);
+  assert.ok(!h.writes.includes(TOO_SLOW), `never said: ${JSON.stringify([...new Set(h.writes)])}`);
+  assert.deepEqual(h.reasons().filter((r) => r === "tracking-late"), []);
+});
+test("the third verification reply in a row too late brings the line at the next heartbeat", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  const verifies = () => h.jobs().filter((p) => p.op === "verify");
+  assert.ok(await h.until(() => verifies().length >= 3, 30000), "three verifications posted");
+  const third = verifies()[2].at + 2500;
+  assert.ok(await h.until(() => h.now >= third - 10, 5000));
+  assert.ok(!h.writes.includes(TOO_SLOW), "not before the third late reply");
+  assert.ok(await h.until(() => h.help === TOO_SLOW, 150), `at the next heartbeat after the third late reply (${h.help})`);
+});
+// The line is about the replies of one tracking epoch: a tracking failure
+// (here a verification past even its grown deadline) starts a new one, and
+// its own line ("…retrying shortly") is not written over.
+test("the line that tracking cannot keep up gives way to a tracking failure's", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  assert.ok(await h.until(() => h.help === TOO_SLOW, 30000), "late replies");
+  h.replyDelay(60000);
+  assert.ok(await h.until(() => h.reasons().includes("worker-error"), 30000), "a verification reaches its deadline");
+  const writes = h.writes.length;
+  assert.match(h.help, /^Background tracking is unavailable/);
+  await h.advance(1000);
+  assert.ok(!h.writes.slice(writes).includes(TOO_SLOW), `not written over: ${JSON.stringify(h.writes.slice(writes))}`);
+  assert.match(h.help, /^Background tracking is unavailable/);
 });
