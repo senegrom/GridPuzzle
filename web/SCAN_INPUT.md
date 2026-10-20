@@ -63,6 +63,18 @@ unverified, and a squeezed preview would be visible.
   landscape: 1200 x 900 instead of 1600 x 1200 for a 4:3 photo, 900 x 507
   instead of 1600 x 900 for 16:9, and 400 x 100 instead of 1600 x 400 for
   4:1. A portrait result keeps its 1600-pixel long side.
+- Safari before 17.2 (iOS 16.4 to 17.1), like Firefox before 111, knows
+  `imageOrientation` only as `none` or `flipY`, so `from-image` is a TypeError
+  there. Its default, `none`, already applies the EXIF orientation (WebKit's
+  `ImageBitmap.cpp` on safari-7615-branch; whatwg/html#7210), so the import
+  asks again without the option, for the same bounded size, except where the
+  browser must turn the photo a quarter: there both dimensions would hide a
+  turn it skipped, so the retry asks for the one width that fits either way
+  round, and a bitmap whose long side lies across the turned photo's is closed
+  and the photo goes to the full decode, which the browser turns itself. The
+  original-detail decode retries the same way. Before, both decodes failed on
+  those versions: every photo was decoded at full size (and refused over 24
+  megapixels), and no Read used the original's detail.
 - WebP decoders differ in whether they apply EXIF at all. The import rewrites
   the two bytes of the orientation value to 1 in a copy of the encoded file,
   without decoding or copying pixels, decodes that copy as stored, and applies
@@ -89,9 +101,10 @@ The import refuses a photo only in these cases:
   not checked, so a PNG cut short inside its image data still reaches the
   decoder, as it did before the walk. A WebP's EXIF follows its bitstream, so
   a WebP cut short inside its bitstream is refused.
-- no ImageBitmap resizing (missing or failed) for a photo of more than 24
-  million pixels: "This browser cannot downscale this large photo safely. Crop
-  it in your photo app first, then try again."
+- no ImageBitmap resizing (missing or failed, or a retried bitmap the browser
+  did not turn) for a photo of more than 24 million pixels: "This browser
+  cannot downscale this large photo safely. Crop it in your photo app first,
+  then try again."
 - another decode still holding the queue after 15 seconds: "Another photo is
   still decoding. Wait a moment and retry."
 
@@ -104,7 +117,9 @@ turns to it (`rotatePhotoSource`). On Read the original is decoded the same
 way, the corners are inverse-mapped through that transform to the decoded
 source (`detailPlan`), and the extracted crop is mirrored and turned back by the
 same `transformPhotoContext` the import used. No EXIF-blind source crop
-coordinates are used. The original file is not uploaded, persisted in autosave
+coordinates are used: an original decoded with its long side across the
+preview's (before the turns) is not used, and the read takes the preview with
+the note that the original photo dimensions could not be checked. The original file is not uploaded, persisted in autosave
 or added to training data.
 
 The EXIF tag is only as good as the phone's guess, and a page shot flat on a

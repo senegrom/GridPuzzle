@@ -99,7 +99,9 @@ JPEG, PNG and WebP dimensions are checked before decoding. WebP lossy,
 lossless and extended headers are supported. Unrecognized or incomplete
 headers are rejected with an export-to-JPEG/PNG/WebP message rather than
 using compressed byte count as a decoded-pixel budget. The app requests
-resized bitmaps when available, refuses images over 120 megapixels, and
+resized bitmaps when available (from Safari before 17.2, which refuses the
+`from-image` orientation option, without that option; see
+[SCAN_INPUT.md](SCAN_INPUT.md)), refuses images over 120 megapixels, and
 refuses full-image fallback over 24 megapixels. Decoder-internal memory
 use is browser-dependent.
 

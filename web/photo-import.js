@@ -167,22 +167,43 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
   // unusual entry) could be either. There, request one width that fits maxSide
   // whichever way the engine turns the photo, so the bitmap keeps the engine's
   // own aspect ratio, and let draw() fit it.
-  let size;
+  const long = Math.max(dimensions.width, dimensions.height),
+    either = long > maxSide ? { resizeWidth: Math.max(1, Math.round(maxSide * Math.min(dimensions.width, dimensions.height) / long)) } : {};
+  // `retry` and `axes` (the oriented preview's) serve engines that refuse
+  // "from-image", below.
+  let size = either, retry = either, axes = null;
   if (!meta.unknown && (meta.value < 5 || webp || (head[0] === 0xff && meta.primary))) {
     // Resizing uses the EXIF-oriented axes. Request BOTH bounded dimensions:
     // using encoded width alone could enlarge a 1600x400 image to 1600x6400.
-    const [resizeWidth, resizeHeight] = !webp && meta.value >= 5 ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
+    const turned = !webp && meta.value >= 5,
+      [resizeWidth, resizeHeight] = turned ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
     size = { resizeWidth, resizeHeight };
-  } else {
-    const long = Math.max(dimensions.width, dimensions.height);
-    size = long > maxSide ? { resizeWidth: Math.max(1, Math.round(maxSide * Math.min(dimensions.width, dimensions.height) / long)) } : {};
+    axes = [resizeWidth, resizeHeight];
+    if (!turned) retry = size;
   }
   check();
   return withPhotoDecode(async () => {
     if (typeof createImageBitmap === 'function') {
       let bitmap = null;
       try { bitmap = await createImageBitmap(decodeFile, { ...size, resizeQuality: 'high', imageOrientation: 'from-image' }); }
-      catch { /* A bounded full decode remains available on older browsers. */ }
+      catch (error) {
+        // Safari before 17.2 (iOS 16.4 to 17.1), like Firefox before 111,
+        // knows imageOrientation only as "none" or "flipY": "from-image" is
+        // a TypeError there. Its default, "none", already applies the EXIF
+        // orientation (whatwg/html#7210; WebKit's ImageBitmap.cpp on
+        // safari-7615-branch), so ask again without the option. Where the
+        // engine must turn the photo a quarter, both dimensions would hide a
+        // turn it skipped, so `retry` is then one width that fits either way
+        // round, and a bitmap whose long side lies across the turned photo's
+        // goes to the full decode below, which the browser turns itself.
+        if (error?.name === 'TypeError') {
+          check();
+          try { bitmap = await createImageBitmap(decodeFile, { ...retry, resizeQuality: 'high' }); }
+          catch { /* The full decode below. */ }
+          if (bitmap && axes && (bitmap.width - bitmap.height) * (axes[0] - axes[1]) < 0) { bitmap.close?.(); bitmap = null; }
+        }
+        /* A bounded full decode remains available on older browsers. */
+      }
       if (bitmap) try { check(); return draw(bitmap); } finally { bitmap.close?.(); }
     }
     check();
