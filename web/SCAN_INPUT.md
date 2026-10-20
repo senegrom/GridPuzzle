@@ -86,13 +86,19 @@ unverified, and a squeezed preview would be visible.
   Orientation entry of another type or count, stray bytes between JPEG
   segments, more than 4096 segments or chunks) imports the photo as the
   browser shows it, through the same single width.
-- HEIC, the iPhone's own format, reaches the import only from Choose File
-  (the Files app) on an iPhone, or in Mac Safari: the Photo Library hands over
-  a JPEG. It is HEIF (ISO/IEC 23008-12, a `ftyp` brand of `heic`, `heix` or
-  `mif1`; AVIF, which shares the layout, stays out), and its size is the
-  primary item's `ispe` (`pitm`, then its properties in `iprp`: `ipco` and
-  `ipma`), on an iPhone a grid of tiles: never a tile's, the thumbnail's or a
-  gain map's. Its `irot` (a quarter turn or two) and `imir` (a mirror) take
+- HEIC, the iPhone's own format, reaches the import on an iPhone only from
+  Choose File (the Files app): the Photo Library hands over a JPEG. A desktop
+  browser can be handed one too: Safari 17 and later decode it, on a Mac as on
+  an iPhone, and other browsers refuse it by name (below). It is HEIF
+  (ISO/IEC 23008-12, a `ftyp` brand of `heic`, `heix` or `mif1`; AVIF, which
+  shares the layout, stays out), and its size is the primary item's `ispe`
+  (`pitm`, then its properties in `iprp`: `ipco` and `ipma`), on an iPhone a
+  grid of tiles: never a tile's, the thumbnail's or a gain map's. The limits
+  below trust that `ispe`. A grid states its output size again in its own
+  item data, which is not read, so a crafted file whose grid is larger than
+  its `ispe` meets only the browser's own decoder limits (which of the two
+  sizes ImageIO follows is unverified): at worst it takes down the user's own
+  tab. Its `irot` (a quarter turn or two) and `imir` (a mirror) take
   the place of the EXIF orientation, which is not read, and the browser
   applies them. Safari 17 and later decode HEIC with ImageIO; that its turn
   follows `irot` is unverified on a phone, so the import asks for one width,
