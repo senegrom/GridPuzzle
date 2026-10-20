@@ -856,12 +856,14 @@ swaps, unflagged and with no word of the turn, although Read puzzle turned the
 same picture. Review captured clues now runs the check's cue on the live
 reading (`turnCue` in `web/scanner.js`, which `Scanner.orient` itself uses; on
 200,000 random readings it decides exactly as the inline code it replaced).
-When the cue asks for a turn on a square grid, the captured still is read
-again as Read puzzle reads a photograph, through the live tracker's corners,
-and only a reading taken turned replaces the live one; it names the turn in its
-first note and waits for review, a quarter turn too. Any turn is therefore one
-the still photograph's rule takes on that picture, and the live reading itself
-does not change. Measured with Chromium 156's file-backed fake camera playing
+When the cue asks for a turn on a square grid, the capture reaches the editor
+with every digit highlighted under a first note that the page may be upside
+down or sideways, and the captured still is read again as Read puzzle reads a
+photograph, through the live tracker's corners. Only a reading taken turned
+replaces the live one; it names the turn in its first note and waits for
+review, a quarter turn too. Any turn is therefore one the still photograph's
+rule takes on that picture, and the live reading itself does not change.
+Measured with Chromium 156's file-backed fake camera playing
 a corpus page lying on a table, turned (Y4M clips of six frames with Gaussian
 noise of σ 2, looped), the app at 047276b with its default settings (type
 auto, automatic capture and solving on), 2026-10-20; each scene was watched
@@ -879,14 +881,16 @@ scored cell by cell in the page's frame, the live reading in the camera's:
 
 The 17 confident wrong clues the turned captures used to hand over are gone,
 no upright capture took the check, and no cell gained an unflagged error.
-Highlighting every value cell instead, the review's other suggestion, would
+Highlighting every value cell alone, the review's other suggestion, would
 also have left none unflagged, but the board would have stayed upside down or
-sideways with 4, 8 and 0 clues right and every clue to check by hand. A check
-that does not turn the still leaves the live reading as handed over, as Read
-puzzle leaves a photograph's reading, so an upside-down capture the still
-photograph's rule cannot turn (above) keeps its swaps. The check costs one more
-reading of the capture, only when its live reading shows the cue (a quarter
-turn reads both quarter turns).
+sideways with 4, 8 and 0 clues right and every clue to check by hand; the
+check takes 2 to 9 seconds here and longer on a phone, so the highlight and
+the note cover that time instead, and stay when the check is stopped (an edit
+or Stop) or fails. A check that does not turn the still gives the live reading
+back its own warnings, as Read puzzle leaves a photograph's reading, so an
+upside-down capture the still photograph's rule cannot turn (above) keeps its
+swaps. The check costs one more reading of the capture, only when its live
+reading shows the cue (a quarter turn reads both quarter turns).
 
 ## Alternatives tried
 

@@ -53,18 +53,25 @@ unread printed digits and nonunique results produce no blue answers; readings
 flagged for review can take part in a labelled preview but stay yellow.
 **Review captured clues** carries the inferred family and box settings and
 every OCR warning into the editor, where Solve, Check and Hint still need the
-usual confirmation. The live camera reads each frame the way it lies, but a
-capture is a still photograph: when its reading shows what makes a
-photograph's Read try a turn (`turnCue`: a poor reading of glyphs wider than
-tall, or of upright-shaped glyphs with confident digits but none with a 2, 3
-or 5, as an upside-down page reads its 6s and 9s as each other and its 2s as
-4s), the editor reads the captured still again as Read puzzle reads a
-photograph ("Checking which way up the captured picture is…"). A reading taken
-turned replaces the live one, with the turn named in its first note, and waits
-for review like every capture, a quarter turn too; Undo brings the live
-reading back. Read the way it lies, failed, or stopped by an edit, Solve or
-Stop, the check leaves the live reading as it was handed over ("Live
-captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
+usual confirmation; it also highlights any digit the board's rules see twice
+under the boxes the camera read with, as the captured picture shows it
+yellow. The live camera reads each frame the way it lies, but a capture is a
+still photograph: when its reading shows what makes a photograph's Read try a
+turn (`turnCue`: a poor reading of glyphs wider than tall, or of
+upright-shaped glyphs with confident digits but none with a 2, 3 or 5, as an
+upside-down page reads its 6s and 9s as each other and its 2s as 4s), the
+capture reaches the editor with every digit highlighted under a first note
+that the page may be upside down or sideways, and the editor reads the
+captured still again as Read puzzle reads a photograph ("Checking which way up
+the captured picture is…"). A reading taken turned replaces the live one, with
+the turn named in its first note, and waits for review like every capture, a
+quarter turn too; Undo brings the live reading back as the board showed it.
+Read the way it lies, the live reading keeps only its own warnings again, as
+Read puzzle leaves a photograph read the way it lies. A check that fails, or
+that an edit, Stop, Undo or another task stops (Solve, Check and Hint wait
+while it runs), leaves every digit highlighted under the note, which names
+Adjust scan → Read puzzle as the way to check the turn ("Live captures" in
+[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
 selected, a 12 × 12 Str8ts), the outline is shown with the reason and no cell
 overlay is attempted until the type or the grid settings change.

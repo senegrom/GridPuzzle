@@ -715,9 +715,10 @@ export function setupPhotoFlow({
       proposedBoxLayout = proposalSource = null;
   }
   // The box controls describe the printed puzzle, upright: its boxes as they
-  // stand on the board, which is how every reading comes back (Scanner.orient
-  // turns a sideways or upside-down photograph's reading upright). No turn of
-  // the photograph or of the crop changes them. A quarter turn swaps only the
+  // stand on the board once the photograph's turn is found (Scanner.orient
+  // reads a sideways or upside-down photograph turned when its digits read
+  // clearly better that way) or Rotate has turned it upright. No turn of the
+  // photograph or of the crop changes them. A quarter turn swaps only the
   // grid's rows and columns as the crop meets them, which matters only for a
   // grid that is not square, and such a grid is never turned by a reading.
   function swapAxes({ rows, cols, boxRows, boxCols }) {

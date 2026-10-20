@@ -118,11 +118,15 @@ corners turned, and one is kept only when it reads clearly more confident
 digits (at least 8, and at least twice the upright count plus 3). The reading
 then says so in its first note and carries `turns`; the photo flow turns its
 crop corners with it. Box height and Box width describe the printed puzzle as
-it stands upright, which is how every reading comes back, so they apply as set:
-no turned reading changes them, nor does Find grid, Rotate or the next
+it stands upright, which is how a reading comes back once its turn is found
+(or once Rotate has turned the photograph upright), so they apply as set: no
+turned reading changes them, nor does Find grid, Rotate or the next
 photograph, however it lies (Rotate swaps only the rows and columns of a grid
-that is not square, which is never turned). Boxes suggested from the grid size
-are that size's usual ones (2 × 3 for 6 × 6), never transposed.
+that is not square, which is never turned). A photograph read the way it lies
+sideways, because its reading was not clearly better turned, gets them on its
+sideways grid (Rotate turns it upright), as do the live camera's previews of a
+sideways page. Boxes suggested from the grid size are that size's usual ones
+(2 × 3 for 6 × 6), never transposed.
 
 A half turn keeps upright-shaped glyphs, so a poor reading of upright-shaped
 glyphs (median height/width above 1) takes a half-turn check instead. Read
@@ -146,9 +150,10 @@ flagged. "Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
 measurements. The live camera's previews, targeted re-reads and non-square
 grids keep their orientation. A live capture handed to the editor is a still
 photograph, though: when its live reading shows either cue, Review captured
-clues reads the captured still again the same way, and a reading taken turned
-replaces the live one, under review like every capture
-([LIVE_CAMERA.md](LIVE_CAMERA.md)).
+clues highlights every digit under a note that the page may be turned and
+reads the captured still again the same way; a reading taken turned replaces
+the live one, under review like every capture, and one read the way it lies
+gets its own warnings back ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 ## Clue-focused live-camera quality
 
