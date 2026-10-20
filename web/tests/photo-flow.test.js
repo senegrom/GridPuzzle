@@ -8,6 +8,7 @@ import { puzzleFromReadings } from "../scanner.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { retainPhotoSource } from "../photo-detail.js";
 import { createFrameScheduler } from "../live-frame-scheduler.js";
+import { overlayCells } from "../live-overlay.js";
 
 function deferred() {
   let resolve, reject;
@@ -1308,6 +1309,34 @@ test('the captures above carry every field of a review: flagged clues, structure
   assert.equal(killer.cageUncertain.length, 81);
   assert.ok(hidato.notes.length >= 2 && killer.notes.length === 8);
 });
+// A 6 × 6 Sudoku captured with the boxes set to 3 × 2 reads two 4s inside one
+// of those boxes (cells 0 and 13). The live reader flags duplicates under the
+// size's usual 2 × 3 boxes, where these two sit apart, so its reading flags
+// neither; the live camera then gives it the boxes set (live-camera.js), and
+// the captured picture shows both 4s yellow (overlayCells). The editor
+// highlights them too, as a photograph's Read does, so Solve counts them and
+// offers their re-read. Read with 2 × 3 boxes, the same 4s are no duplicate.
+const sorted = cells => [...cells].sort((a, b) => a - b);
+for (const [boxRows, boxCols, repeated] of [[3, 2, [0, 13]], [2, 3, []]])
+  test(`Review captured clues highlights a digit read twice inside one of the capture's ${boxRows} × ${boxCols} boxes`, async t => {
+    const h = photoHarness(t), digit = (cell, text) => ({ kind: 'value', cell, text, confidence: 96, x: 0, y: 0, w: 10, h: 30 });
+    const entries = [digit(0, '4'), digit(13, '4'), digit(3, '1'), digit(10, '2'), digit(20, '3'), digit(33, '5')];
+    const found = { ...puzzleFromReadings({ entries: entries.map(entry => ({ ...entry })), black: Array(36).fill(false),
+      meta: { rows: 6, cols: 6, boxes: true }, mask: new Uint8Array(100), width: 10, height: 10 }, 'sudoku', 6, 6),
+    entries, rectified: canvas(200, 200), needsReview: true };
+    assert.deepEqual(found.cellUncertain, [], 'the reader flags neither 4');
+    found.puzzle.boxRows = boxRows; found.puzzle.boxCols = boxCols;
+    const yellow = overlayCells(found).filter(cell => cell.kind === 'uncertain').map(cell => cell.cell);
+    assert.deepEqual(sorted(yellow), repeated);
+    h.setLayout({ rows: 6, cols: 6, boxRows, boxCols }); h.$('puzzle-type').value = 'sudoku';
+    h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found });
+    await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+    assert.deepEqual(h.errors, []);
+    assert.deepEqual([h.state.puzzle.boxRows, h.state.puzzle.boxCols], [boxRows, boxCols]);
+    assert.deepEqual(sorted(h.state.uncertain), repeated, 'the editor highlights what the captured picture shows yellow');
+    assert.deepEqual(sorted(restoreSession(h.storage).uncertain), repeated);
+    assert.equal(h.state.needsReview, true);
+  });
 // A box suggestion retires once the reading it came with is confirmed, also
 // when a live capture, a new photograph, replaces that board before the next
 // Read: the capture resets the board's source, so it settles the suggestion

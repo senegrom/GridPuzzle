@@ -556,7 +556,10 @@ export function setupPhotoFlow({
       const next = {
         photo: picture.photo, corners: picture.corners,
         puzzle: found.puzzle, play: fitPlay(found.puzzle, []), hints: new Set(),
-        uncertain: new Set(found.cellUncertain ?? found.uncertain ?? []),
+        // The capture's flagged clues, and any digit repeated under the boxes
+        // it was read with, which the captured picture shows yellow and a
+        // photograph's Read flags too.
+        uncertain: new Set([...(found.cellUncertain ?? found.uncertain ?? []), ...conflicts(found.puzzle)]),
         blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
         cageUncertain: new Set(found.cageUncertain ?? []),
         needsReview: true, notes: fitReviewNotes([...found.notes]), rectified: found.rectified,
