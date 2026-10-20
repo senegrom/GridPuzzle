@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { cagePartition, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
 import { cageLabelCrop, puzzleFromReadings } from "../scanner.js";
+import { readOperator } from "../cage-operator.js";
+import { thresholdGray } from "../geometry.js";
 
 // A 4 x 4 board of 100 px cells: thin grid lines, then cage borders in the chosen style.
 function board({ style = "inset", thickBoxes = false, borders = [["h", 1]], stray = false } = {}) {
@@ -62,8 +64,86 @@ test("prepareScan reads one clue region per cage, at its head, placed by the pri
     const labels = prepared.entries.filter((e) => e.kind === "label");
     assert.deepEqual(labels.map((e) => e.cell).sort((a, b) => a - b), [0, 8]);
     assert.ok(labels.every((e) => e.cageLabel));
-    const [x0, y0] = CAGE_LABEL_BOX[style], head = labels.find((e) => e.cell === 8);
-    assert.deepEqual([head.x, head.y], [Math.round(x0 * 100), Math.round((2 + y0) * 100)]);
+    // The lower cage's head is cell 8, whose corner is at (0, 200): its clue region
+    // starts inside the dashed outline (8 px in) for the inset style and just past
+    // the 8 px border line for the thick style. The pixels are written out rather
+    // than taken from CAGE_LABEL_BOX, so a change to the boxes must change them too.
+    const head = labels.find((e) => e.cell === 8);
+    assert.deepEqual([head.x, head.y, head.w, head.h], { inset: [11, 212, 69, 32], thick: [5, 204, 70, 36] }[style], style);
+  }
+});
+
+// A rows x cols board of cw x ch px cells on `paper`: 2 px grid lines, then
+// cage borders after the given rows ("h") or columns ("v"), as 8 px lines
+// (thick) or as outlines dashed `dash` of a cell inside both cells (inset).
+// `heavy` strokes single interior edges [r, c, "h"|"v"] 8 px wide, `clues`
+// prints "10+" in the top-left corner of the given cells, and `mask` is
+// prepareScan's adaptive threshold, under which dim paper is not ink.
+function print({ rows = 4, cols = 4, cw = 100, ch = 100, paper = 240, style = "inset", dash = 0.08, borders = [["h", 1]], heavy = [], clues = [] } = {}) {
+  const w = cols * cw, h = rows * ch, g = new Uint8Array(w * h).fill(paper);
+  const ink = (x0, y0, x1, y1) => {
+    for (let y = Math.max(0, Math.round(y0)); y < Math.min(h, Math.round(y1)); y++)
+      for (let x = Math.max(0, Math.round(x0)); x < Math.min(w, Math.round(x1)); x++) g[y * w + x] = 20;
+  };
+  for (let k = 0; k <= cols; k++) ink(k * cw - 1, 0, k * cw + 1, h);
+  for (let k = 0; k <= rows; k++) ink(0, k * ch - 1, w, k * ch + 1);
+  for (const [axis, index] of borders) {
+    const horizontal = axis === "h", at = (index + 1) * (horizontal ? ch : cw), inside = dash * (horizontal ? ch : cw);
+    if (style === "thick") { if (horizontal) ink(0, at - 4, w, at + 4); else ink(at - 4, 0, at + 4, h); continue; }
+    for (let s = 0; s < (horizontal ? w : h); s += 14) for (const d of [-inside, inside])
+      if (horizontal) ink(s, at + d - 1, s + 7, at + d + 1); else ink(at + d - 1, s, at + d + 1, s + 7);
+  }
+  for (const [r, c, axis] of heavy) // over the middle 80% of the edge
+    if (axis === "v") ink((c + 1) * cw - 4, (r + 0.1) * ch, (c + 1) * cw + 4, (r + 0.9) * ch);
+    else ink((c + 0.1) * cw, (r + 1) * ch - 4, (c + 0.9) * cw, (r + 1) * ch + 4);
+  for (const cell of clues) {
+    const x = (cell % cols) * cw + 0.14 * cw, y = Math.floor(cell / cols) * ch + 0.12 * ch, u = 0.1 * ch;
+    ink(x, y, x + 2, y + u);                                                    // "1"
+    ink(x + 5, y, x + 12, y + 2); ink(x + 5, y + u - 2, x + 12, y + u);         // "0"
+    ink(x + 5, y, x + 7, y + u); ink(x + 10, y, x + 12, y + u);
+    ink(x + 15, y + u / 2 - 1, x + 21, y + u / 2 + 1); ink(x + 17, y + 2, x + 19, y + u - 2); // "+"
+  }
+  const data = new Uint8ClampedArray(w * h * 4);
+  g.forEach((v, i) => { data[4 * i] = data[4 * i + 1] = data[4 * i + 2] = v; data[4 * i + 3] = 255; });
+  return { g, mask: thresholdGray(g, w, h), image: { width: w, height: h, data } };
+}
+const quarters = [[0, 1, 4, 5], [2, 3, 6, 7], [8, 9, 12, 13], [10, 11, 14, 15]];
+
+test("the clue regions scale with the cells: a 6 x 6 board of 80 x 60 px cells", () => {
+  const top = [...Array(18).keys()], bottom = top.map((i) => i + 18);
+  for (const style of ["inset", "thick"]) {
+    const prepared = prepareScan(print({ rows: 6, cols: 6, cw: 80, ch: 60, style, borders: [["h", 2]] }).image, "kenken", 6, 6);
+    assert.deepEqual(sorted(prepared.cageAreas), [top, bottom], style);
+    // Heads at (0, 0) and (0, 180).
+    assert.deepEqual(prepared.entries.filter((e) => e.kind === "label").map((e) => [e.cell, e.x, e.y, e.w, e.h]),
+      { inset: [[0, 9, 7, 55, 19], [18, 9, 187, 55, 19]], thick: [[0, 4, 2, 56, 22], [18, 4, 182, 56, 22]] }[style], style);
+  }
+});
+test("printed clues add no clue regions of their own: one per cage, at its head", () => {
+  for (const style of ["inset", "thick"]) {
+    const { image } = print({ style, clues: [0, 8] });
+    const labels = prepareScan(image, "kenken", 4, 4).entries.filter((e) => e.kind === "label");
+    assert.deepEqual(labels.map((e) => [e.cell, e.cageLabel]), [[0, true], [8, true]], style);
+  }
+});
+test("one heavy stroke on a dashed board does not make it thick style", () => {
+  // A stray 8 px stroke on the edge between cells 5 and 6, inside the upper cage.
+  const { g, mask } = print({ heavy: [[1, 1, "v"]] });
+  const { areas, style } = cagePartition(mask, g, 400, 400, 4, 4, "kenken");
+  assert.equal(style, "inset"); assert.deepEqual(sorted(areas), halves);
+});
+test("on a dim photograph's grey paper thin grid lines are no cage borders, and thick ones are", () => {
+  const thin = print({ paper: 110, borders: [] });
+  assert.deepEqual(sorted(cagePartition(thin.mask, thin.g, 400, 400, 4, 4, "kenken").areas), [[...Array(16).keys()]]);
+  const thick = print({ paper: 110, style: "thick", borders: [["h", 1], ["v", 1]] });
+  const { areas, style } = cagePartition(thick.mask, thick.g, 400, 400, 4, 4, "kenken");
+  assert.equal(style, "thick"); assert.deepEqual(sorted(areas), quarters);
+});
+test("outlines dashed 6% or 12% inside the cells split the board as well as 8%", () => {
+  for (const dash of [0.06, 0.12]) {
+    const { g, mask } = print({ dash, borders: [["h", 1], ["v", 1]] });
+    const { areas, style } = cagePartition(mask, g, 400, 400, 4, 4, "kenken");
+    assert.equal(style, "inset", `${dash}`); assert.deepEqual(sorted(areas), quarters, `${dash}`);
   }
 });
 test("cages come from the partition; each takes its head's clue and stays under structural review", () => {
@@ -97,6 +177,28 @@ function fakeCanvas(width = 0, height = 0) {
   canvas.getContext = () => context;
   return canvas;
 }
+// The scanner reads a KenKen clue's operator from the ink and core that
+// cageLabelCrop hands over, so the crop must lay the clue box out as
+// readOperator expects: at (16, 16) and 40 px high. This 50 x 20 px clue box
+// on grey paper ("0" and a sign) comes out at twice its size.
+test("a KenKen clue's operator reads from the crop cageLabelCrop makes of it", (t) => {
+  const previous = globalThis.document;
+  globalThis.document = { createElement: () => fakeCanvas() };
+  t.after(() => { globalThis.document = previous; });
+  const signs = { "+": [[12, 9, 20, 11], [15, 6, 17, 14]], "-": [[12, 9, 18, 11]], "/": [[12, 9, 20, 11], [15, 6, 17, 8], [15, 12, 17, 14]] };
+  for (const [sign, strokes] of Object.entries(signs)) {
+    const source = fakeCanvas(100, 60);
+    source.rgba = new Uint8ClampedArray(100 * 60 * 4).fill(170);
+    const ink = (x0, y0, x1, y1) => {
+      for (let y = 20 + y0; y < 20 + y1; y++) for (let x = 20 + x0; x < 20 + x1; x++) source.rgba.fill(60, 4 * (y * 100 + x), 4 * (y * 100 + x) + 3);
+    };
+    ink(2, 3, 10, 5); ink(2, 15, 10, 17); ink(2, 3, 4, 17); ink(8, 3, 10, 17); // an 8 x 14 px "0"
+    for (const stroke of strokes) ink(...stroke); // "÷" reads as "/"
+    const crop = cageLabelCrop({ x: 20, y: 20, w: 50, h: 20 }, source);
+    assert.deepEqual([crop.canvas.width, crop.canvas.height], [132, 72]);
+    assert.equal(readOperator(crop.ink, 132, 72, crop.core), sign, sign);
+  }
+});
 test("a cage clue on grey paper keeps its ink, and its paper and margin stay white", (t) => {
   const previous = globalThis.document;
   globalThis.document = { createElement: () => fakeCanvas() };

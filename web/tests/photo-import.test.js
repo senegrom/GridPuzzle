@@ -12,10 +12,11 @@ function tiff(value, little = false) {
   const u32=(v,at)=>little?b.writeUInt32LE(v,at):b.writeUInt32BE(v,at);
   u16(42,2);u32(8,4);u16(1,8);u16(0x112,10);u16(3,12);u32(1,14);u16(value,18);return b;
 }
-function jpeg(w,h,exif=null) {
+// `before` goes between the frame header and the APP1 segment.
+function jpeg(w,h,exif=null,before=[]) {
  const frame=Buffer.from([255,192,0,11,8,0,0,0,0,1,1,17,0]);frame.writeUInt16BE(h,5);frame.writeUInt16BE(w,7);
  const metadata=exif===null?Buffer.alloc(0):concat([255,225,(exif.length+8)>>8,(exif.length+8)&255],'Exif\0\0',exif);
- return concat([255,216],frame,metadata,[255,217]);
+ return concat([255,216],frame,before,metadata,[255,217]);
 }
 function chunk(kind,data,png=false){const b=Buffer.alloc(8);b.write(kind,png?4:0);png?b.writeUInt32BE(data.length):b.writeUInt32LE(data.length,4);return concat(b,data,Buffer.alloc(png?4:data.length%2));}
 function png(w,h,exif=null){const head=Buffer.alloc(13);head.writeUInt32BE(w);head.writeUInt32BE(h,4);head[8]=8;head[9]=2;
@@ -82,6 +83,34 @@ for(const kind of ['offset','truncated'])test(`malformed EXIF ${kind} imports as
  const {image}=await importPhoto(new Blob([jpeg(4000,3000,kind==='truncated'?meta.subarray(0,17):meta)]));
  assert.deepEqual(h.calls.map(c=>[c.resizeWidth,c.resizeHeight]),[[1200,undefined]]);
  assert.deepEqual([image.width,image.height],[1200,900]);assert.ok(h.bitmaps.at(-1).closed);
+});
+// Fill bytes (0xFF, which may pad any marker: ITU-T T.81 B.1.1.2) and the
+// standalone markers RSTn and TEM, which carry no length, are stepped over.
+for(const [name,before] of [['one fill byte',[255]],['three fill bytes',[255,255,255]],['an RST0 marker',[255,208]],['a TEM marker',[255,1]]])
+ test(`EXIF behind ${name} still bounds both oriented dimensions`,async t=>{
+  const h=harness(t),{image}=await importPhoto(new Blob([jpeg(1600,400,tiff(6),before)]));
+  assert.deepEqual(h.calls.map(c=>[c.resizeWidth,c.resizeHeight]),[[400,1600]]);assert.deepEqual([image.width,image.height],[400,1600]);
+ });
+// A segment's length counts its own two bytes: 0 or 1 leaves no way to the next marker.
+for(const length of [0,1])test(`a JPEG segment of length ${length} is refused before decoding`,async t=>{
+ const h=harness(t);
+ await assert.rejects(importPhoto(new Blob([jpeg(1600,400,tiff(6),[255,224,0,length])])),/orientation could not be checked safely/);
+ assert.deepEqual(h.calls,[]);
+});
+// IFD0 cannot start inside the 8-byte TIFF header, and a count above 4096
+// entries is not read (the walk's bound): both are damage, imported as stored
+// through one width that fits either way round. 4096 entries are still read.
+test('an IFD0 inside the TIFF header or of more than 4096 entries imports through one width that fits either way round',async t=>{
+ const h=harness(t,{natural:[4000,3000]});
+ for(let offset=0;offset<8;offset++){const meta=tiff(6);meta.writeUInt32BE(offset,4);
+  const {image}=await importPhoto(new Blob([jpeg(4000,3000,meta)]));
+  assert.deepEqual([h.calls.at(-1).resizeWidth,h.calls.at(-1).resizeHeight],[1200,undefined],`IFD0 at ${offset}`);assert.deepEqual([image.width,image.height],[1200,900]);}
+ const entries=count=>{const meta=Buffer.alloc(8+2+count*12+4);meta.write('MM');meta.writeUInt16BE(42,2);meta.writeUInt32BE(8,4);meta.writeUInt16BE(count,8);
+  meta.writeUInt16BE(0x112,10);meta.writeUInt16BE(3,12);meta.writeUInt32BE(1,14);meta.writeUInt16BE(6,18);return meta;};
+ await importPhoto(new Blob([jpeg(4000,3000,entries(4097))]));
+ assert.deepEqual([h.calls.at(-1).resizeWidth,h.calls.at(-1).resizeHeight],[1200,undefined],'4097 entries');
+ await importPhoto(new Blob([jpeg(4000,3000,entries(4096))]));
+ assert.deepEqual([h.calls.at(-1).resizeWidth,h.calls.at(-1).resizeHeight],[1200,1600],'4096 entries: the orientation is read');
 });
 for(const failBitmap of [false,true])test(`shared fallback keeps the 24MP limit, bitmap rejection ${failBitmap}`,async t=>{
  const h=harness(t,{fallback:!failBitmap,failBitmap});
