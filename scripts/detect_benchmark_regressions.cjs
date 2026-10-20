@@ -27,7 +27,8 @@ function greyPng(width, height, pixel) {
     chunk("IDAT", zlib.deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
 }
 // A Slitherlink grid of 10 x 10 cells of 44 pixels, drawn only as 5-pixel dots
-// at its lattice points (web/tests/grid-lines.test.js finds it the same way).
+// at its lattice points: the lattice web/tests/grid-lines.test.js finds,
+// without its clue strokes and caption.
 const DOTS = { side: 640, cell: 44, origin: 70, cells: 10 };
 function dotLattice({ side, cell, origin, cells } = DOTS) {
   return greyPng(side, side, (x, y) => {
