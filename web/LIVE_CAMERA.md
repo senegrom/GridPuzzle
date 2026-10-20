@@ -87,17 +87,29 @@ looks sideways or upside down and to turn the page or the phone so the numbers
 stand upright, or to move closer if they already do. It goes by the cue the
 still check reads its turns on, from the reading's own glyphs: a poor reading
 (fewer than half its value regions read as confident digits) of glyphs wider
-than tall lies a quarter turn off; one of upright-shaped glyphs that reads
-confident digits but not one number with a 2, 3 or 5, half a turn. That line
-takes the place of "Move closer for a clearer read", a conflict or no-solution
-message, "Waiting for a clearer frame of the unclear clues…" and the
-retries' end, and the export records `grid-sideways` or `grid-upside-down`
-(in place of `clearer-frame-needed` while it waits). The cue is no proof (84
-of the 3,952 upright corpus photographs show the half-turn cue in Chromium,
-most of them handwritten or mixed pages), hence the second half of the line.
-The reading itself is shown as it was read, and one that solves anyway still
-freezes. Before, such a page got "Move closer" or "Conflicting readings…",
-then "Waiting for a clearer frame…" for as long as it stayed in view.
+than tall lies a quarter turn off; one of upright-shaped glyphs that reads at
+least five confident digits (`HALF_TURN_BAR`) but not one number with a 2, 3
+or 5, half a turn. That line takes the place of "Move closer for a clearer
+read", a conflict or no-solution message, the clue counts with solving off,
+"Waiting for a clearer frame of the unclear clues…", a retry that found
+nothing new and the retries' end, and the export records `grid-sideways` or
+`grid-upside-down` (in place of `clearer-frame-needed` while it waits). The
+still check takes the half-turn cue from one confident digit, since its
+reading turned decides; here the cue stands alone, and a few digits often
+miss a 2, 3 or 5 by chance: a third of a Sudoku's digits are one, so an
+upright page read poorly with k confident digits shows none in about (2/3)^k
+of its readings (two in three at one digit, 13% at five, 4% at eight), while
+a page upside down reads its 0s, 1s, 6s, 8s and 9s with confidence (a 9 × 9
+page in the live view read 12). Below five the line stays as it was. The cue
+is still no proof: read as still photographs, 84 of the 3,952 upright corpus
+photographs show the half-turn cue in Chromium, most of them handwritten or
+mixed pages, and a live view's poorer readings of a distant or blurred page
+show it more often; hence the second half of the line. How often a live
+reading of an upright page is that poor has not been measured. The reading
+itself is shown as it was read, and one that solves
+anyway still freezes. Before, such a page got "Move closer" or "Conflicting
+readings…", then "Waiting for a clearer frame…" for as long as it stayed in
+view.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
@@ -1177,10 +1189,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   finished retry that waits for its own frame and is dropped five seconds
   after it finished, the messages for boxes guessed from the grid's size, and
   the turn cue (`turnedPage`: sideways and upside down in place of "Move
-  closer" and the wait for a clearer frame; nothing for a reading with a 2, no
-  confident digit, square glyph boxes, half its regions confident or fewer than
-  six glyphs; the reading left as read; `diagnostic-report.test.js`: its two
-  reasons, labelled);
+  closer" and the wait for a clearer frame, and after a retry that found
+  nothing new, a merged retry and the last one, for no solution or several,
+  and with solving off, also switched off with the answer on screen; nothing
+  for a reading with a 2, fewer than five confident digits upside down,
+  square glyph boxes, half its regions confident or fewer than six glyphs;
+  the reading left as read; `diagnostic-report.test.js`: its two reasons,
+  labelled), and a guessed layout named only for readings in conflict (an
+  unread mark asks to move closer);
   `live-guessed-boxes.test.js` runs the production camera on a 6 × 6 grid
   under the 9 × 9 settings (the solver given 2 × 3 boxes, the frozen help, the
   no- and multiple-solution lines and the editor's note) and checks that boxes

@@ -1,7 +1,7 @@
 import { recoveryCells, clearerCells, mergeRecoveredClues } from "./clue-recovery.js";
 import { previewBlocker, overlayCells, CONFLICTING } from "./live-overlay.js";
 import { clone, checkShape } from "./model.js";
-import { glyphAspect, confidentDigits, wayUpDigits } from "./scanner.js";
+import { glyphAspect, confidentDigits, wayUpDigits, HALF_TURN_BAR } from "./scanner.js";
 
 // Drops a canvas's pixels without waiting for the collector. Plain test
 // objects without numeric dimensions are left alone.
@@ -33,12 +33,19 @@ function solvingOff(found) {
 // still shows the cue that check goes by. A poor reading (fewer than half
 // its value regions read as confident digits) of glyphs wider than tall is
 // of a page lying a quarter turn off; one of upright-shaped glyphs that reads
-// confident digits but not one number with a 2, 3 or 5, of a page upside
-// down. A clearer frame of the same page cannot mend either, so the help
-// line says so in place of "move closer" or "waiting for a clearer frame".
-// The cue alone is no proof (84 of the 3,952 upright corpus photographs show
-// the half-turn cue in Chromium, OCR_QUALITY.md), so the text also says what
-// to do if the page is upright after all. The reading is left as it was read.
+// at least HALF_TURN_BAR confident digits but not one number with a 2, 3 or
+// 5, of a page upside down. A clearer frame of the same page cannot mend
+// either, so the help line says so in place of "move closer" or "waiting for
+// a clearer frame". The still check takes one confident digit for its cue,
+// since its re-read turned decides; here the cue is all there is, and a few
+// digits often miss a 2, 3 or 5 by chance: a third of a Sudoku's digits are
+// one, so an upright page read poorly with k confident digits has none in
+// about (2/3)^k of its readings, two in three at one digit and 13% at five.
+// A page upside down reads its 0s, 1s, 6s, 8s and 9s with confidence (a 9 x 9
+// page in the live view read 12 confident digits). Below the floor the help
+// line stays as it was. A false cue is still possible, so the text also says
+// what to do if the page is upright after all. The reading is left as it was
+// read.
 export function turnedPage(found) {
   const values = (found?.entries ?? []).filter((entry) => entry.kind === "value");
   if (!values.length || !found.puzzle) return null;
@@ -46,7 +53,7 @@ export function turnedPage(found) {
   if (confident >= values.length / 2) return null;
   const aspect = glyphAspect(values);
   if (aspect < 1) return "sideways";
-  return aspect > 1 && aspect < Infinity && confident > 0 && !wayUpDigits(found) ? "upside-down" : null;
+  return aspect > 1 && aspect < Infinity && confident >= HALF_TURN_BAR && !wayUpDigits(found) ? "upside-down" : null;
 }
 export const TURNED_HELP = Object.freeze({
   sideways: "The grid looks sideways. Turn the page or the phone a quarter turn so the numbers stand upright; if they already do, move closer.",
@@ -156,7 +163,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!autoSolve()) {
       if (solving) { solveGeneration++; solving = false; pending = false; cancelSolve(); }
       if (stored) {
-        if (stored.result || stored.solveFinished) status = solvingOff(stored.found);
+        if (stored.result || stored.solveFinished) status = explained(stored.found, solvingOff(stored.found));
         stored.result = null; stored.solveFinished = false;
       }
     }
