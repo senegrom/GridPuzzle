@@ -1132,6 +1132,13 @@ waiting for review. Against the four readings of the same images above, 91 of
 96 decisions agree in WebKit and 63 of 72 in Chromium; the others are photo
 renders whose upright reading has sums in close to half its cages (3 to 8 of 8
 to 16), turned in one measurement and left in the other, never the wrong way.
+Two more samples of 10 other puzzles each, read the same way in review (90 and
+120 copies per engine), turned 25, 25 and 27 and 27, 25 and 25 of 30 upright in
+Chromium and 25, 27 and 27 and 26, 26 and 25 in WebKit, none wrongly. The
+misses are photo renders: in the first sample every clean and print copy was
+turned upright, and 17 (Chromium) and 19 (WebKit) of the 30 photo-render
+copies; all but one of the others are pages whose upright reading has sums in
+fewer than half its cages ("Not caught").
 
 **Cost.** The check reads a page three more times whenever its first reading
 has sums in fewer than half its cages: every turned page, and of the upright
