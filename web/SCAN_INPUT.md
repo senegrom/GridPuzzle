@@ -225,12 +225,12 @@ three readings take several times the first one's time, and they count against
 the 120 s a Read may take, past which the Read stops and keeps nothing. So the
 check stops 90 s after the first reading began (`CAGE_TURN_BUDGET`, leaving the
 rest for decoding the photograph): it stops the turned reading in progress and
-keeps the first reading, as a Read without the check returns it. A
-turned page whose upright reading finds sums in fewer than half its cages, or
-whose check runs out of time, stays as it lies, its sums unread: turn it
-upright with Rotate and Read again, and the upright reading is kept. Automatic
-detection does not take this check (its cage readings come from per-cell clue
-strips and were not measured turned). "Turned cage puzzles" in
+keeps the first reading, as a Read without the check returns it. A turned page
+whose upright reading finds sums in fewer than half its cages, or whose check
+runs out of time, stays as it lies, its sums unread: turn it upright with
+Rotate and Read again, and the upright reading is kept. Automatic detection
+does not take this check (its cage readings come from per-cell clue strips and
+were not measured turned). "Turned cage puzzles" in
 [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements.
 
 ## Clue-focused live-camera quality

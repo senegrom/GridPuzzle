@@ -1179,9 +1179,9 @@ image):
 | four times | Chromium | 7 | 18 of 921 (3) | 30 |
 | four times | WebKit | 70 | 90 of 959 (54) | 159 |
 
-A Read the budget stops ends 90 s after its first reading began, or when that
-reading ends if it took longer, which is when it would have ended before the
-check.
+A Read the budget stops ends 90 s after its first reading began; one whose
+first reading alone took longer is not read again and ends with it, as before
+the check.
 
 **Not caught.** A page whose upright reading has sums in fewer than half its
 cages is read again but stays as it lies, as on master, with its sums unread: 75
