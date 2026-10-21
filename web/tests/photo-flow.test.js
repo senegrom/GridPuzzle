@@ -1337,16 +1337,19 @@ for (const [boxRows, boxCols, repeated] of [[3, 2, [0, 13]], [2, 3, []]])
     assert.deepEqual(sorted(restoreSession(h.storage).uncertain), repeated);
     assert.equal(h.state.needsReview, true);
   });
+// A clean 6 × 6 reading of `type`, its first row read 1 to 6. makePuzzle gives
+// every type the size's usual boxes, 2 × 3 here.
+function sixBySix(type = 'sudoku') {
+  const puzzle = makePuzzle(type, 6); for (let c = 0; c < 6; c++) puzzle.cells[c] = c + 1;
+  return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
+    rectified: canvas(200, 200) };
+}
 // A box suggestion that a capture was read with (Find grid suggested 2 × 3 for
 // a 6 × 6 grid, then the camera read with those boxes) retires once the
 // capture's reading is confirmed, as one a photograph's reading came with does:
 // the next 6 × 6 Read neither asks again nor holds back the automatic solve.
 test('a suggestion a live capture was read with retires once the capture is confirmed: the next 6 × 6 Read solves', async t => {
-  const h = photoHarness(t), sixBySix = () => {
-    const puzzle = makePuzzle('sudoku', 6); for (let c = 0; c < 6; c++) puzzle.cells[c] = c + 1;
-    return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
-      rectified: canvas(200, 200) };
-  };
+  const h = photoHarness(t);
   const boxNote = () => h.state.notes.some(note => /was suggested from the grid size/.test(note));
   h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
   h.$('auto-solve').checked = true; h.setFound(sixBySix());
@@ -1366,11 +1369,7 @@ test('a suggestion a live capture was read with retires once the capture is conf
 // Unconfirmed, the capture leaves the suggestion standing: the next 6 × 6 Read
 // still asks to confirm the boxes.
 test('a suggestion a live capture was read with stands while the capture is unconfirmed', async t => {
-  const h = photoHarness(t), sixBySix = () => {
-    const puzzle = makePuzzle('sudoku', 6); for (let c = 0; c < 6; c++) puzzle.cells[c] = c + 1;
-    return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
-      rectified: canvas(200, 200) };
-  };
+  const h = photoHarness(t);
   h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
   h.$('auto-solve').checked = true; h.setFound(sixBySix());
   await h.$('detect-photo').onclick();
@@ -1382,16 +1381,35 @@ test('a suggestion a live capture was read with stands while the capture is unco
   assert.ok(h.state.notes.some(note => /Box layout 2 rows × 3 columns was suggested from the grid size/.test(note)));
   assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0);
 });
+// Only a capture read under boxes decides them. A 6 × 6 Latin square has none,
+// though makePuzzle gives it the size's usual 2 × 3, the very layout suggested:
+// confirming its capture leaves the suggestion standing, so the next 6 × 6
+// Sudoku Read still asks to confirm the boxes and is not solved automatically.
+test('confirming a live capture of a type without boxes leaves a suggestion standing: the next 6 × 6 Sudoku Read asks again', async t => {
+  const h = photoHarness(t);
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.$('auto-solve').checked = true; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  h.$('puzzle-type').value = 'latinsquare';
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix('latinsquare'), needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.type, 'latinsquare');
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
+  h.$('puzzle-type').value = 'sudoku'; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.ok(h.state.notes.some(note => /Box layout 2 rows × 3 columns was suggested from the grid size/.test(note)));
+  assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0);
+});
 // A box suggestion retires once the reading it came with is confirmed, also
 // when a live capture, a new photograph, replaces that board before the next
 // Read: the capture resets the board's source, so it settles the suggestion
 // first, as an imported photograph does.
 test('a suggestion confirmed before a live capture stays retired: the next 6 × 6 Read solves', async t => {
-  const h = photoHarness(t), sixBySix = () => {
-    const puzzle = makePuzzle('sudoku', 6); for (let c = 0; c < 6; c++) puzzle.cells[c] = c + 1;
-    return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
-      rectified: canvas(200, 200) };
-  };
+  const h = photoHarness(t);
   const boxNote = () => h.state.notes.some(note => /was suggested from the grid size/.test(note));
   h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
   h.$('auto-solve').checked = true; h.setFound(sixBySix());
