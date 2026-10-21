@@ -20,7 +20,9 @@ updates:
   # (Dependabot reads any requirements-format .txt file in the directory, and
   # .python-version there makes it resolve for Python 3.14). pyproject.toml's
   # dependencies are deliberately open lower bounds, which CI's lower-bounds
-  # job tests; raising them would only drop versions that still work.
+  # job tests. They rise only past releases with a published advisory
+  # (tests/test_workflows.py lists them); otherwise raising them would only
+  # drop versions that still work.
   - package-ecosystem: pip
     directory: "/.github/actions/setup-project"
     versioning-strategy: increase

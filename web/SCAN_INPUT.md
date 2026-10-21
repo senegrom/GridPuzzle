@@ -147,13 +147,15 @@ checked. The reading then says the photograph was upside down and carries
 layout. Unlike a quarter-turned reading, it then waits for review: the photo
 flow shows its note and does not solve it automatically however few cells are
 flagged. "Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
-measurements. The live camera's previews, targeted re-reads and non-square
-grids keep their orientation. A live capture handed to the editor is a still
-photograph, though: when its live reading shows either cue, Review captured
-clues highlights every digit under a note that the page may be turned and
-reads the captured still again the same way; a reading taken turned replaces
-the live one, under review like every capture, and one read the way it lies
-gets its own warnings back ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
+measurements. The live camera, targeted re-reads and non-square grids keep
+their orientation; the live camera's help line says when a page looks sideways
+or upside down, from the same cue, upside down only from five confident digits,
+since no re-read confirms it there. A live capture handed to the editor is a
+still photograph, though: when its live reading shows either cue, Review
+captured clues highlights every digit under a note that the page may be turned
+and reads the captured still again the same way; a reading taken turned
+replaces the live one, under review like every capture, and one read the way it
+lies gets its own warnings back ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 ## Clue-focused live-camera quality
 

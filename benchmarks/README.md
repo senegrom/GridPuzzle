@@ -32,13 +32,13 @@ used for each accepted or rejected optimization.
 | 08-09 | free_threaded_threads_rejected | rejected | 3.14t threads −4-5% on real workloads |
 | 08-10 | lazy_candidate_index (.md/.json) | accepted tradeoff | topology builds −51/−65% micro, +0.36% GM macro |
 | 08-10 | new_family_corpus_audit | measured | 93/102 unique, 9 timeouts, 0 errors |
-| 08-11 | immutable_partition_cache | accepted | lru tuple cache, lookups −33.30%; public partition2 keeps list[deque] |
+| 08-11 | immutable_partition_cache | accepted, removed 2026-09-24 | lru tuple cache, lookups −33.30%; public partition2 kept list[deque]; superseded by solver_memory_pruning's bitmask cache, then partition2 and its tuple cache were removed (DEVELOPMENT.md) |
 | 08-11 | candidate_view | accepted | validated public view off the hot path, GM +0.09% |
 | 08-12 | locked_candidate_pairs | accepted | pair cache + fish elimination dedup, −0.4/−1.1% |
 | 08-12 | fish_prologue_dedup | accepted | shared prologue + disjoint-union, noise-neutral |
 | 08-12 | broader_candidate_bitsets | accepted | locked_candidate/skyscraper/ER on bitsets, micro −8.04%, GM −0.54% |
-| 08-12 | default_executor_overhead | accepted | opt-in thread-backend plumbing leaves the default path neutral, GM 0.9996 |
-| 08-12 | free_threaded_executor | accepted (opt-in) | 3.14t threads: short workloads −53/−80%, heavy enumeration neutral (worst +1.4%) |
+| 08-12 | default_executor_overhead | accepted, removed 2026-09-25 | opt-in thread-backend plumbing leaves the default path neutral, GM 0.9996; removed with the thread executor (TODO.md) |
+| 08-12 | free_threaded_executor | accepted (opt-in), removed 2026-09-25 | 3.14t threads: short workloads −53/−80%, heavy enumeration neutral (worst +1.4%); at parity by 09-24 (thread_executor_314t), then removed (TODO.md) |
 | 08-13 | pr11_correctness_review | measured | extension-hook transactions + lazy imports review record |
 | 08-13 | pr11_extension_transactions | accepted | reversible extension sandboxes, GM +0.14% (neutral) |
 | 08-14 | capped_branches_extension_sandbox | accepted | capped undercount fix + detached extension state, noise-neutral |
@@ -51,7 +51,7 @@ used for each accepted or rejected optimization.
 | 09-10 | stack_safe_search | accepted | explicit DFS stack and side-effect-free guarantee normalization; identical fingerprints, blank-4x4 21.5 s to 20.0 s |
 | 09-10 | extension_boundaries | accepted as correctness repair | twelve regressions fail on the baseline; native timing within +2.24% on three smoke cases |
 | 09-11 | extension_workers | accepted as correctness repair | seven of nine worker/metadata regressions fail on the baseline; no timing claim |
-| 09-21 | thread_driver_default_path (.md/.json) | accepted | thread executor rewritten onto the explicit-stack driver; default path byte-identical, sudoku4 33.54 s to 33.12 s with identical fingerprints |
+| 09-21 | thread_driver_default_path (.md/.json) | accepted; thread executor removed 2026-09-25 | thread executor rewritten onto the explicit-stack driver; default path byte-identical, sudoku4 33.54 s to 33.12 s with identical fingerprints |
 | 09-23 | logging_levels (.md/.json) | accepted | solver logs at INFO/DEBUG under `gridsolver`, plus QUIET; wall GM −5.59%/+1.71% over two noisy runs, sudoku4 CPU +1.1% within sample overlap, `lg.on` guard −43% |
 | 09-23 | solver_memory_pruning (.md/.json) | accepted | sum-cage partitions as byte-bounded bitmask arrays (12-cell 25x25 cage 93.8 MiB to 0.43 MiB, 25x25 Killer peak RSS 1579 MiB to 68 MiB); Kakuro total mismatches and path-puzzle pigeonholes refuted without search (empty 6x6 Hidato 1,846 to 20 nodes); identical fingerprints, Killer CPU −2.6%/−4.8% |
 | 09-24 | thread_executor_314t (.md/.json) | measured | 3.14t thread/process 0.967x, the same as the pre-#68 tree in the same window (0.966x); the 08-12 lead of 0.823x went before the rewrite |

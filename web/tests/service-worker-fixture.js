@@ -48,7 +48,9 @@ export function memoryCaches() {
 /* Loads sw.js as `build` over `caches` and `fetch`, with `clients()` as the
    windows and workers it controls, runs install and activate (calling
    `beforeActivation(read)` between them) and returns read(path, clientId,
-   navigation): the response the fetch event gives. */
+   navigation): the response the fetch event gives. read.send(type, clientId)
+   posts { type } with a port, as offline.js does, and resolves with the
+   worker's replies once its task has settled. */
 export async function activateWorker({ build, caches, fetch, clients = () => [], beforeActivation }) {
   const listeners = {};
   vm.runInNewContext(source.replace("__BUILD_ID__", build), {
@@ -65,6 +67,15 @@ export async function activateWorker({ build, caches, fetch, clients = () => [],
     if (navigation) Object.defineProperty(request, "mode", { value: "navigate" });
     listeners.fetch({ request, clientId, respondWith(promise) { response = promise; } });
     return response;
+  };
+  read.send = async (type, clientId = "tab") => {
+    const replies = [];
+    let done;
+    listeners.message({ data: { type }, ports: [{ postMessage: (message) => replies.push(message), close() {} }],
+      source: { id: clientId }, waitUntil(promise) { done = promise; } });
+    await done;
+    // Replies come from the worker's realm; compare them as plain data.
+    return JSON.parse(JSON.stringify(replies));
   };
   for (const type of ["install", "activate"]) {
     if (type === "activate" && beforeActivation) await beforeActivation(read);

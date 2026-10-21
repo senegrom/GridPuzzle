@@ -133,6 +133,36 @@ async function externalTracking(fixtures) {
   }
   return output;
 }
+// The external pictures' tracking, from the twelve pictures that
+// scripts/fetch_live_fixtures.py puts in live-fixtures/ (CI's live-acceptance
+// job fetches them first). Without them the suite passes on the rest, so it
+// says so in its log and records the skip in its report (corpus.skipped).
+async function externalPictures(page,report,log,file='live-fixtures/fixtures.json'){
+  if(!fs.existsSync(file)){
+    report.corpus={skipped:`no ${file}`};
+    log(`external pictures skipped: no ${file} (python scripts/fetch_live_fixtures.py fetches them)`);
+    return;
+  }
+  const corpus=JSON.parse(fs.readFileSync(file,'utf8'));log(`tracking ${corpus.fixtures.length} external pictures`);
+  report.corpus={source:corpus.source,revision:corpus.revision,selection:corpus.selection,results:await page.evaluate(externalTracking,corpus.fixtures)};
+  // This is coverage/retention measurement, not a claim that every external
+  // image is readable. A static valid anchor must always match itself.
+  let valid=0,retained=0;
+  for(const f of report.corpus.results){
+    if(!f.validQuad){
+      // Keep out-of-image or malformed source annotations in the report
+      // as rejected controls, never silently crop or repair the labels.
+      assert.equal(f.anchorValid,false);assert.ok(f.checks.every(c=>!c.matched));continue;
+    }
+    valid++;assert.equal(f.anchorValid,true);assert.equal(f.checks[0].matched,true,`${f.name}: valid static anchor`);
+    assert.equal(f.occlusionMatched,false,`${f.name}: covered grid cannot authorize old metadata`);
+    retained+=f.checks.slice(1).filter(c=>c.matched).length;
+  }
+  report.corpus.validAnchors=valid;report.corpus.translatedMatches=retained;report.corpus.translatedChecks=valid*3;
+  assert.ok(valid>=10,'the fixed slice must retain broad usable coverage');
+  assert.ok(retained>=Math.ceil(valid*3*.9),'at least 90% of valid small-motion controls must retain identity');
+  log(`${retained}/${valid*3} small-motion controls kept their identity`);
+}
 async function run(){
  const server=await serve();
  try{
@@ -177,27 +207,7 @@ async function run(){
     report.checks.push('a changed clue starts a new genuine OCR read, never reusing old clue metadata');log('changed clue re-read');
     await page.evaluate(()=>motionState.stop());
     await page.screenshot({path:`browser-artifacts/${name}-motion.png`});
-    if(fs.existsSync('live-fixtures/fixtures.json')){
-      const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8'));log(`tracking ${corpus.fixtures.length} external pictures`);
-      report.corpus={source:corpus.source,revision:corpus.revision,selection:corpus.selection,results:await page.evaluate(externalTracking,corpus.fixtures)};
-      // This is coverage/retention measurement, not a claim that every external
-      // image is readable. A static valid anchor must always match itself.
-      let valid=0,retained=0;
-      for(const f of report.corpus.results){
-        if(!f.validQuad){
-          // Keep out-of-image or malformed source annotations in the report
-          // as rejected controls, never silently crop or repair the labels.
-          assert.equal(f.anchorValid,false);assert.ok(f.checks.every(c=>!c.matched));continue;
-        }
-        valid++;assert.equal(f.anchorValid,true);assert.equal(f.checks[0].matched,true,`${f.name}: valid static anchor`);
-        assert.equal(f.occlusionMatched,false,`${f.name}: covered grid cannot authorize old metadata`);
-        retained+=f.checks.slice(1).filter(c=>c.matched).length;
-      }
-      report.corpus.validAnchors=valid;report.corpus.translatedMatches=retained;report.corpus.translatedChecks=valid*3;
-      assert.ok(valid>=10,'the fixed slice must retain broad usable coverage');
-      assert.ok(retained>=Math.ceil(valid*3*.9),'at least 90% of valid small-motion controls must retain identity');
-      log(`${retained}/${valid*3} small-motion controls kept their identity`);
-    }
+    await externalPictures(page,report,log);
    }catch(e){
     report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
       ticks:window.motionState?.ticks,reading:window.motionState?.reading,playback:window.motionState?.playback?.(),witness:window.motionState?.witness?.()??null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
@@ -209,4 +219,4 @@ async function run(){
  }finally{server.close();}
 }
 main(module,run);
-module.exports={run,beginMotion,externalTracking};
+module.exports={run,beginMotion,externalTracking,externalPictures};

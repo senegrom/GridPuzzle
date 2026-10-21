@@ -261,7 +261,10 @@ test("cage OCR retains the separate reasons a cell needs review", () => {
     { kind: "value", cell: 2, text: "" },
     { kind: "value", cell: 4, text: "2" },
   ]);
-  assert.deepEqual(result.cellUncertain, [0, 2]);
+  // Digit review: the doubtful 1, the unread mark, and the confident 2 as
+  // well, since every digit read on a cage board is (part of a cage's clue
+  // can read as one); cage review covers every cell besides.
+  assert.deepEqual(result.cellUncertain, [0, 2, 4]);
   assert.equal(result.cageUncertain.length, 9);
   assert.equal(result.uncertain.length, 9);
   assert.equal(result.puzzle.cells[0], 1);

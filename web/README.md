@@ -18,7 +18,7 @@ python scripts/build_web.py
 python -m http.server 8000 --directory _site
 ```
 
-Camera permissions require localhost or HTTPS. The existing `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs Python and browser unit tests, executes the real Chromium/mobile-WebKit Python and OCR acceptance suites (including the real-newspaper fixtures), uploads that tested artifact, and deploys it through the repository's `github-pages` environment.
+Camera permissions require localhost or HTTPS. The existing `Build and deploy phone scanner` workflow is the single expensive deployment gate: it builds `_site`, runs the browser unit tests (on pushes and manual runs; on pull requests `Browser branch tests` runs them), executes the real Chromium/mobile-WebKit Python and OCR acceptance suites (including the real-newspaper fixtures), uploads that tested artifact, and deploys it through the repository's `github-pages` environment. The Python test suite runs in the separate `CI` workflow, which the deployment does not wait for.
 
 The app is a multi-file static site, not a Python server. Runtime Python, OCR, English training data and icons are self-hosted. The build verifies every npm tarball against a pinned SHA-512 integrity value before unpacking it and ships only the LSTM Tesseract cores the bundled model uses. `build-info.json` records the exact source commit and package integrity metadata; `assets.json` records SHA-256 digests.
 
@@ -44,7 +44,8 @@ The app is a multi-file static site, not a Python server. Runtime Python, OCR, E
 
 **Solve clear, unambiguous scans automatically** applies to both still-photo
 recognition and live previews. Switching it off preserves OCR but cancels any
-pending live solve and hides blue answers. Switching it on can use the same
+pending live solve, so the live view does not freeze; a view already frozen
+keeps its solution until Clear. Switching it on can use the same
 verified reading; a late response from an earlier solve cannot reappear. A
 still photograph the scanner read upside down (turned half a turn, see
 [SCAN_INPUT.md](SCAN_INPUT.md)) is never clear: its reading waits for review
@@ -57,7 +58,9 @@ clue that an automatic retry could still read keeps the view live for up to
 three seconds while the help line asks to hold the grid steady. Either way the
 freeze waits for a frame at most half a second old, for at most three
 seconds, with the same request to hold the grid steady. Like the other
-scanner settings, it is saved in this browser and applies from the next scan.
+scanner settings, it is saved in this browser. The camera reads it at every
+freeze decision, so a change applies to the reading on screen and starts
+nothing over ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 The full-screen camera is modal: background controls are inert, Tab and
 Shift+Tab remain inside it, and closing it restores the previous focus and
@@ -73,13 +76,13 @@ for full checking and unique solutions.
 
 Automatic recognition is a proposal, not proof. A faint or cropped clue can look like an intentionally blank cell, so an **automatically identified puzzle type always requires one rules confirmation**, including boxed Sudoku. Structural families such as Str8ts remain review-gated. An explicitly selected type represents a separate user decision, but uncertainty flags still block silent trust of suspect readings.
 
-A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly. The live camera may show a clearly labelled provisional solution without interrupting the view; unread printed marks, inconsistent clues and nonunique results block blue entries. Captured readings transferred to the editor retain their uncertainty and still require the normal rules confirmation.
+A unique solution verifies only the transcribed rules and clues. It does not prove the photograph was read correctly. The live camera shows a solution only on a frozen view: the frame the solution was verified on, labelled PREVIEW, stays until Clear. Unread printed marks, inconsistent clues and nonunique results block blue entries. Captured readings transferred to the editor retain their uncertainty and still require the normal rules confirmation.
 
 Newsprint handling now uses solid-cell statistics to distinguish true black separators from gray Sudoku shading, connected-component cleanup to suppress paper/halftone specks, and local per-digit Otsu binarization before the bounded Tesseract atlas call. When a scan has at most 150 numeric crops, every single-glyph digit is then re-read on its own, once from its binary crop and once from its grayscale crop, and the three readings vote: unanimity clears the review flag even at low individual scores, any disagreement keeps it. The two user-provided newspaper crops are retained under `Examples/BrowserScanner/Newspaper/` and are not shipped in the PWA bundle.
 
 The measured results on those crops and on the generated fixtures are in [TESTING.md](TESTING.md); current measurements are retained in the workflow reports.
 
-Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised.
+Cage boundaries/targets, inequalities, Kakuro directions and path-puzzle identification remain experimental and require review. A digit read in a cell of a KenKen or Killer Sudoku puzzle is always highlighted for digit review, however clearly it was read: such puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Handwriting, alphabetic large-grid clues, arbitrary publisher layouts and invisible variant rules are not promised.
 
 No automated suite is a physical-device test. VoiceOver and physical usability, autofocus and exposure, installed-mode camera behaviour, storage eviction, airplane-mode use, decoder memory and phone speed still require hardware testing, and generated fixtures are regression baselines, not substitutes for it.
 
@@ -191,6 +194,24 @@ owners survive service-worker restarts and later updates;
 newer tabs do not prolong obsolete clients' retention. Unowned old builds are
 pruned on a subsequent activation. Reused module responses resolve relative
 imports against the requested versioned URL, not a previous download's URL.
+
+A deploy replaces the whole site, so the previous build's versioned URLs stop
+existing while one of its pages is still open: its own worker keeps serving it
+until the user chooses **Update app & reload**. When a file that page never
+stored is missing under its own URL (the OCR runtime, until a first scan or
+**Download for offline use**), the worker looks for the same SHA-256 in the
+other asset lists it has stored, newest first (after a deploy, the waiting
+update's), then in the origin's current `assets.json`, read past the browser's
+HTTP cache, and fetches that URL instead; bytes whose digest differs are never
+served. Installation still stores only the app shell and the Python
+runtime, not the OCR runtime. If the deploy changed the file, so that nothing
+identical exists (a new OCR runtime), retrying cannot bring the old file back
+and only the update helps. While one is offered, a read whose OCR fails to load
+online says that recognition could not load, and **Download for offline use**
+that this version's files are no longer on the server, and both name the
+update's button instead of showing the browser's error or "Stay online and
+retry". A read that fails offline, or whose OCR download runs out of time,
+keeps its own message.
 
 The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Of the two Tesseract core loaders it stores only the one this device will load, chosen with the same WebAssembly SIMD test Tesseract.js uses (both where WebAssembly cannot be probed); both stay on the server. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 

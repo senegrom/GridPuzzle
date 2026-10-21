@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scanner, confidentDigits, wayUpDigits, glyphAspect, HALF_TURN_BAR, HALF_TURN_FLOOR } from "../scanner.js";
+import { Scanner } from "../scanner.js";
+import { confidentDigits, wayUpDigits, glyphAspect, HALF_TURN_BAR, HALF_TURN_FLOOR } from "../turn-cues.js";
 import { turnCorners } from "../geometry.js";
 
 // Scanner.orient's half-turn check, with readOnce replaced by the readings a

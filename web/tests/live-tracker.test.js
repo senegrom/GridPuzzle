@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT, REFUSAL_SPAN } from '../live-tracker.js';
+import { createLiveTracker, ANCHOR_DEADLINE, VERIFY_DEADLINE, VERIFY_CELLS, HANDSHAKE_WAIT, HANDSHAKE_LATE, PROBE, TRANSPORT_REASONS, REFUSAL_LIMIT, REFUSAL_SPAN } from '../live-tracker.js';
 import { createTrackingCore } from '../live-tracking-core.js';
 import { gridAnchor, matchGrid } from '../live-registration.js';
 const flush = () => new Promise(r => setImmediate(r));
@@ -45,6 +45,86 @@ test('an anchor has its own, longer deadline; a verification keeps two seconds',
   tracker.verify({image:image(),anchors:[]}).catch(()=>{});tracker.reset();
   assert.deepEqual(delays,[ANCHOR_DEADLINE,VERIFY_DEADLINE]);
   assert.equal(VERIFY_DEADLINE,2000);assert.ok(ANCHOR_DEADLINE>=10*VERIFY_DEADLINE,'about ten verifications per anchor');
+});
+// A verification's work grows with the cells of the anchors it checks: one
+// 25 x 25 anchor costs about 7.7 times one 9 x 9 anchor. VERIFY_DEADLINE
+// covers VERIFY_CELLS, three 9 x 9 anchors; more cells get proportionally
+// longer, up to ANCHOR_DEADLINE. The tracker takes the cells from the anchor
+// jobs that built the anchors. Before, every verification had two seconds, so
+// a 25 x 25 grid on a phone four times slower than a desktop failed the worker
+// at every verification.
+function deadlines() {
+  const delays = [], workers = [], timers = new Map();
+  const tracker = createLiveTracker({ makeWorker() {
+    const worker = { sent: [], postMessage(data) { this.sent.push(data); }, terminate() { this.terminated = true; } };
+    workers.push(worker); return worker;
+  }, setTimer(fn, ms) { delays.push(ms); timers.set(delays.length, { fn, ms }); return delays.length; }, clearTimer(id) { timers.delete(id); } });
+  const reply = result => { const w = workers.at(-1); w.onmessage({ data: { id: w.sent.at(-1).id, result, milliseconds: 3 } }); };
+  let serial = 0;
+  return { tracker, workers, reply,
+    // The delays of the timers still pending, and firing those of one delay.
+    pending: () => [...timers.values()].map(t => t.ms),
+    fire(ms) { for (const [id, t] of [...timers]) if (t.ms === ms) { timers.delete(id); t.fn(); } },
+    // An anchor of rows x cols built by the worker, which keeps `keep`.
+    async anchor(rows, cols, keep = []) {
+      const done = tracker.anchor({ image: image(), corners: [], rows, cols, anchors: keep });
+      const id = ++serial; reply({ anchor: { id, matches: {} } }); await done; return id;
+    },
+    // The deadline of a verification of `anchors`, answered at once.
+    async verify(anchors) {
+      const done = tracker.verify({ image: image(), anchors }), ms = delays.at(-1);
+      reply({ proofs: {} }); await done; return ms;
+    },
+    restart() { tracker.reset(); serial = 0; } };
+}
+test('a verification\'s deadline grows with the cells of the anchors it checks; up to three 9 x 9 anchors keep two seconds', async () => {
+  const h = deadlines(), scaled = cells => Math.min(ANCHOR_DEADLINE, VERIFY_DEADLINE * Math.max(1, cells / VERIFY_CELLS));
+  assert.equal(VERIFY_CELLS, 3 * 81);
+  const a = await h.anchor(9, 9), b = await h.anchor(9, 9, [a]), c = await h.anchor(9, 9, [a, b]);
+  assert.equal(await h.verify([a]), VERIFY_DEADLINE, 'one 9 x 9 anchor');
+  assert.equal(await h.verify([a, b, c]), VERIFY_DEADLINE, 'three 9 x 9 anchors');
+  assert.equal(await h.verify([a, a, a]), VERIFY_DEADLINE, 'an anchor counts once');
+  assert.equal(await h.verify([]), VERIFY_DEADLINE, 'no anchor');
+  assert.equal(await h.verify([77]), VERIFY_DEADLINE, 'an anchor the worker does not have costs nothing');
+  const d = await h.anchor(9, 9, [a, b, c]);
+  assert.equal(await h.verify([a, b, c, d]), scaled(4 * 81), 'four 9 x 9 anchors');
+  // An anchor job that does not keep an anchor: the camera no longer verifies it.
+  const big = await h.anchor(25, 25, [a]);
+  assert.equal(await h.verify([a, b, c, d, big]), scaled(81 + 625), 'only the kept anchors and the new one count');
+  const e = await h.anchor(16, 16, [big]), f = await h.anchor(25, 25, [big, e]), g = await h.anchor(25, 25, [big, e, f]);
+  assert.equal(await h.verify([e]), scaled(256), 'one 16 x 16 anchor');
+  assert.ok(Math.abs(scaled(625) - 5144) < 1, 'one 25 x 25 anchor: about five seconds');
+  assert.equal(await h.verify([big]), scaled(625));
+  assert.equal(await h.verify([big, f, g]), scaled(3 * 625), 'three 25 x 25 anchors: about fifteen seconds');
+  const many = [big, f, g];
+  for (let i = 0; i < 3; i++) many.push(await h.anchor(25, 25, many));
+  assert.equal(await h.verify(many), ANCHOR_DEADLINE, 'six 25 x 25 anchors: at most the anchor deadline');
+  // A new worker has built nothing (its anchors are numbered from one again):
+  // an id of the old worker's 25 x 25 anchor costs it nothing.
+  h.restart();
+  assert.equal(await h.verify([big]), VERIFY_DEADLINE, 'the old worker\'s anchors cost the new one nothing');
+});
+test('a 25 x 25 grid\'s verification that answers after two seconds is no failure; one that never answers fails at its own deadline, a 9 x 9 grid\'s at two seconds', async () => {
+  const h = deadlines(), long = VERIFY_DEADLINE * 625 / VERIFY_CELLS;
+  const big = await h.anchor(25, 25);
+  let done = h.tracker.verify({ image: image(), anchors: [big] });
+  assert.deepEqual(h.pending(), [long], 'one deadline runs, about five seconds');
+  // Two seconds pass with no answer: nothing fails, and the late answer is taken.
+  h.fire(VERIFY_DEADLINE);
+  h.reply({ proofs: { [big]: { corners: [] } } });
+  assert.ok((await settled(done)).proofs[big], 'the answer after two seconds is taken');
+  assert.equal(h.tracker.stats.failures, 0, 'no failure');
+  assert.equal(h.workers.length, 1, 'the worker, and its anchors, are kept');
+  done = h.tracker.verify({ image: image(), anchors: [big] });
+  const failed = assert.rejects(done, /timed out/);
+  h.fire(VERIFY_DEADLINE); h.fire(long); await failed;
+  assert.equal(h.tracker.stats.failures, 1, 'one that never answers fails at its own deadline');
+  assert.equal(h.workers[0].terminated, true);
+  const small = deadlines(), nine = await small.anchor(9, 9);
+  const smallFailed = assert.rejects(small.tracker.verify({ image: image(), anchors: [nine] }), /timed out/);
+  assert.deepEqual(small.pending(), [VERIFY_DEADLINE]);
+  small.fire(VERIFY_DEADLINE); await smallFailed;
+  assert.equal(small.tracker.stats.failures, 1, 'a 9 x 9 grid\'s verification still fails when its two seconds are up');
 });
 test('stop rejects active and queued work and late old-worker replies cannot settle a restart',async()=>{
   const h=harness(),a=h.tracker.verify({image:image(),anchors:[]}),b=h.tracker.verify({image:image(),anchors:[]});
@@ -140,6 +220,9 @@ function transport({ probe = 'bitmap' } = {}) {
     started: (w = last()) => w.onmessage({ data: { started: true } }),
     // `answered`: the values of the latest answer to a probe.
     answer(pixels = [...PROBE], w = last()) { this.answered = pixels; w.onmessage({ data: { probe: { pixels } } }); },
+    // The worker refuses the probe as it would refuse a frame, saying why,
+    // with the values it read back if it read any.
+    refused(refusal, pixels = null, w = last()) { this.answered = pixels; w.onmessage({ data: { probe: { pixels, refusal } } }); },
     reply: (w = last(), extra = {}) => w.onmessage({ data: { id: w.sent.at(-1).id, result: { proofs: {} }, milliseconds: 3, transportMilliseconds: 7, ...extra } }),
     fire(ms) { for (const [id, t] of [...timers]) if (t.ms === ms) { timers.delete(id); t.fn(); } },
     delays: () => [...timers.values()].map(t => t.ms).sort((a, b) => a - b),
@@ -181,6 +264,15 @@ for (const [name, setup, act, reason] of [
   // All sixteen values count, the alpha channel's too.
   ['an alpha value off by 3', {}, async h => { h.started(); h.answer(PROBE.map((v, i) => i === 7 ? v - 3 : v)); }, 'mismatch'],
   ['no pixels (no OffscreenCanvas or 2D context in the worker)', {}, async h => { h.started(); h.answer(null); }, 'no-pixels'],
+  // A probe the worker refuses as it would refuse a frame is no worker
+  // without a canvas: an alpha below 255 is a mismatch with the values read
+  // back, also one within matches()' tolerance of 2 (every frame would be
+  // refused for it), and one that did not arrive whole, or failed to draw or
+  // read back, a probe that failed.
+  ['a probe refused for an alpha of 254', {}, async h => { h.started(); h.refused('blank', PROBE.map((v, i) => i === 7 ? v - 1 : v)); }, 'mismatch'],
+  ['a probe refused for drawing nothing', {}, async h => { h.started(); h.refused('blank', Array(16).fill(0)); }, 'mismatch'],
+  ['a probe that did not arrive whole in the worker', {}, async h => { h.started(); h.refused('incomplete'); }, 'probe-failed'],
+  ['a probe the worker failed to draw or read back', {}, async h => { h.started(); h.refused('failed'); }, 'probe-failed'],
   ['too few values', {}, async h => { h.started(); h.answer(PROBE.slice(1)); }, 'mismatch'],
   ['too many values (a readback of the wrong size)', {}, async h => { h.started(); h.answer([...PROBE, ...PROBE]); }, 'mismatch'],
   // The report keeps at most a 4 x 4 readback's values.
@@ -566,14 +658,15 @@ test('a frame whose bitmap the worker refuses is lost alone: its job fails as re
 });
 
 // While the next worker's handshake still runs, that worker may decide for
-// bitmaps: the REFUSAL_LIMIT-th loss in a row (REFUSAL_SPAN after the first)
+// bitmaps: the REFUSAL_LIMIT-th loss in a row (REFUSAL_SPAN of tracking time
+// after the first, here before the reset: the handshake's own time is none)
 // then gives bitmaps up at once, ending the probing worker, and its waiters
 // get the give-up's error.
 test('the REFUSAL_LIMIT-th lost frame in a row during the next worker\'s handshake gives bitmaps up at once', async () => {
   const h = transport(); await h.handshake();
   for (let i = 1; i < REFUSAL_LIMIT; i++) assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
-  h.tracker.reset(); h.tick(REFUSAL_SPAN);
-  const ready = h.tracker.ready(), given = assert.rejects(ready, { name: 'NotSupportedError' }); await flush(); h.started();
+  h.tick(REFUSAL_SPAN); h.tracker.reset();
+  const ready = h.tracker.ready(), given = assert.rejects(ready, { name: 'NotSupportedError' }); await flush(); h.tick(1000); h.started();
   assert.equal(h.last().sent[0]?.op, 'probe', 'the next worker probes');
   assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the give-up');
   await given;
@@ -692,6 +785,92 @@ test('frames lost in a row are lost alone until REFUSAL_SPAN after the first of 
   assert.equal(h.workers[0].terminated, true, 'given up REFUSAL_SPAN after the first');
   assert.equal(await settled(h.tracker.ready()), 'imagedata');
   assert.equal(h.tracker.stats.transportReason, 'refused'); assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// A reset (the freeze, Restart, closing the camera) keeps the run's count,
+// since it says nothing about bitmaps, but no frame is tracked from the reset
+// until the next worker's handshake has decided its transport (or a frame is
+// handed over), and that time is no part of the run's REFUSAL_SPAN: a frozen
+// view looked at for half a minute, or a closed camera, says nothing about
+// the browser either. The tracking time before the reset and after the
+// decision counts. Before, two frames lost, a reset, half a minute and one
+// more frame lost gave bitmaps up.
+test('time with no frame tracked, from a reset until the next worker\'s transport is decided, is no part of REFUSAL_SPAN', async () => {
+  const h = transport(); await h.handshake();
+  h.tick(100);
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError'); h.tick(100); }
+  h.tracker.reset(); h.tick(30000);
+  assert.equal(await h.handshake(), 'bitmap', 'the worker after the reset probes again');
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the REFUSAL_LIMIT-th in a row, 30 s but 200 ms of tracking after the first, is lost alone');
+  h.tick(REFUSAL_SPAN - 200 - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'just within REFUSAL_SPAN of tracking time');
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers[1].terminated, undefined);
+  h.tick(1);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'the count carried over the reset: REFUSAL_SPAN of tracking time after the first');
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.transportReason, 'unmade');
+  assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// Frames made before a reset can lose their bitmaps after it (verification
+// frames being made as the view freezes): such a run starts while no frame is
+// tracked, and its clock stands until the next worker's transport is decided,
+// so one more frame lost after Clear, however much later, is lost alone.
+test('a run that starts while no frame is tracked counts no time until the next worker\'s transport is decided', async () => {
+  const h = transport(); await h.handshake();
+  h.tracker.reset(); // The freeze.
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { h.tick(5); assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'a frame the freeze retired'); }
+  h.tick(30000); // The frozen view.
+  assert.equal(await h.handshake(), 'bitmap', 'Clear: the camera asks for a frame, and the next worker decides at once');
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the first frame lost after Clear is lost alone');
+  h.tick(REFUSAL_SPAN - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError');
+  h.tick(1);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'REFUSAL_SPAN of tracking time after the run began');
+  assert.equal(h.tracker.stats.unmadeFrames, REFUSAL_LIMIT + 2);
+  h.tracker.reset();
+});
+
+// Nor is a new worker's start and handshake: no frame can be tracked before
+// its transport is decided. On an iPhone a worker's first canvas waits for
+// the GPU process's set-up on the main thread, and the handshake's wait is
+// renewed up to 600 ms after the worker started. When the clock ran again at
+// ready(), two frames lost as the view froze and the first anchor after Clear
+// lost gave bitmaps up whenever the next worker took 460 ms or more to start
+// and answer its probe.
+test('a new worker\'s start and handshake after a reset are no part of REFUSAL_SPAN', async () => {
+  const h = transport(); await h.handshake();
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError'); h.tick(33); }
+  h.tracker.reset(); h.tick(30000); // The freeze, and the frozen view.
+  const ready = h.tracker.ready(); await flush();
+  h.tick(600); h.started(); // A slow start (the worker's modules, its first canvas).
+  h.tick(250); h.answer(); // Within the handshake's wait.
+  assert.equal(await ready, 'bitmap');
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the first anchor after Clear, the REFUSAL_LIMIT-th in a row, is lost alone');
+  assert.equal(h.tracker.transport, 'bitmap'); assert.equal(h.workers[1].terminated, undefined);
+  h.tick(REFUSAL_SPAN - 2 * 33 - 1);
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'just within REFUSAL_SPAN of tracking time');
+  h.tick(1);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'REFUSAL_SPAN of tracking time after the first, the handshake\'s time not counted');
+  assert.equal(await settled(h.tracker.ready()), 'imagedata'); assert.equal(h.tracker.stats.failures, 0);
+  h.tracker.reset();
+});
+
+// A second reset before a frame is tracked again (a settings change at the
+// first tick after Clear: the video's frame size changed while the view was
+// frozen) keeps the idle time's start. Moving it to the second reset made the
+// frozen time count again.
+test('a second reset while no frame is tracked keeps the idle time\'s start', async () => {
+  const h = transport(); await h.handshake();
+  h.tick(100);
+  for (let i = 1; i < REFUSAL_LIMIT; i++) { assert.equal(h.tracker.bitmapFailed().name, 'AbortError'); h.tick(100); }
+  h.tracker.reset(); h.tick(30000); // The freeze, and the frozen view.
+  h.tracker.reset(); h.tick(100); // Clear's first tick: a settings change.
+  assert.equal(await h.handshake(), 'bitmap');
+  assert.equal(h.tracker.bitmapFailed().name, 'AbortError', 'the REFUSAL_LIMIT-th in a row, 200 ms of tracking after the first, is lost alone');
+  h.tick(REFUSAL_SPAN - 200);
+  assert.equal(h.tracker.bitmapFailed().name, 'NotSupportedError', 'REFUSAL_SPAN of tracking time after the first');
   h.tracker.reset();
 });
 
@@ -1039,6 +1218,74 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
   // transparent: it is answered as unreadable, not tracked as a blank frame.
   thread.postMessage({ op: 'verify', id: 9, bitmap: { pixels: [], width: 64, height: 64 }, width: 64, height: 64, anchors: [anchored.result.anchor.id] });
   assert.deepEqual(await next(), { id: 9, error: 'bitmap-unsupported', refusal: 'blank' });
+});
+
+// The real worker's answer to the probe, decided by the real tracker: the
+// report says "no-pixels" only for a worker that cannot draw at all (no 2D
+// context here; no OffscreenCanvas in the test above). A probe the worker
+// refuses as it would refuse a frame says why: an alpha below 255, also one
+// within matches()' tolerance of 2, is a mismatch with the values read back
+// (iOS 17.0 and 17.1 add such noise in Private Browsing), and a probe that
+// did not arrive whole, or failed to draw, is one that failed. Before, the
+// worker answered each of them with no pixels, and the report blamed a
+// missing OffscreenCanvas.
+test('the actual tracking worker answers a probe it cannot read back with why, and the tracker tells the causes apart', async t => {
+  const url = new URL('../live-tracking-worker.js', import.meta.url).href;
+  // A stand-in OffscreenCanvas whose draw keeps the "bitmap"'s pixels (and
+  // throws for one marked `throws`); `context: false` gives no 2D context.
+  const thread = (context) => {
+    const script = `const {parentPort}=require('node:worker_threads');
+class OffscreenCanvas{constructor(w,h){this.width=w;this.height=h;}getContext(){if(!${context})return null;const c=this;return{clearRect(){c.pixels=null;},
+drawImage(b){if(b.throws)throw new Error('detached');c.pixels=b.pixels;},
+getImageData(x,y,w,h){return{width:w,height:h,data:Uint8ClampedArray.from({length:w*h*4},(_,i)=>c.pixels?.[i]??0)};}};}}
+global.OffscreenCanvas=OffscreenCanvas;global.self={postMessage:m=>parentPort.postMessage(m)};
+import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`;
+    const worker = new NodeWorker(script, { eval: true }); t.after(() => worker.terminate()); return worker;
+  };
+  // The tracker's decision on an answer, through a worker that relays it.
+  async function decided(answer) {
+    let relay;
+    const tracker = createLiveTracker({ setTimer: () => 0, clearTimer() {}, now: () => 0,
+      probe: () => Promise.resolve({ width: 2, height: 2, close() {} }),
+      makeWorker() { relay = { postMessage() {}, terminate() {} }; return relay; } });
+    const ready = tracker.ready(); await flush();
+    relay.onmessage({ data: { started: true } }); relay.onmessage({ data: answer });
+    const transport = await settled(ready), { transportReason, probePixels } = tracker.stats;
+    tracker.reset();
+    return { transport, transportReason, probePixels };
+  }
+  // A thread's messages are not kept for a listener added later: each start
+  // message is listened for as the thread is made.
+  const draws = thread(true), drawsStarted = nextMessage(draws);
+  assert.deepEqual(await drawsStarted, { started: true });
+  const at = (i, d) => PROBE.map((v, k) => (k === i ? v + d : v));
+  for (const [name, bitmap, answer, decision] of [
+    ['read back right', { pixels: [...PROBE], width: 2, height: 2 }, { pixels: [...PROBE] },
+      { transport: 'bitmap', transportReason: 'probe', probePixels: null }],
+    ['a colour off by 3', { pixels: at(5, 3), width: 2, height: 2 }, { pixels: at(5, 3) },
+      { transport: 'imagedata', transportReason: 'mismatch', probePixels: at(5, 3) }],
+    ['an alpha of 254', { pixels: at(7, -1), width: 2, height: 2 }, { pixels: at(7, -1), refusal: 'blank' },
+      { transport: 'imagedata', transportReason: 'mismatch', probePixels: at(7, -1) }],
+    ['a probe that drew nothing', { pixels: [], width: 2, height: 2 }, { pixels: Array(16).fill(0), refusal: 'blank' },
+      { transport: 'imagedata', transportReason: 'mismatch', probePixels: Array(16).fill(0) }],
+    ['a probe that arrived as null', null, { pixels: null, refusal: 'incomplete' },
+      { transport: 'imagedata', transportReason: 'probe-failed', probePixels: null }],
+    ['a probe that arrived 0 x 0', { pixels: [], width: 0, height: 0 }, { pixels: null, refusal: 'incomplete' },
+      { transport: 'imagedata', transportReason: 'probe-failed', probePixels: null }],
+    ['a probe whose draw failed', { pixels: [...PROBE], width: 2, height: 2, throws: true }, { pixels: null, refusal: 'failed' },
+      { transport: 'imagedata', transportReason: 'probe-failed', probePixels: null }],
+  ]) {
+    draws.postMessage({ op: 'probe', bitmap });
+    const reply = await nextMessage(draws);
+    assert.deepEqual(reply, { probe: answer }, `${name}: the worker's answer`);
+    assert.deepEqual(await decided(reply), decision, `${name}: the tracker's decision`);
+  }
+  const blind = thread(false), blindStarted = nextMessage(blind);
+  assert.deepEqual(await blindStarted, { started: true });
+  blind.postMessage({ op: 'probe', bitmap: { pixels: [...PROBE], width: 2, height: 2 } });
+  const reply = await nextMessage(blind);
+  assert.deepEqual(reply, { probe: { pixels: null } }, 'no 2D context: no pixels and no refusal');
+  assert.deepEqual(await decided(reply), { transport: 'imagedata', transportReason: 'no-pixels', probePixels: null });
 });
 
 // A worker that dies (its error event) while its first bitmap job is in it

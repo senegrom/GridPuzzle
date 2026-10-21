@@ -54,31 +54,83 @@ flagged for review can take part in a labelled preview but stay yellow.
 **Review captured clues** carries the inferred family and box settings and
 every OCR warning into the editor, where Solve, Check and Hint still need the
 usual confirmation; it also highlights any digit the board's rules see twice
-under the boxes the camera read with, as the captured picture shows it
-yellow. When those boxes are ones the editor suggested from the grid size and
-nobody has confirmed yet, a note says so, as after a photograph's Read, and
+under the boxes the camera read with, as the captured picture shows it yellow.
+When those boxes are ones the editor suggested from the grid size and nobody
+has confirmed yet, a note says so, as after a photograph's Read, and
 confirming the capture's reading confirms them. The live camera reads each
-frame the way it lies, but a capture is a
-still photograph: when its reading shows what makes a photograph's Read try a
-turn (`turnCue`: a poor reading of glyphs wider than tall, or of
-upright-shaped glyphs with confident digits but none with a 2, 3 or 5, as an
-upside-down page reads its 6s and 9s as each other and its 2s as 4s), the
-capture reaches the editor with every digit highlighted under a first note
-that the page may be upside down or sideways, and the editor reads the
-captured still again as Read puzzle reads a photograph ("Checking which way up
-the captured picture is…"). A reading taken turned replaces the live one, with
-the turn named in its first note, and waits for review like every capture, a
-quarter turn too; Undo brings the live reading back as the board showed it.
-Read the way it lies, the live reading keeps only its own warnings again, as
-Read puzzle leaves a photograph read the way it lies. A check that fails, or
-that an edit, Stop or another task stops (Solve, Check and Hint wait while it
-runs; Undo takes the capture back off the board), leaves every digit
-highlighted under the note, which names
-Adjust scan → Read puzzle as the way to check the turn ("Live captures" in
-[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
-detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
-selected, a 12 × 12 Str8ts), the outline is shown with the reason and no cell
-overlay is attempted until the type or the grid settings change.
+frame the way it lies, but a capture is a still photograph: when its reading
+shows what makes a photograph's Read try a turn (`turnCue`: a poor reading of
+glyphs wider than tall, or of upright-shaped glyphs with confident digits but
+none with a 2, 3 or 5, as an upside-down page reads its 6s and 9s as each
+other and its 2s as 4s), the capture reaches the editor with every digit
+highlighted under a first note that the page may be upside down or sideways,
+and the editor reads the captured still again as Read puzzle reads a
+photograph ("Checking which way up the captured picture is…"). A reading taken
+turned replaces the live one, with the turn named in its first note, and waits
+for review like every capture, a quarter turn too; Undo brings the live
+reading back as the board showed it. Read the way it lies, the live reading
+keeps only its own warnings again, as Read puzzle leaves a photograph read the
+way it lies. A check that fails, or that an edit, Stop or another task stops
+(Solve, Check and Hint wait while it runs; Undo takes the capture back off the
+board), leaves every digit highlighted under the note, which names Adjust scan
+→ Read puzzle as the way to check the turn ("Live captures" in
+[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the detected grid
+contradicts the selected rules (a 9 × 6 board while Sudoku is selected, a 12 ×
+12 Str8ts), the help line gives the reason and asks to change the puzzle type
+or the grid settings; such a grid is neither outlined nor read.
+
+A Sudoku whose size the grid settings are not for (they are 9 × 9 by default)
+gets its boxes from its size: 3 × 3 for 9 × 9, 2 rows × 3 columns for 6 × 6,
+3 × 4 for 12 × 12. A square guess is the usual layout. One that is not can be
+the wrong one, since a 6 × 6 Sudoku's boxes are 2 × 3 or 3 × 2 alike, and the
+solver is given the guess: with tall boxes the reading mostly has no solution
+or conflicts in the guessed boxes, and now and then a wrong unique solution
+(about 2 to 4 % of random 6 × 6 Sudokus with 3 × 2 boxes in the review's
+probe). Such a reading says so wherever it shows a result. When it has no
+solution or several, or its readings conflict, the help line names the guessed
+layout and the settings that replace it ("If the printed boxes differ, close
+the camera and set Rows, Columns, Box height and Box width in Grid size &
+settings.") instead of asking to move closer; the frozen help says the
+solution was found with the guessed boxes; and the reading carries the photo
+flow's note for a box layout suggested from the grid size into the editor
+after **Review captured clues**. Before, the help line said "No solution to
+these readings — move closer or review the clues." on every re-read, and the
+freeze said nothing of the boxes. The live view does not try the transposed
+layout. Boxes from the settings (the grid's size set, and Sudoku, Killer
+Sudoku or automatic detection chosen) are used as they are.
+
+The live camera never turns a reading: only a still photograph is checked for
+a quarter or a half turn, by reading it again turned ([SCAN_INPUT.md](SCAN_INPUT.md),
+"Half turns" in [OCR_QUALITY.md](OCR_QUALITY.md)). Aimed at a page lying
+sideways or upside down it reads the page as it lies, poorly, and neither
+moving closer nor a clearer frame can help. The help line then says the grid
+looks sideways or upside down and to turn the page or the phone so the numbers
+stand upright, or to move closer if they already do. It goes by the cue the
+still check reads its turns on, from the reading's own glyphs: a poor reading
+(fewer than half its value regions read as confident digits) of glyphs wider
+than tall lies a quarter turn off; one of upright-shaped glyphs that reads at
+least five confident digits (`HALF_TURN_BAR`) but not one number with a 2, 3
+or 5, half a turn. That line takes the place of "Move closer for a clearer
+read", a conflict or no-solution message, the clue counts with solving off,
+"Waiting for a clearer frame of the unclear clues…", a retry that found
+nothing new and the retries' end, and the export records `grid-sideways` or
+`grid-upside-down` (in place of `clearer-frame-needed` while it waits). The
+still check takes the half-turn cue from one confident digit, since its
+reading turned decides; here the cue stands alone, and a few digits often
+miss a 2, 3 or 5 by chance: a third of a Sudoku's digits are one, so an
+upright page read poorly with k confident digits shows none in about (2/3)^k
+of its readings (two in three at one digit, 13% at five, 4% at eight), while
+a page upside down reads its 0s, 1s, 6s, 8s and 9s with confidence (a 9 × 9
+page in the live view read 12). Below five the line stays as it was. The cue
+is still no proof: read as still photographs, 84 of the 3,952 upright corpus
+photographs show the half-turn cue in Chromium, most of them handwritten or
+mixed pages, and a live view's poorer readings of a distant or blurred page
+show it more often; hence the second half of the line. How often a live
+reading of an upright page is that poor has not been measured. The reading
+itself is shown as it was read, and one that solves
+anyway still freezes. Before, such a page got "Move closer" or "Conflicting
+readings…", then "Waiting for a clearer frame…" for as long as it stayed in
+view.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
@@ -128,6 +180,17 @@ wait, freezing the view at once on the solution's own frame, whatever its age,
 and saving that picture: no retry can run after the shutter. The three seconds
 belong to the reading's own frame: a blink of the grid, a merged retry or a
 new solve keep them running, and only a new full reading starts them again.
+A retry is a proposal, as a full re-read is: the reading keeps its solution
+while the retry runs, so the three seconds or the shutter freeze it as it
+stands, ending the retry, and the help line keeps the wait's text. Only a
+merge that changes a clue withdraws the solution, which belonged to the old
+clues: the reading is solved again and, once the three seconds have passed,
+freezes as soon as it is. Before, every retry withdrew the solution while it
+ran: the freeze waited for the retry to end (in the fake-clock simulation a
+retry from 1.5 s to 5.5 s froze the view at 5.5 s, and one that never
+answered kept it live until the retry's 90-second deadline), the help line
+said "Re-reading 1 unclear clues from a clearer frame…" meanwhile, and the
+shutter saved a live picture without the solution.
 
 Freezing ends all frame work: no frame is sampled, and no detection,
 tracking, OCR, retry or solve runs, while replies already in flight are fenced
@@ -176,7 +239,16 @@ for three seconds offers Start preview too, frames that arrive later take it
 back (also after a failed retry), and the camera says when no picture has
 arrived a second after Clear.
 Start preview offered while the view is live never clears a solution that
-freezes during its playback. If the camera cannot be turned back on, the frozen
+freezes during its playback. Start preview makes the video a new player
+(pause, `srcObject` and `load()`), whose count of presented frames starts from
+zero, so on the live view the camera's frame scheduler starts over at the tap
+(`replay()`, as for a stream attached again) and scans that player's frames
+at once, also when its play() times out or is interrupted and the frames come
+later. Before, the scheduler
+took them for repeats of the old player's frames until their count passed
+the old one (on WebKit that includes the frames counted while paused at the
+freeze, so minutes of frames): nothing was scanned, and the frame check
+offered Start preview again while the video visibly played. If the camera cannot be turned back on, the frozen
 view stays with the reason (a refused permission in plain words), and Save
 picture still works.
 
@@ -325,8 +397,10 @@ pixels; detection keeps its 640-pixel budget.
 
 Each read stays anchored to its captured pixels, and verification compares with
 that anchor, never with a chain of drifting successor frames; background pixels
-and timers are not the authority for identifying the puzzle. One current-frame
-verification cache is cleared on every camera tick. The fitted corners must
+and timers are not the authority for identifying the puzzle. No verification
+result is cached across camera ticks: each worker operation computes the
+frame's grayscale and integral image once for all the anchors it checks. The
+fitted corners must
 stay within 16 pixels of where the anchor last matched, so a grid that jumps
 further cannot be found by verification alone. The next detection finds it:
 when an anchor operation matches a retained anchor at the new detection, it
@@ -361,10 +435,17 @@ frame and one pending detector-anchor request. Up to eight worker-owned anchors
 are retained, with the current reading and reference anchors protected from
 eviction, and the worker keeps grayscale evidence, not extra RGBA source copies.
 Stop, settings changes and errors terminate the worker and fence its replies.
-Each operation fails closed after its own deadline: two seconds for a
-verification, twenty for an anchor. With one shared two-second deadline, every
-anchor on a device whose verifications approach two seconds failed and ended in
-Restart.
+Each operation fails closed after its own deadline: twenty seconds for an
+anchor, and for a verification two seconds for up to three 9 × 9 anchors' cells
+(243), longer in proportion for more (about five seconds for one 25 × 25
+anchor, fifteen for three), up to the anchor's twenty. With one shared
+two-second deadline, every anchor on a device whose verifications approach two
+seconds failed and ended in Restart. With two seconds for every verification,
+a 25 × 25 grid on a phone four times slower than the desktop below (about two
+seconds for one anchor) failed the worker at every verification: its anchors
+were dropped, tracking backed off, and the third failure paused it. A reply
+that comes more than two seconds after its frame is still too late to adopt
+(see "Live and delayed views"), but it is no failure.
 
 Verification cost grows with the anchors it checks, since each one is a
 registration and a full content comparison. An anchor operation re-matches
@@ -376,7 +457,12 @@ therefore verifies one anchor per frame where it used to verify three or four.
 Each operation computes the frame's grayscale and integral image once for all
 its anchors. On six noisy real photographs in desktop Chromium at 960 and 1280
 pixels (2026-09-24), a verification of one anchor takes 51-66 ms (63-79 ms
-before these changes), and of three anchors 140-177 ms (194-244 ms). An anchor
+before these changes), and of three anchors 140-177 ms (194-244 ms). Its work
+grows with the grid's cells, since every cell, label region and boundary strip
+is compared: on synthetic blurred, noisy 960 × 1280 frames with every anchor
+verified (the tracking core in Node, CPU time on a Zen 4 desktop, 2026-10-19),
+one anchor took 63 ms at 9 × 9, 217 ms at 16 × 16 and 484 ms at 25 × 25, and
+three 202, 625 and 1468 ms. An anchor
 with three retained anchors costs 1.1 to 1.2 times a verification of the same
 three, and 19-27 ms to build alone. Earlier ratios of ten times (a synthetic
 9x9 board) and 67-131 times (photographs) compared against verifying an
@@ -405,10 +491,12 @@ Otherwise the camera does the readback itself, as before. Each worker uses one
 of the two, decided by a handshake when it starts, so every anchor is verified
 on pixels resampled the way it was built: the tracker transfers a bitmap of a
 2 × 2 canvas of four known colours, which the worker draws and reads back. The
-bitmap transport needs all sixteen values within 2. A wrong value, a worker
-without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's WebKit on
-Windows), a probe that cannot be made or transferred, or a reply that cannot
-be received mean the camera's own readback. So does a worker that has not
+bitmap transport needs all sixteen values within 2, read back from a probe the
+worker would not refuse as a frame (see below: an alpha below 255 anywhere is
+refused, though within 2). A wrong value, a probe the worker refuses so, a
+worker without a 2D `OffscreenCanvas` (iOS before 16.4, and Playwright's
+WebKit on Windows), a probe that cannot be made or transferred, or a reply
+that cannot be received mean the camera's own readback. So does a worker that has not
 answered when its second 300-ms wait ends on time, 600 ms after its start (its
 first message: loading its modules is no part of the transport): it may be
 stuck on the probe, with every job queued behind it, so it is replaced at once
@@ -511,9 +599,27 @@ reading the scan's other bitmaps back right, and giving bitmaps up there
 restarted acquisition and retired the reading before the scene saw its
 content change. So bitmaps are given up only when frames keep being lost: at
 a frame lost that is at least the third in a row, refused or unmade, with no
-bitmap job completed in between, and comes half a second or more after the
-first of them (`REFUSAL_SPAN`), in the camera session: the freeze, Clear and
-Restart do not end the run, a completed bitmap job does. The count alone
+bitmap job completed in between, and comes half a second or more of tracking
+time after the first of them (`REFUSAL_SPAN`), in the camera session: the
+freeze, Clear and Restart do not end the run, since they say nothing about
+bitmaps (a broken browser must not get three fresh tries after each), a
+completed bitmap job does. Tracking time stops at the tracker's reset (the
+freeze, Restart, a settings change, a tracking failure, closing the camera;
+a second reset before it runs again keeps its start) and runs again once the
+next worker's handshake has decided its transport, since no bitmap frame can
+be tracked before, so the time a frozen view is looked at, a back-off, a
+re-acquisition after Restart or Clear before a grid is found, and the next
+worker's start and handshake are no part of the half second; the time before
+the reset and after the decision is. Before, wall-clock time counted: two
+frames lost as the view froze and one lost after Clear half a minute later
+gave bitmaps up for the rest of the camera session (in the fake-clock
+simulation the scan after Clear then read all 11 of its tracking frames back
+on the main thread), and so did two frames lost before a Restart and one lost
+anchor after a re-acquisition of more than half a second. With the clock
+running again at the camera's first ask after the reset, they still did
+whenever the worker after Clear took 460 ms or more to start and answer its
+probe, which an iPhone's first canvas in a worker can take (it waits for the
+GPU process's set-up, see the handshake above). The count alone
 followed the sampling: with the frame after each lost one sampled at once,
 and two bitmaps made of one snapshot when a tick both detects and verifies,
 three frames in a row were lost within 70-100 ms at 30 frames a second, and
@@ -627,7 +733,14 @@ help line announces "Aligning the grid" only once the view has stayed
 unverified for two seconds, because verified replies can arrive that far
 apart; announcing every gap alternated it with the status six to eight times
 every five seconds. A worker that never answers reaches the failure, backoff
-and Restart path (see Recovery). Neither tier promises that image copying and
+and Restart path (see Recovery). One that answers, but too late to adopt each
+time, as a 25 × 25 grid's verifications can on a slow phone, fails nothing:
+from the third such reply in a row the help line says "This grid takes too
+long to track live on this device. Save a picture to read it in the editor."
+until a reply is adopted, and the export records a `tracking-late` event.
+Before, such a verification failed the worker at two seconds; with a longer
+deadline and nothing more, the camera would have waited on its candidate in
+silence. Neither tier promises that image copying and
 rendering are off-thread. A frozen solution is never marked as catching up: it
 is the frame the solution was verified on, which the freeze takes at most half
 a second old, or after its three-second wait at most two.
@@ -705,7 +818,8 @@ presents the video itself. While the view is frozen the scheduler is stopped:
 no video-frame callback, heartbeat, snapshot or readback runs, and Clear
 starts it again with new tokens, taking the first frame the video reports only
 as a baseline (`discardFirst`), so the first frame scanned was presented after
-the tap.
+the tap. Start preview on the live view starts it again too, since the new
+player it makes counts its frames from zero (see Clear above).
 
 ## Noticing changed print
 
@@ -719,8 +833,9 @@ region must match independently. Structural strips keep their measured ink
 contrast instead of stretching thin grid lines to black, and a smaller change
 budget preserves small constraints without turning registration jitter into
 constant rereading. Labels, inequality signs, cage edges and both ink
-polarities all take part; unchanged solved scenes keep their battery-saving
-backoff.
+polarities all take part; an unchanged settled reading keeps the 250 ms
+backoff (see "Frame scheduling and painting"), and a solved one freezes, after
+which nothing is sampled until Clear.
 
 When two signatures are compared, the polarity and the contrast stretch come
 from the reference region and apply to both, so they cannot flip between two
@@ -818,8 +933,19 @@ The original reading anchor is never replaced by a chain of retries. A retry
 must match the same rules and original content, and both original and retry
 samples must be reverified before its results can apply. Confident or
 explicitly confirmed clues are not replaced; absent marks cannot delete earlier
-clues. Changed proposals remain uncertain and require review, and solver
-answers do not participate. A failed or timed-out targeted read retires only
+clues. A finished retry waits for both frames to verify for at most five
+seconds; after that it is dropped (`retry-expired`), and the reading keeps its
+clues and its result, so that a retry whose own frame stopped verifying, while
+the reading's still does, cannot keep the reading unsettled. Changed proposals remain uncertain and require review, and solver
+answers do not participate. While a retry runs the reading keeps its result,
+so a solved reading stays solved (see the freeze's wait above); a merge that
+changes a clue withdraws it, and the reading is solved again. The help line
+names the retry ("Re-reading 1 unclear clues from a clearer frame…") while
+it runs; the reader's progress lines stay off it. Before, each of them
+("Straightening the photograph…", then one per OCR step) was written over the
+status and over whatever the camera held there (the freeze's wait, a stalled
+feed), and the next heartbeat wrote the held line back, every line announced
+in the polite live region. A failed or timed-out targeted read retires only
 its own request: the preceding full reading and its source stay available, but
 only current identity verification can authorize their display, and a late
 reply cannot restore a retired scene or replace a newer retry. Each cell has two
@@ -864,7 +990,10 @@ newer request. Stop releases the scratch canvases, the newest scanned frame
 and any pending read samples as well as the timers and workers. A bitmap
 transport failure is none of these failures: a frame whose bitmap fails is
 lost alone, and bitmaps given up switch to the camera's own readback and start
-acquisition again (see "How the frames reach the worker").
+acquisition again (see "How the frames reach the worker"). Nor is a
+verification that answers within its deadline, which grows with the grid, but
+too late to adopt: the help line says that the grid takes too long to track
+live and to save a picture (see "Live and delayed views").
 
 The tracking worker returns bounded rejection reasons (cell, structural region,
 geometry or missing anchor), with numeric region indices only, never image
@@ -890,10 +1019,16 @@ later worker answers one). `tracking.transportReason` says why, from a fixed
 list, so an `imagedata` from a phone tells an iOS without a 2D
 `OffscreenCanvas` in workers from a slow or failed handshake: from the
 worker's handshake `probe` (bitmaps work), `mismatch` (a value read back was
-off; `tracking.probePixels` then holds the values the 2 × 2 probe read back),
-`no-pixels` (the worker could not draw it), `unreadable` (its answer could not
-be received), `no-bitmaps` (the page makes none) or `probe-failed` (the probe
-could not be made or transferred); without a handshake, `timeout` (the worker
+off, also an alpha below 255, for which the worker refuses the probe as it
+would every frame; `tracking.probePixels` then holds the values the 2 × 2
+probe read back), `no-pixels` (the worker cannot draw at all: it has no 2D
+`OffscreenCanvas`), `unreadable` (its answer could not be received),
+`no-bitmaps` (the page makes none) or `probe-failed` (the probe could not be
+made or transferred, arrived in the worker null or 0 × 0, or failed to draw or
+read back there); before, the worker answered every probe it could not read
+back as one without pixels, so the report said `no-pixels`, and blamed a
+missing `OffscreenCanvas`, for fingerprinting noise or a probe lost on its way
+too. Without a handshake it is `timeout` (the worker
 replacing one with no answer when the handshake's second wait ended on time;
 after a second such worker in the camera session, bitmaps are given up and
 every later worker says `timeout` too); once bitmaps were given up in the camera session
@@ -948,7 +1083,12 @@ the **test** split of Lexski/sudoku-image-recognition at revision 733559b. It
 fails on revision changes, missing data and oversized files, and the selection
 is made before running the scanner, not by keeping only pictures it can read.
 The images stay untracked; reports keep the source revision, selection, file
-hashes and every success and failure.
+hashes and every success and failure. The downloaded files stay in
+`live-fixtures/source/`, and a later run uses each one that still matches its
+pinned SHA-256 instead of downloading it again. The two CI jobs that fetch the
+slice restore that directory from the Actions cache, keyed by the script that
+holds the pins, and save it after a miss, so they need huggingface.co only
+when the cache is cold or the script changed.
 
 Source and attribution: Lexski (CC0),
 https://huggingface.co/datasets/Lexski/sudoku-image-recognition
@@ -997,7 +1137,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame scanned after Clear presented after the tap; refused, interrupted,
   stalled and silent playback, Start preview's live retry when a solution
   freezes meanwhile, and its offer taken back when frames come, also after the
-  retry itself failed; an app switch or an ended track turning the camera off
+  retry itself failed; on the WebKit model, Start preview on the live view
+  scanning the new player's frames at once, also when its play() times out
+  and the frames come later (`live-camera-recovery.test.js`:
+  the camera's `replay()` starting its scheduler over); an app switch or an ended track turning the camera off
   without closing the panel (also while Clear waits for playback, whose
   interrupted play() then blames nothing), reported to the diagnostics, with a
   later app switch keeping the line that says why; getUserMedia again on Clear,
@@ -1053,11 +1196,40 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame reported after Clear was scanned, in that camera session only. A frame
   exactly half a second old is fresh, for the capture, the freeze and the help
   line, which then says nothing about a wait, and the freeze's wait ends at
-  exactly three seconds. From its first frame the camera records the setting
+  exactly three seconds. A retry that outlasts the three seconds neither holds
+  the freeze nor takes the wait's text off the help line, and its late reply
+  changes nothing; the shutter during a retry freezes the solution and saves
+  it; a retry that changes a clue withdraws the solution, and the reading is
+  solved again and frozen with the new clue; with a solver that solves the
+  grid, a changed clue whose solve outlasts the wait keeps the view live until
+  it answers and freezes with the new solution, and one that leaves no
+  solution never freezes the old one. A reading retired before it froze leaves
+  the next one its own three seconds, on old frames and with the setting on. A
+  verification answered after a newer snapshot's (the production tracker's
+  answers held and handed over newest first) leaves the newer one adopted. A
+  retry's progress stays off
+  the help line, which names the retry once, or keeps the wait's text. From its first frame the camera records the setting
   with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
   stands), the counted status without automatic solving and hiding with
-  nothing ever found (no loss clock, nothing written), and
+  nothing ever found (no loss clock, nothing written), a merged retry that
+  changes a clue (the solution withdrawn, the changed puzzle solved, and no
+  solution kept when it has none; a clue read as before keeps the solution), a
+  finished retry that waits for its own frame and is dropped five seconds
+  after it finished, the messages for boxes guessed from the grid's size, and
+  the turn cue (`turnedPage`: sideways and upside down in place of "Move
+  closer" and the wait for a clearer frame, and after a retry that found
+  nothing new, a merged retry and the last one, for no solution or several,
+  and with solving off, also switched off with the answer on screen; nothing
+  for a reading with a 2, fewer than five confident digits upside down,
+  square glyph boxes, half its regions confident or fewer than six glyphs;
+  the reading left as read; `diagnostic-report.test.js`: its two reasons,
+  labelled), and a guessed layout named only for readings in conflict (an
+  unread mark asks to move closer);
+  `live-guessed-boxes.test.js` runs the production camera on a 6 × 6 grid
+  under the 9 × 9 settings (the solver given 2 × 3 boxes, the frozen help, the
+  no- and multiple-solution lines and the editor's note) and checks that boxes
+  from the settings and a square guess are not flagged; and
   `photo-flow.test.js` the shutter drawing a live capture's stored picture on
   the panel, with that picture's label and counts, and the camera reading the
   freeze's wait from its checkbox at every call, which the diagnostics record
@@ -1103,7 +1275,8 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-camera-recovery.test.js`: settings changes (a change of automatic
   solving or the freeze's wait leaves a pending detection alone), the
   detection deadline, Start/Stop cycles and retired completions, with a
-  controlled detector, clock and canvas, and the diagnostics' picture while
+  controlled detector, clock and canvas, a detected grid that does not fit
+  the rules (the reason held on the help line, no outline), and the diagnostics' picture while
   tracking is paused (the video's current frame, unverified;
   `diagnostic-retirement.test.js` checks that the report releases such a frame
   once encoded).
@@ -1111,7 +1284,13 @@ Unit tests (`node --test web/tests/*.test.js`):
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
   tracking worker and targeted retries; `clue-reread.test.js`: the editor's
-  per-clue re-read. `live-tracker.test.js` also covers the pixel transport:
+  per-clue re-read. `live-tracker.test.js` also covers a verification's
+  deadline growing with its anchors' cells (two seconds up to three 9 × 9
+  anchors, about five for one 25 × 25 anchor, at most the anchor deadline;
+  only anchors the worker was asked to keep count, and none of a worker
+  before a reset; a 25 × 25 grid's answer after two seconds is no failure,
+  one that never comes fails at its own deadline, a 9 × 9 grid's at two
+  seconds), and the pixel transport:
   the default probe (a 2 × 2 page canvas holding the four colours), the
   handshake's decision (every way to the camera's own readback, none of them a
   failure, each with its reason and time for the diagnostic report, a worker
@@ -1133,7 +1312,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   has passed since the first of them (frames within it lost alone however
   many, two lost alone however far apart; every completed bitmap job ends the
   run and its span, not only a worker's first, a reset does not; the cause
-  that of the last), a refused frame proving nothing to a later bitmap
+  that of the last; the time from a reset until the next worker's handshake
+  decides no part of the span, also for a run begun by frames made before the
+  reset, for a worker that takes 600 ms to start, and with a second reset
+  before the decision), a refused frame proving nothing to a later bitmap
   job's deadline, a bitmap failure after the give-up only counted (also
   before the next worker starts, however long after the first), the third in
   a row of a frame made before a reset keeping the worker after it that
@@ -1148,7 +1330,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   transport's, and the real worker module drawing a bitmap through a
   stand-in `OffscreenCanvas`, timed on a clock only its draw moves, and
   answering a bitmap that arrived null or drew nothing as one it cannot read
-  back, with why. `live-tracking-pixels.test.js`: the worker's readback (one
+  back, with why; its answers to the probe, each decided by the real tracker
+  (`no-pixels` only without a 2D context or `OffscreenCanvas`, an alpha of 254
+  or a probe that drew nothing a `mismatch` with the values read back, a probe
+  that arrived null or 0 × 0 or failed to draw `probe-failed`). `live-tracking-pixels.test.js`: the worker's readback (one
   canvas, sized on change, cleared, the whole bitmap drawn, closed on every
   path, and refused, with its reason, for a bitmap that did not arrive whole
   or a readback with a transparent pixel, also one only in its last column,
@@ -1170,7 +1355,14 @@ Unit tests (`node --test web/tests/*.test.js`):
   frame queued (a counted failure, the queued bitmap closed, bitmaps used
   again after the back-off), verification replies too late to adopt (their
   frames released, the ones in time adopted, and at every moment only the
-  queued jobs' bitmaps not handed over), verifications that reject every
+  queued jobs' bitmaps not handed over), a 25 × 25 grid whose every
+  verification takes 2.5 s (no failure, the worker kept, from the third late
+  reply in a row the help line saying that the grid takes too long to track
+  live, one `tracking-late` event, the grid read once replies come in time;
+  two late replies and one in time never bringing the line, the third
+  bringing it at the next heartbeat, and a tracking failure's own line not
+  written over by it) and a 9 × 9 grid's verification of 2.1 s still failing
+  the worker at two seconds, verifications that reject every
   anchor, one frame lost to its bitmap during a tracked reading (refused,
   drawing nothing, of another size or not made: no restart, no new worker,
   the reading not read again and its outline never gone, the view never off
@@ -1208,7 +1400,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   again, and a second stuck one gives bitmaps up); a bitmap that cannot be
   made for a frame the freeze retired is lost alone, leaving the frozen view,
   counted at once in the frozen scan's export, and the scan after Clear
-  probes for bitmaps again.
+  probes for bitmaps again; two lost as the view freezes and one after Clear
+  half a minute later are lost alone too, the scan going on with bitmaps,
+  also when the worker after Clear takes 600 ms to start and when the video's
+  frame size changed while frozen (a second reset at Clear's first tick).
 - `ocr-engine-reuse.test.js`: one OCR host across warm-up and reads, prompt
   rejection of superseded reads, the two-second replacement of a stuck call,
   disposal, the exact-image cache, cooperative cancellation, geometry-worker
@@ -1267,7 +1462,10 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   verified frame, and a pending cancellable solver stub
   isolates retention from repeated-search backoff. It also measures
   static/self and translated-anchor tracking on the twelve Lexski images, which
-  is tracking coverage, not detection or digit accuracy.
+  is tracking coverage, not detection or digit accuracy. Those come from
+  `live-fixtures/` (see "External pictures"); without it the suite says in its
+  log that it skips them, records `corpus: { skipped: ... }` in
+  `live-motion.json` and passes on the rest.
 - `live_recovery_regressions.cjs` blurs one printed clue to simulate lost focus
   (a Gaussian of 2.5 px, only where no structural strip of the content
   comparison samples) and makes it clearer (1 px) in the next phase, through the
@@ -1334,7 +1532,11 @@ accuracy gain.
 
 Tracking and content checks can conservatively reject a blurred or aliased
 frame, which hides overlays rather than inventing confidence. Large motion is
-handled by redetection, not unbounded registration. No neural network or
+handled by redetection, not unbounded registration. A large grid on a slow
+phone may take longer to verify than the two seconds a verified frame stays
+current: the camera then says so and asks for a saved picture rather than
+showing an older frame (no live suite covers grids larger than 9 × 9; the
+unit tests' simulation does). No neural network or
 solver-derived recognition is used, and the higher-detail checks are not a
 speed-up. Report registration coverage, retention, time to first reading,
 cancellations and false stale displays separately from static digit accuracy.

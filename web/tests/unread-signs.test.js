@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { puzzleFromReadings } from "../scanner.js";
-import { readChevron } from "../scan-analysis.js";
+import { prepareScan, readChevron } from "../scan-analysis.js";
 import { structuralReview } from "../model.js";
 
 // A 3 x 3 board: a clue in cell 0, and sign regions between neighbours.
@@ -79,4 +79,48 @@ test("readChevron abstains on shapes that are not clear chevrons", () => {
   assert.equal(readChevron(short.g, 60, "hsign", 26, 24, 8, 8), null);
   // A chevron read across its axis (as the other sign kind) is not a clear shape either.
   assert.equal(readChevron(chevron("<").g, 60, "vsign", 13, 13, 35, 35), null);
+});
+test("readChevron rejects a long stroke that only thickens, for its slope alone", () => {
+  // A smudged dash, 2 px thick at one end and 4 px at the other: the end ratio
+  // of a chevron (2x), but its extent grows by 2 px over 30, not a spread.
+  const wedge = canvas();
+  for (let x = 15; x < 45; x++) {
+    const thickness = 2 + Math.round((2 * (x - 15)) / 29);
+    for (let y = 30 - (thickness >> 1); y < 30 - (thickness >> 1) + thickness; y++) wedge.g[y * 60 + x] = 20;
+  }
+  assert.equal(readChevron(wedge.g, 60, "hsign", 13, 13, 35, 35), null);
+});
+
+// A 3 x 3 Futoshiki print as prepareScan gets it: 60 px boxes 100 px apart,
+// no digits, and in four of the gaps a chevron, one per direction, 16 px along
+// its axis and 28 px across it (so its ink box is not square).
+function futoshikiPrint() {
+  const size = 300, g = new Uint8Array(size * size).fill(238);
+  const ink = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) g[y * size + x] = 25; };
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    const x = c * 100 + 20, y = r * 100 + 20;
+    ink(x, y, x + 60, y + 2); ink(x, y + 58, x + 60, y + 60); ink(x, y, x + 2, y + 60); ink(x + 58, y, x + 60, y + 60);
+  }
+  const stroke = (x0, y0, x1, y1) => {
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    for (let s = 0; s <= n; s++) { const x = Math.round(x0 + ((x1 - x0) * s) / n), y = Math.round(y0 + ((y1 - y0) * s) / n); ink(x - 1, y - 1, x + 2, y + 2); }
+  };
+  const sign = ([ax, ay], ...ends) => { for (const [x, y] of ends) stroke(ax, ay, x, y); };
+  sign([108, 50], [92, 36], [92, 64]);    // ">" between cells 0 and 1 (apex right)
+  sign([150, 108], [136, 92], [164, 92]); // "v" between cells 1 and 4 (apex down)
+  sign([50, 192], [36, 208], [64, 208]);  // "^" between cells 3 and 6 (apex up)
+  sign([192, 150], [208, 136], [208, 164]); // "<" between cells 4 and 5 (apex left)
+  const data = new Uint8ClampedArray(size * size * 4);
+  g.forEach((v, i) => { data[4 * i] = data[4 * i + 1] = data[4 * i + 2] = v; data[4 * i + 3] = 255; });
+  return { width: size, height: size, data };
+}
+test("prepareScan reads each printed sign's chevron, so signs the OCR misses still become inequalities", () => {
+  const prepared = prepareScan(futoshikiPrint(), "futoshiki", 3, 3);
+  assert.deepEqual(prepared.entries.filter((e) => e.kind === "hsign" || e.kind === "vsign").map((e) => [e.kind, e.cell, e.other, e.chevron ?? null]),
+    [["hsign", 0, 1, ">"], ["vsign", 1, 4, "v"], ["vsign", 3, 6, "^"], ["hsign", 4, 5, "<"]]);
+  // The OCR has read no text at all: the chevrons alone give the four inequalities, still for checking.
+  const found = puzzleFromReadings(prepared, "futoshiki", 3, 3);
+  assert.deepEqual(found.puzzle.inequalities, [{ less: 1, greater: 0 }, { less: 4, greater: 1 }, { less: 3, greater: 6 }, { less: 4, greater: 5 }]);
+  assert.ok(found.notes.some((note) => /^4 inequality signs read for checking\./.test(note)));
+  assert.deepEqual([...found.cageUncertain].sort(), [0, 1, 3, 4, 5, 6]);
 });

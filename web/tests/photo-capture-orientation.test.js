@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { setupPhotoFlow } from "../photo-flow.js";
 import { restoreSession, saveSession } from "../session.js";
 import { boxShape, conflicts, fitPlay, makePuzzle } from "../model.js";
-import { confidentDigits, turnCue } from "../scanner.js";
+import { confidentDigits, turnCue } from "../turn-cues.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { createTaskController } from "../task-controller.js";
 

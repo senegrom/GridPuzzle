@@ -6,7 +6,7 @@ import { makePuzzle, boxShape, checkShape, TYPES } from "./model.js";
 import { validQuad } from "./geometry.js";
 import { createLiveTracker, isLostFrame, lostFrame, REFUSAL_LIMIT } from "./live-tracker.js";
 import { pictureless } from "./live-tracking-pixels.js";
-import { createLiveSession, releaseImage } from "./live-session.js";
+import { createLiveSession, releaseImage, boxGuess, SET_BOXES } from "./live-session.js";
 import { createLiveSolver } from "./live-solver.js";
 import { drawLiveOverlay, overlayCells, drawGuide, drawPreviewBar } from "./live-overlay.js";
 
@@ -33,6 +33,12 @@ function copyCanvas(source) {
 // The help line while the view is frozen, and the condition for freezing: the
 // result under which blue cells and Slitherlink edges are drawn (live-overlay.js).
 const FROZEN_HELP = "Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.";
+// The frozen help for a reading solved with a box layout guessed from the
+// grid's size (boxGuess in live-session.js): the freeze says so.
+const frozenHelp = (found) => {
+  const guess = boxGuess(found);
+  return guess ? `Solution preview — frozen, solved with ${guess}. ${SET_BOXES} Save picture keeps this picture; Clear returns to the live camera.` : FROZEN_HELP;
+};
 const solvedPreview = (preview) => preview?.result?.status === "unique" && preview.result.complete === true;
 // The help line while a solved reading waits to freeze (readyToFreeze).
 const SOLVED_WAITING = "Solution found — hold the grid steady for a moment…";
@@ -40,6 +46,10 @@ const SOLVED_WAITING = "Solution found — hold the grid steady for a moment…"
 // solved, for a fresh frame and, with the setting "Wait up to 3 s for clearer
 // clues before freezing" (freezeWait), for retries of its uncertain clues.
 const REFINE_WAIT = 3000;
+// Verification replies in a row that come too late to adopt (lateReply) from
+// which the help line says that tracking cannot keep up (TOO_SLOW_HELP).
+const LATE_LIMIT = 3;
+const TOO_SLOW_HELP = "This grid takes too long to track live on this device. Save a picture to read it in the editor.";
 const COUNTED = ["recognised", "uncertain", "unknown", "solution"];
 const frozenLabel = (counts) => `Frozen picture of the solved puzzle: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread, ${counts.solution} solution entries. Live results are not confirmed.`;
 
@@ -53,6 +63,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // of a picture (live-tracker.js), since the last verification that
   // completed; see track().
   let lostInRow = 0;
+  // Verification replies of the epoch `lateEpoch` that came in a row too late
+  // to adopt, their snapshot older than STALE: the worker answers, slower than
+  // the view can use, as a 25 × 25 grid can on a slow phone (a verification's
+  // deadline grows with its anchors' cells, live-tracker.js). That is no
+  // tracking failure: nothing is retired, and tracking goes on. From
+  // LATE_LIMIT on the help line says so (heartbeat) until a reply is adopted;
+  // before, such a reply failed the worker at two seconds, and with a longer
+  // deadline the camera would wait on the candidate in silence.
+  let lateReplies = 0, lateEpoch = -1;
+  // Whether the last heartbeat held that line (TOO_SLOW_HELP).
+  let slowHeld = false;
   let raw = null, guide = null, guideFrame = null, displayed = null;
   // "live" while frames are sampled, tracked and read. The first render that
   // shows a verified, unique and complete solution freezes the view: the
@@ -241,6 +262,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const boxed = (found) => {
         if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
           found.puzzle.boxRows = frame.boxRows; found.puzzle.boxCols = frame.boxCols;
+          // Boxes guessed from the grid's size (see locate) are marked for the
+          // messages about the reading's solution, and noted for the editor's
+          // review as the photo flow notes a box layout it suggested.
+          if (frame.guessedBoxes) {
+            found.guessedBoxes = true;
+            const note = `Box layout ${frame.boxRows} rows × ${frame.boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`;
+            if (!found.notes?.includes(note)) found.notes = [...(found.notes ?? []), note];
+          }
         }
         return found;
       };
@@ -252,8 +281,14 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       found.needsReview = true;
       return found;
     },
+    // A targeted retry's progress stays off the help line: the session's
+    // status names the retry ("Re-reading N unclear clues…") while it runs.
+    // The reader's own lines ("Straightening the photograph…", then one per
+    // OCR step) went through say, which writes whatever the camera holds or
+    // the session says: each was announced in the polite live region, and
+    // the next heartbeat wrote the held line back.
     readCells: typeof reader.readCells === 'function' ? (frame, found, cells) =>
-      reader.readCells(frame.image, frame.corners, found, cells, say,
+      reader.readCells(frame.image, frame.corners, found, cells, () => {},
         { onDiagnostic: event => diagnostics?.event(event) }) : null,
     onEvent: event => diagnostics?.event(event),
     solve: (puzzle) => { prepareSolver(); return solver.solve(puzzle); },
@@ -449,7 +484,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     canvas.setAttribute?.("data-view", "frozen");
     diagnostics?.overlay?.(null);
     diagnostics?.event({ stage: "complete", reason: "frozen" });
-    say(FROZEN_HELP);
+    say(frozenHelp(frozen.preview.found));
     updateRestartControl();
     onViewChange?.("frozen");
   }
@@ -487,6 +522,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const selected = settings.rows === rows && settings.cols === cols &&
         ["auto", "sudoku", "killersudoku"].includes(settings.type);
       const [br, bc] = selected ? [settings.boxRows, settings.boxCols] : boxShape(rows);
+      // Boxes guessed from the grid's size, the settings being for another
+      // size or type, that are not square: a 6 × 6 Sudoku's boxes are 2 rows ×
+      // 3 columns or 3 × 2, and the guess can be the wrong one. A reading of
+      // the frame then says so wherever it shows a result (boxGuess).
+      const guessedBoxes = !selected && br !== bc;
       const puzzle = makePuzzle(settings.type === "auto" ? "hidato" : settings.type, rows, cols);
       // Auto validates the boxes only after recognition chooses a boxed type.
       // Other families must never inherit hidden, possibly incomplete inputs.
@@ -495,9 +535,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       }
       try { checkShape(puzzle); } catch (error) {
         // The detected grid contradicts the chosen rules (a 9 × 6 board for
-        // Sudoku, a 12 × 12 Str8ts). Keep the outline, skip the cell overlay
-        // and say why instead of failing every frame.
-        guide = corners; guideFrame = null; session.invalidate();
+        // Sudoku, a 12 × 12 Str8ts): no anchor is built, so nothing is
+        // verified and no outline or reading is shown, and the help line says
+        // why instead of failing every frame.
+        guide = guideFrame = null; session.invalidate();
         guidance(`Detected ${rows} × ${cols}, which does not fit ${TYPES[puzzle.type]}: ${error.message} Change the puzzle type or the grid settings.`);
         return;
       }
@@ -509,7 +550,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       if (!current()) return;
       if (!anchor) { session.suspend(); return; }
       const frame = { image, corners, width: image.width, height: image.height,
-        rows, cols, boxRows: br, boxCols: bc, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
+        rows, cols, boxRows: br, boxCols: bc, guessedBoxes, settings, key: `${key}:${rows}:${cols}:${br}:${bc}`,
         anchor };
       frame.warning = qualityMessage(found.quality) ||
         (!found.quality?.assessable && found.sharpness < 60 ? "Move closer and hold still for sharper numbers." : "");
@@ -576,6 +617,13 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     say(aiming());
     render();
   }
+  // A reply of this epoch too late to adopt (see `lateReplies`); the export
+  // records when they first reach LATE_LIMIT.
+  function lateReply() {
+    if (lateEpoch !== epoch) { lateEpoch = epoch; lateReplies = 0; }
+    if (++lateReplies === LATE_LIMIT) diagnostics?.event({ stage: 'tracking', reason: 'tracking-late' });
+  }
+  const tooSlow = () => lateEpoch === epoch && lateReplies >= LATE_LIMIT;
   // Called by the tick only with anchors to verify.
   async function track(image, key, owner) {
     const id = ++frameSerial, at = now(), anchors = verifyIds();
@@ -592,7 +640,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       // Fence by snapshot time: a reply is adopted while its own snapshot is
       // within STALE and newer than the last adopted one, also after an older
       // snapshot was dropped past STALE. A frozen view keeps its frame.
-      if (!active || view !== "live" || owner !== epoch || key !== settingsKey || at <= adoptedAt || now() - at > STALE_TRACK_AGE) return;
+      if (!active || view !== "live" || owner !== epoch || key !== settingsKey || at <= adoptedAt) return;
+      if (now() - at > STALE_TRACK_AGE) { lateReply(); return; }
+      lateReplies = 0;
       // Display this operation's actual source snapshot, never project a late
       // result onto a newer frame. The pending slot always holds the latest
       // capture, so a slow worker cannot build up a historic video queue.
@@ -691,16 +741,24 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     // camera that has delivered no frame a second after start or Clear says
     // so; the line gives way to the aiming text when the first one arrives.
     const firstFrame = !seenFrame && now() - startedAt >= 1000;
+    // The line that tracking cannot keep up gives way to the aiming text once
+    // a reply is adopted again, unless a reading's status takes its place (the
+    // session writes that with its next verified frame).
+    const wasSlow = slowHeld; slowHeld = false;
     if (recovery.blocked) session.hold('Background tracking paused after repeated failures. Restart live scanning or save a picture for review.');
     else if (!scheduler.fresh && seenFrame) session.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');
     else if (firstFrame) session.hold('Waiting for the camera to deliver a picture…');
+    else if (tooSlow()) { session.hold(TOO_SLOW_HELP); slowHeld = true; }
     else if (unmatchedCandidates >= 3 && !session.busy && !session.settled)
       session.hold('Grid detected, but the printed image is not matching between frames. Save picture to read a single frame in the editor, or restart live scanning.');
     // A solved reading that is not frozen yet keeps its hold (holdSolved): the
     // wait's text while it waits for a fresh frame or a retry (readyToFreeze).
     // No solution is shown over live video meanwhile.
     else if (solvedPreview(session.preview)) holdSolved();
-    else { session.hold(null); if (awaitingFirstFrame) say(aiming()); }
+    else {
+      session.hold(null);
+      if (awaitingFirstFrame || (wasSlow && lateEpoch === epoch && !session.busy && !session.preview)) say(aiming());
+    }
     awaitingFirstFrame = firstFrame && !recovery.blocked;
     render(); updateRestartControl();
     diagnostics?.scheduling?.(scheduler.stats);
@@ -795,6 +853,17 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       say(aiming());
       scheduler.start({ discardFirst: true }); updateRestartControl();
       onViewChange?.("live");
+    },
+    // The page made the video a new player while the view is live (Start
+    // preview: pause, srcObject and load, or a stream attached again). A new
+    // player counts its presented frames from zero, so the frame scheduler,
+    // which takes a count no higher than the last one's for a repeat, would
+    // scan none of them until the count passed the old player's (frames
+    // counted while paused at a freeze included, on WebKit). It starts over
+    // with new tokens; the frozen view and a closed camera have none running.
+    replay() {
+      if (!active || view !== "live") return;
+      scheduler.stop(); scheduler.start();
     },
     restart() {
       if (!active || view !== "live") return;
