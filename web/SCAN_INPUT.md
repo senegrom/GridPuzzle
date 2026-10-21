@@ -200,10 +200,18 @@ their orientation; the live camera's help line says when a page looks sideways
 or upside down, from the same cue, upside down only from five confident digits,
 since no re-read confirms it there. A live capture handed to the editor is a
 still photograph, though: when its live reading shows either cue, Review
-captured clues highlights every digit under a note that the page may be turned
-and reads the captured still again the same way; a reading taken turned
-replaces the live one, under review like every capture, and one read the way it
-lies gets its own warnings back ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
+captured clues highlights every digit of a square grid under a note that the
+page may be turned and reads the captured still again the same way; a reading
+taken turned replaces the live one, under review like every capture, and one
+read the way it lies gets its own warnings back under a first note that the
+page may still be turned, which points to Adjust scan → Rotate, then Read
+puzzle. A capture of a grid that is not square, which no reading turns, is not
+read again: it keeps its own warnings under a first note that Read puzzle
+turns only square grids, with the same pointer to Rotate. A capture without a
+reading goes to the crop editor, whose status after each detection repeats a
+turn the help line named as it was taken, with Read puzzle as the check on a
+square grid and Rotate first on any other. Notes only: no highlight, flag or
+reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 ## Clue-focused live-camera quality
 

@@ -62,22 +62,40 @@ frame the way it lies, but a capture is a still photograph: when its reading
 shows what makes a photograph's Read try a turn (`turnCue`: a poor reading of
 glyphs wider than tall, or of upright-shaped glyphs with confident digits but
 none with a 2, 3 or 5, as an upside-down page reads its 6s and 9s as each
-other and its 2s as 4s), the capture reaches the editor with every digit
-highlighted under a first note that the page may be upside down or sideways,
-and the editor reads the captured still again as Read puzzle reads a
-photograph ("Checking which way up the captured picture is…"). A reading taken
-turned replaces the live one, with the turn named in its first note, and waits
-for review like every capture, a quarter turn too; Undo brings the live
-reading back as the board showed it. Read the way it lies, the live reading
-keeps only its own warnings again, as Read puzzle leaves a photograph read the
-way it lies. A check that fails, or that an edit, Stop or another task stops
+other and its 2s as 4s; it covers the help line's own cue, below, so every
+capture with a reading whose help line named a turn shows it), a capture of a
+square grid reaches the editor with every digit highlighted under a first
+note that the page may be upside down or sideways, and the editor reads the
+captured still again as Read puzzle reads a photograph ("Checking which way
+up the captured picture is…"). A reading taken turned replaces the live one,
+with the turn named in its first note, and waits for review like every
+capture, a quarter turn too; Undo brings the live reading back as the board
+showed it. Read the way it lies, the live reading gets only its own warnings
+back, as Read puzzle leaves a photograph read the way it lies, but its page
+may still be turned (the still's half-turn rule does not turn every
+upside-down page), so a first note says so and how to turn it, since Read
+puzzle has just declined to: "The live reading suggested that the page may be
+upside down, but the captured picture reads best the way it lies. If its
+numbers do not stand upright, Adjust scan → Rotate until they do, then Read
+puzzle." A check that fails, or that an edit, Stop or another task stops
 (Solve, Check and Hint wait while it runs; Undo takes the capture back off the
 board), leaves every digit highlighted under the note, which names Adjust scan
-→ Read puzzle as the way to check the turn ("Live captures" in
-[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the detected grid
-contradicts the selected rules (a 9 × 6 board while Sudoku is selected, a 12 ×
-12 Str8ts), the help line gives the reason and asks to change the puzzle type
-or the grid settings; such a grid is neither outlined nor read.
+→ Read puzzle as the way to check the turn. No reading turns a grid that is
+not square, so a capture of one whose reading shows the cue is not read
+again: it keeps its own warnings under a first note that the page may be
+turned and that Read puzzle turns only square grids, with the same pointer to
+Adjust scan → Rotate, then Read puzzle. A capture without a reading goes to
+the editor's crop and read (see "Shutter and saved pictures"); when the help
+line named a turn as it was taken, the status after each detection on that
+picture repeats it, with the check that fits the grid size the controls then
+hold: "The grid looked sideways in the live view; Read puzzle checks which
+way up it is.", or on a grid that is not square, "…, and Read puzzle turns
+only square grids: Rotate until its numbers stand upright, then Read puzzle."
+These are notes only: they change no highlight, flag or reading ("Live
+captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
+detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
+selected, a 12 × 12 Str8ts), the help line gives the reason and asks to change
+the puzzle type or the grid settings; such a grid is neither outlined nor read.
 
 A Sudoku whose size the grid settings are not for (they are 9 × 9 by default)
 gets its boxes from its size: 3 × 3 for 9 × 9, 2 rows × 3 columns for 6 × 6,
@@ -329,10 +347,13 @@ corners and clues were proven on the latest verified frame only, so that frame
 is kept, with its reading, outline and bar but without a solution (none was
 shown), while it is at most half a second old and so matches what the user
 saw; this gives **Review captured clues**. Otherwise the frame on screen at
-the press is kept without a reading and goes to the editor's crop and read;
-while no new frame has been presented for half a second ("Waiting for a new
-camera frame"), the video may show nothing useful (iOS paints an interrupted
-camera black), so the newest frame the camera scanned is kept instead. That
+the press is kept without a reading and goes to the editor's crop and read,
+with the turn the help line named at the press, if it named one (the
+session's `turn`), for the crop's status to repeat (see the capture
+paragraph above); while no new frame has been presented for half a second
+("Waiting for a new camera frame"), the video may show nothing useful (iOS
+paints an interrupted camera black), so the newest frame the camera scanned
+is kept instead. That
 is the last adopted frame, unless a newer one was scanned since: while
 nothing is verified (aiming, or once a found grid is lost) no frame is
 adopted, and the frame each detection got for itself is kept once detection
@@ -1190,7 +1211,9 @@ Unit tests (`node --test web/tests/*.test.js`):
   is not held. A live capture keeps a
   fresh verified frame with its reading, outline and bar but no solution, and
   otherwise the frame on screen without a reading, or the last frame scanned
-  while no frame is presented; while a solution waits to
+  while no frame is presented, with the turn the help line names (a sideways
+  page's frame held past half a second old; none once the line names none);
+  while a solution waits to
   freeze, the shutter freezes it on its own frame, also one older than half a
   second, and saves it with the solution; right after Clear it waits until a
   frame reported after Clear was scanned, in that camera session only. A frame
@@ -1224,8 +1247,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   for a reading with a 2, fewer than five confident digits upside down,
   square glyph boxes, half its regions confident or fewer than six glyphs;
   the reading left as read; `diagnostic-report.test.js`: its two reasons,
-  labelled), and a guessed layout named only for readings in conflict (an
-  unread mark asks to move closer);
+  labelled), the session's `turn`, the turn its help line names (kept as the
+  line is kept, also once the reading is retired; none once a hold, a note or
+  a new read takes the line's place), and a guessed layout named only for
+  readings in conflict (an unread mark asks to move closer);
   `live-guessed-boxes.test.js` runs the production camera on a 6 × 6 grid
   under the 9 × 9 settings (the solver given 2 × 3 boxes, the frozen help, the
   no- and multiple-solution lines and the editor's note) and checks that boxes

@@ -987,7 +987,7 @@ clear the bar but do not read clearly better.
 capture of an upside-down page reached the editor with confident 6/9 and 2-to-4
 swaps, unflagged and with no word of the turn, although Read puzzle turned the
 same picture. Review captured clues now runs the check's cue on the live
-reading (`turnCue` in `web/scanner.js`, which `Scanner.orient` itself uses; on
+reading (`turnCue` in `web/turn-cues.js`, which `Scanner.orient` itself uses; on
 200,000 random readings it decides exactly as the inline code it replaced).
 When the cue asks for a turn on a square grid, the capture reaches the editor
 with every digit highlighted under a first note that the page may be upside
@@ -1022,8 +1022,14 @@ the note cover that time instead, and stay when the check is stopped (an edit
 or Stop) or fails. A check that does not turn the still gives the live reading
 back its own warnings, as Read puzzle leaves a photograph's reading, so an
 upside-down capture the still photograph's rule cannot turn (above) keeps its
-swaps. The check costs one more reading of the capture, only when its live
-reading shows the cue (a quarter turn reads both quarter turns).
+swaps; since 2026-10-21 a first note says that the page may still be turned
+and points to Adjust scan → Rotate, then Read puzzle, as does the note on a
+capture of a grid that is not square whose reading shows the cue (no reading
+turns such a grid, so it is not read again). A capture without a reading, as
+on the 270° row, goes to the crop editor, whose status repeats a turn the help
+line named as it was taken. These notes change no flag. The check costs one
+more reading of the capture, only when its live reading shows the cue (a
+quarter turn reads both quarter turns).
 
 ## Alternatives tried
 
