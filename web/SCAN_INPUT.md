@@ -75,7 +75,9 @@ unverified, and a squeezed preview would be visible.
   as on later versions, whatever the aspect ratio; one it did not turn comes
   back within that short side, its long side across the turned photo's, and
   is closed, and the photo goes to the full decode, which the browser turns
-  itself. The original-detail decode retries the same way. Before, both
+  itself. A photo that is square, or within a few pixels of square, cannot
+  show a skipped turn this way; the versions that refuse the option turn
+  photos by default. The original-detail decode retries the same way. Before, both
   decodes failed on those versions: every photo was decoded at full size (and
   refused over 24 megapixels), and no Read used the original's detail.
 - WebP decoders differ in whether they apply EXIF at all. The import rewrites

@@ -197,7 +197,8 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
     // A quarter turn's retry names only the turned photo's short side: a
     // bitmap the engine turned comes back at the full preview size, whatever
     // its aspect ratio, and one it did not turn comes back within that short
-    // side, its long side across `axes`.
+    // side, its long side across `axes`. A photo square or within a few
+    // pixels of square cannot show a skipped turn this way.
     retry = !turned ? size : resizeWidth <= resizeHeight ? { resizeWidth } : { resizeHeight };
   }
   check();
