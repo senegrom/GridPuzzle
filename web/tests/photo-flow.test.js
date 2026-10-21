@@ -1511,6 +1511,20 @@ test('a suggestion a live capture was read with stands while the capture is unco
   assert.ok(h.state.notes.some(note => /Box layout 2 rows × 3 columns was suggested from the grid size/.test(note)));
   assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0);
 });
+// The live view notes boxes it guessed from the grid size itself
+// (live-camera.js). A capture that arrives with that note, read with a pending
+// suggestion of the same boxes, carries the note once.
+test('a capture whose live reading already notes its guessed boxes carries the box note once', async t => {
+  const h = photoHarness(t);
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix(), needsReview: true, guessedBoxes: true, notes: [SUGGESTED_2X3] } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.state.notes, [SUGGESTED_2X3]); assert.deepEqual(restoreSession(h.storage).notes, [SUGGESTED_2X3]);
+});
 // A capture read with a suggested layout that also looks upside down keeps the
 // box note through its orientation check: after the turn note while the still
 // is read again, and with the capture's own notes once it reads the way it lies.

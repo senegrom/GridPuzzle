@@ -594,14 +594,16 @@ export function setupPhotoFlow({
       const cue = found.puzzle.rows === found.puzzle.cols ? turnCue(found) : null,
         // A box suggestion still pending that a boxed capture was read with:
         // the capture's notes say so, as a photograph's Read does, and
-        // confirming its reading decides the boxes (settleProposal).
+        // confirming its reading decides the boxes (settleProposal). The live
+        // view notes boxes it guessed from the grid size in the same words
+        // (live-camera.js), so the note is added only once.
         suggested = ["sudoku", "killersudoku"].includes(found.puzzle.type) && sameLayout(proposedBoxLayout, found.puzzle),
         // The capture's own review: its flagged clues, and any digit repeated
         // under the boxes it was read with, which the captured picture shows
         // yellow and a photograph's Read flags too.
         review = {
           uncertain: new Set([...(found.cellUncertain ?? found.uncertain ?? []), ...conflicts(found.puzzle)]),
-          notes: fitReviewNotes([...found.notes, ...(suggested ? [boxNote(found.puzzle)] : [])]),
+          notes: fitReviewNotes([...new Set([...found.notes, ...(suggested ? [boxNote(found.puzzle)] : [])])]),
         };
       const next = {
         photo: picture.photo, corners: picture.corners,
