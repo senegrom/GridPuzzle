@@ -5,8 +5,10 @@
    the user chooses "Update app & reload" (web/README.md, "Offline
    behaviour"). The server here serves the built site as X, then as a later
    build: X's files under that build's names, restamped as build_web.py
-   stamps them, and that build's own asset list. Part of
-   photo_read_regressions.cjs. */
+   stamps them, and that build's own asset list. The tab stays open across
+   both deploys, neither navigated nor asking the browser to look for an
+   update, so only worker X's own check, when it meets the deploy, can bring
+   the banner. Part of photo_read_regressions.cjs. */
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -74,10 +76,11 @@ async function ready(page) {
   await page.evaluate(async () => { window.__staleState = (await import("./app.js")).getState; });
 }
 const pageBuild = (page) => page.evaluate(() => document.getElementById("build-label").textContent.split(" · ").at(-1));
-// The page's update check finds `build`, which installs and then waits.
+// `build` installed and waiting, and the banner offering it. Nothing here
+// asks the browser to look for it: worker X does, when a file it misses
+// leads it to the origin's list of another build (sw.js, requestUpdate()).
 async function updateFound(page, build) {
-  await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-  const end = Date.now() + 120000;
+  const end = Date.now() + 90000;
   for (;;) {
     const state = await page.evaluate(async (build) => {
       const registration = await navigator.serviceWorker.getRegistration();
@@ -136,28 +139,43 @@ async function staleBuild(browser, report) {
     await page.goto(base); await ready(page);
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, { timeout: 120000 });
     await page.reload(); await ready(page);
+    // From here on the tab is kept open: a navigation would end this mark.
+    await page.evaluate(() => { window.__staleTab = true; });
+    const kept = () => page.evaluate(() => window.__staleTab === true);
+    const seconds = (since) => Math.round((Date.now() - since) / 100) / 10;
     // A deploy of another OCR runtime: nothing identical to X's remains.
     const changed = "feedbeef0001", unchanged = "feedbeef0002";
     site.deploy(changed, [`vendor/${changed}/tesseract/tesseract.min.js`]);
-    await page.goto(base); await ready(page);
-    await updateFound(page, changed);
-    assert.equal(await pageBuild(page), site.X, "the page keeps its build until the user updates");
     await choosePhoto(page);
+    assert.equal(await page.isHidden("#update-banner"), true, "nothing has found the deploy yet");
+    // The first read misses X's OCR runtime, which makes worker X ask for
+    // the deploy's worker, and fails before that worker is installed.
+    const first = await read(page);
+    assert.equal(first.status, "status error", JSON.stringify(first));
+    const failedAt = Date.now();
+    await updateFound(page, changed);
+    const bannerSeconds = seconds(failedAt);
+    assert.ok(await kept(), "the update is offered in the open tab");
+    assert.equal(await pageBuild(page), site.X, "the page keeps its build until the user updates");
     const failed = await read(page);
     assert.equal(failed.status, "status error");
     assert.equal(failed.text, `Recognition could not load. ${ADVICE} try again.`);
     assert.equal(await prepareOffline(page),
       `Some of this version’s files are no longer on the server. ${ADVICE} download for offline use again.`);
-    result.runtimeChanged = { read: failed.text, offline: true };
-    // A later deploy with X's OCR runtime under its own URLs: page X reads.
+    result.runtimeChanged = { firstRead: first.text, bannerSeconds, read: failed.text, offline: true };
+    // A later deploy with X's OCR runtime under its own URLs: page X reads,
+    // while worker X, finding that build on the origin, has it installed.
     site.deploy(unchanged);
-    await updateFound(page, unchanged);
     const stale = await read(page);
     assert.equal(stale.text, "Puzzle read.", JSON.stringify(stale));
     assert.ok(stale.clues >= 20, `only ${stale.clues} clues were read`);
+    const readAt = Date.now();
+    await updateFound(page, unchanged);
+    const updateSeconds = seconds(readAt);
+    assert.ok(await kept());
     assert.equal(await pageBuild(page), site.X);
     assert.match(await prepareOffline(page), /^Offline assets are ready on this device/);
-    result.runtimeUnchanged = { clues: stale.clues, offline: true };
+    result.runtimeUnchanged = { clues: stale.clues, updateSeconds, offline: true };
     // The offered update: the updated page reads the photo too.
     await Promise.all([page.waitForNavigation({ timeout: 120000 }), page.click("#update-banner-button")]);
     await ready(page);
