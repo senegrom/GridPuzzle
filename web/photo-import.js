@@ -1,10 +1,13 @@
-import { sniffDimensions } from './image-dimensions.js';
+import { sniffDimensions, isHeic } from './image-dimensions.js';
 import { retainPhotoSource, withPhotoDecode, transformPhotoContext } from './photo-detail.js';
 
 export const PHOTO_MAX_SIDE = 1600;
 const HEADER_LIMIT = 512 * 1024;
 const cancelled = () => new DOMException('Scan cancelled', 'AbortError');
 const orientationError = () => Error('The photo orientation could not be checked safely. Save a copy from your photo app, then try again.');
+// iOS hands a HEIC over unconverted from Choose File (the Files app); its
+// Photo Library hands over a JPEG.
+const HEIC_ROUTE = 'Choose the photo from the Photo Library, which converts it to JPEG, or export it as JPEG, PNG or WebP, then try again.';
 // Damaged or out-of-reach EXIF, or an Orientation entry an engine may read its
 // own way: the browser shows the photo as stored or as it reads it, so the
 // import must fit either way round instead of refusing.
@@ -122,15 +125,18 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
   if (file.size > 30 * 1024 * 1024) throw Error('Please choose a photo smaller than 30 MB.');
   const head = new Uint8Array(await file.slice(0, HEADER_LIMIT).arrayBuffer()), dimensions = sniffDimensions(head, file.size);
   check();
-  if (!dimensions) throw Error('The photo dimensions could not be checked safely. Export it as JPEG, PNG or WebP, then try again.');
-  const pixels = dimensions.width * dimensions.height;
+  if (!dimensions) throw Error(isHeic(head) ? `The HEIC photo's dimensions could not be checked safely. ${HEIC_ROUTE}`
+    : 'The photo dimensions could not be checked safely. Export it as JPEG, PNG or WebP, then try again.');
+  const pixels = dimensions.width * dimensions.height, heif = dimensions.heif;
   if (dimensions.width < 1 || dimensions.height < 1) throw Error('The image is empty.');
   if (pixels > 120e6) throw Error('This photo is too large to decode safely on a phone. Use a smaller camera resolution or crop it first.');
   const fit = (width, height) => {
     const scale = Math.min(1, maxSide / Math.max(width, height));
     return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
   };
-  const meta = await orientation(file, head, check);
+  // A HEIC's turn is its primary item's irot and imir, which the browser
+  // applies; its EXIF is not read.
+  const meta = heif ? { value: 1 } : await orientation(file, head, check);
   check();
   let decodeFile = file, turns = 0, mirrored = false;
   const webp = head[0] === 82 && head[1] === 73; // sniffDimensions validated RIFF/WEBP.
@@ -167,25 +173,64 @@ export async function importPhoto(file, { current = () => true, maxSide = PHOTO_
   // unusual entry) could be either. There, request one width that fits maxSide
   // whichever way the engine turns the photo, so the bitmap keeps the engine's
   // own aspect ratio, and let draw() fit it.
-  let size;
-  if (!meta.unknown && (meta.value < 5 || webp || (head[0] === 0xff && meta.primary))) {
+  const long = Math.max(dimensions.width, dimensions.height),
+    either = long > maxSide ? { resizeWidth: Math.max(1, Math.round(maxSide * Math.min(dimensions.width, dimensions.height) / long)) } : {};
+  // `retry` and `axes` (the oriented preview's) serve engines that refuse
+  // "from-image", below.
+  let size = either, retry = either, axes = null;
+  if (heif) {
+    // Safari 17 and later decode HEIC with ImageIO, which turns and mirrors
+    // the photo by its irot and imir. That is unverified on a phone, so ask
+    // for one width, planned on the axes irot declares: the bitmap keeps the
+    // browser's own aspect ratio and is never squeezed. Were the browser to
+    // turn the photo the other way, the width keeps that bitmap within twice
+    // maxSide; beyond 2:1 that costs a smaller preview.
+    const [w, h] = heif.turned ? [dimensions.height, dimensions.width] : [dimensions.width, dimensions.height];
+    size = retry = { resizeWidth: Math.min(fit(w, h)[0], Math.max(1, Math.floor(2 * maxSide * h / w))) };
+  } else if (!meta.unknown && (meta.value < 5 || webp || (head[0] === 0xff && meta.primary))) {
     // Resizing uses the EXIF-oriented axes. Request BOTH bounded dimensions:
     // using encoded width alone could enlarge a 1600x400 image to 1600x6400.
-    const [resizeWidth, resizeHeight] = !webp && meta.value >= 5 ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
+    const turned = !webp && meta.value >= 5,
+      [resizeWidth, resizeHeight] = turned ? fit(dimensions.height, dimensions.width) : fit(dimensions.width, dimensions.height);
     size = { resizeWidth, resizeHeight };
-  } else {
-    const long = Math.max(dimensions.width, dimensions.height);
-    size = long > maxSide ? { resizeWidth: Math.max(1, Math.round(maxSide * Math.min(dimensions.width, dimensions.height) / long)) } : {};
+    axes = [resizeWidth, resizeHeight];
+    // A quarter turn's retry names only the turned photo's short side: a
+    // bitmap the engine turned comes back at the full preview size, whatever
+    // its aspect ratio, and one it did not turn comes back within that short
+    // side, its long side across `axes`. A photo square or within a few
+    // pixels of square cannot show a skipped turn this way.
+    retry = !turned ? size : resizeWidth <= resizeHeight ? { resizeWidth } : { resizeHeight };
   }
   check();
   return withPhotoDecode(async () => {
     if (typeof createImageBitmap === 'function') {
       let bitmap = null;
       try { bitmap = await createImageBitmap(decodeFile, { ...size, resizeQuality: 'high', imageOrientation: 'from-image' }); }
-      catch { /* A bounded full decode remains available on older browsers. */ }
+      catch (error) {
+        // Safari before 17.2 (iOS 16.4 to 17.1), like Firefox before 111,
+        // knows imageOrientation only as "none" or "flipY": "from-image" is
+        // a TypeError there. Its default, "none", already applies the EXIF
+        // orientation (whatwg/html#7210; WebKit's ImageBitmap.cpp on
+        // safari-7615-branch), so ask again without the option. Where the
+        // engine must turn the photo a quarter, both dimensions would hide a
+        // turn it skipped, so `retry` then names one dimension, the turned
+        // photo's short side, and a bitmap whose long side lies across the
+        // turned photo's goes to the full decode below, which the browser
+        // turns itself.
+        if (error?.name === 'TypeError') {
+          check();
+          try { bitmap = await createImageBitmap(decodeFile, { ...retry, resizeQuality: 'high' }); }
+          catch { /* The full decode below. */ }
+          if (bitmap && axes && (bitmap.width - bitmap.height) * (axes[0] - axes[1]) < 0) { bitmap.close?.(); bitmap = null; }
+        }
+        /* A bounded full decode remains available on older browsers. */
+      }
       if (bitmap) try { check(); return draw(bitmap); } finally { bitmap.close?.(); }
     }
     check();
+    // A browser that cannot make a HEIC bitmap (Safari before 17, Chrome,
+    // Firefox) cannot decode it at all.
+    if (heif) throw Error(`This browser cannot open HEIC photos. ${HEIC_ROUTE}`);
     if (pixels > 24e6) throw Error('This browser cannot downscale this large photo safely. Crop it in your photo app first, then try again.');
     const url = URL.createObjectURL(decodeFile);
     try {

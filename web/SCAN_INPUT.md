@@ -63,6 +63,23 @@ unverified, and a squeezed preview would be visible.
   landscape: 1200 x 900 instead of 1600 x 1200 for a 4:3 photo, 900 x 507
   instead of 1600 x 900 for 16:9, and 400 x 100 instead of 1600 x 400 for
   4:1. A portrait result keeps its 1600-pixel long side.
+- Safari before 17.2 (iOS 16.4 to 17.1), like Firefox before 111, knows
+  `imageOrientation` only as `none` or `flipY`, so `from-image` is a TypeError
+  there. Its default, `none`, already applies the EXIF orientation (WebKit's
+  `ImageBitmap.cpp` on safari-7615-branch; whatwg/html#7210), so the import
+  asks again without the option, for the same bounded size, except where the
+  browser must turn the photo a quarter: there both dimensions would hide a
+  turn it skipped, so the retry names one dimension, the turned photo's short
+  side (its width when the turned photo is portrait, its height when it is
+  landscape). A bitmap the browser turned comes back at the full preview size,
+  as on later versions, whatever the aspect ratio; one it did not turn comes
+  back within that short side, its long side across the turned photo's, and
+  is closed, and the photo goes to the full decode, which the browser turns
+  itself. A photo that is square, or within a few pixels of square, cannot
+  show a skipped turn this way; the versions that refuse the option turn
+  photos by default. The original-detail decode retries the same way. Before, both
+  decodes failed on those versions: every photo was decoded at full size (and
+  refused over 24 megapixels), and no Read used the original's detail.
 - WebP decoders differ in whether they apply EXIF at all. The import rewrites
   the two bytes of the orientation value to 1 in a copy of the encoded file,
   without decoding or copying pixels, decodes that copy as stored, and applies
@@ -71,13 +88,41 @@ unverified, and a squeezed preview would be visible.
   Orientation entry of another type or count, stray bytes between JPEG
   segments, more than 4096 segments or chunks) imports the photo as the
   browser shows it, through the same single width.
+- HEIC, the iPhone's own format, reaches the import on an iPhone only from
+  Choose File (the Files app): the Photo Library hands over a JPEG. A desktop
+  browser can be handed one too: Safari 17 and later decode it, on a Mac as on
+  an iPhone, and other browsers refuse it by name (below). It is HEIF
+  (ISO/IEC 23008-12, a `ftyp` brand of `heic`, `heix` or `mif1`; AVIF, which
+  shares the layout, stays out), and its size is the primary item's `ispe`
+  (`pitm`, then its properties in `iprp`: `ipco` and `ipma`), on an iPhone a
+  grid of tiles: never a tile's, the thumbnail's or a gain map's. The limits
+  below trust that `ispe`. A grid states its output size again in its own
+  item data, which is not read, so a crafted file whose grid is larger than
+  its `ispe` meets only the browser's own decoder limits (which of the two
+  sizes ImageIO follows is unverified): at worst it takes down the user's own
+  tab. Its `irot` (a quarter turn or two) and `imir` (a mirror) take
+  the place of the EXIF orientation, which is not read, and the browser
+  applies them. Safari 17 and later decode HEIC with ImageIO; that its turn
+  follows `irot` is unverified on a phone, so the import asks for one width,
+  planned on the axes `irot` declares, and the preview keeps the browser's
+  aspect ratio, never squeezed. That width keeps a bitmap the browser turned
+  the other way within twice 1600 pixels, which costs a smaller preview only
+  for a photo longer than 2:1. A browser that makes no HEIC bitmap (Safari
+  before 17, Chrome, Firefox) cannot decode it at all, so no full decode is
+  tried.
 
 The import refuses a photo only in these cases:
 
 - larger than 30 MB: "Please choose a photo smaller than 30 MB."
 - dimensions not readable from the first 512 KB (another format, or a damaged
   header): "The photo dimensions could not be checked safely. Export it as
-  JPEG, PNG or WebP, then try again."
+  JPEG, PNG or WebP, then try again." For a HEIC (its `meta` box must lie in
+  those 512 KB): "The HEIC photo's dimensions could not be checked safely.
+  Choose the photo from the Photo Library, which converts it to JPEG, or
+  export it as JPEG, PNG or WebP, then try again."
+- a HEIC the browser cannot decode: "This browser cannot open HEIC photos.
+  Choose the photo from the Photo Library, which converts it to JPEG, or
+  export it as JPEG, PNG or WebP, then try again."
 - a width or height of 0: "The image is empty."
 - more than 120 million pixels: "This photo is too large to decode safely on a
   phone. Use a smaller camera resolution or crop it first."
@@ -89,9 +134,10 @@ The import refuses a photo only in these cases:
   not checked, so a PNG cut short inside its image data still reaches the
   decoder, as it did before the walk. A WebP's EXIF follows its bitstream, so
   a WebP cut short inside its bitstream is refused.
-- no ImageBitmap resizing (missing or failed) for a photo of more than 24
-  million pixels: "This browser cannot downscale this large photo safely. Crop
-  it in your photo app first, then try again."
+- no ImageBitmap resizing (missing or failed, or a retried bitmap the browser
+  did not turn) for a photo of more than 24 million pixels: "This browser
+  cannot downscale this large photo safely. Crop it in your photo app first,
+  then try again."
 - another decode still holding the queue after 15 seconds: "Another photo is
   still decoding. Wait a moment and retry."
 
@@ -104,7 +150,9 @@ turns to it (`rotatePhotoSource`). On Read the original is decoded the same
 way, the corners are inverse-mapped through that transform to the decoded
 source (`detailPlan`), and the extracted crop is mirrored and turned back by the
 same `transformPhotoContext` the import used. No EXIF-blind source crop
-coordinates are used. The original file is not uploaded, persisted in autosave
+coordinates are used: an original decoded with its long side across the
+preview's (before the turns) is not used, and the read takes the preview with
+the note that the original photo dimensions could not be checked. The original file is not uploaded, persisted in autosave
 or added to training data.
 
 The EXIF tag is only as good as the phone's guess, and a page shot flat on a

@@ -1,10 +1,14 @@
 // One reusable OCR engine per Scanner. Cancellation is cooperative between
 // recognition calls, with a hard deadline for a stuck engine. No images persist.
+import { visibleTimers } from "./visible-time.js";
 import { updateAdvice as offeredUpdate } from "./offline.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 export function createOCRRuntime({
   makeWorker = () => new Worker(new URL("./ocr-host-worker.js", import.meta.url), { type: "classic" }),
   setTimer = setTimeout, clearTimer = clearTimeout,
+  // The job, loading and cancel deadlines count only the time the page is
+  // visible: an app switch must not run them out (visible-time.js).
+  deadlines = visibleTimers({ setTimer, clearTimer }),
   // Advice for OCR that cannot load on a page an offered update replaces.
   updateAdvice = offeredUpdate,
 } = {}) {
@@ -20,9 +24,9 @@ export function createOCRRuntime({
     const advice = loaded || globalThis.navigator?.onLine === false ? "" : updateAdvice("try again");
     return Error(advice ? `Recognition could not load. ${advice}` : message);
   };
-  const clear = () => { clearTimer(deadline); deadline = null; };
+  const clear = () => { deadlines.clearTimer(deadline); deadline = null; };
   function destroy(error = aborted()) {
-    clear(); clearTimer(warmDeadline); warmDeadline = null;
+    clear(); deadlines.clearTimer(warmDeadline); warmDeadline = null;
     const old = worker; worker = null;
     active?.reject(error); queued?.reject(error); active = queued = null;
     if (!old) return;
@@ -42,7 +46,7 @@ export function createOCRRuntime({
       ensure();
       active = queued; queued = null;
       const job = active;
-      deadline = setTimer(() => {
+      deadline = deadlines.setTimer(() => {
         if (active === job) destroy(Error("Printed-clue recognition timed out. Retry a clearer picture."));
       }, 90000);
       worker.postMessage({ ...job.payload, id: job.id, keepAlive: true });
@@ -62,7 +66,7 @@ export function createOCRRuntime({
       if (data?.fatal) { destroy(failure(data.error || "Printed-clue recognition failed.")); return; }
       if (data?.type === "ready") {
         loaded = true;
-        clearTimer(warmDeadline); warmDeadline = null;
+        deadlines.clearTimer(warmDeadline); warmDeadline = null;
         return;
       }
       const job = active;
@@ -94,7 +98,7 @@ export function createOCRRuntime({
     try {
       ensure();
       const owned = worker;
-      warmDeadline = setTimer(() => {
+      warmDeadline = deadlines.setTimer(() => {
         if (worker === owned) destroy(Error("OCR loading timed out. Go online and retry."));
       }, 90000);
     } catch (error) { destroy(error); }
@@ -106,7 +110,7 @@ export function createOCRRuntime({
     clear();
     // A single sample normally completes quickly. Bound a stalled atomic call
     // while allowing a healthy interpreter to stay warm for the next frame.
-    deadline = setTimer(() => {
+    deadline = deadlines.setTimer(() => {
       if (active !== job) return;
       const next = queued; queued = null;
       destroy(); queued = next; dispatch();

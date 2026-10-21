@@ -9,9 +9,18 @@ async function photoImports(page, report, base) {
   await page.waitForSelector('body[data-ready="true"]');
   const rows = await page.evaluate(async () => {
     const { importPhoto } = await import('./photo-import.js');
+    const { photoDetail } = await import('./photo-detail.js');
     const actual = globalThis.createImageBitmap, rows = [];
     const palette = [[220,30,30],[30,180,30],[30,30,220],[220,200,30]];
-    for (const [width,height] of [[1600,400],[400,1600],[3200,800]]) {
+    const colors=canvas=>[[.25,.25],[.75,.25],[.75,.75],[.25,.75]].map(([x,y])=>{
+      const value=canvas.getContext('2d').getImageData(Math.floor(x*canvas.width),Math.floor(y*canvas.height),1,1).data;
+      const distances=palette.map(rgb=>rgb.reduce((d,v,i)=>d+(v-value[i])**2,0));
+      return distances.indexOf(Math.min(...distances));
+    });
+    // 800 x 3200 is stored portrait and larger than its preview: turned a
+    // quarter (EXIF 5-8), its refused-"from-image" retry names only the
+    // turned photo's height.
+    for (const [width,height] of [[1600,400],[400,1600],[3200,800],[800,3200]]) {
       const canvas = document.createElement('canvas'); canvas.width=width; canvas.height=height;
       const ctx=canvas.getContext('2d');
       for(const [i,[x,y]]of [[0,[0,0]],[1,[width/2,0]],[2,[width/2,height/2]],[3,[0,height/2]]]) {
@@ -19,35 +28,60 @@ async function photoImports(page, report, base) {
       }
       const jpeg=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
       canvas.width=canvas.height=0;
-      for(let orientation=1;orientation<=8;orientation++) {
+      // `refuse` plays Safari before 17.2, whose createImageBitmap knows
+      // imageOrientation only as "none" or "flipY": "from-image" is a
+      // TypeError there, and the import and the original detail ask again
+      // without it. This engine's default turns the photo as that one does.
+      for(const refuse of [false,true])for(let orientation=1;orientation<=8;orientation++) {
         // JPEG APP1 + Exif + big-endian primary TIFF IFD. No full-size decoder
         // is used to discover orientation; the fixture comes from canvas JPEG.
         const exif=new Uint8Array([255,225,0,34,69,120,105,102,0,0,77,77,0,42,0,0,0,8,0,1,1,18,0,3,0,0,0,1,0,orientation,0,0,0,0,0,0]);
         const file=new Blob([jpeg.slice(0,2),exif,jpeg.slice(2)],{type:'image/jpeg'}),decodes=[];
-        globalThis.createImageBitmap=async(...args)=>{const bitmap=await actual(...args);decodes.push([bitmap.width,bitmap.height]);return bitmap;};
-        let image;
+        globalThis.createImageBitmap=async(source,options)=>{
+          if(refuse&&options?.imageOrientation==='from-image')throw new TypeError("The provided value 'from-image' is not a valid enum value of type ImageOrientation.");
+          const bitmap=await actual(source,options);decodes.push([bitmap.width,bitmap.height]);return bitmap;
+        };
+        let image,detail;
         try {
           ({image}=await importPhoto(file));
-          const pixels=image.getContext('2d'),colors=[];
-          for(const [x,y]of [[.25,.25],[.75,.25],[.75,.75],[.25,.75]]) {
-            const value=pixels.getImageData(Math.floor(x*image.width),Math.floor(y*image.height),1,1).data;
-            const distances=palette.map(rgb=>rgb.reduce((d,v,i)=>d+(v-value[i])**2,0));
-            colors.push(distances.indexOf(Math.min(...distances)));
-          }
-          rows.push({width,height,orientation,decodes,preview:[image.width,image.height],colors});
-        } finally {globalThis.createImageBitmap=actual;if(image)image.width=image.height=0;}
+          const row={width,height,orientation,refuse,decodes:decodes.splice(0),preview:[image.width,image.height],colors:colors(image)};
+          detail=await photoDetail(image,[{x:0,y:0},{x:image.width-1,y:0},{x:image.width-1,y:image.height-1},{x:0,y:image.height-1}]);
+          row.detail={enhanced:detail.enhanced,decodes:decodes.splice(0),colors:colors(detail.image)};
+          rows.push(row);
+        } finally {globalThis.createImageBitmap=actual;detail?.release();if(image)image.width=image.height=0;}
       }
     }
     return rows;
   });
   const orientations=[[0,1,2,3],[1,0,3,2],[2,3,0,1],[3,2,1,0],[0,3,2,1],[3,0,1,2],[2,1,0,3],[1,2,3,0]];
+  assert.equal(rows.length,64);
   for(const row of rows) {
     const scale=Math.min(1,1600/Math.max(row.width,row.height)),size=[Math.round(row.width*scale),Math.round(row.height*scale)];
     if(row.orientation>=5)size.reverse();
     assert.deepEqual(row.decodes,[size],`bounded native bitmap: ${JSON.stringify(row)}`);
     assert.deepEqual(row.preview,size);assert.deepEqual(row.colors,orientations[row.orientation-1],`rotation/mirroring: ${JSON.stringify(row)}`);
+    // Only the 3200 x 800 and 800 x 3200 originals have more detail than their previews.
+    const original=row.orientation>=5?[row.height,row.width]:[row.width,row.height],larger=Math.max(row.width,row.height)>1600;
+    assert.deepEqual(row.detail.enhanced?row.detail.decodes:[],larger?[original]:[],`original detail: ${JSON.stringify(row)}`);
+    assert.equal(row.detail.enhanced,larger);
+    assert.deepEqual(row.detail.colors,orientations[row.orientation-1],`detail rotation/mirroring: ${JSON.stringify(row)}`);
   }
-  report.photoImport={nativeJPEG:true,cases:rows};
+  // A HEIC header (web/tests/heif-fixture.js) over image data no decoder can
+  // read: the browser makes no bitmap, and the import refuses the photo by
+  // name without a full decode.
+  const { heic } = await import('../web/tests/heif-fixture.js');
+  const heicImport = await page.evaluate(async (encoded) => {
+    const { importPhoto } = await import('./photo-import.js');
+    const decode = Image.prototype.decode; let fullDecodes = 0;
+    Image.prototype.decode = function () { fullDecodes++; return decode.call(this); };
+    try {
+      await importPhoto(new File([Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0))], 'IMG_0001.HEIC', { type: 'image/heic' }));
+      return { accepted: true, fullDecodes };
+    } catch (error) { return { message: error.message, fullDecodes }; }
+    finally { Image.prototype.decode = decode; }
+  }, Buffer.from(heic({ rotation: 1 })).toString('base64'));
+  assert.deepEqual(heicImport, { message: 'This browser cannot open HEIC photos. Choose the photo from the Photo Library, which converts it to JPEG, or export it as JPEG, PNG or WebP, then try again.', fullDecodes: 0 });
+  report.photoImport={nativeJPEG:true,cases:rows,heic:heicImport};
 }
 async function offlineInstall(browser, report) {
   // The transaction suites block service workers; this lifecycle check needs

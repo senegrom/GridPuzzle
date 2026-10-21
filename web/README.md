@@ -98,11 +98,18 @@ The documents beside this one:
 
 ## Photo imports and retained readings
 
-JPEG, PNG and WebP dimensions are checked before decoding. WebP lossy,
+JPEG, PNG, WebP and HEIC dimensions are checked before decoding. WebP lossy,
 lossless and extended headers are supported. Unrecognized or incomplete
 headers are rejected with an export-to-JPEG/PNG/WebP message rather than
-using compressed byte count as a decoded-pixel budget. The app requests
-resized bitmaps when available, refuses images over 120 megapixels, and
+using compressed byte count as a decoded-pixel budget. A HEIC, the iPhone's
+own format, reaches the app on an iPhone when it is picked through Choose
+File (the Files app); picked from the Photo Library it arrives as a JPEG. A
+desktop browser can be handed one too. Safari 17 and later decode it, on a
+Mac as on an iPhone; elsewhere it is refused with a message that names HEIC
+and points to the Photo Library or an export as JPEG, PNG or WebP. The app
+requests resized bitmaps when available (from Safari before 17.2, which
+refuses the `from-image` orientation option, without that option; see
+[SCAN_INPUT.md](SCAN_INPUT.md)), refuses images over 120 megapixels, and
 refuses full-image fallback over 24 megapixels. Decoder-internal memory
 use is browser-dependent.
 
@@ -173,6 +180,8 @@ Omitting a cage operator defaults to `+`; explicit `null` is invalid in both Jav
 The browser rejects malformed dimensions, boxes, Str8ts black metadata (explicitly malformed metadata is rejected, not normalized to an empty list), overlapping/disconnected cages, invalid cage arity/operators, nonadjacent inequalities and empty Kakuro clue objects before they can become solve requests. Incomplete cage coverage, missing OCR targets, fully blocked Str8ts and Hidato drafts and duplicate Hidato and Numbrix clues remain editable states, but **Solve** performs a solve-ready check before Pyodide starts, consistently with the native loaders; numbered black cells do not count as Str8ts white cells. Browser editability and solve-readiness are separate contracts, checked against the native adapter on shared fixtures. The Python adapter remains the authoritative final boundary.
 
 The 25×25 browser limit is a phone resource policy, not a native solver limit. Str8ts itself is limited to square 2×2 through 9×9 boards. A deadline/cancellation means unfinished, never unsatisfiable or unique.
+
+The deadlines that stop a stuck task (a Read's 120 seconds, an OCR job's and OCR loading's 90, image processing's and the solver runtime's load's 180) count only the time the page is visible (`visible-time.js`). iOS suspends a hidden page, its workers included, while the clock those deadlines ran on goes on, so a Read left running through an app switch or the lock screen used to fail on return with a message that blamed the photo or the connection; now they stop while the page is hidden and go on with the time they had left. A desktop browser keeps working in a hidden tab, where a stuck task is now stopped only once the page is visible again. The **Search limit** is the user's budget on the clock and keeps running while the page is hidden.
 
 ## Offline behaviour
 
