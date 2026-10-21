@@ -286,12 +286,20 @@ def assess_python(
     return findings
 
 
+def accepted(leg: Leg, version: str) -> bool:
+    """Whether setup-python may install `version`, a release of the leg's
+    feature release, for the leg: any final release, and a prerelease of its
+    x.y.0 when the leg allows prereleases (it then asks for ~x.y.0-0, which
+    takes no patch release's candidate, such as 3.15.1-rc.1)."""
+    return "-" not in version or (leg.prereleases and version.startswith(f"{leg.version}.0-"))
+
+
 def check_python() -> list[tuple[str, str]]:
     legs = compatibility_legs(FORWARD_COMPATIBILITY.read_text(encoding="utf-8"))
     releases = cpython_releases(fetch_json(PYTHON_VERSIONS))
     for leg in legs:
         accepts = "prereleases" if leg.prereleases else "final only"
-        newest = releases.get(feature(leg.version), ["none"])[0]
+        newest = next((found for found in releases.get(feature(leg.version), []) if accepted(leg, found)), "none")
         print(f"{leg.label:26} {leg.version:6} {accepts:11} newest {newest}")
     print(f"{'actions/python-versions':26} newest {releases[max(releases)][0]}")
     print(f"{'FINAL_RELEASES':26} {', '.join(sorted(FINAL_RELEASES, key=feature))}")

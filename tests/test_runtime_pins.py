@@ -299,6 +299,26 @@ def test_main_holds_the_legs_and_the_record_to_the_manifest(repository, monkeypa
     assert f"::error::CPython {major}.{minor + 1}.0-alpha.1 is newer than every" in capsys.readouterr().out
 
 
+def test_each_leg_is_shown_the_newest_release_it_accepts(repository, monkeypatch, capsys):
+    """The table before the findings: a leg without prereleases is shown its
+    newest final release, not a patch release's candidate, and a leg with
+    them the newest release of its x.y.0."""
+    legs = [*_LEGS, pins.Leg("Python 3.15 prerelease", "3.15", False, True), _LEG_316]
+    monkeypatch.setattr(pins, "compatibility_legs", lambda source: legs)
+    monkeypatch.setattr(pins, "FINAL_RELEASES", frozenset({"3.14", "3.15"}))
+    published = [_entry("3.16.0-alpha.1"), _entry("3.15.1-rc.1")]
+    monkeypatch.setattr(pins, "fetch_json", lambda url: published + _recorded())
+    assert pins.main(["python"]) == 1  # the 3.15 prerelease leg, as before #145
+    assert capsys.readouterr().out.splitlines()[:6] == [
+        "Python 3.14 free-threaded  3.14   final only  newest 3.14.8",
+        "Python 3.15                3.15   final only  newest 3.15.0",
+        "Python 3.15 prerelease     3.15   prereleases newest 3.15.0",
+        "Python 3.16 prerelease     3.16   prereleases newest 3.16.0-alpha.1",
+        "actions/python-versions    newest 3.16.0-alpha.1",
+        "FINAL_RELEASES             3.14, 3.15",
+    ]
+
+
 def test_main_runs_both_checks_by_default(repository, monkeypatch, capsys):
     current = pins.read_pins()
     legs = pins.compatibility_legs(pins.FORWARD_COMPATIBILITY.read_text(encoding="utf-8"))
