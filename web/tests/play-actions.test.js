@@ -358,6 +358,21 @@ test("cage review survives a change between cage families and nothing else", (t)
   assert.deepEqual([...h.state.cageUncertain], [], "cage review means nothing on a Futoshiki board");
 });
 
+test("rule changes between cage families leave one rule-change note beside the scan's", (t) => {
+  const h = harness(t), scan = "Cages detected. Check every boundary, target and operator.";
+  h.state.puzzle = model.makePuzzle("kenken", 2);
+  h.state.puzzle.cages = [{ cells: [0, 1], target: 3, op: "+" }, { cells: [2, 3], target: 3, op: "+" }];
+  h.state.play = model.fitPlay(h.state.puzzle, []);
+  h.state.cageUncertain = new Set([0, 1]); h.state.notes = [scan];
+  // More changes than a saved session keeps notes for (session.js).
+  for (let i = 0; i < 18; i++) {
+    const type = i % 2 ? "kenken" : "killersudoku";
+    h.$("puzzle-type").value = type; h.$("apply-type").onclick();
+    assert.equal(h.state.puzzle.type, type);
+    assert.deepEqual(plain(h.state.notes), [`Rules changed to ${model.TYPES[type]}. Printed clues have been kept.`, scan]);
+  }
+});
+
 test("inequality saves and removals write the draft, never the captured source puzzle", (t) => {
   const h = harness(t);
   h.state.puzzle = model.makePuzzle("futoshiki", 2);

@@ -21,8 +21,10 @@ function offlineAssets(assets,skip=unusedCore()){
   return skip?assets.filter(asset=>!asset.path.endsWith(`/tesseract-core/${skip}`)):assets;
 }
 // Messages for offline tasks. The fetch handler never puts exception text in
-// a response; it fails generically.
-const diagnostic=message=>Error(message);
+// a response; it fails generically. `gone` marks a file this build needs that
+// is no longer on the server, with no identical copy anywhere (relocated()):
+// after a deploy only the app update fixes that, not a retry.
+const diagnostic=(message,details)=>Object.assign(Error(message),details);
 
 function validateManifest(data,build=VERSION){
   if(data?.build!==build||!Array.isArray(data.assets))throw diagnostic("Update the app before downloading offline assets.");
@@ -77,8 +79,13 @@ async function verifiedAsset(cacheOrAsset,assetOrOptions={},maybeOptions={}){
   if(!network)return null;
   response=await fetch(new Request(url(asset.path),{cache:"reload",signal}));
   signal?.throwIfAborted();
-  if(!response.ok)throw diagnostic(`Could not download ${asset.path}. Stay online and retry.`);
-  if(!(await matchesAsset(response,asset,signal)))throw diagnostic(`Asset changed during download: ${asset.path}. Update the app and retry.`);
+  if(response.ok){
+    if(!(await matchesAsset(response,asset,signal)))throw diagnostic(`Asset changed during download: ${asset.path}. Update the app and retry.`);
+  }else{
+    const gone=response.status===404;
+    response=await relocated(asset,signal);
+    if(!response)throw diagnostic(`Could not download ${asset.path}. Stay online and retry.`,{gone});
+  }
   signal?.throwIfAborted();
   try{await cache.put(key,response.clone());}catch(error){if(requireStorage)throw error;}
   signal?.throwIfAborted();
@@ -117,6 +124,42 @@ async function buildAssets(build){
     const response=await (await caches.open(name)).match(url("assets.json"));
     return response?validateManifest(await response.json(),build):[];
   }catch{return [];}
+}
+// The origin's current asset list, whichever build it describes; none when
+// it cannot be read. GitHub Pages lets browsers keep every file for ten
+// minutes, so the HTTP cache may still hold the list a deploy replaced.
+async function originAssets(signal){
+  try{
+    const response=await fetch(new Request(url("assets.json"),{cache:"reload",signal}));
+    const data=response.ok?await response.json():null;
+    return typeof data?.build==="string"?validateManifest(data,data.build):[];
+  }catch{signal?.throwIfAborted();return [];}
+}
+/* A deploy replaces the whole site, so an older build's versioned URLs stop
+   existing while its pages and its worker still run, until the user chooses
+   "Update app & reload". Another manifest may list the same bytes under its
+   own URL: the other stored ones, newest first (after a deploy, the waiting
+   build's), then the origin's current one. A copy is accepted only if its
+   digest matches; nothing is substituted because its name matches. */
+async function relocated(asset,signal){
+  const tried=new Set([asset.path]);
+  const from=async assets=>{
+    for(const other of assets){
+      if(other.sha256!==asset.sha256||tried.has(other.path))continue;
+      tried.add(other.path);
+      const response=await fetch(new Request(url(other.path),{cache:"reload",signal}));
+      signal?.throwIfAborted();
+      if(await matchesAsset(response,asset,signal))return response;
+    }
+    return null;
+  };
+  // CacheStorage lists caches in the order they were created.
+  const stored=(await caches.keys()).filter(name=>name.startsWith(PREFIX+"meta:")&&name!==META).reverse();
+  for(const name of stored){
+    const found=await from(await buildAssets(name.slice((PREFIX+"meta:").length)));
+    if(found)return found;
+  }
+  return from(await originAssets(signal));
 }
 function assetBuild(key){
   const path=key.slice(self.registration.scope.length);
@@ -229,6 +272,9 @@ self.addEventListener("fetch",event=>{
       // An outgoing build's URL may no longer exist on the origin. Identical
       // bytes under the current immutable URL are a safe cache-miss fallback;
       // never substitute a dependency merely because its filename matches.
+      // verifiedAsset() looks further, in the other manifests (relocated()),
+      // when that URL is missing too, as a page of this worker's own build
+      // finds after a deploy.
       const equivalent=historical&&assets.find(current=>current.sha256===asset.sha256);
       const response=await verifiedAsset(equivalent||asset,{requireStorage:false,trustStored:true});
       // A digest cache may reuse a module downloaded under another build's URL.
@@ -296,7 +342,7 @@ function prepareOffline(port, clientId) {
         offlineNotify(job, { done: true, ready: true });
       } catch (error) {
         job.controller.abort(error);
-        offlineNotify(job, { error: error?.message || String(error) });
+        offlineNotify(job, { error: error?.message || String(error), ...(error?.gone ? { gone: true } : {}) });
       } finally {
         if (offlineJob === job) offlineJob = null;
         job.ports.clear();
