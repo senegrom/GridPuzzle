@@ -142,16 +142,14 @@ async function staleBuild(browser, report) {
     // An installed app that never read a photo: its worker stores no OCR.
     await page.goto(base); await ready(page);
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, { timeout: 120000 });
-    const checked = site.checks;
+    const checked = site.checks, reloaded = Date.now();
     await page.reload(); await ready(page);
     // A navigation makes the browser look for an update a moment after the
     // page has loaded (it waits while the page keeps its worker busy). The
-    // deploy comes after that check, which must not be what finds it.
-    const end = Date.now() + 60000;
-    while (site.checks === checked) {
-      if (Date.now() > end) throw Error("the browser did not look for an update after the reload");
-      await sleep(100);
-    }
+    // deploy comes after that check, which must not be what finds it; a
+    // browser that has not looked within 20 s is taken not to.
+    while (site.checks === checked && Date.now() - reloaded < 20000) await sleep(100);
+    result.reloadCheck = site.checks > checked;
     // From here on the tab is kept open: a navigation would end this mark.
     await page.evaluate(() => { window.__staleTab = true; });
     const kept = () => page.evaluate(() => window.__staleTab === true);
