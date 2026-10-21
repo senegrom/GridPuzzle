@@ -59,10 +59,14 @@ export function detailPlan(preview, corners, width, height, turns = 0, mirrored 
   if (!validQuad(corners, preview.width, preview.height) ||
       ![width, height].every((n) => Number.isInteger(n) && n > 1) ||
       width * height > DETAIL_PIXEL_LIMIT || !Number.isInteger(turns) || turns < 0 || turns > 3 || typeof mirrored !== 'boolean') return null;
+  // The preview as decoded, before the import's and the user's turns.
+  const pw = turns % 2 ? preview.height : preview.width,
+    ph = turns % 2 ? preview.width : preview.height;
+  // An original decoded a quarter turn from the preview would put the corners
+  // on other pixels: its long side must lie along the preview's.
+  if ((width - height) * (pw - ph) < 0) return null;
   const original = corners.map((p) => {
-    const pt = turnPoint(p, preview.width, preview.height, (4 - turns) % 4),
-      pw = turns % 2 ? preview.height : preview.width,
-      ph = turns % 2 ? preview.width : preview.height;
+    const pt = turnPoint(p, preview.width, preview.height, (4 - turns) % 4);
     return { x: (mirrored ? pw - 1 - pt.x : pt.x) * (width - 1) / (pw - 1), y: pt.y * (height - 1) / (ph - 1) };
   });
   const x = Math.max(0, Math.floor(Math.min(...original.map((p) => p.x))) - 2),
@@ -101,7 +105,14 @@ export async function photoDetail(preview, corners, { current = () => true } = {
     return await withPhotoDecode(async () => {
       let bitmap = null, canvas = null;
       try {
-        bitmap = await createImageBitmap(source.file, { imageOrientation: 'from-image' });
+        try { bitmap = await createImageBitmap(source.file, { imageOrientation: 'from-image' }); }
+        catch (error) {
+          // Safari before 17.2 refuses "from-image" with a TypeError; its
+          // default applies the EXIF orientation (photo-import.js), and
+          // detailPlan refuses a bitmap turned otherwise than the preview.
+          if (error?.name !== 'TypeError' || !current()) throw error;
+          bitmap = await createImageBitmap(source.file, {});
+        }
         if (!current()) throw new DOMException('Scan cancelled', 'AbortError');
         const plan = detailPlan(preview, corners, bitmap.width, bitmap.height, source.turns, source.mirrored);
         if (!plan) return fallback('Original photo dimensions could not be checked; recognition uses the preview.');

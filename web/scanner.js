@@ -1,6 +1,7 @@
 import { validateRetryCells, evidenceKey } from "./clue-recovery.js";
 import { numericCropBounds } from './cell-boundaries.js';
 import { createOCRRuntime } from "./ocr-runtime.js";
+import { visibleTimers } from "./visible-time.js";
 import { makePuzzle, classify, conflicts, isCage } from "./model.js";
 import { mapAtlas, atlasLayout, voteDigit } from "./ocr-map.js";
 import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
@@ -469,6 +470,10 @@ export class Scanner {
     this.ocr = createOCRRuntime();
     this.geometryWorker = null;
     this.geometryBusy = false;
+    // Like the OCR engine's, the image-processing deadline counts only the
+    // time the page is visible (visible-time.js); app.js's task deadlines
+    // run on these too.
+    this.deadlines = visibleTimers();
   }
   prepare() { this.ocr.prepare(); }
   cancel({ keepEngine = false } = {}) {
@@ -492,7 +497,7 @@ export class Scanner {
       const end = (error, result) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeout);
+        this.deadlines.clearTimer(timeout);
         this.jobs.delete(job);
         worker.onmessage = worker.onerror = worker.onmessageerror = null;
         if (!error && this.geometryWorker === worker) {
@@ -504,7 +509,7 @@ export class Scanner {
         error ? reject(error) : resolve(result);
       };
       const job = { cancel: () => end(aborted()) };
-      const timeout = setTimeout(() => end(Error("Image processing timed out. Go online and retry.")), 180000);
+      const timeout = this.deadlines.setTimer(() => end(Error("Image processing timed out. Go online and retry.")), 180000);
       this.jobs.add(job);
       worker.onmessage = ({ data }) => {
         if (!data || typeof data !== "object" || !("result" in data || "error" in data)) return;
