@@ -5,6 +5,7 @@ actions/python-versions. No test here reads the network."""
 import io
 import json
 import re
+from http.client import HTTPResponse
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
@@ -182,9 +183,10 @@ _FINAL_316 = pins.Leg("Python 3.16", "3.16", False, False)
         ),
         # and the leg and the record follow it
         ([*_LEGS, _FINAL_316], {"3.14", "3.15", "3.16"}, ["3.16.0", "3.16.0-rc.1"], []),
-        # a final release that came before any leg tested it
+        # a final release that came before any leg tested it: the advice
+        # follows the newest release, not its candidates
         (
-            _LEGS, {"3.14", "3.15"}, ["3.16.0"],
+            _LEGS, {"3.14", "3.15"}, ["3.16.0", "3.16.0-rc.1"],
             [
                 "CPython 3.16.0 is newer than every forward-compatibility leg: add a leg "
                 f'"Python 3.16" to {_WORKFLOW} with python-version "3.16" and allow-prereleases: false, '
@@ -196,12 +198,18 @@ _FINAL_316 = pins.Leg("Python 3.16", "3.16", False, False)
             [*_LEGS, _LEG_316], {"3.14", "3.15", "3.16"}, ["3.16.0-rc.1"],
             [f"{_RECORD} lists 3.16, but actions/python-versions has no final CPython 3.16: remove it"],
         ),
+        # or before any leg tests it and any release of it is out
+        (
+            _LEGS, {"3.14", "3.15", "3.16"}, [],
+            [f"{_RECORD} lists 3.16, but actions/python-versions has no final CPython 3.16: remove it"],
+        ),
         # a patch release's candidate is no new feature release
         (_LEGS, {"3.14", "3.15"}, ["3.15.1-rc.1"], []),
     ],
     ids=[
         "as-recorded", "recorded-without-a-leg", "before-145", "first-3.16-prerelease", "3.16-leg",
-        "3.16.0-out", "3.16-leg-final", "3.16.0-without-a-leg", "recorded-too-early", "patch-candidate",
+        "3.16.0-out", "3.16-leg-final", "3.16.0-without-a-leg", "recorded-too-early",
+        "recorded-without-a-leg-or-release", "patch-candidate",
     ],
 )
 def test_assess_python(legs, record, published, expected):
@@ -300,29 +308,65 @@ def test_main_runs_both_checks_by_default(repository, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "playwright" in output and legs[0].label in output
 
+    # a source that cannot be read fails its own check, and the other check still runs
+    def unreadable(name):
+        raise pins.SourceError(f"could not read the dist-tags of {name}")
 
-@pytest.mark.parametrize(
-    ("failure", "reason"),
-    [
-        (lambda: URLError("[Errno -3] Temporary failure in name resolution"),
-         "<urlopen error [Errno -3] Temporary failure in name resolution>"),
-        (lambda: HTTPError(pins.PYTHON_VERSIONS, 503, "Service Unavailable", None, None),
-         "HTTP Error 503: Service Unavailable"),
-        (lambda: TimeoutError("The read operation timed out"), "The read operation timed out"),
-    ],
-    ids=["dns", "http", "timeout"],
-)
-def test_a_source_that_cannot_be_reached_fails_its_check_with_a_message(
-    repository, monkeypatch, capsys, failure, reason
-):
+    monkeypatch.setattr(pins, "latest", unreadable)
+    assert pins.main([]) == 1
+    output = capsys.readouterr().out
+    assert output.count("::error::") == 1 and "::error::could not read the dist-tags of " in output
+    assert legs[0].label in output
+
+
+def _raising(failure):
+    """A urlopen that fails before any response arrives, with failure()."""
+
     def urlopen(request, timeout=None):
         raise failure()
 
+    return urlopen
+
+
+class _Connection:
+    """A socket whose peer sent `data` and then closed the connection."""
+
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def makefile(self, mode):
+        return io.BytesIO(self.data)
+
+
+def _cut_off(request, timeout=None):
+    """A urlopen whose response arrives with headers that announce 100 bytes,
+    and whose connection closes after the first: reading the body fails."""
+    response = HTTPResponse(_Connection(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n["))
+    response.begin()
+    return response
+
+
+@pytest.mark.parametrize(
+    ("urlopen", "reason"),
+    [
+        (_raising(lambda: URLError("[Errno -3] Temporary failure in name resolution")),
+         "<urlopen error [Errno -3] Temporary failure in name resolution>"),
+        (_raising(lambda: HTTPError(pins.PYTHON_VERSIONS, 503, "Service Unavailable", None, None)),
+         "HTTP Error 503: Service Unavailable"),
+        (_raising(lambda: TimeoutError("The read operation timed out")), "The read operation timed out"),
+        (_cut_off, "IncompleteRead(1 bytes read, 99 more expected)"),
+    ],
+    ids=["dns", "http", "timeout", "cut-off"],
+)
+def test_a_source_that_cannot_be_read_fails_its_check_with_a_message(
+    repository, monkeypatch, capsys, urlopen, reason
+):
     monkeypatch.setattr(pins, "urlopen", urlopen)
     assert pins.main(["python"]) == 1
     assert f"::error::could not read {pins.PYTHON_VERSIONS}: {reason}\n" in capsys.readouterr().out
     assert pins.main(["npm"]) == 1
-    assert "::error::could not read https://registry.npmjs.org/-/package/" in capsys.readouterr().out
+    registry = r"https://registry\.npmjs\.org/-/package/\S+/dist-tags"
+    assert re.search(rf"^::error::could not read {registry}: {re.escape(reason)}$", capsys.readouterr().out, re.M)
 
 
 def test_an_error_response_is_closed(monkeypatch):
