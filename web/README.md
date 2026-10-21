@@ -212,15 +212,25 @@ stored is missing under its own URL (the OCR runtime, until a first scan or
 other asset lists it has stored, newest first (after a deploy, the waiting
 update's), then in the origin's current `assets.json`, read past the browser's
 HTTP cache, and fetches that URL instead; bytes whose digest differs are never
-served. Installation still stores only the app shell and the Python
-runtime, not the OCR runtime. If the deploy changed the file, so that nothing
+served. When that list names another build, the worker also asks the browser
+to look for the update at once (`registration.update()`, once per build while
+the worker runs, never awaited; a failed check changes nothing). A browser
+looks when a page navigates, and may when a page starts a worker, so without
+this a page kept open across a deploy that, say, only downloads for offline
+use would offer the update only after a reload; now it shows the update
+banner within seconds of its first missing file, whether or not an identical
+copy was found. While no file is missing, nothing is asked. Installation
+still stores only the app shell and the Python runtime, not the OCR runtime.
+If the deploy changed the file, so that nothing
 identical exists (a new OCR runtime), retrying cannot bring the old file back
 and only the update helps. While one is offered, a read whose OCR fails to load
 online says that recognition could not load, and **Download for offline use**
 that this version's files are no longer on the server, and both name the
 update's button instead of showing the browser's error or "Stay online and
 retry". A read that fails offline, or whose OCR download runs out of time,
-keeps its own message.
+keeps its own message. So does the read or download that first misses the
+file if it fails before the browser has installed the update: the banner then
+follows within seconds, and a retry names it.
 
 The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Of the two Tesseract core loaders it stores only the one this device will load, chosen with the same WebAssembly SIMD test Tesseract.js uses (both where WebAssembly cannot be probed); both stay on the server. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 
