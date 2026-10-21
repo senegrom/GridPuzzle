@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cagePartition, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
+import { cagePartition, CAGE_CLUE_FLOOR, CAGE_LABEL_BOX, prepareScan } from "../scan-analysis.js";
 import { cageLabelCrop, puzzleFromReadings } from "../scanner.js";
 import { readOperator } from "../cage-operator.js";
 import { thresholdGray } from "../geometry.js";
@@ -217,4 +217,87 @@ test("a cage clue on grey paper keeps its ink, and its paper and margin stay whi
     // The ink handed to the operator reader is the same picture, 1 for ink.
     assert.deepEqual([ink[(16 + 20) * 112 + 16 + 12], ink[(16 + 30) * 112 + 16 + 60], ink[4 * 112 + 4]], [1, 0, 0]);
   }
+});
+
+// A cage's clue sits at the top of its head cell (CAGE_LABEL_BOX). Its first
+// digit used to reach into the head's value region (from 0.16 of the cell
+// down), where all three readers agreed on it as a given digit with
+// confidence 90-99, flagged only "check cage". Unless substantial ink reaches
+// below the cell's middle, as a printed given's does, the head's value region
+// now drops the ink lying wholly above it (CAGE_CLUE_FLOOR), so a given printed
+// in a head is still read whole; other cells are unchanged.
+function boardImage(style, marks, borders = undefined) {
+  const { g } = board({ style, borders });
+  for (const [cell, x0, y0, x1, y1] of marks) {
+    const left = (cell % 4) * 100, top = Math.floor(cell / 4) * 100;
+    for (let y = top + y0; y < top + y1; y++) for (let x = left + x0; x < left + x1; x++) g[y * 400 + x] = 20;
+  }
+  const data = new Uint8ClampedArray(400 * 400 * 4);
+  g.forEach((v, i) => { data[4 * i] = data[4 * i + 1] = data[4 * i + 2] = v; data[4 * i + 3] = 255; });
+  return { width: 400, height: 400, data };
+}
+test("a cage head's clue is not read as a digit in its value region", () => {
+  for (const style of ["inset", "thick"]) {
+    const [, y0, , y1] = CAGE_LABEL_BOX[style];
+    // A clue glyph in each head (cells 0 and 8), 22 px tall, reaching 0.34
+    // of the cell as the corpus's clues do, and a given in cell 5. Cell 0's
+    // clue lies wholly inside the value region, which only the faint-mark
+    // recovery would otherwise pick up.
+    const clue = (cell, top = 12) => [cell, 20, top, 27, top + 22], given = [5, 45, 25, 53, 75];
+    const prepared = prepareScan(boardImage(style, [clue(0, 18), clue(8), given]), "kenken", 4, 4);
+    const values = prepared.entries.filter((e) => e.kind === "value");
+    assert.deepEqual(values.map((e) => e.cell), [5], style);
+    assert.deepEqual(prepared.unreadCells, [], style);
+    assert.ok(y0 <= 0.12 && y1 >= 0.4 && y1 <= CAGE_CLUE_FLOOR, `${style}: the clues lie in the clue box, above the floor`);
+    // A digit printed below the clue box of a head is still read.
+    const below = prepareScan(boardImage(style, [clue(8), [8, 45, 50, 53, 85]]), "kenken", 4, 4);
+    const read = below.entries.filter((e) => e.kind === "value");
+    assert.deepEqual(read.map((e) => e.cell), [8], style);
+    assert.equal(read[0].y, 250, `${style}: the mark at y 250, not the clue`);
+  }
+});
+test("a given printed in a cage head is read whole, though its top reaches beside its clue", () => {
+  for (const style of ["inset", "thick"]) {
+    // Centred, as a printed given is: from 0.24 to 0.72 of the cell, beside a
+    // clue reaching 0.34 (in cell 9, under a wide clue it nearly touches; in
+    // cell 1, printed in two pieces, the upper one wholly above the cell's
+    // middle). Cells 1, 8 and 9 are heads.
+    const marks = [[1, 20, 12, 27, 34], [1, 46, 24, 54, 38], [1, 46, 41, 54, 72],
+      [8, 20, 12, 27, 34], [8, 46, 24, 54, 72], [9, 14, 12, 70, 22], [9, 46, 24, 54, 72]];
+    const prepared = prepareScan(boardImage(style, marks, [["h", 1], ["v", 0]]), "kenken", 4, 4);
+    assert.deepEqual(sorted(prepared.cageAreas).map((cells) => cells[0]), [0, 1, 8, 9], style);
+    const read = prepared.entries.filter((e) => e.kind === "value").map(({ cell, y, h }) => [cell, y, h]);
+    assert.deepEqual(read, [[1, 24, 48], [8, 224, 48], [9, 224, 48]], style);
+  }
+});
+test("cell value regions are unchanged outside cage boards", () => {
+  // The same marks read as KenKen and as a Latin square: only the heads differ.
+  const image = boardImage("inset", [[0, 20, 12, 27, 34], [5, 45, 25, 53, 75]]);
+  const latin = prepareScan(image, "latinsquare", 4, 4).entries.filter((e) => e.kind === "value");
+  assert.deepEqual(latin.map((e) => e.cell), [0, 5]);
+  assert.equal(latin[0].y, 16, "a Latin square's value region starts at 0.16 of the cell");
+});
+test("every digit read on a cage board goes to digit review, with a note; elsewhere a confident digit does not", () => {
+  const value = (cell, text) => ({ kind: "value", cell, text, confidence: 99, x: 0, y: 0, w: 8, h: 20 });
+  const read = (type, entries, extra = {}) => puzzleFromReadings({ entries, black: Array(16).fill(false),
+    meta: { rows: 4, cols: 4, boxes: false }, mask: new Uint8Array(400 * 400), width: 400, height: 400, ...extra }, type, 4, 4);
+  // One cage per row, each summing to 10: Latin and Killer rules both hold.
+  const rowsAsCages = [0, 4, 8, 12].map((head) => [head, head + 1, head + 2, head + 3]),
+    labels = [0, 4, 8, 12].map((cell) => ({ kind: "label", cell, text: cell ? "10" : "10+", confidence: 95, cageLabel: true }));
+  for (const type of ["kenken", "killersudoku"]) {
+    const one = read(type, [value(0, "1"), ...labels], { cageAreas: rowsAsCages });
+    assert.equal(one.puzzle.cells[0], 1, type);
+    assert.deepEqual(one.cellUncertain, [0], type);
+    assert.ok(one.notes.includes("1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check it against the photo, and clear it if it is not printed in the cell."), type);
+    const two = read(type, [value(0, "1"), value(9, "3"), ...labels], { cageAreas: rowsAsCages });
+    assert.deepEqual([...two.cellUncertain].sort((a, b) => a - b), [0, 9], type);
+    assert.ok(two.notes.includes("2 highlighted digits were read in cells of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check each against the photo, and clear any that is not printed in its cell."), type);
+    // The digit's flag is digit review's own: the cage review covers the cell too.
+    assert.ok(two.cageUncertain.includes(0) && two.uncertain.includes(0), type);
+    const none = read(type, labels, { cageAreas: rowsAsCages });
+    assert.deepEqual(none.cellUncertain, [], type);
+    assert.ok(!none.notes.some((note) => /cage puzzle\. Cage puzzles rarely/.test(note)), type);
+  }
+  const latin = read("latinsquare", [value(0, "1"), value(9, "3")]);
+  assert.deepEqual(latin.cellUncertain, []);
 });

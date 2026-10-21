@@ -29,7 +29,7 @@ no uniqueness claim is made for generated puzzles or witness-free targets.
 
 ## Contents
 
-3978 images, 402 MiB, 10 families, 23 sets. 2345 are real photographs; 3133
+4098 images, 406 MiB, 10 families, 24 sets. 2345 are real photographs; 3253
 carry grid-corner ground truth.
 
 | Family | Set | Kind | Images | Corners | Solution |
@@ -42,6 +42,7 @@ carry grid-corner ground truth.
 | kenken | janko-kenken-thick | render | 120 | 120 | 120 |
 | kenken | janko-killersudoku | render | 120 | 120 | 120 |
 | killersudoku | generated-render | render | 120 | 120 | 120 |
+| killersudoku | generated-render-sum-only | render | 120 | 120 | 120 |
 | latinsquare | generated-render | render | 120 | 120 | 120 |
 | numbrix | generated-render | render | 120 | 120 | 120 |
 | slitherlink | janko-slitherlink | render | 111 | 111 | – |
@@ -160,6 +161,16 @@ Printed puzzles use both conventions, so the pair covers both, but the OCR
 reads them differently (a clean ÷ mostly as `+`, a clean `/` as `/`), and a
 fresh render of `janko-kenken` would switch that set to ASCII.
 
+Every cage set prints a cage's operator after its target, `15+` in a Killer
+cage too, while Killer Sudoku is usually printed with the sum alone (`15`).
+`killersudoku/generated-render-sum-only` (2026-10-19) prints it that way: 40
+more generated Killer puzzles (16 of 4 x 4, 9 of 6 x 6, 15 of 9 x 9) in the
+three variants, carved and drawn from the set's own random stream, so like
+the thick set it renders the same alone as in a full run and left every
+earlier set byte-identical; `render_puzzles.py --set generated-render-sum-only`
+draws it. The generated `+` set and janko's Sumdoku are its control. Drawing
+a puzzle with `sum_only` changes no random draw, only the clue text.
+
 ## Rebuilding
 
 ```bash
@@ -272,6 +283,24 @@ import (`importPhoto` in `web/photo-import.js`) rather than its own copy of the
 flow's loader. That changes some previews (`web/OCR_QUALITY.md` counts them)
 but not the scoring, so the report's `harness` records `load: "importPhoto"`;
 a version 5 report without it was read through the copy.
+
+`scoreVersion: 6` (2026-10-19) scores as version 5 did, except for the flags
+that count on a cell's digit. The app reviews a reading in two channels: digit
+review (`cellUncertain`, "check reading"), which the guided review walks, and
+structural review (`cageUncertain`, "check cage" or "check sign"), which that
+review skips and which saving a cage clears while the cell's digit stays.
+Versions 3 to 5 were handed the union of both as the digit flags, so a
+confident wrong or invented digit in a cage's cell or beside a Futoshiki sign
+never counted as unflagged. The benchmark now hands the scorer the photo
+flow's own digit review (its `state.uncertain`: the digit channel, and every
+cell of a reading through unconfirmed corners) as `uncertain`, and structural
+review as `cageUncertain`. A cell's digit is flagged only through the first;
+cages, signs, Kakuro sums and topology through either; and the flag costs
+(`flaggedCorrect`, `flaggedEmpty`) count both, since either highlight asks the
+user for a check. A unit test runs the benchmark's page reader and the photo
+flow on the same scanner results and requires the same digit flags. Only
+boards under structural review can score differently: KenKen, Killer Sudoku
+and Futoshiki (`web/OCR_QUALITY.md`, "Digits on cage boards").
 
 This recognition benchmark supplies the **reference puzzle type and row/column
 counts** to the Scanner. It does not test fully automatic family/size inference.
