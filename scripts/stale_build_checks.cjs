@@ -7,8 +7,9 @@
    build: X's files under that build's names, restamped as build_web.py
    stamps them, and that build's own asset list. The tab stays open across
    both deploys, neither navigated nor asking the browser to look for an
-   update, so only worker X's own check, when it meets the deploy, can bring
-   the banner. Part of photo_read_regressions.cjs. */
+   update, so the banner comes from worker X's own check when it meets the
+   deploy (or from the browser's, which a page starting a worker can make).
+   Part of photo_read_regressions.cjs. */
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -28,7 +29,7 @@ const ADVICE = "An updated version of the app is ready. Use “Update app & relo
 
 function origin() {
   const X = JSON.parse(fs.readFileSync(path.join(SITE, "build-info.json"), "utf8")).build;
-  let deployed = { build: X, changed: new Set() }, manifest = null;
+  let deployed = { build: X, changed: new Set() }, manifest = null, checks = 0;
   const file = (rel) => {
     const full = path.resolve(SITE, rel);
     return full.startsWith(SITE + path.sep) && fs.existsSync(full) && fs.statSync(full).isFile() ? fs.readFileSync(full) : null;
@@ -50,6 +51,7 @@ function origin() {
   const server = http.createServer((request, response) => {
     const { pathname } = new URL(request.url, "http://localhost");
     const rel = pathname.startsWith("/GridPuzzle/") ? decodeURIComponent(pathname.slice("/GridPuzzle/".length)) || "index.html" : null;
+    if (rel === "sw.js") checks++;
     const body = rel === null ? null : bytes(rel);
     if (!body) { response.writeHead(404, { "content-type": "text/plain" }); response.end("Not found"); return; }
     // GitHub Pages lets browsers keep every file for ten minutes.
@@ -58,6 +60,8 @@ function origin() {
   });
   return {
     X, server,
+    // How often the browser has fetched sw.js: its update checks.
+    get checks() { return checks; },
     // From now on the origin serves only `build`, whose files are X's but
     // for those in `changed` (paths under `build`).
     deploy(build, changed = []) {
@@ -138,33 +142,48 @@ async function staleBuild(browser, report) {
     // An installed app that never read a photo: its worker stores no OCR.
     await page.goto(base); await ready(page);
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, { timeout: 120000 });
+    const checked = site.checks;
     await page.reload(); await ready(page);
+    // A navigation makes the browser look for an update a moment after the
+    // page has loaded (it waits while the page keeps its worker busy). The
+    // deploy comes after that check, which must not be what finds it.
+    const end = Date.now() + 60000;
+    while (site.checks === checked) {
+      if (Date.now() > end) throw Error("the browser did not look for an update after the reload");
+      await sleep(100);
+    }
     // From here on the tab is kept open: a navigation would end this mark.
     await page.evaluate(() => { window.__staleTab = true; });
     const kept = () => page.evaluate(() => window.__staleTab === true);
     const seconds = (since) => Math.round((Date.now() - since) / 100) / 10;
     // A deploy of another OCR runtime: nothing identical to X's remains.
     const changed = "feedbeef0001", unchanged = "feedbeef0002";
+    const gone = `Some of this version’s files are no longer on the server. ${ADVICE} download for offline use again.`;
     site.deploy(changed, [`vendor/${changed}/tesseract/tesseract.min.js`]);
-    await choosePhoto(page);
     assert.equal(await page.isHidden("#update-banner"), true, "nothing has found the deploy yet");
-    // The first read misses X's OCR runtime, which makes worker X ask for
-    // the deploy's worker, and fails before that worker is installed.
-    const first = await read(page);
-    assert.equal(first.status, "status error", JSON.stringify(first));
+    // Downloading for offline use starts no worker, so the browser does not
+    // look for the deploy, as it may when a page starts one: only worker X's
+    // own check, at the first file it misses, can bring the banner. The
+    // download stops at the OCR runtime, before or after that check's worker
+    // is installed.
+    const download = await prepareOffline(page);
     const failedAt = Date.now();
+    assert.ok([`Could not download vendor/${site.X}/tesseract/tesseract.min.js. Stay online and retry.`, gone].includes(download),
+      download);
     await updateFound(page, changed);
     const bannerSeconds = seconds(failedAt);
     assert.ok(await kept(), "the update is offered in the open tab");
     assert.equal(await pageBuild(page), site.X, "the page keeps its build until the user updates");
+    await choosePhoto(page);
     const failed = await read(page);
     assert.equal(failed.status, "status error");
     assert.equal(failed.text, `Recognition could not load. ${ADVICE} try again.`);
-    assert.equal(await prepareOffline(page),
-      `Some of this version’s files are no longer on the server. ${ADVICE} download for offline use again.`);
-    result.runtimeChanged = { firstRead: first.text, bannerSeconds, read: failed.text, offline: true };
+    assert.equal(await prepareOffline(page), gone);
+    result.runtimeChanged = { firstDownload: download, bannerSeconds, read: failed.text, offline: true };
     // A later deploy with X's OCR runtime under its own URLs: page X reads,
-    // while worker X, finding that build on the origin, has it installed.
+    // while worker X, finding that build on the origin, has it installed
+    // (the browser may look for it too when the read starts its OCR worker,
+    // but need not).
     site.deploy(unchanged);
     const stale = await read(page);
     assert.equal(stale.text, "Puzzle read.", JSON.stringify(stale));
