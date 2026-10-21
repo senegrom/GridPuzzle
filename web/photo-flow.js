@@ -566,6 +566,9 @@ export function setupPhotoFlow({
     }
     try {
       checkShape(found.puzzle);
+      // A capture is a new photograph: it resets the board's source, so a
+      // suggestion whose reading was confirmed retires first (settleProposal).
+      settleProposal();
       // The live camera reads each frame the way it lies (it reads with
       // orient: false), but a capture is a still photograph. When its reading
       // shows what makes Scanner.orient try a turn (a poor reading of glyphs
@@ -575,12 +578,16 @@ export function setupPhotoFlow({
       // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
       // grid is ever turned.
       const cue = found.puzzle.rows === found.puzzle.cols ? turnCue(found) : null,
+        // A box suggestion still pending that a boxed capture was read with:
+        // the capture's notes say so, as a photograph's Read does, and
+        // confirming its reading decides the boxes (settleProposal).
+        suggested = ["sudoku", "killersudoku"].includes(found.puzzle.type) && sameLayout(proposedBoxLayout, found.puzzle),
         // The capture's own review: its flagged clues, and any digit repeated
         // under the boxes it was read with, which the captured picture shows
         // yellow and a photograph's Read flags too.
         review = {
           uncertain: new Set([...(found.cellUncertain ?? found.uncertain ?? []), ...conflicts(found.puzzle)]),
-          notes: fitReviewNotes([...found.notes]),
+          notes: fitReviewNotes([...found.notes, ...(suggested ? [boxNote(found.puzzle)] : [])]),
         };
       const next = {
         photo: picture.photo, corners: picture.corners,
@@ -593,9 +600,6 @@ export function setupPhotoFlow({
         needsReview: true, notes: cue ? fitReviewNotes([turnNote(cue), ...review.notes]) : [...review.notes],
         rectified: found.rectified, photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
-      // A capture is a new photograph: it resets the board's source, so a
-      // suggestion whose reading was confirmed retires first (settleProposal).
-      settleProposal();
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
       cropRevision = {};
@@ -609,11 +613,7 @@ export function setupPhotoFlow({
       $("photo-panel").hidden = true;
       setLayout(found.puzzle);
       state.puzzleSource = state.photoSource = getJobId();
-      // A pending box suggestion that a boxed capture was read with is decided
-      // when the user confirms the capture's reading (settleProposal), as when
-      // a photograph's reading came with it.
-      if (["sudoku", "killersudoku"].includes(found.puzzle.type) && sameLayout(proposedBoxLayout, currentLayout()))
-        proposalSource = state.puzzleSource;
+      if (suggested) proposalSource = state.puzzleSource;
       // The stopped camera no longer owns diagnostics. Begin a fresh context
       // for the exact unannotated capture, clearing any earlier image consent.
       diagnostics.begin("photo", { ...found.puzzle, autoSolve: $("auto-solve").checked });
@@ -724,6 +724,9 @@ export function setupPhotoFlow({
   function swapAxes({ rows, cols, boxRows, boxCols }) {
     return { rows: cols, cols: rows, boxRows, boxCols };
   }
+  // The note of a reading taken with boxes suggested from the grid size.
+  const boxNote = ({ boxRows, boxCols }) =>
+    `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`;
   async function acceptPhoto(canvas) {
     settleProposal();
     diagnostics.begin("photo", { ...currentLayout(), type: $("puzzle-type").value, autoSolve: $("auto-solve").checked });
@@ -1022,10 +1025,7 @@ export function setupPhotoFlow({
           ? `The grid was found with ${resized.rows} × ${resized.cols} cells and read as ${rows} × ${cols} through the same corners, so every cell is highlighted. Adjust the corners onto the grid's outer edge (moving any corner confirms them, even if they already sit there) and read again, or check each cell against the photograph.`
           : "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.",
         );
-      if (needsBoxReview)
-        notes.push(
-          `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
-        );
+      if (needsBoxReview) notes.push(boxNote({ boxRows, boxCols }));
       // Prepare every editable field before touching history or accepted state.
       const next = {
         puzzle: found.puzzle,

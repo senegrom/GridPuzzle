@@ -4,7 +4,7 @@ import { setupPhotoFlow } from "../photo-flow.js";
 import { MAX_REVIEW_NOTES, MAX_REVIEW_NOTE_LENGTH, restoreSession, saveSession } from "../session.js";
 import { boxShape, fitPlay, makePuzzle } from "../model.js";
 import { createBackup, parsePuzzleFile, puzzleDefinition } from "../backup.js";
-import { puzzleFromReadings } from "../scanner.js";
+import { puzzleFromReadings, turnCue } from "../scanner.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { retainPhotoSource } from "../photo-detail.js";
 import { createFrameScheduler } from "../live-frame-scheduler.js";
@@ -1344,6 +1344,8 @@ function sixBySix(type = 'sudoku') {
   return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
     rectified: canvas(200, 200) };
 }
+// The note of a reading taken with the 2 × 3 boxes suggested for a 6 × 6 grid.
+const SUGGESTED_2X3 = 'Box layout 2 rows × 3 columns was suggested from the grid size, not read from the photograph. Confirm it before solving.';
 // A box suggestion that a capture was read with (Find grid suggested 2 × 3 for
 // a 6 × 6 grid, then the camera read with those boxes) retires once the
 // capture's reading is confirmed, as one a photograph's reading came with does:
@@ -1359,6 +1361,9 @@ test('a suggestion a live capture was read with retires once the capture is conf
     found: { ...sixBySix(), needsReview: true } });
   await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
   assert.deepEqual(h.errors, []); assert.equal(h.state.needsReview, true);
+  // The capture's board says that its boxes were suggested, as a photograph's
+  // Read does, so confirming it is an informed decision about the boxes.
+  assert.deepEqual(h.state.notes, [SUGGESTED_2X3]); assert.deepEqual(restoreSession(h.storage).notes, [SUGGESTED_2X3]);
   h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
   await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
   h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
@@ -1376,10 +1381,38 @@ test('a suggestion a live capture was read with stands while the capture is unco
   h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
     found: { ...sixBySix(), needsReview: true } });
   await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.state.notes, [SUGGESTED_2X3]);
   await h.$('detect-photo').onclick();
   h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
   assert.ok(h.state.notes.some(note => /Box layout 2 rows × 3 columns was suggested from the grid size/.test(note)));
   assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0);
+});
+// A capture read with a suggested layout that also looks upside down keeps the
+// box note through its orientation check: after the turn note while the still
+// is read again, and with the capture's own notes once it reads the way it lies.
+test('a capture read with a suggested layout keeps its box note through the check of a capture that looks turned', async t => {
+  // Twelve regions, four read with confidence (1, 4, 6 and 1), none of them
+  // with a 2, 3 or 5, glyphs taller than wide: the cue of a half turn.
+  const h = photoHarness(t), digits = { 0: 1, 7: 4, 14: 6, 22: 1, 28: 4, 32: 2, 5: null, 10: 3, 16: 5, 19: 2, 25: null, 30: 3 };
+  const looksTurned = sixBySix(), flagged = [28, 32, 5, 10, 16, 19, 25, 30];
+  looksTurned.puzzle.cells.fill(null);
+  for (const [cell, digit] of Object.entries(digits)) looksTurned.puzzle.cells[cell] = digit;
+  Object.assign(looksTurned, { cellUncertain: flagged, uncertain: flagged, needsReview: true, notes: ['8 cells need checking.'],
+    entries: Object.entries(digits).map(([cell, digit]) => ({ kind: 'value', cell: Number(cell), text: String(digit ?? ''),
+      confidence: flagged.includes(Number(cell)) ? 40 : 95, h: 30, w: 20 })) });
+  assert.equal(turnCue(looksTurned), 'half');
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found: looksTurned });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []);
+  assert.match(h.state.notes[0], /^The page may be upside down in the captured picture/);
+  assert.deepEqual(h.state.notes.slice(1), ['8 cells need checking.', SUGGESTED_2X3]);
+  for (let i = 0; i < 10; i++) await tick(); // the still reads the way it lies (the harness's clean reading)
+  assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.state.notes, ['8 cells need checking.', SUGGESTED_2X3]);
+  assert.deepEqual(restoreSession(h.storage).notes, h.state.notes); assert.equal(h.state.needsReview, true);
 });
 // Only a capture read under boxes decides them. A 6 × 6 Latin square has none,
 // though makePuzzle gives it the size's usual 2 × 3, the very layout suggested:
@@ -1397,6 +1430,7 @@ test('confirming a live capture of a type without boxes leaves a suggestion stan
   await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
   assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.type, 'latinsquare');
   assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  assert.deepEqual(h.state.notes, [], 'a Latin square has no boxes to confirm');
   h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
   h.$('puzzle-type').value = 'sudoku'; h.setFound(sixBySix());
   await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
@@ -1422,6 +1456,7 @@ test('a suggestion confirmed before a live capture stays retired: the next 6 × 
     found: { ...sixBySix(), needsReview: true } });
   await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
   assert.deepEqual(h.errors, []); assert.equal(h.state.needsReview, true);
+  assert.equal(boxNote(), false, 'the capture is not read with a pending suggestion');
   await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
   h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
   assert.equal(boxNote(), false); assert.equal(h.state.needsReview, false);

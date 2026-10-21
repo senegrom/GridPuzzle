@@ -55,7 +55,10 @@ flagged for review can take part in a labelled preview but stay yellow.
 every OCR warning into the editor, where Solve, Check and Hint still need the
 usual confirmation; it also highlights any digit the board's rules see twice
 under the boxes the camera read with, as the captured picture shows it
-yellow. The live camera reads each frame the way it lies, but a capture is a
+yellow. When those boxes are ones the editor suggested from the grid size and
+nobody has confirmed yet, a note says so, as after a photograph's Read, and
+confirming the capture's reading confirms them. The live camera reads each
+frame the way it lies, but a capture is a
 still photograph: when its reading shows what makes a photograph's Read try a
 turn (`turnCue`: a poor reading of glyphs wider than tall, or of
 upright-shaped glyphs with confident digits but none with a 2, 3 or 5, as an
