@@ -585,12 +585,14 @@ export function setupPhotoFlow({
       settleProposal();
       // The live camera reads each frame the way it lies (it reads with
       // orient: false), but a capture is a still photograph. When its reading
-      // shows what makes Scanner.orient try a turn (a poor reading of glyphs
-      // wider than tall, or of upright-shaped glyphs with confident digits but
-      // none with a 2, 3 or 5: an upside-down page reads 6s and 9s as each
-      // other and 2s as 4s, all with confidence), the still is read again as
-      // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
-      // grid is ever turned.
+      // shows what makes Scanner.orient try a turn by the digits (a poor
+      // reading of glyphs wider than tall, or of upright-shaped glyphs with
+      // confident digits but none with a 2, 3 or 5: an upside-down page reads
+      // 6s and 9s as each other and 2s as 4s, all with confidence), the still
+      // is read again as Read puzzle reads a photograph (readPhoto's
+      // `capture`). Only a square grid is ever turned. A cage puzzle's still
+      // is checked by its sums instead, which its capture seldom shows this
+      // cue for (LIVE_CAMERA.md).
       const cue = found.puzzle.rows === found.puzzle.cols ? turnCue(found) : null,
         // A box suggestion still pending that a boxed capture was read with:
         // the capture's notes say so, as a photograph's Read does, and
@@ -732,11 +734,12 @@ export function setupPhotoFlow({
   }
   // The box controls describe the printed puzzle, upright: its boxes as they
   // stand on the board once the photograph's turn is found (Scanner.orient
-  // reads a sideways or upside-down photograph turned when its digits read
-  // clearly better that way) or Rotate has turned it upright. No turn of the
-  // photograph or of the crop changes them. A quarter turn swaps only the
-  // grid's rows and columns as the crop meets them, which matters only for a
-  // grid that is not square, and such a grid is never turned by a reading.
+  // reads a sideways or upside-down photograph turned when its digits, or a
+  // Killer's cage sums, read clearly better that way) or Rotate has turned it
+  // upright. No turn of the photograph or of the crop changes them. A quarter
+  // turn swaps only the grid's rows and columns as the crop meets them, which
+  // matters only for a grid that is not square, and such a grid is never
+  // turned by a reading.
   function swapAxes({ rows, cols, boxRows, boxCols }) {
     return { rows: cols, cols: rows, boxRows, boxCols };
   }
@@ -990,6 +993,10 @@ export function setupPhotoFlow({
     }
     // Keep the accepted board, solution and still-valid photo mapping until
     // a complete replacement is ready. Crop edits already invalidate mapping.
+    // The deadline covers the reader's orientation checks too, and a Read
+    // that runs out loses its reading: a cage puzzle's check, the longest,
+    // stops at half of it and keeps the first reading (CAGE_TURN_BUDGET in
+    // scanner.js).
     const id = begin();
     setDeadline(() => {
       if (id === getJobId())
