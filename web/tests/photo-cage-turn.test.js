@@ -40,9 +40,11 @@ function reader(readings) {
 }
 // A turned reading still in progress when `during` runs (the budget running
 // out, a newer read): it waits on an image-processing job, which a stop
-// cancels.
+// cancels. One that nothing stops gives up after a second, so that the test
+// fails instead of waiting for ever.
 const slowReading = (during) => (fake) => new Promise((_resolve, reject) => {
-  fake.jobs.add({ cancel: () => reject(new DOMException("Scan cancelled", "AbortError")) });
+  const unstopped = setTimeout(() => reject(Error("the turned reading was never stopped")), 1000);
+  fake.jobs.add({ cancel: () => { clearTimeout(unstopped); reject(new DOMException("Scan cancelled", "AbortError")); } });
   during(fake);
 });
 const read = (fake, { type = "killersudoku", options = {}, rows = 9, cols = 9, progress = () => {} } = {}) =>
