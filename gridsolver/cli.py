@@ -49,6 +49,14 @@ def _solution_limit(raw_value: str) -> int:
     return value
 
 
+def _non_empty(raw_value: str) -> str:
+    # The input is dispatched on --module and --file being truthy: an empty
+    # one would read as not given and fall through to the --str branch.
+    if not raw_value:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return raw_value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         # not the script path, which on Windows is Scripts\gridpuzzle
@@ -64,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "-m",
         "--module",
+        type=_non_empty,
         help="Python module containing puzzle object g",
     )
     source.add_argument(
@@ -72,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="puzzle_string",
         help="Puzzle string",
     )
-    source.add_argument("-f", "--file", help="Puzzle file")
+    source.add_argument("-f", "--file", type=_non_empty, help="Puzzle file")
     source.add_argument(
         "-e",
         "--example",
@@ -218,7 +227,14 @@ def _load_grid(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Gri
                 space_sep=args.space_separated,
             )
         except (TypeError, ValueError) as exc:
-            parser.error(f"{exc} (pass --class to parse bare value strings)")
+            from gridsolver.abstract_grids.csp_rules_loading import is_csp_rules_text
+
+            # --class helps only a string with neither a :: class prefix nor
+            # a CSP-Rules form: it would parse either of those as values.
+            text = args.puzzle_string
+            self_describing = "::" in text or is_csp_rules_text(text)
+            hint = "" if self_describing else " (pass --class to parse bare value strings)"
+            parser.error(f"{exc}{hint}")
     try:
         return create_from_str_and_class(
             args.puzzle_string,

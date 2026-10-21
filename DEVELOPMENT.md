@@ -78,16 +78,16 @@ Hidato supplies orthogonal plus diagonal adjacency and permits blocked cells. Nu
 
 ### File loading
 
-`create_from_file()` supports both historical class-prefixed files and retained CSP-Rules solve forms.
+`create_from_file()` supports both historical class-prefixed files and retained CSP-Rules solve forms; `create_from_str()` (`gridpuzzle --str`) detects the format the same way.
 
 Format detection is deliberately conservative:
 
-1. Ignore blank lines and leading `;`/`#` comments.
-2. Inspect the first meaningful line.
-3. Route only a line beginning with `solve` or `solve-tatham` inside an opening parenthesis to the CSP-Rules parser.
-4. Otherwise preserve the historical `<Class>::<payload>` path.
+1. Ignore blank lines, `;` comments and `#` comment lines.
+2. If the first meaningful line begins with `solve` or `solve-tatham` inside an opening parenthesis, route the text to the CSP-Rules parser.
+3. Otherwise, if no `::` appears outside comments, the text cannot be class-prefixed: route it to the CSP-Rules parser when it holds a solve form outside comments and quoted strings. Header lines may then precede the form, as the Mebane Slitherlink files' uncommented `Mellon rating = N` line does, and the parser reads the first solve form, as the corpus runner does.
+4. Otherwise preserve the historical `<Class>::<payload>` path. A text with neither a `::` nor a solve form, such as a bare value string, ends there with its "no :: class separator" error.
 
-Never detect format from a `.clp` suffix or by searching the complete file. Historical files often contain appended solver transcripts with later `(solve ...)` text.
+Never detect format from a `.clp` suffix, and never search the complete text when a `::` appears outside comments: historical class-prefixed files often contain appended solver transcripts with later `(solve ...)` text. `tests/test_cli_and_loading.py` loads every shipped example through this route and checks that each CSP-Rules example gives the grid the corpus runner reads.
 
 ### Key design decisions
 

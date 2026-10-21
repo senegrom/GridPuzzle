@@ -86,12 +86,19 @@ def _solve_start(text: str) -> re.Match[str] | None:
 
 
 def is_csp_rules_text(text: object) -> bool:
-    """Return whether the input starts with a supported CSP-Rules form.
+    """Return whether the input is a supported CSP-Rules text.
+
+    It is if its first meaningful line (not blank, not a comment) begins with
+    a solve form. A text with no ``::`` outside comments cannot be
+    class-prefixed, so it also is if it holds a solve form anywhere outside
+    comments and quoted strings: header lines may precede the form, as the
+    Mebane Slitherlink files' bare ``Mellon rating = N`` line does, and the
+    parser reads the first solve form, as the corpus runner does.
 
     Historical class-prefixed puzzle files often retain solver transcripts that
-    contain later ``(solve ...)`` text. Detection must therefore inspect the
-    first meaningful input line rather than searching the entire file or relying
-    on a ``.clp`` suffix.
+    contain later ``(solve ...)`` text, so the whole text is searched only when
+    it has no ``::`` outside comments. A text without a solve form, such as a
+    bare value string, is not CSP-Rules, and a ``.clp`` suffix decides nothing.
     """
     if not isinstance(text, str):
         return False
@@ -100,8 +107,10 @@ def is_csp_rules_text(text: object) -> bool:
         stripped = line.strip().lstrip("\ufeff")
         if not stripped:
             continue
-        return _SOLVE_START.match(stripped) is not None
-    return False
+        if _SOLVE_START.match(stripped) is not None:
+            return True
+        break
+    return "::" not in uncommented and _solve_start(uncommented) is not None
 
 
 def _first_solve_form(text: str) -> str:
