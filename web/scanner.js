@@ -8,6 +8,7 @@ import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
 import { fraction, turnCorners, otsuCut, clueHeight } from "./geometry.js";
 import { readOperator } from "./cage-operator.js";
+import { confidentDigits, wayUpDigits, glyphAspect, HALF_TURN_BAR, HALF_TURN_FLOOR } from "./turn-cues.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -333,6 +334,17 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     notes.push(small.size === 1
       ? "1 highlighted digit is much smaller than the grid's other clues, so it may be a pencil or app note. Clear it if it is not a printed clue."
       : `${small.size} highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues.`);
+  // A cage puzzle rarely prints a digit in its cells, and part of a cage's
+  // clue can still read as one, with every reader agreeing. Its structural
+  // review ("check cage") is about boundaries, targets and operators, and
+  // saving a cage clears it, so every digit read on a cage board goes to
+  // digit review. Its note goes ahead of the per-cage notes, as the one above.
+  const cageDigits = isCage(chosen) ? puzzle.cells.flatMap((v, i) => (Number.isInteger(v) ? [i] : [])) : [];
+  cageDigits.forEach((i) => uncertain.add(i));
+  if (cageDigits.length)
+    notes.push(cageDigits.length === 1
+      ? "1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check it against the photo, and clear it if it is not printed in the cell."
+      : `${cageDigits.length} highlighted digits were read in cells of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check each against the photo, and clear any that is not printed in its cell.`);
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
     // two cells go to structural review (the cage channel), not digit review,
@@ -447,45 +459,6 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     needsReview,
     notes: [...new Set(notes)].slice(0, 8),
   };
-}
-// Cells whose digit carries no review flag: what a reading has to offer. A
-// digit highlighted only for its size still counts, since it was read clearly.
-function confidentValues(found) {
-  const uncertain = new Set(found.uncertain ?? []), noteSized = new Set(found.noteSized ?? []);
-  return found.puzzle.cells.filter((value, cell) => Number.isInteger(value) && (!uncertain.has(cell) || noteSized.has(cell)));
-}
-export function confidentDigits(found) {
-  return confidentValues(found).length;
-}
-// Of those, the numbers that show which way up the page is: any with a 2, 3
-// or 5. Read upside down, 0s, 1s and most 8s read as themselves, 6s and 9s as
-// each other, most 2s as 4s and many 4s as 7s, all with confidence, but a
-// number with a 2, 3 or 5 reads with confidence only a 27th as often as on the
-// same page upright (web/OCR_QUALITY.md, "Half turns").
-export function wayUpDigits(found) {
-  return confidentValues(found).filter((value) => /[235]/.test(String(value))).length;
-}
-// Scanner.halfTurn keeps a reading taken half a turn round only with at least
-// HALF_TURN_BAR such numbers, and only when it also reads clearly better than
-// the first: more confident digits, and at least HALF_TURN_FLOOR of them (or
-// half its value regions, on a page with fewer clues). Upside down, some
-// handwriting fonts read an upright page's 8s, 3s or 5s as confident 3s and
-// 5s, so those numbers alone can turn an upright page; but every such reading
-// measured had fewer confident digits than the upright one, or 9 at most.
-export const HALF_TURN_BAR = 5;
-export const HALF_TURN_FLOOR = 12;
-// Median height/width of single, clue-sized value glyphs (at least half the
-// 75th-percentile height): about 1.4 upright, under 0.75 a quarter turn away.
-// Infinity without six such glyphs, which is no evidence either way; exactly
-// 1 when the middle box is a whole cell (Kakuro entries, cell-filling blobs),
-// which is none either.
-export function glyphAspect(values) {
-  const heights = values.map((e) => e.h).sort((a, b) => a - b);
-  if (heights.length < 6) return Infinity;
-  const reference = heights[Math.floor(0.75 * (heights.length - 1))],
-    ratios = values.filter((e) => !(e.glyphCount > 1) && e.h >= 0.5 * reference && e.w >= 0.3 * reference)
-      .map((e) => e.h / e.w).sort((a, b) => a - b);
-  return ratios.length < 6 ? Infinity : ratios[ratios.length >> 1];
 }
 export class Scanner {
   constructor() {

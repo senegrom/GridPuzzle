@@ -51,9 +51,12 @@ const blank = (width, height) => ({ width, height, data: new Uint8ClampedArray(w
 // (the worker never finishes the probe, so it answers nothing after it).
 // `fps`: the video presents this many frames a second through
 // requestVideoFrameCallback, the frame scheduler's own clock; without, the
-// scheduler's fallback clock samples at its 100-ms heartbeat.
+// scheduler's fallback clock samples at its 100-ms heartbeat. `size`: the
+// grid's rows and columns, as detected, set and read (the printed grid stays
+// the 4 x 4 one; its anchors have size x size cells, which a verification's
+// deadline grows with).
 function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings = {}, transport = "bitmap",
-  startMs = 10, solve = null, fps = 0 } = {}) {
+  startMs = 10, solve = null, fps = 0, size = CELLS } = {}) {
   let time = 0, serial = 0, frozenTime = null, replyMs = 20, failing = false, bitmapError = false, failBitmaps = false,
     holdBitmaps = false, blankBitmaps = false, emptyBitmaps = false, crashOnBitmap = false, transportMs = 9, detectMs = 50, cancels = 0;
   // One-shot faults: the next `refusals` bitmap jobs are answered
@@ -185,7 +188,7 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
       return worker;
     } });
   const diagnostics = createScanDiagnostics({ now: () => time }), detections = [];
-  diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4 });
+  diagnostics.begin("live", { type: "latinsquare", rows: size, cols: size });
   // The tick metric's call, in the order of everything else.
   const ticking = diagnostics.ticking;
   diagnostics.ticking = (ms) => { ops.push({ op: "ticking", at: time }); ticking(ms); };
@@ -196,17 +199,17 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     video.cancelVideoFrameCallback = (id) => clearTimer(id);
   }
   const reading = () => {
-    const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells = [1, 2, 3, 4, ...Array(12).fill(null)];
+    const puzzle = makePuzzle("latinsquare", size, size); puzzle.cells = [1, 2, 3, 4, ...Array(size * size - 4).fill(null)];
     return { puzzle, cellUncertain: [], markedCells: [], notes: [] };
   };
   const live = { ...settings };
   const camera = createLiveCamera({ tracker, $, canvas: view, diagnostics, video,
-    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve: !!solve, ...live }),
+    getSettings: () => ({ type: "latinsquare", rows: size, cols: size, boxRows: 2, boxCols: 2, enabled: true, autoSolve: !!solve, ...live }),
     detector: { detect(input) {
       const sx = (input.width - 1) / (W - 1), sy = (input.height - 1) / (H - 1), at = grid;
       detections.push(time);
       return new Promise((resolve) => setTimer(() => resolve(at
-        ? { confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
+        ? { confidence: .99, rows: size, cols: size, sharpness: 200, corners: cornersAt(...at).map((p) => ({ x: p.x * sx, y: p.y * sy })) }
         : { confidence: .2, rows: 0, cols: 0, sharpness: 10, corners: null }), detectMs));
     }, cancel() { cancels++; } },
     reader: { read: () => { reads++; return new Promise((resolve) => setTimer(() => resolve(reading()), 500)); }, cancel() {} },
@@ -239,6 +242,8 @@ function simulation(t, { frame: [W, H] = [700, 700], grid = [120, 110], settings
     reasons: () => diagnostics.snapshot().events.map((e) => e.reason),
     aim(value) { grid = value; }, stall() { frozenTime = time; }, unstall() { frozenTime = null; }, fail(value) { failing = value; },
     replyDelay(ms) { replyMs = ms; }, transportTime(ms) { transportMs = ms; }, bitmapError(value) { bitmapError = value; },
+    // How long the next workers take to start (their first message).
+    startDelay(ms) { startMs = ms; },
     failBitmaps(value) { failBitmaps = value; }, holdBitmaps(value) { holdBitmaps = value; }, blankBitmaps(value) { blankBitmaps = value; },
     emptyBitmaps(value) { emptyBitmaps = value; }, crashOnBitmap(value) { crashOnBitmap = value; },
     refuseNext(n = 1) { refusals = n; }, nextBitmap(...kinds) { upcoming.push(...kinds); }, noPicture(n = 1) { pictureless = n; },
@@ -850,6 +855,47 @@ test("a bitmap that cannot be made for a frame the freeze retired is lost alone:
   assert.equal(report.unmadeFrames, held, "the export counts the lost frame");
 });
 
+// Two frames lost as the view freezes and one after Clear, half a minute
+// later, are three in a row (the freeze ends no run), but the frozen half
+// minute is no tracking time: the frame lost after Clear is lost alone, and
+// the scan goes on with bitmaps. Before, it gave bitmaps up for the rest of
+// the camera session, which then read every frame back on the main thread.
+// Also when the worker after Clear takes 600 ms to start (an iPhone's first
+// canvas in a worker waits for the GPU process's set-up): its start and
+// handshake track no frame either, and when the clock ran again at the
+// camera's first ask, they gave bitmaps up. And when the video's frame size
+// changed while the view was frozen (the phone turned, or the camera's
+// resolution changed): Clear's first tick then resets the tracker a second
+// time, which must not move the idle time's start.
+for (const [variant, change] of [
+  ["", () => {}],
+  [" (the worker after Clear takes 600 ms to start)", (h) => h.startDelay(600)],
+  [" (the video's frame size changed while frozen)", (h) => { h.video.videoWidth *= 2; h.video.videoHeight *= 2; }],
+]) test(`frames lost as the view freezes and one lost after Clear half a minute later are lost alone: frozen time is no part of REFUSAL_SPAN${variant}`, async (t) => {
+  let solved;
+  const h = simulation(t, { solve: new Promise((resolve) => { solved = resolve; }) });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"), "read; the solver has not answered");
+  h.holdBitmaps(true);
+  assert.ok(await h.until(() => h.held >= REFUSAL_LIMIT - 1, 2000), "two verification bitmaps are being made");
+  solved({ status: "unique", complete: true, solutions: [{ cells: [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1] }] });
+  assert.ok(await h.until(() => h.camera.view === "frozen", 3000), "the solved view freezes meanwhile");
+  const lostAtFreeze = h.held;
+  await h.failHeldBitmaps(); h.holdBitmaps(false);
+  assert.equal(h.camera.stats.tracking.unmadeFrames, lostAtFreeze, `${lostAtFreeze} frames lost at the freeze`);
+  await h.advance(30000);
+  change(h);
+  const reasons = h.reasons().length;
+  h.camera.resume();
+  h.nextBitmap("fail"); // The first bitmap after Clear, the first detection's anchor's, cannot be made.
+  assert.ok(await h.until(() => h.camera.view === "frozen" || h.view.dataset.recognised === "4", 10000), "read again after Clear");
+  assert.equal(h.upcoming, 0); assert.equal(h.camera.stats.tracking.unmadeFrames, lostAtFreeze + 1, "the frame after Clear was lost");
+  assert.ok(!h.reasons().slice(reasons).includes("tracking-transport"), "bitmaps are not given up");
+  assert.equal(h.workers.length, 2, "the worker after Clear is kept");
+  const after = h.jobs().filter((p) => p.at >= h.workers[1].createdAt);
+  assert.ok(after.length > 0 && after.every((p) => p.bitmap), "and gets bitmaps");
+  assert.equal(h.readbacks().length, 0, "no tracking pixels are read back on the main thread");
+});
+
 test("a stop during the handshake ends the waiting anchor and releases its snapshot", async (t) => {
   const h = simulation(t, { transport: "silent", startMs: 100000 });
   assert.ok(await h.until(() => h.camera.stats.tracking.active === 1 && h.posts.length === 1, 1000), "the handshake runs");
@@ -1056,4 +1102,85 @@ test("verifications that reject every anchor leave no bitmap open, and the moved
   assert.ok(jobs.length > 0 && jobs.every((p) => p.bitmap && p.bitmap.transferred), "on transferred bitmaps");
   assert.equal(h.camera.stats.recovery.failures, 0);
   assert.deepEqual(h.open(), []);
+});
+
+// A verification's deadline grows with the cells of its anchors
+// (live-tracker.js). On a phone four times slower than a desktop a 25 x 25
+// grid's verification takes more than two seconds: before, each one failed
+// the worker (worker-error, back-off, and a pause at the third). Now it fails
+// nothing, but its reply comes more than two seconds after its frame, too late
+// to adopt: from the third such reply in a row the help line says that
+// tracking cannot keep up and to save a picture, and the export records it,
+// until a reply is adopted. A 9 x 9 grid's verification still has two seconds.
+const TOO_SLOW = "This grid takes too long to track live on this device. Save a picture to read it in the editor.";
+test("a 25 x 25 grid whose verifications take 2.5 s fails nothing; the help line says tracking cannot keep up until a reply comes in time", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  assert.ok(await h.until(() => h.help === TOO_SLOW, 30000), `the help line says so (${h.help})`);
+  assert.equal(h.camera.stats.recovery.failures, 0, "no tracking failure");
+  assert.deepEqual(h.reasons().filter((r) => r.startsWith("worker-")), [], "no worker error, back-off or pause");
+  assert.equal(h.workers.length, 1, "the worker, and its anchors, are kept");
+  assert.deepEqual(h.reasons().filter((r) => r === "tracking-late"), ["tracking-late"], "the export records it once");
+  assert.equal(h.restartHidden(), true, "Restart would not help");
+  assert.equal(h.camera.stats.candidate, 1, "the candidate waits for a reply in time");
+  await h.advance(5000);
+  assert.equal(h.help, TOO_SLOW, "the line stays while the replies are late");
+  assert.equal(h.camera.adoptedFrame(), null, "no frame was adopted");
+  h.replyDelay(20);
+  assert.ok(await h.until(() => h.camera.adoptedFrame() !== null, 5000), "a reply in time is adopted");
+  const adoptedAt = h.now;
+  // Back to the aiming text at the next heartbeat, not only once a reading
+  // starts: the candidate the reply verified is the scene's first frame.
+  assert.ok(await h.until(() => h.help !== TOO_SLOW, 300), "the line gives way");
+  assert.ok(h.now - adoptedAt <= 200, `at the next heartbeat (${h.now - adoptedAt} ms after the adoption)`);
+  assert.equal(h.help, "Hold the grid steady. Recognition and solution appear here automatically.");
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4", 10000), "read once replies come in time");
+  assert.notEqual(h.help, TOO_SLOW);
+  assert.equal(h.camera.stats.recovery.failures, 0);
+  assert.deepEqual(h.open(), []);
+});
+test("a 9 x 9 grid's verification that takes 2.1 s still fails the worker at two seconds", async (t) => {
+  const h = simulation(t, { size: 9 });
+  h.replyDelay(2100);
+  assert.ok(await h.until(() => h.reasons().includes("worker-error"), 10000), "the worker fails");
+  assert.equal(h.camera.stats.recovery.failures, 1);
+  assert.notEqual(h.help, TOO_SLOW);
+});
+// The line needs LATE_LIMIT (3) late replies in a row: two, then one in time,
+// never bring it, and the third brings it at the next heartbeat.
+test("two verification replies in a row too late, then one in time: the help line never says tracking cannot keep up", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  const verifies = () => h.jobs().filter((p) => p.op === "verify");
+  assert.ok(await h.until(() => verifies().length >= 2, 30000), "two verifications posted");
+  h.replyDelay(20);
+  assert.ok(await h.until(() => h.camera.adoptedFrame() !== null, 10000), "the third is adopted");
+  await h.advance(500);
+  assert.ok(!h.writes.includes(TOO_SLOW), `never said: ${JSON.stringify([...new Set(h.writes)])}`);
+  assert.deepEqual(h.reasons().filter((r) => r === "tracking-late"), []);
+});
+test("the third verification reply in a row too late brings the line at the next heartbeat", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  const verifies = () => h.jobs().filter((p) => p.op === "verify");
+  assert.ok(await h.until(() => verifies().length >= 3, 30000), "three verifications posted");
+  const third = verifies()[2].at + 2500;
+  assert.ok(await h.until(() => h.now >= third - 10, 5000));
+  assert.ok(!h.writes.includes(TOO_SLOW), "not before the third late reply");
+  assert.ok(await h.until(() => h.help === TOO_SLOW, 150), `at the next heartbeat after the third late reply (${h.help})`);
+});
+// The line is about the replies of one tracking epoch: a tracking failure
+// (here a verification past even its grown deadline) starts a new one, and
+// its own line ("…retrying shortly") is not written over.
+test("the line that tracking cannot keep up gives way to a tracking failure's", async (t) => {
+  const h = simulation(t, { size: 25 });
+  h.replyDelay(2500);
+  assert.ok(await h.until(() => h.help === TOO_SLOW, 30000), "late replies");
+  h.replyDelay(60000);
+  assert.ok(await h.until(() => h.reasons().includes("worker-error"), 30000), "a verification reaches its deadline");
+  const writes = h.writes.length;
+  assert.match(h.help, /^Background tracking is unavailable/);
+  await h.advance(1000);
+  assert.ok(!h.writes.slice(writes).includes(TOO_SLOW), `not written over: ${JSON.stringify(h.writes.slice(writes))}`);
+  assert.match(h.help, /^Background tracking is unavailable/);
 });

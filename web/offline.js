@@ -1,4 +1,14 @@
+// The update this page offers, by the label of its button; "" when none.
+let offered = "";
+/* What to do about a failure that only the offered update fixes, ending with
+   `next`: after a deploy the server no longer has this build's versioned
+   files, and the page keeps running this build until the user chooses the
+   update (web/README.md, "Offline behaviour"). "" when no update is offered. */
+export function updateAdvice(next) {
+  return offered ? `An updated version of the app is ready. Use “${offered}”, then ${next}.` : "";
+}
 export function setupOffline($) {
+  offered = "";
   const prepareButton = $("prepare-offline"), prepareLabel = prepareButton.textContent;
   const offerReload = (message) => {
     prepareButton.disabled = false;
@@ -55,7 +65,7 @@ export function setupOffline($) {
             return;
           }
           if (m.done || m.error) {
-            settle(m.error ? Error(m.error) : null, m);
+            settle(m.error ? Object.assign(Error(m.error), { gone: m.gone === true }) : null, m);
           } else if (m.progress !== undefined) { arm(); onProgress(m); }
         };
         channel.port1.onmessageerror = () => settle(
@@ -88,6 +98,7 @@ export function setupOffline($) {
             ? "Update app & reload"
             : "Reload updated app";
           bannerButton.textContent = updateButton.textContent;
+          offered = available ? updateButton.textContent : "";
         };
         navigator.serviceWorker.addEventListener("controllerchange", () => {
           const next = navigator.serviceWorker.controller;
@@ -193,7 +204,12 @@ export function setupOffline($) {
               ? "Offline assets are ready on this device, and the browser granted persistent storage."
               : "Offline assets are ready on this device. Browser storage can still be cleared or evicted.";
           } catch (e) {
-            if (current()) $("offline-state").textContent = e.message;
+            // A file this build needs is gone from the server after a deploy:
+            // retrying cannot bring it back, the waiting update can.
+            const advice = e.gone ? updateAdvice("download for offline use again") : "";
+            if (current()) $("offline-state").textContent = advice
+              ? `Some of this version’s files are no longer on the server. ${advice}`
+              : e.message;
           } finally {
             if (id === generation) button.disabled = false;
           }

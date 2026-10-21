@@ -406,6 +406,14 @@ progress {
   stroke: var(--teal);
   stroke-width: 3;
 }
+/* Focus keeps a mark of its own on a selected cell: in the Cages and
+   Inequalities tools Enter and Space select the focused cell, and the
+   selection's stroke would otherwise hide where focus is. Only cells of
+   those families are selected, and none of them is blocked. */
+.board-cell.selected:focus .cell-hit {
+  stroke: var(--ink);
+  stroke-width: 5;
+}
 .board-cell.blocked .cell-hit {
   fill: #173536;
 }

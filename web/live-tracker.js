@@ -8,16 +8,26 @@ const unsupported = () => new DOMException('Bitmaps cannot reach background trac
 // camera then samples its next frame at once.
 export const lostFrame = () => Object.assign(new DOMException('The pixels of this frame could not be tracked.', 'AbortError'), { lostFrame: true });
 export const isLostFrame = error => error?.name === 'AbortError' && error.lostFrame === true;
-// Each operation fails closed after its own deadline. A verification later than
-// two seconds is useless to the delayed tier. An anchor is built from the whole
-// grid and re-matches every retained anchor: on noisy real photographs it
-// measured 1.1-1.2 times a verification of the same three anchors, which the
-// camera no longer asks a verification to check (see LIVE_CAMERA.md). The
-// earlier ten and 67-131 times compared against verifying an unchanged frame,
-// which skips registration. Sharing the two-second deadline failed every anchor
-// on a device whose verifications approach it and ended in Restart; twenty
-// seconds leaves a wide margin.
-export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
+// Each operation fails closed after its own deadline. An anchor is built from
+// the whole grid and re-matches every retained anchor: on noisy real
+// photographs it measured 1.1-1.2 times a verification of the same three
+// anchors, which the camera no longer asks a verification to check (see
+// LIVE_CAMERA.md). The earlier ten and 67-131 times compared against verifying
+// an unchanged frame, which skips registration. Sharing the two-second
+// deadline failed every anchor on a device whose verifications approach it and
+// ended in Restart; twenty seconds leaves a wide margin. A verification
+// compares every cell, label region and boundary strip of each anchor it
+// checks, so its work grows with those anchors' cells: one 16 x 16 anchor
+// measured 3.4 times and one 25 x 25 anchor 7.7 times one 9 x 9 anchor.
+// VERIFY_DEADLINE covers VERIFY_CELLS cells, three 9 x 9 anchors; a
+// verification of anchors with more cells gets proportionally longer
+// (verifyDeadline), up to ANCHOR_DEADLINE. With two seconds whatever the grid,
+// a phone four times slower than the desktop measured would take about two
+// seconds to verify one 25 x 25 anchor and six to verify three, and each
+// verification over two seconds failed the worker: its anchors were dropped,
+// tracking backed off and then paused. A reply more than two seconds after its
+// frame is still not adopted (the camera's stale limit), but it is no failure.
+export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000, VERIFY_CELLS = 3 * 81;
 // How a frame's pixels reach the worker. "bitmap": the camera hands over an
 // ImageBitmap of its snapshot, transferred, and the worker draws it at the
 // tracking size and reads it back (live-tracking-pixels.js), so the main
@@ -27,8 +37,9 @@ export const VERIFY_DEADLINE = 2000, ANCHOR_DEADLINE = 20000;
 // anchor is verified on pixels resampled the way it was built: the tracker
 // transfers a bitmap of PROBE, a 2 x 2 canvas of four known colours, and the
 // worker draws it and reads it back. "bitmap" needs all sixteen values within
-// 2. Anything else means "imagedata": a wrong value, no OffscreenCanvas or 2D
-// context in the worker (before iOS 16.4), a bitmap that cannot be made or
+// 2. Anything else means "imagedata": a wrong value, a probe the worker
+// refuses as it would refuse such a frame, no OffscreenCanvas or 2D context in
+// the worker (before iOS 16.4), a bitmap that cannot be made or
 // transferred, a reply that cannot be received, or no reply within
 // HANDSHAKE_WAIT. That wait starts when the worker has started (its first
 // message), since loading its modules is no part of the transport; a worker
@@ -56,11 +67,13 @@ export const HANDSHAKE_WAIT = 300, HANDSHAKE_LATE = 50;
 // Why a worker uses its transport (stats.transportReason, for the diagnostic
 // report, so an "imagedata" from a phone tells an old iOS from a slow or
 // failed handshake). From its handshake: "probe" (the probe read back right:
-// bitmap), "mismatch" (a value off; stats.probePixels then holds the values
-// read back), "no-pixels" (the worker could not draw it: no OffscreenCanvas
-// or 2D context there), "unreadable" (its answer could not be received),
-// "no-bitmaps" (this thread makes no bitmaps), "probe-failed" (the probe could
-// not be made or transferred). Without a handshake: "timeout" (the worker
+// bitmap), "mismatch" (a value off, also an alpha below 255, for which the
+// worker refuses the probe as it would every frame; stats.probePixels then
+// holds the values read back), "no-pixels" (the worker cannot draw at all:
+// no OffscreenCanvas or 2D context there), "unreadable" (its answer could not
+// be received), "no-bitmaps" (this thread makes no bitmaps), "probe-failed"
+// (the probe could not be made or transferred, arrived in the worker null or
+// 0 x 0, or failed to draw or read back there). Without a handshake: "timeout" (the worker
 // replacing one that did not answer its probe, see HANDSHAKE_WAIT; once a
 // second worker missed it, bitmaps are given up and every later worker says
 // "timeout" too). Once bitmaps have been given up for another cause, every
@@ -83,10 +96,18 @@ export const TRANSPORT_REASONS = Object.freeze(['probe', 'mismatch', 'no-pixels'
 // tracking core. One such frame says little about the browser, so bitmaps are
 // given up only when the losses persist: at a frame lost that is at least the
 // REFUSAL_LIMIT-th in a row, with no bitmap job completed in between, and
-// comes REFUSAL_SPAN or more after the first of them, in the tracker's life
-// (the camera session; a reset does not end the run). Persistence is measured
-// in time as well, since the count alone follows the sampling: the camera
-// samples the frame after a lost one at once, and a tick that detects and
+// comes REFUSAL_SPAN or more of tracking time after the first of them, in the
+// tracker's life (the camera session; a reset does not end the run, since a
+// freeze, Clear or Restart says nothing about bitmaps). Tracking time stops
+// at a reset (the freeze, Restart, a settings change, a tracking failure,
+// closing the camera) and runs again once the next worker's handshake has
+// decided its transport, or a frame is handed over (anchor or verify): no
+// bitmap frame can be tracked before, so the time a frozen view is looked at,
+// a closed camera, a back-off, or a new worker's start and handshake (on an
+// iPhone its first canvas waits for the GPU process's set-up) says nothing
+// about the browser either.
+// Persistence is measured in time as well, since the count alone follows the
+// sampling: the camera samples the frame after a lost one at once, and a tick that detects and
 // verifies makes two bitmaps of one snapshot, so a condition that passes
 // within a tenth of a second can lose three in a row. Three verification
 // frames of a settled reading, 250 ms apart, span 500 ms: that was the count's
@@ -137,9 +158,40 @@ export function createLiveTracker({
   // has completed; whether a worker of this tracker was replaced for missing
   // the wait; once bitmaps have been given up, why (every later worker then
   // uses the camera's readback); and how many bitmap frames in a row were
-  // lost, since when (REFUSAL_LIMIT).
+  // lost, since when on the tracking clock (REFUSAL_LIMIT).
   let transport = null, reason = null, mismatched = null, startedAt = null, handshakeMs = null;
   let handshake = null, armedAt = null, missed = false, waiters = [], proven = false, timedOut = false, givenUp = null, lost = 0, lostSince = null;
+  // The tracking clock (REFUSAL_LIMIT): now() less the time with no frame
+  // tracked, from a reset (`idleSince`, which a second reset in that time
+  // leaves as it is) until the next worker's transport is decided (decide) or
+  // a frame is handed over (submit). Before, a run of frames lost at the
+  // freeze and one lost after Clear half a minute later gave bitmaps up: that
+  // half minute counted, and so, once the clock ran again from ready(), did a
+  // new worker's start and handshake of half a second.
+  let idleSince = null, idle = 0;
+  const trackingTime = () => (idleSince ?? now()) - idle;
+  function tracking() { if (idleSince !== null) { idle += now() - idleSince; idleSince = null; } }
+  // The cells (rows x cols) of the anchors of this worker that the camera may
+  // still ask it to verify, by id, from the anchor jobs that built them: each
+  // built anchor is added, and every anchor its job did not ask the worker to
+  // keep is forgotten, since the camera verifies only anchors it keeps (the
+  // worker evicts only those too). A new worker numbers its anchors from one
+  // again (ensure). A verification's deadline grows with the cells of the
+  // anchors it checks; one the worker does not have costs it nothing.
+  const anchorCells = new Map();
+  function verifyDeadline(anchors) {
+    let cells = 0;
+    for (const id of new Set(Array.isArray(anchors) ? anchors : [])) cells += anchorCells.get(id) ?? 0;
+    return Math.min(ANCHOR_DEADLINE, VERIFY_DEADLINE * Math.max(1, cells / VERIFY_CELLS));
+  }
+  function built(job, anchor) {
+    const id = anchor?.id;
+    if (job.data.op !== 'anchor' || !Number.isSafeInteger(id)) return;
+    const keep = new Set(Array.isArray(job.data.anchors) ? job.data.anchors : []);
+    for (const old of [...anchorCells.keys()]) if (!keep.has(old)) anchorCells.delete(old);
+    const { rows, cols } = job.data;
+    anchorCells.set(id, Number.isInteger(rows) && Number.isInteger(cols) && rows > 0 && cols > 0 ? rows * cols : 0);
+  }
   const stats = { submitted: 0, completed: 0, dropped: 0, failures: 0, milliseconds: 0, transportMilliseconds: 0,
     refusedFrames: 0, refusedIncomplete: 0, refusedBlank: 0, refusedFailed: 0, unmadeFrames: 0, blankReadbacks: 0 };
   // Every bitmap handed over is transferred or closed; closing a transferred
@@ -148,6 +200,10 @@ export function createLiveTracker({
   function reset(error = cancelled()) {
     clearTimer(deadline); deadline = null;
     clearTimer(handshake); handshake = null;
+    // No frame is tracked until the next worker's transport is decided. A
+    // second reset before then (a settings change at the first tick after
+    // Clear) keeps the idle time's start.
+    idleSince ??= now();
     // No worker: no transport, and the next worker has completed no bitmap job.
     const old = worker; worker = null; transport = reason = mismatched = startedAt = handshakeMs = null; proven = false;
     for (const job of [active, frame, anchor]) { discard(job); job?.reject(error); }
@@ -160,23 +216,25 @@ export function createLiveTracker({
   function giveUp(cause) { givenUp = cause; reset(unsupported()); }
   // A bitmap frame lost for `cause`, "refused" (with the worker's reason) or
   // "unmade" (REFUSAL_LIMIT): counted, and one that is at least the
-  // REFUSAL_LIMIT-th in a row, REFUSAL_SPAN or more after the first of them,
-  // gives bitmaps up. Whether that reset the worker. A frame made for a worker
-  // before bitmaps were given up is only counted: its loss must not reset the
-  // worker that replaced it. Nor may a frame made for a worker before a reset
-  // reset the worker after it, once that worker's handshake decided for the
-  // camera's own readback: it has no bitmap to lose. It is kept, and bitmaps
-  // are given up for the workers after it.
+  // REFUSAL_LIMIT-th in a row, REFUSAL_SPAN or more of tracking time after the
+  // first of them, gives bitmaps up. Whether that reset the worker. A frame
+  // made for a worker before bitmaps were given up is only counted: its loss
+  // must not reset the worker that replaced it. Nor may a frame made for a
+  // worker before a reset reset the worker after it, once that worker's
+  // handshake decided for the camera's own readback: it has no bitmap to lose.
+  // It is kept, and bitmaps are given up for the workers after it.
   function lose(cause, refusal) {
     stats[cause === 'refused' ? 'refusedFrames' : 'unmadeFrames']++;
     if (cause === 'refused') stats[Object.hasOwn(REFUSED, refusal) ? REFUSED[refusal] : REFUSED.failed]++;
     if (givenUp) return false;
-    if (lost++ === 0) lostSince = now();
-    if (lost < REFUSAL_LIMIT || now() - lostSince < REFUSAL_SPAN) return false;
+    if (lost++ === 0) lostSince = trackingTime();
+    if (lost < REFUSAL_LIMIT || trackingTime() - lostSince < REFUSAL_SPAN) return false;
     if (transport === 'imagedata') { givenUp = cause; return false; }
     giveUp(cause); return true;
   }
   function decide(value, why, values = null) {
+    // Frames can be tracked from here on (the tracking clock runs again).
+    tracking();
     transport = value; reason = why; mismatched = values;
     handshakeMs = startedAt === null ? null : time(now() - startedAt);
     clearTimer(handshake); handshake = null;
@@ -214,7 +272,8 @@ export function createLiveTracker({
   // replaces a worker that missed the handshake's wait.
   function ensure(why = givenUp) {
     if (worker) return;
-    const owned = makeWorker(); worker = owned; missed = false;
+    // A new worker has built no anchor yet (anchorCells).
+    const owned = makeWorker(); worker = owned; missed = false; anchorCells.clear();
     // A worker that dies while its first bitmap job is in it gives bitmaps up,
     // as one that never answers that job does: a bitmap that crashes the
     // worker would crash each new worker, counted, until tracking paused.
@@ -239,12 +298,18 @@ export function createLiveTracker({
         return;
       }
       if (data?.probe) {
-        const pixels = data.probe.pixels;
+        const { pixels, refusal } = data.probe;
         if (transport !== null) return;
-        if (matches(pixels)) decide('bitmap', 'probe');
-        else if (!pixels) decide('imagedata', 'no-pixels');
-        // The values read back go to the diagnostic report (at most a 4 x 4 readback's).
-        else decide('imagedata', 'mismatch', Array.isArray(pixels) ? pixels.slice(0, 64) : null);
+        if (!refusal && matches(pixels)) decide('bitmap', 'probe');
+        // A value read back off, also one the worker refused the probe for
+        // (an alpha below 255, which matches() would tolerate within 2 but
+        // for which the worker refuses every frame): the values read back go
+        // to the diagnostic report (at most a 4 x 4 readback's).
+        else if (pixels || refusal === 'blank') decide('imagedata', 'mismatch', Array.isArray(pixels) ? pixels.slice(0, 64) : null);
+        // Refused for arriving incomplete, or for a draw or readback that failed.
+        else if (refusal) decide('imagedata', 'probe-failed');
+        // No pixels and no refusal: the worker cannot draw at all.
+        else decide('imagedata', 'no-pixels');
         return;
       }
       if (!active || data?.id !== active.id) return;
@@ -259,6 +324,7 @@ export function createLiveTracker({
       if (data.error || !data.result) { fail(data.error || 'Invalid background tracking reply.'); return; }
       clearTimer(deadline); deadline = null; active = null;
       if (job.data.bitmap) { proven = true; lost = 0; }
+      built(job, data.result.anchor);
       stats.completed++;
       stats.milliseconds = time(data.milliseconds);
       stats.transportMilliseconds = time(data.transportMilliseconds);
@@ -296,7 +362,7 @@ export function createLiveTracker({
       // A worker that never answers its first bitmap gives bitmaps up.
       if (job.data.bitmap && !proven) giveUp('unanswered');
       else fail('Background tracking timed out. Capture for manual review or restart the camera.');
-    }, job.data.op === 'anchor' ? ANCHOR_DEADLINE : VERIFY_DEADLINE);
+    }, job.data.op === 'anchor' ? ANCHOR_DEADLINE : verifyDeadline(job.data.anchors));
     try { worker.postMessage({ ...job.data, id: job.id }, [job.data.bitmap ?? job.data.image.data.buffer]); }
     catch (error) {
       // A bitmap that cannot be transferred (DataCloneError) gives bitmaps
@@ -305,6 +371,7 @@ export function createLiveTracker({
     }
   }
   function submit(data) {
+    tracking();
     return new Promise((resolve, reject) => {
       const job = { data, id: ++serial, resolve, reject }; stats.submitted++;
       if (data.op === 'anchor') { if (anchor) { stats.dropped++; discard(anchor); anchor.reject(cancelled()); } anchor = job; }
@@ -317,6 +384,8 @@ export function createLiveTracker({
     verify: data => submit({ ...data, op: 'verify' }),
     // The transport of the worker, starting one if there is none, once its
     // handshake has decided it; a reset meanwhile rejects with its error.
+    // The tracking clock runs again at that decision, not at this call: the
+    // worker's start and handshake track no frame.
     ready() {
       try { ensure(); } catch (error) {
         fail(error?.message || 'Background tracking is unavailable.');

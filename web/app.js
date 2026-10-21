@@ -670,8 +670,11 @@ applyType.onclick = () => {
       draft.notes = [
         `Rules changed to ${TYPES[type]}. Printed clues have been kept.`,
         ...(dropped ? [`${dropped} black-cell reading${dropped === 1 ? "" : "s"} exceeded the board size and ${dropped === 1 ? "was" : "were"} not applied; those cells stay highlighted for review.`] : []),
-        // The notes that explain kept highlights stay with them.
-        ...(keepStructural && draft.cageUncertain.size ? draft.notes : []),
+        // The notes that explain kept highlights stay with them; an earlier
+        // rule change does not, since this one replaces it.
+        ...(keepStructural && draft.cageUncertain.size
+          ? draft.notes.filter((note) => !note.startsWith("Rules changed to "))
+          : []),
       ];
       draft.selected = [];
     });

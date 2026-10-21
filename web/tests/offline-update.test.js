@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setupOffline } from "../offline.js";
+import { setupOffline, updateAdvice } from "../offline.js";
+import { createOCRRuntime } from "../ocr-runtime.js";
 
-function environment(t, { controlled = true, waiting = true } = {}) {
+// `reply` is what the worker answers each offline request with.
+function environment(t, { controlled = true, waiting = true, reply = { done: true, ready: false } } = {}) {
   const originals = ["navigator", "location", "MessageChannel"].map((key) =>
     [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   t.after(() => {
@@ -12,14 +14,15 @@ function environment(t, { controlled = true, waiting = true } = {}) {
     }
   });
   const requests = [];
-  const worker = () => ({ postMessage(message, ports) {
-    if (ports) ports[0].respond({ done: true, ready: false });
+  const worker = (state) => Object.assign(new EventTarget(), { state, postMessage(message, ports) {
+    if (ports) ports[0].respond(reply);
     else requests.push(message.type);
   } });
-  const oldWorker = worker(), newWorker = worker();
+  const oldWorker = worker("activated"), newWorker = worker(waiting ? "installed" : "installing");
+  // As a page finds it at load: nothing installing; the new worker waits,
+  // or no update has been found yet.
   const registration = Object.assign(new EventTarget(), {
-    active: oldWorker, waiting: waiting ? newWorker : null,
-    installing: new EventTarget(),
+    active: oldWorker, waiting: waiting ? newWorker : null, installing: null,
   });
   globalThis.MessageChannel = class {
     constructor() {
@@ -29,6 +32,17 @@ function environment(t, { controlled = true, waiting = true } = {}) {
   };
   return {
     registration, newWorker, requests,
+    // A deploy found while the tab is open: the browser gives the new worker
+    // to registration.installing and fires updatefound, and the worker,
+    // once installed, waits.
+    update() {
+      registration.installing = newWorker;
+      registration.dispatchEvent(new Event("updatefound"));
+      registration.installing = null;
+      registration.waiting = newWorker;
+      newWorker.state = "installed";
+      newWorker.dispatchEvent(new Event("statechange"));
+    },
     async tab() {
       const nodes = new Map();
       const $ = (id) => {
@@ -53,6 +67,7 @@ function environment(t, { controlled = true, waiting = true } = {}) {
         node: $,
         get reloads() { return reloads; },
         click() { enter(); $("update-app").onclick(); },
+        prepare() { enter(); return $("prepare-offline").onclick(); },
         activate(next = newWorker) {
           enter();
           serviceWorker.controller = next;
@@ -97,9 +112,7 @@ test("initial service-worker control does not request an unnecessary reload", as
   tab.activate(env.registration.active);
   assert.equal(tab.button.hidden, true);
   assert.equal(tab.reloads, 0);
-  env.registration.waiting = env.newWorker;
-  env.registration.dispatchEvent(new Event("updatefound"));
-  env.registration.installing.dispatchEvent(new Event("statechange"));
+  env.update();
   assert.equal(tab.button.hidden, false);
   assert.equal(tab.button.textContent, "Update app & reload");
   env.registration.waiting = null;
@@ -108,16 +121,72 @@ test("initial service-worker control does not request an unnecessary reload", as
   assert.equal(tab.reloads, 0);
 });
 
+// The page finds no installing worker at load; only updatefound hands it
+// the worker a later deploy installs (offline.js, watchInstall).
+test("an update found while the tab is open is offered without a reload", async (t) => {
+  const env = environment(t, { waiting: false }), tab = await env.tab();
+  assert.equal(tab.node("update-banner").hidden, true);
+  env.update();
+  assert.equal(tab.node("update-banner").hidden, false);
+  assert.equal(tab.button.hidden, false);
+  assert.equal(tab.node("update-banner-button").textContent, "Update app & reload");
+  assert.equal(tab.reloads, 0);
+});
+
 test("the top-of-page banner mirrors the update control", async (t) => {
   const env = environment(t, { controlled: false, waiting: false }), tab = await env.tab();
   const $ = (id) => tab.node(id);
   assert.equal($("update-banner").hidden, true);
-  env.registration.waiting = env.newWorker;
-  env.registration.dispatchEvent(new Event("updatefound"));
-  env.registration.installing.dispatchEvent(new Event("statechange"));
+  env.update();
   assert.equal($("update-banner").hidden, false);
   assert.equal($("update-banner-button").textContent, "Update app & reload");
   $("update-banner-button").onclick();
   assert.deepEqual(env.requests, ["ACTIVATE"]);
   assert.equal($("update-banner-button").disabled, true);
+});
+
+// After a deploy the server has only the new build's files, so a failure to
+// get this build's files is fixed by the offered update, not by a retry.
+test("the advice for a failure only an update fixes names the update the page offers", async (t) => {
+  const env = environment(t, { waiting: false }), tab = await env.tab();
+  assert.equal(updateAdvice("try again"), "", "no update offered");
+  env.update();
+  assert.equal(updateAdvice("try again"), "An updated version of the app is ready. Use “Update app & reload”, then try again.");
+  env.registration.waiting = null;
+  tab.activate();
+  assert.equal(updateAdvice("try again"), "An updated version of the app is ready. Use “Reload updated app”, then try again.");
+});
+
+const GONE = { error: "Could not download vendor/aaaaaaaaaaaa/tesseract/tesseract.min.js. Stay online and retry.", gone: true };
+test("an offline download whose files are gone from the server asks for the waiting update", async (t) => {
+  const env = environment(t, { reply: GONE }), tab = await env.tab();
+  await tab.prepare();
+  assert.equal(tab.node("offline-state").textContent,
+    "Some of this version’s files are no longer on the server. An updated version of the app is ready. Use “Update app & reload”, then download for offline use again.");
+  assert.equal(tab.node("prepare-offline").disabled, false);
+});
+
+for (const [name, options] of [
+  ["without an update", { waiting: false, reply: GONE }],
+  ["while an update waits, for a file that is not gone", { reply: { error: "Offline download stalled. Stay online and retry." } }],
+])
+  test(`an offline download failure ${name} keeps the worker's message`, async (t) => {
+    const env = environment(t, options), tab = await env.tab();
+    await tab.prepare();
+    assert.equal(tab.node("offline-state").textContent, options.reply.error);
+  });
+
+test("OCR that cannot load on this page names the update the page offers", async (t) => {
+  const env = environment(t), workers = [];
+  await env.tab();
+  const ocr = createOCRRuntime({ makeWorker() {
+    const worker = { postMessage() {}, terminate() {} };
+    workers.push(worker);
+    return worker;
+  }, setTimer: () => 0, clearTimer() {} });
+  const read = ocr.recognize({ png: "a" });
+  workers[0].onmessage({ data: { error: "The script at 'vendor/aaaaaaaaaaaa/tesseract/tesseract.min.js' failed to load.", fatal: true } });
+  await assert.rejects(read, {
+    message: "Recognition could not load. An updated version of the app is ready. Use “Update app & reload”, then try again.",
+  });
 });

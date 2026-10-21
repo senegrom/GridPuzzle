@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scanner, glyphAspect, confidentDigits, puzzleFromReadings } from "../scanner.js";
+import { Scanner, puzzleFromReadings } from "../scanner.js";
+import { glyphAspect, confidentDigits } from "../turn-cues.js";
 import { turnCorners } from "../geometry.js";
 
 const glyphs = (n, w, h, extra = {}) => Array.from({ length: n }, (_, cell) => ({ kind: "value", cell, x: 0, y: 0, w, h, ...extra }));

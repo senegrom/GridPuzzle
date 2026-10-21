@@ -34,6 +34,10 @@ _ALLOWED = {'version', 'type', 'rows', 'cols', 'boxRows', 'boxCols',
             'cells', 'cages', 'inequalities', 'clues', 'black'}
 
 
+class InvalidPuzzleError(ValueError):
+    """The puzzle data was rejected before the search: status 'invalid'."""
+
+
 def _integer(value, name, lo, hi):
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f'{name} must be an integer')
@@ -221,10 +225,18 @@ def solve_payload(payload):
 
     The worker owns deadlines and cancellation by terminating its interpreter.
     Both results are independently validated by the existing solver.solve().
+
+    Only the data checks judge the puzzle: a TypeError or ValueError from
+    build_grid is raised as InvalidPuzzleError. Whatever the search or the
+    rendering raises once the grid is built, those types included, is a
+    solver fault and propagates unchanged.
     """
     started = time.perf_counter()
     try:
-        grid = build_grid(payload)
+        try:
+            grid = build_grid(payload)
+        except (TypeError, ValueError) as exc:
+            raise InvalidPuzzleError(str(exc)) from exc
         solutions = solve(grid, processes=0, max_sols=2, log_level=QUIET)
     finally:
         # One interpreter serves every browser solve: return the cached
@@ -257,12 +269,15 @@ def solve_json(text):
         except RecursionError:
             # The decoder recurses once per nesting level: data nested deeper
             # than the interpreter allows is malformed input, not a solver fault.
-            raise ValueError('Puzzle data is nested too deeply') from None
+            raise InvalidPuzzleError('Puzzle data is nested too deeply') from None
+        except ValueError as exc:
+            raise InvalidPuzzleError(str(exc)) from exc
         result = solve_payload(payload)
-    except (TypeError, ValueError) as exc:
+    except InvalidPuzzleError as exc:
         result = {'status': 'invalid', 'message': str(exc)}
     except Exception as exc:
-        # The browser must never see a raw traceback; an unexpected failure is
-        # a solver error, not invalid puzzle data, and the interpreter stays usable.
+        # The browser must never see a raw traceback. Anything else, also a
+        # TypeError or ValueError raised inside the search, is a solver error,
+        # not invalid puzzle data, and the interpreter stays usable.
         result = {'status': 'error', 'message': f'{type(exc).__name__}: {exc}'}
     return json.dumps(result)

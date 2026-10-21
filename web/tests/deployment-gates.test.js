@@ -64,9 +64,16 @@ test('master deployment waits for moving-camera acceptance of the exact built ar
  assert.match(camera,/^      fail-fast: false$/m);
  assert.match(camera,/^          browsers: \$\{\{ matrix\.engine \}\}$/m);
  assert.match(camera,/^          name: live-camera-report-\$\{\{ matrix\.engine \}\}$/m);
- // A matrix job's result, and so these needs, cover every engine's job.
- assert.match(all.deploy,/needs: \[build, configure, live-acceptance, live-camera\]/);
- assert.match(all.result,/needs: \[changes, build, live-acceptance, live-camera\]/);
+ // The result job checks every job that runs suites, these and any added
+ // later: all but changes and the master-only jobs. deploy does not need the
+ // result job, so it publishes as soon as its own needs succeed: they are the
+ // same jobs, and configure. A matrix job's result, and so these needs, cover
+ // every engine's job.
+ const needs=job=>job.match(/^    needs: \[([\w, -]+)\]$/m)[1].split(/,\s*/);
+ const gated=Object.keys(all).filter(id=>id!=='changes'&&id!=='result'&&!all[id].includes("if: github.ref == 'refs/heads/master'"));
+ assert.ok(['build',...Object.keys(suites)].every(id=>gated.includes(id)),gated.join());
+ assert.deepEqual(needs(all.result),['changes',...gated]);
+ assert.deepEqual(new Set(needs(all.deploy)),new Set([...gated,'configure']));
 });
 
 test('the harness runs both engines unless BROWSER_ENGINES selects some',()=>{

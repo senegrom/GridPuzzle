@@ -8,6 +8,8 @@ import { puzzleFromReadings } from "../scanner.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { retainPhotoSource } from "../photo-detail.js";
 import { createFrameScheduler } from "../live-frame-scheduler.js";
+import { createRequire } from "node:module";
+const { readGrid, readingCorners, photoFlowReview } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
 function deferred() {
   let resolve, reject;
@@ -354,17 +356,18 @@ function webkitVideo() {
   };
   return video;
 }
-// The live camera reduced to its frame scheduler: start, the freeze and Clear
-// start and stop the real scheduler on the video as live-camera.js does (Clear
-// with discardFirst), and each frame it hands on records the picture a
-// snapshot would draw.
+// The live camera reduced to its frame scheduler: start, the freeze, Clear
+// and replay start and stop the real scheduler on the video as live-camera.js
+// does (Clear with discardFirst), and each frame it hands on records the
+// picture a snapshot would draw.
 function schedulerLive(options, drawn) {
   let time = 0;
   const scheduler = createFrameScheduler({ video: options.video, onFrame: () => drawn.push(options.video.picture),
     now: () => (time += 150), setTimer: () => 0, clearTimer() {} });
-  return { view: "live", resumed: 0, get stats() { return { scheduling: scheduler.stats }; },
+  return { view: "live", resumed: 0, replayed: 0, get stats() { return { scheduling: scheduler.stats }; },
     start() { scheduler.start(); }, stop() { scheduler.stop(); }, capture: () => null,
     resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; scheduler.start({ discardFirst: true }); options.onViewChange?.("live"); },
+    replay() { if (this.view !== "live") return; this.replayed++; scheduler.stop(); scheduler.start(); },
     freeze() { this.view = "frozen"; scheduler.stop(); options.onViewChange?.("frozen"); } };
 }
 
@@ -395,6 +398,76 @@ test("after Clear the camera scans a frame presented after the tap, never the fr
   assert.equal(h.live.view, "live");
   assert.ok(drawn[1] > tapped, `the first frame scanned after Clear is ${drawn[1]}: the tap came after frame ${tapped}, the freeze at frame 2`);
   assert.equal(h.requests, 1, "no getUserMedia: the camera stayed on");
+});
+
+// Start preview on the live view (offered when no frame came for three
+// seconds after Clear) makes the video a new player: pause, srcObject and
+// load. Its count of presented frames starts from zero, so at the tap the
+// live camera's scheduler starts over (replay) and scans its frames at once.
+// Before, the scheduler kept the old player's count (here 47, with the frames
+// counted while paused at the freeze) and took every new frame for a repeat:
+// nothing was scanned until the count passed it, and the frame check offered
+// Start preview again while the video played.
+test("Start preview on the live view scans the new player's frames at once", async (t) => {
+  const video = webkitVideo(), drawn = [];
+  const h = await cameraHarness(t, { video, makeLive: (options) => schedulerLive(options, drawn) });
+  const opening = h.$("camera").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); await opening;
+  for (let i = 0; i < 20; i++) { video.cameraFrame(); video.renderingUpdate(); }
+  h.live.freeze();
+  for (let i = 0; i < 25; i++) { video.cameraFrame(); video.renderingUpdate(); } // Counted while paused.
+  const timers = manualTimers(t), clearing = h.$("clear-freeze").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); video.renderingUpdate(); // The one frame reported after Clear: a baseline only.
+  await clearing;
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, false, "three silent seconds: Start preview is offered on the live view");
+  assert.equal(h.live.view, "live");
+  const scanned = drawn.length, loads = video.loads, retry = h.$("start-camera").onclick();
+  await tick(); await tick();
+  assert.equal(video.loads, loads + 1, "the tap makes a new player");
+  video.cameraFrame(); await tick(); await retry; // Its first frame lets play() resolve.
+  assert.equal(h.live.replayed, 1, "the scheduler starts over");
+  video.cameraFrame(); video.renderingUpdate();
+  assert.deepEqual(drawn.slice(scanned), [video.frame], "the new player's next frame is scanned");
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, true, "frames came: Start preview is not offered again");
+  assert.equal(h.live.resumed, 1, "only Clear resumed");
+});
+// The same when that play() times out (eight seconds without a frame) and
+// the camera's frames come later: the scheduler started over at the tap, so
+// the new player's first frame is scanned at once and the frame check takes
+// the offer back. When it started over only once play() resolved, a timeout
+// left the old player's count, here 47: every later frame was taken for a
+// repeat until the count passed it, and Start preview stayed on offer while
+// the video played.
+test("Start preview on the live view whose play() times out scans the new player's later frames at once", async (t) => {
+  const video = webkitVideo(), drawn = [];
+  const h = await cameraHarness(t, { video, makeLive: (options) => schedulerLive(options, drawn) });
+  const opening = h.$("camera").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); await opening;
+  for (let i = 0; i < 20; i++) { video.cameraFrame(); video.renderingUpdate(); }
+  h.live.freeze();
+  for (let i = 0; i < 25; i++) { video.cameraFrame(); video.renderingUpdate(); } // Counted while paused.
+  const timers = manualTimers(t), clearing = h.$("clear-freeze").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); video.renderingUpdate(); // The one frame reported after Clear: a baseline only.
+  await clearing;
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, false, "Start preview is offered on the live view");
+  const scanned = drawn.length, retry = h.$("start-camera").onclick();
+  assert.equal(h.live.replayed, 1, "the scheduler starts over at the tap");
+  await tick(); await tick();
+  fire(timers, 8000); await retry; // The camera stays silent: play() times out.
+  assert.equal(h.$("start-camera").hidden, false);
+  assert.equal(h.$("camera-help").textContent, "No camera frame arrived. Tap Start preview to retry.");
+  video.cameraFrame(); video.renderingUpdate(); // The camera comes back.
+  assert.deepEqual(drawn.slice(scanned), [video.frame], "the new player's first frame is scanned");
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, true, "frames came: Start preview is taken back");
+  assert.equal(h.live.replayed, 1, "once per new player"); assert.equal(h.live.resumed, 1, "only Clear resumed");
 });
 
 test("Clear whose playback is refused offers Start preview, which plays again and then resumes", async (t) => {
@@ -1137,6 +1210,56 @@ test('a reviewed live capture is confirmed at its own size, whatever an earlier 
   h.$('read-photo').onclick(); await tick();
   assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.notes[0], resizedNote('2 × 2', '3 × 3'));
 });
+
+// The corpus benchmark scores a digit as flagged only where this flow's digit
+// review (state.uncertain) would visit it. Its page function readGrid runs
+// here on the same scanner results, with photoDetail stubbed, and its corner
+// rule and photoFlowReview give the cells it counts as flagged.
+async function benchmarkReading(found) {
+  const source = readGrid.toString(), stubbed = source.replace('import("./photo-detail.js")', 'stubImport("./photo-detail.js")');
+  assert.notEqual(stubbed, source, 'readGrid reads through photoDetail');
+  const window = { benchCanvas: {}, benchScanner: { read: async () => found } };
+  const stubImport = async () => ({ photoDetail: async (image, corners) => ({ image, corners, enhanced: false, release() {} }) });
+  const read = new Function('window', 'stubImport', `return (${stubbed});`)(window, stubImport);
+  const { rows, cols, type } = found.puzzle;
+  return read({ corners: [], type, rows, cols });
+}
+function flagChannelReadings() {
+  const base = { meta: { rows: 2, cols: 2, boxes: false }, mask: new Uint8Array(200 * 200), width: 200, height: 200 },
+    white = [false, false, false, false],
+    value = (cell, text, confidence = 99) => ({ kind: 'value', cell, text, confidence, x: 0, y: 0, w: 20, h: 40 }),
+    label = (cell, text) => ({ kind: 'label', cell, text, confidence: 90, cageLabel: true });
+  return {
+    // A confident digit in a cage's head, and every cell under "check cage".
+    kenken: puzzleFromReadings({ ...base, black: white, cageAreas: [[0, 1], [2, 3]],
+      entries: [value(0, '1'), label(0, '3+'), label(2, '3+')] }, 'kenken', 2, 2),
+    // A sign's two cells under "check sign", a doubtful digit beside it.
+    futoshiki: puzzleFromReadings({ ...base, black: white,
+      entries: [value(0, '1'), value(3, '2', 60), { kind: 'hsign', cell: 0, other: 1, text: '<', confidence: 90 }] }, 'futoshiki', 2, 2),
+    // A digit read on a black cell, which the flow keeps under review.
+    hidato: puzzleFromReadings({ ...base, black: [false, true, false, false],
+      entries: [value(0, '1'), { kind: 'blackvalue', cell: 1, text: '2', confidence: 95, x: 0, y: 0, w: 20, h: 40 }] }, 'hidato', 2, 2),
+  };
+}
+for (const [name, reading] of Object.entries(flagChannelReadings()))
+  for (const [confidence, size, how] of [[0.94, 2, 'confirmed'], [0.45, 0, 'unconfirmed'], [0.94, 3, 'resized']])
+    test(`the corpus benchmark counts as flagged exactly the ${name} digits this flow puts under review (${how})`, async t => {
+      if (name !== 'hidato')
+        assert.notDeepEqual([...reading.cellUncertain].sort(), [...reading.uncertain].sort(), 'both channels differ here');
+      const h = photoHarness(t), found = { ...structuredClone(reading), rectified: canvas(200, 200) };
+      const detection = { ...detected(confidence), rows: size, cols: size };
+      h.$('puzzle-type').value = name; h.setFound(found); h.setDetection(detection);
+      await h.$('detect-photo').onclick();
+      h.$('rows').value = h.$('cols').value = '2';
+      h.$('read-photo').onclick(); await tick();
+      assert.deepEqual(h.errors, []);
+      const { unconfirmed } = readingCorners({ detection, truth: null, size: { width: 600, height: 600, scale: 1 },
+        trueCorners: false, puzzle: found.puzzle });
+      assert.equal(unconfirmed, how !== 'confirmed');
+      const scored = photoFlowReview(await benchmarkReading(structuredClone(reading)), unconfirmed);
+      assert.deepEqual(scored.uncertain.sort(), [...h.state.uncertain].sort());
+      assert.deepEqual(scored.cageUncertain.sort(), [...h.state.cageUncertain].sort());
+    });
 
 function cageWarnings() {
   const n = 9, cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];

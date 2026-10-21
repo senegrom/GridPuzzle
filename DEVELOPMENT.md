@@ -78,16 +78,16 @@ Hidato supplies orthogonal plus diagonal adjacency and permits blocked cells. Nu
 
 ### File loading
 
-`create_from_file()` supports both historical class-prefixed files and retained CSP-Rules solve forms.
+`create_from_file()` supports both historical class-prefixed files and retained CSP-Rules solve forms; `create_from_str()` (`gridpuzzle --str`) detects the format the same way.
 
 Format detection is deliberately conservative:
 
-1. Ignore blank lines and leading `;`/`#` comments.
-2. Inspect the first meaningful line.
-3. Route only a line beginning with `solve` or `solve-tatham` inside an opening parenthesis to the CSP-Rules parser.
-4. Otherwise preserve the historical `<Class>::<payload>` path.
+1. Ignore blank lines, `;` comments and `#` comment lines.
+2. If the first meaningful line begins with `solve` or `solve-tatham` inside an opening parenthesis, route the text to the CSP-Rules parser.
+3. Otherwise, if no `::` appears outside comments, the text cannot be class-prefixed: route it to the CSP-Rules parser when it holds a solve form outside comments and quoted strings. Header lines may then precede the form, as the Mebane Slitherlink files' uncommented `Mellon rating = N` line does, and the parser reads the first solve form, as the corpus runner does.
+4. Otherwise preserve the historical `<Class>::<payload>` path. A text with neither a `::` nor a solve form, such as a bare value string, ends there with its "no :: class separator" error.
 
-Never detect format from a `.clp` suffix or by searching the complete file. Historical files often contain appended solver transcripts with later `(solve ...)` text.
+Never detect format from a `.clp` suffix, and never search the complete text when a `::` appears outside comments: historical class-prefixed files often contain appended solver transcripts with later `(solve ...)` text. `tests/test_cli_and_loading.py` loads every shipped example through this route and checks that each CSP-Rules example gives the grid the corpus runner reads.
 
 ### Key design decisions
 
@@ -186,8 +186,8 @@ Corpus modules that are intentionally excluded from every push carry the
 `slow` marker at module scope and are selected explicitly by extended CI. A
 forward-compatibility workflow, weekly, on demand and on pull requests that
 change Python code, additionally runs the bounded suite on free-threaded
-Python 3.14, with the GIL required off, and on the Python 3.15 prerelease,
-with warnings treated as errors.
+Python 3.14, with the GIL required off, and on Python 3.15, with warnings
+treated as errors.
 
 The extended workflow runs weekly, on demand and on every push to master that
 changes `gridsolver/`, the example corpora, the corpus runner or its timeout
@@ -197,10 +197,14 @@ setup-project action and its pins. It includes:
 - existing supported example corpora;
 - a 7-job matrix for Hidato, Numbrix, Kakuro, and Slitherlink: one job each for the first three, which finish in seconds, and four deterministic shards for Slitherlink, with one fresh interpreter per file, a hard per-file timeout, and uploaded JSON reports;
 - the slow pandiagonal Latin-square corpus;
-- full parallel/sequential enumeration equivalence;
+- the slow deterministic checks: full parallel/sequential enumeration
+  equivalence, the 4x4 and 6x6 Sudoku enumerations, a blank 32x32 Slitherlink
+  search and the 100x100 Sudoku propagation test.
 
-The generated 49x49 through 100x100 propagation tests and broader bounded
-technique-soundness states now complete quickly enough to run on every push.
+The generated 49x49 through 81x81 propagation tests and broader bounded
+technique-soundness states now complete quickly enough to run on every push;
+the 100x100 case (17 s of the bounded suite on 2026-09-24) is marked `slow`
+and runs in the slow deterministic checks.
 
 Corpus reports distinguish:
 

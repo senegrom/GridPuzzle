@@ -227,12 +227,21 @@ Measured on the app photographs at the live scale, a frame with a quad and
 no grid takes 68 ms in the middle and 218 at its worst the quick way,
 against 53 and 192 before this change and 120 and 794 with everything on;
 the live path still finds more grids than before (1008 of 1398 against 986),
-and the photograph finds 1056.
+and the photograph finds 1056. `node corpus/detect_benchmark.cjs --live`
+measures both ways on the same 640-pixel drawing of each corpus image.
 
 ## Measured
 
 Good detections (grid found, right size, corners within 3% of the diagonal)
-at the live scale, per corpus set, before and after the change:
+per corpus set, before and after the change, at 640 pixels (the live camera's
+size) through the still photograph's path, `findGrid`'s default
+(`thorough`), which `corpus/detect_benchmark.cjs` runs. The live camera
+detects with `thorough: false`, without the photograph's extra readings (see
+"A live frame and a photograph"), so it finds fewer grids; with no dot lattice
+it finds no Slitherlink render (none of the 111 at 640 pixels, where this path
+finds 85). The benchmark's `--live` measures that path as well; on 2026-10-20
+it found none of the 111 (31 quads without a lattice, 80 nothing), where the
+photograph's path found 85 at 640 and 91 at 1600 pixels.
 
 | Set | Original | Line stage | + outline stage | + black cells, skew, settling | + widening, edge map, phase | + polarity, candidates, runs, dots | + pitch refinement, three mechanisms removed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -327,8 +336,11 @@ map was a second full line stage on every failed estimate.
   farther), and it reaches the live camera and `prepareScan`'s lattice, so it
   is left for a change of its own.
 - `corpus/detect_benchmark.cjs` reproduces the measurement over every corpus
-  image with corner ground truth, at both scales, in a few minutes; it is a
-  measurement, not a gate. `web/tests/grid-lines.test.js` pins each rule above
+  image with corner ground truth, at 640 and 1600 pixels through the still
+  photograph's path, in a few minutes; it is a measurement, not a gate, and
+  with `--live` it also measures the live camera's `thorough: false` path at
+  640 pixels.
+  `web/tests/grid-lines.test.js` pins each rule above
   on synthetic warps, and `web/tests/grid-size-range.test.js` checks the
   lattice stage and complete detection for every size from 3 to 25 at three
   stroke widths, plus rectangular grids both ways, because pixel-rounded gaps

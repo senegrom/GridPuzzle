@@ -1,6 +1,7 @@
 import { recoveryCells, clearerCells, mergeRecoveredClues } from "./clue-recovery.js";
-import { previewBlocker, overlayCells } from "./live-overlay.js";
+import { previewBlocker, overlayCells, CONFLICTING } from "./live-overlay.js";
 import { clone, checkShape } from "./model.js";
+import { glyphAspect, confidentDigits, wayUpDigits, HALF_TURN_BAR } from "./turn-cues.js";
 
 // Drops a canvas's pixels without waiting for the collector. Plain test
 // objects without numeric dimensions are left alone.
@@ -24,6 +25,62 @@ function solvingOff(found) {
     else if (kind === "uncertain") uncertain++;
   }
   return `Clues read (${recognised} recognised, ${uncertain} uncertain). Automatic solving is off; capture to review or play.`;
+}
+
+// The live camera never turns a reading (it reads with orient: false): only
+// a still photograph's reading is checked for a quarter or a half turn, by
+// reading it again turned (Scanner.orient, OCR_QUALITY.md). A live reading
+// still shows the cue that check goes by. A poor reading (fewer than half
+// its value regions read as confident digits) of glyphs wider than tall is
+// of a page lying a quarter turn off; one of upright-shaped glyphs that reads
+// at least HALF_TURN_BAR confident digits but not one number with a 2, 3 or
+// 5, of a page upside down. A clearer frame of the same page cannot mend
+// either, so the help line says so in place of "move closer" or "waiting for
+// a clearer frame". The still check takes one confident digit for its cue,
+// since its re-read turned decides; here the cue is all there is, and a few
+// digits often miss a 2, 3 or 5 by chance: a third of a Sudoku's digits are
+// one, so an upright page read poorly with k confident digits has none in
+// about (2/3)^k of its readings, two in three at one digit and 13% at five.
+// A page upside down reads its 0s, 1s, 6s, 8s and 9s with confidence (a 9 x 9
+// page in the live view read 12 confident digits). Below the floor the help
+// line stays as it was. A false cue is still possible, so the text also says
+// what to do if the page is upright after all. The reading is left as it was
+// read.
+export function turnedPage(found) {
+  const values = (found?.entries ?? []).filter((entry) => entry.kind === "value");
+  if (!values.length || !found.puzzle) return null;
+  const confident = confidentDigits(found);
+  if (confident >= values.length / 2) return null;
+  const aspect = glyphAspect(values);
+  if (aspect < 1) return "sideways";
+  return aspect > 1 && aspect < Infinity && confident >= HALF_TURN_BAR && !wayUpDigits(found) ? "upside-down" : null;
+}
+export const TURNED_HELP = Object.freeze({
+  sideways: "The grid looks sideways. Turn the page or the phone a quarter turn so the numbers stand upright; if they already do, move closer.",
+  "upside-down": "The grid looks upside down. Turn the page or the phone half a turn so the numbers stand upright; if they already do, move closer.",
+});
+// The status of a complete reading that shows no solution: what its page's
+// turn calls for, if it looks turned, before anything else.
+const explained = (found, message) => TURNED_HELP[turnedPage(found)] ?? message;
+
+// A Sudoku's boxes that the camera guessed from the grid's size, the grid
+// settings being for another size (live-camera.js, locate), when the guess is
+// not square: a 6 × 6 grid's boxes are 2 rows × 3 columns or 3 × 2 alike, and
+// the solver is given the guess. Whatever the reading then shows of a
+// solution, or of conflicts, says so and names the settings to change.
+export function boxGuess(found) {
+  const p = found?.puzzle;
+  if (found?.guessedBoxes !== true || !["sudoku", "killersudoku"].includes(p?.type)) return null;
+  const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return `boxes of ${count(p.boxRows, "row")} × ${count(p.boxCols, "column")}, guessed from the grid size`;
+}
+// The camera is modal: the settings are changed with it closed.
+export const SET_BOXES = "If the printed boxes differ, close the camera and set Rows, Columns, Box height and Box width in Grid size & settings.";
+// Why a complete reading cannot be solved yet (previewBlocker), naming a
+// guessed box layout when the readings conflict, which may be its doing.
+function unsolvable(found) {
+  const blocker = previewBlocker(found), guess = blocker === CONFLICTING ? boxGuess(found) : null;
+  return guess ? `Conflicting readings (uncertain ? in the legend) with ${guess}. ${SET_BOXES}` : blocker;
 }
 
 // OCR ownership and overlay visibility are deliberately separate. Motion may
@@ -106,7 +163,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!autoSolve()) {
       if (solving) { solveGeneration++; solving = false; pending = false; cancelSolve(); }
       if (stored) {
-        if (stored.result || stored.solveFinished) status = solvingOff(stored.found);
+        if (stored.result || stored.solveFinished) status = explained(stored.found, solvingOff(stored.found));
         stored.result = null; stored.solveFinished = false;
       }
     }
@@ -136,7 +193,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
       stored = { ...job.base, found,
         result: !autoSolve() || found.recovery.changed.length ? null : job.oldResult,
         solveFinished: !autoSolve() || found.recovery.changed.length ? false : job.oldSolveFinished };
-      status = previewBlocker(found) ?? `${recoveryCells(found).length} clues still need review. Re-read proposals remain unconfirmed.`;
+      status = explained(found, unsolvable(found) ?? `${recoveryCells(found).length} clues still need review. Re-read proposals remain unconfirmed.`);
       onEvent({ stage: 'checking', reason: 'targeted-complete', targets: job.cells,
         changed: found.recovery.changed.length, calls: job.result.ocrStats?.calls ?? 0, found });
     } catch (error) {
@@ -148,7 +205,13 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
   function startRecovery(sample, cells) {
     const base = stored, id = ++generation, oldResult = base.result, oldSolveFinished = base.solveFinished;
     activeSample = sample; best = null; pending = true; lastRecovery = now();
-    solveGeneration++; solving = false; cancelSolve(); base.result = null; base.solveFinished = false;
+    // A retry is a proposal, as a full re-read is: the reading keeps its
+    // result while the retry runs, and only a merge that changes a clue
+    // withdraws it (commitRecovery). So a solved reading stays solved: the
+    // camera's freeze, which waits for retries at most three seconds, and its
+    // shutter freeze it with its solution, and the help line keeps the
+    // wait's text. No solve runs here (`pending`); cancelling is a fence.
+    solveGeneration++; solving = false; cancelSolve();
     for (const cell of cells) recoveryAttempts.set(cell, (recoveryAttempts.get(cell) ?? 0) + 1);
     const previous = new Map(recoveryQuality?.cells?.map(c => [c.cell, c]) ?? []);
     for (const item of sample.quality?.cells ?? []) if (cells.includes(item.cell)) previous.set(item.cell, item);
@@ -183,7 +246,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
           activeSample = null;
           base.result = autoSolve() ? oldResult : null;
           base.solveFinished = autoSolve() && oldSolveFinished;
-          status = 'No new clue evidence. Keeping the previous reading; waiting for a clearer frame.';
+          status = explained(base.found, 'No new clue evidence. Keeping the previous reading; waiting for a clearer frame.');
           onEvent({ stage: 'checking', reason: 'retry-skipped', targets: cells, calls: 0 });
           return;
         }
@@ -210,11 +273,14 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         const result = await solve(clone(target.found.puzzle));
         if (!active || id !== generation || solveId !== solveGeneration || !autoSolve() || stored !== target) return;
         onEvent({ stage: "solving", reason: result?.status || "unfinished" });
+        const guess = boxGuess(target.found);
         if (result?.status === "unique" && result.complete === true) {
           target.result = result;
           status = "Solution preview — check the clues and rules. Tap the shutter to save this picture.";
-        } else status = result?.status === "multiple" ? "More than one solution — check the readings and puzzle type."
-          : result?.status === "no-solution" ? "No solution to these readings — move closer or review the clues."
+        } else status = result?.status === "multiple" ? explained(target.found, guess
+            ? `More than one solution with ${guess}. ${SET_BOXES}` : "More than one solution — check the readings and puzzle type.")
+          : result?.status === "no-solution" ? explained(target.found, guess
+            ? `No solution with ${guess}. ${SET_BOXES}` : "No solution to these readings — move closer or review the clues.")
           : "Preview search paused. Keep the grid in view to retry, or capture and use the full editor.";
       } catch (error) {
         if (active && id === generation && solveId === solveGeneration && autoSolve()) status = error.message || "Preview search failed. Capture to review the clues.";
@@ -248,14 +314,17 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!validate() || pending || pendingRecovery || stable < 2) return;
     if (targets.length) {
       if (targets.every(cell => (recoveryAttempts.get(cell) ?? 0) >= 2)) {
-        status = 'Automatic retries finished — capture to review the remaining clues.';
+        status = explained(stored.found, 'Automatic retries finished — capture to review the remaining clues.');
         say(status); onEvent({ stage: 'checking', reason: 'retry-exhausted', targets });
         return;
       }
       const cells = clearerCells(stored.found, recoveryQuality, best?.quality, recoveryAttempts);
       if (!cells.length || now() - lastRecovery < 1500) {
-        status = 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.';
-        say(status); onEvent({ stage: 'checking', reason: 'clearer-frame-needed', targets }); return;
+        // A page that looks turned waits for the turn, not for a clearer
+        // frame, and the export says so in place of clearer-frame-needed.
+        const turn = turnedPage(stored.found);
+        status = TURNED_HELP[turn] ?? 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.';
+        say(status); onEvent({ stage: 'checking', reason: turn ? `grid-${turn}` : 'clearer-frame-needed', targets }); return;
       }
       if (best && proof(stored.sample) && matches(stored.sample, best)) startRecovery(best, cells);
       return;
@@ -318,8 +387,10 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         stored = { found, result: null, corners: sample.corners, sample, readComplete: true };
         recoveryQuality = sample.quality; recoveryAttempts.clear();
         onEvent({ stage: 'checking', reason: 'read-complete', found });
-        const blocker = previewBlocker(found);
-        status = blocker ?? (autoSolve() ? "Clues read — checking the current grid…" : solvingOff(found));
+        const turn = turnedPage(found);
+        if (turn) onEvent({ stage: 'checking', reason: `grid-${turn}` });
+        const blocker = unsolvable(found);
+        status = blocker ? explained(found, blocker) : autoSolve() ? "Clues read — checking the current grid…" : explained(found, solvingOff(found));
         validate();
         if (blocker) return;
 

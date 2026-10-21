@@ -4,7 +4,15 @@
    Review flags cost the user a check too: flaggedCorrect counts correctly read
    clues that carry a flag, flaggedEmpty counts flagged cells that are empty in
    both the target and the reading (emptyCells is its denominator), so a change
-   cannot lower unflagged errors by flagging everything unnoticed. */
+   cannot lower unflagged errors by flagging everything unnoticed.
+
+   A reading has two flag channels, as the app does. `uncertain` is digit
+   review: the cells the guided review visits ("check reading"). `cageUncertain`
+   is structural review ("check cage", "check sign"), which that review skips
+   and which saving a cage clears while the cell's digit stays. A cell's digit
+   is flagged only through digit review; structural items (cages, signs, Kakuro
+   sums) and topology through either channel; and the flag costs count both,
+   since either highlight asks the user for a check. */
 function cageOperator(cage) {
   const aliases = { "×": "*", x: "*", X: "*", "÷": "/", "−": "-" };
   const op = cage.op || "+", normalized = aliases[op] || op;
@@ -60,6 +68,7 @@ function score(target, reading) {
       (a, b) => a.less === b.less && a.greater === b.greater, item => [item.less, item.greater]);
   }
   const wantedBlack = new Set(target.puzzle.black || []), gotBlack = new Set(reading.read.black || []);
+  const highlighted = (cell) => flagged.has(cell) || structural.has(cell);
   truth.forEach((value, cell) => {
     const got = read[cell];
     const blocked = kind === "str8ts" ? wantedBlack.has(cell) : value === "#";
@@ -70,9 +79,11 @@ function score(target, reading) {
       result.topologyWrong++;
       if (unflagged([cell])) { result.topologyUnsafe++; result.unsafe++; }
     }
+    // A digit error is unflagged unless digit review visits its cell; a
+    // structural highlight there does not call the digit into question.
     if (Number.isInteger(value)) {
       result.printed++;
-      if (got === value) { result.correct++; if (flagged.has(cell)) result.flaggedCorrect++; return; }
+      if (got === value) { result.correct++; if (highlighted(cell)) result.flaggedCorrect++; return; }
       if (got === null || got === undefined) result.missed++; else result.wrong++;
       if (!flagged.has(cell)) result.unsafe++;
     } else if (Number.isInteger(got)) {
@@ -81,7 +92,7 @@ function score(target, reading) {
       if (!flagged.has(cell)) result.unsafe++;
     } else if (!blocked && !readBlocked) {
       result.emptyCells++;
-      if (flagged.has(cell)) result.flaggedEmpty++;
+      if (highlighted(cell)) result.flaggedEmpty++;
     }
   });
   if (target.corners && reading.corners) {
@@ -103,4 +114,9 @@ function isPerfect(result) {
 // 5 (2026-10-04): the same as 4, except that a reading at another size than
 // the lattice the detector found counts as read through unconfirmed corners,
 // every cell flagged, as the photo flow now reads it.
-module.exports = { score, isPerfect, SCORE_VERSION: 5 };
+// 6 (2026-10-19): the same as 5, except that a cell's digit counts as flagged
+// only through digit review. Versions 3-5 were handed the union of both
+// channels as `uncertain`, so a confident wrong or invented digit in a cell
+// under structural review ("check cage", "check sign") never counted as
+// unflagged, though the app's digit review never visits it.
+module.exports = { score, isPerfect, SCORE_VERSION: 6 };
