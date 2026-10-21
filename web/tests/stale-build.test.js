@@ -3,20 +3,23 @@
 // serves page X, until the user chooses "Update app & reload". Files X never
 // stored (the OCR runtime, until a first scan) come from a newer build's
 // identical copies (sw.js, relocated()); when none exists, the user is told
-// to update rather than to retry.
+// to update rather than to retry. The origin's list naming another build
+// makes worker X ask the browser for that build's worker at once, so the
+// page offers the update without a navigation.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { activateWorker, memoryCaches, scope } from "./service-worker-fixture.js";
 import { createOCRRuntime } from "../ocr-runtime.js";
 
-const X = "aaaaaaaaaaaa", Y = "bbbbbbbbbbbb", prefix = `gridpuzzle:${scope}:`;
+const X = "aaaaaaaaaaaa", Y = "bbbbbbbbbbbb", Z = "cccccccccccc", prefix = `gridpuzzle:${scope}:`;
 const OCR = (build) => `vendor/${build}/tesseract/tesseract.min.js`;
 const MODEL = (build) => `vendor/${build}/tessdata/eng.traineddata.gz`;
 const hash = (body) => createHash("sha256").update(body).digest("hex");
 function deploys() {
   const { caches, stores } = memoryCaches(), requests = [], modes = [], served = new Map(), runtimes = { [X]: "6.0.1" };
-  let live = X, clients = [], offline = false;
+  const updates = [];
+  let live = X, clients = [], offline = false, answer = async () => {};
   // Each build's files; vendor/ bytes are the same in every build unless a
   // deploy brings another OCR runtime.
   const files = (build) => ({
@@ -32,14 +35,18 @@ function deploys() {
     const path = request.url.slice(scope.length);
     requests.push(path); modes.push(request.cache);
     if (offline) throw TypeError("Network offline");
-    if (path === "assets.json") return new Response(JSON.stringify({ build: live, assets: assets(live) }));
     if (served.has(path)) return served.get(path)();
+    if (path === "assets.json") return new Response(JSON.stringify({ build: live, assets: assets(live) }));
     const body = files(live)[path];
     return new Response(body ?? "Not found", { status: body === undefined ? 404 : 200 });
   };
   return {
     // `modes` holds each request's HTTP cache mode, in the order of `requests`.
-    files, requests, modes, stores,
+    // `updates` holds each update check a worker asked the browser for: the
+    // worker's build and the build the origin served then.
+    files, requests, modes, stores, updates,
+    // What the browser's update check returns (or throws) from now on.
+    answerUpdates(respond) { answer = respond; },
     clients(ids) { clients = ids.map((id) => ({ id, type: "window", url: scope })); },
     offline(value) { offline = value; },
     // The origin now serves only `build` (with OCR runtime `runtime`).
@@ -50,7 +57,8 @@ function deploys() {
       return Boolean(await (await caches.open(prefix + "content-v1")).match(scope + ".gridpuzzle-cache/" + hash(body)));
     },
     activate(build, beforeActivation) {
-      return activateWorker({ build, caches, fetch, clients: () => clients, beforeActivation });
+      const update = () => { updates.push({ worker: build, origin: live }); return answer(); };
+      return activateWorker({ build, caches, fetch, clients: () => clients, beforeActivation, update });
     },
   };
 }
@@ -146,6 +154,108 @@ test("a file the server fails to send is not called gone", async () => {
   assert.equal(last.error, `Could not download ${OCR(X)}. Stay online and retry.`);
   assert.equal(last.gone, undefined);
 });
+
+// The browser looks for a deploy's worker at the next navigation, so a page
+// kept open would offer the update only after a reload. When the origin's
+// list names another build, the worker asks the browser to look now
+// (sw.js, requestUpdate()); the page offers the update once the new worker
+// is installed ("updatefound", offline-update.test.js).
+const quietly = async (work) => {
+  const warn = console.warn;
+  console.warn = () => {};
+  try { return await work(); } finally { console.warn = warn; }
+};
+test("a missing file whose origin list names another build asks for the update once, also when the copy is found", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  h.deploy(Y);
+  assert.equal(await (await oldRead(OCR(X), "old-tab")).text(), h.files(X)[OCR(X)], "the identical copy is served");
+  assert.deepEqual(h.updates, [{ worker: X, origin: Y }]);
+  const start = h.requests.length;
+  assert.equal(await (await oldRead(MODEL(X), "old-tab")).text(), h.files(X)[MODEL(X)]);
+  assert.deepEqual(since(h, start), [MODEL(X), "assets.json", MODEL(Y)], "a second missing file reads the origin's list again");
+  assert.equal(h.updates.length, 1, "but asks for no second check");
+});
+
+test("a deploy that changed the file asks for the update too, once for the read and the offline download", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  h.deploy(Y, "6.0.2");
+  assert.equal((await quietly(() => oldRead(OCR(X), "old-tab"))).status, 502);
+  assert.deepEqual(h.updates, [{ worker: X, origin: Y }]);
+  const start = h.requests.length;
+  const last = (await oldRead.send("PREPARE_OFFLINE", "old-tab")).at(-1);
+  assert.equal(last.error, `Could not download ${OCR(X)}. Stay online and retry.`);
+  assert.equal(last.gone, true);
+  assert.equal(since(h, start).filter((path) => path === "assets.json").length, 2, "two missing files, two reads of the list");
+  assert.equal(h.updates.length, 1);
+});
+
+test("each later build is asked for once", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  h.deploy(Y);
+  assert.equal((await oldRead(OCR(X), "old-tab")).status, 200);
+  h.deploy(Z);
+  assert.equal((await oldRead(MODEL(X), "old-tab")).status, 200);
+  assert.deepEqual(h.updates, [{ worker: X, origin: Y }, { worker: X, origin: Z }]);
+});
+
+test("no update is asked for when the origin's list names this worker's build", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  h.serve(OCR(X), () => new Response("Not found", { status: 404 }));
+  const start = h.requests.length;
+  assert.equal((await quietly(() => oldRead(OCR(X), "old-tab"))).status, 502);
+  assert.deepEqual(since(h, start), [OCR(X), "assets.json"], "the origin's list was read");
+  assert.deepEqual(h.updates, []);
+});
+
+for (const [name, respond] of [
+  ["is not served", () => new Response("Service unavailable", { status: 503 })],
+  ["cannot be fetched", () => { throw TypeError("Failed to fetch"); }],
+  ["is not JSON", () => new Response("<!doctype html>")],
+  ["names no build", () => new Response(JSON.stringify({ assets: [] }))],
+  ["is not a valid list", () => new Response(JSON.stringify({ build: Y, assets: [{ path: "../elsewhere.js", sha256: "0".repeat(64) }] }))],
+])
+  test(`no update is asked for when the origin's list ${name}`, async () => {
+    const h = deploys(), oldRead = await h.activate(X);
+    h.deploy(Y);
+    h.serve("assets.json", respond);
+    const start = h.requests.length;
+    assert.equal((await quietly(() => oldRead(OCR(X), "old-tab"))).status, 502);
+    assert.deepEqual(since(h, start), [OCR(X), "assets.json"], "the origin's list was asked for");
+    assert.deepEqual(h.updates, []);
+  });
+
+test("with nothing missing neither the origin's list nor an update is asked for", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  const start = h.requests.length;
+  assert.equal(await (await oldRead(OCR(X), "tab")).text(), h.files(X)[OCR(X)], "on the origin under its own URL");
+  h.deploy(Y);
+  assert.equal(await (await oldRead("", "tab", true)).text(), h.files(X)["index.html"], "stored at install");
+  assert.equal(await (await oldRead(OCR(X), "tab")).text(), h.files(X)[OCR(X)], "stored by the first read");
+  assert.deepEqual(since(h, start), [OCR(X)]);
+  assert.deepEqual(h.updates, []);
+});
+
+for (const [name, respond] of [
+  ["rejects", () => Promise.reject(new DOMException("The service worker is installing.", "InvalidStateError"))],
+  ["throws", () => { throw TypeError("Failed to update a ServiceWorker"); }],
+  ["never settles", () => new Promise(() => {})],
+])
+  test(`an update check that ${name} changes nothing else`, async () => {
+    const h = deploys(), oldRead = await h.activate(X);
+    h.answerUpdates(respond);
+    h.deploy(Y);
+    assert.equal(await (await oldRead(OCR(X), "old-tab")).text(), h.files(X)[OCR(X)]);
+    assert.equal(await h.stored(h.files(X)[OCR(X)]), true);
+    assert.equal(await (await oldRead(MODEL(X), "old-tab")).text(), h.files(X)[MODEL(X)]);
+    assert.equal(h.updates.length, 1, "and is not asked for again");
+    const changed = deploys(), changedRead = await changed.activate(X);
+    changed.answerUpdates(respond);
+    changed.deploy(Y, "6.0.2");
+    const last = (await changedRead.send("PREPARE_OFFLINE", "old-tab")).at(-1);
+    assert.equal(last.error, `Could not download ${OCR(X)}. Stay online and retry.`);
+    assert.equal(last.gone, true);
+    assert.equal(changed.updates.length, 1);
+  });
 
 // The OCR runtime: a host whose engine never became ready failed to LOAD
 // OCR. While an update is offered, that is what the user is told.

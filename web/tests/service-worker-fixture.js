@@ -50,13 +50,14 @@ export function memoryCaches() {
    `beforeActivation(read)` between them) and returns read(path, clientId,
    navigation): the response the fetch event gives. read.send(type, clientId)
    posts { type } with a port, as offline.js does, and resolves with the
-   worker's replies once its task has settled. */
-export async function activateWorker({ build, caches, fetch, clients = () => [], beforeActivation }) {
+   worker's replies once its task has settled. `update` answers the worker's
+   self.registration.update(), the browser's check for a newer worker. */
+export async function activateWorker({ build, caches, fetch, clients = () => [], beforeActivation, update = async () => {} }) {
   const listeners = {};
   vm.runInNewContext(source.replace("__BUILD_ID__", build), {
     URL, Request, Response, Uint8Array, AbortController, setTimeout, clearTimeout, crypto: webcrypto, caches, fetch,
     self: {
-      registration: { scope }, location: { origin: new URL(scope).origin },
+      registration: { scope, update }, location: { origin: new URL(scope).origin },
       clients: { claim: async () => {}, matchAll: async () => clients() },
       skipWaiting() {}, addEventListener(type, listener) { listeners[type] = listener; },
     },
