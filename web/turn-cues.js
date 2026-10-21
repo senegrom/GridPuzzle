@@ -101,6 +101,6 @@ export function cageSums(found) {
 }
 // Scanner.cageTurn reads a cage puzzle again turned when fewer than half its
 // cages have a sum that can stand, and keeps a turned reading only when it
-// reads at least CAGE_TURN_FLOOR such sums, at least half its cages, and
-// clearly more than the first: twice as many, plus one.
+// reads at least CAGE_TURN_FLOOR such sums, sums in at least half its cages,
+// and more than twice as many as the first reading.
 export const CAGE_TURN_FLOOR = 3;

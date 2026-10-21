@@ -981,7 +981,10 @@ check instead; 103 have whole-cell value boxes; 260 have no confident digit;
 404 read a 2, 3 or 5 with confidence upside down (287 of them one: upside-down
 3s and 5s read as themselves, 8s as 3s); 620 are read again but short of the
 bar (147 of them with four numbers with a 2, 3 or 5, 170 with three); and 46
-clear the bar but do not read clearly better.
+clear the bar but do not read clearly better. A cage puzzle can never take
+this check or the quarter-turn one, since every digit on a cage board is under
+review; it takes a check of its own, by its sums ("Turned cage puzzles",
+below).
 
 **Live captures.** The live camera reads each frame the way it lies, so a
 capture of an upside-down page reached the editor with confident 6/9 and 2-to-4
