@@ -8,7 +8,7 @@ import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
 import { fraction, turnCorners, otsuCut, clueHeight } from "./geometry.js";
 import { readOperator } from "./cage-operator.js";
-import { confidentDigits, wayUpDigits, glyphAspect, turnCue, HALF_TURN_BAR, HALF_TURN_FLOOR } from "./turn-cues.js";
+import { confidentDigits, wayUpDigits, glyphAspect, turnCue, cageSums, HALF_TURN_BAR, HALF_TURN_FLOOR, CAGE_TURN_FLOOR } from "./turn-cues.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -559,6 +559,8 @@ export class Scanner {
   // turn keeps upright-shaped glyphs, so a poor reading of glyphs taller than
   // wide takes the half-turn check instead (halfTurn).
   async orient(found, canvas, corners, type, rows, cols, onProgress, options, check) {
+    // A cage puzzle's digits are all under review, so its sums tell instead.
+    if (isCage(type)) return this.cageTurn(found, canvas, corners, type, rows, cols, onProgress, options, check);
     const cue = turnCue(found), confident = confidentDigits(found);
     if (cue === "half")
       return this.halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check);
@@ -626,6 +628,47 @@ export class Scanner {
       ...turned,
       turns: 2,
       notes: ["The photograph was upside down: its digits read clearly better turned half a turn, so the crop corners were turned with it. Check the clues against the photograph.", ...turned.notes],
+    };
+  }
+  // A cage puzzle (Killer, KenKen) chosen as the type shows its way up by its
+  // sums (cageSums in turn-cues.js): a reading with a sum that can stand in
+  // fewer than half its cages is read again in the other three quarter turns,
+  // since nothing in it tells which. The turned reading with the most such
+  // sums is kept only when it clearly reads better: at least CAGE_TURN_FLOOR
+  // sums, sums in at least half its cages, and more than twice the first
+  // reading's. A tie between two turns keeps the first reading. Like every
+  // cage reading, a turned one waits for review.
+  async cageTurn(found, canvas, corners, type, rows, cols, onProgress, options, check) {
+    const first = cageSums(found);
+    if (first.sums >= first.cages / 2) return found;
+    let best = { found, sums: first.sums, turns: 0 }, tie = false;
+    for (const turns of [1, 2, 3]) {
+      check();
+      onProgress("Checking which way up the photograph is…", null);
+      check();
+      let turned;
+      try {
+        turned = await this.readOnce(canvas, turnCorners(corners, turns), type, rows, cols, () => {},
+          { onDiagnostic: options.onDiagnostic }, null, check);
+      } catch (error) {
+        // As for the other turns: an optional reading may fail, but never a
+        // cancellation, and never with an obsolete reading returned.
+        check();
+        if (error?.name === "AbortError") throw error;
+        continue;
+      }
+      check();
+      const { sums, cages } = cageSums(turned);
+      if (sums > best.sums) { best = { found: turned, sums, cages, turns }; tie = false; }
+      else if (best.turns && sums === best.sums) tie = true;
+    }
+    if (!best.turns || tie || best.sums < Math.max(CAGE_TURN_FLOOR, 2 * first.sums + 1) || best.sums < best.cages / 2) return found;
+    const how = best.turns === 2 ? "upside down: its cage sums read clearly better turned half a turn"
+      : `read turned a quarter turn ${best.turns === 1 ? "anticlockwise" : "clockwise"}: its cage sums read clearly better that way`;
+    return {
+      ...best.found,
+      turns: best.turns,
+      notes: [`The photograph was ${how}, so the crop corners were turned with it. Check the cages against the photograph.`, ...best.found.notes],
     };
   }
   async readOnce(canvas, corners, type, rows, cols, onProgress, { onPreview = () => {}, skipEvidence = {}, onDiagnostic = () => {} }, targetCells, check) {

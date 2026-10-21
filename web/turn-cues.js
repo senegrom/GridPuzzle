@@ -1,7 +1,8 @@
 // How a reading shows which way up its page lies: the cues the still
 // photograph's check goes by (Scanner.orient, scanner.js, and a capture's
 // handoff to the editor, photo-flow.js) and the live view's help line names
-// (live-session.js, turnedPage). They are kept out of scanner.js so that page
+// (live-session.js, turnedPage), and for a cage puzzle its cage sums
+// (Scanner.cageTurn). They are kept out of scanner.js so that page
 // modules can use them while a recognition suite runs the page with an older
 // scanner.js (scripts/harness.cjs, baselineSite).
 
@@ -58,3 +59,48 @@ export function turnCue(found) {
   if (aspect > 1 && aspect < Infinity) return confident && !wayUpDigits(found) ? "half" : null;
   return aspect < 1 ? "quarter" : null;
 }
+
+// A cage puzzle (Killer, KenKen) shows which way up it is by its cage sums,
+// not its digits: every digit read on a cage board is under review
+// (puzzleFromReadings), so confidentDigits is 0 there however the page lies.
+// Each sum is printed in the top-left corner of its cage's top-left cell,
+// where the reader looks for it (CAGE_LABEL_BOX in scan-analysis.js). Turned,
+// the page puts every sum in another corner, mostly of another cell, so the
+// reader finds few sums, and the page read turned the right way finds them.
+// A sum counts only when its cage can hold it (`cageSum`), since the empty
+// corners a turned page offers still catch strokes that read as numbers.
+function primeFactorsAtMost(value, n) {
+  let rest = value;
+  for (let p = 2; p * p <= rest; p++) while (rest % p === 0) { if (p > n) return false; rest /= p; }
+  return rest <= n;
+}
+// A target the cage can hold in an n x n puzzle of its type: a Killer cage's
+// distinct digits from 1 to n, a KenKen cage's digits from 1 to n by its
+// operator ("-" and "/" on two cells only).
+export function cageSum(cage, type, n) {
+  const k = cage.cells?.length ?? 0, target = cage.target;
+  if (!k || !Number.isSafeInteger(target) || target <= 0) return false;
+  if (type === "killersudoku") return k <= n && target >= (k * (k + 1)) / 2 && target <= (k * (2 * n + 1 - k)) / 2;
+  if (k === 1) return target <= n;
+  switch (cage.op ?? "+") {
+    case "+": return target >= k && target <= k * n;
+    case "-": return k === 2 && target <= n - 1;
+    case "/": return k === 2 && target >= 2 && target <= n;
+    case "*": return target <= n ** k && primeFactorsAtMost(target, n);
+    default: return false;
+  }
+}
+// The cages of a cage puzzle's reading (one clue region each) and the number
+// of them whose sum was read and can stand (cageSum).
+export function cageSums(found) {
+  const { type, rows } = found.puzzle ?? {};
+  return {
+    cages: (found.entries ?? []).filter((e) => e.cageLabel).length,
+    sums: (found.puzzle?.cages ?? []).filter((cage) => cageSum(cage, type, rows)).length,
+  };
+}
+// Scanner.cageTurn reads a cage puzzle again turned when fewer than half its
+// cages have a sum that can stand, and keeps a turned reading only when it
+// reads at least CAGE_TURN_FLOOR such sums, at least half its cages, and
+// clearly more than the first: twice as many, plus one.
+export const CAGE_TURN_FLOOR = 3;
