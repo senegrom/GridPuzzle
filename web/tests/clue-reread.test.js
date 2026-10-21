@@ -4,16 +4,24 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { setupClueReread } from '../clue-reread.js';
 import { makePuzzle } from '../model.js';
+// Timers are kept as setTimeout keeps them, each with its own id and delay, on
+// a clock that elapse() moves: with one shared slot the read's 90 s deadline
+// overwrote the 30 s idle timer, which hid an idle-out cancelling a running
+// read. Like Scanner's, the reader's cancel rejects a read in flight, and only
+// a cancel without keepEngine counts as one of the engine.
 function harness() {
-  const nodes=new Map(),jobs=[],timers=new Map();let pixel=180,cancels=0;
+  const nodes=new Map(),jobs=[],timers=new Map();let pixel=180,engineCancels=0,serial=0,now=0;
   const $=id=>{if(!nodes.has(id))nodes.set(id,{hidden:false,open:true,value:'',checked:false,events:{},textContent:'',focus(){},addEventListener(event,fn){this.events[event]=fn;}});return nodes.get(id);};
   const p=makePuzzle('latinsquare',2);p.cells[0]=1;
   const s={puzzle:p,cell:0,uncertain:new Set([0]),image:{width:200,height:200,getContext:()=>({getImageData:()=>({data:new Uint8ClampedArray(4).fill(pixel)})})},source:1,photoSource:1,rows:2,cols:2};
   $('cell-value').value='1';
-  const api=setupClueReread({$,getSelection:()=>s,makeReader:()=>({cancel(){cancels++;},readCells(...args){return new Promise((resolve,reject)=>jobs.push({args,resolve,reject}));}}),
-    setTimer(fn){timers.set(1,fn);return 1;},clearTimer:id=>timers.delete(id)});
+  const api=setupClueReread({$,getSelection:()=>s,makeReader:()=>({cancel(options){if(!options?.keepEngine)engineCancels++;for(const job of jobs)job.reject(new DOMException('Scan cancelled','AbortError'));},
+    readCells(...args){return new Promise((resolve,reject)=>jobs.push({args,resolve,reject}));}}),
+    setTimer(fn,ms){const id=++serial;timers.set(id,{fn,ms,at:now+ms});return id;},clearTimer:id=>timers.delete(id)});
+  // Fires the timers that fall due within `ms`, in order, then stops the clock there.
+  const elapse=ms=>{const end=now+ms;for(let next;(next=[...timers].filter(([,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0]);){timers.delete(next[0]);now=next[1].at;next[1].fn();}now=end;};
   const result=(value=2)=>{const puzzle=makePuzzle('latinsquare',2);puzzle.cells[0]=value;return {puzzle,targetCells:[0],entries:[{cell:0,kind:'value',text:String(value),confidence:20}]};};
-  api.open();return {$,s,api,jobs,timers,result,changePixels(){pixel++;},get cancels(){return cancels;}};
+  api.open();return {$,s,api,jobs,timers,result,elapse,armed:()=>[...timers.values()].map(t=>t.ms),changePixels(){pixel++;},get engineCancels(){return engineCancels;}};
 }
 test('a selected numeric re-read only offers a proposal; even Use does not confirm the puzzle',async()=>{
  const h=harness(),before=structuredClone(h.s.puzzle);const pending=h.$('reread-clue').onclick();
@@ -44,8 +52,21 @@ test('unread or wrong-grid result offers no numeric replacement',async()=>{
  }
 });
 test('timeout preserves the draft and prevents a late result from replacing it',async()=>{
- const h=harness(),done=h.$('reread-clue').onclick();h.timers.get(1)();h.jobs[0].resolve(h.result());await done;
+ const h=harness(),done=h.$('reread-clue').onclick();h.elapse(90000);h.jobs[0].resolve(h.result());await done;
  assert.equal(h.$('use-reread').hidden,true);assert.equal(h.$('cell-value').value,'1');assert.equal(h.timers.size,0);
+ assert.equal(h.engineCancels,1,'a timed-out read releases its engine');
+});
+// A warm engine idles out 30 s after a read, but a read may take up to its
+// 90 s deadline: the idle timer must not run during one.
+test('a warm re-read still running after 30 s keeps its engine and offers its proposal',async()=>{
+ const h=harness();let done=h.$('reread-clue').onclick();h.jobs[0].resolve(h.result());await done;
+ assert.deepEqual(h.armed(),[30000],'between reads the warm engine idles out after 30 s');
+ h.changePixels();done=h.$('reread-clue').onclick();
+ assert.deepEqual(h.armed(),[90000],'while a read runs only its own deadline is armed');
+ h.elapse(60000);h.jobs[1].resolve(h.result());await done;
+ assert.equal(h.engineCancels,0,'the engine is never cancelled');
+ assert.equal(h.$('use-reread').hidden,false);assert.match(h.$('reread-status').textContent,/^OCR proposes 2\b/);
+ assert.deepEqual(h.armed(),[30000],'after the read the engine idles out 30 s later again');
 });
 for(const state of ['play','confirmed','noPhoto','structural','badMapping'])test(`re-reading is unavailable for ${state}`,async()=>{
  const h=harness();if(state==='play')h.s.play=true;if(state==='confirmed')h.s.uncertain.clear();if(state==='noPhoto')h.s.image=null;

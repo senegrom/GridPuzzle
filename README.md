@@ -28,7 +28,7 @@ _KenKen_ (arithmetic cage constraints),
 and _Latin Square_ / _Diagonal Latin Square_ / _Pandiagonal Latin Square_.
 They can be extended using the built-in rules.
 
-The retained CSP-Rules corpora for _Hidato_, _Numbrix_, _Kakuro_, and _Slitherlink_ are first-class inputs. The normal file route auto-detects a CSP-Rules `solve` or `solve-tatham` form from the first meaningful input line while preserving the historical class-prefixed `.clp` format:
+The retained CSP-Rules corpora for _Hidato_, _Numbrix_, _Kakuro_, and _Slitherlink_ are first-class inputs. The normal file route auto-detects a CSP-Rules `solve` or `solve-tatham` form on the first meaningful input line, or below header lines in a text with no `::` class separator outside comments, while preserving the historical class-prefixed `.clp` format:
 
 ```bash
 gridpuzzle --file Examples/Hidato/Mebane/Mebane-III.1-S.clp --max-solutions 1

@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 // The photo-flow reading rules of corpus/benchmark.cjs live in the runner, which the deployment's gate
-// already reads; the CLI itself stays out of it, so editing it does not redeploy the app.
+// already reads; the CLI itself stays out of it, so editing it does not redeploy the app (its option
+// checks are tested in tests/test_corpus_benchmark_cli.py).
 const { selectImages, previewSize, readingCorners, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata } =
   createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 const { SCORE_VERSION } = createRequire(import.meta.url)("../../corpus/score.cjs");
@@ -56,10 +57,12 @@ test("true corners are scaled with the photograph and pulled onto the frame wher
   assert.equal(readingCorners({ detection: { corners: ["proposal"], confidence: 0.94 }, truth: null, size, trueCorners: true }).corners[0], "proposal");
 });
 
-test("a reading through unconfirmed corners flags every cell", () => {
-  const reading = { read: { cells: [1, null, 3, 4] }, uncertain: [2] };
-  assert.equal(photoFlowReview(reading, false), reading);
+test("a reading's digit flags are its digit channel, and every cell through unconfirmed corners", () => {
+  // Structural review (cell 3) is not digit review; black-cell readings are.
+  const reading = { read: { cells: [1, null, 3, 4] }, cellUncertain: [2], cageUncertain: [3], blackReadings: [1] };
+  assert.deepEqual(photoFlowReview(reading, false), { ...reading, uncertain: [2, 1] });
   assert.deepEqual(photoFlowReview(reading, true).uncertain.sort(), [0, 1, 2, 3]);
+  assert.deepEqual(photoFlowReview(reading, true).cageUncertain, [3]);
 });
 
 test("the benchmark reads through the proposal, flags every cell when it is unconfirmed, and scores corners of a found grid", async (t) => {
@@ -78,7 +81,8 @@ test("the benchmark reads through the proposal, flags every cell when it is unco
       if (fn.name === "detectGrid") return { detected: 5, detection: { corners: proposal, confidence, rows, cols } };
       // Read through the original's detail (or not); one cell misread: 2 read as 9.
       return { ms: 10, detail, detailNote: detail ? "Clues read from the original photo detail." : null,
-        read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] }, uncertain: [], cageUncertain: [], ocr: 7 };
+        read: { cells: [1, 2, 9, 1], cages: [], clues: [], inequalities: [], black: [] },
+        cellUncertain: [], cageUncertain: [], blackReadings: [], ocr: 7 };
     } };
     const row = await photoFlowMeasure(page, { file, target, mime: "image/png" }, options);
     return { row, calls };

@@ -77,6 +77,12 @@ def _needs(job: str) -> list[str]:
     return [name.strip() for name in match.group(1).strip("[]").split(",")]
 
 
+def _gated(jobs: dict[str, str]) -> list[str]:
+    """The jobs a changes job gates, in file order: all but it, the result
+    job and the jobs that run only on master."""
+    return [job for job, body in jobs.items() if job not in ("changes", "result") and _MASTER_ONLY not in body]
+
+
 def _changes_paths(text: str) -> list[str]:
     """The patterns a workflow's changes job passes to changed-paths."""
     match = re.search(
@@ -138,17 +144,14 @@ def test_every_pull_request_runs_the_workflow(name):
 def test_the_changes_job_gates_every_job_and_the_result_job_checks_them(name):
     jobs = _jobs(_workflow(name))
     assert {"changes", "result"} <= jobs.keys()
-    gated = []
-    for job, body in jobs.items():
-        if job in ("changes", "result") or _MASTER_ONLY in body:
-            continue
-        needs = _needs(body)
+    gated = _gated(jobs)
+    for index, job in enumerate(gated):
+        needs = _needs(jobs[job])
         if "changes" in needs:
-            assert "    if: needs.changes.outputs.relevant == 'true'\n" in body, job
+            assert "    if: needs.changes.outputs.relevant == 'true'\n" in jobs[job], job
         else:
             # skipped along with the gated job it needs
-            assert needs and set(needs) <= set(gated), f"{job} is not gated"
-        gated.append(job)
+            assert needs and set(needs) <= set(gated[:index]), f"{job} is not gated"
     assert gated, f"{name} gates nothing"
     result = jobs["result"]
     assert "    if: always()\n" in result
@@ -163,6 +166,25 @@ def test_the_changes_job_gates_every_job_and_the_result_job_checks_them(name):
         "relevant: ${{ github.event_name != 'pull_request' || "
         "steps.diff.outputs.relevant == 'true' }}"
     ) in changes
+
+
+@pytest.mark.gate
+def test_a_deployment_waits_for_every_job_its_result_job_checks():
+    """deploy does not need the result job, so it publishes as soon as the
+    jobs it needs have succeeded. Those must be every gated job, a job split
+    out of live-acceptance later as much as the ones there are now, and
+    configure, which checks that Pages is set up."""
+    deployments = {}
+    for path in sorted((_GITHUB / "workflows").glob("*.yml")):
+        jobs = _jobs(path.read_text(encoding="utf-8"))
+        for job, body in jobs.items():
+            if re.search(r"^    environment:$", body, re.M):
+                deployments[f"{path.name} {job}"] = (set(_needs(body)), set(_gated(jobs)))
+    assert deployments.keys() == {"browser-pages.yml deploy"}
+    for deployment, (needs, gated) in deployments.items():
+        assert {"build", "live-acceptance", "live-camera"} <= gated
+        assert gated <= needs, f"{deployment} publishes without waiting for {sorted(gated - needs)}"
+        assert "configure" in needs, deployment
 
 
 @pytest.mark.gate
@@ -395,22 +417,27 @@ def _files(path: str) -> set[str]:
     }
 
 
-def _deployment_inputs() -> set[str]:
-    """The repository files the deployment workflow's build and gate read.
+def _scanner_inputs(workflow: str, *modules: str) -> set[str]:
+    """The repository files a workflow of scanner jobs reads.
 
-    The build's `ROOT / "..."` inputs, the scripts the jobs run and every
-    relative module those load, the browser unit tests (a push runs them)
-    with theirs, and the fixture directories the suites name.
+    The workflow and setup-scanner, the build's `ROOT / "..."` inputs (the
+    jobs build the site, or download one built from them), the scripts the
+    jobs run and `modules`, every relative module those load, and the
+    fixture directories the suites name. A module counts as loaded when
+    require() or createRequire(import.meta.url)() names it by a literal
+    relative path; one loaded by a path built at run time, such as
+    require(path.join(__dirname, "x.cjs")), is missed, so scripts load
+    their modules by literal paths.
     """
     action = _GITHUB / "actions" / "setup-scanner" / "action.yml"
-    text = _workflow("browser-pages.yml") + action.read_text(encoding="utf-8")
-    inputs = _files(".github/workflows/browser-pages.yml")
+    text = _workflow(workflow) + action.read_text(encoding="utf-8")
+    inputs = _files(f".github/workflows/{workflow}")
     inputs |= _files(".github/actions/setup-scanner")
     build = (_ROOT / "scripts" / "build_web.py").read_text(encoding="utf-8")
     for name in re.findall(r'ROOT / "([^"]+)"', build):
         inputs |= _files(name)
     pending = re.findall(r"(?:node|python) (scripts/[\w.-]+)", text)
-    pending += [f"web/tests/{test.name}" for test in (_ROOT / "web" / "tests").glob("*.test.js")]
+    pending += modules
     seen = set()
     while pending:
         path = pending.pop()
@@ -428,6 +455,13 @@ def _deployment_inputs() -> set[str]:
         for directory in re.findall(r"""["'](Examples/BrowserScanner/[^"']*)["']""", source):
             inputs |= _files(directory)
     return inputs
+
+
+def _deployment_inputs() -> set[str]:
+    """The repository files the deployment workflow's build and gate read,
+    the browser unit tests (a push runs them) with theirs included."""
+    tests = [f"web/tests/{test.name}" for test in (_ROOT / "web" / "tests").glob("*.test.js")]
+    return _scanner_inputs("browser-pages.yml", *tests)
 
 
 @pytest.mark.gate
@@ -478,6 +512,39 @@ def test_every_change_that_runs_scanner_quality_runs_the_deployment_gate():
     assert {path for path in probes if _filter_selects(quality, path)} - {
         path for path in probes if _filter_selects(gate, path)
     } == set()
+
+
+# What Scanner quality's jobs build into the site but its suites never use:
+# the solver and the licence texts. The suites read clues and solve nothing
+# (external_replay hands its scanner a solver that throws), and a failed
+# warm-up of the app's solver stays in its worker. Every change to these
+# runs the deployment gate, which builds the same site and solves.
+_SCANNER_QUALITY_UNUSED = ("gridsolver/**", "LICENSE", "third_party/licenses/**")
+
+
+def test_scanner_quality_runs_on_what_its_suites_read():
+    """Four of its suites run in no other workflow, so a pull request that
+    changes only a module one of them loads, a fixture it names or a script
+    its jobs run must still run them: every such file is in the changes
+    job's paths."""
+    paths = _changes_paths(_workflow("scan-input.yml"))
+    inputs = {path for path in _scanner_inputs("scan-input.yml") if not path.endswith(".md")}
+    for path in (
+        ".github/actions/setup-scanner/action.yml",
+        "Examples/BrowserScanner/Newspaper/ground-truth.json",
+        "scripts/build_web.py",
+        "scripts/external_replay_regressions.cjs",
+        "scripts/fetch_live_fixtures.py",
+        "scripts/harness.cjs",
+        "scripts/ocr_quality_regressions.cjs",
+        "scripts/recognition_fragments_regressions.cjs",
+    ):
+        assert path in inputs, path
+    unused = {path for path in inputs if _filter_selects(_SCANNER_QUALITY_UNUSED, path)}
+    assert unused, "the site no longer packs the solver and licences: drop the exemption"
+    gate = _push_paths(_workflow("browser-pages.yml"))
+    assert {path for path in unused if not _filter_selects(gate, path)} == set()
+    assert {path for path in inputs - unused if not _filter_selects(paths, path)} == set()
 
 
 @pytest.mark.gate
@@ -564,6 +631,39 @@ def test_every_leg_of_a_matrix_job_uploads_under_its_own_name(name):
             assert upload and "${{ matrix." in upload.group(1), f"{name} {job_id}: {upload and upload.group(1)}"
 
 
+# The CPython feature releases that have a final release, which setup-python
+# takes even for a leg that allows prereleases. actions/python-versions
+# published 3.15.0 on 2026-10-10, and weekly run 38544326268 then set up
+# "CPython (3.15.0)" for the leg still labelled "Python 3.15 prerelease".
+# Add each feature release when its final release is out.
+_FINAL_RELEASES = {"3.14", "3.15"}
+
+
+def test_each_forward_compatibility_leg_is_named_for_the_python_it_sets_up():
+    """Its version, free-threaded when it is, and prerelease exactly when it
+    allows prereleases, which only a CPython without a final release needs:
+    setup-python takes the final release once there is one. So a leg allows
+    prereleases exactly when its version is not in _FINAL_RELEASES."""
+    job = _jobs(_workflow("forward-compatibility.yml"))["compatibility"]
+    assert "    name: ${{ matrix.label }}\n" in job
+    legs = re.findall(
+        r'^          - label: (.+)\n            python-version: "([\d.]+)"\n'
+        r"            freethreaded: (true|false)\n            allow-prereleases: (true|false)\n",
+        job, re.M,
+    )
+    assert legs and len(legs) == job.count("- label: ")
+    for label, version, freethreaded, prereleases in legs:
+        built = " free-threaded" if freethreaded == "true" else ""
+        upcoming = " prerelease" if prereleases == "true" else ""
+        assert label == f"Python {version}{built}{upcoming}"
+        released = version in _FINAL_RELEASES
+        assert (prereleases == "true") != released, (
+            f"{label}: setup-python takes {version}'s final release"
+            if released
+            else f"{label}: {version} has no final release in _FINAL_RELEASES"
+        )
+
+
 # The Ubuntu release of each Playwright image variant.
 _UBUNTU_RELEASES = {"noble": "24.04", "resolute": "26.04"}
 
@@ -625,6 +725,35 @@ def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
     families = re.search(r"^ +for family in (.+); do$", action, re.M)
     assert families, "setup-scanner checks no fonts"
     assert re.findall(r'"([^"]+)"', families.group(1)) == ["DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono"]
+
+
+def test_the_external_pictures_come_from_the_cache_when_it_holds_them():
+    """Every job that fetches the pinned picture slice restores the fetch
+    script's store from the cache first and saves it after a miss, so a
+    deployment needs huggingface.co only when the cache is cold or a pin
+    changed. The key is the script, which holds the pins; the script checks
+    every restored file against its pin, so a stale or damaged cache costs a
+    download, never a different picture."""
+    from scripts.fetch_live_fixtures import STORE
+
+    fetching = {
+        f"{path.name} {job_id}": job
+        for path in sorted((_GITHUB / "workflows").glob("*.yml"))
+        for job_id, job in _jobs(path.read_text(encoding="utf-8")).items()
+        if "python scripts/fetch_live_fixtures.py" in job
+    }
+    assert set(fetching) == {"browser-pages.yml live-acceptance", "scan-input.yml live"}
+    for name, job in fetching.items():
+        restore = _step(job, "uses: actions/cache/restore@")
+        save = _step(job, "uses: actions/cache/save@")
+        fetch = _step(job, "run: python scripts/fetch_live_fixtures.py\n")
+        assert job.index(restore) < job.index(fetch) < job.index(save), name
+        cache = re.search(r"^        id: (\S+)$", restore, re.M).group(1)
+        for step in (restore, save):
+            assert f"\n          path: {STORE.as_posix()}\n" in step, name
+        assert "\n          key: live-fixtures-${{ hashFiles('scripts/fetch_live_fixtures.py') }}\n" in restore, name
+        assert f"\n        if: steps.{cache}.outputs.cache-hit != 'true'\n" in save, name
+        assert f"\n          key: ${{{{ steps.{cache}.outputs.cache-primary-key }}}}\n" in save, name
 
 
 _PINNED_ACTION = re.compile(r"^\s*(?:- )?uses: ([\w.-]+/[\w./-]+)@(\S+)(.*)$", re.M)
@@ -723,6 +852,34 @@ def test_ci_tests_the_lowest_versions_pyproject_allows():
     assert 'python -X dev -m pytest -q tests -m "not slow"' in job
     action = (_GITHUB / "actions" / "setup-project" / "action.yml").read_text(encoding="utf-8")
     assert 'python scripts/lower_bounds.py "$EXTRAS" | tee "$constraints"' in action
+
+
+# For each requirement whose older releases have published advisories (OSV,
+# 2026-10-19), the first release without any. pyproject.toml's lower bounds
+# stay at or above these, so that no installation it allows, the
+# lower-bounds job's included, gets a release with a known vulnerability.
+_FIRST_WITHOUT_ADVISORIES = {
+    # 12.3.0 fixes 13 CVEs, among them CVE-2026-59205 (a heap write in
+    # ImageCms), CVE-2026-59199 (paste and crop out of bounds) and
+    # CVE-2026-54058. 11.3.0 has 12 of them, and six more that 12.1.1 and
+    # 12.2.0 fixed.
+    "pillow": "12.3",
+    # CVE-2025-71176, pytest's temporary directory handling
+    "pytest": "9.0.3",
+}
+
+
+def test_no_lower_bound_allows_a_release_with_a_published_advisory():
+    project = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    requirements = [*project["dependencies"]]
+    for extra in project["optional-dependencies"].values():
+        requirements += extra
+    bounds = {}
+    for requirement in requirements:
+        name, minimum = re.fullmatch(r"([A-Za-z0-9._-]+)>=([\d.]+)", requirement).groups()
+        bounds[_requirement_name(name)] = minimum
+    for name, fixed in _FIRST_WITHOUT_ADVISORIES.items():
+        assert _release(bounds[name]) >= _release(fixed), f"{name}>={bounds[name]} allows releases fixed in {fixed}"
 
 
 def _collect(*arguments: str, cwd: Path = _ROOT) -> set[str]:

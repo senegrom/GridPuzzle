@@ -176,6 +176,18 @@ async function startDelayedSave(phase) {
     s.pending=capture({toBlob(done){s.releaseCanvas=()=>done(blob);}},42).then(ok=>s.result=ok?"saved":"superseded",e=>s.result=e.name);
   } else s.pending=s.api.saveCapture(blob,42,options).then(()=>s.result="saved",e=>s.result=e.name);
 }
+// Polls inside the tab until a request waits on a Web Lock: true when one does
+// within 10 s, false otherwise. waitForFunction cannot wait for this: the query
+// is async, and a predicate's Promise is truthy, so it would return at its
+// first poll whatever the locks hold (solver_update_regressions.cjs keeps its
+// predicate synchronous for the same reason).
+function lockQueued(tab) {
+  return tab.evaluate(async()=>{
+    for(const end=Date.now()+10000;Date.now()<end;await new Promise(resolve=>setTimeout(resolve,5)))
+      if((await navigator.locks.query()).pending.length)return true;
+    return false;
+  });
+}
 async function storageProbe(page) {
   const other=await page.context().newPage();
   try {
@@ -201,7 +213,7 @@ async function storageProbe(page) {
       await page.waitForFunction(phase=>Boolean(window.captureProbe[phase==="canvas"?"releaseCanvas":phase.endsWith("opening")?"releaseOpen":"releaseBytes"]),phase);
       if(phase==="reservation-opening") {
         await other.evaluate(()=>{const s=window.captureProbe;s.done=false;s.deleting=s.api.deleteCapture().then(()=>{s.done=true;});});
-        await other.waitForFunction(async()=>Boolean((await navigator.locks.query()).pending.length));
+        assert.equal(await lockQueued(other),true,"the deletion must queue behind the reservation's lock");
         assert.equal(await other.evaluate(()=>window.captureProbe.done),false,"deletion must not overtake an earlier reservation's delayed open");
         await page.evaluate(()=>window.captureProbe.releaseOpen());
         await page.waitForFunction(()=>Boolean(window.captureProbe.releaseBytes));
@@ -223,7 +235,7 @@ async function storageProbe(page) {
     assert.equal(await other.evaluate(async()=>await (await window.captureProbe.api.loadCapture()).blob.text()),"newer");
     await page.evaluate(startDelayedSave,"deletion-opening");await page.waitForFunction(()=>Boolean(window.captureProbe.releaseOpen));
     await other.evaluate(()=>{const s=window.captureProbe;s.writing=s.api.saveCapture(new Blob(["newer"],{type:"image/png"}),42);});
-    await other.waitForFunction(async()=>Boolean((await navigator.locks.query()).pending.length));
+    assert.equal(await lockQueued(other),true,"the newer save must queue behind the delayed deletion's lock");
     await page.evaluate(()=>window.captureProbe.releaseOpen());
     await other.evaluate(()=>window.captureProbe.writing);await page.evaluate(()=>window.captureProbe.pending);
     assert.equal(await other.evaluate(async()=>await (await window.captureProbe.api.loadCapture()).blob.text()),"newer");

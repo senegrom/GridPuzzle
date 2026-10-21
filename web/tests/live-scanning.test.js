@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makePuzzle } from "../model.js";
-import { overlayCells, previewBlocker, SCAN_COLOURS, drawLiveOverlay } from "../live-overlay.js";
+import { overlayCells, previewBlocker, SCAN_COLOURS, drawLiveOverlay, drawPreviewBar } from "../live-overlay.js";
 import { createLiveSession } from "../live-session.js";
 import { createLiveSolver } from "../live-solver.js";
 import { signatureIdentity } from "./frame-identity.js";
@@ -285,4 +285,35 @@ test("drawing an invalid guide puzzle leaves the canvas state balanced", () => {
   const puzzle = makePuzzle("sudoku", 9, 6);
   assert.throws(() => drawLiveOverlay(ctx, 300, 300, [{ x: 0, y: 0 }, { x: 299, y: 0 }, { x: 299, y: 299 }, { x: 0, y: 299 }], { puzzle, markedCells: [] }));
   assert.equal(saves, restores, "a rejected puzzle shape must not leak a save()");
+});
+
+// The solver's Slitherlink edges are ("H", r, c), from grid vertex (r, c) to
+// (r, c + 1), and ("V", r, c), from (r, c) to (r + 1, c), as app.js draws them.
+test("a solved Slitherlink's loop is drawn along the grid lines it takes", () => {
+  const segments = [], strokes = [];
+  const ctx = { save() {}, restore() {}, translate() {}, rotate() {}, fillRect() {}, fillText() {}, beginPath() {},
+    moveTo(x, y) { segments.push([[x, y]]); }, lineTo(x, y) { segments.at(-1).push([x, y]); }, stroke() { strokes.push(this.strokeStyle); } };
+  // Two rows of three 100 px cells; the loop goes round cells 0 and 1.
+  const puzzle = makePuzzle("slitherlink", 2, 3); puzzle.cells[0] = 3; puzzle.cells[5] = 0;
+  const edges = [["H", 0, 0], ["H", 0, 1], ["H", 1, 0], ["H", 1, 1], ["V", 0, 0], ["V", 0, 2]];
+  drawLiveOverlay(ctx, 320, 220, [{ x: 0, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 200 }, { x: 0, y: 200 }], { puzzle, cellUncertain: [], markedCells: [] },
+    { status: "unique", complete: true, solutions: [{ cells: [...puzzle.cells], edges }] });
+  assert.deepEqual(segments.map((points) => points.map(([x, y]) => [Math.round(x), Math.round(y)])),
+    [[[0, 0], [100, 0]], [[100, 0], [200, 0]], [[0, 100], [100, 100]], [[100, 100], [200, 100]], [[0, 0], [0, 100]], [[200, 0], [200, 100]]]);
+  assert.deepEqual(strokes, Array(6).fill(SCAN_COLOURS.solution));
+  // Without a unique, complete answer there is no loop to draw.
+  segments.length = 0;
+  drawLiveOverlay(ctx, 320, 220, [{ x: 0, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 200 }, { x: 0, y: 200 }], { puzzle, cellUncertain: [], markedCells: [] },
+    { status: "multiple", complete: true, solutions: [{ cells: [...puzzle.cells], edges }] });
+  assert.deepEqual(segments, []);
+});
+
+// In a saved picture the bar is the only key to the colours: each label is
+// written in the colour it names.
+test("the preview bar's legend is written in the colours it names", () => {
+  const written = [], ctx = { fillRect() {}, fillText(text) { written.push([text, this.fillStyle]); } };
+  drawPreviewBar(ctx, 600, 400);
+  assert.deepEqual(written, [["PREVIEW", "#fff"], ["Read", SCAN_COLOURS.recognised], ["Check ?", SCAN_COLOURS.uncertain],
+    ["Unread ?", SCAN_COLOURS.unknown], ["Solution", SCAN_COLOURS.solution]]);
+  assert.equal(new Set(written.map(([, colour]) => colour)).size, 5, "five colours, none repeated");
 });
