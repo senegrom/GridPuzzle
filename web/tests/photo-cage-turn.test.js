@@ -158,3 +158,57 @@ test("live previews, targeted re-reads and non-square grids keep their orientati
   await assert.rejects(read(fake, { options: { cells: [0] } }), /Structural clues need a full scan and review/);
   assert.equal(fake.calls.length, 0);
 });
+
+// Recorded readings (WebKit 27.2, base b6bf933, through the import, detector
+// corners and photoDetail as the corpus benchmark reads them): the four
+// readings of one photograph through its crop turned 0 to 3 times
+// (f-cageturn matrix), as [clue regions, [[target, operator, ...cells]]]. A
+// page lying so that it first reads as reading a is read again turned j to
+// give reading (a + j) % 4.
+function recorded(readings, type, n) {
+  return readings.map(([regions, cages]) => ({
+    puzzle: { type, rows: n, cols: n, cells: Array(n * n).fill(null),
+      cages: cages.map(([target, op, ...cells]) => ({ cells, target, op })) },
+    entries: Array.from({ length: regions }, (_, cell) => ({ kind: "label", cell, cageLabel: true })),
+    uncertain: [], notes: ["kept"] }));
+}
+function asLying(readings, a) {
+  return [0, 1, 2, 3].map((j) => readings[(a + j) % 4]);
+}
+// janko-killersudoku-004-photo (a 6 x 6 Sumdoku): upright, 12 sums read, 10 of
+// them a 2- or 3-cell cage can hold (not the 23 or the 1); turned, at most one.
+const SUMDOKU = recorded([[14,[[12,"+",0,1,7],[12,"+",2,8,9],[10,"+",3,4,5],[23,"+",6,12],[1,"+",10,11,17],[7,"+",13,19],[11,"+",14,15,21],[null,"+",16,22],[18,"+",18,24,25,30],[3,"+",20,26],[7,"+",23,29],[11,"+",27,33],[null,"+",28,34,35],[5,"+",31,32]]],
+  [14,[[null,"+",0,6,12],[null,"+",1,2,7],[null,"+",3,4],[null,"+",5,10,11],[null,"+",8,9],[null,"+",13,18,19],[null,"+",14,15,20],[null,"+",16,17],[null,"+",21,22],[null,"+",23,29],[null,"+",24,25,30],[7,"+",26,27],[null,"+",28,33,34,35],[null,"+",31,32]]],
+  [14,[[null,"+",0,1,7],[null,"+",2,8],[null,"+",3,4],[null,"+",5,10,11,17],[null,"+",6,12],[null,"+",9,15],[null,"+",13,19],[null,"+",14,20,21],[null,"+",16,22],[null,"+",18,24,25],[null,"+",23,29],[null,"+",26,27,33],[null,"+",28,34,35],[null,"+",30,31,32]]],
+  [14,[[null,"+",0,1,2,7],[null,"+",3,4],[null,"+",5,10,11],[null,"+",6,12],[null,"+",8,9],[null,"+",13,14],[null,"+",15,20,21],[null,"+",16,17,22],[null,"+",18,19],[null,"+",23,29,35],[null,"+",24,25,30],[null,"+",26,27],[null,"+",28,33,34],[null,"+",31,32]]]], "kenken", 6);
+// generated-render-sum-only killersudoku-006-photo (9 x 9 Killer): upright,
+// only 8 of 45 sums that can stand (3 of them right); turned, none.
+const KILLER = recorded([[45,[[null,"+",0,9],[null,"+",1],[null,"+",2,3,12],[7,"+",4,5],[null,"+",6,7,8],[2,"+",10,19],[null,"+",11],[null,"+",13,14],[null,"+",15],[5,"+",16],[null,"+",17,26,35],[1,"+",18,27],[null,"+",20,29,38],[3,"+",21,22],[null,"+",23,24,25,34],[null,"+",28],[7,"+",30],[null,"+",31],[4,"+",32],[null,"+",33],[null,"+",36,37],[null,"+",39],[null,"+",40],[null,"+",41],[null,"+",42,50,51],[null,"+",43,44],[3,"+",45,54,63],[null,"+",46,55],[null,"+",47,48,56],[null,"+",49,58],[null,"+",52,61],[null,"+",53,62,71],[null,"+",57],[null,"+",59],[7,"+",60],[3,"+",64,73],[null,"+",65,74],[null,"+",66],[null,"+",67,76],[null,"+",68,69,78],[null,"+",70,79],[5,"+",72],[null,"+",75],[null,"+",77],[null,"+",80]]],
+  [45,[[null,"+",0,9,18],[null,"+",1,2,3],[null,"+",4,13],[null,"+",5,6,7],[null,"+",8],[null,"+",10],[null,"+",11,12,20,29],[null,"+",14,15],[null,"+",16,17],[null,"+",19],[null,"+",21],[null,"+",22,23,32],[null,"+",24],[null,"+",25,26,34],[null,"+",27,36],[null,"+",28,37],[null,"+",30],[null,"+",31],[null,"+",33],[null,"+",35],[null,"+",38,47],[null,"+",39],[null,"+",40],[null,"+",41,42],[null,"+",43,44],[null,"+",45,46,54],[null,"+",48],[null,"+",49],[null,"+",50,59,60],[null,"+",51],[null,"+",52],[null,"+",53],[null,"+",55],[null,"+",56,57,58],[null,"+",61,62],[null,"+",63],[null,"+",64,65],[null,"+",66],[null,"+",67,76],[null,"+",68,69],[null,"+",70,71],[null,"+",72,73],[null,"+",74,75],[null,"+",77,78,79],[null,"+",80]]],
+  [45,[[null,"+",0],[null,"+",1,10],[null,"+",2,11,12],[null,"+",3],[null,"+",4,13],[null,"+",5],[null,"+",6,15],[null,"+",7,16],[null,"+",8],[null,"+",9,18,27],[null,"+",14],[null,"+",17,26,35],[null,"+",19,28],[null,"+",20],[null,"+",21],[null,"+",22,31],[null,"+",23],[null,"+",24,32,33],[null,"+",25,34],[null,"+",29,30,38],[null,"+",36,37],[null,"+",39],[null,"+",40],[null,"+",41],[null,"+",42,51,60],[null,"+",43,44],[null,"+",45,54,63],[null,"+",46,55,56,57],[null,"+",47],[null,"+",48],[null,"+",49],[null,"+",50],[null,"+",52],[null,"+",53,62],[null,"+",58,59],[null,"+",61,70],[null,"+",64],[null,"+",65],[null,"+",66,67],[null,"+",68,77,78],[null,"+",69],[null,"+",71,80],[null,"+",72,73,74],[null,"+",75,76],[null,"+",79]]],
+  [45,[[null,"+",0],[null,"+",1,2,3],[null,"+",4,13],[null,"+",5,6],[null,"+",7,8],[null,"+",9,10],[null,"+",11,12],[null,"+",14],[null,"+",15,16],[null,"+",17],[null,"+",18,19],[null,"+",20,21,30],[null,"+",22,23,24],[null,"+",25],[null,"+",26,34,35],[null,"+",27],[null,"+",28],[null,"+",29],[null,"+",31],[null,"+",32],[null,"+",33,42],[null,"+",36,37],[null,"+",38,39],[null,"+",40],[null,"+",41],[null,"+",43,52],[null,"+",44,53],[null,"+",45],[null,"+",46,54,55],[null,"+",47],[null,"+",48,57,58],[null,"+",49],[null,"+",50],[null,"+",51,60,68,69],[null,"+",56],[null,"+",59],[null,"+",61],[null,"+",62,71,80],[null,"+",63,64],[null,"+",65,66],[null,"+",67,76],[null,"+",70],[null,"+",72],[null,"+",73,74,75],[null,"+",77,78,79]]]], "killersudoku", 9);
+test("real: a Sumdoku photograph lying turned any way is read upright, and upright it is read once", async () => {
+  assert.deepEqual(SUMDOKU.map((found) => cageSums(found)),
+    [{ cages: 14, sums: 10 }, { cages: 14, sums: 1 }, { cages: 14, sums: 0 }, { cages: 14, sums: 0 }]);
+  const upright = reader([SUMDOKU[0]]);
+  assert.equal(await read(upright, { type: "kenken", rows: 6, cols: 6 }), SUMDOKU[0]);
+  assert.equal(upright.calls.length, 1);
+  for (const a of [1, 2, 3]) {
+    const fake = reader(asLying(SUMDOKU, a)), found = await read(fake, { type: "kenken", rows: 6, cols: 6 });
+    assert.equal(fake.calls.length, 4, `lying as ${a}`);
+    assert.equal(found.turns, (4 - a) % 4, `lying as ${a}`);
+    assert.equal(found.puzzle, SUMDOKU[0].puzzle);
+  }
+});
+test("real: a Killer photograph read poorly is read again but never turned, nor is it turned from any side", async () => {
+  assert.deepEqual(KILLER.map((found) => cageSums(found).sums), [8, 0, 0, 0]);
+  // Upright, 8 of 45 is under half, so the photograph is read in all three
+  // turns, and none reads a sum; lying turned, the upright reading's 8 sums
+  // are not half its cages, so the check leaves it as it lies (as master).
+  for (const a of [0, 1, 2, 3]) {
+    const fake = reader(asLying(KILLER, a)), found = await read(fake);
+    assert.equal(fake.calls.length, 4, `lying as ${a}`);
+    assert.equal(found.turns, undefined, `lying as ${a}`);
+    assert.equal(found.puzzle, KILLER[a].puzzle);
+  }
+});
