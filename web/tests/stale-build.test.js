@@ -78,6 +78,7 @@ test("a page left on the previous build loads the OCR it never used from the wai
     }
     assert.deepEqual(since(h, start), [OCR(X), OCR(Y), MODEL(X), MODEL(Y)],
       "the waiting build's stored manifest names the copy: no manifest download");
+    assert.deepEqual(h.updates, [], "and no update check: only the origin's list asks for one");
     assert.equal(await h.stored(h.files(X)[OCR(X)]), true, "stored by digest for the next load");
     h.offline(true);
     assert.equal(await (await oldRead(OCR(X), "old-tab")).text(), h.files(X)[OCR(X)]);
@@ -177,6 +178,40 @@ test("a missing file whose origin list names another build asks for the update o
   assert.equal(h.updates.length, 1, "but asks for no second check");
 });
 
+// A page misses several files at once (a read starts the OCR runtime and its
+// model together), so the build is recorded before anything is awaited.
+test("missing files met at the same time ask for the update once", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  h.deploy(Y);
+  // The origin's list answers both reads together, once both have asked.
+  const asked = [], list = JSON.stringify({ build: Y, assets: Object.entries(h.files(Y)).map(([path, data]) => ({ path, sha256: hash(data) })) });
+  h.serve("assets.json", () => new Promise((resolve) => {
+    asked.push(resolve);
+    if (asked.length === 2) for (const answer of asked) answer(new Response(list));
+  }));
+  const responses = await Promise.all([OCR(X), MODEL(X)].map((path) => oldRead(path, "old-tab")));
+  assert.deepEqual(await Promise.all(responses.map((response) => response.text())), [h.files(X)[OCR(X)], h.files(X)[MODEL(X)]]);
+  assert.equal(asked.length, 2, "both read the origin's list");
+  assert.deepEqual(h.updates, [{ worker: X, origin: Y }]);
+});
+
+// The check is asked for as soon as the origin's list names the build, not
+// after the copy: a large copy would delay the banner, and one that fails at
+// the network would leave the update unasked.
+test("the update is asked for before the copy is fetched, so a copy still downloading or failing does not hold it back", async () => {
+  const h = deploys(), oldRead = await h.activate(X);
+  h.deploy(Y);
+  let fail;
+  h.serve(OCR(Y), () => new Promise((_, reject) => { fail = () => reject(TypeError("Failed to fetch")); }));
+  const response = quietly(() => oldRead(OCR(X), "old-tab"));
+  for (let turn = 0; !fail && turn < 1000; turn++) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(fail, "the copy was asked for");
+  assert.deepEqual(h.updates, [{ worker: X, origin: Y }], "asked while the copy is still downloading");
+  fail();
+  assert.equal((await response).status, 502, "a copy that fails at the network is not served");
+  assert.equal(h.updates.length, 1);
+});
+
 test("a deploy that changed the file asks for the update too, once for the read and the offline download", async () => {
   const h = deploys(), oldRead = await h.activate(X);
   h.deploy(Y, "6.0.2");
@@ -236,6 +271,13 @@ test("with nothing missing neither the origin's list nor an update is asked for"
   assert.deepEqual(h.updates, []);
 });
 
+// A response that waited for a check that never settles would never come:
+// fail within seconds rather than at the test runner's timeout, or never.
+const promptly = (answer) => {
+  let timer;
+  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(Error("no answer within 10 s")), 10000); });
+  return Promise.race([answer, late]).finally(() => clearTimeout(timer));
+};
 for (const [name, respond] of [
   ["rejects", () => Promise.reject(new DOMException("The service worker is installing.", "InvalidStateError"))],
   ["throws", () => { throw TypeError("Failed to update a ServiceWorker"); }],
@@ -245,14 +287,14 @@ for (const [name, respond] of [
     const h = deploys(), oldRead = await h.activate(X);
     h.answerUpdates(respond);
     h.deploy(Y);
-    assert.equal(await (await oldRead(OCR(X), "old-tab")).text(), h.files(X)[OCR(X)]);
+    assert.equal(await (await promptly(oldRead(OCR(X), "old-tab"))).text(), h.files(X)[OCR(X)]);
     assert.equal(await h.stored(h.files(X)[OCR(X)]), true);
-    assert.equal(await (await oldRead(MODEL(X), "old-tab")).text(), h.files(X)[MODEL(X)]);
+    assert.equal(await (await promptly(oldRead(MODEL(X), "old-tab"))).text(), h.files(X)[MODEL(X)]);
     assert.equal(h.updates.length, 1, "and is not asked for again");
     const changed = deploys(), changedRead = await changed.activate(X);
     changed.answerUpdates(respond);
     changed.deploy(Y, "6.0.2");
-    const last = (await changedRead.send("PREPARE_OFFLINE", "old-tab")).at(-1);
+    const last = (await promptly(changedRead.send("PREPARE_OFFLINE", "old-tab"))).at(-1);
     assert.equal(last.error, `Could not download ${OCR(X)}. Stay online and retry.`);
     assert.equal(last.gone, true);
     assert.equal(changed.updates.length, 1);

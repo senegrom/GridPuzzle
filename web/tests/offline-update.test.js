@@ -214,6 +214,19 @@ test("an update found while an offline download runs leaves the download to fini
   assert.equal(tab.node("prepare-offline").disabled, false);
 });
 
+// The worker's check often installs the update while a long download runs,
+// and the download then finds a file gone: the advice is decided when the
+// download ends, not when it starts.
+test("a download that finds a file gone after an update was installed while it ran names that update", async (t) => {
+  const env = environment(t, { waiting: false, hold: true }), tab = await env.tab();
+  const download = tab.prepare();
+  env.update();
+  env.release(GONE);
+  await download;
+  assert.equal(tab.node("offline-state").textContent,
+    "Some of this version’s files are no longer on the server. An updated version of the app is ready. Use “Update app & reload”, then download for offline use again.");
+});
+
 test("a download whose files are gone names the update found while it ran once it is installed", async (t) => {
   const env = environment(t, { waiting: false, hold: true }), tab = await env.tab();
   let download = tab.prepare();
