@@ -3,9 +3,10 @@ import { fitReviewNotes } from "./session.js";
 import { createScanDiagnostics } from "./scan-diagnostics.js";
 import { setupDiagnosticsUI } from "./diagnostics-ui.js";
 import { rotatePhotoSource, photoDetail, hasPhotoSource } from './photo-detail.js';
-import { TYPES, checkShape, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
-import { turnCorners, validQuad } from "./geometry.js";
+import { TYPES, checkShape, conflicts, fitPlay, fitBlackReadings, makePuzzle } from "./model.js";
+import { fallbackCorners, turnCorners, validQuad } from "./geometry.js";
 import { importPhoto } from "./photo-import.js";
+import { turnCue } from "./turn-cues.js";
 import { createLiveCamera } from "./live-camera.js";
 import { overlayCells } from "./live-overlay.js";
 import { cameraModal } from "./camera-modal.js";
@@ -47,7 +48,11 @@ export function setupPhotoFlow({
     // a corner moves: a Read at another size reads cells that are not the
     // grid's, and comes back entirely under review too.
     detectedLayout = null,
+    // Boxes the controls took from the grid's size alone, which a reading
+    // with them asks the user to confirm, and that reading's source once one
+    // was taken (settleProposal).
     proposedBoxLayout = null,
+    proposalSource = null,
     live = null,
     pendingPlayback = null,
     playbackTimer = null,
@@ -75,7 +80,7 @@ export function setupPhotoFlow({
     const owner = photoOwner(), before = {
       corners: state.corners.map((p) => ({ ...p })),
       proposedBoxLayout: proposedBoxLayout && { ...proposedBoxLayout },
-      unconfirmedCorners, revision: cropRevision,
+      proposalSource, unconfirmedCorners, revision: cropRevision,
     }, after = {};
     const previous = state.history?.at(-1);
     remember();
@@ -89,6 +94,7 @@ export function setupPhotoFlow({
       if (photoOwner() === owner && cropRevision === after) {
         state.corners = before.corners.map((p) => ({ ...p }));
         proposedBoxLayout = before.proposedBoxLayout && { ...before.proposedBoxLayout };
+        proposalSource = before.proposalSource;
         unconfirmedCorners = before.unconfirmedCorners;
         cropRevision = before.revision;
       } else {
@@ -543,6 +549,23 @@ export function setupPhotoFlow({
     } finally { saving = false; $("take-photo").disabled = false; }
   }
   $("take-photo").onclick = () => void takePhoto();
+  const CAPTURE_READY = ["Captured clues ready for review.",
+    "The saved picture is unchanged. Confirm the clues and rules before solving or playing."],
+    CAPTURE_CHECK = ["Checking which way up the captured picture is…",
+      "Its digits may be turned, so every one stays highlighted until the check ends."],
+    CAPTURE_UNCHECKED = ["Captured clues ready for review.",
+      "Which way up the captured picture is could not be checked, so every digit stays highlighted."];
+  // The first note of a capture whose live reading looks turned (turnCue). It
+  // and the highlight on every digit stay until the check reads the picture
+  // the way it lies or a turned reading replaces the board, so a check that is
+  // stopped or fails leaves them.
+  const turnNote = (cue) => `The page may be ${cue === "half" ? "upside down" : "sideways"} in the captured picture, so every digit read is highlighted. Adjust scan → Read puzzle checks which way up it is.`;
+  // The cells of a reading that hold a digit or a value region: what a turned
+  // page reads wrong with confidence (6s and 9s as each other, 2s as 4s).
+  function valueCells({ puzzle, entries }) {
+    const read = new Set((entries ?? []).flatMap((entry) => (entry.kind === "value" ? [entry.cell] : [])));
+    return puzzle.cells.flatMap((value, cell) => (Number.isInteger(value) || read.has(cell) ? [cell] : []));
+  }
   $("retake-photo").onclick = openCamera;
   $("use-live-capture").onclick = () => {
     if (!captured) return;
@@ -557,14 +580,41 @@ export function setupPhotoFlow({
     }
     try {
       checkShape(found.puzzle);
+      // A capture is a new photograph: it resets the board's source, so a
+      // suggestion whose reading was confirmed retires first (settleProposal).
+      settleProposal();
+      // The live camera reads each frame the way it lies (it reads with
+      // orient: false), but a capture is a still photograph. When its reading
+      // shows what makes Scanner.orient try a turn (a poor reading of glyphs
+      // wider than tall, or of upright-shaped glyphs with confident digits but
+      // none with a 2, 3 or 5: an upside-down page reads 6s and 9s as each
+      // other and 2s as 4s, all with confidence), the still is read again as
+      // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
+      // grid is ever turned.
+      const cue = found.puzzle.rows === found.puzzle.cols ? turnCue(found) : null,
+        // A box suggestion still pending that a boxed capture was read with:
+        // the capture's notes say so, as a photograph's Read does, and
+        // confirming its reading decides the boxes (settleProposal). The live
+        // view notes boxes it guessed from the grid size in the same words
+        // (live-camera.js), so the note is added only once.
+        suggested = ["sudoku", "killersudoku"].includes(found.puzzle.type) && sameLayout(proposedBoxLayout, found.puzzle),
+        // The capture's own review: its flagged clues, and any digit repeated
+        // under the boxes it was read with, which the captured picture shows
+        // yellow and a photograph's Read flags too.
+        review = {
+          uncertain: new Set([...(found.cellUncertain ?? found.uncertain ?? []), ...conflicts(found.puzzle)]),
+          notes: fitReviewNotes([...new Set([...found.notes, ...(suggested ? [boxNote(found.puzzle)] : [])])]),
+        };
       const next = {
         photo: picture.photo, corners: picture.corners,
         puzzle: found.puzzle, play: fitPlay(found.puzzle, []), hints: new Set(),
-        uncertain: new Set(found.cellUncertain ?? found.uncertain ?? []),
+        // Until the check ends, every digit is under review, and the first
+        // note says why (turnNote).
+        uncertain: new Set([...review.uncertain, ...(cue ? valueCells(found) : [])]),
         blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
         cageUncertain: new Set(found.cageUncertain ?? []),
-        needsReview: true, notes: fitReviewNotes([...found.notes]), rectified: found.rectified,
-        photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
+        needsReview: true, notes: cue ? fitReviewNotes([turnNote(cue), ...review.notes]) : [...review.notes],
+        rectified: found.rectified, photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
       stopTask(); stopCamera(); remember(); invalidate();
       Object.assign(state, next);
@@ -579,6 +629,7 @@ export function setupPhotoFlow({
       $("photo-panel").hidden = true;
       setLayout(found.puzzle);
       state.puzzleSource = state.photoSource = getJobId();
+      if (suggested) proposalSource = state.puzzleSource;
       // The stopped camera no longer owns diagnostics. Begin a fresh context
       // for the exact unannotated capture, clearing any earlier image consent.
       diagnostics.begin("photo", { ...found.puzzle, autoSolve: $("auto-solve").checked });
@@ -589,7 +640,8 @@ export function setupPhotoFlow({
         found: { ...found, needsReview: true } });
       persist(); render({ replaceDraft: true });
       warmSolver?.();
-      status("Captured clues ready for review.", "The saved picture is unchanged. Confirm the clues and rules before solving or playing.");
+      status(...(cue ? CAPTURE_CHECK : CAPTURE_READY));
+      if (cue) void readPhoto({ capture: review });
     } catch (error) { fail(error); }
   };
   $("choose-photo").onclick = () => $("photo-file").click();
@@ -655,10 +707,44 @@ export function setupPhotoFlow({
       (key) => a[key] === b[key],
     );
   }
-  function transposeLayout({ rows, cols, boxRows, boxCols }) {
-    return { rows: cols, cols: rows, boxRows: boxCols, boxCols: boxRows };
+  // Whether the grid's size settles its boxes: only 4, 9 and 25 cells a side
+  // have a single box shape (2 × 2, 3 × 3, 5 × 5). 6 has two (2 × 3 and
+  // 3 × 2), 16 three, and a prime size none but its rows, so there boxes
+  // taken from the size are a suggestion to confirm.
+  function boxesSettled(n) {
+    const [boxRows, boxCols] = boxDefault(n);
+    if (boxRows !== boxCols || boxRows < 2) return false;
+    for (let a = 2; a < boxRows; a++) if (n % a === 0) return false;
+    return true;
   }
-  async function acceptPhoto(canvas, auto = false) {
+  // A suggestion stands until the user decides the boxes: by setting others
+  // (the controls no longer show it), or by confirming the reading it came
+  // with. Solve, Check and Hint clear a board's review (app.js
+  // confirmTranscription), and edits keep a board's source, so a board from
+  // that reading with no review left has been confirmed. Checked before a
+  // Read uses the suggestion, and before a new photograph resets the board's
+  // source.
+  function settleProposal() {
+    if (!proposedBoxLayout) return;
+    const confirmed = proposalSource !== null && state.puzzleSource === proposalSource && !state.needsReview;
+    if (confirmed || !sameLayout(proposedBoxLayout, currentLayout()))
+      proposedBoxLayout = proposalSource = null;
+  }
+  // The box controls describe the printed puzzle, upright: its boxes as they
+  // stand on the board once the photograph's turn is found (Scanner.orient
+  // reads a sideways or upside-down photograph turned when its digits read
+  // clearly better that way) or Rotate has turned it upright. No turn of the
+  // photograph or of the crop changes them. A quarter turn swaps only the
+  // grid's rows and columns as the crop meets them, which matters only for a
+  // grid that is not square, and such a grid is never turned by a reading.
+  function swapAxes({ rows, cols, boxRows, boxCols }) {
+    return { rows: cols, cols: rows, boxRows, boxCols };
+  }
+  // The note of a reading taken with boxes suggested from the grid size.
+  const boxNote = ({ boxRows, boxCols }) =>
+    `Box layout ${boxRows} rows × ${boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`;
+  async function acceptPhoto(canvas) {
+    settleProposal();
     diagnostics.begin("photo", { ...currentLayout(), type: $("puzzle-type").value, autoSolve: $("auto-solve").checked });
     invalidate();
     state.history = [];
@@ -666,19 +752,29 @@ export function setupPhotoFlow({
     state.photo = canvas;
     cropRevision = {};
     clearPhotoMapping();
-    state.corners = null;
+    // The photograph starts on the crop the detector proposes when it finds
+    // no grid, unconfirmed, shown while detection runs: if detection then
+    // fails or is stopped, the handles are there to move, and a Read through
+    // them puts every cell under review instead of doing nothing.
+    state.corners = fallbackCorners(canvas.width, canvas.height);
+    unconfirmedCorners = true;
+    detectedLayout = null;
     state.result = null;
     $("photo-panel").hidden = false;
     render();
-    await detectPhoto(canvas, auto);
+    await detectPhoto(canvas);
   }
   // Re-detection is not adoption of a new photograph or a puzzle edit. Keep
   // undo history and the old crop/mapping intact until a current result exists.
-  async function detectPhoto(canvas, auto = false) {
+  async function detectPhoto(canvas) {
     const id = begin();
     diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", "Photo processing stays on this device.");
     try {
+      // The photograph and its current crop show while the detector works. A
+      // crop canvas the browser refuses (iOS under memory pressure) must not
+      // cost the detection: the drawing after it reports the failure.
+      try { drawCrop(); } catch {}
       const found = await scanner.detect(canvas);
       if (id !== getJobId()) return;
       clearPhotoMapping();
@@ -702,9 +798,11 @@ export function setupPhotoFlow({
         )
           setLayout(layout);
         else {
-          const [boxRows, boxCols] = boxDefault(found.rows);
-          proposedBoxLayout = { rows: found.rows, cols: found.cols, boxRows, boxCols };
-          setLayout(proposedBoxLayout);
+          const [boxRows, boxCols] = boxDefault(found.rows),
+            layout = { rows: found.rows, cols: found.cols, boxRows, boxCols };
+          proposedBoxLayout = boxesSettled(found.rows) ? null : layout;
+          proposalSource = null;
+          setLayout(layout);
         }
       }
       drawCrop();
@@ -715,7 +813,6 @@ export function setupPhotoFlow({
           : "Drag the numbered handles. Set rows and columns in Grid size & settings.",
       );
       $("photo-panel").scrollIntoView({ block: "start", behavior: "smooth" });
-      if (auto && found.confidence > 0.85) await readPhoto();
     } catch (e) {
       if (id === getJobId()) {
         finish();
@@ -737,10 +834,11 @@ export function setupPhotoFlow({
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(state.photo, 0, 0);
     rotatePhotoSource(state.photo, c);
-    // A quarter-turn swaps the box orientation as well as the grid axes.
-    setLayout(transposeLayout(currentLayout()));
+    // The grid's axes turn with the photograph; its boxes are the printed
+    // puzzle's and stay (swapAxes).
+    setLayout(swapAxes(currentLayout()));
     if (proposedBoxLayout)
-      proposedBoxLayout = transposeLayout(proposedBoxLayout);
+      proposedBoxLayout = swapAxes(proposedBoxLayout);
     void acceptPhoto(c);
   };
   $("hide-photo").onclick = () => ($("photo-panel").hidden = true);
@@ -819,12 +917,22 @@ export function setupPhotoFlow({
       drawCrop();
     }
   };
-  async function readPhoto() {
+  // `capture`: the orientation check of a capture handed to the editor, with
+  // the capture's own review (its flagged clues and notes). The still is read
+  // as any photograph, but its reading replaces the capture's only when taken
+  // turned, and then waits for review like every capture (also a quarter
+  // turn, which a photograph's Read solves automatically); Undo brings the
+  // capture's reading back as it was on the board. Read the way it lies, the
+  // capture's reading keeps its own review again. Stopped or failed, the check
+  // changes nothing: every digit stays highlighted under the note that the
+  // page may be turned.
+  async function readPhoto({ capture = null } = {}) {
     if (!state.photo || !state.corners) return;
     // A new Read owns the next outcome even when its settings are invalid.
     // Supersede earlier OCR before preflight, just as a new import does.
     stopTask();
     drag = -1;
+    settleProposal();
     const rows = Number($("rows").value),
       cols = Number($("cols").value),
       type = $("puzzle-type").value;
@@ -874,15 +982,20 @@ export function setupPhotoFlow({
       fail(error);
       return;
     }
-    diagnostics.configure({ type, rows, cols, boxRows, boxCols, autoSolve: $("auto-solve").checked });
-    diagnostics.geometry({ rows, cols, corners: state.corners, width: state.photo.width, height: state.photo.height, coordinateSpace: "source-preview" });
+    // A capture's check keeps the capture's report (its settings, geometry and
+    // reading) until a turned reading replaces the capture's own.
+    if (!capture) {
+      diagnostics.configure({ type, rows, cols, boxRows, boxCols, autoSolve: $("auto-solve").checked });
+      diagnostics.geometry({ rows, cols, corners: state.corners, width: state.photo.width, height: state.photo.height, coordinateSpace: "source-preview" });
+    }
     // Keep the accepted board, solution and still-valid photo mapping until
     // a complete replacement is ready. Crop edits already invalidate mapping.
     const id = begin();
     setDeadline(() => {
       if (id === getJobId())
-        stopTask(
-          "Recognition timed out. Check the connection and try a clearer photograph.",
+        stopTask(capture
+          ? "Checking which way up the captured picture is took too long."
+          : "Recognition timed out. Check the connection and try a clearer photograph.",
         );
     }, 120000);
     try {
@@ -894,22 +1007,29 @@ export function setupPhotoFlow({
       try {
         if (id !== getJobId()) return;
         found = await scanner.read(detail.image, detail.corners, type, rows, cols,
-          (text, p) => { if (id === getJobId()) status(text, "", "info", p); },
+          (text, p) => { if (id === getJobId()) status(...(capture ? CAPTURE_CHECK : [text, ""]), "info", p); },
           {onDiagnostic:event => { if (id === getJobId()) diagnostics.event(event); }});
         if (detail.note) found.notes = [...found.notes, detail.note];
       } finally { detail.release(); }
       if (id !== getJobId()) return;
+      if (capture && !found.turns) {
+        // Nothing changed the board meanwhile: every edit stops the check.
+        finish();
+        state.uncertain = new Set(capture.uncertain);
+        state.notes = [...capture.notes];
+        persist();
+        render();
+        status(...CAPTURE_READY);
+        return;
+      }
       // Snapshot settings belong to this scan. Validate the complete candidate
       // before committing history, state or autosave, including automatic type.
-      // Automatic quarter-turns rotate the grid axes, not just the clue
-      // positions. Rectangular boxes must follow the crop into that frame.
-      const quarterTurn = found.turns % 2 === 1,
-        readLayout = quarterTurn
-          ? transposeLayout({ rows, cols, boxRows, boxCols })
-          : { rows, cols, boxRows, boxCols };
+      // The reading comes back upright, however the reader turned it, and the
+      // box controls describe the printed puzzle upright (swapAxes): they
+      // apply as set. Only a square grid is turned, so rows and columns hold.
       if (["sudoku", "killersudoku"].includes(found.puzzle.type)) {
-        found.puzzle.boxRows = readLayout.boxRows;
-        found.puzzle.boxCols = readLayout.boxCols;
+        found.puzzle.boxRows = boxRows;
+        found.puzzle.boxCols = boxCols;
       }
       checkShape(found.puzzle);
       const blackReadings = fitBlackReadings(found.puzzle, found.blackReadings),
@@ -921,10 +1041,7 @@ export function setupPhotoFlow({
           ? `The grid was found with ${resized.rows} × ${resized.cols} cells and read as ${rows} × ${cols} through the same corners, so every cell is highlighted. Adjust the corners onto the grid's outer edge (moving any corner confirms them, even if they already sit there) and read again, or check each cell against the photograph.`
           : "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.",
         );
-      if (needsBoxReview)
-        notes.push(
-          `Box layout ${readLayout.boxRows} rows × ${readLayout.boxCols} columns was suggested from the grid size, not read from the photograph. Confirm it before solving.`,
-        );
+      if (needsBoxReview) notes.push(boxNote({ boxRows, boxCols }));
       // Prepare every editable field before touching history or accepted state.
       const next = {
         puzzle: found.puzzle,
@@ -938,6 +1055,10 @@ export function setupPhotoFlow({
         blackReadings,
         uncertain: new Set([
           ...(found.cellUncertain ?? found.uncertain),
+          // The reader flags duplicates under the size's default boxes, but
+          // the board is solved under the boxes just set: a digit repeated in
+          // one of those is flagged too, so it never solves automatically.
+          ...conflicts(found.puzzle),
           ...blackReadings.map((entry) => entry.cell),
           ...(reviewAllCells ? found.puzzle.cells.keys() : []),
         ]),
@@ -945,8 +1066,9 @@ export function setupPhotoFlow({
         // A reading the app turned half a turn itself (Scanner.halfTurn) is a
         // guess its first note asks the user to check, and a wrong half turn
         // swaps 6s and 9s into confident clues: shown, and never auto-solved.
-        // Quarter-turned readings auto-solve as before.
-        needsReview: found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
+        // Quarter-turned readings auto-solve as before, except a capture's,
+        // which waits for review like every capture.
+        needsReview: capture !== null || found.needsReview || found.turns === 2 || needsBoxReview || reviewAllCells,
         notes: fitReviewNotes(notes),
         rectified: found.rectified,
         // A reading taken turned (see Scanner.orient) keeps the crop in step,
@@ -962,20 +1084,15 @@ export function setupPhotoFlow({
       rememberPhotoRead();
       clearPhotoMapping();
       Object.assign(state, next);
-      if (quarterTurn) {
-        // Commit the controls and proposal only with the validated reading,
-        // after the undo snapshot. A repeat Read uses the rotated layout and
-        // still asks for confirmation of boxes suggested by detection.
-        setLayout(readLayout);
-        if (proposedBoxLayout)
-          proposedBoxLayout = transposeLayout(proposedBoxLayout);
-      }
+      if (needsBoxReview) proposalSource = id;
       diagnostics.event({stage:"checking",reason:"read-complete",found});
       persist();
       render({ replaceDraft: true });
       $("photo-panel").hidden = true;
       warmSolver?.();
-      status(
+      if (capture) status("Captured clues read again, turned the right way up.",
+        "Check the clues and rules against the picture before solving or playing.");
+      else status(
         "Puzzle read.",
         `${type === "auto" ? `${TYPES[state.puzzle.type]} suggested` : TYPES[state.puzzle.type]}. Check highlighted cells and the puzzle rules.`,
       );
@@ -992,7 +1109,10 @@ export function setupPhotoFlow({
       if (id === getJobId()) {
         finish();
         diagnostics.event({stage:"error",reason:"failed"});
-        fail(e);
+        // The check is optional: the capture's reading stays, every digit
+        // still highlighted under the note that the page may be turned.
+        if (capture) status(...CAPTURE_UNCHECKED);
+        else fail(e);
       }
     }
   }

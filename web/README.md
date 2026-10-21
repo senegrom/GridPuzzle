@@ -119,11 +119,24 @@ metadata, separately from puzzle JSON. Choosing Str8ts restores compatible
 numbered clues. Saving that cell explicitly or confirming the transcription
 clears the pending evidence; Undo restores it with the prior edit.
 Find grid preserves puzzle edit history and does not discard the old crop
-or mapping on failure or cancellation. Read puzzle also stages its candidate:
+or mapping on failure or cancellation. A new or rotated photograph is shown at
+once on the crop the detector proposes when it finds no grid (8% in from each
+edge), unconfirmed, until detection answers; if detection fails or is stopped,
+that crop stays, its handles can be moved, and a Read through it highlights
+every cell. Read puzzle also stages its candidate:
 failed/cancelled reads of an unchanged crop preserve the accepted solution,
 photo mapping, Play cache and undo history. A new Read click cancels earlier
 work even when the new dimensions, boxes or crop fail validation. Actual crop
 or photograph changes still invalidate incompatible mappings.
+
+Box height and Box width describe the printed Sudoku as it stands upright,
+whichever way the photograph lies (see [SCAN_INPUT.md](SCAN_INPUT.md)). When
+they do not fit the grid detection finds, they take the size's usual boxes;
+where the size allows other boxes too (any size but 4, 9 and 25), readings
+with these suggested boxes, a live capture's included, say so in a note and
+wait for review until the user confirms one (Solve, Check or Hint) or sets
+other boxes. A digit read twice inside one of the
+chosen boxes is always highlighted for review.
 
 ## Session backups and imported definitions
 

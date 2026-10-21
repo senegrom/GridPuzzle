@@ -8,7 +8,7 @@ import { separatedCrops, applySeparatedReading } from "./ocr-segments.js";
 import { aspectEligible, aspectSamples, applyAspectReading } from "./ocr-aspect.js";
 import { fraction, turnCorners, otsuCut, clueHeight } from "./geometry.js";
 import { readOperator } from "./cage-operator.js";
-import { confidentDigits, wayUpDigits, glyphAspect, HALF_TURN_BAR, HALF_TURN_FLOOR } from "./turn-cues.js";
+import { confidentDigits, wayUpDigits, glyphAspect, turnCue, HALF_TURN_BAR, HALF_TURN_FLOOR } from "./turn-cues.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 function imageOf(canvas) {
   return canvas
@@ -559,13 +559,10 @@ export class Scanner {
   // turn keeps upright-shaped glyphs, so a poor reading of glyphs taller than
   // wide takes the half-turn check instead (halfTurn).
   async orient(found, canvas, corners, type, rows, cols, onProgress, options, check) {
-    const confident = confidentDigits(found),
-      values = found.entries.filter((e) => e.kind === "value"),
-      aspect = glyphAspect(values);
-    if (confident >= values.length / 2) return found;
-    if (aspect > 1 && aspect < Infinity)
+    const cue = turnCue(found), confident = confidentDigits(found);
+    if (cue === "half")
       return this.halfTurn(found, canvas, corners, type, rows, cols, onProgress, options, check);
-    if (!(aspect < 1)) return found;
+    if (cue !== "quarter") return found;
     let best = { found, confident, turns: 0 };
     for (const turns of [1, 3]) {
       check();

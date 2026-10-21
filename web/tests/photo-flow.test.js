@@ -5,9 +5,11 @@ import { MAX_REVIEW_NOTES, MAX_REVIEW_NOTE_LENGTH, restoreSession, saveSession }
 import { boxShape, fitPlay, makePuzzle } from "../model.js";
 import { createBackup, parsePuzzleFile, puzzleDefinition } from "../backup.js";
 import { puzzleFromReadings } from "../scanner.js";
+import { turnCue } from "../turn-cues.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { retainPhotoSource } from "../photo-detail.js";
 import { createFrameScheduler } from "../live-frame-scheduler.js";
+import { overlayCells } from "../live-overlay.js";
 import { createRequire } from "node:module";
 const { readGrid, readingCorners, photoFlowReview } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
@@ -1261,8 +1263,8 @@ for (const [name, reading] of Object.entries(flagChannelReadings()))
       assert.deepEqual(scored.cageUncertain.sort(), [...h.state.cageUncertain].sort());
     });
 
-function cageWarnings() {
-  const n = 9, cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];
+function cageWarnings(n = 9) {
+  const cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];
   let serial = 0;
   for (let r = 0; r < n; r++) for (let c = 0; c < n;) {
     const length = Math.min(r + 1, n - c);
@@ -1282,8 +1284,10 @@ function cageWarnings() {
   rectified: canvas(900, 900) };
 }
 
+// With suggested boxes the board is 12 × 12: a 9 × 9 board's 3 × 3 boxes are
+// its only shape, so detection no longer suggests them for review.
 for (const proposed of [false, true]) test(`maximum cage warnings plus photo context round-trip, suggested boxes ${proposed}`, async t => {
-  const h = photoHarness(t), found = cageWarnings(), originalNotes = [...found.notes]; assert.equal(found.notes.length, 8);
+  const h = photoHarness(t), found = cageWarnings(proposed ? 12 : 9), originalNotes = [...found.notes]; assert.equal(found.notes.length, 8);
   h.setFound(found); h.setLayout(found.puzzle); h.$('puzzle-type').value = 'killersudoku';
   if (proposed) {
     h.setLayout({ ...found.puzzle, boxRows: 0 });
@@ -1322,6 +1326,37 @@ for (const turns of [0, 1, 2, 3]) test(`a reading the app turned ${turns} quarte
   assert.equal(h.state.uncertain.size, 0);
   assert.equal(h.state.needsReview, turns === 2);
   assert.equal(h.solves(), turns === 2 ? 0 : 1);
+});
+// The automatic solve after a Read needs every term of its gate. Each reading
+// here is clean apart from one term, and its review stays with it, since the
+// solve would confirm the transcription and clear every flag (solveNow). For a
+// chosen type such as this Latin square nothing else holds back a flagged
+// clue: the scanner's needsReview does not count flagged cells.
+const gated = {
+  'a flagged clue': () => ({ ...cleanReading(), cellUncertain: [0] }),
+  'a flagged structural clue': () => ({ ...cleanReading(), cageUncertain: [1] }),
+  'no given at all': () => ({ ...cleanReading(), puzzle: makePuzzle('latinsquare', 2) }),
+};
+for (const [what, reading] of Object.entries(gated)) test(`a Read with ${what} is not solved automatically and keeps its review`, async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = true;
+  const found = reading(); h.setFound(found);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, false);
+  assert.deepEqual([...h.state.uncertain], found.cellUncertain);
+  assert.deepEqual([...h.state.cageUncertain], found.cageUncertain);
+  assert.equal(h.solves(), 0);
+});
+test('a clean Read is solved automatically only with automatic solving ticked', async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = false;
+  h.setFound(cleanReading());
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, false); assert.equal(h.state.uncertain.size, 0);
+  assert.equal(h.solves(), 0);
+  h.$('auto-solve').checked = true;
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.solves(), 1);
 });
 
 test('notes have one bounded session/backup contract without losing flags, pending evidence or Play', t => {
@@ -1365,6 +1400,206 @@ test('capture handoff retires prior diagnostic consent and uses the exact raw ph
   await h.$('camera').onclick();
   assert.equal(diag['image-toggle'].checked, false); assert.equal(diag.download.disabled, true);
   assert.equal(diag.image.src, undefined);
+});
+// Review captured clues hands the capture's own review to the editor, and to
+// the saved session: its flagged clues, its flagged structure (here every cage
+// of a Killer reading), its digits read on black cells (a Hidato reading) and
+// its notes. Without them the board would show nothing to check, and Solve's
+// confirmation would count no highlighted cell.
+const captures = {
+  'a Hidato reading with a digit on a black cell': () => ({ ...scanned(), rectified: canvas(200, 200) }),
+  'a Killer reading with every cage under review': () => cageWarnings(),
+};
+for (const [what, reading] of Object.entries(captures)) test(`Review captured clues copies the review of ${what} to the editor`, async t => {
+  const h = photoHarness(t), found = reading();
+  assert.ok(found.notes.length && (found.cellUncertain.length || found.cageUncertain.length));
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found: { ...found, needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.type, found.puzzle.type);
+  assert.deepEqual([...h.state.uncertain], found.cellUncertain);
+  assert.deepEqual([...h.state.cageUncertain], found.cageUncertain);
+  assert.deepEqual(h.state.blackReadings, found.blackReadings);
+  assert.deepEqual(h.state.notes, found.notes);
+  assert.equal(h.state.needsReview, true);
+  const reloaded = restoreSession(h.storage);
+  assert.deepEqual(reloaded.uncertain, found.cellUncertain);
+  assert.deepEqual(reloaded.cageUncertain, found.cageUncertain);
+  assert.deepEqual(reloaded.blackReadings, found.blackReadings);
+  assert.deepEqual(reloaded.notes, found.notes); assert.equal(reloaded.needsReview, true);
+});
+test('the captures above carry every field of a review: flagged clues, structure, black readings and notes', () => {
+  const [hidato, killer] = Object.values(captures).map(reading => reading());
+  assert.deepEqual(hidato.cellUncertain, [4]); assert.deepEqual(hidato.blackReadings, [{ cell: 4, value: 3 }]);
+  assert.equal(killer.cageUncertain.length, 81);
+  assert.ok(hidato.notes.length >= 2 && killer.notes.length === 8);
+});
+// A 6 × 6 Sudoku captured with the boxes set to 3 × 2 reads two 4s inside one
+// of those boxes (cells 0 and 13). The live reader flags duplicates under the
+// size's usual 2 × 3 boxes, where these two sit apart, so its reading flags
+// neither; the live camera then gives it the boxes set (live-camera.js), and
+// the captured picture shows both 4s yellow (overlayCells). The editor
+// highlights them too, as a photograph's Read does, so Solve counts them and
+// offers their re-read. Read with 2 × 3 boxes, the same 4s are no duplicate.
+const sorted = cells => [...cells].sort((a, b) => a - b);
+for (const [boxRows, boxCols, repeated] of [[3, 2, [0, 13]], [2, 3, []]])
+  test(`Review captured clues highlights a digit read twice inside one of the capture's ${boxRows} × ${boxCols} boxes`, async t => {
+    const h = photoHarness(t), digit = (cell, text) => ({ kind: 'value', cell, text, confidence: 96, x: 0, y: 0, w: 10, h: 30 });
+    const entries = [digit(0, '4'), digit(13, '4'), digit(3, '1'), digit(10, '2'), digit(20, '3'), digit(33, '5')];
+    const found = { ...puzzleFromReadings({ entries: entries.map(entry => ({ ...entry })), black: Array(36).fill(false),
+      meta: { rows: 6, cols: 6, boxes: true }, mask: new Uint8Array(100), width: 10, height: 10 }, 'sudoku', 6, 6),
+    entries, rectified: canvas(200, 200), needsReview: true };
+    assert.deepEqual(found.cellUncertain, [], 'the reader flags neither 4');
+    found.puzzle.boxRows = boxRows; found.puzzle.boxCols = boxCols;
+    const yellow = overlayCells(found).filter(cell => cell.kind === 'uncertain').map(cell => cell.cell);
+    assert.deepEqual(sorted(yellow), repeated);
+    h.setLayout({ rows: 6, cols: 6, boxRows, boxCols }); h.$('puzzle-type').value = 'sudoku';
+    h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found });
+    await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+    assert.deepEqual(h.errors, []);
+    assert.deepEqual([h.state.puzzle.boxRows, h.state.puzzle.boxCols], [boxRows, boxCols]);
+    assert.deepEqual(sorted(h.state.uncertain), repeated, 'the editor highlights what the captured picture shows yellow');
+    assert.deepEqual(sorted(restoreSession(h.storage).uncertain), repeated);
+    assert.equal(h.state.needsReview, true);
+  });
+// A clean 6 × 6 reading of `type`, its first row read 1 to 6. makePuzzle gives
+// every type the size's usual boxes, 2 × 3 here.
+function sixBySix(type = 'sudoku') {
+  const puzzle = makePuzzle(type, 6); for (let c = 0; c < 6; c++) puzzle.cells[c] = c + 1;
+  return { puzzle, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [],
+    rectified: canvas(200, 200) };
+}
+// The note of a reading taken with the 2 × 3 boxes suggested for a 6 × 6 grid.
+const SUGGESTED_2X3 = 'Box layout 2 rows × 3 columns was suggested from the grid size, not read from the photograph. Confirm it before solving.';
+// A box suggestion that a capture was read with (Find grid suggested 2 × 3 for
+// a 6 × 6 grid, then the camera read with those boxes) retires once the
+// capture's reading is confirmed, as one a photograph's reading came with does:
+// the next 6 × 6 Read neither asks again nor holds back the automatic solve.
+test('a suggestion a live capture was read with retires once the capture is confirmed: the next 6 × 6 Read solves', async t => {
+  const h = photoHarness(t);
+  const boxNote = () => h.state.notes.some(note => /was suggested from the grid size/.test(note));
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.$('auto-solve').checked = true; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix(), needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.needsReview, true);
+  // The capture's board says that its boxes were suggested, as a photograph's
+  // Read does, so confirming it is an informed decision about the boxes.
+  assert.deepEqual(h.state.notes, [SUGGESTED_2X3]); assert.deepEqual(restoreSession(h.storage).notes, [SUGGESTED_2X3]);
+  h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(boxNote(), false); assert.equal(h.state.needsReview, false);
+  assert.deepEqual([h.state.puzzle.boxRows, h.state.puzzle.boxCols], [2, 3]);
+  assert.equal(h.solves(), 1);
+});
+// Unconfirmed, the capture leaves the suggestion standing: the next 6 × 6 Read
+// still asks to confirm the boxes.
+test('a suggestion a live capture was read with stands while the capture is unconfirmed', async t => {
+  const h = photoHarness(t);
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.$('auto-solve').checked = true; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick();
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix(), needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.state.notes, [SUGGESTED_2X3]);
+  await h.$('detect-photo').onclick();
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.ok(h.state.notes.some(note => /Box layout 2 rows × 3 columns was suggested from the grid size/.test(note)));
+  assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0);
+});
+// The live view notes boxes it guessed from the grid size itself
+// (live-camera.js). A capture that arrives with that note, read with a pending
+// suggestion of the same boxes, carries the note once.
+test('a capture whose live reading already notes its guessed boxes carries the box note once', async t => {
+  const h = photoHarness(t);
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix(), needsReview: true, guessedBoxes: true, notes: [SUGGESTED_2X3] } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.state.notes, [SUGGESTED_2X3]); assert.deepEqual(restoreSession(h.storage).notes, [SUGGESTED_2X3]);
+});
+// A capture read with a suggested layout that also looks upside down keeps the
+// box note through its orientation check: after the turn note while the still
+// is read again, and with the capture's own notes once it reads the way it lies.
+test('a capture read with a suggested layout keeps its box note through the check of a capture that looks turned', async t => {
+  // Twelve regions, four read with confidence (1, 4, 6 and 1), none of them
+  // with a 2, 3 or 5, glyphs taller than wide: the cue of a half turn.
+  const h = photoHarness(t), digits = { 0: 1, 7: 4, 14: 6, 22: 1, 28: 4, 32: 2, 5: null, 10: 3, 16: 5, 19: 2, 25: null, 30: 3 };
+  const looksTurned = sixBySix(), flagged = [28, 32, 5, 10, 16, 19, 25, 30];
+  looksTurned.puzzle.cells.fill(null);
+  for (const [cell, digit] of Object.entries(digits)) looksTurned.puzzle.cells[cell] = digit;
+  Object.assign(looksTurned, { cellUncertain: flagged, uncertain: flagged, needsReview: true, notes: ['8 cells need checking.'],
+    entries: Object.entries(digits).map(([cell, digit]) => ({ kind: 'value', cell: Number(cell), text: String(digit ?? ''),
+      confidence: flagged.includes(Number(cell)) ? 40 : 95, h: 30, w: 20 })) });
+  assert.equal(turnCue(looksTurned), 'half');
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found: looksTurned });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []);
+  assert.match(h.state.notes[0], /^The page may be upside down in the captured picture/);
+  assert.deepEqual(h.state.notes.slice(1), ['8 cells need checking.', SUGGESTED_2X3]);
+  for (let i = 0; i < 10; i++) await tick(); // the still reads the way it lies (the harness's clean reading)
+  assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.state.notes, ['8 cells need checking.', SUGGESTED_2X3]);
+  assert.deepEqual(restoreSession(h.storage).notes, h.state.notes); assert.equal(h.state.needsReview, true);
+});
+// Only a capture read under boxes decides them. A 6 × 6 Latin square has none,
+// though makePuzzle gives it the size's usual 2 × 3, the very layout suggested:
+// confirming its capture leaves the suggestion standing, so the next 6 × 6
+// Sudoku Read still asks to confirm the boxes and is not solved automatically.
+test('confirming a live capture of a type without boxes leaves a suggestion standing: the next 6 × 6 Sudoku Read asks again', async t => {
+  const h = photoHarness(t);
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.$('auto-solve').checked = true; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  h.$('puzzle-type').value = 'latinsquare';
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix('latinsquare'), needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.puzzle.type, 'latinsquare');
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  assert.deepEqual(h.state.notes, [], 'a Latin square has no boxes to confirm');
+  h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
+  h.$('puzzle-type').value = 'sudoku'; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.ok(h.state.notes.some(note => /Box layout 2 rows × 3 columns was suggested from the grid size/.test(note)));
+  assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0);
+});
+// A box suggestion retires once the reading it came with is confirmed, also
+// when a live capture, a new photograph, replaces that board before the next
+// Read: the capture resets the board's source, so it settles the suggestion
+// first, as an imported photograph does.
+test('a suggestion confirmed before a live capture stays retired: the next 6 × 6 Read solves', async t => {
+  const h = photoHarness(t);
+  const boxNote = () => h.state.notes.some(note => /was suggested from the grid size/.test(note));
+  h.setLayout({ rows: 9, cols: 9, boxRows: 3, boxCols: 3 }); h.$('puzzle-type').value = 'sudoku';
+  h.$('auto-solve').checked = true; h.setFound(sixBySix());
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  assert.deepEqual(['rows', 'cols', 'box-rows', 'box-cols'].map(id => h.$(id).value), ['6', '6', '2', '3']);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, true); assert.ok(boxNote()); assert.equal(h.solves(), 0);
+  h.state.needsReview = false; h.state.notes = []; // Solve confirms the reading (app.js confirmTranscription)
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1,
+    found: { ...sixBySix(), needsReview: true } });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick();
+  assert.deepEqual(h.errors, []); assert.equal(h.state.needsReview, true);
+  assert.equal(boxNote(), false, 'the capture is not read with a pending suggestion');
+  await h.$('detect-photo').onclick(); assert.deepEqual(h.errors, []);
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(boxNote(), false); assert.equal(h.state.needsReview, false);
+  assert.deepEqual([h.state.puzzle.boxRows, h.state.puzzle.boxCols], [2, 3]);
+  assert.equal(h.solves(), 1);
 });
 
 function readings(text = "3") {
@@ -1473,3 +1708,122 @@ for (const outcome of ["success", "failure", "cancel"])
     if (outcome !== "success") { assert.equal(s.corners, corners); assert.equal(h.counts().mappingsCleared, 0); }
     restoreEdit(s, s.history.pop()); assert.equal(s.puzzle.cells[0], 2);
   });
+
+// A new photograph is shown at once on the crop the detector proposes when it
+// finds no grid, unconfirmed. When detection fails or is stopped, that crop
+// stays: drawn, with handles to move, and a Read through it reviews every cell
+// (before, the crop was empty, the editor kept the previous picture and Read
+// did nothing at all).
+function png(width, height) {
+  const bytes = new Uint8Array(45), view = new DataView(bytes.buffer);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
+  view.setUint32(16, width); view.setUint32(20, height); bytes.set([73, 69, 78, 68], 37);
+  return new Blob([bytes], { type: "image/png" });
+}
+function cropHarness(t) {
+  const descriptors = ["document", "createImageBitmap"].map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]);
+  t.after(() => { for (const [k, d] of descriptors) { if (d) Object.defineProperty(globalThis, k, d); else delete globalThis[k]; } });
+  const noop = () => {};
+  // Every canvas records what is drawn into it.
+  const canvas = (width = 600, height = 600) => {
+    const draws = [], ctx = new Proxy({ drawImage(source) { draws.push(source); } }, { get: (o, k) => o[k] ?? noop });
+    return { width, height, draws, getContext: () => ctx };
+  };
+  const nodes = new Map(), $ = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { ...canvas(300, 150), id, value: "", checked: false, hidden: false, style: {},
+      scrollIntoView: noop, focus: noop });
+    return nodes.get(id);
+  };
+  globalThis.document = { createElement: () => canvas(), addEventListener: noop, body: { classList: { add: noop, remove: noop } } };
+  globalThis.createImageBitmap = async () => ({ width: 800, height: 600, close: noop });
+  const puzzle = makePuzzle("latinsquare", 2);
+  const state = { puzzle, photo: null, corners: null, history: [], uncertain: new Set(), cageUncertain: new Set(),
+    blackReadings: [], notes: [], play: fitPlay(puzzle, []), hints: new Set(), selected: [] };
+  const setLayout = (layout) => {
+    state.layout = { ...layout };
+    for (const [k, id] of [["rows", "rows"], ["cols", "cols"], ["boxRows", "box-rows"], ["boxCols", "box-cols"]]) $(id).value = String(layout[k]);
+  };
+  setLayout({ rows: 2, cols: 2, boxRows: 1, boxCols: 2 }); $("puzzle-type").value = "latinsquare";
+  let epoch = 0, detect = async () => { throw Error("Image processing failed"); };
+  const errors = [], reads = [], stopTask = () => ++epoch;
+  setupPhotoFlow({ $, state, scanner: {
+    detect: (image) => detect(image),
+    async read(_image, corners, type, rows, cols) {
+      reads.push(corners);
+      const read = makePuzzle(type, rows, cols); read.cells[0] = 1;
+      return { puzzle: read, cellUncertain: [], cageUncertain: [], blackReadings: [], needsReview: false, notes: [], rectified: canvas() };
+    },
+  }, stopTask, invalidate: stopTask, begin: stopTask, finish: noop, fail: (e) => errors.push(e.message), render: noop,
+  status: noop, remember: () => rememberEdit(state), persist: noop, drawBoard: noop, clearPhotoMapping: noop, solveNow: noop,
+  boxDefault: boxShape, setLayout, getJobId: () => epoch, setDeadline: noop });
+  return { $, state, errors, reads, stopTask, setDetect(fn) { detect = fn; },
+    import: () => $("photo-file").onchange({ target: { files: [png(800, 600)], value: "photo" } }),
+    async read() { $("read-photo").onclick(); await tick(); } };
+}
+const fallback = (width, height) => [{ x: width * 0.08, y: height * 0.08 }, { x: width * 0.92, y: height * 0.08 },
+  { x: width * 0.92, y: height * 0.92 }, { x: width * 0.08, y: height * 0.92 }];
+// The crop editor shows the photograph, and a Read through the fallback crop
+// reads it with every cell under review and the note that says why.
+async function fallbackCropReads(h, width, height) {
+  const crop = h.$("crop-canvas");
+  assert.deepEqual(h.state.corners, fallback(width, height));
+  assert.deepEqual([crop.width, crop.height], [width, height]);
+  assert.equal(crop.draws.at(-1), h.state.photo, "the crop editor shows this photograph");
+  await h.read();
+  assert.deepEqual(h.reads.at(-1), fallback(width, height));
+  assert.equal(h.state.puzzle.cells[0], 1);
+  assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.needsReview, true);
+  assert.match(h.state.notes[0], /not found automatically/);
+}
+test("a new photograph whose grid detection fails keeps the fallback crop, shown and readable", async (t) => {
+  const h = cropHarness(t);
+  await h.import();
+  assert.deepEqual(h.errors, ["Image processing failed"]);
+  assert.deepEqual([h.state.photo.width, h.state.photo.height], [800, 600]);
+  await fallbackCropReads(h, 800, 600);
+});
+test("a rotated photograph whose grid detection fails shows the rotated picture on the fallback crop", async (t) => {
+  const h = cropHarness(t);
+  h.setDetect(async (image) => ({ rows: 2, cols: 2, confidence: 0.99,
+    corners: [{ x: 10, y: 10 }, { x: image.width - 10, y: 10 }, { x: image.width - 10, y: image.height - 10 }, { x: 10, y: image.height - 10 }] }));
+  await h.import(); assert.deepEqual(h.errors, []);
+  const before = h.state.photo;
+  h.setDetect(async () => { throw Error("Image processing timed out. Go online and retry."); });
+  h.$("rotate-photo").onclick(); await tick(); await tick();
+  assert.equal(h.errors.length, 1);
+  assert.notEqual(h.state.photo, before); assert.deepEqual([h.state.photo.width, h.state.photo.height], [600, 800]);
+  await fallbackCropReads(h, 600, 800);
+});
+test("Stop during grid detection leaves a new photograph on the fallback crop, shown and readable", async (t) => {
+  const h = cropHarness(t), pending = deferred();
+  h.setDetect(() => pending.promise);
+  const imported = h.import();
+  for (let i = 0; i < 20 && !h.state.photo; i++) await tick();
+  // Shown while the detector works, before any answer.
+  assert.deepEqual(h.state.corners, fallback(800, 600));
+  assert.equal(h.$("crop-canvas").draws.at(-1), h.state.photo);
+  h.stopTask();
+  pending.resolve({ rows: 2, cols: 2, confidence: 0.99, corners: [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }] });
+  await imported;
+  assert.deepEqual(h.errors, []);
+  await fallbackCropReads(h, 800, 600);
+});
+test("a crop editor that cannot draw reports it, also on Rotate, instead of throwing", async (t) => {
+  const h = cropHarness(t), found = (image) => [{ x: 20, y: 30 }, { x: image.width - 20, y: 30 },
+    { x: image.width - 20, y: image.height - 30 }, { x: 20, y: image.height - 30 }];
+  const detected = [];
+  h.setDetect(async (image) => { detected.push(image); return { rows: 2, cols: 2, confidence: 0.99, corners: found(image) }; });
+  await h.import(); assert.deepEqual(h.errors, []);
+  // iOS can refuse a canvas context under memory pressure.
+  h.$("crop-canvas").getContext = () => null;
+  h.$("rotate-photo").onclick(); await tick(); await tick();
+  assert.equal(h.errors.length, 1);
+  assert.deepEqual([h.state.photo.width, h.state.photo.height], [600, 800]);
+  // The drawing shown while the detector works must not cost the detection:
+  // the rotated photograph's grid is still found, and Read uses it.
+  assert.deepEqual(detected.map((image) => [image.width, image.height]), [[800, 600], [600, 800]]);
+  assert.deepEqual(h.state.corners, found(h.state.photo));
+  await h.read();
+  assert.deepEqual(h.reads.at(-1), found(h.state.photo));
+  assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
+});

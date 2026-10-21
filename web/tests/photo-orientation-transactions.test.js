@@ -32,7 +32,11 @@ function reading(type = 'sudoku', size = 6, turns = 1, boxes = [2, 3]) {
   return { puzzle, turns, notes: ['Check the photographed clues.'], needsReview: true,
     cellUncertain: [0], cageUncertain: [1], blackReadings: [], rectified: canvas() };
 }
-function harness(t, { type = 'sudoku', choice = type, size = 6, boxes = [3, 2] } = {}) {
+// The box controls hold the printed puzzle's boxes, upright, as a reading
+// comes back: by default the 2 rows × 3 columns `reading` prints. (Until the
+// 2026-10-19 review they followed the crop's frame and started transposed,
+// at 3 × 2; turned Reads, Find grid and Rotate then mixed the two frames.)
+function harness(t, { type = 'sudoku', choice = type, size = 6, boxes = [2, 3] } = {}) {
   const originals = ['document', 'window', 'navigator'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   const nodes = new Map();
   const $ = id => {
@@ -86,7 +90,7 @@ function layoutIs(h, boxes, size = 6) {
   assert.deepEqual([Number(h.$('box-rows').value), Number(h.$('box-cols').value)], boxes);
 }
 for (const type of ['sudoku', 'killersudoku']) for (const choice of [type, 'auto']) for (const turns of [1, 3])
-  test(`${choice} → ${type}, turn ${turns}: boxes, controls, corners and autosave rotate together`, async t => {
+  test(`${choice} → ${type}, turn ${turns}: the corners turn, the printed boxes and controls stay, autosave and Undo agree`, async t => {
     const h = harness(t, { type, choice }), found = reading(type, 6, turns);
     await h.read(found);
     assert.deepEqual(h.errors, []); layoutIs(h, [2, 3]);
@@ -98,34 +102,38 @@ for (const type of ['sudoku', 'killersudoku']) for (const choice of [type, 'auto
     assert.deepEqual(restoreSession(h.storage).puzzle, h.state.puzzle);
     assert.equal(h.state.history.length, 1);
     restoreEdit(h.state, h.state.history.pop());
-    h.setLayout(h.state.layout); layoutIs(h, [3, 2]);
+    h.setLayout(h.state.layout); layoutIs(h, [2, 3]);
   });
 for (const size of [4, 9]) test(`${size}×${size} square boxes stay unchanged`, async t => {
   const boxes = boxShape(size), h = harness(t, { size, boxes });
   await h.read(reading('sudoku', size, 3, boxes)); layoutIs(h, boxes, size);
   assert.equal(conflicts(h.state.puzzle).size, 0); assert.deepEqual(h.errors, []);
 });
-for (const turns of [0, 2]) test(`turn ${turns} does not transpose rectangular boxes`, async t => {
-  const h = harness(t); await h.read(reading('sudoku', 6, turns, [3, 2]));
+// Neither a quarter nor a half turn of the reading transposes the boxes: they
+// are the printed puzzle's, and the reading comes back upright.
+for (const turns of [0, 1, 2, 3]) test(`turn ${turns} keeps the rectangular boxes the controls set`, async t => {
+  const h = harness(t, { boxes: [3, 2] }); await h.read(reading('sudoku', 6, turns, [3, 2]));
   layoutIs(h, [3, 2]); assert.deepEqual(h.errors, []);
   assert.deepEqual(h.state.corners, turnCorners(h.corners, turns));
   assert.equal(conflicts(h.state.puzzle).size, 0);
 });
-test('repeat Read uses the already rotated layout and crop, without rotating twice', async t => {
+test('repeat Read uses the turned crop, without turning twice, and keeps the printed boxes', async t => {
   const h = harness(t); await h.read(reading()); const corners = structuredClone(h.state.corners);
   await h.read(reading('sudoku', 6, 0)); layoutIs(h, [2, 3]);
   assert.deepEqual(h.state.corners, corners); assert.deepEqual(h.calls[1][1], corners);
   assert.equal(conflicts(h.state.puzzle).size, 0); assert.deepEqual(h.errors, []);
 });
-test('suggested-box warning rotates and survives a repeat Read', async t => {
+// A layout suggested from the grid size is the size's standard one, which a
+// printed puzzle has upright: a turned Read keeps it (it used to transpose it).
+test('a suggested box layout stays the standard one through a turned Read, and its warning survives a repeat Read', async t => {
   const h = harness(t, { size: 4, boxes: [2, 2] }); await h.detect(6);
   for (const turns of [1, 0]) {
-    const found = reading('sudoku', 6, turns, [3, 2]);
+    const found = reading('sudoku', 6, turns, [2, 3]);
     found.needsReview = false; found.cellUncertain = []; found.cageUncertain = [];
-    await h.read(found); layoutIs(h, [3, 2]);
+    await h.read(found); layoutIs(h, [2, 3]);
     assert.equal(h.state.needsReview, true);
-    assert.match(h.state.notes.join(' '), /Box layout 3 rows × 2 columns was suggested/);
-    assert.match(restoreSession(h.storage).notes.join(' '), /Box layout 3 rows × 2 columns was suggested/);
+    assert.match(h.state.notes.join(' '), /Box layout 2 rows × 3 columns was suggested/);
+    assert.match(restoreSession(h.storage).notes.join(' '), /Box layout 2 rows × 3 columns was suggested/);
   }
   assert.deepEqual(h.errors, []);
 });
@@ -142,11 +150,17 @@ for (const kind of ['invalid', 'cancelled']) test(`${kind} candidate leaves layo
   for (const key of ['puzzle', 'corners', 'result']) assert.equal(h.state[key], before[key]);
   assert.deepEqual(h.state.layout, before.layout); assert.deepEqual(h.state.history, before.history);
   assert.equal(h.storage.get(), null);
-  await h.read(reading('sudoku', 6, 3, [3, 2])); layoutIs(h, [3, 2]);
-  assert.match(h.state.notes.join(' '), /Box layout 3 rows × 2 columns was suggested/);
+  await h.read(reading('sudoku', 6, 3)); layoutIs(h, [2, 3]);
+  assert.match(h.state.notes.join(' '), /Box layout 2 rows × 3 columns was suggested/);
 });
-test('the successful rotated candidate uses snapshotted boxes, not controls edited while awaiting OCR', async t => {
+// The controls describe the next scan: a Read takes the boxes they held when
+// it started, and leaves an edit made while it ran in place (as an unturned
+// Read always did; a turned one used to overwrite it with its own boxes).
+test('the successful turned candidate uses snapshotted boxes and keeps controls edited while awaiting OCR', async t => {
   const h = harness(t), pending = deferred(); await h.read(pending.promise);
   h.setLayout({ rows: 6, cols: 6, boxRows: 1, boxCols: 6 });
-  pending.resolve(reading()); await tick(); layoutIs(h, [2, 3]); assert.deepEqual(h.errors, []);
+  pending.resolve(reading()); await tick(); assert.deepEqual(h.errors, []);
+  assert.deepEqual([h.state.puzzle.boxRows, h.state.puzzle.boxCols], [2, 3]);
+  assert.equal(conflicts(h.state.puzzle).size, 0);
+  assert.deepEqual(h.state.layout, { rows: 6, cols: 6, boxRows: 1, boxCols: 6 });
 });

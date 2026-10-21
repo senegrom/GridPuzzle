@@ -1,9 +1,9 @@
 // How a reading shows which way up its page lies: the cues the still
-// photograph's check goes by (Scanner.orient, scanner.js) and the live
-// view's help line names (live-session.js, turnedPage). They are kept out
-// of scanner.js so that page modules can use them while a recognition
-// suite runs the page with an older scanner.js (scripts/harness.cjs,
-// baselineSite).
+// photograph's check goes by (Scanner.orient, scanner.js, and a capture's
+// handoff to the editor, photo-flow.js) and the live view's help line names
+// (live-session.js, turnedPage). They are kept out of scanner.js so that page
+// modules can use them while a recognition suite runs the page with an older
+// scanner.js (scripts/harness.cjs, baselineSite).
 
 // Cells whose digit carries no review flag: what a reading has to offer. A
 // digit highlighted only for its size still counts, since it was read clearly.
@@ -43,4 +43,18 @@ export function glyphAspect(values) {
     ratios = values.filter((e) => !(e.glyphCount > 1) && e.h >= 0.5 * reference && e.w >= 0.3 * reference)
       .map((e) => e.h / e.w).sort((a, b) => a - b);
   return ratios.length < 6 ? Infinity : ratios[ratios.length >> 1];
+}
+// The turn a reading's own evidence asks Scanner.orient to try: none for a
+// reading with confident digits in at least half its value regions; for a
+// poorer one, "quarter" when its glyphs are wider than tall, and "half" when
+// they are taller than wide and it reads confident digits but none that shows
+// the way up (Scanner.halfTurn). A reading without six measurable glyphs, or
+// whose glyphs are as tall as wide, asks for none.
+export function turnCue(found) {
+  const values = (found.entries ?? []).filter((e) => e.kind === "value"),
+    confident = confidentDigits(found);
+  if (confident >= values.length / 2) return null;
+  const aspect = glyphAspect(values);
+  if (aspect > 1 && aspect < Infinity) return confident && !wayUpDigits(found) ? "half" : null;
+  return aspect < 1 ? "quarter" : null;
 }

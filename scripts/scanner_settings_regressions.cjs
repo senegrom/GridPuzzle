@@ -74,16 +74,18 @@ async function exercise(page, base) {
   const first = await solved(page);
   assert.deepEqual([first.puzzle.boxRows, first.puzzle.boxCols], [3, 2]);
 
+  // Rotate turns the photograph, not the printed puzzle: the box controls keep
+  // its 3 × 2 boxes, and the reading, upright, is solved with them again.
   await page.click("#show-crop");
-  await page.evaluate(() => { settingsMode.boxes = [2, 3]; });
   await page.click("#rotate-photo");
   await found(page);
-  assert.equal(await page.inputValue("#box-rows"), "2");
-  assert.equal(await page.inputValue("#box-cols"), "3");
+  assert.equal(await page.inputValue("#box-rows"), "3");
+  assert.equal(await page.inputValue("#box-cols"), "2");
   await page.click("#read-photo");
-  await solved(page);
+  const rotated = await solved(page);
+  assert.deepEqual([rotated.puzzle.boxRows, rotated.puzzle.boxCols], [3, 2]);
 
-  await page.evaluate(() => settingsApp.loadPuzzle(settingsModel.makePuzzle()));
+  await page.evaluate(() => { settingsMode.boxes = [2, 3]; settingsApp.loadPuzzle(settingsModel.makePuzzle()); });
   await photograph(page, image, "proposed-boxes");
   await page.click("#read-photo");
   await page.waitForFunction(() => document.getElementById("status-text").textContent === "Puzzle read.");
