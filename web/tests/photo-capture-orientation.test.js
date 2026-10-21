@@ -141,12 +141,14 @@ function harness(t, { type = "sudoku", progress = true } = {}) {
     running() {
       assert.equal(tasks.busy, true); assert.equal($("stop").hidden, false);
       assert.equal($("solve").disabled, true); assert.equal($("check-play").disabled, true);
+      assert.equal($("hint-play").disabled, true);
     },
     // Its task is over (finish or stop also clears its deadline): Stop hidden,
     // Solve, Check and Hint available again.
     ended() {
       assert.equal(tasks.busy, false); assert.equal($("stop").hidden, true);
       assert.equal($("solve").disabled, false); assert.equal($("check-play").disabled, false);
+      assert.equal($("hint-play").disabled, false);
     },
   };
 }
