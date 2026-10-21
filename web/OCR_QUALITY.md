@@ -1118,7 +1118,10 @@ cages and digits are all under review, so there are none either way) and no
 image reads fewer cages right. Cage by cage, 15,611 (Chromium) and 15,793
 (WebKit) cages become right and 4 and 6 that a turned reading read right by
 chance are lost, all of them single cells or pairs, each on an image that gains
-4 to 29; like every cage, all were under review.
+4 to 29; like every cage, all were under review. The first three images of
+every other set (55), read on master and on a build of the check (4aa5aa0) as
+the benchmark reads them in Chromium, read identically: other types' readings
+never reach the check.
 
 **End to end.** 10 puzzles, two of each set, in all three renders, were turned
 with Pillow (the turned JPEGs saved again at quality 95) and read as Read
