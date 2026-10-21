@@ -57,9 +57,10 @@ export function setupPhotoFlow({
     // (acceptPhoto): no detection has answered for it, no corner has moved and
     // no capture has brought its own corners. A Read through it highlights
     // every cell, so a Read tapped while a detection runs on it waits for that
-    // detection: `search` holds the detection's task and whether a Read waits.
+    // detection: `gridSearch` holds the detection's task and whether a Read
+    // waits for it.
     fallbackCrop = false,
-    search = null,
+    gridSearch = null,
     live = null,
     pendingPlayback = null,
     playbackTimer = null,
@@ -788,8 +789,9 @@ export function setupPhotoFlow({
     // On the fallback crop, a Read tapped while this detection runs waits for
     // it (Read puzzle, below): a new photograph's first detection, or Find
     // grid once that one failed or was stopped and no corner has moved. On a
-    // crop a detection or the user set, a Read stops it and reads that crop.
-    search = fallbackCrop ? { id, read: false } : null;
+    // crop that a detection, a capture or the user set, a Read stops it and
+    // reads that crop, as before.
+    gridSearch = fallbackCrop ? { id, read: false } : null;
     diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", "Photo processing stays on this device.");
     try {
@@ -846,12 +848,14 @@ export function setupPhotoFlow({
       // A Read that waited for this detection starts now, as a Read tapped
       // now would, if the detection ended on its own: through the corners it
       // found, or through the fallback crop, every cell highlighted, when it
-      // found no grid, failed, or the scanner gave up its job. Whatever
-      // stopped its task instead (Stop, a new photograph or capture, Rotate,
-      // a moved corner, another task) dropped the Read with it.
-      if (search?.id === id) {
-        const { read } = search;
-        search = null;
+      // found no grid, failed, or the scanner gave up its job. Its first line
+      // replaces the detection's own, which asks for a Read or reports the
+      // failure. Whatever stopped the detection's task instead (Stop, a new
+      // photograph or capture, Rotate, a moved corner, another task) dropped
+      // the Read with it.
+      if (gridSearch?.id === id) {
+        const { read } = gridSearch;
+        gridSearch = null;
         if (read && id === getJobId()) {
           status(...(unconfirmedCorners ? READ_FALLBACK : READ_FOUND));
           void readPhoto();
@@ -883,7 +887,7 @@ export function setupPhotoFlow({
     $("photo-panel").hidden = true;
     // Closing the crop editor drops a Read waiting for its grid; the
     // detection itself goes on, as before.
-    if (search) search.read = false;
+    if (gridSearch) gridSearch.read = false;
   };
   $("show-crop").onclick = () => {
     $("photo-panel").hidden = false;
@@ -1168,8 +1172,8 @@ export function setupPhotoFlow({
   // Rotate, a moved corner, closing the crop editor or another task drops
   // the waiting Read.
   $("read-photo").onclick = () => {
-    if (search && search.id === getJobId()) {
-      search.read = true;
+    if (gridSearch && gridSearch.id === getJobId()) {
+      gridSearch.read = true;
       status(...STILL_FINDING);
       return;
     }
