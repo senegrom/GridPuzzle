@@ -614,10 +614,10 @@ export function setupPhotoFlow({
       // other and 2s as 4s, all with confidence), the still is read again as
       // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
       // grid is ever turned; on any other the cue gets a note (rotateNote).
-      // The cue includes the live help line's (turnedPage), which takes five
-      // confident digits for a half turn where it takes one, and the help
-      // line's turn is that of the reading the capture keeps, so a capture
-      // whose help line named a turn shows it here.
+      // The cue includes the live help line's (turnedPage), which needs five
+      // confident digits for a half turn where this one needs one, and the
+      // help line names the turn of the reading the capture keeps, so a
+      // capture whose help line named a turn shows the cue here.
       const cue = turnCue(found), check = found.puzzle.rows === found.puzzle.cols ? cue : null,
         // A box suggestion still pending that a boxed capture was read with:
         // the capture's notes say so, as a photograph's Read does, and
