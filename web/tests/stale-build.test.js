@@ -155,11 +155,12 @@ test("a file the server fails to send is not called gone", async () => {
   assert.equal(last.gone, undefined);
 });
 
-// The browser looks for a deploy's worker at the next navigation, so a page
-// kept open would offer the update only after a reload. When the origin's
-// list names another build, the worker asks the browser to look now
-// (sw.js, requestUpdate()); the page offers the update once the new worker
-// is installed ("updatefound", offline-update.test.js).
+// The browser looks for a deploy's worker when a page navigates, and may
+// when a page starts a worker, so a page kept open that does neither would
+// offer the update only after a reload. When the origin's list names another
+// build, the worker asks the browser to look now (sw.js, requestUpdate());
+// the page offers the update once the new worker is installed
+// ("updatefound", offline-update.test.js).
 const quietly = async (work) => {
   const warn = console.warn;
   console.warn = () => {};

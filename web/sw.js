@@ -139,15 +139,16 @@ async function originManifest(signal){
 }
 // The builds this worker has asked the browser to look for.
 const updateRequested=new Set();
-/* The origin serves another build than this worker's: a deploy that the
-   browser would otherwise look for only at the next navigation, so a page
-   kept open would not offer it until then. Ask the browser to look now; once
-   it has installed that build's worker, the page offers "Update app &
-   reload" ("updatefound", offline.js). Once per build while this worker
-   runs, so that a page reading many missing files does not start a check
-   for each (a check that finds that worker already installed changes
-   nothing). The check is never awaited, and one that fails or is refused
-   changes nothing either. */
+/* The origin serves another build than this worker's: a deploy the browser
+   may not have looked for yet. It looks when a page navigates, and may when
+   a page starts a worker, so a page kept open that, say, only downloads for
+   offline use would not offer the update until it reloads. Ask the browser
+   to look now; once it has installed that build's worker, the page offers
+   "Update app & reload" ("updatefound", offline.js). Once per build while
+   this worker runs, so that a page reading many missing files does not
+   start a check for each (a check that finds that worker already installed
+   changes nothing). The check is never awaited, and one that fails or is
+   refused changes nothing either. */
 function requestUpdate(build){
   if(!build||build===VERSION||updateRequested.has(build))return;
   updateRequested.add(build);
