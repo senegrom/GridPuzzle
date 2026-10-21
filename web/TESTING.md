@@ -139,8 +139,12 @@ starts the camera on a phone, a tablet and a desktop screen to check that the
 canvas and the video share one box, and "live capture with automatic
 solving off", after "320 px", a live capture that does not freeze. In run
 39142492063 (2026-10-18) they took 0.7 and 1.6 s in Chromium and 20.9 and
-10.2 s in WebKit, of 69.6 and 205.0 s in all. `web/tests/suite-docs.test.js`
-fails when this section does not name a phase the suite times.
+10.2 s in WebKit, of 69.6 and 205.0 s in all. "A page lying sideways", after
+"live capture with automatic solving off", came with the live view's turn
+guidance: a page a quarter turn round, read with real OCR, does not freeze,
+and the help line names the turn. It took 4.4 and 5.8 s in two local
+Chromium runs (2026-10-20). `web/tests/suite-docs.test.js` fails when this
+section does not name a phase the suite times.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own

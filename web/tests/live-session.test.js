@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makePuzzle } from '../model.js';
 import { createLiveSession, turnedPage } from '../live-session.js';
-import { HALF_TURN_BAR } from '../scanner.js';
+import { HALF_TURN_BAR } from '../turn-cues.js';
 const UNREAD='Some printed marks could not be read (unread clue ? in the legend). Move closer for a clearer read.';
 function state() {
   const puzzle = makePuzzle('latinsquare', 2); puzzle.cells[0] = 1;

@@ -1,7 +1,7 @@
 import { recoveryCells, clearerCells, mergeRecoveredClues } from "./clue-recovery.js";
 import { previewBlocker, overlayCells, CONFLICTING } from "./live-overlay.js";
 import { clone, checkShape } from "./model.js";
-import { glyphAspect, confidentDigits, wayUpDigits, HALF_TURN_BAR } from "./scanner.js";
+import { glyphAspect, confidentDigits, wayUpDigits, HALF_TURN_BAR } from "./turn-cues.js";
 
 // Drops a canvas's pixels without waiting for the collector. Plain test
 // objects without numeric dimensions are left alone.
