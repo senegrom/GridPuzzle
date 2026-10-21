@@ -15,8 +15,10 @@ import { createTaskController } from "../task-controller.js";
 // found no grid, failed, or the scanner gave its job up. Whatever stops the
 // detection's task (Stop, a new photograph or capture, Rotate, a moved corner,
 // another task) drops the waiting Read, and so does Hide photo; a second tap
-// adds nothing. The flow runs with the app's own task controller, so Stop
-// shown and Solve, Check and Hint disabled are checked throughout.
+// adds nothing. A Read tapped during the detection that Rotate or Find grid
+// starts on the fallback crop waits for that one in turn. The flow runs with
+// the app's own task controller, so Stop shown and Solve, Check and Hint
+// disabled are checked throughout.
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function settle() { for (let i = 0; i < 10; i++) await tick(); }
@@ -39,6 +41,10 @@ function png(width, height) {
 const fallback = (width, height) => [{ x: width * 0.08, y: height * 0.08 }, { x: width * 0.92, y: height * 0.08 },
   { x: width * 0.92, y: height * 0.92 }, { x: width * 0.08, y: height * 0.92 }];
 const GRID = [{ x: 100, y: 80 }, { x: 700, y: 90 }, { x: 690, y: 520 }, { x: 110, y: 530 }];
+// The corners found on such a photograph turned upright by Rotate (600 x 800),
+// and an answer that a stopped detection gives too late to be taken.
+const TURNED = [{ x: 80, y: 100 }, { x: 520, y: 110 }, { x: 510, y: 700 }, { x: 90, y: 690 }];
+const STRAY = [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }];
 const found = (corners = GRID) => ({ rows: 4, cols: 4, confidence: 0.99, corners: corners.map((p) => ({ ...p })) });
 const ALL = [...Array(16).keys()];
 const UNCONFIRMED = /^The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted\./;
@@ -205,16 +211,18 @@ test("a Read tapped while a new photograph's grid is found waits, then reads thr
   assert.equal(h.$("photo-panel").hidden, true, "the board shows the reading, as after a tapped Read");
 });
 
-test("a second and third tap while it waits read once", async (t) => {
-  const h = harness(t), { imported, detection } = await h.photograph();
-  await waiting(h, detection);
-  await waiting(h, detection);
-  await waiting(h, detection);
-  detection.resolve(found()); await imported; await settle();
-  readThroughGrid(h);
-  await settle();
-  assert.equal(h.reads.length, 1);
-});
+// Exactly two taps as well as three: a second tap must neither queue another
+// Read nor take the first one back.
+for (const [taps, name] of [[2, "a double tap"], [3, "a triple tap"]])
+  test(`${name} while it waits reads once`, async (t) => {
+    const h = harness(t), { imported, detection } = await h.photograph();
+    for (let tap = 0; tap < taps; tap++) await waiting(h, detection);
+    detection.resolve(found()); await imported; await settle();
+    leadIn(h, FOUND_LINE);
+    readThroughGrid(h);
+    await settle();
+    assert.equal(h.reads.length, 1);
+  });
 
 // Each way the detection can end on its own, with the Read tapped while it
 // ran and with the Read tapped once it ended: the same reading, board, notes,
@@ -290,20 +298,28 @@ test("a waiting Read goes through the corners of a detection that asks for them 
   assert.deepEqual(h.state.layout, { rows: 4, cols: 4, boxRows: 2, boxCols: 2 });
 });
 
-test("Stop while a Read waits stops both: no Read, the fallback crop stays, and a later Read reads it", async (t) => {
-  const h = harness(t), { imported, detection } = await h.photograph();
-  await waiting(h, detection);
-  h.stop();
-  h.ended();
-  await imported; await settle();
-  assert.equal(h.status, "Stopped.");
-  assert.equal(h.reads.length, 0);
-  assert.deepEqual(h.errors, []);
-  assert.deepEqual(h.state.corners, fallback(800, 600));
-  // No detection runs now, so a Read reads the crop as it stands at once.
-  await h.tapRead(); await settle();
-  readThroughUnconfirmed(h, fallback(800, 600));
-});
+// `late`: the stopped detection has not answered yet when Read is tapped
+// again, and answers after that Read.
+for (const late of [false, true])
+  test(`Stop while a Read waits stops both: no Read, the fallback crop stays, and a later Read reads it${late ? ", before the stopped detection answers" : ""}`, async (t) => {
+    const h = harness(t, { late }), { imported, detection } = await h.photograph();
+    await waiting(h, detection);
+    h.stop();
+    h.ended();
+    await settle();
+    assert.equal(h.status, "Stopped.");
+    assert.equal(h.reads.length, 0);
+    assert.deepEqual(h.errors, []);
+    assert.deepEqual(h.state.corners, fallback(800, 600));
+    // No detection runs now, so a Read reads the crop as it stands at once.
+    await h.tapRead(); await settle();
+    readThroughUnconfirmed(h, fallback(800, 600));
+    // The stopped detection's answer, if it comes now, changes nothing.
+    detection.resolve(found(STRAY)); await imported; await settle();
+    assert.equal(h.reads.length, 1);
+    assert.deepEqual(h.state.corners, fallback(800, 600));
+    h.ended();
+  });
 
 // Everything that stops the detection's task, or closes the crop editor,
 // drops the waiting Read; each also checks what it leaves. With the scanner
@@ -377,7 +393,6 @@ const interruptions = {
     assert.equal(h.status, "Grid found."); h.ended();
   },
 };
-const STRAY = [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 9 }, { x: 1, y: 9 }];
 for (const late of [false, true])
   for (const [what, interrupt] of Object.entries(interruptions))
     test(`${what} drops a waiting Read${late ? ", and the stopped detection's late answer changes nothing" : ""}`, async (t) => {
@@ -396,11 +411,22 @@ for (const late of [false, true])
 
 // Find grid on a photograph whose grid has not been found yet (its first
 // detection failed or was stopped, no corner moved): the crop is still the
-// fallback crop, so the same reasoning holds and a Read waits for it too.
-for (const [how, first] of [["failed", (job) => job.reject(Error("Image processing failed"))], ["was stopped", null]])
+// fallback crop, so the same reasoning holds and a Read waits for it too. A
+// corner handle touched but not moved stops the detection as Stop does and
+// leaves the crop untouched.
+const firstEndings = {
+  failed: (h, job) => job.reject(Error("Image processing failed")),
+  "was stopped": (h) => h.stop(),
+  "was stopped by a touch on a corner handle"(h) {
+    const crop = h.$("crop-canvas"), [corner] = fallback(800, 600);
+    crop.onpointerdown({ clientX: corner.x, clientY: corner.y, pointerId: 1, preventDefault() {} });
+    crop.onpointerup();
+  },
+};
+for (const [how, first] of Object.entries(firstEndings))
   test(`a Read waits for Find grid when the first detection ${how} and no corner moved`, async (t) => {
     const h = harness(t), { imported, detection } = await h.photograph();
-    if (first) first(detection); else h.stop();
+    first(h, detection);
     await imported; await settle();
     h.ended(); assert.deepEqual(h.state.corners, fallback(800, 600));
     const again = h.$("detect-photo").onclick();
@@ -485,9 +511,62 @@ test("a rotated photograph's Read waits for the turned photograph's grid", async
   assert.equal(h.detections.length, 2);
   assert.deepEqual(h.state.corners, fallback(600, 800));
   await waiting(h, h.detections[1]);
-  const turned = [{ x: 80, y: 100 }, { x: 520, y: 110 }, { x: 510, y: 700 }, { x: 90, y: 690 }];
-  h.detections[1].resolve(found(turned)); await settle();
+  h.detections[1].resolve(found(TURNED)); await settle();
   assert.equal(h.reads.length, 1);
-  assert.deepEqual(h.reads[0].corners, turned);
+  assert.deepEqual(h.reads[0].corners, TURNED);
   assert.equal(h.status, "Puzzle read."); h.ended();
+});
+
+// Rotate or Find grid tapped while the first detection still runs (a sideways
+// photograph turned at once, say) stops it and starts the next detection on
+// the fallback crop. The stopped detection settles only after the next one
+// has begun, whether the scanner rejects it at the stop or it answers late,
+// and must leave the next one's search alone: a Read tapped during the next
+// detection waits for it, with or without a Read that waited for the first,
+// and reads once through the corners it finds.
+const restarts = {
+  Rotate: [(h) => h.$("rotate-photo").onclick(), fallback(600, 800), TURNED],
+  "Find grid": [(h) => void h.$("detect-photo").onclick(), fallback(800, 600), GRID],
+};
+for (const late of [false, true])
+  for (const [what, [restart, crop, corners]] of Object.entries(restarts))
+    for (const tapped of [false, true])
+      test(`${what} tapped while the first detection runs${tapped ? " with a Read waiting" : ""}: a Read tapped during the next detection waits for it${late ? ", also when the first answers late" : ""}`, async (t) => {
+        const h = harness(t, { late }), { imported, detection } = await h.photograph();
+        if (tapped) await waiting(h, detection);
+        const cancels = h.cancels;
+        restart(h); await settle();
+        assert.ok(h.cancels > cancels, "the first detection is stopped");
+        assert.equal(h.detections.length, 2, "the next detection runs");
+        assert.deepEqual(h.state.corners, crop, "on the fallback crop");
+        h.running();
+        await waiting(h, h.detections[1]);
+        // The first detection's answer, coming now, neither reads nor drops the Read.
+        detection.resolve(found(STRAY)); await imported; await settle();
+        assert.equal(h.reads.length, 0, "nothing is read yet");
+        assert.deepEqual(h.state.corners, crop);
+        h.running();
+        h.detections[1].resolve(found(corners)); await settle();
+        leadIn(h, FOUND_LINE);
+        assert.equal(h.reads.length, 1);
+        assert.deepEqual(h.reads[0].corners, corners);
+        assert.deepEqual(h.errors, []);
+        assert.equal(h.status, "Puzzle read."); h.ended();
+        await settle();
+        assert.equal(h.reads.length, 1);
+      });
+
+// Hide photo drops the waiting Read and lets the detection go on, so a Read
+// tapped again after Adjust scan, while it still runs, waits for it again.
+test("after Hide photo and Adjust scan, a Read tapped while the detection still runs waits again and reads once", async (t) => {
+  const h = harness(t), { imported, detection } = await h.photograph();
+  await waiting(h, detection);
+  h.$("hide-photo").onclick();
+  h.running();
+  h.$("show-crop").onclick();
+  assert.equal(h.$("photo-panel").hidden, false);
+  await waiting(h, detection);
+  detection.resolve(found()); await imported; await settle();
+  leadIn(h, FOUND_LINE);
+  readThroughGrid(h);
 });
