@@ -152,8 +152,8 @@ const updateRequested=new Set();
    build's worker already installed changes nothing. The check is never
    awaited, and one that fails changes nothing else. The browser refuses the
    check of an installing worker, which then does not ask for that build
-   again; the reload that follows its activation is a navigation, after
-   which the browser looks anyway. */
+   again while it runs; the browser looks at the next navigation anyway,
+   such as the reload that activates an update. */
 function requestUpdate(build){
   if(!build||build===VERSION||updateRequested.has(build))return;
   updateRequested.add(build);
