@@ -63,6 +63,10 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # scripts/check_runtime_pins.py reads each leg's four settings in this
+      # order. The weekly Runtime pins run fails when a leg that allows
+      # prereleases has a final release, or when a CPython is newer than
+      # every leg (DEVELOPMENT.md, "Validation policy").
       matrix:
         include:
           - label: Python 3.14 free-threaded
