@@ -356,17 +356,18 @@ function webkitVideo() {
   };
   return video;
 }
-// The live camera reduced to its frame scheduler: start, the freeze and Clear
-// start and stop the real scheduler on the video as live-camera.js does (Clear
-// with discardFirst), and each frame it hands on records the picture a
-// snapshot would draw.
+// The live camera reduced to its frame scheduler: start, the freeze, Clear
+// and replay start and stop the real scheduler on the video as live-camera.js
+// does (Clear with discardFirst), and each frame it hands on records the
+// picture a snapshot would draw.
 function schedulerLive(options, drawn) {
   let time = 0;
   const scheduler = createFrameScheduler({ video: options.video, onFrame: () => drawn.push(options.video.picture),
     now: () => (time += 150), setTimer: () => 0, clearTimer() {} });
-  return { view: "live", resumed: 0, get stats() { return { scheduling: scheduler.stats }; },
+  return { view: "live", resumed: 0, replayed: 0, get stats() { return { scheduling: scheduler.stats }; },
     start() { scheduler.start(); }, stop() { scheduler.stop(); }, capture: () => null,
     resume() { if (this.view !== "frozen") return; this.view = "live"; this.resumed++; scheduler.start({ discardFirst: true }); options.onViewChange?.("live"); },
+    replay() { if (this.view !== "live") return; this.replayed++; scheduler.stop(); scheduler.start(); },
     freeze() { this.view = "frozen"; scheduler.stop(); options.onViewChange?.("frozen"); } };
 }
 
@@ -397,6 +398,76 @@ test("after Clear the camera scans a frame presented after the tap, never the fr
   assert.equal(h.live.view, "live");
   assert.ok(drawn[1] > tapped, `the first frame scanned after Clear is ${drawn[1]}: the tap came after frame ${tapped}, the freeze at frame 2`);
   assert.equal(h.requests, 1, "no getUserMedia: the camera stayed on");
+});
+
+// Start preview on the live view (offered when no frame came for three
+// seconds after Clear) makes the video a new player: pause, srcObject and
+// load. Its count of presented frames starts from zero, so at the tap the
+// live camera's scheduler starts over (replay) and scans its frames at once.
+// Before, the scheduler kept the old player's count (here 47, with the frames
+// counted while paused at the freeze) and took every new frame for a repeat:
+// nothing was scanned until the count passed it, and the frame check offered
+// Start preview again while the video played.
+test("Start preview on the live view scans the new player's frames at once", async (t) => {
+  const video = webkitVideo(), drawn = [];
+  const h = await cameraHarness(t, { video, makeLive: (options) => schedulerLive(options, drawn) });
+  const opening = h.$("camera").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); await opening;
+  for (let i = 0; i < 20; i++) { video.cameraFrame(); video.renderingUpdate(); }
+  h.live.freeze();
+  for (let i = 0; i < 25; i++) { video.cameraFrame(); video.renderingUpdate(); } // Counted while paused.
+  const timers = manualTimers(t), clearing = h.$("clear-freeze").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); video.renderingUpdate(); // The one frame reported after Clear: a baseline only.
+  await clearing;
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, false, "three silent seconds: Start preview is offered on the live view");
+  assert.equal(h.live.view, "live");
+  const scanned = drawn.length, loads = video.loads, retry = h.$("start-camera").onclick();
+  await tick(); await tick();
+  assert.equal(video.loads, loads + 1, "the tap makes a new player");
+  video.cameraFrame(); await tick(); await retry; // Its first frame lets play() resolve.
+  assert.equal(h.live.replayed, 1, "the scheduler starts over");
+  video.cameraFrame(); video.renderingUpdate();
+  assert.deepEqual(drawn.slice(scanned), [video.frame], "the new player's next frame is scanned");
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, true, "frames came: Start preview is not offered again");
+  assert.equal(h.live.resumed, 1, "only Clear resumed");
+});
+// The same when that play() times out (eight seconds without a frame) and
+// the camera's frames come later: the scheduler started over at the tap, so
+// the new player's first frame is scanned at once and the frame check takes
+// the offer back. When it started over only once play() resolved, a timeout
+// left the old player's count, here 47: every later frame was taken for a
+// repeat until the count passed it, and Start preview stayed on offer while
+// the video played.
+test("Start preview on the live view whose play() times out scans the new player's later frames at once", async (t) => {
+  const video = webkitVideo(), drawn = [];
+  const h = await cameraHarness(t, { video, makeLive: (options) => schedulerLive(options, drawn) });
+  const opening = h.$("camera").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); await opening;
+  for (let i = 0; i < 20; i++) { video.cameraFrame(); video.renderingUpdate(); }
+  h.live.freeze();
+  for (let i = 0; i < 25; i++) { video.cameraFrame(); video.renderingUpdate(); } // Counted while paused.
+  const timers = manualTimers(t), clearing = h.$("clear-freeze").onclick();
+  await tick(); await tick();
+  video.cameraFrame(); video.renderingUpdate(); // The one frame reported after Clear: a baseline only.
+  await clearing;
+  fire(timers, 3000);
+  assert.equal(h.$("start-camera").hidden, false, "Start preview is offered on the live view");
+  const scanned = drawn.length, retry = h.$("start-camera").onclick();
+  assert.equal(h.live.replayed, 1, "the scheduler starts over at the tap");
+  await tick(); await tick();
+  fire(timers, 8000); await retry; // The camera stays silent: play() times out.
+  assert.equal(h.$("start-camera").hidden, false);
+  assert.equal(h.$("camera-help").textContent, "No camera frame arrived. Tap Start preview to retry.");
+  video.cameraFrame(); video.renderingUpdate(); // The camera comes back.
+  assert.deepEqual(drawn.slice(scanned), [video.frame], "the new player's first frame is scanned");
+  fire(timers, 500);
+  assert.equal(h.$("start-camera").hidden, true, "frames came: Start preview is taken back");
+  assert.equal(h.live.replayed, 1, "once per new player"); assert.equal(h.live.resumed, 1, "only Clear resumed");
 });
 
 test("Clear whose playback is refused offers Start preview, which plays again and then resumes", async (t) => {

@@ -58,7 +58,9 @@ clue that an automatic retry could still read keeps the view live for up to
 three seconds while the help line asks to hold the grid steady. Either way the
 freeze waits for a frame at most half a second old, for at most three
 seconds, with the same request to hold the grid steady. Like the other
-scanner settings, it is saved in this browser and applies from the next scan.
+scanner settings, it is saved in this browser. The camera reads it at every
+freeze decision, so a change applies to the reading on screen and starts
+nothing over ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 The full-screen camera is modal: background controls are inert, Tab and
 Shift+Tab remain inside it, and closing it restores the previous focus and

@@ -363,9 +363,34 @@ test('thirty open/close cycles release source/scratch canvases and timers, inclu
  }
 });
 
+// The page makes the video a new player on a live view (Start preview: pause,
+// srcObject and load), whose clock and frame counts start again from zero.
+// replay() starts the frame scheduler over, so the new player's frames are
+// scanned at once; before, every one was taken for a repeat of the old
+// player's until its clock passed the old one. A closed camera ignores it.
+test("replay() starts the frame scheduler over for a new player whose clock starts again", async (t) => {
+  const h = harness(t); await h.advance(1000);
+  assert.ok(h.camera.stats.scheduling.processed > 0);
+  // The new player: its clock starts again from zero.
+  const loaded = h.now;
+  Object.defineProperty(h.video, "currentTime", { configurable: true, get: () => (h.now - loaded) / 1000 });
+  const processed = h.camera.stats.scheduling.processed;
+  await h.advance(600);
+  assert.equal(h.camera.stats.scheduling.processed, processed, "without a restart its frames count as repeats");
+  assert.ok(h.camera.stats.scheduling.duplicates > 0); assert.equal(h.camera.stats.scheduling.fresh, false);
+  h.camera.replay();
+  await h.advance(100);
+  assert.equal(h.camera.stats.scheduling.processed, 1, "after replay() the next frame is processed");
+  assert.equal(h.camera.stats.scheduling.fresh, true);
+  h.camera.stop(); h.camera.replay();
+  assert.equal(h.timers.size, 0, "a closed camera starts no scheduler");
+});
+
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 // --- live-camera: a detected grid that contradicts the chosen rules --------
+// The reason goes to the help line; no anchor is built for such a grid, so
+// nothing verifies it and no outline is drawn (LIVE_CAMERA.md).
 test("a detected grid that does not fit the selected rules shows the reason instead of failing every frame", async (t) => {
   const timers = new Map(); let serial = 0, time = 0;
   const nodes = new Map(), $ = (id) => { if (!nodes.has(id)) nodes.set(id, { textContent: "" }); return nodes.get(id); };
@@ -375,7 +400,10 @@ test("a detected grid that does not fit the selected rules shows the reason inst
   globalThis.document = { createElement: () => ({ width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} }) };
   t.after(() => { globalThis.document = previous; });
   const detections = [], invalidations = [];
-  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: { width: 700, height: 700, dataset: {}, getContext: () => context, setAttribute() {} },
+  // The display canvas counts the outlines stroked on it.
+  let strokes = 0;
+  const view = { width: 700, height: 700, dataset: {}, getContext: () => ({ ...context, stroke() { strokes++; } }), setAttribute() {} };
+  const camera = createLiveCamera({ $, video: { videoWidth: 700, videoHeight: 700, get currentTime() { return time / 1000; } }, canvas: view,
     getSettings: () => ({ type: "sudoku", rows: 9, cols: 9, boxRows: 3, boxCols: 3, enabled: true }),
     detector: { detect() { const job = deferred(); detections.push(job); return job.promise; }, cancel() {} },
     reader: { read() { return new Promise(() => {}); }, cancel() {} },
@@ -390,4 +418,5 @@ test("a detected grid that does not fit the selected rules shows the reason inst
   assert.match($("camera-help").textContent, /Detected 9 × 6, which does not fit Sudoku/);
   await advance(300);
   assert.match($("camera-help").textContent, /does not fit Sudoku/, "the message survives further frames instead of a per-tick error");
+  assert.equal(view.dataset.overlay, "none", "no outline is drawn"); assert.equal(strokes, 0);
 });

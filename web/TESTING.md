@@ -65,7 +65,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it; where bitmaps are decided, a frame whose bitmap reads back transparent and one whose bitmap is 1 × 1 are each lost alone (the reading stays, read once, on bitmaps), also right after the change | `live-acceptance` |
@@ -139,8 +139,12 @@ starts the camera on a phone, a tablet and a desktop screen to check that the
 canvas and the video share one box, and "live capture with automatic
 solving off", after "320 px", a live capture that does not freeze. In run
 39142492063 (2026-10-18) they took 0.7 and 1.6 s in Chromium and 20.9 and
-10.2 s in WebKit, of 69.6 and 205.0 s in all. `web/tests/suite-docs.test.js`
-fails when this section does not name a phase the suite times.
+10.2 s in WebKit, of 69.6 and 205.0 s in all. "A page lying sideways", after
+"live capture with automatic solving off", came with the live view's turn
+guidance: a page a quarter turn round, read with real OCR, does not freeze,
+and the help line names the turn. It took 4.4 and 5.8 s in two local
+Chromium runs (2026-10-20). `web/tests/suite-docs.test.js` fails when this
+section does not name a phase the suite times.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own

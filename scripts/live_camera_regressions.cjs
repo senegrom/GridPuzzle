@@ -8,6 +8,9 @@ async function fixture(page) {
     const paper = document.createElement("canvas"); paper.width = paper.height = 700;
     window.livePaper = paper;
     window.liveMode = "grid";
+    // The page's turn in degrees clockwise: the grid looks the same, the
+    // printed digits lie that way round.
+    window.liveTurn = 0;
     const ctx = paper.getContext("2d");
     const cells = [1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1];
     let frames = 0;
@@ -22,7 +25,9 @@ async function fixture(page) {
         ctx.moveTo(50,50+n*150);ctx.lineTo(650,50+n*150);ctx.stroke();
       }
       ctx.fillStyle="black";ctx.font="58px Arial";ctx.textAlign="center";ctx.textBaseline="middle";
+      ctx.save();ctx.translate(350,350);ctx.rotate(liveTurn*Math.PI/180);ctx.translate(-350,-350);
       cells.forEach((n,i)=>{if(n!==null)ctx.fillText(String(n),50+(i%4+.5)*150,50+(Math.floor(i/4)+.5)*150);});
+      ctx.restore();
     }
     paint();
     // Request actual captured frames even when the test paper is static. This
@@ -403,6 +408,40 @@ async function run() {
             await page.click("#close-camera");
           } finally { await autoSolve(true); }
           report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
+        });
+        await time("a page lying sideways",async()=>{
+          // The live view never turns a reading (only a still photograph's
+          // is checked for a turn): aimed at the paper a quarter turn round,
+          // with real OCR, it neither solves nor freezes. The help line says
+          // the grid looks sideways, by the cue the still check reads its
+          // turns on, where it asked to move closer and then to wait for a
+          // clearer frame, which cannot help; the export says so too.
+          await page.evaluate(()=>{
+            window.liveMode="grid";window.liveTurn=90;
+            const help=document.getElementById("camera-help"),log=window.turnLog=[];
+            window.turnObserver?.disconnect();window.turnObserver=new MutationObserver(()=>log.push(help.textContent));
+            turnObserver.observe(help,{childList:true,characterData:true,subtree:true});
+          });
+          try {
+            await startLive(page);
+            await page.waitForFunction(()=>/^The grid looks sideways\./.test(document.getElementById("camera-help").textContent),null,{timeout:150000});
+            await sleep(3000);
+            const sideways=await page.evaluate(()=>{const d=document.getElementById("live-preview").dataset;
+              return {view:d.view,solution:Number(d.solution),counts:[d.recognised,d.uncertain,d.unknown],
+                help:document.getElementById("camera-help").textContent,texts:[...new Set(turnLog)]};});
+            sideways.events=await page.evaluate(()=>{
+              const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
+              node("prepare").click();try{return [...new Set(JSON.parse(node("preview").textContent).events.map(e=>e.reason))];}finally{node("clear").click();}
+            });
+            report.sideways=sideways;
+            assert.equal(sideways.view,"live","a page lying sideways does not freeze");assert.equal(sideways.solution,0);
+            assert.match(sideways.help,/^The grid looks sideways\. Turn the page or the phone a quarter turn/,"the help line still names the turn");
+            assert.ok(!sideways.texts.some(text=>/^Waiting for a clearer frame|^Some printed marks could not be read|^No printed clues were read yet/.test(text)),
+              `nor asked to move closer or wait for a clearer frame (${JSON.stringify(sideways.texts)})`);
+            assert.ok(sideways.events.includes("grid-sideways"),`the export records the turn (${JSON.stringify(sideways.events)})`);
+            await page.click("#close-camera");
+          } finally { await page.evaluate(()=>{window.liveTurn=0;window.turnObserver?.disconnect();}); }
+          report.checks.push("aimed at the paper a quarter turn round, the live view reads it as it lies and does not freeze; the help line and the export say the grid looks sideways, not to move closer or wait for a clearer frame");
         });
         await time("the freeze's wait, off by default and on through its checkbox",async()=>{
           // "Wait up to 3 s for clearer clues before freezing" is off by

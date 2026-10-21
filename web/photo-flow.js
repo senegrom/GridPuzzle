@@ -265,6 +265,15 @@ export function setupPhotoFlow({
     };
     frameCheck = setTimeout(() => check(!offered), offered ? 500 : 3000);
   }
+  // The page made the video a new player (Start preview's pause, srcObject
+  // and load, or a stream attached again), whose count of presented frames
+  // starts from zero. On a live view the live camera's frame scheduler starts
+  // over at once (replay), or it would take every frame for a repeat until
+  // the count passed the old player's: at once, not once play() resolves,
+  // since a play() that times out or is interrupted leaves the new player in
+  // place and its frames can come later. A frozen view's Clear starts the
+  // scheduler afresh itself (resume).
+  function newPlayer() { if (live?.view === "live") live.replay?.(); }
   // Clear: play the camera again inside the tap, asking for it first if it
   // was turned off meanwhile, and only then let the live camera scan anew.
   // The frozen picture stays on screen until playback has resumed, and stays
@@ -278,7 +287,8 @@ export function setupPhotoFlow({
   async function resumePlayback() {
     const epoch = cameraEpoch;
     if (!live) return;
-    const view = live.view, clearing = view === "frozen", seen = live.stats?.scheduling?.observed ?? 0;
+    const view = live.view, clearing = view === "frozen";
+    let seen = live.stats?.scheduling?.observed ?? 0;
     pendingPlayback = resumePlayback;
     clearTimeout(frameCheck); frameCheck = null;
     $("start-camera").disabled = true; $("clear-freeze").disabled = true;
@@ -299,7 +309,10 @@ export function setupPhotoFlow({
           if (epoch === cameraEpoch) $("camera-help").textContent = RELEASED.hidden;
           return;
         }
-      } else if ($("video").srcObject !== stream) attachVideo(); // Inside the tap, before play().
+        newPlayer(); seen = live?.stats?.scheduling?.observed ?? 0;
+      } else if ($("video").srcObject !== stream) { // Inside the tap, before play().
+        attachVideo(); newPlayer(); seen = live.stats?.scheduling?.observed ?? 0;
+      }
       owner = stream;
       await playWithTimeout($("video"));
       // Closed, captured or released meanwhile: that path's own state stands.
@@ -467,6 +480,7 @@ export function setupPhotoFlow({
     // Reset a stalled element on the user gesture, retaining the granted stream.
     const video = $("video");
     video.pause?.(); video.srcObject = stream; video.load?.();
+    newPlayer();
     return pendingPlayback();
   };
   // The picture is opaque (a camera frame), so it covers the outline. Its
