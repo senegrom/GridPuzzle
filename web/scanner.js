@@ -11,11 +11,12 @@ import { readOperator } from "./cage-operator.js";
 import { confidentDigits, wayUpDigits, glyphAspect, turnCue, cageSums, HALF_TURN_BAR, HALF_TURN_FLOOR, CAGE_TURN_FLOOR } from "./turn-cues.js";
 const aborted = () => new DOMException("Scan cancelled", "AbortError");
 // How long a still photograph's cage check (Scanner.cageTurn) may run,
-// counted from the start of the page's first reading: half the 120 s the photo
-// flow gives a whole Read (photo-flow.js), since a Read that runs out of that
+// counted from the start of the page's first reading: three quarters of the
+// 120 s the photo flow gives a whole Read (photo-flow.js), the rest left for
+// decoding the photograph and stopping, since a Read that runs out of that
 // loses its reading. The check's three readings take several times the first
 // one's time, so a slow device keeps the first reading instead of timing out.
-export const CAGE_TURN_BUDGET = 60000;
+export const CAGE_TURN_BUDGET = 90000;
 function imageOf(canvas) {
   return canvas
     .getContext("2d", { willReadFrequently: true })

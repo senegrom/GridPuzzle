@@ -995,8 +995,8 @@ export function setupPhotoFlow({
     // a complete replacement is ready. Crop edits already invalidate mapping.
     // The deadline covers the reader's orientation checks too, and a Read
     // that runs out loses its reading: a cage puzzle's check, the longest,
-    // stops at half of it and keeps the first reading (CAGE_TURN_BUDGET in
-    // scanner.js).
+    // stops 90 s after the first reading began and keeps that reading
+    // (CAGE_TURN_BUDGET in scanner.js).
     const id = begin();
     setDeadline(() => {
       if (id === getJobId())
