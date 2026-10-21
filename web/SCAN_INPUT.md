@@ -205,28 +205,27 @@ and reads the captured still again the same way; a reading taken turned
 replaces the live one, under review like every capture, and one read the way it
 lies gets its own warnings back ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
-A cage puzzle (Killer or KenKen chosen as the type) never shows either cue:
+A cage puzzle (Killer or KenKen chosen as the type) could take neither check:
 every digit read on a cage board is under review, so its reading has no
-confident digit, and its clues are cage sums, not value glyphs. Its own check
-(`Scanner.cageTurn`) goes by the sums instead. Each sum is printed in the
-top-left corner of its cage's top-left cell, which is where the reader looks
-for it; a page lying turned puts every sum in another corner, mostly of another
-cell, so it reads few sums. A sum counts when its cage can hold it
+confident digit to turn by, and its clues are cage sums, not value glyphs. It
+takes a check of its own (`Scanner.cageTurn`), by the sums. Each sum is printed
+in the top-left corner of its cage's top-left cell, which is where the reader
+looks for it; a page lying turned puts every sum in another corner, mostly of
+another cell, so it reads few sums. A sum counts when its cage can hold it
 (`cageSum`: k distinct digits of a Killer cage sum to k(k+1)/2 to k(2n+1−k)/2,
 a KenKen cage's target fits its operator and size), since the empty corners a
 turned page offers still catch strokes that read as numbers. A reading with
 such a sum in fewer than half its cages is read again in the other three
 quarter turns, and the turned reading with the most is kept only when it reads
-clearly better: at least 3 such sums (`CAGE_TURN_FLOOR`), sums in at least
-half its cages, and more than twice as many as the first reading; a tie
-between two turns keeps the first reading. The reading then names the turn
-in its first note and carries `turns`, and like every cage reading it waits for
-review. A turned page whose upright reading finds sums in fewer than half its
-cages stays as it lies, its sums unread: turn it upright with Rotate and Read
-again, and the upright reading is kept. Automatic detection does not take this
-check (its cage readings come from per-cell clue strips and were not measured
-turned). "Turned cage puzzles" in [OCR_QUALITY.md](OCR_QUALITY.md) has the
-measurements.
+clearly better: at least 3 such sums (`CAGE_TURN_FLOOR`), sums in at least half
+its cages, and more than twice as many as the first reading; a tie between two
+turns keeps the first reading. The reading then names the turn in its first
+note and carries `turns`, and like every cage reading it waits for review. A
+turned page whose upright reading finds sums in fewer than half its cages stays
+as it lies, its sums unread: turn it upright with Rotate and Read again, and
+the upright reading is kept. Automatic detection does not take this check (its
+cage readings come from per-cell clue strips and were not measured turned).
+"Turned cage puzzles" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements.
 
 ## Clue-focused live-camera quality
 
