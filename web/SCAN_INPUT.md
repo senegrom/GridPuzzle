@@ -16,6 +16,15 @@ canvas is released after recognition, including rejection or cancellation.
 The accepted photo, saved picture and overlay coordinates remain in the preview
 coordinate system; only OCR receives the detailed crop and its mapped corners.
 
+The selected grid is the crop editor's four corners: those grid detection
+found, or the user's. A new or rotated photograph shows the detector's no-grid
+crop (8% in from each edge) until its detection answers, and a Read through
+that crop puts every cell under review. So Read puzzle tapped while that
+detection runs does not stop it: it says "Still finding the grid…" and reads
+once the detection ends, through the corners found, or through that crop if
+none were (the full rules are in [README.md](README.md)); the original is
+decoded then, as for any Read.
+
 Input dimensions are checked BEFORE decoding. The enhancement is limited to
 16 million source pixels: requesting a resized bitmap alone does not guarantee
 that the browser decoder avoids a full-sized intermediate allocation. Larger

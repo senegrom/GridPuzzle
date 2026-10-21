@@ -123,11 +123,21 @@ or mapping on failure or cancellation. A new or rotated photograph is shown at
 once on the crop the detector proposes when it finds no grid (8% in from each
 edge), unconfirmed, until detection answers; if detection fails or is stopped,
 that crop stays, its handles can be moved, and a Read through it highlights
-every cell. Read puzzle also stages its candidate:
-failed/cancelled reads of an unchanged crop preserve the accepted solution,
-photo mapping, Play cache and undo history. A new Read click cancels earlier
-work even when the new dimensions, boxes or crop fail validation. Actual crop
-or photograph changes still invalidate incompatible mappings.
+every cell. Read puzzle tapped while the grid is still being found on that
+crop therefore waits for the detection instead of stopping it: the status says
+"Still finding the grid…", Stop stays available, and the Read starts when the
+detection ends, through the corners it found, exactly as a Read tapped then
+(through that crop, every cell highlighted, if it found no grid or failed).
+Stop, a new photograph or capture, Rotate, a moved corner, Hide photo or
+another task drops the waiting Read, and a second tap adds nothing. Find grid
+makes a Read wait the same way while the crop is still that untouched crop (the
+first detection failed or was stopped); on a crop that a detection or the user
+set, a Read during Find grid stops it and reads that crop. Read puzzle also
+stages its candidate: failed/cancelled reads of an unchanged crop preserve the
+accepted solution, photo mapping, Play cache and undo history. Any other new
+Read click cancels earlier work even when the new dimensions, boxes or crop
+fail validation. Actual crop or photograph changes still invalidate
+incompatible mappings.
 
 Box height and Box width describe the printed Sudoku as it stands upright,
 whichever way the photograph lies (see [SCAN_INPUT.md](SCAN_INPUT.md)). When
