@@ -178,8 +178,9 @@ test("a missing file whose origin list names another build asks for the update o
   assert.equal(h.updates.length, 1, "but asks for no second check");
 });
 
-// A page misses several files at once (a read starts the OCR runtime and its
-// model together), so the build is recorded before anything is awaited.
+// A page can miss files at the same time (in a browser, a read asked for the
+// OCR runtime twice within 10 ms), so the build is recorded before anything
+// is awaited.
 test("missing files met at the same time ask for the update once", async () => {
   const h = deploys(), oldRead = await h.activate(X);
   h.deploy(Y);

@@ -214,8 +214,8 @@ test("an update found while an offline download runs leaves the download to fini
   assert.equal(tab.node("prepare-offline").disabled, false);
 });
 
-// The worker's check often installs the update while a long download runs,
-// and the download then finds a file gone: the advice is decided when the
+// The worker's check often gets the update installed while a long download
+// runs, which then finds a file gone: the advice is decided when the
 // download ends, not when it starts.
 test("a download that finds a file gone after an update was installed while it ran names that update", async (t) => {
   const env = environment(t, { waiting: false, hold: true }), tab = await env.tab();
