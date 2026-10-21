@@ -81,7 +81,7 @@ jobs:
     # runners, not ubuntu-latest's.
     runs-on: ubuntu-24.04
     container:
-      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
       options: --ipc=host --init --user 1001
       volumes:
         - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
@@ -146,7 +146,7 @@ jobs:
     # in the Playwright image, as the build job explains
     runs-on: ubuntu-24.04
     container:
-      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
       options: --ipc=host --init --user 1001
       volumes:
         - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro
@@ -164,8 +164,30 @@ jobs:
           build: "false"
       - name: Verify exact deployment build
         run: node -e "const fs=require('node:fs');if(JSON.parse(fs.readFileSync('_site/build-info.json')).build!==process.env.GITHUB_SHA.slice(0,12))process.exit(1)"
+      # The pinned picture slice comes from the cache once a run has saved it:
+      # fetch_live_fixtures.py checks every file it finds there against its
+      # SHA-256 pin and downloads only a missing or different one. The key is
+      # the script, which holds the pins and decides where the store keeps
+      # each file, so a deployment needs huggingface.co only when the cache
+      # is cold or the script changed. A saved cache is never replaced: under
+      # a key of the pins alone, a script that moved the files would keep
+      # restoring the old layout and download on every run. GitHub drops a
+      # cache no run has used for a week, so a quiet spell costs a download.
+      - name: Restore the pinned external pictures
+        id: live-fixtures
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: live-fixtures/source
+          key: live-fixtures-${{ hashFiles('scripts/fetch_live_fixtures.py') }}
       - name: Fetch bounded external picture tests
         run: python scripts/fetch_live_fixtures.py
+      # Parallel jobs may race to save the same key; the losers only warn.
+      - name: Save the pinned external pictures
+        if: steps.live-fixtures.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: live-fixtures/source
+          key: ${{ steps.live-fixtures.outputs.cache-primary-key }}
       - name: Moving-video acceptance before deployment
         run: node scripts/live_motion_regressions.cjs
       - name: Integrated backup, preferences and modal regressions
@@ -199,7 +221,7 @@ jobs:
     # in the Playwright image, as the build job explains
     runs-on: ubuntu-24.04
     container:
-      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
       options: --ipc=host --init --user 1001
       volumes:
         - /usr/share/fonts/truetype/dejavu:/usr/share/fonts/truetype/dejavu:ro

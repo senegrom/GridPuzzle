@@ -8,6 +8,8 @@ import { puzzleFromReadings } from "../scanner.js";
 import { rememberEdit, restoreEdit } from "../edit-history.js";
 import { retainPhotoSource } from "../photo-detail.js";
 import { createFrameScheduler } from "../live-frame-scheduler.js";
+import { createRequire } from "node:module";
+const { readGrid, readingCorners, photoFlowReview } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 
 function deferred() {
   let resolve, reject;
@@ -1208,6 +1210,56 @@ test('a reviewed live capture is confirmed at its own size, whatever an earlier 
   h.$('read-photo').onclick(); await tick();
   assert.deepEqual([...h.state.uncertain].sort(), [0, 1, 2, 3]); assert.equal(h.state.notes[0], resizedNote('2 × 2', '3 × 3'));
 });
+
+// The corpus benchmark scores a digit as flagged only where this flow's digit
+// review (state.uncertain) would visit it. Its page function readGrid runs
+// here on the same scanner results, with photoDetail stubbed, and its corner
+// rule and photoFlowReview give the cells it counts as flagged.
+async function benchmarkReading(found) {
+  const source = readGrid.toString(), stubbed = source.replace('import("./photo-detail.js")', 'stubImport("./photo-detail.js")');
+  assert.notEqual(stubbed, source, 'readGrid reads through photoDetail');
+  const window = { benchCanvas: {}, benchScanner: { read: async () => found } };
+  const stubImport = async () => ({ photoDetail: async (image, corners) => ({ image, corners, enhanced: false, release() {} }) });
+  const read = new Function('window', 'stubImport', `return (${stubbed});`)(window, stubImport);
+  const { rows, cols, type } = found.puzzle;
+  return read({ corners: [], type, rows, cols });
+}
+function flagChannelReadings() {
+  const base = { meta: { rows: 2, cols: 2, boxes: false }, mask: new Uint8Array(200 * 200), width: 200, height: 200 },
+    white = [false, false, false, false],
+    value = (cell, text, confidence = 99) => ({ kind: 'value', cell, text, confidence, x: 0, y: 0, w: 20, h: 40 }),
+    label = (cell, text) => ({ kind: 'label', cell, text, confidence: 90, cageLabel: true });
+  return {
+    // A confident digit in a cage's head, and every cell under "check cage".
+    kenken: puzzleFromReadings({ ...base, black: white, cageAreas: [[0, 1], [2, 3]],
+      entries: [value(0, '1'), label(0, '3+'), label(2, '3+')] }, 'kenken', 2, 2),
+    // A sign's two cells under "check sign", a doubtful digit beside it.
+    futoshiki: puzzleFromReadings({ ...base, black: white,
+      entries: [value(0, '1'), value(3, '2', 60), { kind: 'hsign', cell: 0, other: 1, text: '<', confidence: 90 }] }, 'futoshiki', 2, 2),
+    // A digit read on a black cell, which the flow keeps under review.
+    hidato: puzzleFromReadings({ ...base, black: [false, true, false, false],
+      entries: [value(0, '1'), { kind: 'blackvalue', cell: 1, text: '2', confidence: 95, x: 0, y: 0, w: 20, h: 40 }] }, 'hidato', 2, 2),
+  };
+}
+for (const [name, reading] of Object.entries(flagChannelReadings()))
+  for (const [confidence, size, how] of [[0.94, 2, 'confirmed'], [0.45, 0, 'unconfirmed'], [0.94, 3, 'resized']])
+    test(`the corpus benchmark counts as flagged exactly the ${name} digits this flow puts under review (${how})`, async t => {
+      if (name !== 'hidato')
+        assert.notDeepEqual([...reading.cellUncertain].sort(), [...reading.uncertain].sort(), 'both channels differ here');
+      const h = photoHarness(t), found = { ...structuredClone(reading), rectified: canvas(200, 200) };
+      const detection = { ...detected(confidence), rows: size, cols: size };
+      h.$('puzzle-type').value = name; h.setFound(found); h.setDetection(detection);
+      await h.$('detect-photo').onclick();
+      h.$('rows').value = h.$('cols').value = '2';
+      h.$('read-photo').onclick(); await tick();
+      assert.deepEqual(h.errors, []);
+      const { unconfirmed } = readingCorners({ detection, truth: null, size: { width: 600, height: 600, scale: 1 },
+        trueCorners: false, puzzle: found.puzzle });
+      assert.equal(unconfirmed, how !== 'confirmed');
+      const scored = photoFlowReview(await benchmarkReading(structuredClone(reading)), unconfirmed);
+      assert.deepEqual(scored.uncertain.sort(), [...h.state.uncertain].sort());
+      assert.deepEqual(scored.cageUncertain.sort(), [...h.state.cageUncertain].sort());
+    });
 
 function cageWarnings() {
   const n = 9, cw = 40, width = n * cw, mask = new Uint8Array(width * width), groups = [];

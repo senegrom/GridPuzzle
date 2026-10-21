@@ -14,9 +14,16 @@ function crop() {
     const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
     for (let s = 0; s <= steps; s++) { const x = Math.round(x0 + ((x1 - x0) * s) / steps), y = Math.round(y0 + ((y1 - y0) * s) / steps); box(x - 1, y - 1, x + 2, y + 2); }
   };
-  // A digit-like glyph, 14 x 26, from x (an outlined "0"); the band is y 22..47.
-  const digit = (x) => { box(x, 22, x + 14, 25); box(x, 45, x + 14, 48); box(x, 22, x + 3, 48); box(x + 11, 22, x + 14, 48); };
-  return { ink, box, stroke, digit };
+  // A stroke one pixel thick: its pixels touch only at their corners.
+  const line = (x0, y0, x1, y1) => {
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    for (let s = 0; s <= steps; s++) ink[Math.round(y0 + ((y1 - y0) * s) / steps) * W + Math.round(x0 + ((x1 - x0) * s) / steps)] = 1;
+  };
+  // An outlined "0", 14 px wide, from row y0 to row y1 - 1.
+  const zero = (x, y0, y1) => { box(x, y0, x + 14, y0 + 3); box(x, y1 - 3, x + 14, y1); box(x, y0, x + 3, y1); box(x + 11, y0, x + 14, y1); };
+  // A digit-like glyph, 14 x 26, from x; the band is y 22..47.
+  const digit = (x) => zero(x, 22, 48);
+  return { ink, box, stroke, line, zero, digit };
 }
 const read = ({ ink }, core = null) => readOperator(ink, W, H, core);
 
@@ -68,6 +75,51 @@ test("a division sign blurred into a cross reads as one when its core parts the 
   // A true cross stays one at its core.
   const plus = crop(); plus.digit(20); plus.box(40, 33, 56, 36); plus.box(46, 27, 49, 43);
   assert.equal(read(plus, plus.ink), "+");
+});
+// A times sign has ink on both diagonals: one short stroke is none.
+test("a single short diagonal is no times sign", () => {
+  const diagonal = crop(); diagonal.digit(20); diagonal.stroke(41, 40, 51, 30);
+  assert.equal(read(diagonal), null);
+});
+
+// Each rule pinned below earns its place on the clue crops #115 recorded from
+// the corpus's KenKen renders (5,008 clues, replayed in the 2026-10-19
+// review): without it, between 2 and 19 more operators that read right read
+// wrong than the other way round. Each case is drawn after a shape that went
+// wrong there.
+test("a stroke one pixel thick stays one piece: a thin cross of diagonals reads as times", () => {
+  const thin = crop(); thin.digit(20); thin.line(41, 28, 53, 40); thin.line(41, 40, 53, 28);
+  assert.equal(read(thin), "*");
+});
+test("a thick cage line down the box's side is no glyph, beside a clue shorter than the box", () => {
+  // Kept, the 40 px line would set the digits' scale and leave the 20 px "0" too short to count as one.
+  const ruled = crop(); ruled.box(19, 16, 24, 56); ruled.zero(26, 26, 46); ruled.box(44, 34, 56, 37);
+  assert.equal(read(ruled), "-");
+});
+test("an outline's dashes along the box's top edge are no glyphs where the clue reaches up to them", () => {
+  // The clue fills the box from row 18, so its band takes in the dashes in rows 17 and 18.
+  const tall = crop(); tall.zero(20, 18, 47); tall.box(38, 31, 54, 34); tall.box(44, 25, 47, 41);
+  for (let x = 60; x < 100; x += 14) tall.box(x, 17, x + 7, 19);
+  assert.equal(read(tall), "+");
+});
+test("an outline's dash down the box's left edge does not stretch the digits' band", () => {
+  // Counted, the dash under this short "1" would put the hyphen too high in the band to read.
+  const edged = crop(); edged.box(24, 18, 27, 38); edged.box(32, 26, 44, 29); edged.box(16, 40, 18, 56);
+  assert.equal(read(edged), "-");
+});
+test("specks under 3 px are no glyphs, even right after the sign", () => {
+  const specked = crop(); specked.digit(20); specked.digit(38); specked.box(58, 33, 74, 36); specked.box(64, 27, 67, 43); specked.box(78, 34, 80, 35);
+  assert.equal(read(specked), "+");
+});
+test("a division sign's dots partly past the ends of its bar still belong to it", () => {
+  // Slanted, as in a skewed photograph: a quarter of the upper dot hangs past the bar's right end, of the lower one past its left.
+  const slanted = crop(); slanted.digit(20); slanted.box(40, 33, 56, 36); slanted.box(53, 26, 57, 30); slanted.box(39, 39, 43, 43);
+  assert.equal(read(slanted), "/");
+});
+test("a sign more than a third of the digits' height is no hyphen however wide: a blurred sign is left to the OCR", () => {
+  // A plus whose thick arms have run together into a 22 x 12 px blob.
+  const blurred = crop(); blurred.digit(20); blurred.box(38, 31, 60, 37); blurred.box(44, 28, 54, 40);
+  assert.equal(read(blurred), null);
 });
 test("a KenKen cage takes its operator from the clue's shape before the OCR's", () => {
   const halves = [[0, 1], [2, 3]], reading = (entries) => puzzleFromReadings({ entries, black: Array(4).fill(false),

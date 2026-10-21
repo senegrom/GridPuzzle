@@ -332,6 +332,17 @@ export function puzzleFromReadings({ entries, black, meta, mask, width, height, 
     notes.push(small.size === 1
       ? "1 highlighted digit is much smaller than the grid's other clues, so it may be a pencil or app note. Clear it if it is not a printed clue."
       : `${small.size} highlighted digits are much smaller than the grid's other clues, so they may be pencil or app notes. Clear them if they are not printed clues.`);
+  // A cage puzzle rarely prints a digit in its cells, and part of a cage's
+  // clue can still read as one, with every reader agreeing. Its structural
+  // review ("check cage") is about boundaries, targets and operators, and
+  // saving a cage clears it, so every digit read on a cage board goes to
+  // digit review. Its note goes ahead of the per-cage notes, as the one above.
+  const cageDigits = isCage(chosen) ? puzzle.cells.flatMap((v, i) => (Number.isInteger(v) ? [i] : [])) : [];
+  cageDigits.forEach((i) => uncertain.add(i));
+  if (cageDigits.length)
+    notes.push(cageDigits.length === 1
+      ? "1 highlighted digit was read in a cell of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check it against the photo, and clear it if it is not printed in the cell."
+      : `${cageDigits.length} highlighted digits were read in cells of this cage puzzle. Cage puzzles rarely print digits in their cells, and part of a cage's clue can read as one. Check each against the photo, and clear any that is not printed in its cell.`);
   if (chosen === "futoshiki") {
     // Every sign region is a proposal for review, never a confirmed clue: its
     // two cells go to structural review (the cage channel), not digit review,

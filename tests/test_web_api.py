@@ -175,6 +175,75 @@ def test_escaped_key_error_is_a_solver_error_not_invalid_data(monkeypatch):
     assert result == {'status': 'error', 'message': "KeyError: 'missing'"}
 
 
+def _fail_in_search(monkeypatch, fault):
+    from gridsolver.abstract_grids.grid import Grid
+
+    def pick_branch_cell(self):
+        raise fault
+
+    # Only the search calls it, after build_grid has returned.
+    monkeypatch.setattr(Grid, 'get_smallest_candidate_set_gt1', pick_branch_cell)
+
+
+class _Unrenderable:
+    """A "solution" whose rendering raises the given exception."""
+
+    def __init__(self, fault):
+        self.fault = fault
+
+    def __iter__(self):
+        raise self.fault
+
+
+def _fail_in_rendering(monkeypatch, fault):
+    import gridsolver.web_api as web_api
+
+    monkeypatch.setattr(web_api, 'solve', lambda grid, **options: {_Unrenderable(fault)})
+
+
+@pytest.mark.parametrize('stage', [_fail_in_search, _fail_in_rendering], ids=['search', 'rendering'])
+@pytest.mark.parametrize('fault', [ValueError('No cell has more than one candidate'),
+                                   TypeError('unsupported operand type(s)')], ids=['ValueError', 'TypeError'])
+def test_value_or_type_error_after_the_grid_is_built_is_a_solver_error(monkeypatch, stage, fault):
+    # Only the data checks mean invalid data. The same types raised once the
+    # grid is built are bugs, and 'invalid' sent users to recheck right clues.
+    import gridsolver.web_api as web_api
+
+    built = []
+    build_grid = web_api.build_grid
+    monkeypatch.setattr(web_api, 'build_grid', lambda payload: built.append(build_grid(payload)) or built[-1])
+    stage(monkeypatch, fault)
+    # Two solutions (the first and third rows' 1 and 2 swap): the search branches.
+    cells = [None if i in (0, 1, 8, 9) else value for i, value in enumerate(SQUARE)]
+
+    result = json.loads(solve_json(json.dumps(puzzle(cells=cells))))
+
+    assert len(built) == 1
+    assert result == {'status': 'error', 'message': f'{type(fault).__name__}: {fault}'}
+
+
+def test_data_errors_from_building_the_grid_stay_invalid(monkeypatch):
+    import gridsolver.web_api as web_api
+    from gridsolver.web_api import InvalidPuzzleError
+
+    # A payload check, and a check of a puzzle class build_grid calls.
+    short = puzzle(cells=[None] * 15)
+    repeated = puzzle('hidato', 2, 3, [1, 1, None, None, None, None])
+    assert json.loads(solve_json(json.dumps(short))) == {
+        'status': 'invalid', 'message': 'Expected exactly 16 row-major cells'}
+    assert json.loads(solve_json(json.dumps(repeated))) == {
+        'status': 'invalid', 'message': 'Duplicate path clue 1 at (0, 0) and (0, 1)'}
+    with pytest.raises(InvalidPuzzleError, match='Expected exactly 16'):
+        solve_payload(short)
+
+    def wrong_type(payload):
+        raise TypeError('cells must be a list')
+
+    monkeypatch.setattr(web_api, 'build_grid', wrong_type)
+    assert json.loads(solve_json(json.dumps(puzzle()))) == {
+        'status': 'invalid', 'message': 'cells must be a list'}
+
+
 @pytest.mark.parametrize("fixture", FIXTURES, ids=lambda f: f["name"])
 def test_shared_payload_contract(fixture):
     if fixture["solver"]:

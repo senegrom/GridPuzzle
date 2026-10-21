@@ -52,6 +52,25 @@ test("flags on correct structural clues count, and blocked cells are not empty c
   const read = score({ puzzle: blocked }, { read: blocked, uncertain: [1, 2] });
   assert.equal(read.emptyCells, 2); assert.equal(read.flaggedEmpty, 1);
 });
+// The app's guided digit review visits `uncertain` only, and saving a cage
+// clears its cells' structural flag while their digits stay: a structural
+// highlight is no flag on a digit. It still costs the user a check.
+test("a digit error under structural review alone is unflagged, and both channels count as flag costs", () => {
+  const cages = puzzle("kenken", { cells: [null, null, null, null], cages: [{ cells: [0, 1], target: 3, op: "+" }] });
+  const invented = { ...cages, cells: [1, null, null, null] };
+  const structural = score({ puzzle: cages }, { read: invented, uncertain: [], cageUncertain: [0, 1] });
+  assert.equal(structural.invented, 1); assert.equal(structural.unsafe, 1);
+  const reviewed = score({ puzzle: cages }, { read: invented, uncertain: [0], cageUncertain: [0, 1] });
+  assert.equal(reviewed.invented, 1); assert.equal(reviewed.unsafe, 0);
+  const futoshiki = puzzle("futoshiki", { cells: [1, null, 3, null], inequalities: signs });
+  const misread = score({ puzzle: futoshiki }, { read: { ...futoshiki, cells: [1, null, 2, null] }, uncertain: [], cageUncertain: [2, 3] });
+  assert.equal(misread.wrong, 1); assert.equal(misread.unsafe, 1);
+  // A correct digit or an empty cell highlighted by either channel is a check the user makes.
+  const plain = puzzle("latinsquare", { cells: [1, null, 3, null] });
+  const cost = score({ puzzle: plain }, { read: plain, uncertain: [1], cageUncertain: [0, 3] });
+  assert.equal(cost.flaggedCorrect, 1); assert.equal(cost.emptyCells, 2); assert.equal(cost.flaggedEmpty, 2);
+  assert.equal(cost.unsafe, 0);
+});
 test("plain singleton labels from the production reader match '=' cage targets", () => {
   const values = [1, 2, 2, 1];
   const target = puzzle("kenken", { cells: [null, null, null, null],
