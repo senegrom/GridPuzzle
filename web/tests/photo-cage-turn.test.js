@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scanner } from "../scanner.js";
+import { Scanner, CAGE_TURN_BUDGET } from "../scanner.js";
 import { cageSum, cageSums, CAGE_TURN_FLOOR } from "../turn-cues.js";
 import { turnCorners } from "../geometry.js";
 
@@ -17,17 +17,34 @@ function killer(count, read, { type = "killersudoku", n = 9, target = 10, op = "
     entries: cages.map((cage) => ({ kind: "label", cell: cage.cells[0], cageLabel: true, text: "", confidence: 0 })),
     uncertain: [], notes: ["kept"] };
 }
+// A reading may also be a function, called as readOnce with the fake and the
+// read's check, for a reading that takes its time or meets a cancellation.
+// The fake's deadlines keep each timer for a test to fire, and its OCR engine
+// and image-processing jobs count what a stop cancels.
 function reader(readings) {
-  const calls = [];
-  return { calls, epoch: 0, cancel() {}, orient: Scanner.prototype.orient, halfTurn: Scanner.prototype.halfTurn,
-    cageTurn: Scanner.prototype.cageTurn,
-    async readOnce(_canvas, quad) {
+  const calls = [], timers = [];
+  const fake = { calls, timers, epoch: 0, cancel() {}, orient: Scanner.prototype.orient, halfTurn: Scanner.prototype.halfTurn,
+    cageTurn: Scanner.prototype.cageTurn, jobs: new Set(), ocr: { cancelled: 0, cancel() { this.cancelled++; } },
+    deadlines: {
+      setTimer(callback, ms) { const timer = { callback, ms, cleared: false }; timers.push(timer); return timer; },
+      clearTimer(timer) { timer.cleared = true; },
+    },
+    async readOnce(_canvas, quad, ...rest) {
       calls.push(quad);
       const next = readings[calls.length - 1];
+      if (typeof next === "function") return next(fake, rest.at(-1));
       if (next instanceof Error) throw next;
       return next;
     } };
+  return fake;
 }
+// A turned reading still in progress when `during` runs (the budget running
+// out, a newer read): it waits on an image-processing job, which a stop
+// cancels.
+const slowReading = (during) => (fake) => new Promise((_resolve, reject) => {
+  fake.jobs.add({ cancel: () => reject(new DOMException("Scan cancelled", "AbortError")) });
+  during(fake);
+});
 const read = (fake, { type = "killersudoku", options = {}, rows = 9, cols = 9, progress = () => {} } = {}) =>
   Scanner.prototype.read.call(fake, {}, corners, type, rows, cols, progress, options);
 const allTurns = [corners, turnCorners(corners, 1), turnCorners(corners, 2), turnCorners(corners, 3)];
@@ -84,9 +101,12 @@ test("a KenKen reads its turns the same way, operators and all", async () => {
   const found = await read(fake, { type: "kenken", rows: 6, cols: 6 });
   assert.equal(found.turns, 2); assert.equal(fake.calls.length, 4);
   // 15 is 3 x 5, which a 4 x 4 KenKen cannot hold: no sum stands, no turn.
-  const small = (read) => killer(6, read, { type: "kenken", n: 4, target: 15, op: "*" });
-  const none = reader([small(0), small(6), small(6), small(6)]);
-  assert.equal((await read(none, { type: "kenken", rows: 4, cols: 4 })).turns, undefined);
+  // The same turned reading of a 6 x 6 KenKen, which can, is kept.
+  for (const [n, turns] of [[4, undefined], [6, 1]]) {
+    const cages = (read) => killer(6, read, { type: "kenken", n, target: 15, op: "*" });
+    const once = reader([cages(0), cages(6), cages(0), cages(0)]);
+    assert.equal((await read(once, { type: "kenken", rows: n, cols: n })).turns, turns, `${n} x ${n}`);
+  }
 });
 test("a cage reading with sums in at least half its cages is never read again", async () => {
   for (const first of [killer(20, 10), killer(20, 20), killer(1, 1)]) {
@@ -136,6 +156,67 @@ test("a superseded check never returns its reading", async () => {
   };
   await assert.rejects(read(fake), { name: "AbortError" });
   assert.equal(fake.calls.length, 2);
+});
+test("a check superseded during its last turned read never returns a reading", async () => {
+  // The last turned read comes back, or fails as a retired worker's does,
+  // with no turn left for the loop to notice the newer read.
+  for (const ending of ["comes back", "fails"]) {
+    const fake = reader([killer(20, 0), killer(20, 1), killer(20, 0), async (fake) => {
+      fake.epoch++;
+      if (ending === "fails") throw Error("Image processing failed");
+      return killer(20, 17);
+    }]);
+    await assert.rejects(read(fake), { name: "AbortError" }, ending);
+    assert.equal(fake.calls.length, 4, ending);
+  }
+});
+test("a cancellation from the progress message stops the check before a turned read starts", async () => {
+  const fake = reader([killer(20, 0), killer(20, 17), killer(20, 0), killer(20, 0)]);
+  await assert.rejects(read(fake, { progress: () => { fake.epoch++; } }), { name: "AbortError" });
+  assert.equal(fake.calls.length, 1);
+});
+test("the check keeps to its time budget, counted from the first reading, and then keeps the first reading", async () => {
+  // What the first reading took is gone from the budget; the turned reading in
+  // progress when the rest runs out is stopped (its OCR and image processing
+  // cancelled), no other starts, and a turn that already cleared the bar is
+  // not kept: nothing has shown that no other turn reads as well.
+  const first = { ...killer(20, 0), timings: { total: 20000 } };
+  const fake = reader([first, killer(20, 17), slowReading((fake) => fake.timers[0].callback()), killer(20, 0)]);
+  assert.equal(await read(fake), first);
+  assert.equal(fake.calls.length, 3);
+  assert.deepEqual(fake.timers.map(({ ms, cleared }) => ({ ms, cleared })), [{ ms: CAGE_TURN_BUDGET - 20000, cleared: true }]);
+  assert.equal(fake.ocr.cancelled, 1); assert.equal(fake.jobs.size, 0);
+  // A reading between two stages stops at the next one (readOnce checks
+  // between its stages), and a reading that comes back anyway is not kept.
+  let stages = 0;
+  const stagedFirst = killer(20, 0), staged = reader([stagedFirst, async (fake, check) => {
+    fake.timers[0].callback(); await null; check(); stages++; return killer(20, 17);
+  }, killer(20, 0), killer(20, 0)]);
+  assert.equal(await read(staged), stagedFirst);
+  assert.equal(stages, 0); assert.equal(staged.calls.length, 2);
+  const lateFirst = killer(20, 0), late = reader([lateFirst, async (fake) => {
+    fake.timers[0].callback(); await null; return killer(20, 17);
+  }, killer(20, 0), killer(20, 0)]);
+  assert.equal(await read(late), lateFirst); assert.equal(late.calls.length, 2);
+  // A first reading that used the whole budget is not read again.
+  const slow = { ...killer(20, 0), timings: { total: CAGE_TURN_BUDGET } }, spent = reader([slow, killer(20, 17)]);
+  assert.equal(await read(spent), slow); assert.equal(spent.calls.length, 1); assert.equal(spent.timers.length, 0);
+  // A check that ends by itself ends its budget too.
+  const done = reader([killer(20, 1), killer(20, 17), killer(20, 0), killer(20, 0)]);
+  assert.equal((await read(done)).turns, 1);
+  assert.deepEqual(done.timers.map(({ ms, cleared }) => ({ ms, cleared })), [{ ms: CAGE_TURN_BUDGET, cleared: true }]);
+  assert.equal(done.ocr.cancelled, 0);
+});
+test("once a newer read supersedes the check, its budget running out stops nothing of the newer read", async () => {
+  const fake = reader([killer(20, 0), killer(20, 0), async (fake) => {
+    fake.epoch++;
+    fake.jobs.add({ cancel: () => assert.fail("the newer read's image processing was cancelled") });
+    fake.timers[0].callback();
+    return killer(20, 17);
+  }]);
+  await assert.rejects(read(fake), { name: "AbortError" });
+  assert.equal(fake.calls.length, 3);
+  assert.equal(fake.ocr.cancelled, 0); assert.equal(fake.jobs.size, 1); assert.equal(fake.timers[0].cleared, true);
 });
 test("only a cage type chosen for the scan takes the cage check", async () => {
   // Read as Sudoku, or with the type left to the reader, a reading with cage
