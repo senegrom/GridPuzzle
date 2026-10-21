@@ -145,10 +145,15 @@ const updateRequested=new Set();
    offline use would not offer the update until it reloads. Ask the browser
    to look now; once it has installed that build's worker, the page offers
    "Update app & reload" ("updatefound", offline.js). Once per build while
-   this worker runs, so that a page reading many missing files does not
-   start a check for each (a check that finds that worker already installed
-   changes nothing). The check is never awaited, and one that fails or is
-   refused changes nothing either. */
+   this worker runs, so that a page reading many missing files, even at the
+   same time, does not start a check for each: the build is recorded before
+   anything is awaited. A worker the browser stopped while idle starts again
+   with nothing recorded and may ask once more; a check that finds that
+   build's worker already installed changes nothing. The check is never
+   awaited, and one that fails changes nothing else. The browser refuses the
+   check of an installing worker, which then does not ask for that build
+   again; the reload that follows its activation is a navigation, after
+   which the browser looks anyway. */
 function requestUpdate(build){
   if(!build||build===VERSION||updateRequested.has(build))return;
   updateRequested.add(build);

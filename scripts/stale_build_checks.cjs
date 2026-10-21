@@ -179,7 +179,7 @@ async function staleBuild(browser, report) {
     assert.equal(await prepareOffline(page), gone);
     result.runtimeChanged = { firstDownload: download, bannerSeconds, read: failed.text, offline: true };
     // A later deploy with X's OCR runtime under its own URLs: page X reads,
-    // while worker X, finding that build on the origin, has it installed
+    // while worker X, finding that build on the origin, gets it installed
     // (the browser may look for it too when the read starts its OCR worker,
     // but need not).
     site.deploy(unchanged);
