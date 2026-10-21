@@ -139,8 +139,11 @@ check goes by its cage sums ("Turned cage puzzles" in
 confident digit (every digit on a cage board is under review), and the pieces
 of a turned page's sums that fall in value regions mostly read taller than
 wide, so the help line seldom names a turned cage page, never as upside down,
-and a capture of one reaches the editor without its still being read again.
-Adjust scan → Read puzzle checks it by its sums.
+and a capture of one usually reaches the editor without its still being read
+again. Adjust scan → Read puzzle checks it by its sums. When a capture does
+show the quarter-turn cue (glyphs wider than tall: 6 of 1,146 turned readings
+in Chromium and 8 of 1,161 in WebKit), its still is read again and takes the
+cage check.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is

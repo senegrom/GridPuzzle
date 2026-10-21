@@ -220,12 +220,18 @@ quarter turns, and the turned reading with the most is kept only when it reads
 clearly better: at least 3 such sums (`CAGE_TURN_FLOOR`), sums in at least half
 its cages, and more than twice as many as the first reading; a tie between two
 turns keeps the first reading. The reading then names the turn in its first
-note and carries `turns`, and like every cage reading it waits for review. A
-turned page whose upright reading finds sums in fewer than half its cages stays
-as it lies, its sums unread: turn it upright with Rotate and Read again, and
-the upright reading is kept. Automatic detection does not take this check (its
-cage readings come from per-cell clue strips and were not measured turned).
-"Turned cage puzzles" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements.
+note and carries `turns`, and like every cage reading it waits for review. The
+three readings take several times the first one's time, and they count against
+the 120 s a Read may take, past which the Read stops and keeps nothing. So the
+check stops 90 s after the first reading began (`CAGE_TURN_BUDGET`, leaving the
+rest for decoding the photograph): it stops the turned reading in progress and
+keeps the first reading, as a Read without the check returns it. A
+turned page whose upright reading finds sums in fewer than half its cages, or
+whose check runs out of time, stays as it lies, its sums unread: turn it
+upright with Rotate and Read again, and the upright reading is kept. Automatic
+detection does not take this check (its cage readings come from per-cell clue
+strips and were not measured turned). "Turned cage puzzles" in
+[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements.
 
 ## Clue-focused live-camera quality
 
@@ -275,7 +281,8 @@ boundaries, review flags and clue-vs-grid focus ranking. `photo-import.test.js`,
 `photo-import-queue.test.js` and `photo-detail-queue.test.js` the shared decode
 queue. `photo-orientation.test.js`, `photo-half-turn.test.js` and
 `scanner-orientation-recovery.test.js` cover a still photograph's own
-quarter- and half-turn checks, `photo-orientation-transactions.test.js` the
+quarter- and half-turn checks, `photo-cage-turn.test.js` a cage puzzle's check
+by its sums (its time budget too), `photo-orientation-transactions.test.js` the
 photo flow taking a turned reading. Camera lifecycle tests cover quality
 guidance, recovery and manual capture.
 

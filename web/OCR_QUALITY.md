@@ -1136,16 +1136,55 @@ to 16), turned in one measurement and left in the other, never the wrong way.
 **Cost.** The check reads a page three more times whenever its first reading
 has sums in fewer than half its cages: every turned page, and of the upright
 ones 75 in Chromium (56 photo, 11 print and 8 clean renders) and 67 in WebKit.
-Those three readings took 2.7 s (Chromium) and 3.6 s (WebKit) at the median on
-this loaded desktop, with three browsers reading at once, and up to 59 s and
-106 s; on a phone they take longer. The pages that read well pay nothing.
+A turned reading takes 2.6 (Chromium) and 2.7 (WebKit) times as long as the
+upright one at the median, so an upright page that takes the check spends 7.9
+and 8.1 times its first reading's time in all (up to 33 and 28.5 times). Over
+the corpus, those pages' three readings took as long as all 600 first readings
+together in Chromium (323 s against 299 s) and two thirds as long in WebKit
+(536 s against 811 s); per page, 2.7 s and 3.6 s at the median on this loaded
+desktop, with three browsers reading at once, and up to 59 s and 106 s. On a
+phone they take longer. The pages that read well pay nothing.
+
+**Time budget.** The check's readings count against the 120 s the photo flow
+gives a whole Read, and a Read that runs out of it ("Recognition timed out")
+keeps nothing, not even the first reading a Read without the check returned:
+one upright WebKit page above (generated-render-sum-only
+killersudoku-030-photo) took 135.8 s for its four readings, 29.9 s for the
+first. So the check stops 90 s after the first reading began
+(`CAGE_TURN_BUDGET` in `web/scanner.js`, the rest left for decoding the
+photograph and stopping): it cancels the turned reading in progress and keeps
+the first reading. Stop during the check ends the Read without a reading, as
+it ends any task. Replayed through `Scanner.read` on the readings above with
+their recorded times (on a clock that runs each reading for its time, and at
+two and four times those times, four being how much slower
+[LIVE_CAMERA.md](LIVE_CAMERA.md) takes a phone to be), no Read with the budget
+runs past 120 s unless its first reading alone does, and the budget costs the
+turns whose four readings take longer than 90 s. The Reads counted are those
+that take the check, the turns those of the pages lying turned (three per
+image):
+
+| times | engine | Reads past 120 s without it | turns lost (past 120 s anyway) | lost at 60 s |
+|---|---|---:|---:|---:|
+| recorded | Chromium | 0 | 0 of 921 | 0 |
+| recorded | WebKit | 4 | 9 of 959 (0) | 21 |
+| twice | Chromium | 4 | 0 of 921 | 3 |
+| twice | WebKit | 29 | 36 of 959 (21) | 54 |
+| four times | Chromium | 7 | 18 of 921 (3) | 30 |
+| four times | WebKit | 70 | 90 of 959 (54) | 159 |
+
+A Read the budget stops ends 90 s after its first reading began, or when that
+reading ends if it took longer, which is when it would have ended before the
+check.
 
 **Not caught.** A page whose upright reading has sums in fewer than half its
 cages is read again but stays as it lies, as on master, with its sums unread: 75
 of the 600 in Chromium and 67 in WebKit, mostly photo renders and sum-only
-Killer pages. Rotate and Read again then keeps the upright reading, with the
-sums it reads. Nothing is claimed for real photographs of cage puzzles, which
-the corpus does not have.
+Killer pages. So does a page whose check runs out of time. Rotate and Read
+again then keeps the upright reading, with the sums it reads. Grids smaller than
+4 × 4 (a 3 × 3 KenKen) were not measured: the corpus's smallest cage grids are
+4 × 4, where the bar is lowest and the closest wrong turn above was measured.
+Nothing is claimed for real photographs of cage puzzles, which the corpus does
+not have.
 
 ## Alternatives tried
 
