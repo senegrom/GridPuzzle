@@ -1550,7 +1550,7 @@ test('a capture read with a suggested layout keeps its box note through the chec
   assert.deepEqual(h.state.notes.slice(1), ['8 cells need checking.', SUGGESTED_2X3]);
   for (let i = 0; i < 10; i++) await tick(); // the still reads the way it lies (the harness's clean reading)
   assert.deepEqual(h.errors, []);
-  assert.match(h.state.notes[0], /^The live reading suggested that the page may be upside down, but the captured picture reads best the way it lies\./);
+  assert.match(h.state.notes[0], /^The live reading suggested that the page may be upside down, but the check kept the captured picture the way it lies\./);
   assert.deepEqual(h.state.notes.slice(1), ['8 cells need checking.', SUGGESTED_2X3]);
   assert.deepEqual(restoreSession(h.storage).notes, h.state.notes); assert.equal(h.state.needsReview, true);
 });

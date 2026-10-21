@@ -606,7 +606,7 @@ async function run() {
             assert.deepEqual(after.cells,[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1]);
             assert.deepEqual(after.cellUncertain,[1,2,4,7,8,11,13,14]);assert.equal(after.highlighted,8);
             assert.match(after.note,/The stubbed live reading's note\./);assert.doesNotMatch(after.note,/The page may be/);
-            assert.match(after.note,/The live reading suggested that the page may be upside down, but the captured picture reads best the way it lies\. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle\.\n(.|\n)*The stubbed live reading's note\./,
+            assert.match(after.note,/The live reading suggested that the page may be upside down, but the check kept the captured picture the way it lies\. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle\.\n(.|\n)*The stubbed live reading's note\./,
               "first a note that the page may still be turned, pointing to Rotate");
             assert.equal(after.status,"Captured clues ready for review.");
           }

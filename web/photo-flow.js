@@ -565,22 +565,30 @@ export function setupPhotoFlow({
   // board, so a check that is stopped or fails leaves them.
   const turnNote = (cue) => `The page may be ${turnWords(cue)} in the captured picture, so every digit read is highlighted. Adjust scan → Read puzzle checks which way up it is.`;
   // Its first note once the check has read the picture the way it lies, in
-  // place of that note and the highlight: Read puzzle did not turn the page,
-  // so a turn it missed is made with Rotate.
-  const liesNote = (cue) => `The live reading suggested that the page may be ${turnWords(cue)}, but the captured picture reads best the way it lies. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
+  // place of that note and the highlight: Read puzzle did not turn the page
+  // (it tried no turn, or none read clearly better), so a turn it missed is
+  // made with Rotate.
+  const liesNote = (cue) => `The live reading suggested that the page may be ${turnWords(cue)}, but the check kept the captured picture the way it lies. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
   // The first note of a capture of a grid that is not square whose reading
   // looks turned: no reading turns such a grid (Scanner.read), so its picture
   // is not read again, and Rotate turns it.
   const rotateNote = (cue) => `The page may be ${turnWords(cue)} in the captured picture, and Read puzzle turns only square grids. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
   // A capture without a reading goes to the crop editor. When the live help
   // line named a turn as it was taken (live-camera.js capture), its photograph
-  // keeps that turn here, and the status after each detection on it says how
-  // to check it (turnHint): Read puzzle does on a square grid; any other needs
-  // Rotate first. Rotate makes a new photograph, which keeps none.
+  // keeps that turn here, and the status of each detection on it says how to
+  // check it (turnHint), for the size the controls hold, which a Read reads
+  // at: Read puzzle does on a square grid; any other needs Rotate first. The
+  // status that starts the detection says it too, since a Read tapped before
+  // the grid is found, or a detection that fails, replaces the one that ends
+  // it (withTurn). Rotate makes a new photograph, which keeps none.
   const liveTurns = new WeakMap();
   const turnHint = (turn, { rows, cols }) => rows === cols
     ? `The grid looked ${turnWords(turn)} in the live view; Read puzzle checks which way up it is.`
     : `The grid looked ${turnWords(turn)} in the live view, and Read puzzle turns only square grids: Rotate until its numbers stand upright, then Read puzzle.`;
+  const withTurn = (canvas, detail) => {
+    const turn = liveTurns.get(canvas);
+    return turn ? `${detail} ${turnHint(turn, currentLayout())}` : detail;
+  };
   // The cells of a reading that hold a digit or a value region: what a turned
   // page reads wrong with confidence (6s and 9s as each other, 2s as 4s).
   function valueCells({ puzzle, entries }) {
@@ -800,7 +808,7 @@ export function setupPhotoFlow({
   async function detectPhoto(canvas) {
     const id = begin();
     diagnostics.event({stage:"detecting",reason:"started"});
-    status("Finding the grid…", "Photo processing stays on this device.");
+    status("Finding the grid…", withTurn(canvas, "Photo processing stays on this device."));
     try {
       // The photograph and its current crop show while the detector works. A
       // crop canvas the browser refuses (iOS under memory pressure) must not
@@ -838,14 +846,13 @@ export function setupPhotoFlow({
       }
       drawCrop();
       // A capture's photograph whose help line named a turn says how to
-      // check it, for the size the controls now hold (turnHint).
-      const turn = liveTurns.get(canvas);
+      // check it, for the size the controls now hold (withTurn): the size
+      // detected, or with no grid found the controls' own.
       status(
         found.confidence > 0.8 ? "Grid found." : "Set the four crop corners.",
-        [found.rows
+        withTurn(canvas, found.rows
           ? `Detected ${found.rows} × ${found.cols}. Check the corners, then read the puzzle.`
-          : "Drag the numbered handles. Set rows and columns in Grid size & settings.",
-        ...(turn ? [turnHint(turn, currentLayout())] : [])].join(" "),
+          : "Drag the numbered handles. Set rows and columns in Grid size & settings."),
       );
       $("photo-panel").scrollIntoView({ block: "start", behavior: "smooth" });
     } catch (e) {
