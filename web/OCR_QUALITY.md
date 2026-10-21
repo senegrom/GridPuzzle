@@ -237,12 +237,12 @@ would take as a fragment) reaches below the cell's middle (`CAGE_CLUE_FLOOR`).
 Without one, every piece of ink lying wholly above the middle is dropped. The
 clue box ends above the middle, while a digit printed in the cell is centred
 and reaches below it, so a clue alone is not read as a digit, and a given
-printed under a clue is read as before, whole, even when the print breaks it in
-pieces. Other cells are unchanged. A first version (2026-10-19) started the
-head's value region at the bottom of the clue box instead; that cut the top
-third off such a given (the givens measured below). A board read as `auto`
-and then taken for KenKen or Killer has no partition when its value regions are
-read, so this does not apply to it.
+printed under a clue is read as before, whole, as long as a substantial piece
+of it reaches below the middle. Other cells are unchanged. A first version
+(2026-10-19) started the head's value region at the bottom of the clue box
+instead; that cut the top third off such a given (the givens measured below).
+A board read as `auto` and then taken for KenKen or Killer has no partition
+when its value regions are read, so this does not apply to it.
 
 A cage puzzle rarely prints a digit in its cells, and part of a clue can still
 reach below the middle (a larger clue, a crop placed off the grid), so every

@@ -399,7 +399,8 @@ export const CAGE_LABEL_BOX = { inset: [0.11, 0.12, 0.8, 0.44], thick: [0.05, 0.
 // head's value region is read as any cell's only when substantial ink reaches
 // below the middle; otherwise the ink lying wholly above it, the clue's, is
 // dropped. A clue alone is not read as a digit, and a given printed under it
-// is read whole, even when the print breaks it in pieces.
+// is read whole, as long as a substantial piece of it reaches below the
+// middle.
 export const CAGE_CLUE_FLOOR = 0.5;
 
 export function prepareScan(image, type, rows, cols) {
