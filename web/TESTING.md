@@ -149,8 +149,13 @@ solving off", after "320 px", a live capture that does not freeze. In run
 "live capture with automatic solving off", came with the live view's turn
 guidance: a page a quarter turn round, read with real OCR, does not freeze,
 and the help line names the turn. It took 4.4 and 5.8 s in two local
-Chromium runs (2026-10-20). `web/tests/suite-docs.test.js` fails when this
-section does not name a phase the suite times.
+Chromium runs (2026-10-20). Two phases after "the freeze's wait" follow a
+capture into the editor: "a captured reading's review in the editor" (the
+cells and note the frozen picture showed) and "a captured reading that looks
+upside down, read again", turned and as it lies (the still read again for
+its turn). They took 2.3 to 2.9 s and 2.1 to 2.6 s each in local Chromium runs
+(2026-10-20 and 21). `web/tests/suite-docs.test.js` fails when this section
+does not name a phase the suite times.
 
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own

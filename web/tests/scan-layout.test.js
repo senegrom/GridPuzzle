@@ -270,7 +270,10 @@ for (const type of ["sudoku", "killersudoku"])
     assert.deepEqual(flow.errors, []);
     assert.deepEqual([flow.state.puzzle.boxRows, flow.state.puzzle.boxCols], [3, 2]);
     assert.deepEqual([...conflicts(flow.state.puzzle)].sort((a, b) => a - b), [0, 13]);
-    assert.deepEqual([...flow.state.uncertain].sort((a, b) => a - b), [0, 13]);
+    // On a Killer board every digit read goes to digit review anyway: cage
+    // puzzles rarely print digits in their cells (scanner.js).
+    const flagged = type === "killersudoku" ? repeatedIn3x2.map(({ cell }) => cell).sort((a, b) => a - b) : [0, 13];
+    assert.deepEqual([...flow.state.uncertain].sort((a, b) => a - b), flagged);
     assert.equal(flow.solves.length, 0);
   });
 test("the same digits in two different chosen boxes are not flagged and solve automatically", async (t) => {
