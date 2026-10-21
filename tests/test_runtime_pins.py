@@ -199,6 +199,10 @@ _FINAL_316 = pins.Leg("Python 3.16", "3.16", False, False)
         # a patch release's candidate is no new feature release
         (_LEGS, {"3.14", "3.15"}, ["3.15.1-rc.1"], []),
     ],
+    ids=[
+        "as-recorded", "recorded-without-a-leg", "before-145", "first-3.16-prerelease", "3.16-leg",
+        "3.16.0-out", "3.16-leg-final", "3.16.0-without-a-leg", "recorded-too-early", "patch-candidate",
+    ],
 )
 def test_assess_python(legs, record, published, expected):
     manifest = [_entry(version) for version in published] + _recorded()
