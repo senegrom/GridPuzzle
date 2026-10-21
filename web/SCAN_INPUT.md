@@ -208,9 +208,10 @@ page may still be turned, which points to Adjust scan → Rotate, then Read
 puzzle. A capture of a grid that is not square, which no reading turns, is not
 read again: it keeps its own warnings under a first note that Read puzzle
 turns only square grids, with the same pointer to Rotate. A capture without a
-reading goes to the crop editor, whose status after each detection repeats a
-turn the help line named as it was taken, with Read puzzle as the check on a
-square grid and Rotate first on any other. Notes only: no highlight, flag or
+reading goes to the crop editor, whose status as each detection starts and
+ends repeats a turn the help line named as it was taken, with Read puzzle as
+the check on a square grid and Rotate first on any other, by the size the
+controls hold. Notes only: no highlight, flag or
 reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
 ## Clue-focused live-camera quality

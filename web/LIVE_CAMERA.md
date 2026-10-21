@@ -74,10 +74,11 @@ showed it. Read the way it lies, the live reading gets only its own warnings
 back, as Read puzzle leaves a photograph read the way it lies, but its page
 may still be turned (the still's half-turn rule does not turn every
 upside-down page), so a first note says so and how to turn it, since Read
-puzzle has just declined to: "The live reading suggested that the page may be
-upside down, but the captured picture reads best the way it lies. If its
-numbers do not stand upright, Adjust scan → Rotate until they do, then Read
-puzzle." A check that fails, or that an edit, Stop or another task stops
+puzzle has just declined to (it tried no turn, or none read clearly better):
+"The live reading suggested that the page may be upside down, but the check
+kept the captured picture the way it lies. If its numbers do not stand
+upright, Adjust scan → Rotate until they do, then Read puzzle." A check that
+fails, or that an edit, Stop or another task stops
 (Solve, Check and Hint wait while it runs; Undo takes the capture back off the
 board), leaves every digit highlighted under the note, which names Adjust scan
 → Read puzzle as the way to check the turn. No reading turns a grid that is
@@ -86,11 +87,14 @@ again: it keeps its own warnings under a first note that the page may be
 turned and that Read puzzle turns only square grids, with the same pointer to
 Adjust scan → Rotate, then Read puzzle. A capture without a reading goes to
 the editor's crop and read (see "Shutter and saved pictures"); when the help
-line named a turn as it was taken, the status after each detection on that
-picture repeats it, with the check that fits the grid size the controls then
-hold: "The grid looked sideways in the live view; Read puzzle checks which
-way up it is.", or on a grid that is not square, "…, and Read puzzle turns
-only square grids: Rotate until its numbers stand upright, then Read puzzle."
+line named a turn as it was taken, the status of each detection on that
+picture repeats it as the detection starts and as it ends (a Read tapped
+before the grid is found, or a detection that fails, replaces the second),
+with the check that fits the grid size the controls then hold, which a Read
+reads at: "The grid looked sideways in the live view; Read puzzle checks
+which way up it is.", or on a grid that is not square, "…, and Read puzzle
+turns only square grids: Rotate until its numbers stand upright, then Read
+puzzle."
 These are notes only: they change no highlight, flag or reading ("Live
 captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
