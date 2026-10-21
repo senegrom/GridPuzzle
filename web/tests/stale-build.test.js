@@ -183,15 +183,17 @@ test("a missing file whose origin list names another build asks for the update o
 test("missing files met at the same time ask for the update once", async () => {
   const h = deploys(), oldRead = await h.activate(X);
   h.deploy(Y);
-  // The origin's list answers both reads together, once both have asked.
-  const asked = [], list = JSON.stringify({ build: Y, assets: Object.entries(h.files(Y)).map(([path, data]) => ({ path, sha256: hash(data) })) });
+  // The origin's list answers the first two reads of it together, once both
+  // have asked (and any later one at once).
+  const held = [], list = JSON.stringify({ build: Y, assets: Object.entries(h.files(Y)).map(([path, data]) => ({ path, sha256: hash(data) })) });
+  let asked = 0;
   h.serve("assets.json", () => new Promise((resolve) => {
-    asked.push(resolve);
-    if (asked.length === 2) for (const answer of asked) answer(new Response(list));
+    held.push(resolve);
+    if (++asked >= 2) for (const answer of held.splice(0)) answer(new Response(list));
   }));
   const responses = await Promise.all([OCR(X), MODEL(X)].map((path) => oldRead(path, "old-tab")));
   assert.deepEqual(await Promise.all(responses.map((response) => response.text())), [h.files(X)[OCR(X)], h.files(X)[MODEL(X)]]);
-  assert.equal(asked.length, 2, "both read the origin's list");
+  assert.equal(asked, 2, "both read the origin's list");
   assert.deepEqual(h.updates, [{ worker: X, origin: Y }]);
 });
 
@@ -201,8 +203,11 @@ test("missing files met at the same time ask for the update once", async () => {
 test("the update is asked for before the copy is fetched, so a copy still downloading or failing does not hold it back", async () => {
   const h = deploys(), oldRead = await h.activate(X);
   h.deploy(Y);
-  let fail;
-  h.serve(OCR(Y), () => new Promise((_, reject) => { fail = () => reject(TypeError("Failed to fetch")); }));
+  // The copy's first download hangs until the test fails it; any later one
+  // fails at once.
+  let fail = null;
+  h.serve(OCR(Y), () => fail ? Promise.reject(TypeError("Failed to fetch"))
+    : new Promise((_, reject) => { fail = () => reject(TypeError("Failed to fetch")); }));
   const response = quietly(() => oldRead(OCR(X), "old-tab"));
   for (let turn = 0; !fail && turn < 1000; turn++) await new Promise((resolve) => setImmediate(resolve));
   assert.ok(fail, "the copy was asked for");
