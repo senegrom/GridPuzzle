@@ -190,6 +190,37 @@ test("loading OCR through an app switch does not time out on return", (t) => {
   assert.equal(h.workers[0].messages.some((m) => m.cancel === true), false);
 });
 
+test("OCR loading stuck while the page is visible still times out after 90 s of visible time", (t) => {
+  const p = page(), h = ocr(t, p);
+  h.runtime.prepare();
+  h.c.tick(10000); p.hide(); h.c.tick(200000); p.show();
+  h.c.tick(79999);
+  assert.equal(h.workers[0].messages.some((m) => m.cancel === true), false, "still loading");
+  h.c.tick(1);
+  assert.ok(h.workers[0].messages.some((m) => m.cancel === true), "the stuck host is told to stop");
+  h.c.tick(100); assert.equal(h.workers[0].terminated, true);
+  h.runtime.prepare();
+  assert.equal(h.workers.length, 2, "the next warm-up loads a fresh engine");
+});
+
+// A job sent while the engine loads waits for it. The loading deadline, set
+// first, stops both, and its message names the load, not the picture.
+test("a job waiting for OCR loading stuck while visible fails with the loading message", async (t) => {
+  const p = page(), h = ocr(t, p);
+  h.runtime.prepare(); h.c.tick(1500);
+  let settled = null;
+  h.runtime.recognize({ png: "crop" }).then((r) => { settled = r; }, (e) => { settled = e; });
+  h.c.tick(1500); p.hide(); h.c.tick(150000); p.show();
+  h.c.tick(86999); await settle();
+  assert.equal(settled, null, "loading has had 89,999 ms of visible time");
+  h.c.tick(1); await settle();
+  assert.equal(settled?.message, "OCR loading timed out. Go online and retry.");
+  assert.ok(h.workers[0].messages.some((m) => m.cancel === true), "the stuck host is told to stop");
+  h.runtime.recognize({ png: "crop" }).catch(() => {});
+  assert.equal(h.workers.length, 2, "the next job loads a fresh engine");
+  assert.equal(h.job().png, "crop", "and is sent to it");
+});
+
 test("image processing in flight through an app switch is not timed out on return", async (t) => {
   const previous = globalThis.Worker, workers = [];
   globalThis.Worker = class { constructor() { workers.push(this); } postMessage() {} terminate() { this.terminated = true; } };
