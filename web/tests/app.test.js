@@ -120,7 +120,16 @@ test("the Frozen chip's text meets WCAG AA contrast for its small bold type", ()
 // them, and the name must not begin with one either (a shutter named
 // "▣ Save picture" puts the symbol before the words).
 test("every button's accessible name begins with the words it shows", () => {
-  const html = read("index.html"), text = (markup) => markup.replace(/<[^>]+>/g, "");
+  const html = read("index.html");
+  // The markup's text: tags removed until none is left.
+  const text = (markup) => {
+    let previous;
+    do {
+      previous = markup;
+      markup = markup.replace(/<[^>]+>/g, "");
+    } while (markup !== previous);
+    return markup;
+  };
   const words = (value) => value.replace(/&amp;/g, "&").replace(/&\w+;/g, " ")
     .replace(/[^\p{L}\p{N}&]+/gu, " ").trim().toLowerCase();
   const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
