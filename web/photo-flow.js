@@ -555,11 +555,32 @@ export function setupPhotoFlow({
       "Its digits may be turned, so every one stays highlighted until the check ends."],
     CAPTURE_UNCHECKED = ["Captured clues ready for review.",
       "Which way up the captured picture is could not be checked, so every digit stays highlighted."];
-  // The first note of a capture whose live reading looks turned (turnCue). It
-  // and the highlight on every digit stay until the check reads the picture
-  // the way it lies or a turned reading replaces the board, so a check that is
-  // stopped or fails leaves them.
-  const turnNote = (cue) => `The page may be ${cue === "half" ? "upside down" : "sideways"} in the captured picture, so every digit read is highlighted. Adjust scan → Read puzzle checks which way up it is.`;
+  // A turn in words, as Scanner.orient's cue names it (turnCue: "half" or
+  // "quarter") or the live help line does (live-session.js turnedPage:
+  // "upside-down" or "sideways").
+  const turnWords = (turn) => (turn === "half" || turn === "upside-down" ? "upside down" : "sideways");
+  // The first note of a capture of a square grid whose live reading looks
+  // turned (turnCue). It and the highlight on every digit stay until the
+  // check reads the picture the way it lies or a turned reading replaces the
+  // board, so a check that is stopped or fails leaves them.
+  const turnNote = (cue) => `The page may be ${turnWords(cue)} in the captured picture, so every digit read is highlighted. Adjust scan → Read puzzle checks which way up it is.`;
+  // Its first note once the check has read the picture the way it lies, in
+  // place of that note and the highlight: Read puzzle did not turn the page,
+  // so a turn it missed is made with Rotate.
+  const liesNote = (cue) => `The live reading suggested that the page may be ${turnWords(cue)}, but the captured picture reads best the way it lies. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
+  // The first note of a capture of a grid that is not square whose reading
+  // looks turned: no reading turns such a grid (Scanner.read), so its picture
+  // is not read again, and Rotate turns it.
+  const rotateNote = (cue) => `The page may be ${turnWords(cue)} in the captured picture, and Read puzzle turns only square grids. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
+  // A capture without a reading goes to the crop editor. When the live help
+  // line named a turn as it was taken (live-camera.js capture), its photograph
+  // keeps that turn here, and the status after each detection on it says how
+  // to check it (turnHint): Read puzzle does on a square grid; any other needs
+  // Rotate first. Rotate makes a new photograph, which keeps none.
+  const liveTurns = new WeakMap();
+  const turnHint = (turn, { rows, cols }) => rows === cols
+    ? `The grid looked ${turnWords(turn)} in the live view; Read puzzle checks which way up it is.`
+    : `The grid looked ${turnWords(turn)} in the live view, and Read puzzle turns only square grids: Rotate until its numbers stand upright, then Read puzzle.`;
   // The cells of a reading that hold a digit or a value region: what a turned
   // page reads wrong with confidence (6s and 9s as each other, 2s as 4s).
   function valueCells({ puzzle, entries }) {
@@ -572,9 +593,11 @@ export function setupPhotoFlow({
     const picture = captured, found = picture.found;
     if (!found) {
       // No automatic reading was available (paused, blurred or undetected):
-      // hand the exact captured frame to the ordinary crop-and-read flow.
+      // hand the exact captured frame to the ordinary crop-and-read flow,
+      // with the turn the help line named, if any (turnHint).
       stopTask();
       stopCamera();
+      if (picture.turn) liveTurns.set(picture.photo, picture.turn);
       void acceptPhoto(picture.photo);
       return;
     }
@@ -590,8 +613,12 @@ export function setupPhotoFlow({
       // none with a 2, 3 or 5: an upside-down page reads 6s and 9s as each
       // other and 2s as 4s, all with confidence), the still is read again as
       // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
-      // grid is ever turned.
-      const cue = found.puzzle.rows === found.puzzle.cols ? turnCue(found) : null,
+      // grid is ever turned; on any other the cue gets a note (rotateNote).
+      // The cue includes the live help line's (turnedPage), which takes five
+      // confident digits for a half turn where it takes one, and the help
+      // line's turn is that of the reading the capture keeps, so a capture
+      // whose help line named a turn shows it here.
+      const cue = turnCue(found), check = found.puzzle.rows === found.puzzle.cols ? cue : null,
         // A box suggestion still pending that a boxed capture was read with:
         // the capture's notes say so, as a photograph's Read does, and
         // confirming its reading decides the boxes (settleProposal). The live
@@ -610,10 +637,12 @@ export function setupPhotoFlow({
         puzzle: found.puzzle, play: fitPlay(found.puzzle, []), hints: new Set(),
         // Until the check ends, every digit is under review, and the first
         // note says why (turnNote).
-        uncertain: new Set([...review.uncertain, ...(cue ? valueCells(found) : [])]),
+        uncertain: new Set([...review.uncertain, ...(check ? valueCells(found) : [])]),
         blackReadings: fitBlackReadings(found.puzzle, found.blackReadings),
         cageUncertain: new Set(found.cageUncertain ?? []),
-        needsReview: true, notes: cue ? fitReviewNotes([turnNote(cue), ...review.notes]) : [...review.notes],
+        needsReview: true,
+        notes: check ? fitReviewNotes([turnNote(cue), ...review.notes])
+          : cue ? fitReviewNotes([rotateNote(cue), ...review.notes]) : [...review.notes],
         rectified: found.rectified, photoRows: found.puzzle.rows, photoCols: found.puzzle.cols, selected: [],
       };
       stopTask(); stopCamera(); remember(); invalidate();
@@ -640,8 +669,10 @@ export function setupPhotoFlow({
         found: { ...found, needsReview: true } });
       persist(); render({ replaceDraft: true });
       warmSolver?.();
-      status(...(cue ? CAPTURE_CHECK : CAPTURE_READY));
-      if (cue) void readPhoto({ capture: review });
+      status(...(check ? CAPTURE_CHECK : CAPTURE_READY));
+      // Read the way it lies, the capture gets its own review back, after a
+      // note that the page may still be turned (liesNote).
+      if (check) void readPhoto({ capture: { ...review, notes: fitReviewNotes([liesNote(cue), ...review.notes]) } });
     } catch (error) { fail(error); }
   };
   $("choose-photo").onclick = () => $("photo-file").click();
@@ -806,11 +837,15 @@ export function setupPhotoFlow({
         }
       }
       drawCrop();
+      // A capture's photograph whose help line named a turn says how to
+      // check it, for the size the controls now hold (turnHint).
+      const turn = liveTurns.get(canvas);
       status(
         found.confidence > 0.8 ? "Grid found." : "Set the four crop corners.",
-        found.rows
+        [found.rows
           ? `Detected ${found.rows} × ${found.cols}. Check the corners, then read the puzzle.`
           : "Drag the numbered handles. Set rows and columns in Grid size & settings.",
+        ...(turn ? [turnHint(turn, currentLayout())] : [])].join(" "),
       );
       $("photo-panel").scrollIntoView({ block: "start", behavior: "smooth" });
     } catch (e) {
@@ -918,14 +953,14 @@ export function setupPhotoFlow({
     }
   };
   // `capture`: the orientation check of a capture handed to the editor, with
-  // the capture's own review (its flagged clues and notes). The still is read
-  // as any photograph, but its reading replaces the capture's only when taken
-  // turned, and then waits for review like every capture (also a quarter
-  // turn, which a photograph's Read solves automatically); Undo brings the
-  // capture's reading back as it was on the board. Read the way it lies, the
-  // capture's reading keeps its own review again. Stopped or failed, the check
-  // changes nothing: every digit stays highlighted under the note that the
-  // page may be turned.
+  // the review the capture gets back if its still reads the way it lies (its
+  // own flagged clues and notes, after a note that the page may still be
+  // turned). The still is read as any photograph, but its reading replaces
+  // the capture's only when taken turned, and then waits for review like
+  // every capture (also a quarter turn, which a photograph's Read solves
+  // automatically); Undo brings the capture's reading back as it was on the
+  // board. Stopped or failed, the check changes nothing: every digit stays
+  // highlighted under the note that the page may be turned.
   async function readPhoto({ capture = null } = {}) {
     if (!state.photo || !state.corners) return;
     // A new Read owns the next outcome even when its settings are invalid.
