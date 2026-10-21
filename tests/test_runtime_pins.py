@@ -321,6 +321,19 @@ def test_a_source_that_cannot_be_reached_fails_its_check_with_a_message(
     assert "::error::could not read https://registry.npmjs.org/-/package/" in capsys.readouterr().out
 
 
+def test_an_error_response_is_closed(monkeypatch):
+    """An HTTPError holds the response; left open, it warns when collected."""
+    failure = HTTPError(pins.PYTHON_VERSIONS, 429, "Too Many Requests", None, io.BytesIO(b"slow down"))
+
+    def urlopen(request, timeout=None):
+        raise failure
+
+    monkeypatch.setattr(pins, "urlopen", urlopen)
+    with pytest.raises(pins.SourceError, match="HTTP Error 429: Too Many Requests"):
+        pins.fetch_json(pins.PYTHON_VERSIONS)
+    assert failure.file.closed
+
+
 def test_a_source_that_is_not_json_fails_its_check_with_a_message(repository, monkeypatch, capsys):
     monkeypatch.setattr(pins, "urlopen", lambda request, timeout=None: io.BytesIO(b"<html>429</html>"))
     assert pins.main(["python"]) == 1
