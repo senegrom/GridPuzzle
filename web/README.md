@@ -129,12 +129,12 @@ crop therefore waits for the detection instead of stopping it: the status says
 detection ends, exactly as a Read tapped then would: through the corners found
 (every cell highlighted if the detection was unsure of them), or through that
 crop, every cell highlighted, if it found no grid or failed. Stop, a new
-photograph or capture, Rotate, a moved corner, another task or Hide photo
-(which lets the detection go on) drops the waiting Read, and a second tap adds
-nothing. Find grid makes a Read wait the same way while the crop is still that
-untouched crop (the first detection failed or was stopped); on a crop that a
-detection, a capture or the user set, a Read during Find grid stops it and
-reads that crop. Read puzzle also
+photograph or capture, Rotate, a moved corner, an edit or another task, or
+Hide photo (which lets the detection go on) drops the waiting Read, and a
+second tap adds nothing. Find grid makes a Read wait the same way while the
+crop is still that untouched crop (no detection has answered for it and no
+corner has moved); on a crop that a detection, a capture or the user set, a
+Read during Find grid stops it and reads that crop. Read puzzle also
 stages its candidate: failed/cancelled reads of an unchanged crop preserve the
 accepted solution, photo mapping, Play cache and undo history. Any other new
 Read click cancels earlier work even when the new dimensions, boxes or crop
