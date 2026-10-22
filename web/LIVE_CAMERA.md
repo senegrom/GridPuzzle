@@ -88,13 +88,21 @@ turned and that Read puzzle turns only square grids, with the same pointer to
 Adjust scan → Rotate, then Read puzzle. A capture without a reading goes to
 the editor's crop and read (see "Shutter and saved pictures"); when the help
 line named a turn as it was taken, the status of each detection on that
-picture repeats it as the detection starts and as it ends (a Read tapped
-before the grid is found, or a detection that fails, replaces the second),
-with the check that fits the grid size the controls then hold, which a Read
-reads at: "The grid looked sideways in the live view; Read puzzle checks
-which way up it is.", or on a grid that is not square, "…, and Read puzzle
-turns only square grids: Rotate until its numbers stand upright, then Read
-puzzle."
+picture repeats it as the detection starts and as it ends (a detection that
+fails replaces the second), with the check that fits the grid size the
+controls then hold, which a Read reads at: "The grid looked sideways in the
+live view; Read puzzle checks which way up it is.", or on a grid that is not
+square, "…, and Read puzzle turns only square grids: Rotate until its
+numbers stand upright, then Read puzzle." A Read tapped while the picture's
+first detection runs waits for it and reads at the size found; its answer,
+"Still finding the grid…", names no turn, since that size is not known yet,
+and the line that leads into it once the detection ends ("Grid found." or
+"The grid was not found automatically.") repeats the turn with the check for
+the size it reads at. On screen, the hint stays only in the status that ends
+a detection no Read waited for: while a detection or a Read runs, its elapsed
+time replaces a status's second line within half a second, and the Read's
+first progress replaces the line that leads into it at once, since a capture
+has no original to decode first.
 These are notes only: they change no highlight, flag or reading ("Live
 captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
@@ -165,7 +173,11 @@ and a capture of one usually reaches the editor without its still being read
 again. Adjust scan → Read puzzle checks it by its sums. When a capture does
 show the quarter-turn cue (glyphs wider than tall: 6 of 1,146 turned readings
 in Chromium and 8 of 1,161 in WebKit), its still is read again and takes the
-cage check.
+cage check, under the notes of any capture (above): kept the way it lies, it
+gets the note that points to Adjust scan → Rotate. A cage grid is always
+square, so the notes and hints for a grid that is not square never reach it,
+and the crop editor of a capture without a reading whose help line named the
+turn says that Read puzzle checks it.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is

@@ -220,8 +220,11 @@ turns only square grids, with the same pointer to Rotate. A capture without a
 reading goes to the crop editor, whose status as each detection starts and
 ends repeats a turn the help line named as it was taken, with Read puzzle as
 the check on a square grid and Rotate first on any other, by the size the
-controls hold. Notes only: no highlight, flag or
-reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
+controls hold as the detection starts and the size it found as it ends; a
+Read that waited for the detection says it again as it starts, by the size
+it reads at. Notes only: no highlight, flag or
+reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md), which also says
+when the crop editor's hint stays on screen).
 
 A cage puzzle (Killer or KenKen chosen as the type) could take neither check:
 every digit read on a cage board is under review, so its reading has no
