@@ -990,7 +990,7 @@ below).
 capture of an upside-down page reached the editor with confident 6/9 and 2-to-4
 swaps, unflagged and with no word of the turn, although Read puzzle turned the
 same picture. Review captured clues now runs the check's cue on the live
-reading (`turnCue` in `web/scanner.js`, which `Scanner.orient` itself uses; on
+reading (`turnCue` in `web/turn-cues.js`, which `Scanner.orient` itself uses; on
 200,000 random readings it decides exactly as the inline code it replaced).
 When the cue asks for a turn on a square grid, the capture reaches the editor
 with every digit highlighted under a first note that the page may be upside
@@ -1160,7 +1160,10 @@ killersudoku-030-photo) took 135.8 s for its four readings, 29.9 s for the
 first. So the check stops 90 s after the first reading began
 (`CAGE_TURN_BUDGET` in `web/scanner.js`, the rest left for decoding the
 photograph and stopping): it cancels the turned reading in progress and keeps
-the first reading. Stop during the check ends the Read without a reading, as
+the first reading. Decoding the photograph's detail runs before the first
+reading within the same 120 s and has no deadline of its own, so a Read the
+check takes can still run out where a Read without it would not when that
+decoding alone takes about 30 s or more. Stop during the check ends the Read without a reading, as
 it ends any task. Replayed through `Scanner.read` on the readings above with
 their recorded times (on a clock that runs each reading for its time, and at
 two and four times those times, four being how much slower
