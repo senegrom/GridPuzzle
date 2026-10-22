@@ -981,13 +981,16 @@ check instead; 103 have whole-cell value boxes; 260 have no confident digit;
 404 read a 2, 3 or 5 with confidence upside down (287 of them one: upside-down
 3s and 5s read as themselves, 8s as 3s); 620 are read again but short of the
 bar (147 of them with four numbers with a 2, 3 or 5, 170 with three); and 46
-clear the bar but do not read clearly better.
+clear the bar but do not read clearly better. A cage puzzle can never take
+this check or the quarter-turn one, since every digit on a cage board is under
+review; it takes a check of its own, by its sums ("Turned cage puzzles",
+below).
 
 **Live captures.** The live camera reads each frame the way it lies, so a
 capture of an upside-down page reached the editor with confident 6/9 and 2-to-4
 swaps, unflagged and with no word of the turn, although Read puzzle turned the
 same picture. Review captured clues now runs the check's cue on the live
-reading (`turnCue` in `web/scanner.js`, which `Scanner.orient` itself uses; on
+reading (`turnCue` in `web/turn-cues.js`, which `Scanner.orient` itself uses; on
 200,000 random readings it decides exactly as the inline code it replaced).
 When the cue asks for a turn on a square grid, the capture reaches the editor
 with every digit highlighted under a first note that the page may be upside
@@ -1024,6 +1027,174 @@ back its own warnings, as Read puzzle leaves a photograph's reading, so an
 upside-down capture the still photograph's rule cannot turn (above) keeps its
 swaps. The check costs one more reading of the capture, only when its live
 reading shows the cue (a quarter turn reads both quarter turns).
+
+## Turned cage puzzles
+
+Neither check above can turn a Killer or KenKen page. Both count confident
+digits, and every digit read on a cage board is under review ("Digits on cage
+boards"), so a cage board has none, however it lies. A cage page photographed
+sideways or upside down was therefore read as it lay. Each cage's sum is looked
+for in the top-left corner of the cage's top-left cell, which on a turned page
+holds no sum, so its sums went unread: nothing wrong was solved, since a cage
+without a target blocks Solve, but only Rotate and Read again mended it.
+
+**What a turned cage page reads.** Every image of the five cage sets (dashed
+and thick KenKen, janko Sumdoku, generated Killer and sum-only Killer, each in
+clean, print and photo renders: 600 images) was read through its crop turned
+none to three times, as the check's re-reads take it, with the check off
+(b6bf933 in Chromium and WebKit, through the import, the detector's corners and
+`photoDetail`, as the benchmark reads them; 2026-10-21). A photograph lying
+turned first reads as one of the turned readings, and its re-reads are the
+others, so the four readings show what the check does with the page lying any
+way. All four were read for every image of the Sumdoku and sum-only sets in
+WebKit and of the thick set in Chromium, and elsewhere for every fourth puzzle
+(all three renders) and every image whose upright reading has a sum that can
+stand in fewer than three quarters of its cages; the rest were read upright
+only. Upright, 525 of the 600 readings in Chromium and 533 in WebKit have a sum
+their cage can hold in at least half their cages (10,236 and 10,315 of 13,095
+cages). Turned, 888 of 1,146 readings in Chromium and 846 of 1,161 in WebKit
+have none, and the most any has is a third of its cages (1 of 3, on a generated
+Killer photo render whose partition merged its 45 cages into 3). The pieces of
+a turned page's sums that fall in value regions mostly read taller than wide,
+since a sum of two digits turned a quarter stands as a column: of those turned
+readings, 6 (Chromium) and 8 (WebKit) have glyphs wider than tall at the
+median, against 656 and 621 taller, so the quarter-turn check's glyph cue says
+nothing of a turned cage page.
+
+**The check** (`Scanner.cageTurn` in `web/scanner.js`; `cageSum`, `cageSums`
+and `CAGE_TURN_FLOOR` in `web/turn-cues.js`). With Killer or KenKen chosen as
+the type, a still photograph's reading of a square grid is read again in the
+other three quarter turns when fewer than half its cages have a sum their cage
+can hold: k distinct digits of a Killer cage sum to k(k+1)/2 to k(2n+1−k)/2,
+and a KenKen cage's target must fit its operator and size ("−" and "÷" on two
+cells only, a product only of digits up to n). The turned reading with the most
+such sums is kept only when it reads clearly better: at least 3 of them
+(`CAGE_TURN_FLOOR`), sums in at least half its cages, and more than twice as
+many as the first reading. A tie between two turns keeps the first reading, as
+does a turn whose reading fails; a cancellation stops the check. The kept
+reading carries `turns`, its first note names the turn ("…its cage sums read
+clearly better that way…"), the photo flow turns the crop corners with it, and
+like every cage reading it waits for review. The live camera, targeted
+re-reads, non-square grids and Automatic detection (whose cage readings come
+from per-cell clue strips, and were not measured turned) are not checked, and
+every other type's checks are as they were.
+
+**What keeps an upright page upright.** The half of its cages. The reading of
+a wrong turn that comes closest to the bar falls 2 sums short of it in Chromium
+and 1.5 in WebKit (a 4 × 4 KenKen photo render whose half-turned reading has 2
+sums of 7 against a bar of 3.5). Counting every target read instead of those a
+cage can hold, it falls half a sum short in WebKit (3 of 7 on the same page).
+Without the half of the cages the bar is too low: a half-turned Sumdoku photo
+render (janko-killersudoku-026-photo) has 6 sums of 19 against a bar of 3, and
+in WebKit janko-killersudoku-067-photo, lying a quarter turn anticlockwise, is
+turned to the other quarter turn, whose reading has 3 sums of 15 that can stand
+against the upright reading's 2.
+
+**Measured** (scored in each reading's own frame, against the target turned
+with it; "lying" names the reading a photograph lying that way gives first, R1
+a page turned a quarter turn anticlockwise; the turned rows count the images
+with all four readings):
+
+| Chromium, lying | photographs | read again | turned upright | turned wrongly | cages right | unflagged | perfect |
+|---|---:|---:|---:|---:|---|---|---|
+| as stored | 600 | 75 | 0 | 0 | 9,671 → 9,671 of 13,188 | 0 → 0 | 118 → 118 |
+| a quarter anticlockwise (R1) | 382 | 382 | 307 | 0 | 10 → 5,211 of 8,421 | 0 → 0 | 0 → 56 |
+| half a turn (R2) | 382 | 382 | 307 | 0 | 6 → 5,209 of 8,421 | 0 → 0 | 0 → 56 |
+| a quarter clockwise (R3) | 382 | 382 | 307 | 0 | 5 → 5,208 of 8,421 | 0 → 0 | 0 → 56 |
+
+| WebKit, lying | photographs | read again | turned upright | turned wrongly | cages right | unflagged | perfect |
+|---|---:|---:|---:|---:|---|---|---|
+| as stored | 600 | 67 | 0 | 0 | 9,768 → 9,768 of 13,188 | 0 → 0 | 115 → 115 |
+| a quarter anticlockwise (R1) | 387 | 387 | 320 | 0 | 18 → 5,276 of 8,381 | 0 → 0 | 0 → 56 |
+| half a turn (R2) | 387 | 387 | 320 | 0 | 11 → 5,276 of 8,381 | 0 → 0 | 0 → 56 |
+| a quarter clockwise (R3) | 387 | 387 | 319 | 0 | 7 → 5,271 of 8,381 | 0 → 0 | 0 → 56 |
+
+The turned rows hold every image whose upright reading takes the check, and
+those are the pages the check cannot turn (below). On the sample alone (every
+fourth puzzle, and the sets read whole), the check turns 223 of 240 pages
+upright from each side in Chromium and 285 or 286 of 330 in WebKit.
+No upright image is turned, no image's unflagged errors rise (a cage board's
+cages and digits are all under review, so there are none either way) and no
+image reads fewer cages right. Cage by cage, 15,611 (Chromium) and 15,793
+(WebKit) cages become right and 4 and 6 that a turned reading read right by
+chance are lost, all of them single cells or pairs, each on an image that gains
+4 to 29; like every cage, all were under review. The first three images of
+every other set (55), read on master and on a build of the check (4aa5aa0) as
+the benchmark reads them in Chromium, read identically: other types' readings
+never reach the check.
+
+**End to end.** 10 puzzles, two of each set, in all three renders, were turned
+with Pillow (the turned JPEGs saved again at quality 95) and read as Read
+puzzle reads a photograph, one `Scanner.read` with the check, on a build of it
+(4aa5aa0). In both engines the 30 upright copies stay upright and 28, 28 and 27
+of the 30 copies at each turn are turned upright, none wrongly, every reading
+waiting for review. Against the four readings of the same images above, 91 of
+96 decisions agree in WebKit and 63 of 72 in Chromium; the others are photo
+renders whose upright reading has sums in close to half its cages (3 to 8 of 8
+to 16), turned in one measurement and left in the other, never the wrong way.
+Two more samples of 10 other puzzles each, read the same way in review (90 and
+120 copies per engine), turned 25, 25 and 27 and 27, 25 and 25 of 30 upright in
+Chromium and 25, 27 and 27 and 26, 26 and 25 in WebKit, none wrongly. The
+misses are photo renders: in the first sample every clean and print copy was
+turned upright, and 17 (Chromium) and 19 (WebKit) of the 30 photo-render
+copies; all but one of the others are pages whose upright reading has sums in
+fewer than half its cages ("Not caught").
+
+**Cost.** The check reads a page three more times whenever its first reading
+has sums in fewer than half its cages: every turned page, and of the upright
+ones 75 in Chromium (56 photo, 11 print and 8 clean renders) and 67 in WebKit.
+A turned reading takes 2.6 (Chromium) and 2.7 (WebKit) times as long as the
+upright one at the median, so an upright page that takes the check spends 7.9
+and 8.1 times its first reading's time in all (up to 33 and 28.5 times). Over
+the corpus, those pages' three readings took as long as all 600 first readings
+together in Chromium (323 s against 299 s) and two thirds as long in WebKit
+(536 s against 811 s); per page, 2.7 s and 3.6 s at the median on this loaded
+desktop, with three browsers reading at once, and up to 59 s and 106 s. On a
+phone they take longer. The pages that read well pay nothing.
+
+**Time budget.** The check's readings count against the 120 s the photo flow
+gives a whole Read, and a Read that runs out of it ("Recognition timed out")
+keeps nothing, not even the first reading a Read without the check returned:
+one upright WebKit page above (generated-render-sum-only
+killersudoku-030-photo) took 135.8 s for its four readings, 29.9 s for the
+first. So the check stops 90 s after the first reading began
+(`CAGE_TURN_BUDGET` in `web/scanner.js`, the rest left for decoding the
+photograph and stopping): it cancels the turned reading in progress and keeps
+the first reading. Decoding the photograph's detail runs before the first
+reading within the same 120 s and has no deadline of its own, so a Read the
+check takes can still run out where a Read without it would not when that
+decoding alone takes about 30 s or more. Stop during the check ends the Read without a reading, as
+it ends any task. Replayed through `Scanner.read` on the readings above with
+their recorded times (on a clock that runs each reading for its time, and at
+two and four times those times, four being how much slower
+[LIVE_CAMERA.md](LIVE_CAMERA.md) takes a phone to be), no Read with the budget
+runs past 120 s unless its first reading alone does, and the budget costs the
+turns whose four readings take longer than 90 s. The Reads counted are those
+that take the check, the turns those of the pages lying turned (three per
+image):
+
+| times | engine | Reads past 120 s without it | turns lost (past 120 s anyway) | lost at 60 s |
+|---|---|---:|---:|---:|
+| recorded | Chromium | 0 | 0 of 921 | 0 |
+| recorded | WebKit | 4 | 9 of 959 (0) | 21 |
+| twice | Chromium | 4 | 0 of 921 | 3 |
+| twice | WebKit | 29 | 36 of 959 (21) | 54 |
+| four times | Chromium | 7 | 18 of 921 (3) | 30 |
+| four times | WebKit | 70 | 90 of 959 (54) | 159 |
+
+A Read the budget stops ends 90 s after its first reading began; one whose
+first reading alone took longer is not read again and ends with it, as before
+the check.
+
+**Not caught.** A page whose upright reading has sums in fewer than half its
+cages is read again but stays as it lies, as on master, with its sums unread: 75
+of the 600 in Chromium and 67 in WebKit, mostly photo renders and sum-only
+Killer pages. So does a page whose check runs out of time. Rotate and Read
+again then keeps the upright reading, with the sums it reads. Grids smaller than
+4 × 4 (a 3 × 3 KenKen) were not measured: the corpus's smallest cage grids are
+4 × 4, where the bar is lowest and the closest wrong turn above was measured.
+Nothing is claimed for real photographs of cage puzzles, which the corpus does
+not have.
 
 ## Alternatives tried
 

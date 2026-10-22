@@ -132,6 +132,19 @@ anyway still freezes. Before, such a page got "Move closer" or "Conflicting
 readings…", then "Waiting for a clearer frame…" for as long as it stayed in
 view.
 
+A cage puzzle (Killer or KenKen) is the exception: its still photograph's
+check goes by its cage sums ("Turned cage puzzles" in
+[OCR_QUALITY.md](OCR_QUALITY.md)), while the help line's cue, and a capture's
+(`turnCue`), go by confident digits and value glyphs. A cage reading has no
+confident digit (every digit on a cage board is under review), and the pieces
+of a turned page's sums that fall in value regions mostly read taller than
+wide, so the help line seldom names a turned cage page, never as upside down,
+and a capture of one usually reaches the editor without its still being read
+again. Adjust scan → Read puzzle checks it by its sums. When a capture does
+show the quarter-turn cue (glyphs wider than tall: 6 of 1,146 turned readings
+in Chromium and 8 of 1,161 in WebKit), its still is read again and takes the
+cage check.
+
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
 released as soon as recognition has used it. Recognition has a 90-second

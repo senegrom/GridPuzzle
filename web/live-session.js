@@ -30,7 +30,8 @@ function solvingOff(found) {
 // The live camera never turns a reading (it reads with orient: false): only
 // a still photograph's reading is checked for a quarter or a half turn, by
 // reading it again turned (Scanner.orient, OCR_QUALITY.md). A live reading
-// still shows the cue that check goes by. A poor reading (fewer than half
+// still shows the cue that check goes by (not so a cage puzzle's, whose still
+// is checked by its sums: LIVE_CAMERA.md). A poor reading (fewer than half
 // its value regions read as confident digits) of glyphs wider than tall is
 // of a page lying a quarter turn off; one of upright-shaped glyphs that reads
 // at least HALF_TURN_BAR confident digits but not one number with a 2, 3 or
