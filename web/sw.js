@@ -125,22 +125,48 @@ async function buildAssets(build){
     return response?validateManifest(await response.json(),build):[];
   }catch{return [];}
 }
-// The origin's current asset list, whichever build it describes; none when
-// it cannot be read. GitHub Pages lets browsers keep every file for ten
-// minutes, so the HTTP cache may still hold the list a deploy replaced.
-async function originAssets(signal){
+// The origin's current asset list and the build it describes, whichever
+// that is; no build and no assets when it cannot be read. GitHub Pages lets
+// browsers keep every file for ten minutes, so the HTTP cache may still
+// hold the list a deploy replaced.
+async function originManifest(signal){
   try{
     const response=await fetch(new Request(url("assets.json"),{cache:"reload",signal}));
     const data=response.ok?await response.json():null;
-    return typeof data?.build==="string"?validateManifest(data,data.build):[];
-  }catch{signal?.throwIfAborted();return [];}
+    if(typeof data?.build==="string")return {build:data.build,assets:validateManifest(data,data.build)};
+  }catch{signal?.throwIfAborted();}
+  return {build:null,assets:[]};
+}
+// The builds this worker has asked the browser to look for.
+const updateRequested=new Set();
+/* The origin serves another build than this worker's: a deploy the browser
+   may not have looked for yet. It looks when a page navigates, and may when
+   a page starts a worker, so a page kept open that, say, only downloads for
+   offline use would not offer the update until it reloads. Ask the browser
+   to look now; once it has installed that build's worker, the page offers
+   "Update app & reload" ("updatefound", offline.js). Once per build while
+   this worker runs, so that a page reading many missing files, even at the
+   same time, does not start a check for each: the build is recorded before
+   anything is awaited. A worker the browser stopped while idle starts again
+   with nothing recorded and may ask once more; a check that finds that
+   build's worker already installed changes nothing. The check is never
+   awaited, and one that fails changes nothing else. The browser refuses the
+   check of an installing worker, which then does not ask for that build
+   again while it runs; the browser looks at the next navigation anyway,
+   such as the reload that activates an update. */
+function requestUpdate(build){
+  if(!build||build===VERSION||updateRequested.has(build))return;
+  updateRequested.add(build);
+  Promise.resolve().then(()=>self.registration.update()).catch(()=>{});
 }
 /* A deploy replaces the whole site, so an older build's versioned URLs stop
    existing while its pages and its worker still run, until the user chooses
    "Update app & reload". Another manifest may list the same bytes under its
    own URL: the other stored ones, newest first (after a deploy, the waiting
-   build's), then the origin's current one. A copy is accepted only if its
-   digest matches; nothing is substituted because its name matches. */
+   build's), then the origin's current one, whose build, if it is another,
+   the browser is asked to find now (requestUpdate()). A copy is accepted
+   only if its digest matches; nothing is substituted because its name
+   matches. */
 async function relocated(asset,signal){
   const tried=new Set([asset.path]);
   const from=async assets=>{
@@ -159,7 +185,9 @@ async function relocated(asset,signal){
     const found=await from(await buildAssets(name.slice((PREFIX+"meta:").length)));
     if(found)return found;
   }
-  return from(await originAssets(signal));
+  const origin=await originManifest(signal);
+  requestUpdate(origin.build);
+  return from(origin.assets);
 }
 function assetBuild(key){
   const path=key.slice(self.registration.scope.length);

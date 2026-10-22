@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { setupOffline, updateAdvice } from "../offline.js";
 import { createOCRRuntime } from "../ocr-runtime.js";
 
-// `reply` is what the worker answers each offline request with.
-function environment(t, { controlled = true, waiting = true, reply = { done: true, ready: false } } = {}) {
+// `reply` is what the worker answers each offline request with; with `hold`,
+// a download (PREPARE_OFFLINE) is answered only when the test releases it.
+function environment(t, { controlled = true, waiting = true, reply = { done: true, ready: false }, hold = false } = {}) {
   const originals = ["navigator", "location", "MessageChannel"].map((key) =>
     [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   t.after(() => {
@@ -13,10 +14,11 @@ function environment(t, { controlled = true, waiting = true, reply = { done: tru
       else delete globalThis[key];
     }
   });
-  const requests = [];
+  const requests = [], held = [];
   const worker = (state) => Object.assign(new EventTarget(), { state, postMessage(message, ports) {
-    if (ports) ports[0].respond(reply);
-    else requests.push(message.type);
+    if (!ports) requests.push(message.type);
+    else if (hold && message.type === "PREPARE_OFFLINE") held.push(ports[0]);
+    else ports[0].respond(reply);
   } });
   const oldWorker = worker("activated"), newWorker = worker(waiting ? "installed" : "installing");
   // As a page finds it at load: nothing installing; the new worker waits,
@@ -33,16 +35,21 @@ function environment(t, { controlled = true, waiting = true, reply = { done: tru
   return {
     registration, newWorker, requests,
     // A deploy found while the tab is open: the browser gives the new worker
-    // to registration.installing and fires updatefound, and the worker,
-    // once installed, waits.
-    update() {
+    // to registration.installing and fires updatefound (found), and the
+    // worker, once installed, waits (installed).
+    update() { this.found(); this.installed(); },
+    found() {
       registration.installing = newWorker;
       registration.dispatchEvent(new Event("updatefound"));
+    },
+    installed() {
       registration.installing = null;
       registration.waiting = newWorker;
       newWorker.state = "installed";
       newWorker.dispatchEvent(new Event("statechange"));
     },
+    // Answers the held downloads with `message`.
+    release(message) { for (const port of held.splice(0)) port.respond(message); },
     async tab() {
       const nodes = new Map();
       const $ = (id) => {
@@ -187,6 +194,73 @@ test("OCR that cannot load on this page names the update the page offers", async
   const read = ocr.recognize({ png: "a" });
   workers[0].onmessage({ data: { error: "The script at 'vendor/aaaaaaaaaaaa/tesseract/tesseract.min.js' failed to load.", fatal: true } });
   await assert.rejects(read, {
+    message: "Recognition could not load. An updated version of the app is ready. Use “Update app & reload”, then try again.",
+  });
+});
+
+// The service worker asks the browser for a deploy's worker at the first
+// file it misses (sw.js, requestUpdate()), so the update is often found while
+// a download or a read runs. Neither is stopped; what each then says depends
+// on whether the update is offered (installed) when it ends.
+test("an update found while an offline download runs leaves the download to finish", async (t) => {
+  const env = environment(t, { waiting: false, hold: true }), tab = await env.tab();
+  const download = tab.prepare();
+  env.update();
+  assert.equal(tab.node("update-banner").hidden, false);
+  assert.equal(tab.node("prepare-offline").disabled, true, "the download still runs");
+  env.release({ done: true, ready: true });
+  await download;
+  assert.match(tab.node("offline-state").textContent, /^Offline assets are ready on this device/);
+  assert.equal(tab.node("prepare-offline").disabled, false);
+});
+
+// The worker's check often gets the update installed while a long download
+// runs, which then finds a file gone: the advice is decided when the
+// download ends, not when it starts.
+test("a download that finds a file gone after an update was installed while it ran names that update", async (t) => {
+  const env = environment(t, { waiting: false, hold: true }), tab = await env.tab();
+  const download = tab.prepare();
+  env.update();
+  env.release(GONE);
+  await download;
+  assert.equal(tab.node("offline-state").textContent,
+    "Some of this version’s files are no longer on the server. An updated version of the app is ready. Use “Update app & reload”, then download for offline use again.");
+});
+
+test("a download whose files are gone names the update found while it ran once it is installed", async (t) => {
+  const env = environment(t, { waiting: false, hold: true }), tab = await env.tab();
+  let download = tab.prepare();
+  env.found();
+  env.release(GONE);
+  await download;
+  assert.equal(tab.node("offline-state").textContent, GONE.error, "still installing: nothing to name yet");
+  assert.equal(tab.node("update-banner").hidden, true);
+  env.installed();
+  assert.equal(tab.node("update-banner").hidden, false);
+  download = tab.prepare();
+  env.release(GONE);
+  await download;
+  assert.equal(tab.node("offline-state").textContent,
+    "Some of this version’s files are no longer on the server. An updated version of the app is ready. Use “Update app & reload”, then download for offline use again.");
+});
+
+test("a read during which an update is found reads as before, and names it only if OCR then fails to load", async (t) => {
+  const env = environment(t, { waiting: false }), workers = [];
+  await env.tab();
+  const ocr = createOCRRuntime({ makeWorker() {
+    const worker = { postMessage() {}, terminate() {} };
+    workers.push(worker);
+    return worker;
+  }, setTimer: () => 0, clearTimer() {} });
+  const read = ocr.recognize({ png: "a" });
+  workers[0].onmessage({ data: { type: "ready" } });
+  env.update();
+  workers[0].onmessage({ data: { id: 1, result: { text: "5" } } });
+  assert.deepEqual(await read, { text: "5" });
+  ocr.dispose();
+  const next = ocr.recognize({ png: "b" });
+  workers[1].onmessage({ data: { error: "The script at 'vendor/aaaaaaaaaaaa/tesseract/tesseract.min.js' failed to load.", fatal: true } });
+  await assert.rejects(next, {
     message: "Recognition could not load. An updated version of the app is ready. Use “Update app & reload”, then try again.",
   });
 });
