@@ -189,6 +189,40 @@ change Python code, additionally runs the bounded suite on free-threaded
 Python 3.14, with the GIL required off, and on Python 3.15, with warnings
 treated as errors.
 
+A forward-compatibility leg tests a CPython before its final release by
+allowing prereleases, and says so in its label ("Python 3.16 prerelease").
+setup-python installs the final release instead once there is one, so a leg
+allows prereleases exactly when its version is missing from `FINAL_RELEASES`
+in `scripts/check_runtime_pins.py`, the record of the CPython feature
+releases that have a final release. `tests/test_workflows.py` checks every
+leg's label and that rule on every pull request.
+
+The weekly "Runtime pins" workflow compares what Dependabot does not track
+with its releases, in one job per check of `scripts/check_runtime_pins.py`
+(`python scripts/check_runtime_pins.py [npm | python]` runs them locally;
+`tests/test_runtime_pins.py` tests them offline, the python check against a
+manifest recorded in `tests/test_data/`). The npm job fails when a package
+that `scripts/build_web.py` pins for the browser runtime, or the Playwright
+version of `.github/actions/setup-scanner`, trails npm's latest release,
+unless `scripts/runtime_pin_deferrals.toml` acknowledges that release with a
+reason. The python job reads actions/python-versions' `versions-manifest.json`,
+the list of CPython builds setup-python installs, and fails with the change
+to make:
+
+- a leg that allows prereleases has a final release: set the leg's
+  `allow-prereleases` to false, drop "prerelease" from its label, and add its
+  version to `FINAL_RELEASES`;
+- a CPython is newer than every leg, from its first alpha on: add a leg for
+  it, such as "Python 3.16 prerelease" with `python-version: "3.16"` and
+  `allow-prereleases: true`;
+- `FINAL_RELEASES` lists a version that has no final release, or lacks one
+  that a leg tests and that has one.
+
+The python job checks the record against the manifest instead of deriving
+its own list from it, so that the record each pull request's test relies on
+cannot stay wrong for more than a week. A source that cannot be read fails
+its job with an error that names it.
+
 The extended workflow runs weekly, on demand and on every push to master that
 changes `gridsolver/`, the example corpora, the corpus runner or its timeout
 baseline, the regression tests that exercise them, `pyproject.toml` or the
