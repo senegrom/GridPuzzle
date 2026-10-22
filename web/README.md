@@ -123,11 +123,23 @@ or mapping on failure or cancellation. A new or rotated photograph is shown at
 once on the crop the detector proposes when it finds no grid (8% in from each
 edge), unconfirmed, until detection answers; if detection fails or is stopped,
 that crop stays, its handles can be moved, and a Read through it highlights
-every cell. Read puzzle also stages its candidate:
-failed/cancelled reads of an unchanged crop preserve the accepted solution,
-photo mapping, Play cache and undo history. A new Read click cancels earlier
-work even when the new dimensions, boxes or crop fail validation. Actual crop
-or photograph changes still invalidate incompatible mappings.
+every cell. Read puzzle tapped while the grid is still being found on that
+crop therefore waits for the detection instead of stopping it: the status says
+"Still finding the grid…", Stop stays available, and the Read starts when the
+detection ends, exactly as a Read tapped then would: through the corners found
+(every cell highlighted if the detection was unsure of them), or through that
+crop, every cell highlighted, if it found no grid or failed. Stop, a new
+photograph or capture, Rotate, a moved corner, an edit or another task, or
+Hide photo (which lets the detection go on) drops the waiting Read, and a
+second tap adds nothing. Find grid makes a Read wait the same way while the
+crop is still that untouched crop (no detection has answered for it and no
+corner has moved); on a crop that a detection, a capture or the user set, a
+Read during Find grid stops it and reads that crop. Read puzzle also
+stages its candidate: failed/cancelled reads of an unchanged crop preserve the
+accepted solution, photo mapping, Play cache and undo history. Any other new
+Read click cancels earlier work even when the new dimensions, boxes or crop
+fail validation. Actual crop or photograph changes still invalidate
+incompatible mappings.
 
 Box height and Box width describe the printed Sudoku as it stands upright,
 whichever way the photograph lies (see [SCAN_INPUT.md](SCAN_INPUT.md)). When
@@ -212,15 +224,28 @@ stored is missing under its own URL (the OCR runtime, until a first scan or
 other asset lists it has stored, newest first (after a deploy, the waiting
 update's), then in the origin's current `assets.json`, read past the browser's
 HTTP cache, and fetches that URL instead; bytes whose digest differs are never
-served. Installation still stores only the app shell and the Python
-runtime, not the OCR runtime. If the deploy changed the file, so that nothing
-identical exists (a new OCR runtime), retrying cannot bring the old file back
-and only the update helps. While one is offered, a read whose OCR fails to load
-online says that recognition could not load, and **Download for offline use**
-that this version's files are no longer on the server, and both name the
-update's button instead of showing the browser's error or "Stay online and
-retry". A read that fails offline, or whose OCR download runs out of time,
-keeps its own message.
+served. When that list names another build, the worker also asks the browser
+to look for the update at once, before fetching any copy
+(`registration.update()`, once per build each time the browser starts the
+worker, never awaited; a failed check changes nothing). A browser looks when a
+page navigates, and may when a page starts a worker, so without this a page
+kept open across a deploy that, say, only downloads for offline use would
+offer the update only after a reload. Now the page shows the update banner as
+soon as the browser has installed the update, whether or not an identical copy
+was found: usually within seconds of the first missing file, longer when the
+deploy changed the Python runtime, which the update's installation downloads
+first. While no file is missing, nothing is asked. Installation still stores
+only the app shell and the Python runtime, not the OCR runtime. If the deploy
+changed the file, so that nothing identical exists (a new OCR runtime),
+retrying cannot bring the old file back and only the update helps. While one
+is offered, a read whose OCR fails to load online says that recognition could
+not load, and **Download for offline use** that this version's files are no
+longer on the server, and both name the update's button instead of showing the
+browser's error or "Stay online and retry". A read that fails offline, or
+whose OCR download runs out of time, keeps its own message. So does the read
+or download that first misses the file if it fails before the browser has
+installed the update: the banner follows once it has, and a retry then names
+it.
 
 The startup status is a cheap presence check. **Download for offline use** performs full sequential digest verification, evicts/refetches anything that fails, and asks the browser for persistent storage. Of the two Tesseract core loaders it stores only the one this device will load, chosen with the same WebAssembly SIMD test Tesseract.js uses (both where WebAssembly cannot be probed); both stay on the server. Ordinary requests trust bytes already verified before write, so large WASM files are not re-hashed on every fetch. If the browser evicts the asset list, in-scope requests fall back to the network and restore it online. Cache quota failure does not break a verified online response.
 

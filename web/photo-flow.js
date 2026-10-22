@@ -53,6 +53,14 @@ export function setupPhotoFlow({
     // was taken (settleProposal).
     proposedBoxLayout = null,
     proposalSource = null,
+    // The crop is still the fallback crop a new photograph starts on
+    // (acceptPhoto): no detection has answered for it, no corner has moved and
+    // no capture has brought its own corners. A Read through it highlights
+    // every cell, so a Read tapped while a detection runs on it waits for that
+    // detection: `gridSearch` holds the detection's task and whether a Read
+    // waits for it.
+    fallbackCrop = false,
+    gridSearch = null,
     live = null,
     pendingPlayback = null,
     playbackTimer = null,
@@ -616,16 +624,20 @@ export function setupPhotoFlow({
       settleProposal();
       // The live camera reads each frame the way it lies (it reads with
       // orient: false), but a capture is a still photograph. When its reading
-      // shows what makes Scanner.orient try a turn (a poor reading of glyphs
-      // wider than tall, or of upright-shaped glyphs with confident digits but
-      // none with a 2, 3 or 5: an upside-down page reads 6s and 9s as each
-      // other and 2s as 4s, all with confidence), the still is read again as
-      // Read puzzle reads a photograph (readPhoto's `capture`). Only a square
-      // grid is ever turned; on any other the cue gets a note (rotateNote).
-      // The cue includes the live help line's (turnedPage), which needs five
-      // confident digits for a half turn where this one needs one, and the
-      // help line names the turn of the reading the capture keeps, so a
-      // capture whose help line named a turn shows the cue here.
+      // shows what makes Scanner.orient try a turn by the digits (a poor
+      // reading of glyphs wider than tall, or of upright-shaped glyphs with
+      // confident digits but none with a 2, 3 or 5: an upside-down page reads
+      // 6s and 9s as each other and 2s as 4s, all with confidence), the still
+      // is read again as Read puzzle reads a photograph (readPhoto's
+      // `capture`). Only a square grid is ever turned; on any other the cue
+      // gets a note (rotateNote). A cage puzzle's still is checked by its sums
+      // instead, which its capture seldom shows this cue for (LIVE_CAMERA.md);
+      // when it does, the check reads it again and the notes are the same,
+      // and a cage grid is always square. The cue includes the live help
+      // line's (turnedPage), which needs five confident digits for a half
+      // turn where this one needs one, and the help line names the turn of
+      // the reading the capture keeps, so a capture whose help line named a
+      // turn shows the cue here.
       const cue = turnCue(found), check = found.puzzle.rows === found.puzzle.cols ? cue : null,
         // A box suggestion still pending that a boxed capture was read with:
         // the capture's notes say so, as a photograph's Read does, and
@@ -660,6 +672,7 @@ export function setupPhotoFlow({
       // lattice with both axes, at the size it read: confirmed for that size,
       // whatever an earlier photograph's crop was.
       unconfirmedCorners = false;
+      fallbackCrop = false;
       detectedLayout = { rows: found.puzzle.rows, cols: found.puzzle.cols };
       // The crop editor may still show an earlier import; this capture is
       // reviewed on the board.
@@ -771,11 +784,12 @@ export function setupPhotoFlow({
   }
   // The box controls describe the printed puzzle, upright: its boxes as they
   // stand on the board once the photograph's turn is found (Scanner.orient
-  // reads a sideways or upside-down photograph turned when its digits read
-  // clearly better that way) or Rotate has turned it upright. No turn of the
-  // photograph or of the crop changes them. A quarter turn swaps only the
-  // grid's rows and columns as the crop meets them, which matters only for a
-  // grid that is not square, and such a grid is never turned by a reading.
+  // reads a sideways or upside-down photograph turned when its digits, or a
+  // Killer's cage sums, read clearly better that way) or Rotate has turned it
+  // upright. No turn of the photograph or of the crop changes them. A quarter
+  // turn swaps only the grid's rows and columns as the crop meets them, which
+  // matters only for a grid that is not square, and such a grid is never
+  // turned by a reading.
   function swapAxes({ rows, cols, boxRows, boxCols }) {
     return { rows: cols, cols: rows, boxRows, boxCols };
   }
@@ -794,19 +808,34 @@ export function setupPhotoFlow({
     // The photograph starts on the crop the detector proposes when it finds
     // no grid, unconfirmed, shown while detection runs: if detection then
     // fails or is stopped, the handles are there to move, and a Read through
-    // them puts every cell under review instead of doing nothing.
+    // them puts every cell under review instead of doing nothing. A Read
+    // tapped while the detection runs waits for it (Read puzzle, below).
     state.corners = fallbackCorners(canvas.width, canvas.height);
     unconfirmedCorners = true;
+    fallbackCrop = true;
     detectedLayout = null;
     state.result = null;
     $("photo-panel").hidden = false;
     render();
     await detectPhoto(canvas);
   }
+  // The answer to a Read tapped while the grid is still being found on the
+  // fallback crop, and the line that leads into that Read once the detection
+  // ends: through the corners found, or through a crop nobody confirmed.
+  const STILL_FINDING = ["Still finding the grid…", "The puzzle is read as soon as the grid is found."],
+    READ_FOUND = ["Grid found.", "Reading the puzzle…"],
+    READ_FALLBACK = ["The grid was not found automatically.",
+      "Reading the puzzle through the crop as it is, so every cell will be highlighted…"];
   // Re-detection is not adoption of a new photograph or a puzzle edit. Keep
   // undo history and the old crop/mapping intact until a current result exists.
   async function detectPhoto(canvas) {
     const id = begin();
+    // On the fallback crop, a Read tapped while this detection runs waits for
+    // it (Read puzzle, below): a new photograph's first detection, or Find
+    // grid once that one failed or was stopped and no corner has moved. On a
+    // crop that a detection, a capture or the user set, a Read stops it and
+    // reads that crop, as before.
+    gridSearch = fallbackCrop ? { id, read: false } : null;
     diagnostics.event({stage:"detecting",reason:"started"});
     status("Finding the grid…", withTurn(canvas, "Photo processing stays on this device."));
     try {
@@ -818,6 +847,7 @@ export function setupPhotoFlow({
       if (id !== getJobId()) return;
       clearPhotoMapping();
       state.corners = found.corners;
+      fallbackCrop = false;
       cropRevision = {};
       unconfirmedCorners = !(found.confidence > 0.8);
       detectedLayout = found.rows && found.cols ? { rows: found.rows, cols: found.cols } : null;
@@ -861,6 +891,23 @@ export function setupPhotoFlow({
         diagnostics.event({stage:"error",reason:"failed"});
         fail(e);
       }
+    } finally {
+      // A Read that waited for this detection starts now, as a Read tapped
+      // now would, if the detection ended on its own: through the corners it
+      // found, or through the fallback crop, every cell highlighted, when it
+      // found no grid, failed, or the scanner gave up its job. Its first line
+      // replaces the detection's own, which asks for a Read or reports the
+      // failure. Whatever stopped the detection's task instead (Stop, a new
+      // photograph or capture, Rotate, a moved corner, another task) dropped
+      // the Read with it.
+      if (gridSearch?.id === id) {
+        const { read } = gridSearch;
+        gridSearch = null;
+        if (read && id === getJobId()) {
+          status(...(unconfirmedCorners ? READ_FALLBACK : READ_FOUND));
+          void readPhoto();
+        }
+      }
     }
   }
   $("detect-photo").onclick = () => {
@@ -883,7 +930,12 @@ export function setupPhotoFlow({
       proposedBoxLayout = swapAxes(proposedBoxLayout);
     void acceptPhoto(c);
   };
-  $("hide-photo").onclick = () => ($("photo-panel").hidden = true);
+  $("hide-photo").onclick = () => {
+    $("photo-panel").hidden = true;
+    // Closing the crop editor drops a Read waiting for its grid; the
+    // detection itself goes on, as before.
+    if (gridSearch) gridSearch.read = false;
+  };
   $("show-crop").onclick = () => {
     $("photo-panel").hidden = false;
     drawCrop();
@@ -921,6 +973,7 @@ export function setupPhotoFlow({
       y: Math.max(0, Math.min(state.photo.height - 1, pt.y)),
     };
     unconfirmedCorners = false;
+    fallbackCrop = false;
     cropRevision = {};
     detectedLayout = null;
     clearPhotoMapping();
@@ -953,6 +1006,7 @@ export function setupPhotoFlow({
         Math.min(state.photo.height - 1, p.y + delta[1] * step),
       );
       unconfirmedCorners = false;
+      fallbackCrop = false;
       cropRevision = {};
       detectedLayout = null;
       clearPhotoMapping();
@@ -1032,6 +1086,10 @@ export function setupPhotoFlow({
     }
     // Keep the accepted board, solution and still-valid photo mapping until
     // a complete replacement is ready. Crop edits already invalidate mapping.
+    // The deadline covers the reader's orientation checks too, and a Read
+    // that runs out loses its reading: a cage puzzle's check, the longest,
+    // stops 90 s after the first reading began and keeps that reading
+    // (CAGE_TURN_BUDGET in scanner.js).
     const id = begin();
     setDeadline(() => {
       if (id === getJobId())
@@ -1158,7 +1216,20 @@ export function setupPhotoFlow({
       }
     }
   }
-  $("read-photo").onclick = () => void readPhoto();
+  // Read puzzle. While a detection runs on the fallback crop, a Read through
+  // that crop would only highlight every cell, so the tap is answered, the
+  // detection goes on, and the Read starts when it ends (detectPhoto). A
+  // second tap meanwhile adds nothing. Stop, a new photograph or capture,
+  // Rotate, a moved corner, closing the crop editor or another task drops
+  // the waiting Read.
+  $("read-photo").onclick = () => {
+    if (gridSearch && gridSearch.id === getJobId()) {
+      gridSearch.read = true;
+      status(...STILL_FINDING);
+      return;
+    }
+    void readPhoto();
+  };
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) return;
     // A frozen solution stays on screen with its reading, and Save picture

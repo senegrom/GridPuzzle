@@ -16,6 +16,15 @@ canvas is released after recognition, including rejection or cancellation.
 The accepted photo, saved picture and overlay coordinates remain in the preview
 coordinate system; only OCR receives the detailed crop and its mapped corners.
 
+The selected grid is the crop editor's four corners: those grid detection or
+the live camera found, or the user's. A new or rotated photograph shows the
+detector's no-grid crop (8% in from each edge) until its detection answers,
+and a Read through that crop puts every cell under review. So Read puzzle
+tapped while that detection runs does not stop it: it says "Still finding the
+grid…" and reads once the detection ends, through the corners found, or
+through that crop if none were (the full rules are in [README.md](README.md));
+the original is decoded then, as for any Read.
+
 Input dimensions are checked BEFORE decoding. The enhancement is limited to
 16 million source pixels: requesting a resized bitmap alone does not guarantee
 that the browser decoder avoids a full-sized intermediate allocation. Larger
@@ -214,6 +223,34 @@ the check on a square grid and Rotate first on any other, by the size the
 controls hold. Notes only: no highlight, flag or
 reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
 
+A cage puzzle (Killer or KenKen chosen as the type) could take neither check:
+every digit read on a cage board is under review, so its reading has no
+confident digit to turn by, and its clues are cage sums, not value glyphs. It
+takes a check of its own (`Scanner.cageTurn`), by the sums. Each sum is printed
+in the top-left corner of its cage's top-left cell, which is where the reader
+looks for it; a page lying turned puts every sum in another corner, mostly of
+another cell, so it reads few sums. A sum counts when its cage can hold it
+(`cageSum`: k distinct digits of a Killer cage sum to k(k+1)/2 to k(2n+1−k)/2,
+a KenKen cage's target fits its operator and size), since the empty corners a
+turned page offers still catch strokes that read as numbers. A reading with
+such a sum in fewer than half its cages is read again in the other three
+quarter turns, and the turned reading with the most is kept only when it reads
+clearly better: at least 3 such sums (`CAGE_TURN_FLOOR`), sums in at least half
+its cages, and more than twice as many as the first reading; a tie between two
+turns keeps the first reading. The reading then names the turn in its first
+note and carries `turns`, and like every cage reading it waits for review. The
+three readings take several times the first one's time, and they count against
+the 120 s a Read may take, past which the Read stops and keeps nothing. So the
+check stops 90 s after the first reading began (`CAGE_TURN_BUDGET`, leaving the
+rest for decoding the photograph): it stops the turned reading in progress and
+keeps the first reading, as a Read without the check returns it. A turned page
+whose upright reading finds sums in fewer than half its cages, or whose check
+runs out of time, stays as it lies, its sums unread: turn it upright with
+Rotate and Read again, and the upright reading is kept. Automatic detection
+does not take this check (its cage readings come from per-cell clue strips and
+were not measured turned). "Turned cage puzzles" in
+[OCR_QUALITY.md](OCR_QUALITY.md) has the measurements.
+
 ## Clue-focused live-camera quality
 
 The geometry worker measures the detected grid's cell interiors, excluding the
@@ -262,7 +299,8 @@ boundaries, review flags and clue-vs-grid focus ranking. `photo-import.test.js`,
 `photo-import-queue.test.js` and `photo-detail-queue.test.js` the shared decode
 queue. `photo-orientation.test.js`, `photo-half-turn.test.js` and
 `scanner-orientation-recovery.test.js` cover a still photograph's own
-quarter- and half-turn checks, `photo-orientation-transactions.test.js` the
+quarter- and half-turn checks, `photo-cage-turn.test.js` a cage puzzle's check
+by its sums (its time budget too), `photo-orientation-transactions.test.js` the
 photo flow taking a turned reading. Camera lifecycle tests cover quality
 guidance, recovery and manual capture.
 

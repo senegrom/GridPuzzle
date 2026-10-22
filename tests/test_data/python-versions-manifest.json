@@ -1,0 +1,590 @@
+[
+  {
+    "version": "3.15.0",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-38076878863",
+    "files": [
+      {
+        "filename": "python-3.15.0-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-38076878863/python-3.15.0-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-rc.3",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-rc.3-37256039299",
+    "files": [
+      {
+        "filename": "python-3.15.0-rc.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-rc.3-37256039299/python-3.15.0-rc.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-rc.2",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-rc.2-33583724836",
+    "files": [
+      {
+        "filename": "python-3.15.0-rc.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-rc.2-33583724836/python-3.15.0-rc.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-rc.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-rc.1-30966273682",
+    "files": [
+      {
+        "filename": "python-3.15.0-rc.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-rc.1-30966273682/python-3.15.0-rc.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-beta.4",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-beta.4-29712574371",
+    "files": [
+      {
+        "filename": "python-3.15.0-beta.4-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-beta.4-29712574371/python-3.15.0-beta.4-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-beta.3",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-beta.3-28071004033",
+    "files": [
+      {
+        "filename": "python-3.15.0-beta.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-beta.3-28071004033/python-3.15.0-beta.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-beta.2",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-beta.2-26891732290",
+    "files": [
+      {
+        "filename": "python-3.15.0-beta.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-beta.2-26891732290/python-3.15.0-beta.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-beta.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-beta.1-25533511631",
+    "files": [
+      {
+        "filename": "python-3.15.0-beta.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-beta.1-25533511631/python-3.15.0-beta.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.8",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.8-24114205555",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.8-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.8-24114205555/python-3.15.0-alpha.8-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.7",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.7-22913288817",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.7-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.7-22913288817/python-3.15.0-alpha.7-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.6",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.6-23011479936",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.6-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.6-23011479936/python-3.15.0-alpha.6-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.5",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.5-21016111327",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.5-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.5-21016111327/python-3.15.0-alpha.5-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.4",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.4-20979889385",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.4-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.4-20979889385/python-3.15.0-alpha.4-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.3",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.3-20289789000",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.3-20289789000/python-3.15.0-alpha.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.2",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.2-19505847594",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.2-19505847594/python-3.15.0-alpha.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.15.0-alpha.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.15.0-alpha.1-18529279079",
+    "files": [
+      {
+        "filename": "python-3.15.0-alpha.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.15.0-alpha.1-18529279079/python-3.15.0-alpha.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.8",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.8-36806082737",
+    "files": [
+      {
+        "filename": "python-3.14.8-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.8-36806082737/python-3.14.8-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.7",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.7-31064857500",
+    "files": [
+      {
+        "filename": "python-3.14.7-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.7-31064857500/python-3.14.7-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.6",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.6-27283001424",
+    "files": [
+      {
+        "filename": "python-3.14.6-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.6-27283001424/python-3.14.6-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.5",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.5-25647354415",
+    "files": [
+      {
+        "filename": "python-3.14.5-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.5-25647354415/python-3.14.5-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.5-rc.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.5-rc.1-25354839632",
+    "files": [
+      {
+        "filename": "python-3.14.5-rc.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.5-rc.1-25354839632/python-3.14.5-rc.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.4",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.4-25113653268",
+    "files": [
+      {
+        "filename": "python-3.14.4-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.4-25113653268/python-3.14.4-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.3",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.3-21673711214",
+    "files": [
+      {
+        "filename": "python-3.14.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.3-21673711214/python-3.14.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.2",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.2-20014991423",
+    "files": [
+      {
+        "filename": "python-3.14.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.2-20014991423/python-3.14.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.1",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.1-19879739908",
+    "files": [
+      {
+        "filename": "python-3.14.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.1-19879739908/python-3.14.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-18313368925",
+    "files": [
+      {
+        "filename": "python-3.14.0-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-18313368925/python-3.14.0-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-rc.3",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-rc.3-17828756509",
+    "files": [
+      {
+        "filename": "python-3.14.0-rc.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-rc.3-17828756509/python-3.14.0-rc.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-rc.2",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-rc.2-16981474201",
+    "files": [
+      {
+        "filename": "python-3.14.0-rc.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-rc.2-16981474201/python-3.14.0-rc.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-rc.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-rc.1-16461135061",
+    "files": [
+      {
+        "filename": "python-3.14.0-rc.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-rc.1-16461135061/python-3.14.0-rc.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-beta.4",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-beta.4-16147323557",
+    "files": [
+      {
+        "filename": "python-3.14.0-beta.4-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-beta.4-16147323557/python-3.14.0-beta.4-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-beta.3",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-beta.3-15723154677",
+    "files": [
+      {
+        "filename": "python-3.14.0-beta.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-beta.3-15723154677/python-3.14.0-beta.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-beta.2",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-beta.2-15277397803",
+    "files": [
+      {
+        "filename": "python-3.14.0-beta.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-beta.2-15277397803/python-3.14.0-beta.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-beta.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-beta.1-14887264705",
+    "files": [
+      {
+        "filename": "python-3.14.0-beta.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-beta.1-14887264705/python-3.14.0-beta.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.7",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.7-14344100912",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.7-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.7-14344100912/python-3.14.0-alpha.7-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.6",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.6-13890321974",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.6-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.6-13890321974/python-3.14.0-alpha.6-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.5",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.5-13438582588",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.5-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.5-13438582588/python-3.14.0-alpha.5-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.4",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.4-13711173741",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.4-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.4-13711173741/python-3.14.0-alpha.4-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.3",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.3-13711171283",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.3-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.3-13711171283/python-3.14.0-alpha.3-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.2",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.2-13709906657",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.2-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.2-13709906657/python-3.14.0-alpha.2-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.1",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.1-13709250109",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.1-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.1-13709250109/python-3.14.0-alpha.1-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.14.0-alpha.0",
+    "stable": false,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.14.0-alpha.0-10616720958",
+    "files": [
+      {
+        "filename": "python-3.14.0-alpha.0-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.14.0-alpha.0-10616720958/python-3.14.0-alpha.0-linux-24.04-x64.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.13.16",
+    "stable": true,
+    "release_url": "https://github.com/actions/python-versions/releases/tag/3.13.16-36805956071",
+    "files": [
+      {
+        "filename": "python-3.13.16-linux-24.04-x64.tar.gz",
+        "arch": "x64",
+        "platform": "linux",
+        "platform_version": "24.04",
+        "download_url": "https://github.com/actions/python-versions/releases/download/3.13.16-36805956071/python-3.13.16-linux-24.04-x64.tar.gz"
+      }
+    ]
+  }
+]
