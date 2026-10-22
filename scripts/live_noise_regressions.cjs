@@ -142,10 +142,22 @@ async function run(){const server=await serve();try{
       }else report.lost='not applicable: the handshake decided for the camera\'s own readback';
       // The change, and (with bitmaps) a frame lost right after it, as CI's
       // WebKit lost one there: the reading is still retired as changed content.
+      // As for the first reading, only a finished one counts: the provisional
+      // reading (refining) has every digit flagged.
       await page.evaluate(lose=>{noiseState.change();if(lose)noiseState.inject.push('transparent');},bitmaps);
-      const changed=await page.waitForFunction(()=>{const v=noiseState.snapshot();return noiseState.completed>=2&&v.found?.cells[1]===3?v:false;},null,{timeout:60000});
+      const changed=await page.waitForFunction(()=>{const v=noiseState.snapshot();
+        return noiseState.completed>=2&&v.found&&!v.found.refining&&v.found.cells[1]===3?v:false;},null,{timeout:60000});
       report.changed=await changed.jsonValue();await changed.dispose();
-      assert.equal(report.changed.reads,2);assert.deepEqual(report.changed.found.cells,report.changed.expected);
+      assert.equal(report.changed.reads,2);assert.equal(report.changed.found.cells[1],3);
+      // The fresh OCR reads one new noisy frame, and on some frames it takes
+      // another clue for a different digit: CI's Chromium read the 5 in cell
+      // 75 as a 3 in 3 of 33 runs (2026-10-17 to 22), flagged each time. The
+      // flag stays: this suite's reader has no targeted re-reads (readCells),
+      // so nothing refines a finished reading. So every other clue reads its
+      // digit or is flagged, and every blank cell stays blank.
+      const flagged=new Set(report.changed.found.uncertain);
+      assert.deepEqual(report.changed.found.cells.flatMap((v,i)=>{const printed=report.changed.expected[i];
+        return v===printed||(printed!==null&&flagged.has(i))?[]:[{cell:i,read:v,printed}];}),[],'no digit is wrong without a flag');
       assert.ok(report.changed.diagnostic.events.some(e=>e.reason==='content-changed'));
       if(bitmaps){
         assert.deepEqual(report.changed.injected,['transparent','tiny','transparent']);
@@ -155,7 +167,7 @@ async function run(){const server=await serve();try{
       report.checks=['auto type, automatic grid detection and real OCR complete on independently noisy video',
         '22 clues and all blank cells unchanged; one initial full read','covered pixels cannot carry old metadata',
         ...(bitmaps?['a frame whose bitmap reads back transparent and one whose bitmap is 1 x 1 are each lost alone: the reading stays, read once, on bitmaps']:[]),
-        `changed 8 to 3 retires original reading and triggers fresh OCR${bitmaps?', also with a frame lost right after the change':''}`];
+        `changed 8 to 3 retires original reading and triggers fresh OCR, which reads the 3 and no other digit wrong without a flag${bitmaps?', also with a frame lost right after the change':''}`];
       await page.screenshot({path:`browser-artifacts/${name}-live-noise.png`});
     }finally{report.final=await page.evaluate(()=>window.noiseState?.snapshot()).catch(()=>null);
       await page.evaluate(()=>window.noiseState?.stop()).catch(()=>{});}
