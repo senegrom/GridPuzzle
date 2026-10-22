@@ -21,7 +21,8 @@ import { createTaskController } from "../task-controller.js";
 // grid that is not square is never turned by a reading: its capture keeps its
 // own review under a note that points to Rotate. A capture without a reading
 // goes to the crop editor, whose status repeats the turn the live help line
-// named.
+// named, and so does the line that leads into a Read that waited for its
+// grid. A cage puzzle's capture gets the same notes.
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function settle() { for (let i = 0; i < 10; i++) await tick(); }
@@ -412,7 +413,8 @@ for (const [how, [live, cue, help]] of Object.entries(notSquare))
 // hold, which Read puzzle reads at (once found, the size detected): Read
 // puzzle on a square grid, Rotate first on any other. A detection run again
 // on the photograph (Find grid) says it again; Rotate makes a new photograph,
-// which keeps none.
+// which keeps none. A Read tapped while the grid is being found waits for it
+// (below).
 const DETECTED = (rows, cols) => `Detected ${rows} × ${cols}. Check the corners, then read the puzzle.`;
 const detection = (rows, cols) => () => ({ confidence: 0.95, rows, cols,
   corners: [{ x: 10, y: 10 }, { x: 590, y: 10 }, { x: 590, y: 590 }, { x: 10, y: 590 }] });
@@ -467,22 +469,65 @@ for (const [type, rows, cols, hint] of CONTROLS)
     assert.equal(h.statuses.at(-1), "Set the four crop corners.");
     assert.equal(h.details.at(-1), `Drag the numbered handles. Set rows and columns in Grid size & settings. ${hint("sideways")}`);
   });
-// The status that starts the detection says the turn too: a Read tapped
-// before the grid is found stops the detection and reads the crop as it
-// stands, at the controls' size, so the status that would end the detection
-// never shows.
-for (const [type, rows, cols, hint] of CONTROLS)
-  test(`a capture without a reading says the turn while its grid is being found, before a Read tapped meanwhile: ${rows} × ${cols}`, async (t) => {
+// The hint for a grid of `rows` × `cols`.
+const hintFor = (rows, cols) => (rows === cols ? READ_HINT : ROTATE_HINT);
+const STILL_FINDING = ["Still finding the grid…", "The puzzle is read as soon as the grid is found."];
+// A Read tapped while the capture's grid is being found waits for it
+// (photo-read-waits.test.js): answered with "Still finding the grid…", which
+// names no turn, nothing read, the detection's task still running.
+async function waitingRead(h) {
+  h.answer();
+  h.$("read-photo").onclick(); await settle();
+  assert.deepEqual([h.statuses.at(-1), h.details.at(-1)], STILL_FINDING, "the answer names no turn");
+  assert.deepEqual(h.reads, [], "the Read waits for the grid");
+  h.running();
+  return h.statuses.length;
+}
+// The status that starts the detection says the turn for the size the
+// controls hold. A Read tapped while the grid is found waits for it and reads
+// at the size it finds, which may be square where the controls' is not, or
+// the other way round, so its answer names no turn, and the line that leads
+// into it once the grid is found ("Grid found.", "Reading the puzzle…") says
+// the turn for the size found, as the status that ends the detection did.
+const SIZES = [["sudoku", 9, 9, 9, 9], ["numbrix", 6, 7, 6, 7], ["numbrix", 9, 9, 6, 7], ["numbrix", 6, 7, 9, 9]];
+for (const [type, rows, cols, foundRows, foundCols] of SIZES)
+  test(`a capture without a reading says the turn as its grid is being found, and a Read that waited for it says it for the size found: ${rows} × ${cols} controls, ${foundRows} × ${foundCols} found`, async (t) => {
     const search = deferred(), h = sized(t, type, rows, cols, () => search.promise);
     await h.still("upside-down");
     assert.equal(h.statuses.at(-1), "Finding the grid…");
-    assert.equal(h.details.at(-1), `Photo processing stays on this device. ${hint("upside down")}`);
-    h.answer();
-    h.$("read-photo").onclick(); await settle();
-    assert.deepEqual(h.reads.map(({ rows, cols }) => [rows, cols]), [[rows, cols]], "read at the size the hint was for");
-    search.resolve(detection(rows, cols)()); await settle();
-    assert.ok(!h.statuses.includes("Grid found."), "the stopped detection's status never shows");
+    assert.equal(h.details.at(-1), `Photo processing stays on this device. ${hintFor(rows, cols)("upside down")}`);
+    const from = await waitingRead(h), hint = hintFor(foundRows, foundCols)("upside down");
+    search.resolve(detection(foundRows, foundCols)()); await settle();
+    assert.deepEqual(h.errors, []);
+    // The status that ends the detection, the line that leads into the Read,
+    // and the Read's own progress.
+    assert.deepEqual(h.statuses.slice(from), ["Grid found.", "Grid found.", "Straightening the photograph…"]);
+    assert.deepEqual(h.details.slice(from), [`${DETECTED(foundRows, foundCols)} ${hint}`, `Reading the puzzle… ${hint}`, ""]);
+    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, foundRows, foundCols]],
+      "read at the size the hint was for");
+    assert.deepEqual(["rows", "cols"].map((id) => h.$(id).value), [String(foundRows), String(foundCols)]);
   });
+// A grid not found, or a detection that fails, leaves the controls' size, so a
+// Read that waited for it reads through the crop as it is at that size, and the
+// line that leads into it says the turn for that size.
+const ENDINGS = {
+  "finds no grid": [(search) => search.resolve(NOT_FOUND()), []],
+  fails: [(search) => search.reject(Error("detector failed")), ["detector failed"]],
+};
+for (const [how, [end, failures]] of Object.entries(ENDINGS))
+  for (const [type, rows, cols, hint] of CONTROLS)
+    test(`a Read that waited for a capture's grid says the turn for the size the controls hold when the detection ${how}: ${rows} × ${cols}`, async (t) => {
+      const search = deferred(), h = sized(t, type, rows, cols, () => search.promise);
+      await h.still("sideways");
+      const from = await waitingRead(h);
+      end(search); await settle();
+      assert.deepEqual(h.errors, failures);
+      const lead = h.statuses.indexOf("The grid was not found automatically.", from);
+      assert.ok(lead >= from, "the Read is led in through the crop as it is");
+      assert.equal(h.details[lead], `Reading the puzzle through the crop as it is, so every cell will be highlighted… ${hint("sideways")}`);
+      assert.equal(h.statuses[lead + 1], "Straightening the photograph…");
+      assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, rows, cols]]);
+    });
 // A detection that fails reports the failure in place of the status that
 // ends it, so the turn was said as it started; Find grid says it again, and
 // once the grid is found.
@@ -499,6 +544,35 @@ test("a capture without a reading whose grid detection fails has said the turn a
   assert.deepEqual(h.details.slice(from + 1), [`Photo processing stays on this device. ${READ_HINT("sideways")}`,
     `${DETECTED(9, 9)} ${READ_HINT("sideways")}`]);
 });
+
+// A cage puzzle (Killer, KenKen) reads no confident digit, so its capture can
+// show only the quarter-turn cue, and seldom does (LIVE_CAMERA.md). When it
+// does, its still is read again as a photograph of that type, which Read
+// puzzle checks by its sums (Scanner.cageTurn, photo-cage-turn.test.js), under
+// the notes any square grid gets; a cage grid is always square, so neither
+// note for a grid that is not square applies. Without a reading, its crop
+// editor says that Read puzzle checks the turn the help line named.
+for (const type of ["killersudoku", "kenken"]) {
+  test(`a ${type} capture whose reading looks sideways is read again as a ${type} photograph, and read as it lies gets the note that points to Rotate`, async (t) => {
+    const h = harness(t, { type }), answer = h.answer(),
+      found = reading({ digits: UPSIDE_DOWN, flagged: Object.keys(UPSIDE_DOWN).map(Number), size: [20, 30], type });
+    assert.equal(confidentDigits(found), 0); assert.equal(turnCue(found), "quarter");
+    await h.review(found);
+    assert.deepEqual(sorted(h.state.uncertain), sorted(found.entries.map((entry) => entry.cell)));
+    assert.equal(h.state.notes[0], "The page may be sideways in the captured picture, so every digit read is highlighted. Adjust scan → Read puzzle checks which way up it is.");
+    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, 9, 9]]);
+    answer.resolve({ ...found, needsReview: true });
+    await settle();
+    ownReview(h, found, LIES("sideways"));
+    assert.equal(h.statuses.at(-1), "Captured clues ready for review.");
+    h.ended();
+  });
+  test(`a ${type} capture without a reading taken while the help line said the grid looks sideways says that Read puzzle checks it`, async (t) => {
+    const h = harness(t, { type, detect: detection(9, 9) });
+    await h.still("sideways");
+    assert.equal(h.details.at(-1), `${DETECTED(9, 9)} The grid looked sideways in the live view; Read puzzle checks which way up it is.`);
+  });
+}
 
 for (const turns of [0, 2])
   test(`the diagnostic report ${turns ? "takes the turned reading" : "keeps the capture's reading through a check that leaves it"}`, async (t) => {

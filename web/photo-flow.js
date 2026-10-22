@@ -586,9 +586,20 @@ export function setupPhotoFlow({
   // keeps that turn here, and the status of each detection on it says how to
   // check it (turnHint), for the size the controls hold, which a Read reads
   // at: Read puzzle does on a square grid; any other needs Rotate first. The
-  // status that starts the detection says it too, since a Read tapped before
-  // the grid is found, or a detection that fails, replaces the one that ends
-  // it (withTurn). Rotate makes a new photograph, which keeps none.
+  // status that ends the detection says it for the size found (the controls'
+  // own when no grid is found), and the status that starts it for the size
+  // the controls hold then, which a detection that fails leaves and a Read
+  // tapped during Find grid on a crop already set reads at. A Read tapped
+  // during the photograph's first detection waits for it instead (Read
+  // puzzle, below): "Still finding the grid…" names no turn, since that Read
+  // reads at the size the detection finds, and the line that leads into it
+  // says the turn for that size (withTurn). On screen, a running task's
+  // elapsed time replaces the second line of a status within half a second
+  // (task-controller.js), and the waiting Read's first progress replaces the
+  // line that leads into it at once (a capture has no original to decode
+  // first), so the hint stays in view only in the status that ends a
+  // detection no Read waited for. Rotate makes a new photograph, which keeps
+  // none.
   const liveTurns = new WeakMap();
   const turnHint = (turn, { rows, cols }) => rows === cols
     ? `The grid looked ${turnWords(turn)} in the live view; Read puzzle checks which way up it is.`
@@ -821,7 +832,8 @@ export function setupPhotoFlow({
   }
   // The answer to a Read tapped while the grid is still being found on the
   // fallback crop, and the line that leads into that Read once the detection
-  // ends: through the corners found, or through a crop nobody confirmed.
+  // ends: through the corners found, or through a crop nobody confirmed. Only
+  // the line that leads in adds a capture's turn (withTurn).
   const STILL_FINDING = ["Still finding the grid…", "The puzzle is read as soon as the grid is found."],
     READ_FOUND = ["Grid found.", "Reading the puzzle…"],
     READ_FALLBACK = ["The grid was not found automatically.",
@@ -899,12 +911,15 @@ export function setupPhotoFlow({
       // replaces the detection's own, which asks for a Read or reports the
       // failure. Whatever stopped the detection's task instead (Stop, a new
       // photograph or capture, Rotate, a moved corner, another task) dropped
-      // the Read with it.
+      // the Read with it. A capture's photograph whose help line named a turn
+      // says it in that first line, for the size the controls now hold, which
+      // the Read reads at (withTurn).
       if (gridSearch?.id === id) {
         const { read } = gridSearch;
         gridSearch = null;
         if (read && id === getJobId()) {
-          status(...(unconfirmedCorners ? READ_FALLBACK : READ_FOUND));
+          const [text, detail] = unconfirmedCorners ? READ_FALLBACK : READ_FOUND;
+          status(text, withTurn(canvas, detail));
           void readPhoto();
         }
       }
