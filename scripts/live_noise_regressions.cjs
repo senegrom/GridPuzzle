@@ -149,12 +149,12 @@ async function run(){const server=await serve();try{
         return noiseState.completed>=2&&v.found&&!v.found.refining&&v.found.cells[1]===3?v:false;},null,{timeout:60000});
       report.changed=await changed.jsonValue();await changed.dispose();
       assert.equal(report.changed.reads,2);assert.equal(report.changed.found.cells[1],3);
-      // The fresh OCR reads one new noisy frame, and on some frames it takes
-      // another clue for a different digit: CI's Chromium read the 5 in cell
-      // 75 as a 3 in 3 of 33 runs (2026-10-17 to 22), flagged each time. The
-      // flag stays: this suite's reader has no targeted re-reads (readCells),
-      // so nothing refines a finished reading. So every other clue reads its
-      // digit or is flagged, and every blank cell stays blank.
+      // The fresh OCR reads one new noisy frame, and on some frames it
+      // misreads another clue: CI's Chromium read the 5 in cell 75 as a 3 in
+      // 3 of 33 runs (2026-10-17 to 22), flagged each time. The flag stays:
+      // this suite's reader has no targeted re-reads (readCells), so nothing
+      // refines a finished reading. So every other clue reads its digit or is
+      // flagged, and every blank cell stays blank.
       const flagged=new Set(report.changed.found.uncertain);
       assert.deepEqual(report.changed.found.cells.flatMap((v,i)=>{const printed=report.changed.expected[i];
         return v===printed||(printed!==null&&flagged.has(i))?[]:[{cell:i,read:v,printed}];}),[],'no digit is wrong without a flag');
