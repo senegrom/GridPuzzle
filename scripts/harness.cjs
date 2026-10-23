@@ -126,12 +126,11 @@ function baselineSite(commit, files) {
    "Target page, context or browser has been closed", as a lost browser's
    calls do. close() on each watched object notes the call first, so that
    what the suite or its owner closes is no news; after browser.close()
-   nothing is recorded. check(name) fails when anything ended, lead(error)
-   puts what ended at the head of a failure's message and stack, and
-   alive(page) says whether a failing suite's page can still be
-   screenshot. */
+   nothing is recorded. check(name) fails when anything ended, and
+   lead(error) puts what ended at the head of a failure's message and
+   stack. */
 function watch(browser, { grace = 1000 } = {}) {
-  const started = Date.now(), ended = [], asked = new Set(), crashed = new Set();
+  const started = Date.now(), ended = [], asked = new Set();
   const unasked = (...targets) => !targets.some((target) => asked.has(target));
   const note = (event, page) => ended.push({ event, seconds: Math.round((Date.now() - started) / 100) / 10,
     ...(page && { url: page.url() }) });
@@ -141,7 +140,7 @@ function watch(browser, { grace = 1000 } = {}) {
   };
   const watchPage = (page) => {
     ask(page);
-    page.on("crash", () => { crashed.add(page); if (unasked(browser)) note("page crashed", page); });
+    page.on("crash", () => { if (unasked(browser)) note("page crashed", page); });
     page.on("close", () => { if (unasked(page, page.context(), browser)) note("page closed", page); });
   };
   const watchContext = (context) => {
@@ -166,7 +165,6 @@ function watch(browser, { grace = 1000 } = {}) {
   });
   return {
     ended,
-    alive: (page) => !crashed.has(page) && !page.isClosed() && browser.isConnected(),
     check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser was lost`); },
     async lead(error) {
       await settled();
@@ -184,11 +182,11 @@ function watch(browser, { grace = 1000 } = {}) {
    engines BROWSER_ENGINES selects), each on a fresh context, and writes the
    reports to `file` (under browser-artifacts unless it names a directory)
    after each engine. A page error fails the engine, and so does anything
-   watch() records, which also leads the failure; a failing engine whose page
-   is still there gets a screenshot, and every engine runs before the first
-   failure is rethrown. `report` starts as { browser, version, errors, ended }
-   (ended as watch() records it, for the browser and every context and page
-   the suite opens on it); the suite adds what it measures. */
+   watch() records, which also leads the failure; a failing engine gets a
+   screenshot, and every engine runs before the first failure is rethrown.
+   `report` starts as { browser, version, errors, ended } (ended as watch()
+   records it, for the browser and every context and page the suite opens
+   on it); the suite adds what it measures. */
 async function engines(file, suite, { context = PHONE, timeout = 20000, screenshot = path.basename(file, ".json") } = {}) {
   const selected = selectedEngines();
   // Loaded here, not at the top, so the engine selection can be tested
@@ -219,8 +217,7 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
       report.failure = error.stack;
       failures.push(error);
       console.error(name, error);
-      if (page && watched.alive(page))
-        await page.screenshot({ path: `browser-artifacts/${name}-${screenshot}-failure.png`, fullPage: true }).catch(() => {});
+      if (page) await page.screenshot({ path: `browser-artifacts/${name}-${screenshot}-failure.png`, fullPage: true }).catch(() => {});
     } finally {
       await browser.close();
       fs.writeFileSync(out, JSON.stringify(reports, null, 2) + "\n");

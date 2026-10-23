@@ -61,13 +61,10 @@ const CLOSED = 'page.waitForFunction: Target page, context or browser has been c
 test('a crash is recorded with its page and time, fails the check and leads the failure', async () => {
   const browser = new Browser(), watched = watch(browser, { grace: 10 });
   const page = await (await browser.newContext()).newPage('http://127.0.0.1:8000/GridPuzzle/');
-  assert.equal(watched.alive(page), true);
   page.crash();
   assert.deepEqual(events(watched), [['page crashed', 'http://127.0.0.1:8000/GridPuzzle/']]);
   const [{ seconds }] = watched.ended;
   assert.ok(seconds >= 0 && seconds < 5 && seconds === Math.round(seconds * 10) / 10, String(seconds));
-  assert.equal(watched.alive(page), false, 'a crashed page gets no screenshot');
-  assert.equal(page.isClosed(), false, 'Playwright keeps a crashed page open');
   assert.throws(() => watched.check('webkit'), /^AssertionError \[ERR_ASSERTION\]: webkit: a page crashed or closed, or the browser was lost/m);
   const error = new Error(CLOSED), stack = error.stack;
   assert.equal(await watched.lead(error), error, 'the failure itself, led');
@@ -89,12 +86,10 @@ test('what the suite or its owner closes is no news, and contexts and pages open
   watched.check('chromium');
   const failure = new Error('expected 3 clues');
   assert.equal((await watched.lead(failure)).message, 'expected 3 clues', 'nothing ended, nothing leads');
-  assert.equal(watched.alive(page), true);
   // A page opened after the closes, and a context with it, are watched too.
   (await context.newPage('http://d/')).crash();
   await (await (await browser.newContext()).newPage('http://e/')).context().end();
   assert.deepEqual(events(watched), [['page crashed', 'http://d/'], ['page closed', 'http://e/'], ['context closed']]);
-  assert.equal(watched.alive(page), true, 'another page crashed: the suite\'s page still gets its screenshot');
   // The owner's own close ends the record, late events included.
   await browser.close();
   page.crash();
@@ -103,7 +98,7 @@ test('what the suite or its owner closes is no news, and contexts and pages open
 
 test('a lost browser: its pages\' and contexts\' closes and the disconnection, waited for and led in order', async () => {
   const browser = new Browser(), watched = watch(browser, { grace: 10000 });
-  const page = await (await browser.newContext()).newPage('http://a/');
+  await (await browser.newContext()).newPage('http://a/');
   await (await browser.newContext()).newPage('http://b/');
   // WebKit fails the interrupted call before it reports the loss.
   const error = new Error(CLOSED);
@@ -115,7 +110,6 @@ test('a lost browser: its pages\' and contexts\' closes and the disconnection, w
     ['context closed'], ['browser disconnected']]);
   assert.equal(error.message, `${said(watched)}\n${CLOSED}`);
   assert.match(error.message, /^page closed [\d.]+ s after launch \(http:\/\/a\/\); context closed [\d.]+ s after launch; /);
-  assert.equal(watched.alive(page), false);
   assert.throws(() => watched.check('chromium'), /chromium: a page crashed or closed, or the browser was lost/);
 });
 
