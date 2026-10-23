@@ -94,11 +94,12 @@ controls then hold, which a Read reads at: "The grid looked sideways in the
 live view; Read puzzle checks which way up it is.", or on a grid that is not
 square, "…, and Read puzzle turns only square grids: Rotate until its
 numbers stand upright, then Read puzzle." A Read tapped while the picture's
-first detection runs waits for it and reads at the size found; its answer,
-"Still finding the grid…", names no turn, since that size is not known yet,
-and the line that leads into it once the detection ends ("Grid found." or
-"The grid was not found automatically.") repeats the turn with the check for
-the size it reads at. On screen, the hint stays only in the status that ends
+first detection runs waits for it and reads at the size the detection leaves
+(the size found, or the controls' when none is); its answer, "Still finding
+the grid…", names no turn, since that size is not known yet, and the line
+that leads into it once the detection ends ("Grid found." or "The grid was
+not found automatically.") repeats the turn with the check for the size it
+reads at. On screen, the hint stays only in the status that ends
 a detection no Read waited for: while a detection or a Read runs, its elapsed
 time replaces a status's second line within half a second, and the Read's
 first progress replaces the line that leads into it at once, since a capture
