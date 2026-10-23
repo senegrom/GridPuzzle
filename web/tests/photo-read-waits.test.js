@@ -1092,7 +1092,8 @@ for (const [what, tap] of Object.entries(editorTaps))
   test(`${what} tapped while a chosen photograph opens is answered and leaves the photograph before it as it is; the new one opens as before`, async (t) => {
     const h = harness(t), before = await inEditor(h), next = await h.choose(), cancels = h.cancels;
     h.running();
-    await tap(h); await settle();
+    // Not awaited: a detection the tap started would wait for the test.
+    void tap(h); await settle();
     assert.deepEqual(h.statuses.at(-1), OPENING_EDITOR, "the tap is answered");
     assert.equal(h.state.photo, before.photo); assert.deepEqual([before.photo.width, before.photo.height], [800, 600]);
     assert.deepEqual(h.state.corners, before.corners, "its crop is untouched");
