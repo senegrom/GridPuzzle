@@ -134,6 +134,59 @@ there: without it, it skips that part, says so in its log and in its report
 `live-motion.json`) and passes on the rest. `web/tests/live-motion-pictures.test.js`
 covers both cases without a browser.
 
+### Running the suites from an export
+
+The suites run from an export of a commit too (`git archive <commit> | tar -x
+-C <dir>`), as when testing a commit without checking it out. Extract it
+outside every checkout and Node project: inside a checkout, the build takes
+that checkout's `HEAD` for its build id, and inside either, npm installs into
+the nearest folder above that holds a `node_modules` or `package.json`, both
+without a word.
+Three things differ from a checkout:
+
+- **The build id.** An export has no `.git`, and `scripts/build_web.py` takes
+  the build id from `git rev-parse HEAD`, so there it stops with "not a git
+  repository". Give it the git directory of a checkout whose `HEAD` is the
+  exported commit, which `git -C <checkout> rev-parse --absolute-git-dir`
+  prints (for a worktree, its directory under the repository's
+  `.git/worktrees/`): `GIT_DIR=<that directory> python scripts/build_web.py`.
+  Nothing is written there, and the site carries the commit's own build id,
+  as a checkout's build does (`build-info.json` names the commit). Without
+  such a checkout, run `git init` in the export and commit once (`git -c
+  user.name=export -c user.email=export@localhost commit --allow-empty -m
+  export`, which needs no git identity): the site then carries that commit's
+  id, which serves the suites as well. `scan_input` and
+  `recognition_segments` need a `GIT_DIR` that holds their pinned commit,
+  which such a repository does not, since `baselineSite()` takes their
+  pinned files from `git show`.
+- **`node_modules`.** The repository has no `package.json` at its root.
+  Install Playwright as `.github/actions/setup-scanner/action.yml` does, at
+  the version it pins: `npm install --no-save --package-lock=false
+  --ignore-scripts playwright@<that version>`, then `npx playwright install
+  chromium webkit` where that version's browsers are not installed yet. Or
+  link a checkout's `node_modules` into the export (on Windows a junction,
+  which needs no privilege).
+- **File times.** `tar -x` dates every file at the commit's time, on a whole
+  second. WebKit on Windows (27.2) dates a file it opens itself in whole
+  seconds, and a file modified on a whole second now and then a second early;
+  a read of a `File` whose date has changed since the `File` was made fails:
+  with `NotFoundError`, "The object can not be found here.", or, in
+  `createImageBitmap`, with `InvalidStateError`. Given a path,
+  Playwright's `setInputFiles` lets WebKit open the file, so in an export on
+  Windows the app refuses a photo chosen that way now and then: in a probe
+  that chose such a file 40 times, 87 of 160 reads failed, and none failed for a
+  file dated half a second later, in Chromium, or for the same bytes handed
+  over as `{ name, mimeType, buffer }`. Every suite therefore hands the page
+  its files as bytes, which `tests/test_node_tooling.py` checks. The
+  stale-build check chose its photo by path until October 2026: from an
+  export, its WebKit run stopped at its 120-second wait for "Grid found."
+  after the app had refused the photo, before or after the update.
+  `web/tests/stale-build-photo.test.js` checks without a browser that it
+  hands the photo over as bytes, waits through the app's progress, and stops
+  at once, with the app's words, when the app refuses it. `tar -x -m` dates the files at the extraction instead.
+  A checkout dates its files when it writes them, which is almost never on a
+  whole second, so CI's runners do not meet this.
+
 ### Live-camera suite timing
 
 `live_camera_regressions.cjs` records the wall time of every phase per engine
