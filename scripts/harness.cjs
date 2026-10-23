@@ -114,13 +114,81 @@ function baselineSite(commit, files) {
   return { directory, remove: () => { fs.rmSync(directory, { recursive: true, force: true }); temporary.delete(directory); } };
 }
 
+/* Watches `browser`, the contexts it has and opens and their pages for what
+   ends a suite's pages without the suite asking: a page that crashes, a
+   page or context that closes without a close() call on it, its context or
+   the browser, and the browser's disconnection without browser.close().
+   Called as the browser is launched, it adds each to `ended` as
+   { event, seconds, url }: "page crashed", "page closed", "context closed"
+   or "browser disconnected", the seconds since launch, and a page's URL.
+   Playwright gives a crash no reason, only the page, and the call a crash
+   interrupts fails with "Target crashed" in Chromium but in WebKit with
+   "Target page, context or browser has been closed", as a lost browser's
+   calls do. close() on each watched object notes the call first, so that
+   what the suite or its owner closes is no news; after browser.close()
+   nothing is recorded. check(name) fails when anything ended, lead(error)
+   puts what ended at the head of a failure's message and stack, and
+   alive(page) says whether a failing suite's page can still be
+   screenshot. */
+function watch(browser, { grace = 1000 } = {}) {
+  const started = Date.now(), ended = [], asked = new Set(), crashed = new Set();
+  const unasked = (...targets) => !targets.some((target) => asked.has(target));
+  const note = (event, page) => ended.push({ event, seconds: Math.round((Date.now() - started) / 100) / 10,
+    ...(page && { url: page.url() }) });
+  const ask = (target) => {
+    const close = target.close;
+    target.close = (...args) => { asked.add(target); return close.apply(target, args); };
+  };
+  const watchPage = (page) => {
+    ask(page);
+    page.on("crash", () => { crashed.add(page); if (unasked(browser)) note("page crashed", page); });
+    page.on("close", () => { if (unasked(page, page.context(), browser)) note("page closed", page); });
+  };
+  const watchContext = (context) => {
+    ask(context);
+    context.pages().forEach(watchPage);
+    context.on("page", watchPage);
+    context.on("close", () => { if (unasked(context, browser)) note("context closed"); });
+  };
+  ask(browser);
+  browser.contexts().forEach(watchContext);
+  browser.on("context", watchContext);
+  browser.on("disconnected", () => { if (unasked(browser)) note("browser disconnected"); });
+  // Playwright can fail the call a lost browser interrupted before it reports
+  // the closes behind it (WebKit: the page's close 2 ms and the disconnection
+  // 25 ms after the call failed), so a failure waits for them: until the
+  // browser has disconnected, for at most `grace` ms.
+  const settled = () => new Promise((resolve) => {
+    if (!browser.isConnected()) return resolve();
+    const done = () => { clearTimeout(timer); browser.off("disconnected", done); resolve(); };
+    const timer = setTimeout(done, grace);
+    browser.on("disconnected", done);
+  });
+  return {
+    ended,
+    alive: (page) => !crashed.has(page) && !page.isClosed() && browser.isConnected(),
+    check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser was lost`); },
+    async lead(error) {
+      await settled();
+      if (!ended.length) return error;
+      if (!(error instanceof Error)) error = new Error(String(error));
+      const line = ended.map(({ event, seconds, url }) => `${event} ${seconds} s after launch${url ? ` (${url})` : ""}`).join("; ");
+      error.stack = `${line}\n${error.stack}`;
+      error.message = `${line}\n${error.message}`;
+      return error;
+    },
+  };
+}
+
 /* Runs `suite(page, report, name, browser)` in Chromium and WebKit (or the
    engines BROWSER_ENGINES selects), each on a fresh context, and writes the
    reports to `file` (under browser-artifacts unless it names a directory)
-   after each engine. A page error fails the engine, a failing engine gets a
-   screenshot, and every engine runs before the first failure is rethrown.
-   `report` starts as { browser, version, errors }; the suite adds what it
-   measures. */
+   after each engine. A page error fails the engine, and so does anything
+   watch() records, which also leads the failure; a failing engine whose page
+   is still there gets a screenshot, and every engine runs before the first
+   failure is rethrown. `report` starts as { browser, version, errors, ended }
+   (ended as watch() records it, for the browser and every context and page
+   the suite opens on it); the suite adds what it measures. */
 async function engines(file, suite, { context = PHONE, timeout = 20000, screenshot = path.basename(file, ".json") } = {}) {
   const selected = selectedEngines();
   // Loaded here, not at the top, so the engine selection can be tested
@@ -132,7 +200,8 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
   const reports = [], failures = [];
   for (const name of selected) {
     const browser = await playwright[name].launch({ headless: true });
-    const report = { browser: name, version: browser.version(), errors: [] };
+    const watched = watch(browser);
+    const report = { browser: name, version: browser.version(), errors: [], ended: watched.ended };
     reports.push(report);
     console.log(`${name} ${report.version}`);
     let page;
@@ -142,13 +211,16 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
       page.on("pageerror", (error) => report.errors.push(error.message));
       await suite(page, report, name, browser);
       assert.deepEqual(report.errors, [], `${name}: uncaught page errors`);
+      watched.check(name);
       report.status = "passed";
-    } catch (error) {
+    } catch (thrown) {
+      const error = await watched.lead(thrown);
       report.status = "failed";
       report.failure = error.stack;
       failures.push(error);
       console.error(name, error);
-      if (page) await page.screenshot({ path: `browser-artifacts/${name}-${screenshot}-failure.png`, fullPage: true }).catch(() => {});
+      if (page && watched.alive(page))
+        await page.screenshot({ path: `browser-artifacts/${name}-${screenshot}-failure.png`, fullPage: true }).catch(() => {});
     } finally {
       await browser.close();
       fs.writeFileSync(out, JSON.stringify(reports, null, 2) + "\n");
@@ -191,4 +263,4 @@ function installCamera(answer) {
 }
 const stubCamera = (page, answer) => page.evaluate(installCamera, answer);
 
-module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep, stubCamera, selectedEngines };
+module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep, stubCamera, selectedEngines, watch };

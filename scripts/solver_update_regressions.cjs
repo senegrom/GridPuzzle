@@ -4,6 +4,7 @@ const { createServer } = require("node:http");
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+const { watch } = require("./harness.cjs");
 const source = fs.readFileSync("web/sw.js", "utf8");
 const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
@@ -82,9 +83,10 @@ async function stopServer() {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const base = `http://127.0.0.1:${server.address().port}/GridPuzzle/`;
     const browser = await engine.launch({ headless: true });
+    const watched = watch(browser);
     const context = await browser.newContext();
     const page = await context.newPage();
-    const report = { browser: name, version: browser.version(), errors: [] };
+    const report = { browser: name, version: browser.version(), errors: [], ended: watched.ended };
     reports.push(report);
     page.on("pageerror", (error) => report.errors.push(error.message));
     try {
@@ -213,6 +215,7 @@ async function stopServer() {
       await other.waitForFunction(() => window.results.length === 2);
       assert.deepEqual(await other.evaluate(() => window.results[1]), expected(second));
       assert.deepEqual(report.errors, []);
+      watched.check(name);
       report.ok = true;
       report.checks = [
         "another tab activates while an old solver initializes",
@@ -223,7 +226,8 @@ async function stopServer() {
         "negative offline verification is never reported as ready",
         "controller changes cancel old offline acknowledgements without reloading the other tab",
       ];
-    } catch (error) {
+    } catch (thrown) {
+      const error = await watched.lead(thrown);
       report.ok = false;
       report.failure = error.stack;
       report.requests = [...requests];

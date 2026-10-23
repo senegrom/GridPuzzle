@@ -11,6 +11,7 @@ const zlib = require("node:zlib");
 const { spawn } = require("node:child_process");
 const { items, parseOptions, runDetectionBenchmark } = require("../corpus/detect_benchmark.cjs");
 const { writeReport } = require("../corpus/benchmark-runner.cjs");
+const { watch } = require("./harness.cjs");
 
 // An 8-bit greyscale PNG of `width` x `height` pixels.
 function greyPng(width, height, pixel) {
@@ -41,7 +42,7 @@ function dotLattice({ side, cell, origin, cells } = DOTS) {
 module.exports = async function detectionFailure(engineName, png) {
   const engine = require("playwright")[engineName];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-real-detection-"));
-  let browser, server;
+  let browser, server, watched;
   try {
     const folder = path.join(root, "sudoku", "decode-failure"); fs.mkdirSync(folder, { recursive: true });
     const target = { puzzle: { type: "sudoku", rows: 6, cols: 6 }, corners: [[0,0],[599,0],[599,599],[0,599]] };
@@ -58,7 +59,7 @@ module.exports = async function detectionFailure(engineName, png) {
       "--out", `browser-artifacts/${engineName}-detection-failure.json`]);
     const checkpoints = [];
     const report = await runDetectionBenchmark({ items: items(options), options }, {
-      async launch() { browser = await engine.launch({ headless: true }); return browser; },
+      async launch() { browser = await engine.launch({ headless: true }); watched = watch(browser); return browser; },
       startServer() {
         server = spawn("python", ["-m", "http.server", "8782", "--bind", "127.0.0.1", "--directory", "_site"], { stdio: "ignore" });
         return server;
@@ -93,8 +94,11 @@ module.exports = async function detectionFailure(engineName, png) {
         server.once("exit", () => { clearTimeout(timer); resolve(); });
       });
     }
+    watched.check(engineName);
     return { checkpoints, completed: 4, decodeFailures: 1, browserClosed: true, serverStopped: true,
       dotLattice: { at640: lattice.at640, live: lattice.live } };
+  } catch (error) {
+    throw watched ? await watched.lead(error) : error;
   } finally {
     if (browser?.isConnected()) await browser.close();
     if (server && server.exitCode === null && server.signalCode === null) server.kill();
