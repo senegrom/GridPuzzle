@@ -792,14 +792,17 @@ export function setupPhotoFlow({
   // tool) has run, the line that says the photograph is opening, or that a
   // Read of it waits, is replaced, one microtask after the stop, before the
   // page paints, as a waiting Read's answer is (detectPhoto). A decode under
-  // way cannot be stopped, so its end would come too late for that.
+  // way cannot be stopped, so its end would come too late for that. Returns
+  // whether the task stopped was such an opening, which used no solver: the
+  // page's warm one stays (app.js).
   function taskStopped() {
-    if (!opening || opening.id === getJobId()) return;
+    if (!opening || opening.id === getJobId()) return false;
     opening = null;
     queueMicrotask(() => {
       if (!opening && [OPENING[0], STILL_OPENING[0]].includes($("status-text").textContent))
         status(...OPEN_DROPPED);
     });
+    return true;
   }
   // Find grid, Rotate and the corners act on the photograph the crop editor
   // shows, which, while a chosen photograph opens, is the one before it: the

@@ -30,7 +30,7 @@ function harness(t) {
   class Worker { postMessage() {} terminate() {} }
   const context = vm.createContext({
     ...model, $, Worker, URL, console, performance, clueReread: { cancel() {}, open() {} },
-    captureEdit, restoreEdit, prepareEdit, scanner: { cancel() {} }, stopCamera() {},
+    captureEdit, restoreEdit, prepareEdit, scanner: { cancel() {} }, stopCamera() {}, taskStopped: () => false,
     render() {}, persist() {}, setLayout() {}, savePrefs() {}, remember: () => rememberEdit(context.api.state),
     setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {},
   });

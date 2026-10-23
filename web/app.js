@@ -203,8 +203,9 @@ const tasks = createTaskController({
     cancel?.();
     stopCamera();
     // A photograph still being opened goes with the task (photo-flow.js).
-    taskStopped();
-    if (wasBusy && worker) {
+    // Opening it used no solver, so a warm one stays.
+    const opened = taskStopped();
+    if (wasBusy && !opened && worker) {
       worker.terminate();
       worker = null;
       state.solverWarm = false;

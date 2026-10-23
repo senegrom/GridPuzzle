@@ -100,12 +100,12 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
     statuses.push([text, detail]);
     $("status-text").textContent = text; $("status-detail").textContent = detail;
   };
-  // As app.js's, the task controller tells the flow when it stops a task. It
-  // also counts the stops of a running task: app.js's onStop then ends the
-  // page's warm solver too.
-  let busyStops = 0;
+  // As app.js's, the task controller tells the flow when it stops a task, and
+  // counts what app.js's onStop ends the page's warm solver on: a stop of a
+  // running task that was not a photograph being opened.
+  let solverEnds = 0;
   const tasks = createTaskController({ $, status,
-    onStop: (busy) => { if (busy) busyStops++; flow?.stopCamera(); flow?.taskStopped?.(); },
+    onStop: (busy) => { flow?.stopCamera(); const opened = flow?.taskStopped?.(); if (busy && !opened) solverEnds++; },
     scanner: { cancel() { cancels++; if (!late) for (const job of detections) job.reject(aborted()); } } });
   const stopTask = (message) => tasks.stop(message);
   const storage = { set: (_key, value) => { saved = value; }, get: () => saved };
@@ -146,7 +146,7 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
   crop.getBoundingClientRect = () => ({ left: 0, top: 0, width: crop.width, height: crop.height });
   crop.setPointerCapture = noop;
   return { $, state, tasks, detections, reads, errors, statuses, storage, canvas, setLayout,
-    get cancels() { return cancels; }, get solves() { return solves; }, get busyStops() { return busyStops; },
+    get cancels() { return cancels; }, get solves() { return solves; }, get solverEnds() { return solverEnds; },
     get status() { return statuses.at(-1)?.[0]; },
     // A held reading answers (`holdReads`).
     releaseRead() { release(); },
@@ -995,7 +995,7 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
   test(`a photograph chosen ${from} while a Read waits for the grid of the one before it has a status of its own while it opens, "Opening the photo…", then its elapsed time, as a task (Stop shown, Solve, Check and Hint disabled); then it opens as before`, async (t) => {
     const h = harness(t), s = screen(t, h), first = await h.photograph(), photo = h.state.photo;
     await h.tapRead();
-    const chosen = s.mark(), next = await h.choose({ input }), busy = h.busyStops;
+    const chosen = s.mark(), next = await h.choose({ input }), ends = h.solverEnds;
     h.running();
     await s.until(([text, detail]) => text === OPENING[0] && ELAPSED.test(detail), "the opening's elapsed time");
     const opening = s.since(chosen);
@@ -1016,7 +1016,7 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     assert.equal(h.status, "Grid found."); assert.deepEqual(h.state.corners, CHOSEN);
     assert.equal(h.reads.length, 0, "the Read that waited for the first photograph's grid went with it");
     assert.deepEqual(h.errors, []); h.ended();
-    assert.equal(h.busyStops, busy, "the opening's task ended before the photograph was taken: no running task was stopped");
+    assert.equal(h.solverEnds, ends, "the opening's task ended before the photograph was taken: no running task was stopped");
     first.detection.resolve(found(STRAY)); await first.imported; await settle();
     assert.deepEqual(h.state.corners, CHOSEN, "the first detection's answer, if it comes now, changes nothing");
   });
@@ -1105,7 +1105,7 @@ for (const [what, tap] of Object.entries(editorTaps))
     h.detections[1].resolve(found(CHOSEN)); await next.imported; await settle();
     assert.equal(h.status, "Grid found."); assert.deepEqual(h.state.corners, CHOSEN);
     assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []); h.ended();
-    assert.equal(h.busyStops, 0, "no running task was stopped");
+    assert.equal(h.solverEnds, 0, "no running task was stopped");
   });
 
 // Hide photo drops a Read waiting for a photograph being opened, as it drops
@@ -1161,6 +1161,7 @@ for (const [what, [stop, line]] of Object.entries(openingStops))
       if (line === OPEN_DROPPED) assert.deepEqual(after, [OPEN_DROPPED], "painted after the stop: this line alone");
       else assert.ok(!after.some(([text, detail]) => text === OPEN_DROPPED[0] && detail === OPEN_DROPPED[1]), JSON.stringify(after, null, 1));
       h.ended();
+      assert.equal(h.solverEnds, 0, "the opening used no solver: the page's warm one stays");
       // The decode ends; the photograph is not taken, and the line stays.
       next.release(); await next.imported; await settle();
       assert.equal(h.state.photo, before.photo, "the photograph before it stays");
@@ -1195,6 +1196,7 @@ test("another photograph chosen while the first opens drops the first: the secon
   noPromise(painted);
   h.detections[1].resolve(found(fallback(480, 640))); await second.imported; await settle();
   assert.equal(h.status, "Grid found."); assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []); h.ended();
+  assert.equal(h.solverEnds, 0, "the first opening used no solver: the page's warm one stays");
 });
 
 // A photograph that cannot be decoded ends its opening with the failure's own
@@ -1239,9 +1241,23 @@ test("app.js gives the photo flow the task controller's keep", () => {
   assert.match(app, /setupPhotoFlow\(\{[^]*?\bkeepDetail: \(detail\) => tasks\.keep\(detail\),[^]*?\}\);/);
 });
 
-// And tells it whenever the task controller stops a task.
-test("app.js tells the photo flow when a task stops", () => {
+// And tells it whenever the task controller stops a task: app.js's onStop,
+// run as it is, ends the page's warm solver when a running task is stopped,
+// unless that task was a photograph being opened, which used none.
+test("app.js tells the photo flow when a task stops, and keeps the warm solver when that task was a photograph being opened", () => {
   const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
-  assert.match(app, /createTaskController\(\{[^]*?onStop: \(wasBusy\) => \{[^}]*?\btaskStopped\(\);/);
   assert.match(app, /const \{ stopCamera, taskStopped \} = setupPhotoFlow\(\{/);
+  const rest = app.slice(Math.max(0, app.indexOf("onStop: (wasBusy) => {"))), end = rest.search(/\r?\n  \},\r?\n\}\);/);
+  assert.ok(rest.startsWith("onStop: (wasBusy) => {") && end > 0, "app.js has the task controller's onStop, its last option");
+  const onStop = rest.slice("onStop: ".length, end) + "\n}";
+  const outcome = (busy, opening) => {
+    const calls = [], worker = { terminate() { calls.push("terminate"); } };
+    const context = vm.createContext({ cancelSolver: null, worker, state: { solverWarm: true },
+      stopCamera() { calls.push("stopCamera"); }, taskStopped() { calls.push("taskStopped"); return opening; } });
+    vm.runInContext(`(${onStop})(${busy})`, context);
+    return { calls, warm: context.worker === worker && context.state.solverWarm };
+  };
+  assert.deepEqual(outcome(true, false), { calls: ["stopCamera", "taskStopped", "terminate"], warm: false }, "a running task's stop ends it");
+  assert.deepEqual(outcome(true, true), { calls: ["stopCamera", "taskStopped"], warm: true }, "a photograph's opening stopped leaves it");
+  assert.deepEqual(outcome(false, false), { calls: ["stopCamera", "taskStopped"], warm: true }, "a stop with no task running leaves it");
 });
