@@ -4,6 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
+// What ends the page and the browser without the run asking, as the browser
+// suites hear it; watch.cjs, unlike the suites' harness, leaves the process's
+// SIGINT and SIGTERM to the benchmarks, which save their report first.
+const { GONE, watch } = require("../scripts/watch.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
@@ -120,13 +124,18 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
       ...(!reading.error ? score(target, reading) : {}) };
   });
   const results = [], cleanupErrors = [];
-  let browser, context, server, serverError, failure = null, closing = false, status = "running";
+  let browser, watched, context, server, serverError, failure = null, closing = false, status = "running";
+  // A run that ended early lists the images it did not read in `notRun`:
+  // they were not run, which is not failing. `ended` is what watch() heard
+  // end without the run asking: a page that crashed or closed, a lost browser.
   const report = () => ({ ...reportMetadata,
     ...(!measure ? { recognition: { type: "reference", dimensions: "reference",
       corners: options.trueCorners ? "reference-when-available" : "detected-or-full-frame",
       clueValues: "not-supplied" } } : {}),
     options, status, totalImages: items.length,
-    completedImages: results.length, failure, cleanupErrors, summary: summarizeResults(results), results });
+    completedImages: results.length,
+    notRun: status === "running" ? [] : items.slice(results.length).map(({ family, set, name }) => ({ family, set, name })),
+    failure, ended: watched?.ended ?? [], cleanupErrors, summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());
   try {
@@ -139,9 +148,16 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     await abortable(wait(base, () => serverError), signal);
     if (serverError) throw serverError;
     browser = await launch();
+    watched = watch(browser);
     context = await browser.newContext({ serviceWorkers: "block" });
     const page = await context.newPage();
     page.setDefaultTimeout(180000);
+    // Whether the page or the browser is gone. A crashed page is neither
+    // closed to Playwright nor in a disconnected browser: watch() hears its
+    // crash, and a read it interrupts fails with Playwright's word that its
+    // target is gone (GONE), which in WebKit can come before the crash.
+    const gone = (error) => watched.ended.length > 0 || page.isClosed() || !browser.isConnected()
+      || (error !== undefined && GONE.test(message(error)));
     await abortable(page.goto(base), signal);
     await abortable(page.waitForSelector('body[data-ready="true"]'), signal);
     for (const [index, item] of items.entries()) {
@@ -161,16 +177,21 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
         if (!BUSY.has(error?.code)) throw error;
         log(`  checkpoint after image ${index + 1} not saved, the report is held open (${message(error)})`);
       }
-      // Invalid input is local to this image. A lost browser or interrupt is
-      // a run failure, not thousands of misleading individual scan failures.
-      if (signal?.aborted || page.isClosed() || !browser.isConnected())
-        throw itemError || signal?.reason || Error("Benchmark browser disconnected");
+      // Invalid input is local to this image. An interrupt, or a page or
+      // browser that is gone, ends the run: the image being read keeps its
+      // error, and the rest are not run, rather than thousands of misleading
+      // individual scan failures.
+      if (signal?.aborted || gone(itemError))
+        throw itemError || signal?.reason || Error("The benchmark's page or browser is gone");
       if ((index + 1) % 25 === 0 || index === items.length - 1) log(`  ${index + 1}/${items.length}`);
     }
     if (serverError) throw serverError;
     status = "complete";
   } catch (error) {
-    failure = message(error);
+    // Said once, led by what ended, as a browser suite's failure is: after a
+    // failure that says its target is gone, lead() waits up to a second for
+    // what Playwright reports after it.
+    failure = message(watched ? await watched.lead(error) : error);
     status = signal?.aborted ? "interrupted" : "failed";
   } finally {
     closing = true;

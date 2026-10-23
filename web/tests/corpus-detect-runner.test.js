@@ -26,8 +26,12 @@ function harness(t, faults = {}, args = []) {
   const options = parseOptions(["--corpus", dir, "--out", path.join(dir, "report.json"), ...args]);
   let calls = 0, connected = true;
   const closed = [], payloads = [], controller = new AbortController();
-  const page = { setDefaultTimeout() {}, async goto() { if (faults.startup) throw Error("navigation failed"); },
-    async waitForSelector() {}, isClosed: () => !connected,
+  // They emit what Playwright's objects emit as they open, so that the
+  // runner's watch() hears the page.
+  const page = Object.assign(new EventEmitter(), {
+    setDefaultTimeout() {}, async goto() { if (faults.startup) throw Error("navigation failed"); },
+    async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8782/", context: () => context,
+    async close() {},
     async evaluate(_fn, data) {
       assert.deepEqual(data.scales, [640, 1600]); assert.equal(data.rows, 9);
       assert.deepEqual(data.corners, corners); calls++; payloads.push(data);
@@ -43,12 +47,15 @@ function harness(t, faults = {}, args = []) {
       // The live camera's quick path finds the quad but no lattice.
       const quick = { ms: 5, confidence: .45, rows: 0, cols: 0, error: 2, sizeOk: false };
       return { 640: measurement, 1600: measurement, ...(data.live ? { live: quick } : {}) };
-    } };
-  const context = { async newPage() { return page; }, async close() {
-    closed.push("context"); if (faults.cleanup) throw Error("context cleanup failed");
-  } };
-  const browser = { async newContext() { return context; }, isConnected: () => connected,
-    async close() { closed.push("browser"); } };
+    } });
+  const context = Object.assign(new EventEmitter(), {
+    pages: () => [], async newPage() { this.emit("page", page); return page; },
+    async close() { closed.push("context"); if (faults.cleanup) throw Error("context cleanup failed"); },
+  });
+  const browser = Object.assign(new EventEmitter(), {
+    contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
+    async close() { closed.push("browser"); },
+  });
   const server = new EventEmitter(); server.kill = () => { closed.push("server"); };
   const dependencies = { startServer: () => server, async waitForServer() {}, async launch() { return browser; }, log() {} };
   return { folder, options, controller, closed, payloads, dependencies, get calls() { return calls; },
@@ -113,6 +120,7 @@ test("a browser crash saves a failed partial detection report instead of fabrica
   const h = harness(t, { crash: true, cleanup: true }), r = await h.run();
   assert.equal(r.status, "failed"); assert.match(r.failure, /browser crashed/);
   assert.equal(r.totalImages, 3); assert.equal(r.completedImages, 2); assert.equal(h.calls, 2);
+  assert.deepEqual(r.notRun, [{ family: "sudoku", set: "fixture", name: "2.png" }]);
   assert.ok(r.results[0].at640); assert.equal(r.cleanupErrors.length, 1);
   assert.deepEqual(h.saved(), r); assert.deepEqual(h.closed, ["context", "browser", "server"]);
 });
