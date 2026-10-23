@@ -60,8 +60,8 @@ export function setupPhotoFlow({
     // (acceptPhoto): no detection has answered for it, no corner has moved and
     // no capture has brought its own corners. A Read through it highlights
     // every cell, so a Read tapped while a detection runs on it waits for that
-    // detection: `gridSearch` holds the detection's task and whether a Read
-    // waits for it.
+    // detection: `gridSearch` holds the detection's task, the status line it
+    // started with, and whether a Read waits for it.
     fallbackCrop = false,
     gridSearch = null,
     // The quarter turns by which the crop's corners stand turned from the
