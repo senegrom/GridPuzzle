@@ -613,6 +613,25 @@ for (const [type, rows, cols, hint] of CONTROLS)
       "read at once, at the size the check was named for");
     assert.equal(h.statuses.at(-1), "Straightening the photograph…");
   });
+// So does Find grid on the crop a detection proposed without finding a grid:
+// its corners are unconfirmed, but it is no longer the fallback crop, so a Read
+// tapped during Find grid stops it and reads at once, at the controls' size.
+for (const [type, rows, cols, hint] of CONTROLS)
+  test(`Find grid on a capture's crop that a detection proposed without finding a grid says the turn with the check for the controls' size, which a Read tapped meanwhile reads at: ${rows} × ${cols}`, async (t) => {
+    let again = null;
+    const h = sized(t, type, rows, cols, () => again?.promise ?? NOT_FOUND());
+    await h.still("upside-down");
+    assert.equal(h.statuses.at(-1), "Set the four crop corners.");
+    again = deferred();
+    void h.$("detect-photo").onclick(); await settle();
+    assert.deepEqual([h.statuses.at(-1), h.details.at(-1)],
+      ["Finding the grid…", `Photo processing stays on this device. ${hint("upside down")}`]);
+    h.answer();
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, rows, cols]],
+      "read at once, at the size the check was named for");
+  });
+
 // A Read tapped once the detection has ended is the same Read as one that
 // waited for it (above): leaving the picture the way it lies, it says the turn
 // in a first note for the size it reads at, square or not.
