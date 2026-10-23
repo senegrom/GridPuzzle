@@ -34,6 +34,7 @@ jobs:
             web/**
             scripts/*regressions.cjs
             scripts/harness.cjs
+            scripts/watch.cjs
             scripts/build_web.py
             scripts/fetch_live_fixtures.py
             Examples/BrowserScanner/**

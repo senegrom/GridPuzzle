@@ -89,7 +89,6 @@ async function offlineInstall(browser, report) {
   const context = await browser.newContext({ ...PHONE, serviceWorkers: 'allow' });
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
-  page.on('pageerror', error => report.errors.push(error.message));
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'gridpuzzle-install-'));
   let server;
   try {

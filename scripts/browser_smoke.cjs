@@ -238,9 +238,11 @@ async function checkStartupCancellation(browser, image, report) {
     });
     const page = await context.newPage();
     page.setDefaultTimeout(20000);
-    const errors = [],
+    // Every page's uncaught errors in this browser, as watch() collects them
+    // (those of the startup-cancellation check's page with its URL), and the
+    // policy violations below.
+    const errors = watched.errors,
       external = [];
-    page.on("pageerror", (e) => errors.push(e.message));
     // A Content Security Policy violation only logs; surface it as a failure.
     // Playwright itself injects a stylesheet while capturing screenshots
     // (WebKit reports it), so violations are ignored during our own captures.

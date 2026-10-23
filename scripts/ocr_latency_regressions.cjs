@@ -1,10 +1,12 @@
-/* OCR latency and engine reuse, with real Tesseract in both engines.
-   Wall-clock times are reported, not enforced; reuse and safety are asserted.
+/* OCR latency and engine reuse, with real Tesseract in Chromium and WebKit
+   (or the engines BROWSER_ENGINES selects). Wall-clock times are reported,
+   not enforced; reuse and safety are asserted. As the harness's engines()
+   does, every engine runs, also after one has failed, its report is written
+   after it, and the first failure is rethrown after the last engine.
    Set OCR_BASELINE_SITE to another built site to time it in the same browser. */
-const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), http = require("node:http");
-const { watch } = require("./harness.cjs");
+const { selectedEngines, watch } = require("./harness.cjs");
 const ROOT = "Examples/BrowserScanner/Newspaper";
 const fixtures = JSON.parse(fs.readFileSync(`${ROOT}/ground-truth.json`)).fixtures.map((f) => ({ ...f,
   imageData: fs.readFileSync(`${ROOT}/${f.image}`).toString("base64") }));
@@ -58,19 +60,24 @@ async function sequence(page, fixtures) {
     } finally { scanner.cancel(); window.Worker = originalWorker; }
   }, fixtures);
 }
-async function run() {
-  await new Promise((resolve) => server.listen(8777, "127.0.0.1", resolve));
-  const reports = [];
-  fs.mkdirSync("browser-artifacts", { recursive: true });
+// `playwright`, `port` and `out` are there for web/tests/ocr-latency.test.js,
+// which runs this with stand-ins for the browsers.
+async function run({ playwright = require("playwright"), port = 8777, out = "browser-artifacts/ocr-latency.json" } = {}) {
+  const selected = selectedEngines();
+  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`, reports = [], failures = [];
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const save = () => fs.writeFileSync(out, JSON.stringify(reports, null, 2) + "\n");
   try {
-    for (const [name, engine] of Object.entries({ chromium, webkit })) {
-      const browser = await engine.launch({ headless: true }), watched = watch(browser);
-      const report = { browser: name, version: browser.version(), ended: watched.ended }; reports.push(report);
+    for (const name of selected) {
+      const browser = await playwright[name].launch({ headless: true }), watched = watch(browser);
+      // Each variant's page's uncaught errors, the later page's with its URL.
+      const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended }; reports.push(report);
       try {
         for (const variant of process.env.OCR_BASELINE_SITE ? ["baseline", "candidate"] : ["candidate"]) {
           const context = await browser.newContext({ serviceWorkers: "block" });
           const page = await context.newPage(); page.setDefaultTimeout(120000);
-          await page.goto(`http://127.0.0.1:8777/${variant}/`); await page.waitForSelector('body[data-ready="true"]');
+          await page.goto(`${origin}/${variant}/`); await page.waitForSelector('body[data-ready="true"]');
           report[variant] = await sequence(page, fixtures);
           for (const scan of report[variant].scans) assert.deepEqual(scan.unsafe, [], `${name}/${variant}: unflagged error`);
           if (variant === "candidate") {
@@ -83,12 +90,17 @@ async function run() {
           console.log(`${name}/${variant}: reads ${times.join(", ")} ms; first provisional reading ${report[variant].scans.map((s) => s.firstReading ?? "-").join(", ")} ms; OCR hosts ${report[variant].counts.ocr}, geometry workers ${report[variant].counts.geometry}`);
           await context.close();
         }
+        assert.deepEqual(report.errors, [], `${name}: uncaught page errors`);
         watched.check(name);
         report.ok = true;
-      } catch (thrown) { const error = await watched.lead(thrown); report.ok = false; report.failure = error.stack; throw error; }
-      finally { await browser.close(); }
+      } catch (thrown) {
+        const error = await watched.lead(thrown); report.ok = false; report.failure = error.stack;
+        failures.push(error); console.error(name, error);
+      } finally { await browser.close(); save(); }
     }
-  } finally { fs.writeFileSync("browser-artifacts/ocr-latency.json", JSON.stringify(reports, null, 2) + "\n"); server.close(); }
+  } finally { save(); server.close(); }
+  if (failures.length) throw failures[0];
+  return reports;
 }
 module.exports = run;
 if (require.main === module) run().catch((error) => { console.error(error); process.exitCode = 1; });
