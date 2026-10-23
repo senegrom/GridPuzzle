@@ -126,24 +126,23 @@ that crop stays, its handles can be moved, and a Read through it highlights
 every cell. Read puzzle tapped while the grid is still being found on that
 crop therefore waits for the detection instead of stopping it: the status says
 "Still finding the grid…" over "The puzzle is read as soon as the grid is
-found.", which stays while the Read waits, with the elapsed time after it (a
-task's elapsed time replaces any other status's second line), Stop stays
-available, and the Read starts when the detection ends, exactly as a Read
-tapped then would: through the corners found (every cell highlighted if the
-detection was unsure of them), or through that crop, every cell highlighted,
-if it found no grid or failed. Stop, a new photograph or capture, Rotate, a
-moved corner, an edit or another task, or Hide photo (which lets the
-detection go on) drops the waiting Read, and the status stops promising it:
-a stop or task with a status of its own shows that one; one without (a
-corner moved or touched, a Play cell, a change of editing tool, or a
-photograph or puzzle file chosen, while it is read) leaves "Stopped." over
+found.", which stays while the Read waits, with the elapsed time after it
+(while a task runs, its elapsed time replaces every other status's second
+line), Stop stays available, and the Read starts when the detection ends,
+exactly as a Read tapped then would: through the corners found (every cell
+highlighted if the detection was unsure of them), or through that crop, every
+cell highlighted, if it found no grid or failed. Stop, a new photograph or
+capture, Rotate, a moved corner, an edit or another task, or Hide photo (which
+lets the detection go on) drops the waiting Read, and the status stops
+promising it: a stop or task with a status of its own shows that one; one
+without (a corner moved or touched, a Play cell, a change of editing tool, or
+a photograph or puzzle file chosen, while it is read) leaves "Stopped." over
 "Read puzzle reads the crop as it is.", since a Read then reads the crop as
-it stands, at once; and Hide photo puts back the
-detection's own "Finding the grid…". A second tap adds nothing. Find grid
-makes a Read wait the same way while the crop is still that untouched crop
-(no detection has answered for it and no corner has moved); on a crop that a
-detection, a capture or the user set, a Read during Find grid stops it and
-reads that crop. Read puzzle also
+it stands, at once; and Hide photo puts back the detection's own "Finding the
+grid…". A second tap adds nothing. Find grid makes a Read wait the same way
+while the crop is still that untouched crop (no detection has answered for it
+and no corner has moved); on a crop that a detection, a capture or the user
+set, a Read during Find grid stops it and reads that crop. Read puzzle also
 stages its candidate: failed/cancelled reads of an unchanged crop preserve the
 accepted solution, photo mapping, Play cache and undo history. Any other new
 Read click cancels earlier work even when the new dimensions, boxes or crop
