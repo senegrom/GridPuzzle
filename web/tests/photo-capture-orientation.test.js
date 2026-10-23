@@ -21,8 +21,9 @@ import { createTaskController } from "../task-controller.js";
 // grid that is not square is never turned by a reading: its capture keeps its
 // own review under a note that points to Rotate. A capture without a reading
 // goes to the crop editor, whose status repeats the turn the live help line
-// named, and so does the line that leads into a Read that waited for its
-// grid. A cage puzzle's capture gets the same notes.
+// named, and each Read of its picture that leaves it the way it lies, a Read
+// that waited for its grid or one tapped later, says the turn in a first note.
+// A cage puzzle's capture gets the same notes.
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function settle() { for (let i = 0; i < 10; i++) await tick(); }
@@ -476,63 +477,105 @@ const hintFor = (rows, cols) => (rows === cols ? READ_HINT : ROTATE_HINT);
 const STILL_FINDING = ["Still finding the grid…", "The puzzle is read as soon as the grid is found."];
 // A Read tapped while the capture's grid is being found waits for it
 // (photo-read-waits.test.js): answered with "Still finding the grid…", which
-// names no turn, nothing read, the detection's task still running.
+// names no turn, nothing read, the detection's task still running. Returns
+// where the statuses after that answer start, and the Read's reply.
 async function waitingRead(h) {
-  h.answer();
+  const reply = h.answer();
   h.$("read-photo").onclick(); await settle();
   assert.deepEqual([h.statuses.at(-1), h.details.at(-1)], STILL_FINDING, "the answer names no turn");
   assert.deepEqual(h.reads, [], "the Read waits for the grid");
   h.running();
-  return h.statuses.length;
+  return { from: h.statuses.length, reply };
 }
 // The turn alone, without a check.
 const TURN_ONLY = (words) => `The grid looked ${words} in the live view.`;
+// The first note of a Read that leaves the picture of a capture without a
+// reading the way it lies when its help line named a turn: on a square grid,
+// Read puzzle checked which way up it is; on any other, Read puzzle turns none,
+// and the note is the capture's Rotate note (ROTATE, above).
+const KEPT = (words) => `The live view suggested that the page may be ${words}, but Read puzzle's check kept the captured picture the way it lies. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
+const noteFor = (rows, cols) => (rows === cols ? KEPT : ROTATE);
+const UNCONFIRMED = "The grid was not found automatically and the crop corners were not adjusted, so every cell is highlighted. Set the corners on the grid and read again, or check each cell against the photograph.";
+// What Read puzzle answers for the picture read the way it lies (no turns) at
+// `rows` × `cols`: four clues, two of them flagged, with the reading's own
+// note; `clean`: none flagged, no note, nothing to review.
+function asItLies(type, rows, cols, clean = false) {
+  const found = reading({ digits: { 0: 1, 1: 6, 2: 4, 3: 5 }, flagged: clean ? [] : [2, 3], rows, cols, type });
+  return clean ? { ...found, notes: [], needsReview: false } : found;
+}
+// The board after such a Read: `first` (none: null) before the note of a crop
+// nobody confirmed (`unconfirmed`, whose Read highlights every cell) and the
+// reading's own notes, with the reading's flags and nothing else, in the
+// editor and the saved session; the Read's task ended.
+function readWithNote(h, found, first, { unconfirmed = false } = {}) {
+  const notes = [...(first ? [first] : []), ...(unconfirmed ? [UNCONFIRMED] : []), ...found.notes],
+    flagged = unconfirmed ? [...found.puzzle.cells.keys()] : sorted(new Set([...found.cellUncertain, ...conflicts(found.puzzle)]));
+  assert.deepEqual(h.state.puzzle.cells, found.puzzle.cells);
+  assert.deepEqual(h.state.notes, notes);
+  assert.deepEqual(sorted(h.state.uncertain), flagged);
+  assert.equal(h.state.needsReview, unconfirmed || found.needsReview);
+  assert.equal(h.statuses.at(-1), "Puzzle read.");
+  const reloaded = restoreSession(h.storage);
+  assert.deepEqual(reloaded.notes, notes); assert.deepEqual(sorted(reloaded.uncertain), flagged);
+  h.ended();
+}
 // A Read tapped while the grid is found on the fallback crop waits for it and
 // reads at the size it finds, which may be square where the controls' is not,
 // or the other way round, so neither the status that starts the detection nor
 // the Read's answer names a check: the first says the turn alone, the second
-// names none. The line that leads into the Read once the grid is found ("Grid
-// found.", "Reading the puzzle…") says the turn with the check for the size
-// found, as the status that ends the detection did.
+// names none. The status that ends the detection says it with the check for
+// the size found; the line that leads into the Read ("Grid found.", "Reading
+// the puzzle…") names no turn, since the Read's first progress replaces it
+// before it is painted. The Read, leaving the picture the way it lies, says
+// the turn in a first note for the size it read at.
 const SIZES = [["sudoku", 9, 9, 9, 9], ["numbrix", 6, 7, 6, 7], ["numbrix", 9, 9, 6, 7], ["numbrix", 6, 7, 9, 9]];
 for (const [type, rows, cols, foundRows, foundCols] of SIZES)
-  test(`a capture without a reading says the turn as its grid is being found, and a Read that waited for it says it for the size found: ${rows} × ${cols} controls, ${foundRows} × ${foundCols} found`, async (t) => {
+  test(`a capture without a reading says the turn as its grid is being found, and a Read that waited for it says it in a first note for the size found: ${rows} × ${cols} controls, ${foundRows} × ${foundCols} found`, async (t) => {
     const search = deferred(), h = sized(t, type, rows, cols, () => search.promise);
     await h.still("upside-down");
     assert.equal(h.statuses.at(-1), "Finding the grid…");
     assert.equal(h.details.at(-1), `Photo processing stays on this device. ${TURN_ONLY("upside down")}`,
       "no check before the size a waiting Read reads at is known");
-    const from = await waitingRead(h), hint = hintFor(foundRows, foundCols)("upside down");
+    const { from, reply } = await waitingRead(h);
     search.resolve(detection(foundRows, foundCols)()); await settle();
     assert.deepEqual(h.errors, []);
     // The status that ends the detection, the line that leads into the Read,
     // and the Read's own progress.
     assert.deepEqual(h.statuses.slice(from), ["Grid found.", "Grid found.", "Straightening the photograph…"]);
-    assert.deepEqual(h.details.slice(from), [`${DETECTED(foundRows, foundCols)} ${hint}`, `Reading the puzzle… ${hint}`, ""]);
-    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, foundRows, foundCols]],
-      "read at the size the hint was for");
+    assert.deepEqual(h.details.slice(from), [`${DETECTED(foundRows, foundCols)} ${hintFor(foundRows, foundCols)("upside down")}`,
+      "Reading the puzzle…", ""]);
+    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, foundRows, foundCols]]);
     assert.deepEqual(["rows", "cols"].map((id) => h.$(id).value), [String(foundRows), String(foundCols)]);
+    const found = asItLies(type, foundRows, foundCols);
+    reply.resolve(found); await settle();
+    assert.deepEqual(h.errors, []);
+    readWithNote(h, found, noteFor(foundRows, foundCols)("upside down"));
   });
 // A grid not found, or a detection that fails, leaves the controls' size, so a
-// Read that waited for it reads through the crop as it is at that size, and the
-// line that leads into it says the turn for that size.
+// Read that waited for it reads through the crop as it is at that size, every
+// cell highlighted, and leaving the picture the way it lies says the turn for
+// that size in its first note, before the note on the crop.
 const ENDINGS = {
   "finds no grid": [(search) => search.resolve(NOT_FOUND()), []],
   fails: [(search) => search.reject(Error("detector failed")), ["detector failed"]],
 };
 for (const [how, [end, failures]] of Object.entries(ENDINGS))
-  for (const [type, rows, cols, hint] of CONTROLS)
-    test(`a Read that waited for a capture's grid says the turn for the size the controls hold when the detection ${how}: ${rows} × ${cols}`, async (t) => {
+  for (const [type, rows, cols] of CONTROLS)
+    test(`a Read that waited for a capture's grid says the turn in a first note for the size the controls hold when the detection ${how}: ${rows} × ${cols}`, async (t) => {
       const search = deferred(), h = sized(t, type, rows, cols, () => search.promise);
       await h.still("sideways");
-      const from = await waitingRead(h);
+      const { from, reply } = await waitingRead(h);
       end(search); await settle();
       assert.deepEqual(h.errors, failures);
       const lead = h.statuses.indexOf("The grid was not found automatically.", from);
       assert.ok(lead >= from, "the Read is led in through the crop as it is");
-      assert.equal(h.details[lead], `Reading the puzzle through the crop as it is, so every cell will be highlighted… ${hint("sideways")}`);
+      assert.equal(h.details[lead], "Reading the puzzle through the crop as it is, so every cell will be highlighted…");
       assert.equal(h.statuses[lead + 1], "Straightening the photograph…");
       assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, rows, cols]]);
+      const found = asItLies(type, rows, cols);
+      reply.resolve(found); await settle();
+      assert.deepEqual(h.errors, failures);
+      readWithNote(h, found, noteFor(rows, cols)("sideways"), { unconfirmed: true });
     });
 // A detection that fails reports the failure in place of the status that
 // ends it, so the turn was said as it started, alone, since the crop is the
@@ -570,6 +613,141 @@ for (const [type, rows, cols, hint] of CONTROLS)
       "read at once, at the size the check was named for");
     assert.equal(h.statuses.at(-1), "Straightening the photograph…");
   });
+// A Read tapped once the detection has ended is the same Read as one that
+// waited for it (above): leaving the picture the way it lies, it says the turn
+// in a first note for the size it reads at, square or not.
+for (const [type, rows, cols] of CONTROLS)
+  test(`a Read tapped once a capture's grid was found says the turn in a first note when it leaves the picture the way it lies: ${rows} × ${cols}`, async (t) => {
+    const h = sized(t, type, rows, cols, detection(rows, cols));
+    await h.still("upside-down");
+    h.ended();
+    const reply = h.answer(), found = asItLies(type, rows, cols);
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, rows, cols]]);
+    reply.resolve(found); await settle();
+    assert.deepEqual(h.errors, []);
+    readWithNote(h, found, noteFor(rows, cols)("upside down"));
+  });
+// The turn stays with the picture, so each later Read of it (Adjust scan →
+// Read puzzle, here after a corner was moved) that leaves it the way it lies
+// says the turn again, once.
+test("a later Read of a capture's picture that leaves it the way it lies says the turn again, once", async (t) => {
+  const h = harness(t, { detect: detection(9, 9) });
+  await h.still("sideways");
+  for (let read = 0; read < 2; read++) {
+    if (read) {
+      h.$("show-crop").onclick();
+      h.$("crop-canvas").onkeydown({ key: "1", preventDefault() {} });
+      h.$("crop-canvas").onkeydown({ key: "ArrowRight", preventDefault() {} });
+    }
+    const reply = h.answer(), found = asItLies("sudoku", 9, 9);
+    h.$("read-photo").onclick(); await settle();
+    reply.resolve(found); await settle();
+    readWithNote(h, found, KEPT("sideways"));
+  }
+  assert.equal(h.reads.length, 2);
+  assert.deepEqual(h.reads[1].corners[0], { x: 11, y: 10 }, "read again through the moved corner");
+});
+// A Read that turns the picture keeps the turned reading's own notes, which
+// name the turn it took (half a turn waits for review; a quarter turn solves
+// automatically, as any photograph's), and turns the crop's corners with it.
+// A later Read through those corners reads the page upright, and adds no note.
+// Once Undo or Find grid has brought back corners in the picture's own frame,
+// a Read that leaves it the way it lies says the turn again.
+const FOUND_CORNERS = detection(9, 9)().corners;
+const BACK = {
+  // Undo twice: the later Read, then the turned one, which turned the corners.
+  Undo(h) {
+    for (let undo = 0; undo < 2; undo++) { h.stopTask(); restoreEdit(h.state, h.state.history.pop()); saveSession(h.storage, h.state); }
+  },
+  // Corners the detector finds, in the picture's own frame.
+  "Find grid": (h) => h.$("detect-photo").onclick(),
+};
+for (const [turns, turn, words] of [[2, "upside-down", "upside down"], [1, "sideways", "sideways"], [3, "sideways", "sideways"]])
+  for (const [back, undo] of Object.entries(BACK))
+    test(`a Read that turns a capture's picture by ${turns} quarter turns keeps the turned reading's notes, a later Read through its corners adds none, and after ${back} a Read the way it lies says the turn again`, async (t) => {
+      const h = harness(t, { detect: detection(9, 9) });
+      await h.still(turn);
+      let reply = h.answer();
+      h.$("read-photo").onclick(); await settle();
+      reply.resolve(turned(turns)); await settle();
+      assert.deepEqual(h.errors, []);
+      const turnedCorners = FOUND_CORNERS.map((_, i) => FOUND_CORNERS[(i + turns) % 4]);
+      assert.deepEqual(h.state.notes, turned(turns).notes, "the turned reading's own notes, which name its turn");
+      assert.deepEqual(h.state.corners, turnedCorners);
+      assert.equal(h.state.needsReview, turns === 2);
+      assert.equal(h.solves.length, turns === 2 ? 0 : 1);
+      assert.equal(h.statuses.at(-1), "Puzzle read.");
+      reply = h.answer();
+      h.$("show-crop").onclick(); h.$("read-photo").onclick(); await settle();
+      assert.deepEqual(h.reads.at(-1).corners, turnedCorners);
+      const upright = asItLies("sudoku", 9, 9);
+      reply.resolve(upright); await settle();
+      readWithNote(h, upright, null);
+      await undo(h); await settle();
+      assert.deepEqual(h.state.corners, FOUND_CORNERS);
+      reply = h.answer();
+      h.$("read-photo").onclick(); await settle();
+      assert.deepEqual(h.reads.at(-1).corners, FOUND_CORNERS);
+      const lies = asItLies("sudoku", 9, 9);
+      reply.resolve(lies); await settle();
+      readWithNote(h, lies, KEPT(words));
+    });
+// Rotate makes a new photograph, which keeps no turn, and a capture whose help
+// line named none carries none: a Read of either adds no note.
+test("a Read of a rotated capture's picture adds no note of the turn", async (t) => {
+  const h = harness(t, { detect: detection(9, 9) });
+  await h.still("upside-down");
+  h.$("rotate-photo").onclick(); await settle();
+  assert.equal(h.details.at(-1), DETECTED(9, 9));
+  const reply = h.answer(), found = asItLies("sudoku", 9, 9);
+  h.$("read-photo").onclick(); await settle();
+  reply.resolve(found); await settle();
+  readWithNote(h, found, null);
+});
+for (const [type, rows, cols] of CONTROLS)
+  test(`a Read of a capture's picture whose help line named no turn adds no note: ${rows} × ${cols}`, async (t) => {
+    const h = sized(t, type, rows, cols, detection(rows, cols));
+    await h.still(null);
+    const reply = h.answer(), found = asItLies(type, rows, cols);
+    h.$("read-photo").onclick(); await settle();
+    reply.resolve(found); await settle();
+    readWithNote(h, found, null);
+  });
+// A note only: it moves no flag. A reading of the picture the way it lies with
+// nothing to review keeps the note first, without a flag, and solves
+// automatically as any clean reading does (the app's solve clears the notes),
+// or with automatic solving off waits as it is. A reading under review (above)
+// shows the note with its review.
+for (const autoSolve of [true, false])
+  test(`a clean Read of a capture's picture the way it lies moves no flag for the turn and ${autoSolve ? "solves automatically" : "waits, automatic solving off"}`, async (t) => {
+    const h = harness(t, { detect: detection(9, 9) });
+    h.$("auto-solve").checked = autoSolve;
+    await h.still("sideways");
+    const reply = h.answer(), found = asItLies("sudoku", 9, 9, true);
+    h.$("read-photo").onclick(); await settle();
+    reply.resolve(found); await settle();
+    readWithNote(h, found, KEPT("sideways"));
+    assert.equal(h.solves.length, autoSolve ? 1 : 0);
+  });
+// The note comes before every other: before the note of a crop nobody
+// confirmed (above), the reading's own notes, eight at most, and the note of
+// boxes suggested from the grid size, last (a 6 × 6 Sudoku found under the
+// 9 × 9 controls). fitReviewNotes keeps the first sixteen, so it keeps the
+// first note, and such a Read has at most twelve.
+test("the note comes before the reading's own notes and a suggested box layout's note", async (t) => {
+  const h = harness(t, { detect: detection(6, 6) });
+  await h.still("upside-down");
+  assert.deepEqual(["rows", "cols", "box-rows", "box-cols"].map((id) => h.$(id).value), ["6", "6", "2", "3"]);
+  const reply = h.answer(), found = { ...asItLies("sudoku", 6, 6), notes: Array.from({ length: 8 }, (_, i) => `Reading note ${i + 1}.`) };
+  h.$("read-photo").onclick(); await settle();
+  reply.resolve(found); await settle();
+  const notes = [KEPT("upside down"), ...found.notes,
+    "Box layout 2 rows × 3 columns was suggested from the grid size, not read from the photograph. Confirm it before solving."];
+  assert.deepEqual(h.state.notes, notes);
+  assert.deepEqual(restoreSession(h.storage).notes, notes);
+  assert.equal(h.state.needsReview, true);
+});
 
 // A cage puzzle (Killer, KenKen) reads no confident digit, so its capture can
 // show only the quarter-turn cue, and seldom does (LIVE_CAMERA.md). When it
@@ -577,7 +755,10 @@ for (const [type, rows, cols, hint] of CONTROLS)
 // puzzle checks by its sums (Scanner.cageTurn, photo-cage-turn.test.js), under
 // the notes any square grid gets; a cage grid is always square, so neither
 // note for a grid that is not square applies. Without a reading, its crop
-// editor says that Read puzzle checks the turn the help line named.
+// editor says that Read puzzle checks the turn the help line named, and a Read
+// that keeps the picture the way it lies says the turn first. Only controls
+// left at a size that is not square, with no grid found, give the Rotate hint,
+// and Read puzzle refuses that size for the type.
 for (const type of ["killersudoku", "kenken"]) {
   test(`a ${type} capture whose reading looks sideways is read again as a ${type} photograph, and read as it lies gets the note that points to Rotate`, async (t) => {
     const h = harness(t, { type }), answer = h.answer(),
@@ -593,10 +774,27 @@ for (const type of ["killersudoku", "kenken"]) {
     assert.equal(h.statuses.at(-1), "Captured clues ready for review.");
     h.ended();
   });
-  test(`a ${type} capture without a reading taken while the help line said the grid looks sideways says that Read puzzle checks it`, async (t) => {
+  test(`a ${type} capture without a reading taken while the help line said the grid looks sideways says that Read puzzle checks it, and a Read that keeps it the way it lies says the turn first`, async (t) => {
     const h = harness(t, { type, detect: detection(9, 9) });
     await h.still("sideways");
     assert.equal(h.details.at(-1), `${DETECTED(9, 9)} The grid looked sideways in the live view; Read puzzle checks which way up it is.`);
+    const reply = h.answer(), found = asItLies(type, 9, 9);
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.reads.map(({ type, rows, cols }) => [type, rows, cols]), [[type, 9, 9]], "read as a photograph of its type");
+    reply.resolve(found); await settle();
+    assert.deepEqual(h.errors, []);
+    readWithNote(h, found, KEPT("sideways"));
+  });
+  test(`a ${type} capture without a reading whose grid is not found under 6 × 7 controls gets the Rotate hint, and Read puzzle refuses that size, adding no note`, async (t) => {
+    const h = sized(t, type, 6, 7, NOT_FOUND);
+    await h.still("sideways");
+    assert.equal(h.details.at(-1), `Drag the numbered handles. Set rows and columns in Grid size & settings. ${ROTATE_HINT("sideways")}`);
+    const notes = h.state.notes;
+    h.answer();
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.errors, ["This type needs a square grid."]);
+    assert.deepEqual(h.reads, []);
+    assert.equal(h.state.notes, notes);
   });
 }
 
