@@ -1030,7 +1030,9 @@ and points to Adjust scan → Rotate, then Read puzzle, as does the note on a
 capture of a grid that is not square whose reading shows the cue (no reading
 turns such a grid, so it is not read again). A capture without a reading, as
 on the 270° row, goes to the crop editor, whose status repeats a turn the help
-line named as it was taken. These notes change no flag. The check costs one
+line named as it was taken, and a Read of it that leaves the picture the way
+it lies says the turn in a first note, with the same pointer to Rotate. These
+notes change no flag. The check costs one
 more reading of the capture, only when its live reading shows the cue (a
 quarter turn reads both quarter turns).
 

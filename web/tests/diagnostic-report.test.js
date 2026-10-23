@@ -129,7 +129,10 @@ test('the tracking transport and its time are reported apart from the tracking c
  assert.equal(typeof REASON_LABELS['tracking-late'],'string');
  // A live reading whose page looks turned (live-session.js, turnedPage).
  for(const reason of ['grid-sideways','grid-upside-down']){d.event({stage:'checking',reason});assert.equal(d.snapshot().events.at(-1).reason,reason);
-  assert.match(REASON_LABELS[reason],/turn the page or the phone/);}
+  assert.match(REASON_LABELS[reason],/turn the page or the phone/);
+  // Read puzzle turns only a square grid's photograph; any other is turned
+  // with Rotate, a quarter turn per tap.
+  assert.match(REASON_LABELS[reason],/Read puzzle under Adjust scan checks which way up the photograph of a square grid is; for any other grid, Rotate there until its numbers stand upright\.$/);}
  d.begin('live',{});assert.equal(d.snapshot().performance.trackingTransport.count,0,'a new scan starts a new window');
 });
 

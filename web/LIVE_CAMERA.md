@@ -100,18 +100,29 @@ tapped then reads at. On the untouched crop a new picture starts on (until a
 detection answers or a corner moves, [README.md](README.md)), a Read tapped
 while the grid is found waits for the detection and reads at the size it
 leaves, which is not known yet: the status that starts that detection names
-the turn alone ("The grid looked sideways in the live view."), the Read's
-answer, "Still finding the grid…", names none, and the line that leads into
-it once the detection ends ("Grid found." or "The grid was not found
-automatically.") repeats the turn with the check for the size it reads at.
-On screen, the check stays only in the status that ends a detection no Read
-waited for: while a detection or a Read runs, its elapsed time replaces a
-status's second line within half a second, and the Read's first progress
-replaces the line that leads into it at once, since a capture has no
-original to decode first. A Read that leaves the picture the way it lies
-adds no note of the turn, as for any photograph.
-These are notes only: they change no highlight, flag or reading ("Live
-captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
+the turn alone ("The grid looked sideways in the live view."), and the
+Read's answer, "Still finding the grid…", names none. On screen, these
+statuses keep the check only where a detection ends with no Read waiting:
+while a detection or a Read runs, its elapsed time replaces a status's second
+line within half a second. So every Read of such a picture that leaves it the
+way it lies, one that waited for the grid or one tapped later, says the turn
+in a first note, which stays with its reading: on a square grid, "The live
+view suggested that the page may be sideways, but Read puzzle's check kept
+the captured picture the way it lies. If its numbers do not stand upright,
+Adjust scan → Rotate until they do, then Read puzzle."; on any other, the
+note of a capture of a grid that is not square (above). The line that leads
+into a Read that waited ("Grid found." or "The grid was not found
+automatically.") names no turn: the Read's first progress replaces it at
+once, since a capture has no original to decode first. A Read that turns the
+picture keeps the turned reading's own notes, which name the turn it took,
+and turns the crop with it, so a later Read through that crop, also with a
+corner of it moved, reads the page upright and adds no note; once a detection
+or Undo brings back a crop in the picture's own frame, a Read that leaves it
+the way it lies adds it again.
+These are notes only: they change no highlight, flag or reading, so a Read
+whose reading has nothing to review still solves automatically, and like
+every note they show only while the board waits for review ("Live captures"
+in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
 selected, a 12 × 12 Str8ts), the help line gives the reason and asks to change
 the puzzle type or the grid settings; such a grid is neither outlined nor read.
@@ -184,9 +195,12 @@ cage check, under the notes of any capture (above): kept the way it lies, it
 gets the note that points to Adjust scan → Rotate. A cage grid is always
 square, so a cage capture with a reading never gets the note for a grid that
 is not square, and the crop editor of one without a reading whose help line
-named the turn says that Read puzzle checks it. Only a grid detected at a
-size that is not square, which a cage type cannot be read at ("This type
-needs a square grid."), gets the Rotate hint there.
+named the turn says that Read puzzle checks it; a Read that keeps that
+picture the way it lies by its sums says the turn in a first note, as on any
+square grid. Only a grid detected at, or left by the controls at, a size
+that is not square, which a cage type cannot be read at ("This type needs a
+square grid."), gets the Rotate hint there, and Read puzzle refuses that
+size without a note.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is
@@ -387,11 +401,11 @@ shown), while it is at most half a second old and so matches what the user
 saw; this gives **Review captured clues**. Otherwise the frame on screen at
 the press is kept without a reading and goes to the editor's crop and read,
 with the turn the help line named at the press, if it named one (the
-session's `turn`), for the crop's status to repeat (see the capture
-paragraph above); while no new frame has been presented for half a second
-("Waiting for a new camera frame"), the video may show nothing useful (iOS
-paints an interrupted camera black), so the newest frame the camera scanned
-is kept instead. That
+session's `turn`), for the crop's status and the notes of its Reads to
+repeat (see the capture paragraph above); while no new frame has been
+presented for half a second ("Waiting for a new camera frame"), the video
+may show nothing useful (iOS paints an interrupted camera black), so the
+newest frame the camera scanned is kept instead. That
 is the last adopted frame, unless a newer one was scanned since: while
 nothing is verified (aiming, or once a found grid is lost) no frame is
 adopted, and the frame each detection got for itself is kept once detection
@@ -1285,7 +1299,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   for a reading with a 2, fewer than five confident digits upside down,
   square glyph boxes, half its regions confident or fewer than six glyphs;
   the reading left as read; `diagnostic-report.test.js`: its two reasons,
-  labelled), the session's `turn`, the turn its help line names (kept as the
+  labelled, Read puzzle named for a square grid and Rotate for any other),
+  the session's `turn`, the turn its help line names (kept as the
   line is kept, also once the reading is retired; none once a hold, a note or
   a new read takes the line's place), and a guessed layout named only for
   readings in conflict (an unread mark asks to move closer);

@@ -504,6 +504,47 @@ test("a picture sent to the crop editor without a reading waits for its grid lik
   readThroughGrid(h);
 });
 
+// Such a picture taken while the live help line named a turn carries it
+// (photo-capture-orientation.test.js), and a Read of it that leaves it the way
+// it lies says the turn in a first note. A Read that waited for the grid and
+// one tapped once the detection ended are the same Read here too, note and
+// all, with the same plain line leading into the waiting one. The note moves
+// no flag: through the corners found, the clean reading solves automatically;
+// through a crop nobody confirmed, every cell waits for review under the
+// crop's note, after the turn's.
+const KEPT = "The live view suggested that the page may be sideways, but Read puzzle's check kept the captured picture the way it lies. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.";
+for (const how of ["finds the grid", "finds no grid", "fails"])
+  test(`a waiting Read of a picture taken while the help line named a turn is the Read tapped once the detection ends, the turn's note first, when the detection ${how}`, async (t) => {
+    const [end] = endings[how];
+    const outcome = (early) => async (t) => {
+      const h = harness(t);
+      await h.capture({ corners: null, found: null, turn: "sideways" });
+      assert.equal(h.detections.length, 1);
+      const [detection] = h.detections;
+      if (early) await waiting(h, detection);
+      end(detection); await settle();
+      if (early) leadIn(h, how === "finds the grid" ? FOUND_LINE : FALLBACK_LINE);
+      else { h.ended(); await h.tapRead(); await settle(); }
+      h.ended();
+      return { reads: h.reads.map(({ corners, type, rows, cols }) => ({ corners, type, rows, cols })),
+        puzzle: h.state.puzzle, uncertain: sorted(h.state.uncertain), notes: h.state.notes,
+        needsReview: h.state.needsReview, corners: h.state.corners, solves: h.solves, errors: h.errors,
+        status: h.statuses.at(-1), session: restoreSession(h.storage) };
+    };
+    let tapped, waited;
+    await t.test("Read tapped once the detection ended", async (t) => { tapped = await outcome(false)(t); });
+    await t.test("Read tapped while it ran", async (t) => { waited = await outcome(true)(t); });
+    assert.equal(waited.reads.length, 1);
+    assert.deepEqual(waited, tapped);
+    const found = how === "finds the grid";
+    assert.deepEqual(waited.notes, found ? [KEPT] : [KEPT, waited.notes[1]]);
+    if (!found) assert.match(waited.notes[1], UNCONFIRMED);
+    assert.deepEqual(waited.uncertain, found ? [] : ALL);
+    assert.equal(waited.needsReview, !found);
+    assert.equal(waited.solves, found ? 1 : 0);
+    assert.deepEqual(waited.session.notes, waited.notes);
+  });
+
 test("a rotated photograph's Read waits for the turned photograph's grid", async (t) => {
   const h = harness(t), { detection, imported } = await h.photograph();
   detection.resolve(found()); await imported; await settle();
