@@ -97,11 +97,28 @@ async function updateFound(page, build) {
     await sleep(250);
   }
 }
+/* The photo goes to the page as its bytes, an in-memory File, as every other
+   suite hands over its pictures. Given a path, Playwright lets WebKit open the
+   file itself, and WebKit on Windows refuses, now and then, to read a file
+   last modified on a whole second, which is what `git archive | tar -x`
+   leaves every file ("The object can not be found here."; web/TESTING.md,
+   "Running the suites from an export"). Every status the app shows is a new
+   text node, so a status written before the photo was chosen (an earlier
+   error, say) cannot end the wait; one the app shows for this photo ends it
+   at once, a refusal with what the app said. */
 async function choosePhoto(page) {
-  await page.evaluate(() => { document.getElementById("auto-solve").checked = false; });
-  await page.setInputFiles("#photo-file", PHOTO);
-  await page.waitForFunction(() => /Grid found|Set the four crop corners/.test(document.getElementById("status-text").textContent),
-    null, { timeout: 120000 });
+  await page.evaluate(() => {
+    document.getElementById("auto-solve").checked = false;
+    window.__staleChosen = document.getElementById("status-text").firstChild;
+  });
+  await page.setInputFiles("#photo-file", { name: path.basename(PHOTO), mimeType: "image/webp", buffer: fs.readFileSync(PHOTO) });
+  const shown = await (await page.waitForFunction(() => {
+    const node = document.getElementById("status-text"), text = node.textContent;
+    if (node.firstChild === window.__staleChosen) return false;
+    if (/Grid found|Set the four crop corners/.test(text)) return { text };
+    return document.getElementById("status").classList.contains("error") && { text, refused: true };
+  }, null, { timeout: 120000 })).jsonValue();
+  assert.ok(!shown.refused, `the app refused the photo: ${shown.text}`);
 }
 async function read(page) {
   await page.evaluate(() => {
@@ -208,4 +225,4 @@ async function staleBuild(browser, report) {
     await new Promise((resolve) => site.server.close(resolve));
   }
 }
-module.exports = { staleBuild };
+module.exports = { staleBuild, choosePhoto };
