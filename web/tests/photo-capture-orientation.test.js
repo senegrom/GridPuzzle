@@ -720,9 +720,9 @@ for (const [turns, turn, words] of [[2, "upside-down", "upside down"], [1, "side
 // turn: a corner moved by keyboard or pointer moves one of them; an Undo of
 // the turned Read after a corner moved leaves that later crop as it is (Undo
 // brings back the corners from before a Read only while the crop is the one
-// the Read left, photo-undo.test.js); and a Find grid or a Read that fails, or
-// a Find grid that is stopped (its answer then comes too late), brings none. A
-// Read through them reads the page upright, and adds no note.
+// the Read left, photo-undo.test.js); and a Find grid or a Read that fails or
+// is stopped (its answer then comes too late) brings none. A Read through them
+// reads the page upright, and adds no note.
 const nudge = (h) => {
   h.$("crop-canvas").onkeydown({ key: "2", preventDefault() {} });
   h.$("crop-canvas").onkeydown({ key: "ArrowDown", preventDefault() {} });
@@ -768,6 +768,15 @@ const KEEPS_TURN = [
     assert.deepEqual(h.errors, ["No printed clues found. Adjust the crop, dimensions or lighting."]);
     h.errors.length = 0;
   }],
+  ["a Read that is stopped", 3, async (h) => {
+    const board = [...h.state.notes], late = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    assert.equal(h.statuses.at(-1), "Straightening the photograph…");
+    h.stopTask("Stopped.");
+    late.resolve(asItLies("sudoku", 9, 9)); await settle();
+    assert.equal(h.statuses.at(-1), "Stopped.");
+    assert.deepEqual(h.state.notes, board, "its answer comes too late and changes nothing");
+  }],
 ];
 for (const [what, turns, act] of KEEPS_TURN)
   test(`a Read through the corners a turned Read turned adds no note after ${what}`, async (t) => {
@@ -787,6 +796,48 @@ for (const [what, turns, act] of KEEPS_TURN)
     // Three corners at least stand where the turned Read put them.
     assert.ok(h.state.corners.filter((p, i) => p.x === turnedCorners[i].x && p.y === turnedCorners[i].y).length >= 3);
     const corners = h.state.corners.map((p) => ({ ...p }));
+    reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.reads.at(-1).corners, corners, "read through those corners");
+    const upright = asItLies("sudoku", 9, 9);
+    reply.resolve(upright); await settle();
+    readWithNote(h, upright, null);
+  });
+// Undo brings back the turn of the corners it brings back. An Undo of a Read
+// taken through the corners a turned Read turned, one that read the page
+// upright (also after a corner of them moved) or one that turned it again,
+// brings those corners back with their turn, so a Read through them that reads
+// the page upright adds no note. (An Undo of the turned Read itself brings
+// back corners in the picture's own frame: BACK, above.)
+const UNDONE = [
+  ["a Read through them", false, 0],
+  ["a Read through them after a corner of them moved", true, 0],
+  ["a Read through them that turned the picture again", false, 1],
+];
+for (const [what, moved, again] of UNDONE)
+  test(`a Read through the corners a turned Read turned adds no note after an Undo of ${what}`, async (t) => {
+    const h = harness(t, { detect: detection(9, 9) });
+    await h.still("upside-down");
+    let reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    reply.resolve(turned(2)); await settle();
+    assert.deepEqual(h.state.corners, FOUND_CORNERS.map((_, i) => FOUND_CORNERS[(i + 2) % 4]));
+    h.$("show-crop").onclick();
+    if (moved) nudge(h);
+    const corners = h.state.corners.map((p) => ({ ...p }));
+    reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.reads.at(-1).corners, corners);
+    const later = again ? turned(again) : asItLies("sudoku", 9, 9);
+    reply.resolve(later); await settle();
+    if (again) {
+      assert.deepEqual(h.state.notes, later.notes);
+      assert.deepEqual(h.state.corners, FOUND_CORNERS.map((_, i) => FOUND_CORNERS[(i + 2 + again) % 4]), "turned again");
+    } else readWithNote(h, later, null);
+    // Undo that Read: its corners come back, and with them their turn.
+    h.stopTask(); restoreEdit(h.state, h.state.history.pop()); saveSession(h.storage, h.state);
+    assert.deepEqual(h.state.notes, turned(2).notes, "the turned reading's board");
+    assert.deepEqual(h.state.corners, corners, "the corners the undone Read was taken through");
     reply = h.answer();
     h.$("read-photo").onclick(); await settle();
     assert.deepEqual(h.reads.at(-1).corners, corners, "read through those corners");
