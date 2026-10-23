@@ -593,10 +593,11 @@ export function setupPhotoFlow({
   const rotateNote = (cue) => `The page may be ${turnWords(cue)} in the captured picture, and Read puzzle turns only square grids. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
   // The first note of a Read of a square grid that leaves the picture of a
   // capture without a reading the way it lies, when the help line named a
-  // turn as it was taken (liveTurns): as liesNote, but no live reading
-  // suggested the turn and Read puzzle itself checked it. The same Read at
-  // any other size gets rotateNote. A Read that turns the picture gets the
-  // turned reading's own notes, which name the turn it took.
+  // turn as it was taken (liveTurns): as liesNote, but the capture kept no
+  // reading (its help line named the turn) and Read puzzle itself checked
+  // the way up. The same Read at any other size gets rotateNote. A Read that
+  // turns the picture gets the turned reading's own notes, which name the
+  // turn it took.
   const keptNote = (turn) => `The live view suggested that the page may be ${turnWords(turn)}, but Read puzzle's check kept the captured picture the way it lies. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
   // A capture without a reading goes to the crop editor. When the live help
   // line named a turn as it was taken (live-camera.js capture), its photograph

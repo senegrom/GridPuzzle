@@ -115,9 +115,10 @@ into a Read that waited ("Grid found." or "The grid was not found
 automatically.") names no turn: the Read's first progress replaces it at
 once, since a capture has no original to decode first. A Read that turns the
 picture keeps the turned reading's own notes, which name the turn it took,
-and turns the crop with it, so a later Read through that crop reads the page
-upright and adds no note; once a detection or Undo brings back a crop in the
-picture's own frame, a Read that leaves it the way it lies adds it again.
+and turns the crop with it, so a later Read through that crop, also with a
+corner of it moved, reads the page upright and adds no note; once a detection
+or Undo brings back a crop in the picture's own frame, a Read that leaves it
+the way it lies adds it again.
 These are notes only: they change no highlight, flag or reading, so a Read
 whose reading has nothing to review still solves automatically, and like
 every note they show only while the board waits for review ("Live captures"
