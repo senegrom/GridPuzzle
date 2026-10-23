@@ -997,10 +997,12 @@ export function setupPhotoFlow({
     $("photo-panel").hidden = true;
     // Closing the crop editor drops a Read waiting for its grid; the
     // detection itself goes on, as before, and its own line comes back in
-    // place of the answer, which promised the Read.
+    // place of the answer, which promised the Read. Once a stop has ended
+    // the detection's task (its answer may still be on its way), the line
+    // is the one a stop leaves.
     if (!gridSearch?.read) return;
     gridSearch.read = false;
-    if (gridSearch.id === getJobId() && answerShown()) status(...gridSearch.finding);
+    if (answerShown()) status(...(gridSearch.id === getJobId() ? gridSearch.finding : READ_DROPPED));
   };
   $("show-crop").onclick = () => {
     $("photo-panel").hidden = false;
