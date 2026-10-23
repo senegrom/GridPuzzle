@@ -1072,8 +1072,10 @@ test("a Read tapped while a chosen photograph opens reads nothing of the one bef
 });
 
 // Find grid, Rotate and the corners would act on the photograph the crop
-// editor still shows: each is answered instead, and the new one goes on
-// opening and opens as before.
+// editor still shows: each is answered instead, the answer kept on screen with
+// the elapsed time after it, and the new one goes on opening and opens as
+// before.
+const EDITOR_TIMED = new RegExp(`^${OPENING_EDITOR[1].replaceAll(".", "\\.")} ${TIME}$`);
 const editorTaps = {
   "Find grid": (h) => h.$("detect-photo").onclick(),
   Rotate: (h) => h.$("rotate-photo").onclick(),
@@ -1090,11 +1092,16 @@ const editorTaps = {
 };
 for (const [what, tap] of Object.entries(editorTaps))
   test(`${what} tapped while a chosen photograph opens is answered and leaves the photograph before it as it is; the new one opens as before`, async (t) => {
-    const h = harness(t), before = await inEditor(h), next = await h.choose(), cancels = h.cancels;
+    const h = harness(t), s = screen(t, h), before = await inEditor(h), next = await h.choose(), cancels = h.cancels;
     h.running();
     // Not awaited: a detection the tap started would wait for the test.
+    const tapped = s.mark();
     void tap(h); await settle();
     assert.deepEqual(h.statuses.at(-1), OPENING_EDITOR, "the tap is answered");
+    await s.until(([text, detail]) => text === OPENING_EDITOR[0] && EDITOR_TIMED.test(detail), "the answer with the elapsed time after it");
+    const answered = s.since(tapped);
+    assert.ok(answered.every(([text, detail]) => text === OPENING_EDITOR[0] && (detail === OPENING_EDITOR[1] || EDITOR_TIMED.test(detail))),
+      JSON.stringify(answered, null, 1));
     assert.equal(h.state.photo, before.photo); assert.deepEqual([before.photo.width, before.photo.height], [800, 600]);
     assert.deepEqual(h.state.corners, before.corners, "its crop is untouched");
     assert.deepEqual(h.state.layout, before.layout);

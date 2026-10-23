@@ -806,10 +806,13 @@ export function setupPhotoFlow({
   }
   // Find grid, Rotate and the corners act on the photograph the crop editor
   // shows, which, while a chosen photograph opens, is the one before it: the
-  // tap is answered instead, and the new photograph goes on opening.
+  // tap is answered instead, the answer's second line kept in view as a
+  // waiting Read's is (task-controller.js keep), and the new photograph goes
+  // on opening.
   function whileOpening() {
     if (!opening || opening.id !== getJobId()) return false;
     status(...OPENING_EDITOR);
+    keepDetail?.(OPENING_EDITOR[1]);
     return true;
   }
   function drawCrop() {
