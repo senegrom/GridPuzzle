@@ -64,6 +64,10 @@ export function setupPhotoFlow({
     // started with, and whether a Read waits for it.
     fallbackCrop = false,
     gridSearch = null,
+    // A photograph chosen from a file while it is opened (read, checked and
+    // decoded), before it replaces the one in the crop editor: the opening's
+    // task, and whether a Read tapped meanwhile waits for it (Read puzzle).
+    opening = null,
     // The quarter turns by which the crop's corners stand turned from the
     // photograph's own frame: a Read that turned the photograph turned them
     // with it (turnCorners), so that handle 1 is the grid's top-left. The
@@ -735,23 +739,74 @@ export function setupPhotoFlow({
   };
   $("choose-photo").onclick = () => $("photo-file").click();
   $("native-camera").onclick = () => $("native-file").click();
+  // A photograph chosen from a file (the photo library, or the phone's camera
+  // app) is opened, read, checked and decoded (photo-import.js), as a task of
+  // its own with a status of its own: the elapsed time follows, Stop stops it,
+  // and Solve, Check and Hint wait, as during any task. Meanwhile the crop
+  // editor still shows the photograph before it, so its controls answer for
+  // the new one instead of acting on that one: a Read waits for it (Read
+  // puzzle), Find grid, Rotate and the corners do nothing (whileOpening), and
+  // Hide photo drops a Read that waits. Whatever stops the task drops the
+  // photograph, and says so (taskStopped).
+  const OPENING = ["Opening the photo…", "Photo processing stays on this device."],
+    STILL_OPENING = ["Still opening the photo…", "The puzzle is read as soon as the grid is found."],
+    OPENING_EDITOR = ["Still opening the photo…", "The crop editor switches to it as soon as it is open."],
+    OPEN_DROPPED = ["Stopped.", "The new photo was not opened."];
   for (const id of ["photo-file", "native-file"])
     $(id).onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       stopCamera();
-      stopTask();
-      const epoch = getJobId();
+      const epoch = begin();
+      opening = { id: epoch, read: false };
+      status(...OPENING);
       try {
         const { image: canvas } = await importPhoto(file, { current: () => epoch === getJobId() });
-        if (epoch === getJobId()) await acceptPhoto(canvas);
-        else canvas.width = canvas.height = 0;
+        if (epoch === getJobId()) {
+          // The opening's task ends first, so that taking the photograph stops
+          // no running task. A Read tapped while it opened is the Read tapped
+          // as soon as it has: it waits for the new photograph's grid.
+          const read = opening?.id === epoch && opening.read;
+          opening = null;
+          finish();
+          const accepted = acceptPhoto(canvas);
+          if (read) requestRead();
+          await accepted;
+        } else canvas.width = canvas.height = 0;
       } catch (error) {
-        if (epoch === getJobId()) fail(error);
+        if (epoch === getJobId()) {
+          opening = null;
+          finish();
+          fail(error);
+        }
       } finally {
         e.target.value = "";
       }
     };
+  // The page's task controller has stopped a task (app.js onStop). A
+  // photograph still opening goes with it. A stop or task with a status of
+  // its own (Stop, an edit, the camera, another photograph or board) says so
+  // in its own words; once one without (a Play cell, a change of editing
+  // tool) has run, the line that says the photograph is opening, or that a
+  // Read of it waits, is replaced, one microtask after the stop, before the
+  // page paints, as a waiting Read's answer is (detectPhoto). A decode under
+  // way cannot be stopped, so its end would come too late for that.
+  function taskStopped() {
+    if (!opening || opening.id === getJobId()) return;
+    opening = null;
+    queueMicrotask(() => {
+      if (!opening && [OPENING[0], STILL_OPENING[0]].includes($("status-text").textContent))
+        status(...OPEN_DROPPED);
+    });
+  }
+  // Find grid, Rotate and the corners act on the photograph the crop editor
+  // shows, which, while a chosen photograph opens, is the one before it: the
+  // tap is answered instead, and the new photograph goes on opening.
+  function whileOpening() {
+    if (!opening || opening.id !== getJobId()) return false;
+    status(...OPENING_EDITOR);
+    return true;
+  }
   function drawCrop() {
     if (!state.photo || !state.corners) return;
     const out = $("crop-canvas"),
@@ -974,10 +1029,10 @@ export function setupPhotoFlow({
     }
   }
   $("detect-photo").onclick = () => {
-    if (state.photo) return detectPhoto(state.photo);
+    if (state.photo && !whileOpening()) return detectPhoto(state.photo);
   };
   $("rotate-photo").onclick = () => {
-    if (!state.photo) return;
+    if (!state.photo || whileOpening()) return;
     const c = document.createElement("canvas");
     c.width = state.photo.height;
     c.height = state.photo.width;
@@ -999,7 +1054,13 @@ export function setupPhotoFlow({
     // detection itself goes on, as before, and its own line comes back in
     // place of the answer, which promised the Read. Once a stop has ended
     // the detection's task (its answer may still be on its way), the line
-    // is the one a stop leaves.
+    // is the one a stop leaves. It drops a Read waiting for a photograph
+    // being opened alike: the photograph goes on opening, under its own line
+    // again, and shows the crop editor once it has (acceptPhoto).
+    if (opening?.read && opening.id === getJobId()) {
+      opening.read = false;
+      if ($("status-text").textContent === STILL_OPENING[0]) status(...OPENING);
+    }
     if (!gridSearch?.read) return;
     gridSearch.read = false;
     if (answerShown()) status(...(gridSearch.id === getJobId() ? gridSearch.finding : READ_DROPPED));
@@ -1025,7 +1086,7 @@ export function setupPhotoFlow({
     const pt = cropPoint(e),
       dist = state.corners.map((p) => Math.hypot(p.x - pt.x, p.y - pt.y));
     drag = dist.indexOf(Math.min(...dist));
-    if (dist[drag] > state.photo.width * 0.15) {
+    if (dist[drag] > state.photo.width * 0.15 || whileOpening()) {
       drag = -1;
       return;
     }
@@ -1065,6 +1126,7 @@ export function setupPhotoFlow({
     }[e.key];
     if (delta) {
       e.preventDefault();
+      if (whileOpening()) return;
       stopTask();
       const p = state.corners[keyboardCorner],
         step = e.shiftKey ? 10 : 1;
@@ -1305,7 +1367,18 @@ export function setupPhotoFlow({
   // second tap meanwhile adds nothing. Stop, a new photograph or capture,
   // Rotate, a moved corner, closing the crop editor or another task drops
   // the waiting Read, and the answer with it (detectPhoto, Hide photo).
-  $("read-photo").onclick = () => {
+  // While a chosen photograph opens, the crop editor still shows the one
+  // before it, which a Read must not read: the tap is answered alike, and
+  // the Read is the Read tapped as soon as the new photograph has opened,
+  // which then waits for its grid on its fallback crop. Whatever stops the
+  // opening drops it (taskStopped), and so does Hide photo.
+  function requestRead() {
+    if (opening && opening.id === getJobId()) {
+      opening.read = true;
+      status(...STILL_OPENING);
+      keepDetail?.(STILL_OPENING[1]);
+      return;
+    }
     if (gridSearch && gridSearch.id === getJobId()) {
       gridSearch.read = true;
       status(...STILL_FINDING);
@@ -1313,7 +1386,8 @@ export function setupPhotoFlow({
       return;
     }
     void readPhoto();
-  };
+  }
+  $("read-photo").onclick = () => requestRead();
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) return;
     // A frozen solution stays on screen with its reading, and Save picture
@@ -1325,5 +1399,5 @@ export function setupPhotoFlow({
     if (!(captured && !stream && !live)) stopCamera();
   });
 
-  return { stopCamera };
+  return { stopCamera, taskStopped };
 }

@@ -202,6 +202,8 @@ const tasks = createTaskController({
     cancelSolver = null;
     cancel?.();
     stopCamera();
+    // A photograph still being opened goes with the task (photo-flow.js).
+    taskStopped();
     if (wasBusy && worker) {
       worker.terminate();
       worker = null;
@@ -1491,7 +1493,7 @@ $("apply-json").onclick = () => {
   }
 };
 
-const { stopCamera } = setupPhotoFlow({
+const { stopCamera, taskStopped } = setupPhotoFlow({
   savePicture: setupCaptureGallery($),
   // The page runs one Python interpreter. The camera's previews take over
   // an idle or warming one when they will solve; otherwise it is released.
