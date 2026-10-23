@@ -167,6 +167,10 @@ function harness(t, { type = "sudoku", progress = true, detect = null } = {}) {
   t.after(() => { tasks.stop(); flow.stopCamera(); for (const [key, d] of globals) {
     if (d) Object.defineProperty(globalThis, key, d); else delete globalThis[key];
   } });
+  // The crop editor's canvas shown at its own size, for dragging a corner.
+  const crop = $("crop-canvas");
+  crop.getBoundingClientRect = () => ({ left: 0, top: 0, width: crop.width, height: crop.height });
+  crop.setPointerCapture = () => {};
   const corners = [{ x: 60, y: 50 }, { x: 540, y: 60 }, { x: 550, y: 540 }, { x: 50, y: 550 }];
   return { $, state, reads, errors, statuses, details, solves, storage, corners, stopTask, tasks,
     // The deadline the latest task armed, fired as if it had run out.
@@ -712,6 +716,84 @@ for (const [turns, turn, words] of [[2, "upside-down", "upside down"], [1, "side
       reply.resolve(lies); await settle();
       readWithNote(h, lies, KEPT(words));
     });
+// What leaves the corners a turned Read turned where they are keeps their
+// turn: a corner moved by keyboard or pointer moves one of them; an Undo of
+// the turned Read after a corner moved leaves that later crop as it is (Undo
+// brings back the corners from before a Read only while the crop is the one
+// the Read left, photo-undo.test.js); and a Find grid or a Read that fails, or
+// a Find grid that is stopped (its answer then comes too late), brings none. A
+// Read through them reads the page upright, and adds no note.
+const nudge = (h) => {
+  h.$("crop-canvas").onkeydown({ key: "2", preventDefault() {} });
+  h.$("crop-canvas").onkeydown({ key: "ArrowDown", preventDefault() {} });
+};
+const KEEPS_TURN = [
+  ["a corner moved by keyboard", 2, async (h) => {
+    const [, second] = h.state.corners.map((p) => ({ ...p }));
+    nudge(h);
+    assert.deepEqual(h.state.corners[1], { x: second.x, y: second.y + 1 });
+  }],
+  ["a corner moved by pointer", 1, async (h) => {
+    const crop = h.$("crop-canvas"), [first] = h.state.corners.map((p) => ({ ...p }));
+    crop.onpointerdown({ clientX: first.x, clientY: first.y, pointerId: 1, preventDefault() {} });
+    crop.onpointermove({ clientX: first.x - 20, clientY: first.y + 10 }); crop.onpointerup();
+    assert.deepEqual(h.state.corners[0], { x: first.x - 20, y: first.y + 10 });
+  }],
+  ["an Undo of the turned Read after a corner moved", 3, async (h) => {
+    nudge(h);
+    const moved = h.state.corners.map((p) => ({ ...p }));
+    h.stopTask(); restoreEdit(h.state, h.state.history.pop()); saveSession(h.storage, h.state);
+    assert.deepEqual(h.state.notes, [], "the board before the turned Read");
+    assert.deepEqual(h.state.corners, moved, "the moved crop stays");
+  }],
+  ["a Find grid that fails", 2, async (h, search) => {
+    search.next = () => { throw Error("detector failed"); };
+    await h.$("detect-photo").onclick(); await settle();
+    assert.deepEqual(h.errors, ["detector failed"]);
+    h.errors.length = 0;
+  }],
+  ["a Find grid that is stopped", 1, async (h, search) => {
+    const late = deferred();
+    search.next = () => late.promise;
+    void h.$("detect-photo").onclick(); await settle();
+    assert.equal(h.statuses.at(-1), "Finding the grid…");
+    h.stopTask("Stopped.");
+    late.resolve(detection(9, 9)()); await settle();
+    assert.equal(h.statuses.at(-1), "Stopped.");
+  }],
+  ["a Read that fails", 2, async (h) => {
+    const reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    reply.reject(Error("No printed clues found. Adjust the crop, dimensions or lighting.")); await settle();
+    assert.deepEqual(h.errors, ["No printed clues found. Adjust the crop, dimensions or lighting."]);
+    h.errors.length = 0;
+  }],
+];
+for (const [what, turns, act] of KEEPS_TURN)
+  test(`a Read through the corners a turned Read turned adds no note after ${what}`, async (t) => {
+    // The detector finds the grid as the picture arrives, then answers as `next` does.
+    const search = { next: null },
+      h = harness(t, { detect: () => (search.next ?? detection(9, 9))() });
+    await h.still(turns === 2 ? "upside-down" : "sideways");
+    let reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    reply.resolve(turned(turns)); await settle();
+    assert.deepEqual(h.state.notes, turned(turns).notes);
+    const turnedCorners = FOUND_CORNERS.map((_, i) => FOUND_CORNERS[(i + turns) % 4]);
+    assert.deepEqual(h.state.corners, turnedCorners);
+    h.$("show-crop").onclick();
+    await act(h, search);
+    assert.deepEqual(h.errors, []);
+    // Three corners at least stand where the turned Read put them.
+    assert.ok(h.state.corners.filter((p, i) => p.x === turnedCorners[i].x && p.y === turnedCorners[i].y).length >= 3);
+    const corners = h.state.corners.map((p) => ({ ...p }));
+    reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    assert.deepEqual(h.reads.at(-1).corners, corners, "read through those corners");
+    const upright = asItLies("sudoku", 9, 9);
+    reply.resolve(upright); await settle();
+    readWithNote(h, upright, null);
+  });
 // A new picture's crop stands in its own frame, also when a Read turned the
 // crop of the picture before it and the new picture's grid is not found.
 test("a Read of the next capture's picture says its turn, after a Read turned the picture before it", async (t) => {
