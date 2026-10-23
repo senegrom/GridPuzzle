@@ -583,30 +583,35 @@ export function setupPhotoFlow({
   const rotateNote = (cue) => `The page may be ${turnWords(cue)} in the captured picture, and Read puzzle turns only square grids. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle.`;
   // A capture without a reading goes to the crop editor. When the live help
   // line named a turn as it was taken (live-camera.js capture), its photograph
-  // keeps that turn here, and the status of each detection on it says how to
-  // check it (turnHint), for the size the controls hold, which a Read reads
-  // at: Read puzzle does on a square grid; any other needs Rotate first. The
-  // status that ends the detection says it for the size found (the controls'
-  // own when no grid is found), and the status that starts it for the size
-  // the controls hold then, which a detection that fails leaves and a Read
-  // tapped during Find grid on a crop already set reads at. A Read tapped
-  // during the photograph's first detection waits for it instead (Read
-  // puzzle, below): "Still finding the grid…" names no turn, since that Read
-  // reads at the size the detection finds, and the line that leads into it
-  // says the turn for that size (withTurn). On screen, a running task's
+  // keeps that turn here, and the status of each detection on it repeats it
+  // (withTurn) with the check that fits the size a Read then reads at
+  // (turnHint): Read puzzle on a square grid; Rotate first on any other. As a
+  // detection ends, that is the size the controls then hold: the size found,
+  // or the controls' own when no grid is found. As Find grid starts on a crop
+  // that a detection or the user set, it is the controls' size, which a Read
+  // tapped meanwhile reads at. On the fallback crop a new photograph starts
+  // on, until a detection answers or a corner moves, a Read tapped while the
+  // grid is found waits for the detection instead and reads at the size it
+  // leaves (Read puzzle, below), not known yet: the status that starts that
+  // detection names the turn alone, "Still finding the grid…" names none,
+  // and the line that leads into the Read once the detection ends says the
+  // turn with the check for the size it reads at. On screen, a running task's
   // elapsed time replaces the second line of a status within half a second
   // (task-controller.js), and the waiting Read's first progress replaces the
   // line that leads into it at once (a capture has no original to decode
-  // first), so the hint stays in view only in the status that ends a
+  // first), so the check stays in view only in the status that ends a
   // detection no Read waited for. Rotate makes a new photograph, which keeps
   // none.
   const liveTurns = new WeakMap();
-  const turnHint = (turn, { rows, cols }) => rows === cols
-    ? `The grid looked ${turnWords(turn)} in the live view; Read puzzle checks which way up it is.`
-    : `The grid looked ${turnWords(turn)} in the live view, and Read puzzle turns only square grids: Rotate until its numbers stand upright, then Read puzzle.`;
-  const withTurn = (canvas, detail) => {
+  const turnHint = (turn, layout) => !layout
+    ? `The grid looked ${turnWords(turn)} in the live view.`
+    : layout.rows === layout.cols
+      ? `The grid looked ${turnWords(turn)} in the live view; Read puzzle checks which way up it is.`
+      : `The grid looked ${turnWords(turn)} in the live view, and Read puzzle turns only square grids: Rotate until its numbers stand upright, then Read puzzle.`;
+  // `layout` null: the turn alone, for a Read whose size is not known yet.
+  const withTurn = (canvas, detail, layout = currentLayout()) => {
     const turn = liveTurns.get(canvas);
-    return turn ? `${detail} ${turnHint(turn, currentLayout())}` : detail;
+    return turn ? `${detail} ${turnHint(turn, layout)}` : detail;
   };
   // The cells of a reading that hold a digit or a value region: what a turned
   // page reads wrong with confidence (6s and 9s as each other, 2s as 4s).
@@ -849,7 +854,12 @@ export function setupPhotoFlow({
     // reads that crop, as before.
     gridSearch = fallbackCrop ? { id, read: false } : null;
     diagnostics.event({stage:"detecting",reason:"started"});
-    status("Finding the grid…", withTurn(canvas, "Photo processing stays on this device."));
+    // A capture's photograph whose help line named a turn says it (withTurn):
+    // with the check for the controls' size, which a Read tapped meanwhile
+    // reads at, or alone where that Read waits for the size this detection
+    // leaves.
+    status("Finding the grid…",
+      withTurn(canvas, "Photo processing stays on this device.", gridSearch ? null : currentLayout()));
     try {
       // The photograph and its current crop show while the detector works. A
       // crop canvas the browser refuses (iOS under memory pressure) must not
