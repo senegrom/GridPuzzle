@@ -104,8 +104,10 @@ async function updateFound(page, build) {
    leaves every file ("The object can not be found here."; web/TESTING.md,
    "Running the suites from an export"). Every status the app shows is a new
    text node, so a status written before the photo was chosen (an earlier
-   error, say) cannot end the wait; one the app shows for this photo ends it
-   at once, a refusal with what the app said. */
+   error, say) cannot end the wait. Of those the app shows for this photo, a
+   found grid or the corners request ends it, and so does an error, at once,
+   as a refusal with what the app said; its progress ("Finding the grid…")
+   and other notices do not. */
 async function choosePhoto(page) {
   await page.evaluate(() => {
     document.getElementById("auto-solve").checked = false;
