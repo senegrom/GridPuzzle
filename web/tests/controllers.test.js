@@ -124,8 +124,11 @@ test("the elapsed time replaces a task's second line unless the task keeps the l
   assert.match(tick(), KEPT, "no elapsed time once the task ends");
   tasks.begin();
   assert.match(tick(), ELAPSED);
-  // Nothing is kept from a line not on screen, or while no task runs.
+  // Nothing is kept from a line not on screen (another line, or the elapsed
+  // time itself), or while no task runs.
   status("Waiting…", "Another line."); tasks.keep("Kept line.");
+  assert.match(tick(), ELAPSED);
+  tasks.keep("Kept line.");
   assert.match(tick(), ELAPSED);
   tasks.finish(); status("Idle.", "Kept line."); tasks.keep("Kept line.");
   tasks.begin();

@@ -65,9 +65,9 @@ export function createTaskController({ $, scanner, status, onStop,
     },
     // The running task keeps `detail`, the second line of the status it has
     // just set: the elapsed time then follows that line instead of replacing
-    // it, until the task ends or another status replaces the line.
+    // it, until the task ends or another status replaces the line. (The next
+    // task starts with nothing kept: begin stops, and finish forgets.)
     keep(detail) {
-      if (!busy) return;
       kept = detail;
       ticked = null;
     },
