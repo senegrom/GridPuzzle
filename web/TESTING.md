@@ -103,9 +103,10 @@ covers both cases without a browser.
 
 The suites run from an export of a commit too (`git archive <commit> | tar -x
 -C <dir>`), as when testing a commit without checking it out. Extract it
-outside every checkout and Node project: inside one, the build takes that
-checkout's `HEAD` for its build id, and npm installs into the nearest folder
-above that holds a `node_modules` or `package.json`, both without a word.
+outside every checkout and Node project: inside a checkout, the build takes
+that checkout's `HEAD` for its build id, and inside either, npm installs into
+the nearest folder above that holds a `node_modules` or `package.json`, both
+without a word.
 Three things differ from a checkout:
 
 - **The build id.** An export has no `.git`, and `scripts/build_web.py` takes
@@ -146,8 +147,8 @@ Three things differ from a checkout:
   export, its WebKit run stopped at its 120-second wait for "Grid found."
   after the app had refused the photo, before or after the update.
   `web/tests/stale-build-photo.test.js` checks without a browser that it
-  hands the photo over as bytes and stops at once, with the app's words, when
-  the app refuses it. `tar -x -m` dates the files at the extraction instead.
+  hands the photo over as bytes, waits through the app's progress, and stops
+  at once, with the app's words, when the app refuses it. `tar -x -m` dates the files at the extraction instead.
   A checkout dates its files when it writes them, which is almost never on a
   whole second, so CI's runners do not meet this.
 
