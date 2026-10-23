@@ -712,6 +712,23 @@ for (const [turns, turn, words] of [[2, "upside-down", "upside down"], [1, "side
       reply.resolve(lies); await settle();
       readWithNote(h, lies, KEPT(words));
     });
+// A new picture's crop stands in its own frame, also when a Read turned the
+// crop of the picture before it and the new picture's grid is not found.
+test("a Read of the next capture's picture says its turn, after a Read turned the picture before it", async (t) => {
+  let detections = 0;
+  const h = harness(t, { detect: () => { if (detections++) throw Error("detector failed"); return detection(9, 9)(); } });
+  await h.still("upside-down");
+  let reply = h.answer();
+  h.$("read-photo").onclick(); await settle();
+  reply.resolve(turned(2)); await settle();
+  assert.deepEqual(h.state.notes, turned(2).notes);
+  await h.still("sideways", ["detector failed"]);
+  reply = h.answer();
+  h.$("read-photo").onclick(); await settle();
+  const found = asItLies("sudoku", 9, 9);
+  reply.resolve(found); await settle();
+  readWithNote(h, found, KEPT("sideways"), { unconfirmed: true });
+});
 // Rotate makes a new photograph, which keeps no turn, and a capture whose help
 // line named none carries none: a Read of either adds no note.
 test("a Read of a rotated capture's picture adds no note of the turn", async (t) => {
