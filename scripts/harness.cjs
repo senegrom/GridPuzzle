@@ -114,6 +114,11 @@ function baselineSite(commit, files) {
   return { directory, remove: () => { fs.rmSync(directory, { recursive: true, force: true }); temporary.delete(directory); } };
 }
 
+// Playwright's word that the target of a call is gone: a lost browser's
+// calls and a crashed WebKit page's fail with the first, a crashed Chromium
+// page's with the second, and calls on a page as it crashes with the third.
+const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
+
 /* Watches `browser`, the contexts it has and opens and their pages for what
    ends a suite's pages without the suite asking: a page that crashes, a
    page or context that closes without a close() call on it, its context or
@@ -128,12 +133,8 @@ function baselineSite(commit, files) {
    what the suite or its owner closes is no news; after browser.close()
    nothing is recorded. check(name) fails when anything ended, and
    lead(error) puts what ended at the head of a failure's message and
-   stack, once a lost browser's news is in when the failure says that its
-   target is gone. */
-// Playwright's word that the target of a call is gone: a lost browser's
-// calls and a crashed WebKit page's fail with the first, a crashed Chromium
-// page's with the second, and calls on a page as it crashes with the third.
-const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
+   stack, after waiting for a lost browser's news when the failure says
+   that its target is gone (GONE). */
 function watch(browser, { grace = 1000 } = {}) {
   const started = Date.now(), ended = [], asked = new WeakSet();
   const unasked = (...targets) => !targets.some((target) => asked.has(target));
