@@ -726,7 +726,7 @@ def test_the_testing_guide_installs_playwright_as_setup_scanner_does():
     action = (_GITHUB / "actions" / "setup-scanner" / "action.yml").read_text(encoding="utf-8")
     install = re.search(r"^ +(npm install .*\bplaywright@)\d+\.\d+\.\d+$", action, re.M)
     assert install, "setup-scanner installs no Playwright with npm"
-    guide =(_ROOT / "web" / "TESTING.md").read_text(encoding="utf-8")
+    guide = (_ROOT / "web" / "TESTING.md").read_text(encoding="utf-8")
     commands = [" ".join(command.split()) for command in re.findall(r"`(npm [^`]*)`", guide)]
     assert commands == [f"{install.group(1)}<that version>"]
 
