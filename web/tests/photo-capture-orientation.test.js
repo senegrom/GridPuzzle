@@ -729,6 +729,23 @@ test("a Read of the next capture's picture says its turn, after a Read turned th
   reply.resolve(found); await settle();
   readWithNote(h, found, KEPT("sideways"), { unconfirmed: true });
 });
+// The crop's turn counts quarter turns: a second turned Read that brings the
+// corners back into the picture's own frame leaves a crop that gets the note.
+test("a Read through corners that two turned Reads brought back into the picture's own frame says the turn again", async (t) => {
+  const h = harness(t, { detect: detection(9, 9) });
+  await h.still("sideways");
+  for (const turns of [1, 3]) {
+    const reply = h.answer();
+    h.$("read-photo").onclick(); await settle();
+    reply.resolve(turned(turns)); await settle();
+    assert.deepEqual(h.state.notes, turned(turns).notes);
+  }
+  assert.deepEqual(h.state.corners, FOUND_CORNERS);
+  const reply = h.answer(), found = asItLies("sudoku", 9, 9);
+  h.$("read-photo").onclick(); await settle();
+  reply.resolve(found); await settle();
+  readWithNote(h, found, KEPT("sideways"));
+});
 // Rotate makes a new photograph, which keeps no turn, and a capture whose help
 // line named none carries none: a Read of either adds no note.
 test("a Read of a rotated capture's picture adds no note of the turn", async (t) => {
