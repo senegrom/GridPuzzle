@@ -4,6 +4,7 @@
 const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), http = require("node:http");
+const { watch } = require("./harness.cjs");
 const ROOT = "Examples/BrowserScanner/Newspaper";
 const fixtures = JSON.parse(fs.readFileSync(`${ROOT}/ground-truth.json`)).fixtures.map((f) => ({ ...f,
   imageData: fs.readFileSync(`${ROOT}/${f.image}`).toString("base64") }));
@@ -63,8 +64,8 @@ async function run() {
   fs.mkdirSync("browser-artifacts", { recursive: true });
   try {
     for (const [name, engine] of Object.entries({ chromium, webkit })) {
-      const browser = await engine.launch({ headless: true });
-      const report = { browser: name, version: browser.version() }; reports.push(report);
+      const browser = await engine.launch({ headless: true }), watched = watch(browser);
+      const report = { browser: name, version: browser.version(), ended: watched.ended }; reports.push(report);
       try {
         for (const variant of process.env.OCR_BASELINE_SITE ? ["baseline", "candidate"] : ["candidate"]) {
           const context = await browser.newContext({ serviceWorkers: "block" });
@@ -82,8 +83,9 @@ async function run() {
           console.log(`${name}/${variant}: reads ${times.join(", ")} ms; first provisional reading ${report[variant].scans.map((s) => s.firstReading ?? "-").join(", ")} ms; OCR hosts ${report[variant].counts.ocr}, geometry workers ${report[variant].counts.geometry}`);
           await context.close();
         }
+        watched.check(name);
         report.ok = true;
-      } catch (error) { report.ok = false; report.failure = error.stack; throw error; }
+      } catch (thrown) { const error = await watched.lead(thrown); report.ok = false; report.failure = error.stack; throw error; }
       finally { await browser.close(); }
     }
   } finally { fs.writeFileSync("browser-artifacts/ocr-latency.json", JSON.stringify(reports, null, 2) + "\n"); server.close(); }

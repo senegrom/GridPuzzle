@@ -122,6 +122,12 @@ jobs:
           key: ${{ steps.live-fixtures.outputs.cache-primary-key }}
       - name: External pictures through automatic detection, tracking and OCR
         run: node scripts/external_replay_regressions.cjs
+      # The harness's own check, that a page which crashes, closes or loses
+      # its browser fails its suite and leads its failure and report. It
+      # takes seconds and needs no site, and this job ends minutes before
+      # recognition does, so here it adds no time.
+      - name: Crashed pages and lost browsers in the suites' failures and reports
+        run: node scripts/harness_regressions.cjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:

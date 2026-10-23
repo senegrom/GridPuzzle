@@ -2,7 +2,7 @@
 const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { serve, sleep, stubCamera } = require("./harness.cjs");
+const { serve, sleep, stubCamera, watch } = require("./harness.cjs");
 // The offline checks stop the origin and start it again: the port is fixed so
 // the service worker's cache still belongs to the same origin.
 const BASE = "http://127.0.0.1:8765/GridPuzzle/",
@@ -229,6 +229,7 @@ async function checkStartupCancellation(browser, image, report) {
   await startServer();
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = await engine.launch({ headless: true });
+    const watched = watch(browser);
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 1,
@@ -286,6 +287,7 @@ async function checkStartupCancellation(browser, image, report) {
       checks: [],
       errors,
       external,
+      ended: watched.ended,
     };
     reports.push(report);
     try {
@@ -667,9 +669,11 @@ async function checkStartupCancellation(browser, image, report) {
             `${count} style refusals at index.html line ${line + 1} in ${loads} page loads, more than its <select> elements make`,
           );
       assert.deepEqual(errors, [], "Browser raised uncaught errors");
+      watched.check(name);
       report.ok = true;
       console.log(name, JSON.stringify(report));
-    } catch (error) {
+    } catch (thrown) {
+      const error = await watched.lead(thrown);
       report.ok = false;
       report.failure = error.stack;
       console.error(name, error);
