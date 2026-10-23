@@ -224,11 +224,14 @@ then reads at: as a detection ends, the size the controls then hold (the
 size found, or theirs when none is), and as Find grid starts on a crop
 already set, the controls'. On the untouched crop a new picture starts on,
 where a Read tapped meanwhile waits for the detection and reads at the size
-it leaves, the status that starts the detection names the turn alone, and
-the line that leads into the waiting Read says it with the check for the
-size it reads at. Notes only: no highlight, flag or
-reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md), which also says
-when the crop editor's hint stays on screen).
+it leaves, the status that starts the detection names the turn alone. Each
+Read of such a picture that leaves it the way it lies, one that waited or one
+tapped later, says the turn in a first note: on a square grid, that Read
+puzzle's check kept the picture the way it lies, and on any other, that Read
+puzzle turns only square grids, each with the pointer to Adjust scan →
+Rotate, then Read puzzle. Notes only: no highlight, flag or reading changes
+with them ([LIVE_CAMERA.md](LIVE_CAMERA.md), which also says when the crop
+editor's hint stays on screen).
 
 A cage puzzle (Killer or KenKen chosen as the type) could take neither check:
 every digit read on a cage board is under review, so its reading has no
