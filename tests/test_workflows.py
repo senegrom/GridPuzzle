@@ -717,6 +717,20 @@ def test_the_scanner_jobs_run_in_the_playwright_image_of_the_pinned_version():
     assert re.findall(r'"([^"]+)"', families.group(1)) == ["DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono"]
 
 
+def test_the_testing_guide_installs_playwright_as_setup_scanner_does():
+    """The repository has no package.json at its root, so npm has nothing to
+    install from there, and the Playwright version lives in setup-scanner
+    alone. Every npm command web/TESTING.md gives (to run the suites from an
+    export) is therefore the one setup-scanner runs, with the version left
+    to that action."""
+    action = (_GITHUB / "actions" / "setup-scanner" / "action.yml").read_text(encoding="utf-8")
+    install = re.search(r"^ +(npm install .*\bplaywright@)\d+\.\d+\.\d+$", action, re.M)
+    assert install, "setup-scanner installs no Playwright with npm"
+    guide =(_ROOT / "web" / "TESTING.md").read_text(encoding="utf-8")
+    commands = [" ".join(command.split()) for command in re.findall(r"`(npm [^`]*)`", guide)]
+    assert commands == [f"{install.group(1)}<that version>"]
+
+
 def test_the_external_pictures_come_from_the_cache_when_it_holds_them():
     """Every job that fetches the pinned picture slice restores the fetch
     script's store from the cache first and saves it after a miss, so a
