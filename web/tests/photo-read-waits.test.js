@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
 import { setupPhotoFlow } from "../photo-flow.js";
 import { restoreSession, saveSession } from "../session.js";
-import { boxShape, fitPlay, makePuzzle } from "../model.js";
+import { boxShape, fitPlay, isPlayableCell, makePuzzle, maxValue } from "../model.js";
 import { rememberEdit } from "../edit-history.js";
 import { createTaskController } from "../task-controller.js";
 
@@ -51,7 +53,9 @@ const UNCONFIRMED = /^The grid was not found automatically and the crop corners 
 
 // `late`: stopping a task leaves the detection running, so that its answer can
 // come after the stop, which the flow must ignore (the real scanner rejects it).
-function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows: 2, boxCols: 2 }, late = false } = {}) {
+// `holdReads`: each reading answers only once the test releases it.
+function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows: 2, boxCols: 2 }, late = false,
+  holdReads = false } = {}) {
   const globals = ["document", "window", "navigator", "createImageBitmap"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   const noop = () => {};
   // Every canvas records what is drawn into it.
@@ -85,8 +89,13 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
   // Each detection waits for the test to answer it. Stopping a task cancels
   // the scanner, which, as the real one does, rejects the detection it runs.
   const detections = [], reads = [], errors = [], statuses = [];
-  let cancels = 0, solves = 0, saved, capture = null, flow = null;
-  const status = (text, detail = "") => statuses.push([text, detail]);
+  let cancels = 0, solves = 0, saved, capture = null, flow = null, release = null;
+  // app.js status(): the two lines the page shows, whose second the task
+  // controller's elapsed time rewrites while a task runs.
+  const status = (text, detail = "") => {
+    statuses.push([text, detail]);
+    $("status-text").textContent = text; $("status-detail").textContent = detail;
+  };
   const tasks = createTaskController({ $, status, onStop: () => flow?.stopCamera(),
     scanner: { cancel() { cancels++; if (!late) for (const job of detections) job.reject(aborted()); } } });
   const stopTask = (message) => tasks.stop(message);
@@ -96,6 +105,7 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
     async read(image, corners, type, rows, cols, onProgress) {
       reads.push({ image, corners: corners.map((p) => ({ ...p })), type, rows, cols });
       onProgress("Straightening the photograph…", null);
+      if (holdReads) await new Promise((resolve) => { release = resolve; });
       const reading = makePuzzle(type, rows, cols); reading.cells[0] = 1;
       return { puzzle: reading, cellUncertain: [], uncertain: [], cageUncertain: [], blackReadings: [], needsReview: false,
         notes: [], rectified: canvas(200, 200) };
@@ -105,7 +115,7 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
   remember: () => rememberEdit(state), persist: () => saveSession(storage, state), drawBoard: noop,
   clearPhotoMapping() { state.rectified = state.photoSource = null; }, solveNow() { solves++; }, boxDefault: boxShape,
   setLayout, getJobId: () => tasks.id, setDeadline: (callback, ms) => tasks.setDeadline(callback, ms),
-  savePicture: async () => true,
+  keepDetail: (detail) => tasks.keep(detail), savePicture: async () => true,
   liveFactory: () => ({ start: noop, stop: noop, capture: () => capture,
     diagnosticSource: () => ({ image: capture.photo, verified: true }) }) });
   t.after(() => { tasks.stop(); flow.stopCamera(); for (const [key, d] of globals) {
@@ -117,6 +127,10 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
   return { $, state, tasks, detections, reads, errors, statuses, storage, canvas, setLayout,
     get cancels() { return cancels; }, get solves() { return solves; },
     get status() { return statuses.at(-1)?.[0]; },
+    // A held reading answers (`holdReads`).
+    releaseRead() { release(); },
+    // A status the rest of the app sets.
+    say: status,
     // A photograph imported from a file; resolves once its grid is being found.
     async photograph() {
       const before = detections.length;
@@ -610,4 +624,288 @@ test("after Hide photo and Adjust scan, a Read tapped while the detection still 
   detection.resolve(found()); await imported; await settle();
   leadIn(h, FOUND_LINE);
   readThroughGrid(h);
+});
+
+// ---- On screen ------------------------------------------------------------
+// What the page shows while a Read waits and once something drops it: the
+// two status lines as app.js's status() writes them and as the task
+// controller's elapsed time rewrites the second every half second while a
+// task runs, sampled from a 10 ms timer between tasks, as a paint sees them
+// (only changes are kept). Before, the elapsed time replaced the answer's
+// promise within half a second, and a stop that sets no status of its own (a
+// moved corner, a Play cell, a change of editing tool) left the answer on
+// screen, promising a Read that never came.
+const STILL = "Still finding the grid…", PROMISE = "The puzzle is read as soon as the grid is found.",
+  TIME = String.raw`\d+\.\d seconds elapsed · Stop cancels this task\.`,
+  ELAPSED = new RegExp(`^${TIME}$`), TIMED = new RegExp(`^${PROMISE.replaceAll(".", "\\.")} ${TIME}$`),
+  DROPPED = ["Stopped.", "Read puzzle reads the crop as it is."],
+  FINDING = ["Finding the grid…", "Photo processing stays on this device."],
+  UNFINISHED = "Search unfinished. No claim about uniqueness or impossibility has been made.";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function screen(t, h) {
+  const painted = [], now = () => [h.$("status-text").textContent, h.$("status-detail").textContent];
+  const sample = () => {
+    const line = now(), last = painted.at(-1);
+    if (!last || last[0] !== line[0] || last[1] !== line[1]) painted.push(line);
+  };
+  const timer = setInterval(sample, 10);
+  t.after(() => clearInterval(timer));
+  return {
+    painted, now,
+    // A point to count from: since(point) is what was painted after it.
+    mark() { sample(); return painted.length; },
+    since(point) { sample(); return painted.slice(point); },
+    // Waits, as the page goes on, until the line on screen passes `check`.
+    async until(check, what) {
+      for (const started = Date.now(); !check(now()); await sleep(10))
+        if (Date.now() - started > 10000) assert.fail(`never painted: ${what}\n${JSON.stringify(painted, null, 1)}`);
+      sample();
+    },
+  };
+}
+// The answer, bare or with the elapsed time after its promise.
+const answer = ([text, detail]) => text === STILL && (detail === PROMISE || TIMED.test(detail));
+const noPromise = (lines) => assert.ok(lines.every(([, detail]) => !detail.includes(PROMISE)), JSON.stringify(lines, null, 1));
+
+test("on screen, the answer's promise stays while the Read waits, with the elapsed time after it, and the detection's and the Read's own lines are as before", async (t) => {
+  const h = harness(t, { holdReads: true }), s = screen(t, h), { imported, detection } = await h.photograph();
+  // The detection alone: its own line, then its elapsed time alone.
+  await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
+  const tapped = s.mark();
+  await h.tapRead();
+  // The promise through two ticks of the elapsed time, and through a second tap.
+  const ticks = () => new Set(s.painted.slice(tapped).flatMap(([, detail]) => (TIMED.test(detail) ? [detail] : []))).size;
+  await s.until(() => ticks() >= 2, "the promise with two elapsed times");
+  await h.tapRead();
+  await s.until(() => ticks() >= 3, "the promise with the elapsed time after a second tap");
+  const waited = s.since(tapped);
+  assert.deepEqual(waited[0], [STILL, PROMISE], "the answer as it is set");
+  assert.ok(waited.every(answer), JSON.stringify(waited, null, 1));
+  assert.equal(h.reads.length, 0); h.running();
+  // The detection answers, and the Read runs as a task of its own: none of
+  // its lines carries the promise, and its elapsed time stands alone.
+  const answered = s.mark();
+  detection.resolve(found()); await imported;
+  await s.until(([text, detail]) => text === "Straightening the photograph…" && ELAPSED.test(detail), "the Read's elapsed time");
+  h.releaseRead();
+  await s.until(([text]) => text === "Puzzle read.", "the reading");
+  await sleep(600);
+  const read = s.since(answered);
+  noPromise(read);
+  assert.ok(read.slice(0, -1).every(([text, detail]) => (text === FOUND_LINE[0] ? detail === FOUND_LINE[1]
+    : text === "Straightening the photograph…" && (detail === "" || ELAPSED.test(detail)))), JSON.stringify(read, null, 1));
+  assert.equal(read.at(-1)[0], "Puzzle read.", "the elapsed time ends with the Read");
+  readThroughGrid(h);
+});
+
+// app.js's own handlers for a tap on a board cell (cellAction, which opens a
+// Play cell, answers a tap on a clue cell or selects a cell for a cage or an
+// inequality) and for a change of editing tool, taken from app.js as they
+// are (as play-actions.test.js does) and run against this harness's flow,
+// task controller and status lines.
+function appHandlers(h) {
+  const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  const section = (first, last) => {
+    const start = app.indexOf(first), end = app.indexOf(last, start);
+    assert.ok(start >= 0 && end > start, `app.js has ${first}`);
+    return app.slice(start, end);
+  };
+  const noop = () => {};
+  Object.assign(h.$("board"), { querySelector: () => null });
+  Object.assign(h.$("cell-dialog"), { showModal() { this.open = true; } });
+  Object.assign(h.$("cell-value"), { select: noop });
+  const context = vm.createContext({ $: h.$, state: h.state, status: h.say, isPlayableCell, maxValue,
+    stopTask: (message) => h.tasks.stop(message), clueReread: { open: noop, cancel: noop }, drawBoard: noop, render: noop,
+    openCell() { assert.fail("only the Clues tool opens a cell to edit"); } });
+  vm.runInContext(["let editing = null, focused = null, playEditing = false;",
+    section("function playMode()", "function savePlayCell()"),
+    section("function cellAction(", '$("board").onclick ='),
+    section('$("edit-tool").onchange =', '$("clear-selection").onclick ='),
+    "globalThis.app = { cellAction };"].join("\n"), context);
+  return context.app;
+}
+// A tap on board cell `i` with the editing tool `tool`, through app.js.
+const tapCell = (h, tool, i) => { h.$("edit-tool").value = tool; appHandlers(h).cellAction(i); };
+
+// Stops that set no status of their own: a corner moved or touched in the
+// crop editor; app.js's own handlers when a Play cell opens and when the
+// editing tool changes; and any other task stop without a message (as a
+// photograph or puzzle file chosen stops it, until the file is read). Each
+// drops the waiting Read, and the answer goes with it, before the page paints
+// again; the line in its place says what a Read does now, which a Read then
+// does. (A cell selected with the Cages or Inequalities tool stops the task
+// too, but says how many cells are selected: below.)
+const silentStops = {
+  "a corner moved with the pointer"(h) {
+    const crop = h.$("crop-canvas"), [first] = fallback(800, 600);
+    crop.onpointerdown({ clientX: first.x, clientY: first.y, pointerId: 1, preventDefault() {} });
+    crop.onpointermove({ clientX: first.x + 20, clientY: first.y + 10 }); crop.onpointerup();
+  },
+  "a corner moved with the keyboard"(h) {
+    const crop = h.$("crop-canvas");
+    crop.onkeydown({ key: "3", preventDefault() {} });
+    crop.onkeydown({ key: "ArrowLeft", shiftKey: true, preventDefault() {} });
+  },
+  "a corner handle touched but not moved"(h) {
+    const crop = h.$("crop-canvas"), [corner] = fallback(800, 600);
+    crop.onpointerdown({ clientX: corner.x, clientY: corner.y, pointerId: 1, preventDefault() {} });
+    crop.onpointerup();
+  },
+  "a Play cell opened"(h) {
+    tapCell(h, "play", 5);
+    assert.equal(h.$("cell-dialog").open, true, "the cell opens for an answer");
+  },
+  "a change of editing tool"(h) {
+    appHandlers(h);
+    h.$("edit-tool").value = "play"; h.$("edit-tool").onchange();
+  },
+  "a task stop without a message"(h) { h.tasks.stop(); },
+};
+for (const [what, stop] of Object.entries(silentStops))
+  for (const ticked of [false, true])
+    test(`on screen, ${what} drops the waiting Read ${ticked ? "once the elapsed time follows the promise" : "right after the tap"}: "Stopped.", and Read puzzle reads the crop as it is, at once`, async (t) => {
+      const h = harness(t), s = screen(t, h), { imported } = await h.photograph();
+      await h.tapRead();
+      if (ticked) await s.until(([, detail]) => TIMED.test(detail), "the promise with the elapsed time");
+      assert.ok(answer(s.now()), JSON.stringify(s.now()));
+      const stopped = s.mark();
+      stop(h); await settle(); await sleep(100);
+      assert.deepEqual(s.since(stopped), [DROPPED], "painted after the stop: this line alone, which stays");
+      h.ended(); assert.equal(h.reads.length, 0);
+      await imported;
+      const corners = h.state.corners.map((p) => ({ ...p }));
+      await h.tapRead(); await settle();
+      assert.equal(h.reads.length, 1, "read at once"); assert.deepEqual(h.reads[0].corners, corners);
+      assert.equal(h.status, "Puzzle read."); h.ended();
+    });
+
+// A stop or another task that sets a status of its own keeps it: the flow
+// replaces its own answer only, also when the stopped detection answers late.
+// A cell selected with the Cages or Inequalities tool is such a stop: app.js's
+// handler stops the task and then, in the same handler, says how many cells
+// are selected.
+const ownLines = {
+  Stop: [(h) => h.stop(), ["Stopped.", UNFINISHED]],
+  "an edit": [(h) => h.tasks.stop("Stopped for editing."), ["Stopped for editing.", UNFINISHED]],
+  "Find grid": [(h) => void h.$("detect-photo").onclick(), FINDING],
+  Rotate: [(h) => h.$("rotate-photo").onclick(), FINDING],
+  "the camera": [(h) => h.$("camera").onclick(), ["Camera ready.", "Hold a clear grid steady; the shutter saves the view."]],
+  "a cell selected with the Cages tool": [(h) => { tapCell(h, "cage", 5); h.ended(); },
+    ["1 cells selected.", "Enter the target and save the cage."]],
+  "a cell selected with the Inequalities tool": [(h) => { tapCell(h, "inequality", 5); h.ended(); },
+    ["1 cells selected.", "Select the smaller cell first, then the larger adjacent cell."]],
+};
+for (const late of [false, true])
+  for (const [what, [stop, line]] of Object.entries(ownLines))
+    test(`on screen, ${what} drops the waiting Read with a status of its own, which stays${late ? ", also when the stopped detection answers late" : ""}`, async (t) => {
+      const h = harness(t, { late }), s = screen(t, h), { detection } = await h.photograph();
+      await h.tapRead();
+      const stopped = s.mark();
+      await stop(h); await settle();
+      if (late) { detection.resolve(found(STRAY)); await settle(); }
+      await sleep(50);
+      const after = s.since(stopped);
+      assert.deepEqual(s.now(), line);
+      noPromise(after);
+      assert.ok(!after.some(([text, detail]) => text === DROPPED[0] && detail === DROPPED[1]), JSON.stringify(after, null, 1));
+      assert.equal(h.reads.length, 0);
+    });
+
+// Hide photo drops the waiting Read and lets the detection go on: the line
+// that detection started with comes back (with a capture's turn, if its help
+// line named one), and then its elapsed time alone, as before the tap.
+for (const turn of [null, "sideways"])
+  test(`on screen, Hide photo drops the waiting Read: the detection's own line${turn ? ", naming the capture's turn," : ""} comes back, then its elapsed time alone`, async (t) => {
+    const h = harness(t), s = screen(t, h);
+    let detection, imported;
+    if (turn) { await h.capture({ corners: null, found: null, turn }); [detection] = h.detections; }
+    else ({ detection, imported } = await h.photograph());
+    const start = h.statuses.findLast(([text]) => text === FINDING[0]);
+    assert.deepEqual(start, turn ? [FINDING[0], `${FINDING[1]} The grid looked ${turn} in the live view.`] : FINDING);
+    await h.tapRead();
+    await s.until(([, detail]) => TIMED.test(detail), "the promise with the elapsed time");
+    const hidden = s.mark();
+    h.$("hide-photo").onclick();
+    assert.deepEqual(h.statuses.at(-1), start, "the line the detection started with, at once");
+    await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
+    h.running();
+    detection.resolve(found()); await imported; await settle();
+    const after = s.since(hidden);
+    noPromise(after);
+    assert.ok(after.slice(0, -1).every(([text, detail]) => text === FINDING[0] && (detail === start[1] || ELAPSED.test(detail))),
+      JSON.stringify(after, null, 1));
+    assert.equal(h.status, "Grid found."); assert.equal(h.reads.length, 0); h.ended();
+  });
+
+// A status set while the Read waits by something that does not stop it (app.js
+// answers a Play tap on a clue cell that way, run here as it is) replaces the
+// answer: the elapsed time then replaces that status's second line, as any
+// status's, and the Read still follows the detection. A stop without a
+// status or Hide photo leaves that status as it is, since no answer is on
+// screen to take back.
+const CLUE = ["That cell holds a printed clue.", "Pick a blank cell for your answer, or switch Editing to Clues to change the clue."];
+test("on screen, a status set while the Read waits (a Play tap on a clue cell) replaces the answer, its elapsed time alone, and the Read still follows the detection", async (t) => {
+  const h = harness(t), s = screen(t, h), { imported, detection } = await h.photograph();
+  h.state.puzzle.cells[0] = 1;
+  await h.tapRead();
+  const said = s.mark();
+  tapCell(h, "play", 0);
+  assert.deepEqual(h.statuses.at(-1), CLUE, "app.js's answer to the tap");
+  await s.until(([text, detail]) => text === CLUE[0] && ELAPSED.test(detail), "the elapsed time under that status");
+  const after = s.since(said);
+  assert.ok(after.every(([text, detail]) => text === CLUE[0] && (detail === CLUE[1] || ELAPSED.test(detail))), JSON.stringify(after, null, 1));
+  h.running(); assert.equal(h.reads.length, 0);
+  detection.resolve(found()); await imported; await settle();
+  leadIn(h, FOUND_LINE);
+  readThroughGrid(h);
+});
+for (const [what, drop] of [["a stop without a status", (h) => h.tasks.stop()], ["Hide photo", (h) => h.$("hide-photo").onclick()]])
+  test(`on screen, ${what} leaves a status set while the Read waited as it is`, async (t) => {
+    const h = harness(t), s = screen(t, h), { detection } = await h.photograph();
+    await h.tapRead();
+    h.say(...CLUE);
+    const dropped = s.mark();
+    drop(h); await settle(); await sleep(50);
+    detection.resolve(found()); await settle();
+    const after = s.since(dropped).filter(([text]) => text !== "Grid found.");
+    assert.ok(after.every(([text, detail]) => text === CLUE[0] && (detail === CLUE[1] || ELAPSED.test(detail))), JSON.stringify(after, null, 1));
+    assert.equal(h.reads.length, 0);
+  });
+
+// The real scanner rejects a stopped detection at once, so the answer goes
+// one microtask after a stop without a status. A detection that answers only
+// later has the answer replaced when it does, never a line set since; and
+// Hide photo meanwhile says what a stop says, since no detection runs.
+test("a stop without a status whose detection answers late: the answer goes when it answers, and never a line set since", async (t) => {
+  const line = (h) => [h.$("status-text").textContent, h.$("status-detail").textContent];
+  await t.test("nothing set meanwhile", async (t) => {
+    const h = harness(t, { late: true }), { detection } = await h.photograph();
+    await h.tapRead(); h.tasks.stop(); await settle();
+    assert.equal(line(h)[0], STILL, "the stopped detection has not answered yet");
+    detection.resolve(found(STRAY)); await settle();
+    assert.deepEqual(line(h), DROPPED); assert.equal(h.reads.length, 0);
+  });
+  await t.test("a Read tapped meanwhile", async (t) => {
+    const h = harness(t, { late: true }), { detection } = await h.photograph();
+    await h.tapRead(); h.tasks.stop(); await settle();
+    await h.tapRead(); await settle();
+    assert.equal(h.reads.length, 1, "read at once"); assert.equal(line(h)[0], "Puzzle read.");
+    const read = line(h);
+    detection.resolve(found(STRAY)); await settle();
+    assert.deepEqual(line(h), read); assert.equal(h.reads.length, 1);
+  });
+  await t.test("Hide photo meanwhile", async (t) => {
+    const h = harness(t, { late: true }), { detection } = await h.photograph();
+    await h.tapRead(); h.tasks.stop(); await settle();
+    h.$("hide-photo").onclick();
+    assert.deepEqual(line(h), DROPPED, "no detection runs, so not its line");
+    detection.resolve(found(STRAY)); await settle();
+    assert.deepEqual(line(h), DROPPED); assert.equal(h.reads.length, 0); h.ended();
+  });
+});
+
+// The page itself hands the photo flow the task controller's keep.
+test("app.js gives the photo flow the task controller's keep", () => {
+  const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /setupPhotoFlow\(\{[^]*?\bkeepDetail: \(detail\) => tasks\.keep\(detail\),[^]*?\}\);/);
 });

@@ -89,3 +89,48 @@ test("a running task disables Check and Hint until it finishes", () => {
   assert.equal($("check-play").disabled, false);
   assert.equal($("hint-play").disabled, false);
 });
+
+// --- task controller: the elapsed time, and a second line a task keeps -----
+// The elapsed time replaces a running task's second line every half second
+// (on a mock clock here). A task may keep the line it has just set (the photo
+// flow keeps the promise of a Read that waits for the grid): the elapsed time
+// then follows it, until another status replaces the line or the task ends.
+test("the elapsed time replaces a task's second line unless the task keeps the line it shows", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const nodes = new Map(), $ = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { setAttribute() {}, hidden: false, disabled: false, textContent: "" });
+    return nodes.get(id);
+  };
+  const status = (text, detail = "") => { $("status-text").textContent = text; $("status-detail").textContent = detail; };
+  const tasks = createTaskController({ $, scanner: { cancel() {} }, status, onStop() {} });
+  t.after(() => tasks.stop());
+  const TIME = String.raw`\d+\.\d seconds elapsed · Stop cancels this task\.`,
+    ELAPSED = new RegExp(`^${TIME}$`), KEPT = new RegExp(`^Kept line\\. ${TIME}$`);
+  const tick = () => { t.mock.timers.tick(500); return $("status-detail").textContent; };
+  // A task that keeps nothing: the elapsed time replaces its line, as before.
+  tasks.begin(); status("Working…", "A line of its own.");
+  assert.match(tick(), ELAPSED);
+  // A kept line: the elapsed time follows it, tick after tick.
+  status("Waiting…", "Kept line."); tasks.keep("Kept line.");
+  assert.match(tick(), KEPT); assert.match(tick(), KEPT);
+  // Another status replaces it: the elapsed time replaces that status's line.
+  status("Something else.", "Its own line.");
+  assert.match(tick(), ELAPSED); assert.match(tick(), ELAPSED);
+  // A line kept again, and the task ends with it on screen: the next task,
+  // even before a status of its own, shows its elapsed time alone.
+  status("Waiting…", "Kept line."); tasks.keep("Kept line.");
+  assert.match(tick(), KEPT);
+  tasks.finish();
+  assert.match(tick(), KEPT, "no elapsed time once the task ends");
+  tasks.begin();
+  assert.match(tick(), ELAPSED);
+  // Nothing is kept from a line not on screen (another line, or the elapsed
+  // time itself), or while no task runs.
+  status("Waiting…", "Another line."); tasks.keep("Kept line.");
+  assert.match(tick(), ELAPSED);
+  tasks.keep("Kept line.");
+  assert.match(tick(), ELAPSED);
+  tasks.finish(); status("Idle.", "Kept line."); tasks.keep("Kept line.");
+  tasks.begin();
+  assert.match(tick(), ELAPSED);
+});

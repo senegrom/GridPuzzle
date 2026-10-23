@@ -2,13 +2,19 @@
 // Deadlines run on `deadlines`, which app.js gives visible-time.js's: they
 // stop while the page is hidden, so that an app switch cannot run them out.
 // A deadline set with `wallClock` runs on setTimeout's clock instead.
+// While a task runs, its elapsed time replaces the status's second line
+// every half second, unless the task keeps that line (keep).
 export function createTaskController({ $, scanner, status, onStop,
   deadlines = { setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (handle) => clearTimeout(handle) } }) {
   let id = 0,
     busy = false,
     timer = null,
     deadline = null,
-    started = 0;
+    started = 0,
+    // The second line the running task keeps, and the line the elapsed time
+    // last wrote after it.
+    kept = null,
+    ticked = null;
   const clearDeadline = () => {
     deadline?.();
     deadline = null;
@@ -17,6 +23,7 @@ export function createTaskController({ $, scanner, status, onStop,
     busy = false;
     clearInterval(timer);
     timer = null;
+    kept = ticked = null;
     clearDeadline();
     $("stop").hidden = true;
     $("solve").disabled = false;
@@ -56,6 +63,14 @@ export function createTaskController({ $, scanner, status, onStop,
         deadline = () => deadlines.clearTimer(handle);
       }
     },
+    // The running task keeps `detail`, the second line of the status it has
+    // just set: the elapsed time then follows that line instead of replacing
+    // it, until the task ends or another status replaces the line. (The next
+    // task starts with nothing kept: begin stops, and finish forgets.)
+    keep(detail) {
+      kept = detail;
+      ticked = null;
+    },
     begin() {
       stop();
       busy = true;
@@ -67,8 +82,10 @@ export function createTaskController({ $, scanner, status, onStop,
       $("check-play").disabled = $("hint-play").disabled = true;
       $("status").setAttribute("aria-busy", "true");
       timer = setInterval(() => {
-        $("status-detail").textContent =
-          `${((performance.now() - started) / 1000).toFixed(1)} seconds elapsed · Stop cancels this task.`;
+        const line = $("status-detail"),
+          elapsed = `${((performance.now() - started) / 1000).toFixed(1)} seconds elapsed · Stop cancels this task.`;
+        if (kept !== null && line.textContent !== kept && line.textContent !== ticked) kept = null;
+        line.textContent = ticked = kept === null ? elapsed : `${kept} ${elapsed}`;
       }, 500);
       return id;
     },

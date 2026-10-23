@@ -1538,6 +1538,7 @@ const { stopCamera } = setupPhotoFlow({
   warmSolver,
   getJobId: () => tasks.id,
   setDeadline: (callback, ms) => tasks.setDeadline(callback, ms),
+  keepDetail: (detail) => tasks.keep(detail),
 });
 window.addEventListener("pagehide", () => {
   stopCamera();
