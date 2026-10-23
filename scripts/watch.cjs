@@ -25,13 +25,13 @@ const GONE = /Target page, context or browser has been closed|Target crashed|Pag
    calls do. It also adds to `errors` the uncaught errors of each of those
    pages (Playwright's "pageerror"): the first page's, which is the suite's
    own in every suite, by their message, and any other page's as
-   `<message> (<url>)`, with the URL of that page, so that what a page the
-   suite opened besides its own throws fails it too. close() on each watched
-   object notes the call first, so that what the suite or its owner closes
-   is no news; after browser.close() nothing is recorded. check(name) fails
-   when anything ended, and lead(error) puts what ended at the head of a
-   failure's message and stack, after waiting for a lost browser's news when
-   the failure says that its target is gone (GONE). */
+   `<message> (<url>)`, with the URL of that page, so that a suite can fail
+   on what any page it opened throws, not only its own. close() on each
+   watched object notes the call first, so that what the suite or its owner
+   closes is no news; after browser.close() nothing is recorded. check(name)
+   fails when anything ended, and lead(error) puts what ended at the head of
+   a failure's message and stack, after waiting for a lost browser's news
+   when the failure says that its target is gone (GONE). */
 function watch(browser, { grace = 1000 } = {}) {
   const started = Date.now(), ended = [], errors = [], asked = new WeakSet();
   let first = null;
