@@ -82,7 +82,7 @@ async function run() {
       const other = await (await browser.newContext()).newPage();
       await other.goto(`${base}?other`);
       if (name === "chromium") {
-        const crashed = new Promise((resolve) => other.once("crash", resolve));
+        const crashed = other.waitForEvent("crash", { timeout: 30000 });
         (await other.context().newCDPSession(other)).send("Page.crash").catch(() => {});
         await crashed;
         report.other = await other.evaluate(() => "alive").catch((error) => error.message);
