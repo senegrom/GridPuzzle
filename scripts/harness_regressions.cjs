@@ -26,7 +26,7 @@ const said = (ended) => ended.map(({ event, seconds, url }) => `${event} ${secon
    and whether an engine's failure screenshot was taken. */
 async function attempt(name, suite) {
   const file = `harness-${name}.json`, shot = (engine) => `browser-artifacts/${engine}-harness-${name}-failure.png`;
-  for (const engine of selectedEngines()) fs.rmSync(shot(engine), { force: true });
+  for (const old of [`browser-artifacts/${file}`, ...selectedEngines().map(shot)]) fs.rmSync(old, { force: true });
   const printed = [], print = console.error;
   console.error = (...args) => printed.push(util.format(...args));
   let thrown = null;
@@ -90,7 +90,7 @@ async function run() {
       report.carriedOn = true;
     });
     if (selected.includes("chromium")) {
-      const report = led(carried, "chromium", true, "AssertionError [ERR_ASSERTION]: chromium: a page crashed or closed, or the browser was lost");
+      const report = led(carried, "chromium", true, "AssertionError [ERR_ASSERTION]: chromium: a page crashed or closed, or the browser disconnected");
       assert.equal(report.carriedOn, true);
       assert.deepEqual(report.ended.map(({ event, url }) => ({ event, url })), [{ event: "page crashed", url: `${base}?other` }]);
       assert.equal(carried.shot("chromium"), true, "the suite's own page is still there: its screenshot");

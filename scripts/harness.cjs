@@ -130,7 +130,7 @@ function baselineSite(commit, files) {
    lead(error) puts what ended at the head of a failure's message and
    stack. */
 function watch(browser, { grace = 1000 } = {}) {
-  const started = Date.now(), ended = [], asked = new Set();
+  const started = Date.now(), ended = [], asked = new WeakSet();
   const unasked = (...targets) => !targets.some((target) => asked.has(target));
   const note = (event, page) => ended.push({ event, seconds: Math.round((Date.now() - started) / 100) / 10,
     ...(page && { url: page.url() }) });
@@ -165,7 +165,7 @@ function watch(browser, { grace = 1000 } = {}) {
   });
   return {
     ended,
-    check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser was lost`); },
+    check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser disconnected`); },
     async lead(error) {
       await settled();
       if (!ended.length) return error;

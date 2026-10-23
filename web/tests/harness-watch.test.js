@@ -65,7 +65,7 @@ test('a crash is recorded with its page and time, fails the check and leads the 
   assert.deepEqual(events(watched), [['page crashed', 'http://127.0.0.1:8000/GridPuzzle/']]);
   const [{ seconds }] = watched.ended;
   assert.ok(seconds >= 0 && seconds < 5 && seconds === Math.round(seconds * 10) / 10, String(seconds));
-  assert.throws(() => watched.check('webkit'), /^AssertionError \[ERR_ASSERTION\]: webkit: a page crashed or closed, or the browser was lost/m);
+  assert.throws(() => watched.check('webkit'), /^AssertionError \[ERR_ASSERTION\]: webkit: a page crashed or closed, or the browser disconnected/m);
   const error = new Error(CLOSED), stack = error.stack;
   assert.equal(await watched.lead(error), error, 'the failure itself, led');
   const line = `page crashed ${seconds} s after launch (http://127.0.0.1:8000/GridPuzzle/)`;
@@ -110,7 +110,7 @@ test('a lost browser: its pages\' and contexts\' closes and the disconnection, w
     ['context closed'], ['browser disconnected']]);
   assert.equal(error.message, `${said(watched)}\n${CLOSED}`);
   assert.match(error.message, /^page closed [\d.]+ s after launch \(http:\/\/a\/\); context closed [\d.]+ s after launch; /);
-  assert.throws(() => watched.check('chromium'), /chromium: a page crashed or closed, or the browser was lost/);
+  assert.throws(() => watched.check('chromium'), /chromium: a page crashed or closed, or the browser disconnected/);
 });
 
 test('a failure waits at most its grace for news, and one that is no Error is led too', async () => {
