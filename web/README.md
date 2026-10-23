@@ -146,14 +146,14 @@ Read during Find grid stops it and reads that crop.
 A photograph chosen from a file, from the photo library or with the phone's
 camera app, is first opened (read, checked and decoded) as a task of its own:
 the status says "Opening the photo…", then the elapsed time, Stop stops it,
-and Solve, Check and Hint wait. Until it has opened, the crop editor still
-shows the photograph before it, and nothing tapped acts on that one: Read
-puzzle is answered with "Still opening the photo…" over "The puzzle is read as
-soon as the grid is found.", kept like the answer above, and is the Read
-tapped as soon as the new photograph has opened, so it then waits for its
-grid; Find grid, Rotate and the corner handles are answered with "Still
-opening the photo…" over "The crop editor switches to it as soon as it is
-open.", kept the same way, and change nothing; Hide photo drops a waiting
+and Solve, Check and Hint are unavailable meanwhile. Until it has opened, the
+crop editor still shows the photograph before it, and nothing tapped acts on
+that one: Read puzzle is answered with "Still opening the photo…" over "The
+puzzle is read as soon as the grid is found.", kept like the answer above, and
+is the Read tapped as soon as the new photograph has opened, so it then waits
+for its grid; Find grid, Rotate and the corner handles are answered with
+"Still opening the photo…" over "The crop editor switches to it as soon as it
+is open.", kept the same way, and change nothing; Hide photo drops a waiting
 Read, and the photograph still opens in the crop editor. Whatever stops the
 opening drops the photograph: a stop or task with a status of its own (Stop,
 an edit, the camera, another photograph) shows that one, and one without (a
