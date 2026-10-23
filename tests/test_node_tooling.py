@@ -35,6 +35,6 @@ def test_suites_hand_the_page_files_as_bytes():
         text = path.read_text(encoding="utf-8")
         for call in re.finditer(r"\.(?:setInputFiles|setFiles)\(\s*(?:([\"'`])[^\"'`]*\1\s*,\s*)?", text):
             if not re.match(r"\[?\s*\{", text[call.end() :]):
-                line = text.count("\n", 0, call.start()) + 1
-                offenders.append(f"{path.relative_to(_ROOT).as_posix()}:{line}: {text[call.start() :].splitlines()[0]}")
+                line, source = text.count("\n", 0, call.start()) + 1, text[call.start() :].splitlines()[0]
+                offenders.append(f"{path.relative_to(_ROOT).as_posix()}:{line}: {source}")
     assert offenders == []
