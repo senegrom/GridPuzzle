@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 import { setupPhotoFlow } from "../photo-flow.js";
 import { restoreSession, saveSession } from "../session.js";
-import { boxShape, fitPlay, makePuzzle } from "../model.js";
+import { boxShape, fitPlay, isPlayableCell, makePuzzle, maxValue } from "../model.js";
 import { rememberEdit } from "../edit-history.js";
 import { createTaskController } from "../task-controller.js";
 
@@ -697,11 +698,43 @@ test("on screen, the answer's promise stays while the Read waits, with the elaps
   readThroughGrid(h);
 });
 
+// app.js's own handlers for a tap on a board cell (cellAction, which opens a
+// Play cell, answers a tap on a clue cell or selects a cell for a cage or an
+// inequality) and for a change of editing tool, taken from app.js as they
+// are (as play-actions.test.js does) and run against this harness's flow,
+// task controller and status lines.
+function appHandlers(h) {
+  const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  const section = (first, last) => {
+    const start = app.indexOf(first), end = app.indexOf(last, start);
+    assert.ok(start >= 0 && end > start, `app.js has ${first}`);
+    return app.slice(start, end);
+  };
+  const noop = () => {};
+  Object.assign(h.$("board"), { querySelector: () => null });
+  Object.assign(h.$("cell-dialog"), { showModal() { this.open = true; } });
+  Object.assign(h.$("cell-value"), { select: noop });
+  const context = vm.createContext({ $: h.$, state: h.state, status: h.say, isPlayableCell, maxValue,
+    stopTask: (message) => h.tasks.stop(message), clueReread: { open: noop, cancel: noop }, drawBoard: noop, render: noop,
+    openCell() { assert.fail("only the Clues tool opens a cell to edit"); } });
+  vm.runInContext(["let editing = null, focused = null, playEditing = false;",
+    section("function playMode()", "function savePlayCell()"),
+    section("function cellAction(", '$("board").onclick ='),
+    section('$("edit-tool").onchange =', '$("clear-selection").onclick ='),
+    "globalThis.app = { cellAction };"].join("\n"), context);
+  return context.app;
+}
+// A tap on board cell `i` with the editing tool `tool`, through app.js.
+const tapCell = (h, tool, i) => { h.$("edit-tool").value = tool; appHandlers(h).cellAction(i); };
+
 // Stops that set no status of their own: a corner moved or touched in the
-// crop editor, and app.js's stop when a Play cell opens, the editing tool
-// changes or a cell is selected with another tool. Each drops the waiting
-// Read, and the answer goes with it, before the page paints again; the line
-// in its place says what a Read does now, which a Read then does.
+// crop editor; app.js's own handlers when a Play cell opens and when the
+// editing tool changes; and any other task stop without a message (as a
+// photograph or puzzle file chosen stops it, until the file is read). Each
+// drops the waiting Read, and the answer goes with it, before the page paints
+// again; the line in its place says what a Read does now, which a Read then
+// does. (A cell selected with the Cages or Inequalities tool stops the task
+// too, but says how many cells are selected: below.)
 const silentStops = {
   "a corner moved with the pointer"(h) {
     const crop = h.$("crop-canvas"), [first] = fallback(800, 600);
@@ -718,7 +751,15 @@ const silentStops = {
     crop.onpointerdown({ clientX: corner.x, clientY: corner.y, pointerId: 1, preventDefault() {} });
     crop.onpointerup();
   },
-  "a Play cell or a change of editing tool"(h) { h.tasks.stop(); },
+  "a Play cell opened"(h) {
+    tapCell(h, "play", 5);
+    assert.equal(h.$("cell-dialog").open, true, "the cell opens for an answer");
+  },
+  "a change of editing tool"(h) {
+    appHandlers(h);
+    h.$("edit-tool").value = "play"; h.$("edit-tool").onchange();
+  },
+  "a task stop without a message"(h) { h.tasks.stop(); },
 };
 for (const [what, stop] of Object.entries(silentStops))
   for (const ticked of [false, true])
@@ -740,12 +781,19 @@ for (const [what, stop] of Object.entries(silentStops))
 
 // A stop or another task that sets a status of its own keeps it: the flow
 // replaces its own answer only, also when the stopped detection answers late.
+// A cell selected with the Cages or Inequalities tool is such a stop: app.js's
+// handler stops the task and then, in the same handler, says how many cells
+// are selected.
 const ownLines = {
   Stop: [(h) => h.stop(), ["Stopped.", UNFINISHED]],
   "an edit": [(h) => h.tasks.stop("Stopped for editing."), ["Stopped for editing.", UNFINISHED]],
   "Find grid": [(h) => void h.$("detect-photo").onclick(), FINDING],
   Rotate: [(h) => h.$("rotate-photo").onclick(), FINDING],
   "the camera": [(h) => h.$("camera").onclick(), ["Camera ready.", "Hold a clear grid steady; the shutter saves the view."]],
+  "a cell selected with the Cages tool": [(h) => { tapCell(h, "cage", 5); h.ended(); },
+    ["1 cells selected.", "Enter the target and save the cage."]],
+  "a cell selected with the Inequalities tool": [(h) => { tapCell(h, "inequality", 5); h.ended(); },
+    ["1 cells selected.", "Select the smaller cell first, then the larger adjacent cell."]],
 };
 for (const late of [false, true])
   for (const [what, [stop, line]] of Object.entries(ownLines))
@@ -790,16 +838,19 @@ for (const turn of [null, "sideways"])
   });
 
 // A status set while the Read waits by something that does not stop it (app.js
-// answers a Play tap on a clue cell that way) replaces the answer: the elapsed
-// time then replaces that status's second line, as any status's, and the Read
-// still follows the detection. A stop without a status or Hide photo leaves
-// that status as it is, since no answer is on screen to take back.
+// answers a Play tap on a clue cell that way, run here as it is) replaces the
+// answer: the elapsed time then replaces that status's second line, as any
+// status's, and the Read still follows the detection. A stop without a
+// status or Hide photo leaves that status as it is, since no answer is on
+// screen to take back.
 const CLUE = ["That cell holds a printed clue.", "Pick a blank cell for your answer, or switch Editing to Clues to change the clue."];
-test("on screen, a status set while the Read waits replaces the answer, its elapsed time alone, and the Read still follows the detection", async (t) => {
+test("on screen, a status set while the Read waits (a Play tap on a clue cell) replaces the answer, its elapsed time alone, and the Read still follows the detection", async (t) => {
   const h = harness(t), s = screen(t, h), { imported, detection } = await h.photograph();
+  h.state.puzzle.cells[0] = 1;
   await h.tapRead();
   const said = s.mark();
-  h.say(...CLUE);
+  tapCell(h, "play", 0);
+  assert.deepEqual(h.statuses.at(-1), CLUE, "app.js's answer to the tap");
   await s.until(([text, detail]) => text === CLUE[0] && ELAPSED.test(detail), "the elapsed time under that status");
   const after = s.since(said);
   assert.ok(after.every(([text, detail]) => text === CLUE[0] && (detail === CLUE[1] || ELAPSED.test(detail))), JSON.stringify(after, null, 1));
