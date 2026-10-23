@@ -32,6 +32,9 @@ export function setupPhotoFlow({
   warmSolver,
   getJobId,
   setDeadline,
+  // Keeps the second line of the status just set in view while the running
+  // task goes on (task-controller.js keep).
+  keepDetail,
   savePicture,
   releaseSolver,
   adoptSolver,
@@ -612,8 +615,8 @@ export function setupPhotoFlow({
   // grid is found waits for the detection instead and reads at the size it
   // leaves (Read puzzle, below), not known yet: the status that starts that
   // detection names the turn alone, and "Still finding the grid…" names none.
-  // On screen, a running task's elapsed time replaces the second line of a
-  // status within half a second (task-controller.js), so these lines keep the
+  // On screen, a running task's elapsed time replaces these statuses' second
+  // line within half a second (task-controller.js), so these lines keep the
   // check in view only in the status that ends a detection no Read waited
   // for. Every Read of the photograph that leaves it the way it lies, a
   // waiting Read or one tapped later, says the turn in a first note instead,
@@ -865,24 +868,33 @@ export function setupPhotoFlow({
   const STILL_FINDING = ["Still finding the grid…", "The puzzle is read as soon as the grid is found."],
     READ_FOUND = ["Grid found.", "Reading the puzzle…"],
     READ_FALLBACK = ["The grid was not found automatically.",
-      "Reading the puzzle through the crop as it is, so every cell will be highlighted…"];
+      "Reading the puzzle through the crop as it is, so every cell will be highlighted…"],
+    // In place of the answer, once a stop that sets no status of its own (a
+    // moved corner, a Play cell, a change of editing tool) has dropped the
+    // Read: no detection runs any more, so a Read reads the crop as it
+    // stands, at once.
+    READ_DROPPED = ["Stopped.", "Read puzzle reads the crop as it is."];
+  // The answer is still the status on screen: nothing has set another since.
+  const answerShown = () => $("status-text").textContent === STILL_FINDING[0];
   // Re-detection is not adoption of a new photograph or a puzzle edit. Keep
   // undo history and the old crop/mapping intact until a current result exists.
   async function detectPhoto(canvas) {
-    const id = begin();
+    const id = begin(),
+      // A capture's photograph whose help line named a turn says it (withTurn):
+      // with the check for the controls' size, which a Read tapped meanwhile
+      // reads at, or alone where that Read waits for the size this detection
+      // leaves (on the fallback crop, below).
+      finding = ["Finding the grid…",
+        withTurn(canvas, "Photo processing stays on this device.", fallbackCrop ? null : currentLayout())];
     // On the fallback crop, a Read tapped while this detection runs waits for
     // it (Read puzzle, below): a new photograph's first detection, or Find
     // grid once that one failed or was stopped and no corner has moved. On a
     // crop that a detection, a capture or the user set, a Read stops it and
-    // reads that crop, as before.
-    gridSearch = fallbackCrop ? { id, read: false } : null;
+    // reads that crop, as before. Hide photo, which drops a waiting Read and
+    // lets the detection go on, puts this detection's own line back.
+    gridSearch = fallbackCrop ? { id, read: false, finding } : null;
     diagnostics.event({stage:"detecting",reason:"started"});
-    // A capture's photograph whose help line named a turn says it (withTurn):
-    // with the check for the controls' size, which a Read tapped meanwhile
-    // reads at, or alone where that Read waits for the size this detection
-    // leaves.
-    status("Finding the grid…",
-      withTurn(canvas, "Photo processing stays on this device.", gridSearch ? null : currentLayout()));
+    status(...finding);
     try {
       // The photograph and its current crop show while the detector works. A
       // crop canvas the browser refuses (iOS under memory pressure) must not
@@ -945,14 +957,19 @@ export function setupPhotoFlow({
       // replaces the detection's own, which asks for a Read or reports the
       // failure. Whatever stopped the detection's task instead (Stop, a new
       // photograph or capture, Rotate, a moved corner, another task) dropped
-      // the Read with it.
+      // the Read with it, and the answer must not go on promising it: a stop
+      // with a status of its own replaced the answer, and one without (a
+      // moved corner, a Play cell, a change of editing tool) leaves it, so
+      // it is replaced here, and only while it is still the status on
+      // screen. The real scanner rejects a stopped detection at once, so this
+      // runs one microtask after the stop, before the page paints.
       if (gridSearch?.id === id) {
         const { read } = gridSearch;
         gridSearch = null;
         if (read && id === getJobId()) {
           status(...(unconfirmedCorners ? READ_FALLBACK : READ_FOUND));
           void readPhoto();
-        }
+        } else if (read && answerShown()) status(...READ_DROPPED);
       }
     }
   }
@@ -979,8 +996,11 @@ export function setupPhotoFlow({
   $("hide-photo").onclick = () => {
     $("photo-panel").hidden = true;
     // Closing the crop editor drops a Read waiting for its grid; the
-    // detection itself goes on, as before.
-    if (gridSearch) gridSearch.read = false;
+    // detection itself goes on, as before, and its own line comes back in
+    // place of the answer, which promised the Read.
+    if (!gridSearch?.read) return;
+    gridSearch.read = false;
+    if (gridSearch.id === getJobId() && answerShown()) status(...gridSearch.finding);
   };
   $("show-crop").onclick = () => {
     $("photo-panel").hidden = false;
@@ -1277,14 +1297,17 @@ export function setupPhotoFlow({
   }
   // Read puzzle. While a detection runs on the fallback crop, a Read through
   // that crop would only highlight every cell, so the tap is answered, the
-  // detection goes on, and the Read starts when it ends (detectPhoto). A
+  // detection goes on, and the Read starts when it ends (detectPhoto). The
+  // answer's second line, which promises the Read, stays in view while the
+  // Read waits, with the elapsed time after it (task-controller.js keep). A
   // second tap meanwhile adds nothing. Stop, a new photograph or capture,
   // Rotate, a moved corner, closing the crop editor or another task drops
-  // the waiting Read.
+  // the waiting Read, and the answer with it (detectPhoto, Hide photo).
   $("read-photo").onclick = () => {
     if (gridSearch && gridSearch.id === getJobId()) {
       gridSearch.read = true;
       status(...STILL_FINDING);
+      keepDetail?.(STILL_FINDING[1]);
       return;
     }
     void readPhoto();
