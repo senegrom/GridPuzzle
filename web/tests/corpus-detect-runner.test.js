@@ -26,8 +26,8 @@ function harness(t, faults = {}, args = []) {
   const options = parseOptions(["--corpus", dir, "--out", path.join(dir, "report.json"), ...args]);
   let calls = 0, connected = true;
   const closed = [], payloads = [], controller = new AbortController();
-  // They emit what Playwright's objects emit as they open, so that the
-  // runner's watch() hears the page.
+  // The browser, its context and page emit what Playwright's emit as they
+  // open, so that the runner's watch() hears the page.
   const page = Object.assign(new EventEmitter(), {
     setDefaultTimeout() {}, async goto() { if (faults.startup) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8782/", context: () => context,

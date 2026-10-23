@@ -17,12 +17,12 @@ function harness(t, faults = {}) {
     fs.writeFileSync(file, "image bytes"); fs.writeFileSync(target, JSON.stringify({ puzzle, corners: [[0, 0], [9, 0], [9, 9], [0, 9]] }));
     return { file, target, name: `${n}.png`, mime: "image/png", family: "latinsquare", set: "fixture" };
   });
-  let calls = 0, connected = true, crashed = null;
+  let calls = 0, connected = true, crashed = false;
   const events = [], controller = new AbortController(), output = path.join(dir, "report.json");
   // The browser, its context and page emit what Playwright's emit as they
   // open, so that the runner's watch() hears the page. A crashed page stays
   // open to Playwright in a connected browser, and every later call on it
-  // fails as the call the crash interrupted did.
+  // fails with "Target crashed", in WebKit too.
   const page = Object.assign(new EventEmitter(), {
     setDefaultTimeout() {}, async goto() { if (faults.goto) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
@@ -31,7 +31,7 @@ function harness(t, faults = {}) {
       // Count first: a failed assertion below must not leave the stalled-scan
       // test waiting for a second call for ever.
       calls++;
-      if (crashed) throw Error(crashed);
+      if (crashed) throw Error("page.evaluate: Target crashed");
       assert.deepEqual(Object.keys(input.puzzle).sort(), ["cols", "rows", "type"]);
       assert.deepEqual(input.corners, input.useTrue ? [[0, 0], [9, 0], [9, 9], [0, 9]] : null, "reference corners are opt-in");
       if (calls === 2 && faults.checkpoint) {
@@ -44,11 +44,11 @@ function harness(t, faults = {}) {
       // Chromium reports a crash before the call it interrupts fails; WebKit
       // can fail the call first, with a lost browser's words.
       if (calls === 2 && faults.crash === "chromium") {
-        page.emit("crash", page); crashed = "page.evaluate: Target crashed"; throw Error(crashed);
+        page.emit("crash", page); crashed = true; throw Error("page.evaluate: Target crashed");
       }
       if (calls === 2 && faults.crash === "webkit") {
         setTimeout(() => page.emit("crash", page), 20);
-        crashed = "page.evaluate: Target page, context or browser has been closed"; throw Error(crashed);
+        crashed = true; throw Error("page.evaluate: Target page, context or browser has been closed");
       }
       return { read: { ...puzzle, black: [], cages: [], clues: [], inequalities: [] },
         uncertain: [], total: 12, detected: 1, grid: true, geometrySource: "detected" };
