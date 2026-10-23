@@ -89,21 +89,27 @@ Adjust scan → Rotate, then Read puzzle. A capture without a reading goes to
 the editor's crop and read (see "Shutter and saved pictures"); when the help
 line named a turn as it was taken, the status of each detection on that
 picture repeats it as the detection starts and as it ends (a detection that
-fails replaces the second), with the check that fits the grid size the
-controls then hold, which a Read reads at: "The grid looked sideways in the
-live view; Read puzzle checks which way up it is.", or on a grid that is not
-square, "…, and Read puzzle turns only square grids: Rotate until its
-numbers stand upright, then Read puzzle." A Read tapped while the picture's
-first detection runs waits for it and reads at the size the detection leaves
-(the size found, or the controls' when none is); its answer, "Still finding
-the grid…", names no turn, since that size is not known yet, and the line
-that leads into it once the detection ends ("Grid found." or "The grid was
-not found automatically.") repeats the turn with the check for the size it
-reads at. On screen, the hint stays only in the status that ends
-a detection no Read waited for: while a detection or a Read runs, its elapsed
-time replaces a status's second line within half a second, and the Read's
-first progress replaces the line that leads into it at once, since a capture
-has no original to decode first.
+fails replaces the second), with the check that fits the grid size a Read
+then reads at: "The grid looked sideways in the live view; Read puzzle
+checks which way up it is.", or on a grid that is not square, "…, and Read
+puzzle turns only square grids: Rotate until its numbers stand upright, then
+Read puzzle." As a detection ends, that is the size the controls then hold
+(the size found, or the controls' own when none is), and as Find grid starts
+on a crop that a detection or the user set, the controls' size, which a Read
+tapped then reads at. On the untouched crop a new picture starts on (until a
+detection answers or a corner moves, [README.md](README.md)), a Read tapped
+while the grid is found waits for the detection and reads at the size it
+leaves, which is not known yet: the status that starts that detection names
+the turn alone ("The grid looked sideways in the live view."), the Read's
+answer, "Still finding the grid…", names none, and the line that leads into
+it once the detection ends ("Grid found." or "The grid was not found
+automatically.") repeats the turn with the check for the size it reads at.
+On screen, the check stays only in the status that ends a detection no Read
+waited for: while a detection or a Read runs, its elapsed time replaces a
+status's second line within half a second, and the Read's first progress
+replaces the line that leads into it at once, since a capture has no
+original to decode first. A Read that leaves the picture the way it lies
+adds no note of the turn, as for any photograph.
 These are notes only: they change no highlight, flag or reading ("Live
 captures" in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is
@@ -176,9 +182,11 @@ show the quarter-turn cue (glyphs wider than tall: 6 of 1,146 turned readings
 in Chromium and 8 of 1,161 in WebKit), its still is read again and takes the
 cage check, under the notes of any capture (above): kept the way it lies, it
 gets the note that points to Adjust scan → Rotate. A cage grid is always
-square, so the notes and hints for a grid that is not square never reach it,
-and the crop editor of a capture without a reading whose help line named the
-turn says that Read puzzle checks it.
+square, so a cage capture with a reading never gets the note for a grid that
+is not square, and the crop editor of one without a reading whose help line
+named the turn says that Read puzzle checks it. Only a grid detected at a
+size that is not square, which a cage type cannot be read at ("This type
+needs a square grid."), gets the Rotate hint there.
 
 The camera waits for stable detections and reads the sharper sampled frame.
 One recognition job and one preview solve run at a time, and a sampled frame is

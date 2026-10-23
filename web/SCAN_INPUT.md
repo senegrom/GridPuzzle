@@ -219,10 +219,14 @@ read again: it keeps its own warnings under a first note that Read puzzle
 turns only square grids, with the same pointer to Rotate. A capture without a
 reading goes to the crop editor, whose status as each detection starts and
 ends repeats a turn the help line named as it was taken, with Read puzzle as
-the check on a square grid and Rotate first on any other, by the size the
-controls hold as the detection starts and the size it found as it ends; a
-Read that waited for the detection says it again as it starts, by the size
-it reads at. Notes only: no highlight, flag or
+the check on a square grid and Rotate first on any other, by the size a Read
+then reads at: as a detection ends, the size the controls then hold (the
+size found, or theirs when none is), and as Find grid starts on a crop
+already set, the controls'. On the untouched crop a new picture starts on,
+where a Read tapped meanwhile waits for the detection and reads at the size
+it leaves, the status that starts the detection names the turn alone, and
+the line that leads into the waiting Read says it with the check for the
+size it reads at. Notes only: no highlight, flag or
 reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md), which also says
 when the crop editor's hint stays on screen).
 
