@@ -23,7 +23,12 @@ and a Read through that crop puts every cell under review. So Read puzzle
 tapped while that detection runs does not stop it: it says "Still finding the
 grid…" and reads once the detection ends, through the corners found, or
 through that crop if none were (the full rules are in [README.md](README.md));
-the original is decoded then, as for any Read.
+the original is decoded then, as for any Read. Before that, a photograph
+chosen from a file is opened, its preview decoded, as a task of its own
+("Opening the photo…"), while the crop editor still shows the photograph
+before it: a Read tapped then reads nothing of that one but waits for the new
+photograph and then for its grid, and Find grid, Rotate and the corners leave
+that one as it is. A capture or a rotated photograph needs no such decode.
 
 Input dimensions are checked BEFORE decoding. The enhancement is limited to
 16 million source pixels: requesting a resized bitmap alone does not guarantee

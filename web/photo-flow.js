@@ -739,15 +739,17 @@ export function setupPhotoFlow({
   };
   $("choose-photo").onclick = () => $("photo-file").click();
   $("native-camera").onclick = () => $("native-file").click();
-  // A photograph chosen from a file (the photo library, or the phone's camera
-  // app) is opened, read, checked and decoded (photo-import.js), as a task of
-  // its own with a status of its own: the elapsed time follows, Stop stops it,
-  // and Solve, Check and Hint wait, as during any task. Meanwhile the crop
-  // editor still shows the photograph before it, so its controls answer for
-  // the new one instead of acting on that one: a Read waits for it (Read
-  // puzzle), Find grid, Rotate and the corners do nothing (whileOpening), and
-  // Hide photo drops a Read that waits. Whatever stops the task drops the
-  // photograph, and says so (taskStopped).
+  // A photograph chosen from a file (from the photo library, or taken with the
+  // phone's camera app) is first opened: read, checked and decoded
+  // (photo-import.js), as a task of its own with a status of its own, so the
+  // elapsed time follows, Stop stops it, and Solve, Check and Hint wait, as
+  // during any task. Meanwhile the crop editor still shows the photograph
+  // before it, so its controls answer for the new one instead of acting on
+  // that one: a Read waits for it (Read puzzle), Find grid, Rotate and the
+  // corners do nothing (whileOpening), and Hide photo drops a Read that waits.
+  // Whatever stops the task drops the photograph, and the line says so
+  // (taskStopped). A capture and Rotate bring pictures that need no decoding:
+  // their detection starts in the tap itself (acceptPhoto).
   const OPENING = ["Opening the photo…", "Photo processing stays on this device."],
     STILL_OPENING = ["Still opening the photo…", "The puzzle is read as soon as the grid is found."],
     OPENING_EDITOR = ["Still opening the photo…", "The crop editor switches to it as soon as it is open."],

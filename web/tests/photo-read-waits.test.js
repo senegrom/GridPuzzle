@@ -18,9 +18,12 @@ import { createTaskController } from "../task-controller.js";
 // detection's task (Stop, a new photograph or capture, Rotate, a moved corner,
 // another task) drops the waiting Read, and so does Hide photo; a second tap
 // adds nothing. A Read tapped during the detection that Rotate or Find grid
-// starts on the fallback crop waits for that one in turn. The flow runs with
-// the app's own task controller, so Stop shown and Solve, Check and Hint
-// disabled are checked throughout.
+// starts on the fallback crop waits for that one in turn. A photograph chosen
+// from a file is opened as a task of its own first (below, with its decode
+// held open): a Read tapped meanwhile waits for it and then for its grid, and
+// nothing tapped meanwhile acts on the photograph still in the crop editor.
+// The flow runs with the app's own task controller, so Stop shown and Solve,
+// Check and Hint disabled are checked throughout.
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function settle() { for (let i = 0; i < 10; i++) await tick(); }
@@ -97,8 +100,12 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
     statuses.push([text, detail]);
     $("status-text").textContent = text; $("status-detail").textContent = detail;
   };
-  // As app.js's, the task controller tells the flow when it stops a task.
-  const tasks = createTaskController({ $, status, onStop: () => { flow?.stopCamera(); flow?.taskStopped?.(); },
+  // As app.js's, the task controller tells the flow when it stops a task. It
+  // also counts the stops of a running task: app.js's onStop then ends the
+  // page's warm solver too.
+  let busyStops = 0;
+  const tasks = createTaskController({ $, status,
+    onStop: (busy) => { if (busy) busyStops++; flow?.stopCamera(); flow?.taskStopped?.(); },
     scanner: { cancel() { cancels++; if (!late) for (const job of detections) job.reject(aborted()); } } });
   const stopTask = (message) => tasks.stop(message);
   const storage = { set: (_key, value) => { saved = value; }, get: () => saved };
@@ -139,7 +146,7 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
   crop.getBoundingClientRect = () => ({ left: 0, top: 0, width: crop.width, height: crop.height });
   crop.setPointerCapture = noop;
   return { $, state, tasks, detections, reads, errors, statuses, storage, canvas, setLayout,
-    get cancels() { return cancels; }, get solves() { return solves; },
+    get cancels() { return cancels; }, get solves() { return solves; }, get busyStops() { return busyStops; },
     get status() { return statuses.at(-1)?.[0]; },
     // A held reading answers (`holdReads`).
     releaseRead() { release(); },
@@ -783,7 +790,8 @@ const tapCell = (h, tool, i) => { h.$("edit-tool").value = tool; appHandlers(h).
 // Stops that set no status of their own: a corner moved or touched in the
 // crop editor; app.js's own handlers when a Play cell opens and when the
 // editing tool changes; and any other task stop without a message (as a
-// photograph or puzzle file chosen stops it, until the file is read). Each
+// puzzle file chosen stops it, until the file is read; a photograph chosen
+// has a line of its own, below). Each
 // drops the waiting Read, and the answer goes with it, before the page paints
 // again; the line in its place says what a Read does now, which a Read then
 // does. (A cell selected with the Cages or Inequalities tool stops the task
@@ -987,7 +995,7 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
   test(`a photograph chosen ${from} while a Read waits for the grid of the one before it has a status of its own while it opens, "Opening the photo…", then its elapsed time, as a task (Stop shown, Solve, Check and Hint disabled); then it opens as before`, async (t) => {
     const h = harness(t), s = screen(t, h), first = await h.photograph(), photo = h.state.photo;
     await h.tapRead();
-    const chosen = s.mark(), next = await h.choose({ input });
+    const chosen = s.mark(), next = await h.choose({ input }), busy = h.busyStops;
     h.running();
     await s.until(([text, detail]) => text === OPENING[0] && ELAPSED.test(detail), "the opening's elapsed time");
     const opening = s.since(chosen);
@@ -1008,6 +1016,7 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     assert.equal(h.status, "Grid found."); assert.deepEqual(h.state.corners, CHOSEN);
     assert.equal(h.reads.length, 0, "the Read that waited for the first photograph's grid went with it");
     assert.deepEqual(h.errors, []); h.ended();
+    assert.equal(h.busyStops, busy, "the opening's task ended before the photograph was taken: no running task was stopped");
     first.detection.resolve(found(STRAY)); await first.imported; await settle();
     assert.deepEqual(h.state.corners, CHOSEN, "the first detection's answer, if it comes now, changes nothing");
   });
@@ -1096,6 +1105,7 @@ for (const [what, tap] of Object.entries(editorTaps))
     h.detections[1].resolve(found(CHOSEN)); await next.imported; await settle();
     assert.equal(h.status, "Grid found."); assert.deepEqual(h.state.corners, CHOSEN);
     assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []); h.ended();
+    assert.equal(h.busyStops, 0, "no running task was stopped");
   });
 
 // Hide photo drops a Read waiting for a photograph being opened, as it drops
