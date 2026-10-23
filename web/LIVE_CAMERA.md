@@ -101,16 +101,19 @@ detection answers or a corner moves, [README.md](README.md)), a Read tapped
 while the grid is found waits for the detection and reads at the size it
 leaves, which is not known yet: the status that starts that detection names
 the turn alone ("The grid looked sideways in the live view."), and the
-Read's answer, "Still finding the grid…", names none. On screen, these
-statuses keep the check only where a detection ends with no Read waiting:
-while a detection or a Read runs, its elapsed time replaces a status's second
-line within half a second. So every Read of such a picture that leaves it the
-way it lies, one that waited for the grid or one tapped later, says the turn
-in a first note, which stays with its reading: on a square grid, "The live
-view suggested that the page may be sideways, but Read puzzle's check kept
-the captured picture the way it lies. If its numbers do not stand upright,
-Adjust scan → Rotate until they do, then Read puzzle."; on any other, the
-note of a capture of a grid that is not square (above). The line that leads
+Read's answer, "Still finding the grid…", names none, nor does "Stopped.",
+which takes its place when a stop without a status of its own drops the
+Read (Hide photo, which drops it too, puts back the status that started the
+detection). On screen, these statuses keep the check only where a detection
+ends with no Read waiting: while a detection or a Read runs, its elapsed time
+replaces their second line within half a second. So every Read of such a
+picture that leaves it the way it lies, one that waited for the grid or one
+tapped later, says the turn in a first note, which stays with its reading: on
+a square grid, "The live view suggested that the page may be sideways, but
+Read puzzle's check kept the captured picture the way it lies. If its
+numbers do not stand upright, Adjust scan → Rotate until they do, then Read
+puzzle."; on any other, the note of a capture of a grid that is not square
+(above). The line that leads
 into a Read that waited ("Grid found." or "The grid was not found
 automatically.") names no turn: the Read's first progress replaces it at
 once, since a capture has no original to decode first. A Read that turns the
