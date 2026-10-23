@@ -550,7 +550,8 @@ async function run() {
           // the page may be upside down, while the editor reads the captured
           // still again as a photograph. That reading is held until released
           // here: taken turned, it replaces the board under review; read the way
-          // it lies, the capture keeps only its own flags and note. Either way
+          // it lies, the capture keeps only its own flags and note, after a
+          // first note that the page may still be turned (Rotate). Either way
           // the check's task ends.
           await page.evaluate(async(outcome)=>{
             const {Scanner}=await import("./scanner.js"),{makePuzzle}=await import("./model.js");
@@ -605,10 +606,12 @@ async function run() {
             assert.deepEqual(after.cells,[1,2,3,4,3,null,1,2,2,1,null,3,4,3,2,1]);
             assert.deepEqual(after.cellUncertain,[1,2,4,7,8,11,13,14]);assert.equal(after.highlighted,8);
             assert.match(after.note,/The stubbed live reading's note\./);assert.doesNotMatch(after.note,/The page may be/);
+            assert.match(after.note,/The live reading suggested that the page may be upside down, but the check kept the captured picture the way it lies\. If its numbers do not stand upright, Adjust scan → Rotate until they do, then Read puzzle\.\n(.|\n)*The stubbed live reading's note\./,
+              "first a note that the page may still be turned, pointing to Rotate");
             assert.equal(after.status,"Captured clues ready for review.");
           }
           await idlePage(page,server.base);await fixture(page);
-          report.checks.push(`a captured reading that looks upside down reaches the editor with every digit highlighted under the turn note while its still is read again; read ${outcome}, ${outcome==="turned"?"the turned reading replaces it under review":"it keeps its own flags and note"}, and the check's task ends`);
+          report.checks.push(`a captured reading that looks upside down reaches the editor with every digit highlighted under the turn note while its still is read again; read ${outcome}, ${outcome==="turned"?"the turned reading replaces it under review":"it keeps its own flags and note, after a note that the page may still be turned"}, and the check's task ends`);
         });
         await time("unread evidence",async()=>{
         // Controlled unread evidence must remain red and block blue guesses.

@@ -1527,7 +1527,8 @@ test('a capture whose live reading already notes its guessed boxes carries the b
 });
 // A capture read with a suggested layout that also looks upside down keeps the
 // box note through its orientation check: after the turn note while the still
-// is read again, and with the capture's own notes once it reads the way it lies.
+// is read again, and with the capture's own notes, after the note that the
+// page may still be turned, once it reads the way it lies.
 test('a capture read with a suggested layout keeps its box note through the check of a capture that looks turned', async t => {
   // Twelve regions, four read with confidence (1, 4, 6 and 1), none of them
   // with a 2, 3 or 5, glyphs taller than wide: the cue of a half turn.
@@ -1549,7 +1550,8 @@ test('a capture read with a suggested layout keeps its box note through the chec
   assert.deepEqual(h.state.notes.slice(1), ['8 cells need checking.', SUGGESTED_2X3]);
   for (let i = 0; i < 10; i++) await tick(); // the still reads the way it lies (the harness's clean reading)
   assert.deepEqual(h.errors, []);
-  assert.deepEqual(h.state.notes, ['8 cells need checking.', SUGGESTED_2X3]);
+  assert.match(h.state.notes[0], /^The live reading suggested that the page may be upside down, but the check kept the captured picture the way it lies\./);
+  assert.deepEqual(h.state.notes.slice(1), ['8 cells need checking.', SUGGESTED_2X3]);
   assert.deepEqual(restoreSession(h.storage).notes, h.state.notes); assert.equal(h.state.needsReview, true);
 });
 // Only a capture read under boxes decides them. A 6 × 6 Latin square has none,

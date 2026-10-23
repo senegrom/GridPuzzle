@@ -424,6 +424,10 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     // A hold of the line as it stands: nothing is written, and the status
     // stays off the help line until the next hold, release or note.
     keep() { held = lastStatus; },
+    // The turn the help line names (TURNED_HELP), or null: the line last
+    // written through the session, which a hold, a note or a newer status
+    // replaces. A capture without a reading takes it to the editor's crop.
+    get turn() { return Object.keys(TURNED_HELP).find((turn) => TURNED_HELP[turn] === lastStatus) ?? null; },
     suspend: hide, motion, observe, validate,
     get preview() { return preview; },
     get busy() { return pending; },

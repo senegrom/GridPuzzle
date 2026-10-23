@@ -209,10 +209,26 @@ their orientation; the live camera's help line says when a page looks sideways
 or upside down, from the same cue, upside down only from five confident digits,
 since no re-read confirms it there. A live capture handed to the editor is a
 still photograph, though: when its live reading shows either cue, Review
-captured clues highlights every digit under a note that the page may be turned
-and reads the captured still again the same way; a reading taken turned
-replaces the live one, under review like every capture, and one read the way it
-lies gets its own warnings back ([LIVE_CAMERA.md](LIVE_CAMERA.md)).
+captured clues highlights every digit of a square grid under a note that the
+page may be turned and reads the captured still again the same way; a reading
+taken turned replaces the live one, under review like every capture, and one
+read the way it lies gets its own warnings back under a first note that the
+page may still be turned, which points to Adjust scan → Rotate, then Read
+puzzle. A capture of a grid that is not square, which no reading turns, is not
+read again: it keeps its own warnings under a first note that Read puzzle
+turns only square grids, with the same pointer to Rotate. A capture without a
+reading goes to the crop editor, whose status as each detection starts and
+ends repeats a turn the help line named as it was taken, with Read puzzle as
+the check on a square grid and Rotate first on any other, by the size a Read
+then reads at: as a detection ends, the size the controls then hold (the
+size found, or theirs when none is), and as Find grid starts on a crop
+already set, the controls'. On the untouched crop a new picture starts on,
+where a Read tapped meanwhile waits for the detection and reads at the size
+it leaves, the status that starts the detection names the turn alone, and
+the line that leads into the waiting Read says it with the check for the
+size it reads at. Notes only: no highlight, flag or
+reading changes with them ([LIVE_CAMERA.md](LIVE_CAMERA.md), which also says
+when the crop editor's hint stays on screen).
 
 A cage puzzle (Killer or KenKen chosen as the type) could take neither check:
 every digit read on a cage board is under review, so its reading has no

@@ -383,6 +383,31 @@ test('the turn cue needs a poor reading of at least six glyphs, and the upside-d
  assert.equal(turnedPage(few),'sideways','glyphs wider than tall, whatever the digits');
  assert.equal(turnedPage({...few,entries:few.entries.slice(0,5)}),null,'five glyphs say nothing either way');
 });
+// The turn the help line names, as the session last wrote it (`turn`): a
+// capture without a reading takes it to the editor's crop (live-camera.js
+// capture). A line that names none in its place, held, noted or a newer
+// status, takes it away; keeping the line as it stands does not.
+test('the session says which turn its help line names, and none once another line takes its place',async t=>{
+ const h=turnedSession(t,{size:[20,40]});await flush();
+ assert.equal(h.statuses.at(-1),SIDEWAYS);assert.equal(h.s.turn,'sideways');
+ h.s.keep();assert.equal(h.s.turn,'sideways','the line kept as it stands');
+ h.s.hold('Waiting for a new camera frame. Old readings are hidden; capture to review.');assert.equal(h.s.turn,null,'a held line');
+ h.s.hold(null);h.s.validate();
+ assert.equal(h.statuses.at(-1),SIDEWAYS,'released, the status is written again');assert.equal(h.s.turn,'sideways');
+ h.s.notify('Restarting live scanning. Waiting for a fresh verified frame…');assert.equal(h.s.turn,null,'a note');
+ const up=turnedSession(t);await flush();
+ assert.equal(up.statuses.at(-1),UPSIDE_DOWN);assert.equal(up.s.turn,'upside-down');
+ up.s.stop();assert.equal(up.s.turn,null,'stopped');
+ const upright=turnedSession(t,{digits:[1,2,4,4,4]});await flush();
+ assert.equal(upright.statuses.at(-1),UNREAD);assert.equal(upright.s.turn,null);
+ // A retired reading leaves the line as it was until the next one is read:
+ // a capture then has no reading, but the line still names the turn.
+ const newer=turnedSession(t,{size:[20,40]});await flush();
+ newer.s.invalidate();
+ assert.equal(newer.s.preview,null);assert.equal(newer.statuses.at(-1),SIDEWAYS);assert.equal(newer.s.turn,'sideways');
+ newer.observe();newer.observe();
+ assert.equal(newer.statuses.at(-1),'Reading printed clues… Keep the grid in view.');assert.equal(newer.s.turn,null,'a new read');
+});
 
 // The turn takes the place of every line that would ask to move closer or
 // to wait for a clearer frame: after a retry that found nothing new, after a

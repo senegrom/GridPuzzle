@@ -938,7 +938,10 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       const image = verified ? raw : stalled ? copyCanvas(kept) : videoFrame(video), annotated = document.createElement("canvas");
       annotated.width = image.width; annotated.height = image.height;
       composeView(annotated.getContext("2d"), image, verified ? preview : null, null);
-      if (!verified) return { photo: image, annotated, found: null, corners: null, createdAt: Date.now(), frozen: false };
+      // Without a reading, the turn the help line names (session.turn), if
+      // any, goes with the picture: the editor's crop repeats it. A reading
+      // kept shows its own cue to the editor.
+      if (!verified) return { photo: image, annotated, found: null, corners: null, createdAt: Date.now(), frozen: false, turn: session.turn };
       return { photo: copyCanvas(raw), annotated,
         found: { ...preview.found, puzzle: structuredClone(preview.found.puzzle) }, corners: preview.corners.map((p) => ({ ...p })),
         createdAt: Date.now(), frozen: false };

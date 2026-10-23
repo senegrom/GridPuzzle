@@ -1235,6 +1235,35 @@ test("a live capture keeps its reading on a frame exactly half a second old, not
   await h.advance(1);
   assert.equal(h.camera.capture().found, null, "501 ms old: not");
 });
+// A capture without a reading goes to the editor's crop, which repeats the
+// turn the help line names as it is taken (live-session.js, turn): here a
+// page lying sideways (glyphs wider than tall, two of twelve marks read with
+// confidence), whose verified frame is held past half a second old. A capture
+// that keeps its reading carries none: its reading shows the cue itself. Once
+// another line takes the help line's place (here the tracking worker, held
+// for seconds, is deemed unavailable), a capture carries no turn either.
+test("a live capture without a fresh reading carries the turn the help line names", async (t) => {
+  const marked = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15], uncertain = marked.filter((cell) => cell !== 0 && cell !== 5);
+  const sideways = () => {
+    const puzzle = makePuzzle("latinsquare", 4, 4); puzzle.cells[0] = puzzle.cells[5] = 1;
+    return { puzzle, cellUncertain: [...uncertain], uncertain: [...uncertain], markedCells: [...marked], notes: [],
+      entries: marked.map((cell) => ({ cell, kind: "value", h: 20, w: 40, text: cell === 0 || cell === 5 ? "1" : "", confidence: 0 })) };
+  };
+  const h = simulation(t, { autoSolve: false, read: (_preview, setTimer) => new Promise((resolve) => setTimer(() => resolve(sideways()), 500)) });
+  const SIDEWAYS = /^The grid looks sideways\. Turn the page or the phone a quarter turn/;
+  assert.ok(await h.until(() => SIDEWAYS.test(h.help)), h.help);
+  await h.advance(500);
+  const fresh = h.camera.capture();
+  assert.ok(fresh.found, "a fresh verified frame keeps its reading"); assert.equal(fresh.turn, undefined);
+  h.hold(); await h.advance(600);
+  assert.match(h.help, SIDEWAYS, "the help line still names the turn");
+  const stale = h.camera.capture();
+  assert.equal(stale.found, null, "600 ms old: no reading"); assert.equal(stale.turn, "sideways");
+  assert.equal(h.camera.view, "live");
+  await h.advance(4000);
+  assert.match(h.help, /^Background tracking is unavailable\./);
+  assert.equal(h.camera.capture().turn, null, "a line that names no turn");
+});
 
 test("a solved reading freezes on a verified frame exactly half a second old", async (t) => {
   const h = simulation(t, { solve: "deferred" });
