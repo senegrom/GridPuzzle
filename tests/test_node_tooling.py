@@ -29,7 +29,11 @@ def test_suites_hand_the_page_files_as_bytes():
     by path and stalled at that in every WebKit run from an export, while
     the runners' fresh checkouts never meet it, so only this check catches
     a new one: a suite hands the page a file as { name, mimeType, buffer }
-    (web/TESTING.md, "Running the suites from an export")."""
+    (web/TESTING.md, "Running the suites from an export"). It reads the
+    calls' text, so it takes a call only with its selector, if any, written
+    as a quoted string with no quote inside and its files written in the
+    call as { ... } or [{ ... }]: a selector or payload held in a variable,
+    or [] to clear the input, is named here too."""
     offenders = []
     for path in sorted([*(_ROOT / "scripts").glob("*.cjs"), *(_ROOT / "corpus").glob("*.cjs")]):
         text = path.read_text(encoding="utf-8")
