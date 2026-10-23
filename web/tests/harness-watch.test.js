@@ -57,6 +57,9 @@ const events = (watched) => watched.ended.map(({ event, url }) => (url ? [event,
 const said = (watched) => watched.ended
   .map(({ event, seconds, url }) => `${event} ${seconds} s after launch${url ? ` (${url})` : ''}`).join('; ');
 const CLOSED = 'page.waitForFunction: Target page, context or browser has been closed';
+// Whether a lead() settles before any timer can fire: led without a wait.
+const WAITED = Symbol('waited');
+const atOnce = async (led) => (await Promise.race([led, new Promise((resolve) => setImmediate(resolve, WAITED))])) !== WAITED;
 
 test('a crash is recorded with its page and time, fails the check and leads the failure', async () => {
   const browser = new Browser(), watched = watch(browser, { grace: 10 });
@@ -111,25 +114,45 @@ test('a lost browser: its pages\' and contexts\' closes and the disconnection, w
   assert.equal(error.message, `${said(watched)}\n${CLOSED}`);
   assert.match(error.message, /^page closed [\d.]+ s after launch \(http:\/\/a\/\); context closed [\d.]+ s after launch; /);
   assert.throws(() => watched.check('chromium'), /chromium: a page crashed or closed, or the browser disconnected/);
+  // With the browser gone there is no news left to wait for.
+  assert.ok(await atOnce(watched.lead(new Error(CLOSED))), 'led at once after the disconnection');
 });
 
-test('a failure waits at most its grace for news, and one that is no Error is led too', async () => {
+test('only a failure that says its target is gone waits for news, at most its grace; one that is no Error is led too', async () => {
   const browser = new Browser(), watched = watch(browser, { grace: 50 });
   const page = await (await browser.newContext()).newPage('http://a/');
-  const started = Date.now();
-  const unchanged = new Error('timeout');
-  assert.equal((await watched.lead(unchanged)).message, 'timeout');
-  assert.ok(Date.now() - started >= 40, 'it waited');
+  // Any other failure is led at once, so that the screenshot and what a
+  // suite captures after it show the page as the failure left it.
+  for (const failure of [new Error('page.waitForFunction: Timeout 20000ms exceeded.'), new Error('expected 3 clues'),
+    'a string was thrown'])
+    assert.ok(await atOnce(watched.lead(failure)), `${failure}: led at once`);
+  // Playwright's word that the target is gone: a lost browser's (with its
+  // logs or without), a crashed page's in either engine, a call's on a page
+  // as it crashes. The browser stays connected, so each waits its grace.
+  for (const message of [CLOSED, `${CLOSED}\nBrowser logs:\n\n<launching> playwright`, 'page.waitForFunction: Target crashed ',
+    'page.goto: Page crashed']) {
+    const started = Date.now(), led = watched.lead(new Error(message));
+    assert.equal(await atOnce(led), false, `${message}: waits`);
+    assert.equal((await led).message, message, 'nothing ended, nothing leads');
+    const waited = Date.now() - started;
+    assert.ok(waited >= 40 && waited < 5000, `${message}: waited ${waited} ms for a grace of 50`);
+  }
+  // A suite that carried on past a crash fails its check, at once too.
   page.crash();
-  const led = await watched.lead('a string was thrown');
-  assert.ok(led instanceof Error);
-  assert.equal(led.message, `${said(watched)}\na string was thrown`);
+  const carriedOn = (() => { try { watched.check('webkit'); } catch (error) { return error; } })();
+  const led = watched.lead(carriedOn);
+  assert.ok(await atOnce(led), 'the check\'s failure is led at once');
+  assert.ok((await led).message.startsWith(`${said(watched)}\nwebkit: a page crashed or closed, or the browser disconnected`));
+  const string = await watched.lead('a string was thrown');
+  assert.ok(string instanceof Error);
+  assert.equal(string.message, `${said(watched)}\na string was thrown`);
 });
 
-test('every script that launches a browser watches it, checks it and leads its failures', () => {
+test('every script that launches a browser watches it, checks it, leads its failures and reports what ended', () => {
   const scripts = fs.readdirSync(new URL('../../scripts/', import.meta.url)).filter((file) => file.endsWith('.cjs'));
   const launching = scripts.filter((file) => /\.launch\(/.test(read(`scripts/${file}`)));
   assert.ok(launching.length >= 5, launching.join());
+  const reporting = [];
   for (const file of launching) {
     const source = read(`scripts/${file}`);
     const browsers = [...source.matchAll(/(\w+) = await [\w.[\]]+\.launch\(/g)].map(([, browser]) => browser);
@@ -137,5 +160,13 @@ test('every script that launches a browser watches it, checks it and leads its f
     for (const browser of browsers) assert.ok(source.includes(`watch(${browser})`), `${file} watches ${browser}`);
     assert.match(source, /\.check\((?:name|engineName)\)/, `${file} fails when a page ended`);
     assert.match(source, /await \w+\.lead\(/, `${file} leads its failures`);
+    // A report that names a watched browser's version keeps what ended in it.
+    for (const [, watched, browser] of source.matchAll(/(\w+) = watch\((\w+)\)/g))
+      if (source.includes(`version: ${browser}.version()`)) {
+        assert.ok(source.includes(`ended: ${watched}.ended`), `${file} keeps ${browser}'s ended in its report`);
+        reporting.push(file);
+      }
   }
+  // The harness, browser_smoke, ocr_latency and solver_update at least.
+  assert.ok(reporting.length >= 4, reporting.join());
 });

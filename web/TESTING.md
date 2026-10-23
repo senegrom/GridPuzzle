@@ -46,14 +46,22 @@ the error the run ends with, one line before Playwright's message:
 gives a crash no reason, and the call a crash interrupts fails with `Target
 crashed` in Chromium, but in WebKit with the `Target page, context or browser
 has been closed` of a lost browser's calls: all that `live_noise`'s WebKit
-failure in run 39571397193 said. The suites that launch browsers of their own
-(`browser_smoke`, `solver_update` and `ocr_latency`, which keep `ended` in
-their own reports, and the detection check inside `scanner_settings`, whose
-record leads its failure in `scanner-settings.json`) watch them the same way.
-`harness_regressions.cjs` checks all this in real browsers, and
-`web/tests/harness-watch.test.js` checks the records with stand-ins for
-Playwright's objects, and that every script that launches a browser watches
-it.
+failure in run 39571397193 said. A lost browser's interrupted call fails
+before Playwright reports the closes behind it, so a failure that says its
+target is gone (`Target page, context or browser has been closed`, `Target
+crashed` or `Page crashed`) waits for that news, until the browser has
+disconnected and for at most a second, before it is led; any other failure
+is led at once, so that the screenshot shows the page as the failure left
+it. `ended` is written with the report after the browser is closed, so it
+can also hold what ended after the failure was led. The suites that launch
+browsers of their own (`browser_smoke`, `solver_update` and `ocr_latency`,
+which keep `ended` in their own reports, and the detection check inside
+`scanner_settings`, whose record leads its failure in
+`scanner-settings.json`) watch them the same way. `harness_regressions.cjs`
+checks all this in real browsers, and `web/tests/harness-watch.test.js`
+checks the records and the wait with stand-ins for Playwright's objects, and
+that every script that launches a browser watches it and keeps `ended` in a
+report that names the browser's version.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
@@ -94,7 +102,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it; `--live` measures the live camera's quick path (a lattice of dots, a grid to the photograph's path, is none in its column) | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
-| `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a context the suite closes itself is no news; every engine runs after the first failure | `live` |
+| `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure | `live` |
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |

@@ -128,7 +128,12 @@ function baselineSite(commit, files) {
    what the suite or its owner closes is no news; after browser.close()
    nothing is recorded. check(name) fails when anything ended, and
    lead(error) puts what ended at the head of a failure's message and
-   stack. */
+   stack, once a lost browser's news is in when the failure says that its
+   target is gone. */
+// Playwright's word that the target of a call is gone: a lost browser's
+// calls and a crashed WebKit page's fail with the first, a crashed Chromium
+// page's with the second, and calls on a page as it crashes with the third.
+const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
 function watch(browser, { grace = 1000 } = {}) {
   const started = Date.now(), ended = [], asked = new WeakSet();
   const unasked = (...targets) => !targets.some((target) => asked.has(target));
@@ -155,8 +160,10 @@ function watch(browser, { grace = 1000 } = {}) {
   browser.on("disconnected", () => { if (unasked(browser)) note("browser disconnected"); });
   // Playwright can fail the call a lost browser interrupted before it reports
   // the closes behind it (WebKit: the page's close 2 ms and the disconnection
-  // 25 ms after the call failed), so a failure waits for them: until the
-  // browser has disconnected, for at most `grace` ms.
+  // 25 ms after the call failed), so a failure that says its target is gone
+  // waits for them: until the browser has disconnected, for at most `grace`
+  // ms. Any other failure is led at once, so that the screenshot and what a
+  // suite captures after it show the page as the failure left it.
   const settled = () => new Promise((resolve) => {
     if (!browser.isConnected()) return resolve();
     const done = () => { clearTimeout(timer); browser.off("disconnected", done); resolve(); };
@@ -167,7 +174,7 @@ function watch(browser, { grace = 1000 } = {}) {
     ended,
     check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser disconnected`); },
     async lead(error) {
-      await settled();
+      if (GONE.test(String(error?.message ?? error))) await settled();
       if (!ended.length) return error;
       if (!(error instanceof Error)) error = new Error(String(error));
       const line = ended.map(({ event, seconds, url }) => `${event} ${seconds} s after launch${url ? ` (${url})` : ""}`).join("; ");

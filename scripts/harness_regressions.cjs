@@ -1,7 +1,11 @@
 /* The harness itself, in real browsers: what ends a suite's page reaches the
    engine's report and leads its failure. Each case runs engines() on a
-   suite that ends a page on purpose and checks the reports engines() writes,
-   the error it throws, what it prints and the screenshots it takes:
+   suite that fails or ends a page on purpose and checks the reports
+   engines() writes, the error it throws, what it prints and the screenshots
+   it takes:
+   - the suite fails on its own while its page is there: nothing leads the
+     failure, and the screenshot is taken at once, not after the wait a
+     failure that says its target is gone makes for a lost browser's news;
    - the suite's page crashes while the suite waits for it (Chromium, through
      a CDP session's Page.crash; Playwright has no way to crash a WebKit page,
      so there the suite passes, after Chromium's failure);
@@ -57,6 +61,27 @@ async function run() {
   const server = await serve({ directory });
   const base = server.base, selected = selectedEngines(), outcome = {};
   try {
+    // A wrapper on the page's screenshot() notes when engines() takes it.
+    const ordinary = await attempt("ordinary", async (page, report) => {
+      await page.goto(base);
+      const screenshot = page.screenshot.bind(page);
+      page.screenshot = (...args) => { report.screenshotAfter = Date.now() - report.failedAt; return screenshot(...args); };
+      report.failedAt = Date.now();
+      throw new Error("expected 3 clues");
+    });
+    assert.equal(ordinary.thrown?.message, "expected 3 clues");
+    for (const engine of selected) {
+      const report = ordinary.reports[engine];
+      assert.equal(report.status, "failed", engine);
+      assert.deepEqual(report.ended, [], engine);
+      assert.ok(report.failure.startsWith("Error: expected 3 clues\n"), `${engine}: ${report.failure}`);
+      assert.ok(ordinary.printed.some((text) => text.startsWith(`${engine} Error: expected 3 clues\n`)), `${engine}: ${ordinary.printed.join("\n")}`);
+      // At once is a few milliseconds; the wait would be a second.
+      assert.ok(report.screenshotAfter < 500, `${engine}: screenshot ${report.screenshotAfter} ms after the failure`);
+      assert.equal(ordinary.shot(engine), true, `${engine}: the page that is still there gets its screenshot`);
+      outcome[`ordinary (${engine})`] = { screenshotAfter: report.screenshotAfter };
+    }
+
     const crash = await attempt("crash", async (page, report, name) => {
       await page.goto(base);
       if (name !== "chromium") return;
@@ -121,7 +146,9 @@ async function run() {
     fs.rmSync(directory, { recursive: true, force: true });
   }
   fs.writeFileSync("browser-artifacts/harness.json", JSON.stringify(outcome, null, 2) + "\n");
-  for (const [name, ended] of Object.entries(outcome)) console.log(`${name}: led by ${said(ended)}`);
+  for (const [name, record] of Object.entries(outcome))
+    console.log(Array.isArray(record) ? `${name}: led by ${said(record)}`
+      : `${name}: led by nothing, screenshot ${record.screenshotAfter} ms after the failure`);
 }
 
 main(module, run);
