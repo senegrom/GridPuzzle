@@ -4,8 +4,8 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { setupPhotoFlow } from "../photo-flow.js";
 import { restoreSession, saveSession } from "../session.js";
-import { boxShape, fitPlay, isPlayableCell, makePuzzle, maxValue } from "../model.js";
-import { rememberEdit } from "../edit-history.js";
+import { TYPES, boxShape, fitPlay, isPlayableCell, makePuzzle, maxValue, normalizePuzzle, playable } from "../model.js";
+import { prepareEdit, rememberEdit, restoreEdit } from "../edit-history.js";
 import { createTaskController } from "../task-controller.js";
 
 // A new photograph is shown on the fallback crop while its grid is found, and
@@ -146,6 +146,7 @@ function harness(t, { type = "latinsquare", layout = { rows: 4, cols: 4, boxRows
   crop.getBoundingClientRect = () => ({ left: 0, top: 0, width: crop.width, height: crop.height });
   crop.setPointerCapture = noop;
   return { $, state, tasks, detections, reads, errors, statuses, storage, canvas, setLayout,
+    get flow() { return flow; },
     get cancels() { return cancels; }, get solves() { return solves; }, get solverEnds() { return solverEnds; },
     get status() { return statuses.at(-1)?.[0]; },
     // A held reading answers (`holdReads`).
@@ -760,28 +761,36 @@ test("on screen, the answer's promise stays while the Read waits, with the elaps
 
 // app.js's own handlers for a tap on a board cell (cellAction, which opens a
 // Play cell, answers a tap on a clue cell or selects a cell for a cage or an
-// inequality) and for a change of editing tool, taken from app.js as they
-// are (as play-actions.test.js does) and run against this harness's flow,
-// task controller and status lines.
+// inequality), for a cell opened to edit its clue (openCell), for a change of
+// editing tool, for an edit (mutate, through invalidate), for Undo and for a
+// new board (loadPuzzle), taken from app.js as they are (as
+// play-actions.test.js does) and run against this harness's flow, task
+// controller and status lines.
 function appHandlers(h) {
   const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
   const section = (first, last) => {
     const start = app.indexOf(first), end = app.indexOf(last, start);
     assert.ok(start >= 0 && end > start, `app.js has ${first}`);
-    return app.slice(start, end);
+    return app.slice(start, end).replace(/^export function /gm, "function ");
   };
   const noop = () => {};
   Object.assign(h.$("board"), { querySelector: () => null });
   Object.assign(h.$("cell-dialog"), { showModal() { this.open = true; } });
   Object.assign(h.$("cell-value"), { select: noop });
-  const context = vm.createContext({ $: h.$, state: h.state, status: h.say, isPlayableCell, maxValue,
+  const context = vm.createContext({ $: h.$, state: h.state, status: h.say, tasks: h.tasks, isPlayableCell, maxValue,
+    TYPES, fitPlay, normalizePuzzle, playable, prepareEdit, restoreEdit,
     stopTask: (message) => h.tasks.stop(message), clueReread: { open: noop, cancel: noop }, drawBoard: noop, render: noop,
-    openCell() { assert.fail("only the Clues tool opens a cell to edit"); } });
+    remember: () => rememberEdit(h.state), persist: noop, savePrefs: noop, setLayout: h.setLayout, warmSolver: noop,
+    stopCamera: () => h.flow.stopCamera(), boardLoaded: () => h.flow.boardLoaded() });
   vm.runInContext(["let editing = null, focused = null, playEditing = false;",
+    section("function invalidate()", "export function loadPuzzle("),
+    section("export function loadPuzzle(", "export function getState()"),
+    section("function openCell(", "function numberInput("),
     section("function playMode()", "function savePlayCell()"),
     section("function cellAction(", '$("board").onclick ='),
     section('$("edit-tool").onchange =', '$("clear-selection").onclick ='),
-    "globalThis.app = { cellAction };"].join("\n"), context);
+    section('$("undo").onclick =', '$("stop").onclick ='),
+    "globalThis.app = { cellAction, openCell, mutate, loadPuzzle };"].join("\n"), context);
   return context.app;
 }
 // A tap on board cell `i` with the editing tool `tool`, through app.js.
@@ -978,7 +987,10 @@ test("a stop without a status whose detection answers late: the answer goes when
 const OPENING = ["Opening the photo…", "Photo processing stays on this device."],
   STILL_OPENING = ["Still opening the photo…", PROMISE],
   OPENING_EDITOR = ["Still opening the photo…", "The crop editor switches to it as soon as it is open."],
-  OPEN_DROPPED = ["Stopped.", "The new photo was not opened."];
+  OPEN_DROPPED = ["Stopped.", "The new photo was not opened."],
+  NOT_OPENED = OPEN_DROPPED[1];
+// No line says that a photograph was not opened.
+const noDropWord = (lines) => assert.ok(lines.every(([, detail]) => !detail.includes(NOT_OPENED)), JSON.stringify(lines, null, 1));
 // The corners the detector finds on the 640 × 480 photograph chosen.
 const CHOSEN = [{ x: 80, y: 60 }, { x: 560, y: 70 }, { x: 550, y: 410 }, { x: 90, y: 420 }];
 const copy = (corners) => corners.map((p) => ({ ...p }));
@@ -996,6 +1008,7 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     const h = harness(t), s = screen(t, h), first = await h.photograph(), photo = h.state.photo;
     await h.tapRead();
     const chosen = s.mark(), next = await h.choose({ input }), ends = h.solverEnds;
+    assert.equal(ends, 1, "choosing it stopped the running detection, which was no opening: the page's warm solver ends, as before");
     h.running();
     await s.until(([text, detail]) => text === OPENING[0] && ELAPSED.test(detail), "the opening's elapsed time");
     const opening = s.since(chosen);
@@ -1006,16 +1019,18 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     assert.equal(h.reads.length, 0);
     // Opened, it is shown on its fallback crop while its grid is found, as a
     // photograph chosen while no task ran is.
-    await next.open();
+    await next.open(); await settle();
     assert.deepEqual([h.state.photo.width, h.state.photo.height], [640, 480]);
     assert.equal(h.detections[1].image, h.state.photo);
     assert.deepEqual(h.state.corners, fallback(640, 480));
     assert.deepEqual(h.statuses.at(-1), FINDING);
+    assert.deepEqual(s.now(), FINDING, "on screen as set: an opening that ended is no opening dropped");
     h.running();
     h.detections[1].resolve(found(CHOSEN)); await next.imported; await settle();
     assert.equal(h.status, "Grid found."); assert.deepEqual(h.state.corners, CHOSEN);
     assert.equal(h.reads.length, 0, "the Read that waited for the first photograph's grid went with it");
     assert.deepEqual(h.errors, []); h.ended();
+    noDropWord(s.since(chosen));
     assert.equal(h.solverEnds, ends, "the opening's task ended before the photograph was taken: no running task was stopped");
     first.detection.resolve(found(STRAY)); await first.imported; await settle();
     assert.deepEqual(h.state.corners, CHOSEN, "the first detection's answer, if it comes now, changes nothing");
@@ -1115,6 +1130,47 @@ for (const [what, tap] of Object.entries(editorTaps))
     assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []); h.ended();
     assert.equal(h.solverEnds, 0, "no running task was stopped");
   });
+// While a Read waits for the photograph, the answer to such a tap is the
+// Read's own, whose promise still holds: before, the tap's answer took the
+// promise off the screen, though the Read still came.
+for (const [what, tap] of Object.entries(editorTaps))
+  test(`${what} tapped while a Read waits for a chosen photograph is answered with the Read's promise, kept with the elapsed time after it, and the Read follows the new photograph's grid`, async (t) => {
+    const h = harness(t), s = screen(t, h), before = await inEditor(h), next = await h.choose();
+    await h.tapRead();
+    assert.deepEqual(h.statuses.at(-1), STILL_OPENING);
+    const tapped = s.mark();
+    void tap(h); await settle();
+    assert.deepEqual(h.statuses.at(-1), STILL_OPENING, "the tap is answered with the Read's promise");
+    await s.until(([text, detail]) => text === STILL_OPENING[0] && TIMED.test(detail), "the promise with the elapsed time after it");
+    const answered = s.since(tapped);
+    assert.ok(answered.every(([text, detail]) => text === STILL_OPENING[0] && (detail === PROMISE || TIMED.test(detail))),
+      JSON.stringify(answered, null, 1));
+    assert.equal(h.state.photo, before.photo); assert.deepEqual(h.state.corners, before.corners, "its crop is untouched");
+    assert.equal(h.detections.length, 1, "no detection starts"); assert.equal(h.reads.length, 0); h.running();
+    await next.open();
+    assert.deepEqual(h.statuses.at(-1), [STILL, PROMISE], "the Read waits for the new photograph's grid");
+    h.detections[1].resolve(found(CHOSEN)); await next.imported; await settle();
+    leadIn(h, FOUND_LINE);
+    assert.equal(h.reads.length, 1); assert.equal(h.reads[0].image, h.state.photo);
+    assert.deepEqual(h.reads[0].corners, CHOSEN); assert.deepEqual([h.state.photo.width, h.state.photo.height], [640, 480]);
+    assert.equal(h.status, "Puzzle read."); h.ended();
+  });
+
+// A stop of a running task that is no photograph's opening (a detection, a
+// Read) ends the page's warm solver, as before (app.js onStop): only an
+// opening, which used none, keeps it.
+test("Stop during a detection or a Read, with no photograph opening, ends the page's warm solver, as before", async (t) => {
+  const h = harness(t, { holdReads: true });
+  await h.photograph();
+  h.running(); h.stop();
+  assert.equal(h.solverEnds, 1, "a detection stopped");
+  await h.tapRead(); await settle();
+  assert.equal(h.reads.length, 1, "a Read after Stop reads at once"); h.running();
+  h.stop();
+  assert.equal(h.solverEnds, 2, "a Read stopped");
+  h.stop();
+  assert.equal(h.solverEnds, 2, "a stop with no task running ends nothing");
+});
 
 // Hide photo drops a Read waiting for a photograph being opened, as it drops
 // one waiting for a grid: the opening's own line comes back, then its elapsed
@@ -1139,35 +1195,44 @@ test("Hide photo while a chosen photograph opens drops a Read waiting for it: th
   assert.equal(h.status, "Grid found."); assert.equal(h.reads.length, 0); h.ended();
 });
 
-// Whatever stops the opening drops the photograph, and the line says so: a
-// stop or task with a status of its own keeps that one; one without (a Play
-// cell, a change of editing tool, any other task stop without a message)
-// leaves "Stopped." over "The new photo was not opened." at once, before the
-// page paints, though the decode itself cannot be stopped, also in place of
-// the promise of a Read that waited for the photograph. The photograph before
-// it stays in the crop editor, and a Read then reads it at once.
+// Whatever stops the opening drops the photograph, and the line says so at
+// once, before the page paints, though the decode itself cannot be stopped,
+// also in place of the promise of a Read that waited for the photograph. A
+// stop without a status of its own (a Play cell, a change of editing tool,
+// any other task stop without a message) leaves "Stopped." over "The new
+// photo was not opened."; a stop with a line of its own keeps it, with "The
+// new photo was not opened." as its second line in place of a stop's "Search
+// unfinished…" (Stop, a cell opened to edit its clue) or an empty one (Undo),
+// or after its own (an edit, a cell selected with the Cages or Inequalities
+// tool). Before, such lines said nothing of the photograph, and Stop's spoke
+// of a search. app.js's own handlers run here (appHandlers). The photograph
+// before it stays in the crop editor, and a Read then reads it at once.
+// `prepare` runs before the photograph is chosen (an edit for Undo to undo).
+const EDIT = (draft) => { draft.puzzle.cells[5] = 2; };
 const openingStops = {
-  Stop: [(h) => h.stop(), ["Stopped.", UNFINISHED]],
-  "an edit": [(h) => h.tasks.stop("Stopped for editing."), ["Stopped for editing.", UNFINISHED]],
-  "a cell selected with the Cages tool": [(h) => tapCell(h, "cage", 5), ["1 cells selected.", "Enter the target and save the cage."]],
-  "the camera": [(h) => h.$("camera").onclick(), ["Camera ready.", "Hold a clear grid steady; the shutter saves the view."]],
+  Stop: [(h) => h.stop(), ["Stopped.", NOT_OPENED]],
+  "a cell opened to edit its clue": [(h) => { appHandlers(h).openCell(5); assert.equal(h.$("cell-dialog").open, true); },
+    ["Stopped for editing.", NOT_OPENED]],
+  "an edit": [(h) => appHandlers(h).mutate(EDIT), ["Puzzle changed.", `Solve again to check the updated clues and rules. ${NOT_OPENED}`]],
+  Undo: [(h) => h.$("undo").onclick(), ["Last edit undone.", NOT_OPENED], (h) => appHandlers(h).mutate(EDIT)],
+  "a cell selected with the Cages tool": [(h) => tapCell(h, "cage", 5), ["1 cells selected.", `Enter the target and save the cage. ${NOT_OPENED}`]],
+  "a cell selected with the Inequalities tool": [(h) => tapCell(h, "inequality", 5),
+    ["1 cells selected.", `Select the smaller cell first, then the larger adjacent cell. ${NOT_OPENED}`]],
   "a Play cell opened": [(h) => { tapCell(h, "play", 5); assert.equal(h.$("cell-dialog").open, true); }, OPEN_DROPPED],
   "a change of editing tool": [(h) => { appHandlers(h); h.$("edit-tool").value = "play"; h.$("edit-tool").onchange(); }, OPEN_DROPPED],
   "a task stop without a message": [(h) => h.tasks.stop(), OPEN_DROPPED],
 };
-for (const [what, [stop, line]] of Object.entries(openingStops))
+for (const [what, [stop, line, prepare]] of Object.entries(openingStops))
   for (const read of [false, true])
-    test(`${what} while a chosen photograph opens${read ? ", with a Read waiting for it," : ""} drops it, and ${line === OPEN_DROPPED ? 'leaves "Stopped." over "The new photo was not opened." at once' : "its own line stays"}; a Read then reads the photograph before it`, async (t) => {
-      const h = harness(t), s = screen(t, h), before = await inEditor(h), next = await h.choose();
+    test(`${what} while a chosen photograph opens${read ? ", with a Read waiting for it," : ""} drops it, and the line says so at once: ${JSON.stringify(line)}; a Read then reads the photograph before it`, async (t) => {
+      const h = harness(t), s = screen(t, h), before = await inEditor(h);
+      prepare?.(h);
+      const next = await h.choose();
       h.running();
       if (read) { await h.tapRead(); assert.deepEqual(h.statuses.at(-1), STILL_OPENING); }
       const stopped = s.mark();
       await stop(h); await settle(); await sleep(50);
-      assert.deepEqual(s.now(), line);
-      const after = s.since(stopped);
-      noPromise(after);
-      if (line === OPEN_DROPPED) assert.deepEqual(after, [OPEN_DROPPED], "painted after the stop: this line alone");
-      else assert.ok(!after.some(([text, detail]) => text === OPEN_DROPPED[0] && detail === OPEN_DROPPED[1]), JSON.stringify(after, null, 1));
+      assert.deepEqual(s.since(stopped), [line], "painted after the stop: this line alone");
       h.ended();
       assert.equal(h.solverEnds, 0, "the opening used no solver: the page's warm one stays");
       // The decode ends; the photograph is not taken, and the line stays.
@@ -1177,16 +1242,81 @@ for (const [what, [stop, line]] of Object.entries(openingStops))
       assert.equal(h.detections.length, 1, "the chosen photograph's grid is not searched");
       assert.deepEqual(s.now(), line);
       assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []);
-      if (what === "the camera") return; // It covers the page.
       await h.tapRead(); await settle();
       assert.equal(h.reads.length, 1, "read at once"); assert.equal(h.reads[0].image, before.photo);
       assert.deepEqual(h.reads[0].corners, before.corners);
       assert.equal(h.status, "Puzzle read."); h.ended();
     });
 
-// Another photograph chosen while the first opens is a stop with a status of
-// its own: its own opening line, never the line that says the first was not
-// opened, and a Read that waited for the first goes with it. Its decode waits
+// A status set while the photograph opens by something that stops nothing
+// (app.js's answer to a Play tap on a clue cell) gets the elapsed time under
+// it, as any status does while a task runs. A stop then says that the
+// photograph was not opened, in place of that line: before, a stop without a
+// status of its own left the answer there, the elapsed time under it though
+// no task ran any more.
+for (const [what, stop, line] of [
+  ["a change of editing tool", (h) => { appHandlers(h); h.$("edit-tool").value = "value"; h.$("edit-tool").onchange(); }, OPEN_DROPPED],
+  ["Stop", (h) => h.stop(), ["Stopped.", NOT_OPENED]],
+])
+  test(`a status set while a chosen photograph opens (a Play tap on a clue cell), then ${what}: the photograph is dropped, and the line says so in place of that status`, async (t) => {
+    const h = harness(t), s = screen(t, h), before = await inEditor(h);
+    h.state.puzzle.cells[0] = 1;
+    const next = await h.choose();
+    tapCell(h, "play", 0);
+    assert.deepEqual(h.statuses.at(-1), CLUE, "app.js's answer to the tap");
+    await s.until(([text, detail]) => text === CLUE[0] && ELAPSED.test(detail), "the elapsed time under that status");
+    h.running();
+    const stopped = s.mark();
+    stop(h); await settle(); await sleep(50);
+    assert.deepEqual(s.since(stopped), [line], "painted after the stop: this line alone");
+    h.ended();
+    next.release(); await next.imported; await settle();
+    assert.equal(h.state.photo, before.photo, "the photograph before it stays");
+    assert.equal(h.detections.length, 1); assert.deepEqual(s.now(), line);
+  });
+
+// A newer choice of picture or board drops the photograph being opened under
+// its own line, as it drops a waiting Read (#161): the camera, also while it
+// asks for permission, and a new board (app.js's loadPuzzle, which tells the
+// flow so: boardLoaded). Another photograph: below.
+const newerChoices = {
+  "the camera": (h) => h.$("camera").onclick(),
+  "the camera, while it asks for permission"(h) {
+    navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
+    void h.$("camera").onclick();
+  },
+  "a new board": (h) => appHandlers(h).loadPuzzle(makePuzzle("latinsquare", 4)),
+};
+const newerLines = {
+  "the camera": ["Camera ready.", "Hold a clear grid steady; the shutter saves the view."],
+  "the camera, while it asks for permission": ["Opening camera…", "Please allow camera access."],
+  "a new board": ["Puzzle loaded.", "Latin square · Tap a cell to edit its printed clue, or choose Play under Editing to solve it yourself."],
+};
+for (const [what, choose] of Object.entries(newerChoices))
+  for (const read of [false, true])
+    test(`${what} while a chosen photograph opens${read ? ", with a Read waiting for it," : ""} drops it under its own line, which stays as it is set`, async (t) => {
+      const h = harness(t), s = screen(t, h), before = await inEditor(h), next = await h.choose();
+      if (read) { await h.tapRead(); assert.deepEqual(h.statuses.at(-1), STILL_OPENING); }
+      const stopped = s.mark();
+      await choose(h); await settle(); await sleep(50);
+      assert.deepEqual(s.now(), newerLines[what]);
+      assert.deepEqual(s.now(), h.statuses.at(-1), "its line as it was set");
+      const after = s.since(stopped);
+      noDropWord(after); noPromise(after);
+      h.ended();
+      assert.equal(h.solverEnds, 0, "the opening used no solver: the page's warm one stays");
+      next.release(); await next.imported; await settle();
+      assert.equal(h.detections.length, 1, "the chosen photograph's grid is not searched");
+      assert.deepEqual(s.now(), newerLines[what]);
+      if (what === "a new board") {
+        assert.equal(h.state.photo, null, "the new board closes the crop editor"); assert.equal(h.$("photo-panel").hidden, true);
+      } else assert.equal(h.state.photo, before.photo);
+      assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []);
+    });
+
+// Another photograph chosen while the first opens is a newer choice too: its
+// own opening line, never a word that the first was not opened, and a Read
+// that waited for the first goes with it. Its decode waits
 // for the first's, which the browser cannot stop (photo-detail.js).
 test("another photograph chosen while the first opens drops the first: the second's own line, never the first's drop, and the second opens", async (t) => {
   const h = harness(t), s = screen(t, h), before = await inEditor(h), first = await h.choose();
@@ -1200,7 +1330,7 @@ test("another photograph chosen while the first opens drops the first: the secon
   assert.deepEqual([h.state.photo.width, h.state.photo.height], [480, 640]);
   assert.deepEqual(h.statuses.at(-1), FINDING, "no Read waits for its grid");
   const painted = s.since(chosen);
-  assert.ok(!painted.some(([text, detail]) => text === OPEN_DROPPED[0] && detail === OPEN_DROPPED[1]), JSON.stringify(painted, null, 1));
+  noDropWord(painted);
   noPromise(painted);
   h.detections[1].resolve(found(fallback(480, 640))); await second.imported; await settle();
   assert.equal(h.status, "Grid found."); assert.equal(h.reads.length, 0); assert.deepEqual(h.errors, []); h.ended();
@@ -1254,7 +1384,7 @@ test("app.js gives the photo flow the task controller's keep", () => {
 // unless that task was a photograph being opened, which used none.
 test("app.js tells the photo flow when a task stops, and keeps the warm solver when that task was a photograph being opened", () => {
   const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
-  assert.match(app, /const \{ stopCamera, taskStopped \} = setupPhotoFlow\(\{/);
+  assert.match(app, /const \{ stopCamera, taskStopped, boardLoaded \} = setupPhotoFlow\(\{/);
   const rest = app.slice(Math.max(0, app.indexOf("onStop: (wasBusy) => {"))), end = rest.search(/\r?\n  \},\r?\n\}\);/);
   assert.ok(rest.startsWith("onStop: (wasBusy) => {") && end > 0, "app.js has the task controller's onStop, its last option");
   const onStop = rest.slice("onStop: ".length, end) + "\n}";

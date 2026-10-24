@@ -261,6 +261,9 @@ export function loadPuzzle(payload, session = null) {
   focused = 0;
   persist();
   render({ replaceDraft: true });
+  // A photograph still being opened went with the task: this line says what
+  // happened (photo-flow.js boardLoaded).
+  boardLoaded();
   status(
     session ? "Backup or puzzle imported." : "Puzzle loaded.",
     playable(p)
@@ -1494,7 +1497,7 @@ $("apply-json").onclick = () => {
   }
 };
 
-const { stopCamera, taskStopped } = setupPhotoFlow({
+const { stopCamera, taskStopped, boardLoaded } = setupPhotoFlow({
   savePicture: setupCaptureGallery($),
   // The page runs one Python interpreter. The camera's previews take over
   // an idle or warming one when they will solve; otherwise it is released.

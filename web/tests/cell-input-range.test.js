@@ -30,12 +30,12 @@ function harness(t) {
   class Worker { postMessage() {} terminate() {} }
   const context = vm.createContext({
     ...model, $, Worker, URL, console, performance, clueReread: { cancel() {}, open() {} },
-    captureEdit, restoreEdit, prepareEdit, scanner: { cancel() {} }, stopCamera() {}, taskStopped: () => false,
+    captureEdit, restoreEdit, prepareEdit, scanner: { cancel() {} }, stopCamera() {}, taskStopped: () => false, boardLoaded() {},
     render() {}, persist() {}, setLayout() {}, savePrefs() {}, remember: () => rememberEdit(context.api.state),
     setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {},
   });
   const code = [
-    fs.readFileSync(new URL("../task-controller.js", import.meta.url), "utf8").replace("export function ", "function "),
+    fs.readFileSync(new URL("../task-controller.js", import.meta.url), "utf8").replace(/^export /gm, ""),
     section("const state =", "const storage ="),
     section("function reviewCells()", '$("puzzle-type").addEventListener("change", typeControl);'),
     section("function status(", "function remember()"),
