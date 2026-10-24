@@ -41,8 +41,9 @@ function photoImports(t) {
   };
   let epoch = 0;
   const stopTask = () => { epoch++; };
+  // A chosen photograph is opened as a task of its own.
   setupPhotoFlow({
-    $, state: {}, scanner: {}, stopTask,
+    $, state: {}, scanner: {}, stopTask, begin: () => ++epoch, finish() {}, status() {},
     getJobId: () => epoch,
     fail: (error) => errors.push(error.message),
   });

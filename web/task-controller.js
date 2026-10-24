@@ -4,6 +4,8 @@
 // A deadline set with `wallClock` runs on setTimeout's clock instead.
 // While a task runs, its elapsed time replaces the status's second line
 // every half second, unless the task keeps that line (keep).
+// The second line of the status a stop with a message leaves.
+export const UNFINISHED = "Search unfinished. No claim about uniqueness or impossibility has been made.";
 export function createTaskController({ $, scanner, status, onStop,
   deadlines = { setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (handle) => clearTimeout(handle) } }) {
   let id = 0,
@@ -36,12 +38,7 @@ export function createTaskController({ $, scanner, status, onStop,
     scanner.cancel();
     onStop(busy);
     finish();
-    if (message)
-      status(
-        message,
-        "Search unfinished. No claim about uniqueness or impossibility has been made.",
-        "warning",
-      );
+    if (message) status(message, UNFINISHED, "warning");
   };
   return {
     get id() {
