@@ -50,6 +50,9 @@ function harness(t, faults = {}) {
         setTimeout(() => page.emit("crash", page), 20);
         crashed = true; throw Error("page.evaluate: Target page, context or browser has been closed");
       }
+      // A crash between two reads: the second read succeeds, and the crash is
+      // reported before the runner reads the third image, so no read fails.
+      if (calls === 2 && faults.crash === "between") { page.emit("crash", page); crashed = true; }
       return { read: { ...puzzle, black: [], cages: [], clues: [], inequalities: [] },
         uncertain: [], total: 12, detected: 1, grid: true, geometrySource: "detected" };
     },
@@ -130,6 +133,23 @@ for (const engine of ["chromium", "webkit"])
     assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
     assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
   });
+
+// A crash between two reads fails no read (real WebKit reported one right
+// after a read that succeeded, before the runner's next read): only what
+// watch() heard stops the run, before the next image is read.
+test("a page that crashes between two reads stops the run before the next: no image fails, the rest are not run, and the failure says why once", async t => {
+  const h = harness(t, { crash: "between" }); const report = await h.run();
+  assert.equal(report.status, "failed"); assert.equal(h.calls, 2, "the third image is not read");
+  assert.deepEqual(report.results.map(row => row.error ?? null), [null, null]);
+  assert.deepEqual(report.notRun, [{ family: "latinsquare", set: "fixture", name: "2.png" }]);
+  assert.deepEqual([report.completedImages, report.totalImages], [2, 3]);
+  assert.deepEqual([report.summary[0].images, report.summary[0].failed, report.summary[0].perfect], [2, 0, 2]);
+  assert.deepEqual(report.ended.map(({ event, url }) => [event, url]), [["page crashed", "http://127.0.0.1:8780/"]]);
+  const [{ seconds }] = report.ended;
+  assert.equal(report.failure, `page crashed ${seconds} s after launch (http://127.0.0.1:8780/)\nThe benchmark's page or browser is gone`);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
+  assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+});
 
 for (const phase of ["goto", "launch", "server", "spawn"]) {
   test(`${phase} failure retains a diagnostic report and closes allocated resources`, async t => {
