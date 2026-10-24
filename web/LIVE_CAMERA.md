@@ -1604,10 +1604,13 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
 - `ocr_latency_regressions.cjs` reads the two newspaper crops five times on one
   Scanner and records cold and warm read times, the time to the first
   provisional reading, worker counts and cache hits; it asserts engine reuse and
-  zero unflagged discrepancies, and reports rather than enforces wall-clock
-  times. `OCR_BASELINE_SITE=<other _site>` times a second build in the same
-  browser session for an A/B comparison. The OCR quality suite records retries
-  and keeps its accuracy and zero-unflagged-discrepancy requirements.
+  zero unflagged discrepancies, fails on its pages' uncaught errors and on a
+  page or browser that ends without its asking (`web/TESTING.md`), and reports
+  rather than enforces wall-clock times. It runs every engine `BROWSER_ENGINES`
+  selects, also after one has failed. `OCR_BASELINE_SITE=<other _site>` times
+  a second build in the same browser session for an A/B comparison. The OCR
+  quality suite records retries and keeps its accuracy and
+  zero-unflagged-discrepancy requirements.
 
 These fixed cases are regression controls, not a representative corpus or an
 accuracy gain.
