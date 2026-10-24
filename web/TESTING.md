@@ -355,9 +355,8 @@ what ended as a browser suite's failure is
 (`page crashed 812.4 s after launch (http://127.0.0.1:8780/)` on the line
 before Playwright's message, or before the runner's
 `The benchmark's page or browser is gone` when no read failed), and `ended`
-records it. Context, browser and
-HTTP-server clean-up is attempted independently and never replaces the
-primary failure. On Windows a
+records it. Context, browser and HTTP-server clean-up is attempted
+independently and never replaces the primary failure. On Windows a
 process holding the report open (someone checking progress, an editor) makes
 the replacing rename fail; the runner retries it for about five seconds, and a
 checkpoint that still cannot be saved is skipped with a warning, for the next
