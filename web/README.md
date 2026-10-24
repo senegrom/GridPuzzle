@@ -136,13 +136,38 @@ capture, Rotate, a moved corner, an edit or another task, or Hide photo (which
 lets the detection go on) drops the waiting Read, and the status stops
 promising it: a stop or task with a status of its own shows that one; one
 without (a corner moved or touched, a Play cell, a change of editing tool, or
-a photograph or puzzle file chosen, while it is read) leaves "Stopped." over
-"Read puzzle reads the crop as it is.", since a Read then reads the crop as
-it stands, at once; and Hide photo puts back the detection's own "Finding the
-grid…". A second tap adds nothing. Find grid makes a Read wait the same way
-while the crop is still that untouched crop (no detection has answered for it
-and no corner has moved); on a crop that a detection, a capture or the user
-set, a Read during Find grid stops it and reads that crop. Read puzzle also
+a puzzle file chosen, while it is read) leaves "Stopped." over "Read puzzle
+reads the crop as it is.", since a Read then reads the crop as it stands, at
+once; and Hide photo puts back the detection's own "Finding the grid…". A
+second tap adds nothing. Find grid makes a Read wait the same way while the
+crop is still that untouched crop (no detection has answered for it and no
+corner has moved); on a crop that a detection, a capture or the user set, a
+Read during Find grid stops it and reads that crop.
+A photograph chosen from a file, from the photo library or with the phone's
+camera app, is first opened (read, checked and decoded) as a task of its own:
+the status says "Opening the photo…", then the elapsed time, Stop stops it,
+and Solve, Check and Hint are unavailable meanwhile. Until it has opened, the
+crop editor still shows the photograph before it, and nothing tapped acts on
+that one: Read puzzle is answered with "Still opening the photo…" over "The
+puzzle is read as soon as the grid is found.", kept like the answer above, and
+is the Read tapped as soon as the new photograph has opened, so it then waits
+for its grid; Find grid, Rotate and the corner handles are answered with
+"Still opening the photo…" over "The crop editor switches to it as soon as it
+is open." (or with the Read's answer while a Read waits), kept the same way,
+and change nothing; Hide photo drops a waiting Read, and the photograph still
+opens in the crop editor. Whatever stops the opening drops the photograph,
+and the status says so: a stop without a status of its own (a Play cell, a
+change of editing tool, or a puzzle file chosen, while it is read) leaves
+"Stopped." over "The new photo was not opened.", also in place of a line set
+meanwhile, such as the answer to a Play tap on a clue cell; one with its own
+(Stop, an edit, Undo, a cell opened for editing or selected for a cage or an
+inequality) keeps its first line, and "The new photo was not opened." takes
+the place of a stop's "Search unfinished…" or follows its own second line. A
+newer choice of picture or board (the camera, another photograph, a new board
+or puzzle file once read) shows its own status alone. A photograph that cannot
+be opened says why. A capture handed to the crop editor and the photograph
+Rotate makes need no decoding, so their grid is searched from the tap itself.
+Read puzzle also
 stages its candidate: failed/cancelled reads of an unchanged crop preserve the
 accepted solution, photo mapping, Play cache and undo history. Any other new
 Read click cancels earlier work even when the new dimensions, boxes or crop

@@ -9,7 +9,7 @@ import { parsePuzzleFile } from "../backup.js";
 
 const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const first = source.indexOf('$("json-file").onchange =');
-const last = source.indexOf('const { stopCamera } =', first);
+const last = source.indexOf('const { stopCamera, taskStopped, boardLoaded } =', first);
 assert.ok(first >= 0 && last > first, "Production JSON handlers were not found");
 const deferred = () => {
   let resolve, reject;
