@@ -67,6 +67,9 @@ module.exports = async function detectionFailure(engineName, png) {
       writeReport(file, value) { checkpoints.push(value.completedImages); writeReport(file, value); },
       log() {},
     });
+    // The page's uncaught errors first, as watch() collects them: one that
+    // broke the run explains what fails after it.
+    assert.deepEqual(watched?.errors ?? [], [], `${engineName}: uncaught page errors in the detection check`);
     assert.equal(report.status, "complete"); assert.equal(report.completedImages, 4);
     assert.deepEqual(report.live, { scale: 640, thorough: false });
     const row = (set, name) => report.results.find(r => r.set === set && r.name === name);

@@ -17,15 +17,21 @@ function harness(t, faults = {}) {
     fs.writeFileSync(file, "image bytes"); fs.writeFileSync(target, JSON.stringify({ puzzle, corners: [[0, 0], [9, 0], [9, 9], [0, 9]] }));
     return { file, target, name: `${n}.png`, mime: "image/png", family: "latinsquare", set: "fixture" };
   });
-  let calls = 0, connected = true;
+  let calls = 0, connected = true, crashed = false;
   const events = [], controller = new AbortController(), output = path.join(dir, "report.json");
-  const page = {
+  // The browser, its context and page emit what Playwright's emit as they
+  // open, so that the runner's watch() hears the page. A crashed page stays
+  // open to Playwright in a connected browser, and every later call on it
+  // fails with "Target crashed", in WebKit too.
+  const page = Object.assign(new EventEmitter(), {
     setDefaultTimeout() {}, async goto() { if (faults.goto) throw Error("navigation failed"); },
-    async waitForSelector() {}, isClosed: () => !connected,
+    async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
+    async close() {},
     async evaluate(_scan, input) {
       // Count first: a failed assertion below must not leave the stalled-scan
       // test waiting for a second call for ever.
       calls++;
+      if (crashed) throw Error("page.evaluate: Target crashed");
       assert.deepEqual(Object.keys(input.puzzle).sort(), ["cols", "rows", "type"]);
       assert.deepEqual(input.corners, input.useTrue ? [[0, 0], [9, 0], [9, 9], [0, 9]] : null, "reference corners are opt-in");
       if (calls === 2 && faults.checkpoint) {
@@ -35,15 +41,30 @@ function harness(t, faults = {}) {
       if (calls === 2 && faults.hang) return new Promise(() => {});
       if (calls === 2 && faults.disconnect) { connected = false; throw Error("browser crashed"); }
       if (calls === 2 && faults.decode) throw Error("image decode rejected");
+      // Chromium reports a crash before the call it interrupts fails; WebKit
+      // can fail the call first, with a lost browser's words.
+      if (calls === 2 && faults.crash === "chromium") {
+        page.emit("crash", page); crashed = true; throw Error("page.evaluate: Target crashed");
+      }
+      if (calls === 2 && faults.crash === "webkit") {
+        setTimeout(() => page.emit("crash", page), 20);
+        crashed = true; throw Error("page.evaluate: Target page, context or browser has been closed");
+      }
+      // A crash between two reads: the second read succeeds, and the crash is
+      // reported before the runner reads the third image, so no read fails.
+      if (calls === 2 && faults.crash === "between") { page.emit("crash", page); crashed = true; }
       return { read: { ...puzzle, black: [], cages: [], clues: [], inequalities: [] },
         uncertain: [], total: 12, detected: 1, grid: true, geometrySource: "detected" };
     },
-  };
-  const context = { async newPage() { return page; }, async close() {
-    events.push("context closed"); if (faults.close) throw Error("context cleanup failed");
-  } };
-  const browser = { async newContext() { return context; }, isConnected: () => connected,
-    async close() { events.push("browser closed"); if (faults.close) throw Error("browser cleanup failed"); } };
+  });
+  const context = Object.assign(new EventEmitter(), {
+    pages: () => [], async newPage() { this.emit("page", page); return page; },
+    async close() { events.push("context closed"); if (faults.close) throw Error("context cleanup failed"); },
+  });
+  const browser = Object.assign(new EventEmitter(), {
+    contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
+    async close() { events.push("browser closed"); if (faults.close) throw Error("browser cleanup failed"); },
+  });
   const server = new EventEmitter(); server.kill = () => { events.push("server killed"); };
   const deps = { startServer() { events.push("server started"); if (faults.spawn) throw Error("spawn failed"); return server; },
     async waitForServer() { if (faults.server) throw Error("server unavailable"); },
@@ -56,6 +77,7 @@ function harness(t, faults = {}) {
 test("normal runs score all images, checkpoint and close every resource", async t => {
   const h = harness(t, { checkpoint: true }); const report = await h.run();
   assert.equal(report.status, "complete"); assert.equal(report.summary[0].perfect, 3);
+  assert.deepEqual([report.notRun, report.ended, report.failure], [[], [], null]);
   assert.equal(report.scoreVersion, 6);
   assert.deepEqual(report.recognition, { type: "reference", dimensions: "reference",
     corners: "detected-or-full-frame", clueValues: "not-supplied" });
@@ -88,6 +110,44 @@ test("browser crash writes a partial report and stops rather than inventing scan
   assert.equal(report.status, "failed"); assert.match(report.failure, /browser crashed/);
   assert.equal(h.calls, 2); assert.equal(h.saved().results.length, 2);
   assert.equal(report.totalImages, 3); assert.equal(report.summary[0].perfect, 1);
+  assert.deepEqual(report.notRun, [{ family: "latinsquare", set: "fixture", name: "2.png" }]);
+  assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+});
+
+// A crashed page is neither closed to Playwright nor in a disconnected
+// browser: the runner hears the crash, or takes the read's failure that its
+// target is gone, and stops instead of failing every later image on its own.
+for (const engine of ["chromium", "webkit"])
+  test(`a page that crashes (${engine}) stops the run: the image being read fails, the rest are not run, and the failure says why once`, async t => {
+    const h = harness(t, { crash: engine }); const report = await h.run();
+    const interrupted = engine === "chromium" ? "page.evaluate: Target crashed"
+      : "page.evaluate: Target page, context or browser has been closed";
+    assert.equal(report.status, "failed"); assert.equal(h.calls, 2, "the third image is not read");
+    assert.deepEqual(report.results.map(row => row.error ?? null), [null, interrupted]);
+    assert.deepEqual(report.notRun, [{ family: "latinsquare", set: "fixture", name: "2.png" }]);
+    assert.deepEqual([report.completedImages, report.totalImages], [2, 3]);
+    assert.deepEqual([report.summary[0].images, report.summary[0].failed, report.summary[0].perfect], [2, 1, 1]);
+    assert.deepEqual(report.ended.map(({ event, url }) => [event, url]), [["page crashed", "http://127.0.0.1:8780/"]]);
+    const [{ seconds }] = report.ended;
+    assert.equal(report.failure, `page crashed ${seconds} s after launch (http://127.0.0.1:8780/)\n${interrupted}`);
+    assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
+    assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+  });
+
+// A crash between two reads fails no read (real WebKit reported one right
+// after a read that succeeded, before the runner's next read): only what
+// watch() heard stops the run, before the next image is read.
+test("a page that crashes between two reads stops the run before the next: no image fails, the rest are not run, and the failure says why once", async t => {
+  const h = harness(t, { crash: "between" }); const report = await h.run();
+  assert.equal(report.status, "failed"); assert.equal(h.calls, 2, "the third image is not read");
+  assert.deepEqual(report.results.map(row => row.error ?? null), [null, null]);
+  assert.deepEqual(report.notRun, [{ family: "latinsquare", set: "fixture", name: "2.png" }]);
+  assert.deepEqual([report.completedImages, report.totalImages], [2, 3]);
+  assert.deepEqual([report.summary[0].images, report.summary[0].failed, report.summary[0].perfect], [2, 0, 2]);
+  assert.deepEqual(report.ended.map(({ event, url }) => [event, url]), [["page crashed", "http://127.0.0.1:8780/"]]);
+  const [{ seconds }] = report.ended;
+  assert.equal(report.failure, `page crashed ${seconds} s after launch (http://127.0.0.1:8780/)\nThe benchmark's page or browser is gone`);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
   assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
 });
 
@@ -95,6 +155,7 @@ for (const phase of ["goto", "launch", "server", "spawn"]) {
   test(`${phase} failure retains a diagnostic report and closes allocated resources`, async t => {
     const h = harness(t, { [phase]: true }); const report = await h.run();
     assert.equal(report.status, "failed"); assert.equal(report.results.length, 0);
+    assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
     assert.ok(h.saved().failure); assert.equal(h.calls, 0);
     if (phase !== "spawn") assert.equal(h.events.at(-1), "server killed");
     if (phase === "goto") assert.ok(h.events.includes("browser closed"));
@@ -113,6 +174,7 @@ test("interruption during a stalled scan checkpoints and closes without awaiting
   h.controller.abort(Error("test interrupt"));
   const report = await pending;
   assert.equal(report.status, "interrupted"); assert.match(report.failure, /test interrupt/);
+  assert.deepEqual(report.notRun.map(item => item.name), ["2.png"]);
   assert.equal(report.summary[0].perfect, 1); assert.equal(h.saved().completedImages, 2);
   assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
 });

@@ -26,20 +26,26 @@ Python's `http.server` for the built site on a port the system picks (under
 `/GridPuzzle/` through the `_preview` link when a suite needs the Pages path)
 and stops it however the suite ends, `engines()` runs the suite in Chromium
 and WebKit on a fresh phone-sized context with the service worker blocked,
-collects page errors, screenshots a failing engine and writes one report per
-engine under `browser-artifacts/`, and `baselineSite()` builds the two-root
-directory the paired suites use to compare the scanner with a pinned earlier
-one.
+collects the uncaught errors of every page the suite opens, screenshots a
+failing engine and writes one report per engine under `browser-artifacts/`,
+and `baselineSite()` builds the two-root directory the paired suites use to
+compare the scanner with a pinned earlier one.
 
 A report starts as `{ browser, version, errors, ended }`, the suite adds what
 it measures, and `status` says `passed` or `failed`, with the failure's stack
-in `failure`. `errors` holds the page's uncaught errors. `ended` holds what
-ended a page without the suite asking, as `watch()` records it for the
-browser and every context and page the suite opens on it: `page crashed`,
-`page closed`, `context closed` or `browser disconnected`, each with the
-`seconds` since the browser was launched and a page's `url`; a close the
-suite or the harness asks for (`close()` on the page, its context or the
-browser) is not recorded. Either list fails the engine, also when the suite
+in `failure`. Both lists are kept by `watch()` (`scripts/watch.cjs`, which
+the harness exports) for the browser and every context and page the suite
+opens on it. `errors` holds the pages' uncaught errors: the suite's own
+page's by their message, and any other page's as `<message> (<url>)`, with
+that page's URL (`structural_capture`'s second tab, the paired suites'
+baseline pages, the pages `stale_build_checks` and `import_safety_checks`
+open in contexts of their own); no suite listens for page errors itself, so
+each is collected once. `ended` holds what ended a page without the suite
+asking: `page crashed`, `page closed`, `context closed` or `browser
+disconnected`, each with the `seconds` since the browser was launched and a
+page's `url`; a close the suite or the harness asks for (`close()` on the
+page, its context or the browser) is not recorded. Either list fails the
+engine, also when the suite
 carried on, and what ended leads the failure in the report, in the log and in
 the error the run ends with, one line before Playwright's message:
 `<event> <seconds> s after launch (<url>)`, joined by semicolons. Playwright
@@ -55,13 +61,19 @@ is led at once, so that the screenshot shows the page as the failure left
 it. `ended` is written with the report after the browser is closed, so it
 can also hold what ended after the failure was led. The suites that launch
 browsers of their own (`browser_smoke`, `solver_update` and `ocr_latency`,
-which keep `ended` in their own reports, and the detection check inside
-`scanner_settings`, whose record leads its failure in
-`scanner-settings.json`) watch them the same way. `harness_regressions.cjs`
-checks all this in real browsers, and `web/tests/harness-watch.test.js`
-checks the records and the wait with stand-ins for Playwright's objects, and
-that every script that launches a browser watches it and keeps `ended` in a
-report that names the browser's version.
+which keep `errors` and `ended` in their own reports and fail on both, and
+the detection check inside `scanner_settings`, which fails on its page's
+errors and whose record leads its failure in `scanner-settings.json`) watch
+them the same way. `ocr_latency` also runs as `engines()` does: every engine
+`BROWSER_ENGINES` selects, also after one has failed, with its report
+written after each and the first failure rethrown after the last.
+`harness_regressions.cjs` checks all this in real browsers, and
+`web/tests/harness-watch.test.js` checks the records and the wait with
+stand-ins for Playwright's objects (`web/tests/playwright-stand-ins.js`),
+and that every script that launches a browser watches it, fails on its
+pages' errors and keeps `errors` and `ended` in a report that names the
+browser's version; `web/tests/ocr-latency.test.js` runs `ocr_latency` on
+the stand-ins.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
@@ -83,7 +95,9 @@ The five jobs that run suites (`build`, `live-acceptance`, both `live-camera` le
 
 ### Suite inventory
 
-The 27 suites under `scripts/` (`harness.cjs` is the shared runner, and
+The 27 suites under `scripts/` (`harness.cjs` is the shared runner,
+`watch.cjs` the watch it keeps on its browsers, which the suites with
+browsers of their own and the corpus benchmark runner keep too, and
 `import_safety_checks.cjs`, `webp_import_checks.cjs` and
 `stale_build_checks.cjs` are parts of `photo_read_regressions.cjs`; none is a
 suite) and the workflow jobs that run
@@ -102,7 +116,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it; `--live` measures the live camera's quick path (a lattice of dots, a grid to the photograph's path, is none in its column) | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
-| `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure | `live` |
+| `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure; uncaught errors thrown in the suite's page, in a tab it opens beside it and in a page in a context it opens each fail the engine though the suite carries on, all in `errors`, the other pages' with their URL | `live` |
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |
@@ -274,7 +288,7 @@ run until CI's job limit.
 - **Grid detection and layout:** `grid-lines.test.js` pins each rule of the line stage on synthetic warps (thin and light-grey lines, digit columns, a dropped line, a stray line, cage walls, the one-axis fallback); `grid-size-range.test.js` checks rounded large-grid pitches and rectangular counts through `estimateGrid` and `findGrid`; `scan-layout.test.js` and `live-camera-recovery.test.js` keep irrelevant hidden box values from blocking non-boxed families while invalid Sudoku and Killer boxes still block recognition; `scan-layout.test.js` also covers boxes suggested from the grid size (only where the size leaves a choice, retired once a reading with them is confirmed or other boxes are set; `photo-flow.test.js` checks that a live capture keeps a confirmed one retired, that one a capture was read with is named in the capture's notes, also through its orientation check, retires once the capture is confirmed and stands until then, and that confirming a capture of a type without boxes leaves it standing) and flags for a digit repeated inside the chosen boxes.
 - **Service worker and updates:** `runtime-update.test.js` changes WASM, standard-library and lock-file bytes across builds and checks online and offline routing, the full Python installation, activation races and cache cleanup; `offline-retry.test.js` drives the production service worker with controlled network failures and its own deadline clock; `install-deadline.test.js` bounds every installation phase and re-hashes a damaged stored shell entry before publishing; `stale-build.test.js` drives the worker of a page left on the previous build after a deploy (files it never stored come from a newer build's identical copies, never from bytes of another digest, and a file the deploy changed is reported gone; when the origin's list names another build, the worker asks the browser for that build's worker before it fetches a copy, once per build, also for files missed at the same time, never when nothing is missing, when a stored list names the copy, or when the origin's list names its own build or cannot be read, and a check that fails, throws or never answers changes nothing) and the OCR runtime's advice to update when OCR fails to load online (not offline, and not when a deadline expires); `offline-lifecycle.test.js`, `offline-update.test.js` and `offline-core-choice.test.js` cover preparation, updates (one found while the page is open reaches the banner through `updatefound`, and one found while a download or a read runs leaves it to finish, the advice naming it only once it is installed) and which Tesseract core is stored; `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest coverage without downloading dependencies.
 - **Workers and robustness:** `worker-lifecycle.test.js` covers OCR and scan cancellation and worker cleanup; `visible-deadlines.test.js` hides and shows a fake page on a mock clock: a Read's, an OCR job's, OCR loading's and image processing's deadlines and a cancelled OCR job's 2-second bound stop while the page is hidden and still stop a task stuck while it is visible, a deadline that fired never fires again, and the search limit keeps to the clock; `solver-worker.test.js` keeps the solver worker's interpreter across Python exceptions and shares one load between a warm-up and the solve that follows; each module's own test file pins its individual fixes from the code reviews (for example `photo-flow.test.js` a captured still surviving page hide and Escape restoring focus, `capture-store.test.js` the saved-picture download reusing its object URL, and `controllers.test.js` a running task disabling Check and Hint).
-- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows included) and the detection report, with and without `--live`; `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
+- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows, and a page that crashes as Chromium or as WebKit reports it, or between two reads, included) and the detection report, with and without `--live`; `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
 
 ## Offline test method
 
@@ -327,9 +341,22 @@ Both benchmarks share one checkpointing runner. The report is saved before
 start-up, after each image and after clean-up, so browser loss, SIGINT or
 SIGTERM leave a partial report with every resource closed; bad JSON,
 undecodable images and recoverable scan errors become individual error rows and
-later images continue. Reports carry `status`, `failure`, `cleanupErrors`,
-`totalImages` and `completedImages`; context, browser and HTTP-server clean-up is
-attempted independently and never replaces the primary failure. On Windows a
+later images continue. A page that crashes or closes, a lost browser, or a
+read that fails because its page is gone ends the run instead: the runner
+watches its browser with the suites' `watch()`, since a crashed page is
+neither closed to Playwright nor in a disconnected browser, and reads no
+further image once it has heard one. The image being read keeps its error,
+and a crash heard between two reads fails no image. Whenever a run ends
+early, the images it did not read are listed in `notRun` (each `family`,
+`set` and `name`): not run, rather than failed one by one. Reports carry
+`status`, `failure`, `ended`, `cleanupErrors`, `totalImages`,
+`completedImages` and `notRun`; `failure` says once why a run ended, led by
+what ended as a browser suite's failure is
+(`page crashed 812.4 s after launch (http://127.0.0.1:8780/)` on the line
+before Playwright's message, or before the runner's
+`The benchmark's page or browser is gone` when no read failed), and `ended`
+records it. Context, browser and HTTP-server clean-up is attempted
+independently and never replaces the primary failure. On Windows a
 process holding the report open (someone checking progress, an editor) makes
 the replacing rename fail; the runner retries it for about five seconds, and a
 checkpoint that still cannot be saved is skipped with a warning, for the next

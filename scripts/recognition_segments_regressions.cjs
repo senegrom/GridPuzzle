@@ -58,8 +58,8 @@ async function run() {
   try {
     await engines("recognition-segments.json", async (candidate, report, name, browser) => {
       Object.assign(report, { baseline: BASELINE, pairs: [], qualityPairs: [] });
+      // The harness collects this page's errors too, with its URL.
       const baseline = await (await browser.newContext(SMALL_PHONE)).newPage();
-      baseline.on("pageerror", (e) => report.errors.push(`baseline: ${e.message}`));
       const pages = { baseline, candidate };
       for (const version of ["baseline", "candidate"]) {
         await pages[version].goto(`${server.origin}/${version}/`);

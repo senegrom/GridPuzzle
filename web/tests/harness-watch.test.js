@@ -1,58 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { Browser } from './playwright-stand-ins.js';
 
-// What ends a suite's pages, as the harness records it; loading it needs no
-// Playwright. These stand-ins emit what Playwright's objects emit: a close()
-// closes what it holds without calling their close(), as Playwright does, and
-// lose() is a browser that goes away unasked.
+// What ends a suite's pages and what they throw, as the harness records it;
+// loading it needs no Playwright. The stand-ins emit what Playwright's
+// objects emit (playwright-stand-ins.js).
 const { watch } = createRequire(import.meta.url)('../../scripts/harness.cjs');
 const read = (path) => fs.readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
-
-class Page extends EventEmitter {
-  constructor(context, url) { super(); this.holder = context; this.address = url; this.closed = false; }
-  context() { return this.holder; }
-  url() { return this.address; }
-  isClosed() { return this.closed; }
-  async close() { this.end(); }
-  end() {
-    if (this.closed) return;
-    this.closed = true; this.holder.held.delete(this); this.emit('close', this);
-  }
-  crash() { this.emit('crash', this); }
-}
-class Context extends EventEmitter {
-  constructor(browser) { super(); this.holder = browser; this.held = new Set(); }
-  pages() { return [...this.held]; }
-  async newPage(url = 'about:blank') {
-    const page = new Page(this, url);
-    this.held.add(page); this.emit('page', page);
-    return page;
-  }
-  async close() { this.end(); }
-  end() {
-    for (const page of this.pages()) page.end();
-    this.holder.held.delete(this); this.emit('close', this);
-  }
-}
-class Browser extends EventEmitter {
-  constructor() { super(); this.held = new Set(); this.connected = true; }
-  contexts() { return [...this.held]; }
-  isConnected() { return this.connected; }
-  async newContext() {
-    const context = new Context(this);
-    this.held.add(context); this.emit('context', context);
-    return context;
-  }
-  async close() { this.lose(); }
-  lose() {
-    if (!this.connected) return;
-    for (const context of this.contexts()) context.end();
-    this.connected = false; this.emit('disconnected', this);
-  }
-}
 const events = (watched) => watched.ended.map(({ event, url }) => (url ? [event, url] : [event]));
 const said = (watched) => watched.ended
   .map(({ event, seconds, url }) => `${event} ${seconds} s after launch${url ? ` (${url})` : ''}`).join('; ');
@@ -148,7 +104,38 @@ test('only a failure that says its target is gone waits for news, at most its gr
   assert.equal(string.message, `${said(watched)}\na string was thrown`);
 });
 
-test('every script that launches a browser watches it, checks it, leads its failures and reports what ended', () => {
+test('every page\'s uncaught errors are collected, the first page\'s by their message and any other page\'s with its URL', async () => {
+  const browser = new Browser(), watched = watch(browser, { grace: 10 });
+  const context = await browser.newContext();
+  const page = await context.newPage('http://a/'), tab = await context.newPage('http://a/?tab');
+  const other = await (await browser.newContext()).newPage('http://b/');
+  page.throw('thrown in the page');
+  tab.throw('thrown in the tab');
+  other.throw('thrown in the other context');
+  await tab.goto('http://a/next');
+  tab.throw('thrown after a navigation');
+  page.throw('thrown in the page again');
+  assert.deepEqual(watched.errors, ['thrown in the page', 'thrown in the tab (http://a/?tab)',
+    'thrown in the other context (http://b/)', 'thrown after a navigation (http://a/next)', 'thrown in the page again']);
+  // A page that throws has not ended: the check passes, and nothing leads.
+  assert.deepEqual(watched.ended, []);
+  watched.check('webkit');
+  // The owner's own close ends the record, late errors included.
+  await browser.close();
+  page.throw('thrown as the browser closes');
+  assert.equal(watched.errors.length, 5);
+});
+
+test('the pages a browser has when it is watched are watched too, the first of them as the first page', async () => {
+  const browser = new Browser(), context = await browser.newContext();
+  const first = await context.newPage('http://a/'), second = await context.newPage('http://a/?second');
+  const watched = watch(browser, { grace: 10 });
+  second.throw('thrown in the second page');
+  first.throw('thrown in the first page');
+  assert.deepEqual(watched.errors, ['thrown in the second page (http://a/?second)', 'thrown in the first page']);
+});
+
+test('every script that launches a browser watches it, checks it, leads its failures and reports what ended and what its pages threw', () => {
   const scripts = fs.readdirSync(new URL('../../scripts/', import.meta.url)).filter((file) => file.endsWith('.cjs'));
   const launching = scripts.filter((file) => /\.launch\(/.test(read(`scripts/${file}`)));
   assert.ok(launching.length >= 5, launching.join());
@@ -159,14 +146,25 @@ test('every script that launches a browser watches it, checks it, leads its fail
     assert.equal(browsers.length, source.match(/\.launch\(/g).length, `${file}: every browser it launches is named`);
     for (const browser of browsers) assert.ok(source.includes(`watch(${browser})`), `${file} watches ${browser}`);
     assert.match(source, /\.check\((?:name|engineName)\)/, `${file} fails when a page ended`);
+    assert.match(source, /assert\.deepEqual\([\w?.]*errors\b/, `${file} fails on its pages' uncaught errors`);
     assert.match(source, /await \w+\.lead\(/, `${file} leads its failures`);
-    // A report that names a watched browser's version keeps what ended in it.
+    // A report that names a watched browser's version keeps what ended in it
+    // and what its pages threw.
     for (const [, watched, browser] of source.matchAll(/(\w+) = watch\((\w+)\)/g))
       if (source.includes(`version: ${browser}.version()`)) {
         assert.ok(source.includes(`ended: ${watched}.ended`), `${file} keeps ${browser}'s ended in its report`);
+        assert.match(source, new RegExp(`errors(?::| =) ${watched}\\.errors\\b`), `${file} keeps ${browser}'s page errors in its report`);
         reporting.push(file);
       }
   }
   // The harness, browser_smoke, ocr_latency and solver_update at least.
   assert.ok(reporting.length >= 4, reporting.join());
+});
+
+test('no script listens for page errors itself: watch() collects every page\'s, each once', () => {
+  const listening = [];
+  for (const directory of ['scripts', 'corpus'])
+    for (const file of fs.readdirSync(new URL(`../../${directory}/`, import.meta.url)).filter((name) => name.endsWith('.cjs')))
+      if (/\.on\(\s*["'`]pageerror/.test(read(`${directory}/${file}`))) listening.push(`${directory}/${file}`);
+  assert.deepEqual(listening, ['scripts/watch.cjs']);
 });

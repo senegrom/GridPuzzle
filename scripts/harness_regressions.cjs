@@ -12,6 +12,10 @@
    - a page in a context the suite opened crashes and the suite carries on,
      which still fails it (in WebKit the suite closes that context itself,
      which is no news);
+   - the suite's page, a tab it opens beside it and a page in a context it
+     opened each throw an uncaught error and the suite carries on, which
+     fails it with each error in the report, the other pages' with their
+     URLs;
    - the browser goes away while the suite waits (Browser.close() called past
      the harness, which takes it for a lost browser). */
 const assert = require("node:assert/strict");
@@ -128,6 +132,34 @@ async function run() {
       assert.equal(carried.shot("webkit"), false);
     }
 
+    // The tab is in the suite's context, as structural_capture's second tab
+    // is, and the other page in a context the suite opens, as the paired
+    // suites' baseline pages are.
+    const thrown = await attempt("page-errors", async (page, report, name, browser) => {
+      await page.goto(base);
+      const tab = await page.context().newPage(), other = await (await browser.newContext()).newPage();
+      await tab.goto(`${base}?tab`);
+      await other.goto(`${base}?other`);
+      for (const [target, where] of [[page, "page"], [tab, "tab"], [other, "other page"]]) {
+        const heard = target.waitForEvent("pageerror", { timeout: 30000 });
+        await target.evaluate((where) => { setTimeout(() => { throw new Error(`thrown in the ${where}`); }); }, where);
+        await heard;
+      }
+      report.carriedOn = true;
+    });
+    assert.ok(thrown.thrown?.message.startsWith(`${selected[0]}: uncaught page errors`), String(thrown.thrown));
+    for (const engine of selected) {
+      const report = thrown.reports[engine];
+      assert.equal(report.status, "failed", engine);
+      assert.equal(report.carriedOn, true, engine);
+      assert.deepEqual(report.errors, ["thrown in the page", `thrown in the tab (${base}?tab)`,
+        `thrown in the other page (${base}?other)`], engine);
+      assert.deepEqual(report.ended, [], engine);
+      assert.ok(report.failure.startsWith(`AssertionError [ERR_ASSERTION]: ${engine}: uncaught page errors`), `${engine}: ${report.failure}`);
+      assert.equal(thrown.shot(engine), true, `${engine}: the suite's page is still there: its screenshot`);
+      outcome[`page errors (${engine})`] = { errors: report.errors };
+    }
+
     const lost = await attempt("lost", async (page, report, name, browser) => {
       await page.goto(base);
       const waiting = page.waitForFunction(() => false);
@@ -148,6 +180,7 @@ async function run() {
   fs.writeFileSync("browser-artifacts/harness.json", JSON.stringify(outcome, null, 2) + "\n");
   for (const [name, record] of Object.entries(outcome))
     console.log(Array.isArray(record) ? `${name}: led by ${said(record)}`
+      : record.errors ? `${name}: failed on ${record.errors.join("; ")}`
       : `${name}: led by nothing, screenshot ${record.screenshotAfter} ms after the failure`);
 }
 

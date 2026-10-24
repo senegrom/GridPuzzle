@@ -155,7 +155,6 @@ async function staleBuild(browser, report) {
   const context = await browser.newContext({ ...PHONE, serviceWorkers: "allow" });
   const page = await context.newPage();
   page.setDefaultTimeout(60000);
-  page.on("pageerror", (error) => report.errors.push(error.message));
   const result = report.staleBuild = { build: site.X };
   try {
     // An installed app that never read a photo: its worker stores no OCR.

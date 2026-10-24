@@ -86,9 +86,9 @@ async function stopServer() {
     const watched = watch(browser);
     const context = await browser.newContext();
     const page = await context.newPage();
-    const report = { browser: name, version: browser.version(), errors: [], ended: watched.ended };
+    // Both tabs' uncaught errors, the other tab's with its URL.
+    const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended };
     reports.push(report);
-    page.on("pageerror", (error) => report.errors.push(error.message));
     try {
       await page.goto(base);
       await page.evaluate(async () => {

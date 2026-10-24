@@ -189,6 +189,8 @@ function lockQueued(tab) {
   });
 }
 async function storageProbe(page) {
+  // The harness watches this tab as it watches the suite's own: its uncaught
+  // errors (with its URL), a crash or an unasked close fail the engine.
   const other=await page.context().newPage();
   try {
     await other.goto(page.url());await other.waitForSelector('body[data-ready="true"]');

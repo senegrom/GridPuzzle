@@ -6,6 +6,7 @@ const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { watch } = require("./watch.cjs");
 
 /* The engines a run covers: BROWSER_ENGINES, a comma- or space-separated
    subset of chromium and webkit ("webkit" alone in CI's per-engine jobs), or
@@ -114,86 +115,15 @@ function baselineSite(commit, files) {
   return { directory, remove: () => { fs.rmSync(directory, { recursive: true, force: true }); temporary.delete(directory); } };
 }
 
-// Playwright's word that the target of a call is gone: a lost browser's
-// calls and a crashed WebKit page's fail with the first, a crashed Chromium
-// page's with the second, and calls on a page as it crashes with the third.
-const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
-
-/* Watches `browser`, the contexts it has and opens and their pages for what
-   ends a suite's pages without the suite asking: a page that crashes, a
-   page or context that closes without a close() call on it, its context or
-   the browser, and the browser's disconnection without browser.close().
-   Called as the browser is launched, it adds each to `ended` as
-   { event, seconds, url }: "page crashed", "page closed", "context closed"
-   or "browser disconnected", the seconds since launch, and a page's URL.
-   Playwright gives a crash no reason, only the page, and the call a crash
-   interrupts fails with "Target crashed" in Chromium but in WebKit with
-   "Target page, context or browser has been closed", as a lost browser's
-   calls do. close() on each watched object notes the call first, so that
-   what the suite or its owner closes is no news; after browser.close()
-   nothing is recorded. check(name) fails when anything ended, and
-   lead(error) puts what ended at the head of a failure's message and
-   stack, after waiting for a lost browser's news when the failure says
-   that its target is gone (GONE). */
-function watch(browser, { grace = 1000 } = {}) {
-  const started = Date.now(), ended = [], asked = new WeakSet();
-  const unasked = (...targets) => !targets.some((target) => asked.has(target));
-  const note = (event, page) => ended.push({ event, seconds: Math.round((Date.now() - started) / 100) / 10,
-    ...(page && { url: page.url() }) });
-  const ask = (target) => {
-    const close = target.close;
-    target.close = (...args) => { asked.add(target); return close.apply(target, args); };
-  };
-  const watchPage = (page) => {
-    ask(page);
-    page.on("crash", () => { if (unasked(browser)) note("page crashed", page); });
-    page.on("close", () => { if (unasked(page, page.context(), browser)) note("page closed", page); });
-  };
-  const watchContext = (context) => {
-    ask(context);
-    context.pages().forEach(watchPage);
-    context.on("page", watchPage);
-    context.on("close", () => { if (unasked(context, browser)) note("context closed"); });
-  };
-  ask(browser);
-  browser.contexts().forEach(watchContext);
-  browser.on("context", watchContext);
-  browser.on("disconnected", () => { if (unasked(browser)) note("browser disconnected"); });
-  // Playwright can fail the call a lost browser interrupted before it reports
-  // the closes behind it (WebKit: the page's close 2 ms and the disconnection
-  // 25 ms after the call failed), so a failure that says its target is gone
-  // waits for them: until the browser has disconnected, for at most `grace`
-  // ms. Any other failure is led at once, so that the screenshot and what a
-  // suite captures after it show the page as the failure left it.
-  const settled = () => new Promise((resolve) => {
-    if (!browser.isConnected()) return resolve();
-    const done = () => { clearTimeout(timer); browser.off("disconnected", done); resolve(); };
-    const timer = setTimeout(done, grace);
-    browser.on("disconnected", done);
-  });
-  return {
-    ended,
-    check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser disconnected`); },
-    async lead(error) {
-      if (GONE.test(String(error?.message ?? error))) await settled();
-      if (!ended.length) return error;
-      if (!(error instanceof Error)) error = new Error(String(error));
-      const line = ended.map(({ event, seconds, url }) => `${event} ${seconds} s after launch${url ? ` (${url})` : ""}`).join("; ");
-      error.stack = `${line}\n${error.stack}`;
-      error.message = `${line}\n${error.message}`;
-      return error;
-    },
-  };
-}
-
 /* Runs `suite(page, report, name, browser)` in Chromium and WebKit (or the
    engines BROWSER_ENGINES selects), each on a fresh context, and writes the
    reports to `file` (under browser-artifacts unless it names a directory)
-   after each engine. A page error fails the engine, and so does anything
-   watch() records, which also leads the failure; a failing engine gets a
-   screenshot, and every engine runs before the first failure is rethrown.
-   `report` starts as { browser, version, errors, ended } (ended as watch()
-   records it, for the browser and every context and page the suite opens
+   after each engine. A page error fails the engine, on the suite's page or
+   on any other page it opens in the engine's browser, and so does anything
+   else watch() records, which also leads the failure; a failing engine gets
+   a screenshot, and every engine runs before the first failure is rethrown.
+   `report` starts as { browser, version, errors, ended } (both as watch()
+   records them, for the browser and every context and page the suite opens
    on it); the suite adds what it measures. */
 async function engines(file, suite, { context = PHONE, timeout = 20000, screenshot = path.basename(file, ".json") } = {}) {
   const selected = selectedEngines();
@@ -207,14 +137,13 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
   for (const name of selected) {
     const browser = await playwright[name].launch({ headless: true });
     const watched = watch(browser);
-    const report = { browser: name, version: browser.version(), errors: [], ended: watched.ended };
+    const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended };
     reports.push(report);
     console.log(`${name} ${report.version}`);
     let page;
     try {
       page = await (await browser.newContext(context)).newPage();
       page.setDefaultTimeout(timeout);
-      page.on("pageerror", (error) => report.errors.push(error.message));
       await suite(page, report, name, browser);
       assert.deepEqual(report.errors, [], `${name}: uncaught page errors`);
       watched.check(name);
