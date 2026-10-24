@@ -153,15 +153,21 @@ puzzle is read as soon as the grid is found.", kept like the answer above, and
 is the Read tapped as soon as the new photograph has opened, so it then waits
 for its grid; Find grid, Rotate and the corner handles are answered with
 "Still opening the photo…" over "The crop editor switches to it as soon as it
-is open.", kept the same way, and change nothing; Hide photo drops a waiting
-Read, and the photograph still opens in the crop editor. Whatever stops the
-opening drops the photograph: a stop or task with a status of its own (Stop,
-an edit, the camera, another photograph) shows that one, and one without (a
-Play cell, a change of editing tool, or a puzzle file chosen, while it is
-read) leaves "Stopped." over "The new photo was not opened."; a photograph
-that cannot be opened says why. A capture handed to the crop editor and the
-photograph Rotate makes need no decoding, so their grid is searched from the
-tap itself. Read puzzle also
+is open." (or with the Read's answer while a Read waits), kept the same way,
+and change nothing; Hide photo drops a waiting Read, and the photograph still
+opens in the crop editor. Whatever stops the opening drops the photograph,
+and the status says so: a stop without a status of its own (a Play cell, a
+change of editing tool, or a puzzle file chosen, while it is read) leaves
+"Stopped." over "The new photo was not opened.", also in place of a line set
+meanwhile, such as the answer to a Play tap on a clue cell; one with its own
+(Stop, an edit, Undo, a cell opened for editing or selected for a cage or an
+inequality) keeps its first line, and "The new photo was not opened." takes
+the place of a stop's "Search unfinished…" or follows its own second line. A
+newer choice of picture or board (the camera, another photograph, a new board
+or puzzle file once read) shows its own status alone. A photograph that cannot
+be opened says why. A capture handed to the crop editor and the photograph
+Rotate makes need no decoding, so their grid is searched from the tap itself.
+Read puzzle also
 stages its candidate: failed/cancelled reads of an unchanged crop preserve the
 accepted solution, photo mapping, Play cache and undo history. Any other new
 Read click cancels earlier work even when the new dimensions, boxes or crop
