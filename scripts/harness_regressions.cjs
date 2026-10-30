@@ -97,7 +97,7 @@ function running(pid) {
 /* Runs unclosableSuite() in a process of its own and checks how that run
    ended: by itself, with exit code 1, a report for every engine and nothing
    it started left running. */
-async function unclosableRun(how, directory, selected) {
+async function unclosableRun(how, directory) {
   const file = `browser-artifacts/harness-unclosing-${how}.json`, started = Date.now();
   fs.rmSync(file, { force: true });
   const { code, killed, stderr } = await new Promise((resolve) => execFile(process.execPath, [__filename, how, directory], { timeout: ENDS_WITHIN },
@@ -106,7 +106,7 @@ async function unclosableRun(how, directory, selected) {
   assert.equal(code, 1, `${how}: ${stderr}`);
   const seconds = Math.round((Date.now() - started) / 100) / 10;
   const reports = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.deepEqual(reports.map((report) => report.browser), selected, `${how}: every engine runs`);
+  assert.deepEqual(reports.map((report) => report.browser), selectedEngines(), `${how}: every engine runs`);
   for (const report of reports) {
     const engine = report.browser;
     assert.deepEqual(report.cleanupErrors, [UNCLOSED], engine);
@@ -242,7 +242,7 @@ async function run() {
       outcome[`lost (${engine})`] = report.ended;
     }
 
-    for (const how of ["open", "behind"]) outcome[`will not close (${how})`] = await unclosableRun(how, directory, selected);
+    for (const how of ["open", "behind"]) outcome[`will not close (${how})`] = await unclosableRun(how, directory);
   } finally {
     await server.close();
     fs.rmSync(directory, { recursive: true, force: true });
