@@ -65,9 +65,7 @@ function led(result, engine, first, rest) {
   return report;
 }
 
-// A close that never settles is given up on after this long in unclosing().
-const CLOSE_LIMIT = 1000;
-// What the harness says then, in the report and on stderr.
+// What the harness says of a close it gave up on, in a report and on stderr.
 const UNCLOSED = "browser: browser cleanup timed out";
 // A run that has not ended after this long hangs. It takes a few seconds, and
 // half a minute on a loaded machine.
@@ -77,7 +75,7 @@ const ENDS_WITHIN = 120000;
    the harness's close of each browser never settle, `open` with the browser
    left running, `behind` once the browser has been closed past the harness.
    The report keeps the processes this one has started by then. */
-async function unclosing(how, directory) {
+async function unclosableSuite(how, directory) {
   const server = await serve({ directory });
   try {
     await engines(`harness-unclosing-${how}.json`, async (page, report, name, browser) => {
@@ -85,7 +83,7 @@ async function unclosing(how, directory) {
       report.processes = process._getActiveHandles().filter((handle) => handle instanceof ChildProcess).map(({ pid }) => pid);
       if (how === "behind") await Object.getPrototypeOf(browser).close.call(browser);
       browser.close = () => new Promise(() => {});
-    }, { closeLimit: CLOSE_LIMIT });
+    }, { closeLimit: 1000 });
   } finally { await server.close(); }
 }
 
@@ -96,10 +94,10 @@ function running(pid) {
   catch { return false; }
 }
 
-/* Runs unclosing() in a process of its own and checks how the run ended: by
-   itself, with exit code 1, a report for every engine and nothing it started
-   left running. */
-async function unclosed(how, directory, selected) {
+/* Runs unclosableSuite() in a process of its own and checks how that run
+   ended: by itself, with exit code 1, a report for every engine and nothing
+   it started left running. */
+async function unclosableRun(how, directory, selected) {
   const file = `browser-artifacts/harness-unclosing-${how}.json`, started = Date.now();
   fs.rmSync(file, { force: true });
   const { code, killed, stderr } = await new Promise((resolve) => execFile(process.execPath, [__filename, how, directory], { timeout: ENDS_WITHIN },
@@ -242,7 +240,7 @@ async function run() {
       outcome[`lost (${engine})`] = report.ended;
     }
 
-    for (const how of ["open", "behind"]) outcome[`will not close (${how})`] = await unclosed(how, directory, selected);
+    for (const how of ["open", "behind"]) outcome[`will not close (${how})`] = await unclosableRun(how, directory, selected);
   } finally {
     await server.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -255,6 +253,6 @@ async function run() {
       : `${name}: led by nothing, screenshot ${record.screenshotAfter} ms after the failure`);
 }
 
-// With arguments, the process of unclosing().
+// With arguments, this is the process of unclosableSuite().
 const [how, directory] = process.argv.slice(2);
-main(module, how ? () => unclosing(how, directory) : run);
+main(module, how ? () => unclosableSuite(how, directory) : run);
