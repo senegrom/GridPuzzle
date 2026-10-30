@@ -88,6 +88,7 @@ module.exports = async function detectionFailure(engineName, png) {
     assert.deepEqual(summary("slitherlink/dot-lattice").map(s => [s.scale, s.thorough, s.good]),
       [[640, undefined, 1], [1600, undefined, 1], [640, false, 0]]);
     assert.deepEqual(report.cleanupErrors, []);
+    assert.deepEqual(report.pageErrors, []);
     assert.deepEqual(checkpoints, [0,1,2,3,4,4]);
     assert.deepEqual(JSON.parse(fs.readFileSync(options.out)), report);
     assert.equal(browser.isConnected(), false);

@@ -7,6 +7,7 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 const { runBenchmark, writeReport } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
+const THROWN = "thrown in the page";
 
 function harness(t, faults = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-benchmark-"));
@@ -22,15 +23,18 @@ function harness(t, faults = {}) {
   // The browser, its context and page emit what Playwright's emit as they
   // open, so that the runner's watch() hears the page. A crashed page stays
   // open to Playwright in a connected browser, and every later call on it
-  // fails with "Target crashed", in WebKit too.
+  // fails with "Target crashed", in WebKit too. `faults.thrown` says when the
+  // page throws an uncaught error: "goto", "close" or the number of a read.
+  const throwAt = when => { if (faults.thrown === when) page.emit("pageerror", Error(THROWN)); };
   const page = Object.assign(new EventEmitter(), {
-    setDefaultTimeout() {}, async goto() { if (faults.goto) throw Error("navigation failed"); },
+    setDefaultTimeout() {}, async goto() { throwAt("goto"); if (faults.goto) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
     async close() {},
     async evaluate(_scan, input) {
       // Count first: a failed assertion below must not leave the stalled-scan
       // test waiting for a second call for ever.
       calls++;
+      throwAt(calls);
       if (crashed) throw Error("page.evaluate: Target crashed");
       assert.deepEqual(Object.keys(input.puzzle).sort(), ["cols", "rows", "type"]);
       assert.deepEqual(input.corners, input.useTrue ? [[0, 0], [9, 0], [9, 9], [0, 9]] : null, "reference corners are opt-in");
@@ -59,7 +63,7 @@ function harness(t, faults = {}) {
   });
   const context = Object.assign(new EventEmitter(), {
     pages: () => [], async newPage() { this.emit("page", page); return page; },
-    async close() { events.push("context closed"); if (faults.close) throw Error("context cleanup failed"); },
+    async close() { throwAt("close"); events.push("context closed"); if (faults.close) throw Error("context cleanup failed"); },
   });
   const browser = Object.assign(new EventEmitter(), {
     contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
@@ -77,7 +81,7 @@ function harness(t, faults = {}) {
 test("normal runs score all images, checkpoint and close every resource", async t => {
   const h = harness(t, { checkpoint: true }); const report = await h.run();
   assert.equal(report.status, "complete"); assert.equal(report.summary[0].perfect, 3);
-  assert.deepEqual([report.notRun, report.ended, report.failure], [[], [], null]);
+  assert.deepEqual([report.notRun, report.ended, report.pageErrors, report.failure], [[], [], [], null]);
   assert.equal(report.scoreVersion, 6);
   assert.deepEqual(report.recognition, { type: "reference", dimensions: "reference",
     corners: "detected-or-full-frame", clueValues: "not-supplied" });
@@ -157,10 +161,57 @@ for (const phase of ["goto", "launch", "server", "spawn"]) {
     assert.equal(report.status, "failed"); assert.equal(report.results.length, 0);
     assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
     assert.ok(h.saved().failure); assert.equal(h.calls, 0);
+    assert.deepEqual(h.saved().pageErrors, [], "no page, no errors, and the list is there all the same");
     if (phase !== "spawn") assert.equal(h.events.at(-1), "server killed");
     if (phase === "goto") assert.ok(h.events.includes("browser closed"));
   });
 }
+
+// What every save holds at the moment it is made: a checkpoint read during the
+// run or after a hard kill is all there is of it.
+function keepSaves(h) {
+  const saves = [];
+  h.deps.writeReport = (file, report) => { saves.push(JSON.parse(JSON.stringify(report))); writeReport(file, report); };
+  return saves;
+}
+
+// A benchmark measures recognition and is not a gate: an uncaught error in its
+// page is recorded, and the run is the run it would have been without it.
+test("a page that throws is listed in pageErrors from the next checkpoint on, and the run stays complete", async t => {
+  const healthy = await harness(t).run(), h = harness(t, { thrown: 2 }), saves = keepSaves(h), report = await h.run();
+  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, [THROWN]);
+  assert.deepEqual({ ...report, pageErrors: [] }, healthy, "status, failure, notRun, summary and results do not change");
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
+  // Before start-up, after each of the three images, and after clean-up.
+  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], [THROWN], [THROWN], [THROWN]]);
+  assert.deepEqual(saves.map(({ status }) => status), ["running", "running", "running", "running", "complete"]);
+});
+
+test("an error thrown after the last checkpoint, as the page closes, reaches the final save", async t => {
+  const h = harness(t, { thrown: "close" }), saves = keepSaves(h), report = await h.run();
+  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, [THROWN]);
+  assert.deepEqual(h.saved().pageErrors, [THROWN]);
+  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], [], [], [THROWN]]);
+});
+
+// However a run ends, what its page threw before that stays in the report and
+// the end stays what it would have been.
+for (const [end, faults, status, failure] of [
+  ["a failed navigation", { thrown: "goto", goto: true }, "failed", /^navigation failed$/],
+  ["a lost browser", { thrown: 1, disconnect: true }, "failed", /^browser crashed$/],
+  ["a page crash in Chromium", { thrown: 1, crash: "chromium" }, "failed", /^page crashed .*\npage\.evaluate: Target crashed$/],
+  ["a page crash in WebKit", { thrown: 1, crash: "webkit" }, "failed", /^page crashed .*\npage\.evaluate: Target page, context or browser has been closed$/],
+  ["a page crash between two reads", { thrown: 1, crash: "between" }, "failed", /^page crashed .*\nThe benchmark's page or browser is gone$/],
+  ["an interrupt", { thrown: 1, hang: true }, "interrupted", /^test interrupt$/],
+])
+  test(`${end} keeps what the page threw, and what ended the run stays the failure`, async t => {
+    const h = harness(t, faults), pending = h.run();
+    if (faults.hang) { while (h.calls < 2) await tick(); h.controller.abort(Error("test interrupt")); }
+    const report = await pending;
+    assert.equal(report.status, status); assert.match(report.failure, failure);
+    assert.deepEqual(report.pageErrors, [THROWN]);
+    assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
+  });
 
 test("cleanup failures do not hide the original browser error or prevent other cleanup", async t => {
   const h = harness(t, { disconnect: true, close: true }); const report = await h.run();
