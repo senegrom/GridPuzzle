@@ -42,6 +42,9 @@ function harness(t, faults = {}) {
         assert.equal(saved.status, "running"); assert.equal(saved.results.length, 1);
       }
       if (calls === 2 && faults.hang) return new Promise(() => {});
+      // Interrupted by the stalled read itself: a run that stopped sooner then
+      // fails its test, instead of leaving it waiting for this read for ever.
+      if (calls === 2 && faults.interrupt) { controller.abort(Error("test interrupt")); return new Promise(() => {}); }
       if (calls === 2 && faults.disconnect) { connected = false; throw Error("browser crashed"); }
       if (calls === 2 && faults.decode) throw Error("image decode rejected");
       // Chromium reports a crash before the call it interrupts fails; WebKit
@@ -166,11 +169,11 @@ for (const phase of ["goto", "launch", "server", "spawn"]) {
   });
 }
 
-// What every save holds at the moment it is made: a checkpoint read during the
-// run or after a hard kill is all there is of it.
+// What the file holds after each save: after a hard kill, or to someone checking
+// on a run, the last checkpoint is all there is.
 function keepSaves(h) {
   const saves = [];
-  h.deps.writeReport = (file, report) => { saves.push(JSON.parse(JSON.stringify(report))); writeReport(file, report); };
+  h.deps.writeReport = (file, report) => { writeReport(file, report); saves.push(JSON.parse(fs.readFileSync(file))); };
   return saves;
 }
 
@@ -202,12 +205,10 @@ for (const [end, faults, status, failure] of [
   ["a page crash in Chromium", { thrown: [1, "close"], crash: "chromium" }, "failed", /^page crashed .*\npage\.evaluate: Target crashed$/],
   ["a page crash in WebKit", { thrown: [1, "close"], crash: "webkit" }, "failed", /^page crashed .*\npage\.evaluate: Target page, context or browser has been closed$/],
   ["a page crash between two reads", { thrown: [1, "close"], crash: "between" }, "failed", /^page crashed .*\nThe benchmark's page or browser is gone$/],
-  ["an interrupt", { thrown: [1, "close"], hang: true }, "interrupted", /^test interrupt$/],
+  ["an interrupt", { thrown: [1, "close"], interrupt: true }, "interrupted", /^test interrupt$/],
 ])
   test(`${end} keeps what the page threw, and what ended the run stays the failure`, async t => {
-    const h = harness(t, faults), pending = h.run();
-    if (faults.hang) { while (h.calls < 2) await tick(); h.controller.abort(Error("test interrupt")); }
-    const report = await pending;
+    const h = harness(t, faults), report = await h.run();
     assert.equal(report.status, status); assert.match(report.failure, failure);
     assert.deepEqual(report.pageErrors, faults.thrown.map(when => `thrown at ${when}`));
     assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
