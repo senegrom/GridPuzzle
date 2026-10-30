@@ -1,7 +1,7 @@
 /* What ends a browser suite's pages, and what they throw, without the suite
    asking: watch(), with which the harness's engines(), the suites that launch
    browsers of their own and the corpus benchmark runner watch their
-   browsers; and what stops a browser that will not close from holding a run
+   browsers; and what stops the close that ends an engine from holding a run
    up: the close() of what watch() returns, cleanUp() and exitIfUnclosed().
    It lives apart from scripts/harness.cjs, which exports what the suites use
    of it too, because loading the harness takes over the process's exit,
@@ -39,15 +39,18 @@ let unclosed = false;
 
 /* The last step of a suite's process, once its reports are written, with
    `module_` the suite's module. A browser that would not close can keep the
-   process alive for ever after its run has ended: the browser's pipes and
-   its process are what Node then waits for, and only the browser's end lets
-   go of them. So after a close that failed, and only then, the process exits
-   here, with its exit code or else 1, since such a close fails the run even
-   if the suite made nothing of it. process.exit() runs what listens for the
-   process's exit: the harness's clean-up and Playwright's, which kills every
-   browser it launched and has not seen end. It does nothing when something
-   else runs the suite (a runner that requires it or calls its run()), since
-   the process is then that runner's to end. */
+   process alive for ever after its run has ended: Node waits for the stdio
+   pipes it opened to the browser, and the browser's child processes inherit
+   them, so that a child that outlives the main process holds them as the
+   browser does. So after a close that failed, and only then, the process
+   exits here, with its exit code or else 1, since such a close fails the run
+   even if the suite made nothing of it. process.exit() runs what listens for
+   the process's exit: the harness's clean-up and Playwright's, which kills
+   every browser it launched and has not seen end. On Windows that does not
+   reach a child whose main process has gone, which stays behind until it
+   ends by itself or someone ends it. This does nothing when something else
+   runs the suite (a runner that requires it or calls its run()), since the
+   process is then that runner's to end. */
 function exitIfUnclosed(module_) {
   if (unclosed && require.main === module_) process.exit(process.exitCode || 1);
 }

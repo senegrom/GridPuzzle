@@ -95,8 +95,9 @@ function running(pid) {
 }
 
 /* Runs unclosableSuite() in a process of its own and checks how that run
-   ended: by itself, with exit code 1, a report for every engine and nothing
-   it started left running. */
+   ended: by itself, with exit code 1, a report for every engine and none of
+   the processes Node started for it left running (a browser's own children
+   are not looked at: on Windows one can outlive its main process). */
 async function unclosableRun(how, directory) {
   const file = `browser-artifacts/harness-unclosing-${how}.json`, started = Date.now();
   fs.rmSync(file, { force: true });
@@ -123,7 +124,7 @@ async function unclosableRun(how, directory) {
   const processes = reports.at(-1).processes;
   assert.ok(processes.length >= 2, `${how}: ${processes}`);
   for (const stop = Date.now() + 10000; processes.some(running) && Date.now() < stop;) await sleep(100);
-  assert.deepEqual(processes.filter(running), [], `${how}: nothing the run started is left running`);
+  assert.deepEqual(processes.filter(running), [], `${how}: no process Node started for the run is left running`);
   return { exit: code, seconds, cleanupErrors: reports.map(({ browser, cleanupErrors }) => `${browser}: ${cleanupErrors}`) };
 }
 

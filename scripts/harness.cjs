@@ -122,10 +122,10 @@ function baselineSite(commit, files) {
    on any other page it opens in the engine's browser, and so does anything
    else watch() records, which also leads the failure; a failing engine gets
    a screenshot, and every engine runs before the first failure is rethrown.
-   A browser that does not close in time (watch.cjs's CLOSE_LIMIT, or
-   `closeLimit` ms) adds its failure to the report's cleanupErrors and fails
-   the engine if nothing else did; a suite's failure stays first, and the
-   report is written and the next engine run all the same. `report` starts as
+   A close that rejects or runs past watch.cjs's CLOSE_LIMIT (or `closeLimit`
+   ms) adds its failure to the report's cleanupErrors and fails the engine if
+   nothing else did; a suite's failure stays first, and the report is written
+   and the next engine run all the same. `report` starts as
    { browser, version, errors, ended, cleanupErrors } (the first two lists as
    watch() records them, for the browser and every context and page the suite
    opens on it); the suite adds what it measures. */

@@ -74,46 +74,61 @@ written after each and the first failure rethrown after the last.
 stand-ins for Playwright's objects (`web/tests/playwright-stand-ins.js`),
 and that every script that launches a browser watches it, fails on its
 pages' errors, closes it through `watch()` and keeps all three lists in a
-report that names the browser's version; `web/tests/ocr-latency.test.js` runs
-`ocr_latency` on the stand-ins.
+report that names the browser's version, written right after the close;
+`web/tests/ocr-latency.test.js` runs `ocr_latency` on the stand-ins.
 
-A browser that will not close cannot hold a run up. `browser.close()` alone
+The close that ends an engine cannot hold a run up. `browser.close()` alone
 can wait for ever: Playwright kills a browser that has not closed after 30
 seconds, but sets no limit on what it waits for after that, and in one of 37
 local runs of `harness_regressions`, with the host loaded, the WebKit "lost"
-case left a process with nothing but its HTTP server, no WebKit report and no
-word of why, which had to be killed by hand; on CI only the job's timeout would
-have ended it. So a suite closes a browser through the `close(name)` of what
-`watch()` returns, which waits for 30 seconds (`CLOSE_LIMIT` in
-`scripts/watch.cjs`). A close that rejects or runs out of time is printed on
-stderr and kept in the report's `cleanupErrors`, the list of strings the corpus
-reports have, as `browser: browser cleanup timed out` or `browser: <its
-error>`; the list is empty after a close that worked. Such a cleanup failure
-says that the browser did not close when asked. It says nothing against what
-the suite checked before that, but a run that leaves a browser behind has not
-passed: an engine that passed fails, with the cleanup failure in `failure`,
-and an engine that failed keeps its own failure first. Every engine still
-runs, and its report is still written. The detection check inside
+case left a process waiting for a close that never came, with no WebKit report
+and no word of why, which had to be killed by hand; on CI only the job's
+timeout would have ended it. So a suite closes a browser through the
+`close(name)` of what `watch()` returns, which waits for 30 seconds
+(`CLOSE_LIMIT` in `scripts/watch.cjs`). That limit covers this close and no
+other call: on a browser that is up but stuck, Playwright sets no limit on
+`page.evaluate()` or `context.close()`, so a suite's own call can still wait
+there for ever; on a browser that has gone they end at once. A close that
+rejects or runs out of time is printed on stderr and kept in the report's
+`cleanupErrors`, the list of strings the corpus reports have, as `browser:
+browser cleanup timed out` or `browser: <its error>`; the list is empty after
+a close that worked. Such a cleanup failure says that the browser did not
+close when asked. It says nothing against what the suite checked before that,
+but a run that leaves a browser behind has not passed: an engine that passed
+fails, with the cleanup failure in `failure`, and an engine that failed keeps
+its own failure first. Every engine still runs, and its report is still
+written. In `harness_regressions` such a failure reads `<case>: <engine>
+closes`, with `browser: browser cleanup timed out`. The detection check inside
 `scanner_settings` closes its browser through the corpus runner, whose report
 must have no `cleanupErrors`.
 
 The run must then still end, and a process that gave up on a close may not
-end by itself. Probed on real browsers: with the browser gone, as in the hang
-above, only the suite's server keeps Node alive, and that stops with the suite;
-with the browser still up, its pipes and its process keep Node alive for ever.
-Playwright has no public handle on either, so the last step of a suite's run,
-in `main()` and at the end of the suites with browsers of their own, is
-`exitIfUnclosed()`, which after a close that failed, and only then, exits the
-process with its exit code, or with 1 if the suite made nothing of the
-failure. By then the reports are written. `process.exit()` still runs what
-listens for the process's exit: the harness's clean-up, and Playwright's,
-which kills every browser it launched and has not seen end, so that no browser
-stays behind. A runner that requires a suite or calls its `run()` keeps its
-process, and ending it is then up to that runner. `harness_regressions.cjs`
-checks all this on real browsers, in a process of its own,
-`web/tests/harness-close.test.js` the close and the process's end with
-stand-ins, and `corpus/benchmark-runner.cjs` shares the timed clean-up, with
-its own 5 seconds.
+end by itself. Probed on real browsers on Windows, with nothing sabotaged: the
+hang above is WebKit's web process staying on after the browser's main process
+has exited. It comes on a loaded host when a call is in flight to the page as
+the close comes, as in the "lost" case. WebKit's child processes inherit the
+main process's four stdio pipes, and Node, and with it Playwright's close,
+waits for those pipes, so it waits for as long as that child lives: past half
+an hour here. Playwright's kill after 30 seconds goes to the main process,
+which has gone; on Linux it goes to the main process's process group, which
+takes the children too. With the browser still up, its pipes and its process
+keep Node alive in the same way. Playwright has no public handle on any of
+this, so the last step of a suite's run, in `main()` and at the end of the
+suites with browsers of their own, is `exitIfUnclosed()`, which after a close
+that failed, and only then, exits the process with its exit code, or with 1 if
+the suite made nothing of the failure. By then the reports are written.
+`process.exit()` still runs what listens for the process's exit: the harness's
+clean-up, and Playwright's, which kills every browser it launched and has not
+seen end. On Windows that does not reach a child whose main process has gone:
+it stays behind after the run, with its empty temporary directories, until it
+ends by itself or someone ends it. A browser still up at that exit can also
+leave its temporary profile, if it has not let go of it in time. A runner that
+requires a suite or calls its `run()` keeps its process, and ending it is then
+up to that runner. `harness_regressions.cjs` checks all this on real browsers,
+in a process of its own, `web/tests/harness-close.test.js` the close and the
+process's end with stand-ins, `solver_update`'s too, and
+`corpus/benchmark-runner.cjs` shares the timed clean-up, with its own 5
+seconds.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
@@ -156,7 +171,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it; `--live` measures the live camera's quick path (a lattice of dots, a grid to the photograph's path, is none in its column) | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
-| `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure; uncaught errors thrown in the suite's page, in a tab it opens beside it and in a page in a context it opens each fail the engine though the suite carries on, all in `errors`, the other pages' with their URL; a close that never settles, with the browser left running or after it was closed past the harness, ends the run by itself all the same, in a process of its own: exit code 1, the timed-out close in `cleanupErrors` and on stderr, the next engine run and nothing the run started left running | `live` |
+| `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure; uncaught errors thrown in the suite's page, in a tab it opens beside it and in a page in a context it opens each fail the engine though the suite carries on, all in `errors`, the other pages' with their URL; a close that never settles, with the browser left running or after it was closed past the harness, ends the run by itself all the same, in a process of its own: exit code 1, the timed-out close in `cleanupErrors` and on stderr, the next engine run and none of the processes Node started for the run left running | `live` |
 | `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |

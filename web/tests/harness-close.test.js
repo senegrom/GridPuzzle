@@ -16,7 +16,7 @@ import { Browser } from './playwright-stand-ins.js';
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const frame = () => new Promise(setImmediate);
+const tick = () => new Promise(setImmediate);
 const timers = () => process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length;
 
 // What `act` resolves to and what it prints through console.error.
@@ -66,9 +66,9 @@ test('a close waits for the limit unless told otherwise, as every suite\'s does'
   browser.close = () => new Promise(() => {});
   let closed;
   printing(() => watch(browser).close('chromium')).then(({ result }) => { closed = result; });
-  t.mock.timers.tick(CLOSE_LIMIT - 1); await frame();
+  t.mock.timers.tick(CLOSE_LIMIT - 1); await tick();
   assert.equal(closed, undefined, 'the limit has not passed');
-  t.mock.timers.tick(1); await frame();
+  t.mock.timers.tick(1); await tick();
   assert.equal(closed?.message, 'chromium: browser: browser cleanup timed out');
 });
 
