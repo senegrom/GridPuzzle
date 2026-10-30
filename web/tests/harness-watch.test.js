@@ -153,17 +153,18 @@ test('every script that launches a browser watches it, checks it, leads its fail
     assert.match(source, /assert\.deepEqual\([\w?.]*errors\b/, `${file} fails on its pages' uncaught errors`);
     assert.match(source, /await \w+\.lead\(/, `${file} leads its failures`);
     // A report that names a watched browser's version keeps what ended in it,
-    // what its pages threw and a close that failed. Such a script fails the
-    // engine on that close, saying why; writes the report in the close's own
-    // block, so that a hang in the next engine cannot lose it; and only then
-    // ends its process through exitIfUnclosed.
+    // what its pages threw and a close that failed. Right after that close such
+    // a script fails the engine, saying why; then writes the report in the
+    // close's own block, so that a hang in the next engine cannot lose it or
+    // leave it saying the engine passed; and only then ends its process through
+    // exitIfUnclosed.
     for (const [, watched, browser] of source.matchAll(/(\w+) = watch\((\w+)[,)]/g))
       if (source.includes(`version: ${browser}.version()`)) {
         assert.ok(source.includes(`ended: ${watched}.ended`), `${file} keeps ${browser}'s ended in its report`);
         assert.match(source, new RegExp(`errors(?::| =) ${watched}\\.errors\\b`), `${file} keeps ${browser}'s page errors in its report`);
         assert.ok(source.includes(`cleanupErrors: ${watched}.cleanupErrors`), `${file} keeps ${browser}'s failed close in its report`);
         assert.match(source, /\bunclosed && report\.(?:ok|status === "passed")\) \{\s*report\.(?:ok = false|status = "failed");\s*report\.failure = unclosed\.stack;/, `${file} fails an engine that passed when its browser would not close, and says why`);
-        assert.match(source, /^( *)const unclosed = await \w+\.close\(name\);(?:\r?\n\1.*)*?\r?\n\1(?:fs\.writeFileSync\(|save\(\))[\s\S]*exitIfUnclosed\(module_?\)/m, `${file} writes its report right after the close and ends its process after that`);
+        assert.match(source, /^( *)const unclosed = await \w+\.close\(name\);\r?\n\1if \(unclosed && .*(?:\r?\n\1.*)*?\r?\n\1(?:fs\.writeFileSync\(|save\(\))[\s\S]*exitIfUnclosed\(module_?\)/m, `${file} fails the engine right after the close, then writes its report, and ends its process after that`);
         reporting.push(file);
       }
   }

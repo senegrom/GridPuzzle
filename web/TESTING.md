@@ -88,16 +88,18 @@ timeout would have ended it. So a suite closes a browser through the
 (`CLOSE_LIMIT` in `scripts/watch.cjs`). That limit covers this close and no
 other call: on a browser that is up but stuck, Playwright sets no limit on
 `page.evaluate()` or `context.close()`, so a suite's own call can still wait
-there for ever; on a browser that has gone they end at once. A close that
-rejects or runs out of time is printed on stderr and kept in the report's
-`cleanupErrors`, the list of strings the corpus reports have, as `browser:
-browser cleanup timed out` or `browser: <its error>`; the list is empty after
-a close that worked. Such a cleanup failure says that the browser did not
-close when asked. It says nothing against what the suite checked before that,
-but a run that leaves a browser behind has not passed: an engine that passed
-fails, with the cleanup failure in `failure`, and an engine that failed keeps
-its own failure first. Every engine still runs, and its report is still
-written. In `harness_regressions` such a failure reads `<case>: <engine>
+there for ever; on a browser that has gone they end at once. The hang below
+is the exception: with a WebKit child still holding the pipes, a closed page's
+calls end at once, but `context.close()` waits as `browser.close()` does. A
+close that rejects or runs out of time is printed on stderr and kept in the
+report's `cleanupErrors`, the list of strings the corpus reports have, as
+`browser: browser cleanup timed out` or `browser: <its error>`; the list is
+empty after a close that worked. Such a cleanup failure says that the browser
+did not close when asked. It says nothing against what the suite checked
+before that, but a run that leaves a browser behind has not passed: an engine
+that passed fails, with the cleanup failure in `failure`, and an engine that
+failed keeps its own failure first. Every engine still runs, and its report is
+still written. In `harness_regressions` such a failure reads `<case>: <engine>
 closes`, with `browser: browser cleanup timed out`. The detection check inside
 `scanner_settings` closes its browser through the corpus runner, whose report
 must have no `cleanupErrors`.
