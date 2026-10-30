@@ -196,8 +196,10 @@ test('a runner that calls a suite\'s run() or requires it keeps its process afte
 // Playwright for solver_update, which loads it by name: every page fails at
 // once, Chromium's browser will not close, and each launch keeps the process
 // alive, as a live browser's pipes do, and says what is on disk by then.
+// With NO_BROWSER, no launch works.
 const PLAYWRIGHT = `const fs = require("node:fs"), report = "browser-artifacts/solver-update-regressions.json";
 const engine = (name, close) => ({ async launch() {
+  if (process.env.NO_BROWSER) throw new Error("no browser here");
   setInterval(() => {}, 1000);
   fs.writeFileSync(name + "-found.json", fs.existsSync(report) ? fs.readFileSync(report) : "[]");
   const page = { goto: async () => { throw new Error("no site here"); }, evaluate: async () => null };
@@ -205,20 +207,36 @@ const engine = (name, close) => ({ async launch() {
 } });
 module.exports = { chromium: engine("chromium", async () => { throw new Error("the pipe broke"); }), webkit: engine("webkit", async () => {}) };
 `;
+const REPORT = 'browser-artifacts/solver-update-regressions.json';
 
-test('solver_update has an engine\'s report on disk before the next one starts, and ends with both after a browser that would not close', async (t) => {
+// How solver_update ends on that stand-in, in a tree of its own, and what a
+// report file in that tree holds.
+async function solverRun(t, env) {
   const directory = temporary(t), inTree = (name) => path.join(directory, name);
   for (const file of ['scripts/solver_update_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs', 'web/sw.js', 'web/offline.js'])
     fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
-  const { code, killed, stderr } = await finish(inTree('scripts/solver_update_regressions.cjs'), { cwd: directory });
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  assert.equal(code, 1, stderr);
+  const ended = await finish(inTree('scripts/solver_update_regressions.cjs'), { cwd: directory, env: { ...process.env, ...env } });
   const onDisk = (name) => JSON.parse(fs.readFileSync(inTree(name), 'utf8')).map(({ browser, ok, cleanupErrors, failure }) =>
     ({ browser, ok, cleanupErrors, failure: failure?.split('\n')[0] }));
+  return { ...ended, onDisk };
+}
+
+test('solver_update has an engine\'s report on disk before the next one starts, and ends with both after a browser that would not close', async (t) => {
+  const { code, killed, stderr, onDisk } = await solverRun(t);
+  assert.equal(killed, false, `it ended by itself: ${stderr}`);
+  assert.equal(code, 1, stderr);
   const failed = (browser, cleanupErrors) => ({ browser, ok: false, cleanupErrors, failure: 'Error: no site here' });
   assert.deepEqual(onDisk('chromium-found.json'), []);
   assert.deepEqual(onDisk('webkit-found.json'), [failed('chromium', ['browser: the pipe broke'])], 'what a hang in WebKit would leave');
-  assert.deepEqual(onDisk('browser-artifacts/solver-update-regressions.json'), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
+  assert.deepEqual(onDisk(REPORT), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
+});
+
+test('solver_update still writes its report when it reaches no engine', async (t) => {
+  const { code, killed, stderr, onDisk } = await solverRun(t, { NO_BROWSER: '1' });
+  assert.equal(killed, false, `it ended by itself: ${stderr}`);
+  assert.equal(code, 1, stderr);
+  assert.match(stderr, /no browser here/);
+  assert.deepEqual(onDisk(REPORT), []);
 });
