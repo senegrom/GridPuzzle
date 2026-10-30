@@ -175,7 +175,7 @@ test("cleanup failures do not hide the original browser error or prevent other c
 test("a clean-up that never settles is given up on after five seconds, fails the run and leaves the next one to run", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const h = harness(t, { stuck: true }), pending = h.run();
-  while (!h.events.includes("context closed")) await tick();
+  while (!h.events.includes("context closed") && !t.signal.aborted) await tick();
   t.mock.timers.tick(4999); await tick();
   assert.equal(h.events.includes("browser closed"), false, "the limit has not passed");
   t.mock.timers.tick(1);
