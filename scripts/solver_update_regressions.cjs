@@ -9,6 +9,11 @@ const source = fs.readFileSync("web/sw.js", "utf8");
 const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
+// After each engine, so that a hang in the next cannot lose what this one found.
+function save() {
+  fs.mkdirSync("browser-artifacts", { recursive: true });
+  fs.writeFileSync("browser-artifacts/solver-update-regressions.json", JSON.stringify(reports, null, 2));
+}
 let build = first, requests = [];
 const runtimeRoot = () => `vendor/${build}/pyodide/`;
 function expected(version) {
@@ -242,13 +247,13 @@ async function stopServer() {
         report.ok = false;
         report.failure = unclosed.stack;
       }
+      save();
       await stopServer();
     }
   }
   if (reports.some((report) => !report.ok)) process.exitCode = 1;
 })().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => {
-  fs.mkdirSync("browser-artifacts", { recursive: true });
-  fs.writeFileSync("browser-artifacts/solver-update-regressions.json", JSON.stringify(reports, null, 2));
+  save();
   server.close();
   exitIfUnclosed(module);
 });
