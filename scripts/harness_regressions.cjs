@@ -117,6 +117,8 @@ async function unclosableRun(how, directory, selected) {
       : `${said(report.ended)}\nAssertionError [ERR_ASSERTION]: ${engine}: a page crashed or closed, or the browser disconnected`;
     assert.ok(report.failure.startsWith(failure), `${engine}: ${report.failure}`);
   }
+  // The run ends with the first engine's failure, as main() prints it.
+  assert.ok(stderr.includes(`${reports[0].failure.split("\n")[0]}\n`), `${how}: ${stderr}`);
   // The server and every browser, the first engine's too.
   const processes = reports.at(-1).processes;
   assert.ok(processes.length >= 2, `${how}: ${processes}`);

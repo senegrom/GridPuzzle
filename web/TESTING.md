@@ -77,23 +77,25 @@ pages' errors, closes it through `watch()` and keeps all three lists in a
 report that names the browser's version; `web/tests/ocr-latency.test.js` runs
 `ocr_latency` on the stand-ins.
 
-A browser that will not close cannot hold a run up. Playwright's
-`browser.close()` has no limit of its own, and once it waited for ever: in
-one of 37 local runs of `harness_regressions`, with the host loaded, its
-WebKit "lost" case left a process with only its HTTP server and no WebKit
-report, which had to be killed by hand; on CI only the job's timeout would have
-ended it, with nothing said about why. So a suite closes a browser through
-the `close(name)` of what `watch()` returns, which waits for 30 seconds
-(`CLOSE_LIMIT` in `scripts/watch.cjs`), the time Playwright itself gives a
-browser to close before it kills it. A close that rejects or runs out of time
-is printed on stderr and kept in the report's `cleanupErrors`, the list of
-strings the corpus reports have, as `browser: browser cleanup timed out` or
-`browser: <its error>`; the list is empty after a close that worked. Such a
-cleanup failure says that the browser did not close when asked. It says
-nothing against what the suite checked before that, but a run that leaves a
-browser behind has not passed: an engine that passed fails, with the cleanup
-failure in `failure`, and an engine that failed keeps its own failure first.
-Every engine still runs, and its report is still written.
+A browser that will not close cannot hold a run up. `browser.close()` alone
+can wait for ever: Playwright kills a browser that has not closed after 30
+seconds, but sets no limit on what it waits for after that, and in one of 37
+local runs of `harness_regressions`, with the host loaded, the WebKit "lost"
+case left a process with nothing but its HTTP server, no WebKit report and no
+word of why, which had to be killed by hand; on CI only the job's timeout would
+have ended it. So a suite closes a browser through the `close(name)` of what
+`watch()` returns, which waits for 30 seconds (`CLOSE_LIMIT` in
+`scripts/watch.cjs`). A close that rejects or runs out of time is printed on
+stderr and kept in the report's `cleanupErrors`, the list of strings the corpus
+reports have, as `browser: browser cleanup timed out` or `browser: <its
+error>`; the list is empty after a close that worked. Such a cleanup failure
+says that the browser did not close when asked. It says nothing against what
+the suite checked before that, but a run that leaves a browser behind has not
+passed: an engine that passed fails, with the cleanup failure in `failure`,
+and an engine that failed keeps its own failure first. Every engine still
+runs, and its report is still written. The detection check inside
+`scanner_settings` closes its browser through the corpus runner, whose report
+must have no `cleanupErrors`.
 
 The run must then still end, and a process that gave up on a close may not
 end by itself. Probed on real browsers: with the browser gone, as in the hang
@@ -106,13 +108,12 @@ process with its exit code, or with 1 if the suite made nothing of the
 failure. By then the reports are written. `process.exit()` still runs what
 listens for the process's exit: the harness's clean-up, and Playwright's,
 which kills every browser it launched and has not seen end, so that no browser
-stays behind, also one that is stuck. A browser that is stuck is killed by
-Playwright itself as the suite gives up on it. A runner that requires a suite
-or calls its `run()` keeps its process, and ending it is then up to that
-runner. `harness_regressions.cjs` checks all this on real browsers, in a
-process of its own, `web/tests/harness-close.test.js` the close and the
-process's end with stand-ins, and `corpus/benchmark-runner.cjs` shares the
-timed clean-up, with its own 5 seconds.
+stays behind. A runner that requires a suite or calls its `run()` keeps its
+process, and ending it is then up to that runner. `harness_regressions.cjs`
+checks all this on real browsers, in a process of its own,
+`web/tests/harness-close.test.js` the close and the process's end with
+stand-ins, and `corpus/benchmark-runner.cjs` shares the timed clean-up, with
+its own 5 seconds.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
