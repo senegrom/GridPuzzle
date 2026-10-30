@@ -143,7 +143,7 @@ test('a run whose browsers closed is not cut short: what it left to do still run
 test('a runner that calls a suite\'s run() or requires it keeps its process after a browser that would not close', async (t) => {
   const { code, killed, stdout } = await ending(t, {
     'runner.cjs': `
-      const suite = require("./suite.cjs"), own = require("./own.cjs");
+      const suite = require(__dirname + "/suite.cjs"), own = require(__dirname + "/own.cjs");
       (async () => {
         await suite.run().catch((error) => console.log("the runner heard:", error.message));
         await own.ended;
