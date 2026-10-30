@@ -33,13 +33,16 @@ const clean = () => ({
 });
 
 // Playwright's chromium and webkit as stand-ins: each launch is a browser
-// whose pages answer evaluate() with `answers[engine](page)`.
-function playwright(answers) {
+// whose pages answer evaluate() with `answers[engine](page)` and, in the
+// engines `closes` names, that closes with `closes[engine]()`.
+function playwright(answers, closes = {}) {
   const launched = [];
   const engine = (name) => ({
     async launch() {
       launched.push(name);
-      return new Browser({ version: `${name} 1.0`, evaluate: (page) => answers[name](page) });
+      const browser = new Browser({ version: `${name} 1.0`, evaluate: (page) => answers[name](page) });
+      if (closes[name]) browser.close = closes[name];
+      return browser;
     },
   });
   return { launched, chromium: engine('chromium'), webkit: engine('webkit') };
@@ -124,6 +127,39 @@ test('a page\'s uncaught error fails its engine, in its report: the first page\'
     // What it measured stays in the report.
     assert.deepEqual([failed.baseline, failed.candidate], [clean(), clean()], engine);
   }
+});
+
+test('a browser that will not close fails its engine, its report written with what it measured, and the next engine runs', async (t) => {
+  const out = report(t);
+  let onDisk = null;
+  const browsers = playwright({
+    async chromium() { return clean(); },
+    async webkit() { onDisk = JSON.parse(fs.readFileSync(out, 'utf8')); return clean(); },
+  }, { async chromium() { throw new Error('the pipe broke'); } });
+  const result = await suite({ BROWSER_ENGINES: '', OCR_BASELINE_SITE: '' }, { playwright: browsers, out });
+  assert.deepEqual(browsers.launched, ['chromium', 'webkit']);
+  assert.equal(result.thrown?.message, 'chromium: browser: the pipe broke');
+  const [chromium, webkit] = result.reports;
+  assert.equal(chromium.ok, false);
+  assert.deepEqual(chromium.cleanupErrors, ['browser: the pipe broke']);
+  assert.ok(chromium.failure.startsWith('Error: chromium: browser: the pipe broke'), chromium.failure);
+  assert.deepEqual(chromium.candidate, clean());
+  assert.deepEqual(onDisk, [chromium], 'saved before WebKit read anything');
+  assert.deepEqual([webkit.ok, webkit.cleanupErrors], [true, []]);
+  assert.ok(result.printed.includes('chromium: browser: the pipe broke'), result.printed.join('\n'));
+});
+
+test('a failing engine keeps its own failure first when its browser will not close either', async (t) => {
+  const out = report(t);
+  const browsers = playwright({
+    async chromium() { const result = clean(); result.scans[2].unsafe = [{ cell: 4, expected: 7, actual: 1 }]; return result; },
+    async webkit() { return clean(); },
+  }, { async chromium() { throw new Error('the pipe broke'); } });
+  const result = await suite({ BROWSER_ENGINES: '', OCR_BASELINE_SITE: '' }, { playwright: browsers, out });
+  assert.ok(result.thrown?.message.startsWith('chromium/candidate: unflagged error'), String(result.thrown));
+  const [chromium] = result.reports;
+  assert.ok(chromium.failure.startsWith('AssertionError [ERR_ASSERTION]: chromium/candidate: unflagged error'), chromium.failure);
+  assert.deepEqual(chromium.cleanupErrors, ['browser: the pipe broke']);
 });
 
 test('BROWSER_ENGINES selects the engines, as for the harness\'s suites', async (t) => {

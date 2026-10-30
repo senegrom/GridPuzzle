@@ -5,9 +5,10 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 // What ends the page and the browser without the run asking, as the browser
-// suites hear it; watch.cjs, unlike the suites' harness, leaves the process's
-// SIGINT and SIGTERM to the benchmarks, which save their report first.
-const { GONE, watch } = require("../scripts/watch.cjs");
+// suites hear it, and a clean-up with a time limit; watch.cjs, unlike the
+// suites' harness, leaves the process's SIGINT and SIGTERM to the benchmarks,
+// which save their report first.
+const { GONE, cleanUp, watch } = require("../scripts/watch.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
@@ -196,13 +197,8 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   } finally {
     closing = true;
     const close = async (name, action) => {
-      let timer;
-      try {
-        await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
-          timer = setTimeout(() => reject(Error(`${name} cleanup timed out`)), 5000);
-        })]);
-      } catch (error) { cleanupErrors.push(`${name}: ${message(error)}`); }
-      finally { clearTimeout(timer); }
+      const failed = await cleanUp(name, action, 5000);
+      if (failed) cleanupErrors.push(failed);
     };
     // Closing the context also terminates its scanner workers. Do not send a
     // new evaluate() to a crashed or stalled page just to cancel the scanner.

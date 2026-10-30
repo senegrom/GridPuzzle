@@ -103,7 +103,9 @@ module.exports = async function detectionFailure(engineName, png) {
   } catch (error) {
     throw watched ? await watched.lead(error) : error;
   } finally {
-    if (browser?.isConnected()) await browser.close();
+    // Only after a failure: the runner closes the browser, or gives up on it
+    // for its report, and the checks above fail when it is still connected.
+    if (browser?.isConnected()) await watched.close(engineName);
     if (server && server.exitCode === null && server.signalCode === null) server.kill();
     fs.rmSync(root, { recursive: true, force: true });
   }

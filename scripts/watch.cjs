@@ -1,16 +1,56 @@
 /* What ends a browser suite's pages, and what they throw, without the suite
    asking: watch(), with which the harness's engines(), the suites that launch
    browsers of their own and the corpus benchmark runner watch their
-   browsers. It lives apart from scripts/harness.cjs, which exports it too,
-   because loading the harness takes over the process's exit, SIGINT and
-   SIGTERM to stop its servers, and the corpus benchmarks stop on their own
-   SIGINT and SIGTERM handlers, which save their reports first. */
+   browsers; and what stops a browser that will not close from holding a run
+   up: the close() of what watch() returns, cleanUp() and exitIfUnclosed().
+   It lives apart from scripts/harness.cjs, which exports what the suites use
+   of it too, because loading the harness takes over the process's exit,
+   SIGINT and SIGTERM to stop its servers, and the corpus benchmarks stop on
+   their own SIGINT and SIGTERM handlers, which save their reports first. */
 const assert = require("node:assert/strict");
 
 // Playwright's word that the target of a call is gone: a lost browser's
 // calls and a crashed WebKit page's fail with the first, a crashed Chromium
 // page's with the second, and calls on a page as it crashes with the third.
 const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
+
+// How long a suite waits for its browser to close. It is also how long
+// Playwright gives a browser to close by itself before it kills it, so a
+// browser that is merely stuck is being killed as the suite gives up on it.
+const CLOSE_LIMIT = 30000;
+
+/* Runs `action`, the clean-up of `name`, and waits for it for at most `limit`
+   ms. Resolves to nothing when it settled in time, leaving no timer behind,
+   and otherwise to why it did not, in the form of a report's cleanupErrors:
+   `<name>: <its error>`, or `<name>: <name> cleanup timed out`. What the
+   action does after that is not waited for, and its late failure is lost. */
+async function cleanUp(name, action, limit) {
+  let timer;
+  try {
+    await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Error(`${name} cleanup timed out`)), limit);
+    })]);
+  } catch (error) { return `${name}: ${error?.message || error}`; }
+  finally { clearTimeout(timer); }
+}
+
+// Whether a browser of this process would not close (see exitIfUnclosed).
+let unclosed = false;
+
+/* The last step of a suite's process, once its reports are written, with
+   `module_` the suite's module. A browser that would not close can keep the
+   process alive for ever after its run has ended: the browser's pipes and
+   its process are what Node then waits for, and only the browser's end lets
+   go of them. So after a close that failed, and only then, the process exits
+   here, with its exit code or else 1, since such a close fails the run even
+   if the suite made nothing of it. process.exit() runs what listens for the
+   process's exit: the harness's clean-up and Playwright's, which kills every
+   browser it launched and has not seen end. It does nothing when something
+   else runs the suite (a runner that requires it or calls its run()), since
+   the process is then that runner's to end. */
+function exitIfUnclosed(module_) {
+  if (unclosed && require.main === module_) process.exit(process.exitCode || 1);
+}
 
 /* Watches `browser`, the contexts it has and opens and their pages for what
    ends a suite's pages without the suite asking: a page that crashes, a
@@ -31,9 +71,15 @@ const GONE = /Target page, context or browser has been closed|Target crashed|Pag
    closes is no news; after browser.close() nothing is recorded. check(name)
    fails when anything ended, and lead(error) puts what ended at the head of
    a failure's message and stack, after waiting for a lost browser's news
-   when the failure says that its target is gone (GONE). */
-function watch(browser, { grace = 1000 } = {}) {
-  const started = Date.now(), ended = [], errors = [], asked = new WeakSet();
+   when the failure says that its target is gone (GONE). close(name) closes
+   the browser, waiting for at most `closeLimit` ms, where a suite would
+   otherwise call browser.close() and wait for ever on a browser that will
+   not close. It resolves to null, or, when the close rejects or takes
+   longer, adds what cleanUp() says to `cleanupErrors`, prints it with `name`
+   on stderr and resolves to an Error saying the same, for a suite to fail
+   an engine with that has not failed yet. */
+function watch(browser, { grace = 1000, closeLimit = CLOSE_LIMIT } = {}) {
+  const started = Date.now(), ended = [], errors = [], cleanupErrors = [], asked = new WeakSet();
   let first = null;
   const unasked = (...targets) => !targets.some((target) => asked.has(target));
   const note = (event, page) => ended.push({ event, seconds: Math.round((Date.now() - started) / 100) / 10,
@@ -76,6 +122,7 @@ function watch(browser, { grace = 1000 } = {}) {
   return {
     ended,
     errors,
+    cleanupErrors,
     check(name) { assert.deepEqual(ended, [], `${name}: a page crashed or closed, or the browser disconnected`); },
     async lead(error) {
       if (GONE.test(String(error?.message ?? error))) await settled();
@@ -86,7 +133,15 @@ function watch(browser, { grace = 1000 } = {}) {
       error.message = `${line}\n${error.message}`;
       return error;
     },
+    async close(name) {
+      const failed = await cleanUp("browser", () => browser.close(), closeLimit);
+      if (!failed) return null;
+      unclosed = true;
+      cleanupErrors.push(failed);
+      console.error(`${name}: ${failed}`);
+      return new Error(`${name}: ${failed}`);
+    },
   };
 }
 
-module.exports = { GONE, watch };
+module.exports = { CLOSE_LIMIT, GONE, cleanUp, exitIfUnclosed, watch };

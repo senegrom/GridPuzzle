@@ -1,12 +1,12 @@
 /* What every browser suite otherwise repeats: a server for the built site,
-   the two mobile engines, one report per engine, a screenshot on failure and
-   the exit code. */
+   the two mobile engines, one report per engine, a screenshot on failure, a
+   close that cannot wait for ever and the exit code. */
 const assert = require("node:assert/strict");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { watch } = require("./watch.cjs");
+const { exitIfUnclosed, watch } = require("./watch.cjs");
 
 /* The engines a run covers: BROWSER_ENGINES, a comma- or space-separated
    subset of chromium and webkit ("webkit" alone in CI's per-engine jobs), or
@@ -122,10 +122,14 @@ function baselineSite(commit, files) {
    on any other page it opens in the engine's browser, and so does anything
    else watch() records, which also leads the failure; a failing engine gets
    a screenshot, and every engine runs before the first failure is rethrown.
-   `report` starts as { browser, version, errors, ended } (both as watch()
-   records them, for the browser and every context and page the suite opens
-   on it); the suite adds what it measures. */
-async function engines(file, suite, { context = PHONE, timeout = 20000, screenshot = path.basename(file, ".json") } = {}) {
+   A browser that does not close in time (watch.cjs's CLOSE_LIMIT, or
+   `closeLimit` ms) adds its failure to the report's cleanupErrors and fails
+   the engine if nothing else did; a suite's failure stays first, and the
+   report is written and the next engine run all the same. `report` starts as
+   { browser, version, errors, ended, cleanupErrors } (the first two lists as
+   watch() records them, for the browser and every context and page the suite
+   opens on it); the suite adds what it measures. */
+async function engines(file, suite, { context = PHONE, timeout = 20000, screenshot = path.basename(file, ".json"), closeLimit } = {}) {
   const selected = selectedEngines();
   // Loaded here, not at the top, so the engine selection can be tested
   // without Playwright installed.
@@ -136,8 +140,9 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
   const reports = [], failures = [];
   for (const name of selected) {
     const browser = await playwright[name].launch({ headless: true });
-    const watched = watch(browser);
-    const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended };
+    const watched = watch(browser, { closeLimit });
+    const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended,
+      cleanupErrors: watched.cleanupErrors };
     reports.push(report);
     console.log(`${name} ${report.version}`);
     let page;
@@ -156,7 +161,12 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
       console.error(name, error);
       if (page) await page.screenshot({ path: `browser-artifacts/${name}-${screenshot}-failure.png`, fullPage: true }).catch(() => {});
     } finally {
-      await browser.close();
+      const unclosed = await watched.close(name);
+      if (unclosed && report.status === "passed") {
+        report.status = "failed";
+        report.failure = unclosed.stack;
+        failures.push(unclosed);
+      }
       fs.writeFileSync(out, JSON.stringify(reports, null, 2) + "\n");
     }
   }
@@ -165,9 +175,11 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
 }
 
 /* A suite's entry point: run it when the file is the main module, print the
-   failure and set the exit code. */
+   failure and set the exit code. The process then ends by itself, unless a
+   browser would not close: exitIfUnclosed() ends it then. */
 function main(module_, run) {
-  if (require.main === module_) run().catch((error) => { console.error(error); process.exitCode = 1; });
+  if (require.main === module_)
+    run().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => exitIfUnclosed(module_));
 }
 
 /* The camera the page's getUserMedia hands out, so a suite can test the app's
@@ -197,4 +209,4 @@ function installCamera(answer) {
 }
 const stubCamera = (page, answer) => page.evaluate(installCamera, answer);
 
-module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, main, sleep, stubCamera, selectedEngines, watch };
+module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, exitIfUnclosed, main, sleep, stubCamera, selectedEngines, watch };

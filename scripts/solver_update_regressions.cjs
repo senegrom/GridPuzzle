@@ -4,7 +4,7 @@ const { createServer } = require("node:http");
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
-const { watch } = require("./harness.cjs");
+const { exitIfUnclosed, watch } = require("./harness.cjs");
 const source = fs.readFileSync("web/sw.js", "utf8");
 const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
@@ -87,7 +87,8 @@ async function stopServer() {
     const context = await browser.newContext();
     const page = await context.newPage();
     // Both tabs' uncaught errors, the other tab's with its URL.
-    const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended };
+    const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended,
+      cleanupErrors: watched.cleanupErrors };
     reports.push(report);
     try {
       await page.goto(base);
@@ -236,7 +237,11 @@ async function stopServer() {
       console.error(name, error);
       console.error(JSON.stringify({ retained: report.retained, workerDebug: report.workerDebug, requests }));
     } finally {
-      await browser.close();
+      const unclosed = await watched.close(name);
+      if (unclosed && report.ok) {
+        report.ok = false;
+        report.failure = unclosed.stack;
+      }
       await stopServer();
     }
   }
@@ -245,4 +250,5 @@ async function stopServer() {
   fs.mkdirSync("browser-artifacts", { recursive: true });
   fs.writeFileSync("browser-artifacts/solver-update-regressions.json", JSON.stringify(reports, null, 2));
   server.close();
+  exitIfUnclosed(module);
 });
