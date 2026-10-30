@@ -23,8 +23,9 @@ function harness(t, faults = {}) {
   // open, so that the runner's watch() hears the page. A crashed page stays
   // open to Playwright in a connected browser, and every later call on it
   // fails with "Target crashed", in WebKit too. `faults.thrown` lists when the
-  // page throws an uncaught error: "goto", "close" or the number of a read.
-  const throwAt = when => { if (faults.thrown?.includes(when)) page.emit("pageerror", Error(`thrown at ${when}`)); };
+  // page throws an uncaught error, once per listing: "goto", "close" or the
+  // number of a read.
+  const throwAt = when => { for (const thrown of faults.thrown ?? []) if (thrown === when) page.emit("pageerror", Error(`thrown at ${when}`)); };
   const page = Object.assign(new EventEmitter(), {
     setDefaultTimeout() {}, async goto() { throwAt("goto"); if (faults.goto) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
@@ -180,13 +181,14 @@ function keepSaves(h) {
 // A benchmark measures recognition and is not a gate: an uncaught error in its
 // page is recorded, and the run is the run it would have been without it.
 test("what a page throws is listed in pageErrors, the checkpoints hold it, and the run stays complete", async t => {
-  const healthy = await harness(t).run(), h = harness(t, { thrown: [2, 3] }), saves = keepSaves(h), report = await h.run();
-  const both = ["thrown at 2", "thrown at 3"];
-  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, both);
+  const healthy = await harness(t).run(), h = harness(t, { thrown: [1, 2, 2, 3] }), saves = keepSaves(h), report = await h.run();
+  // Every error, in order, and one that repeats is listed each time.
+  const all = ["thrown at 1", "thrown at 2", "thrown at 2", "thrown at 3"];
+  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, all);
   assert.deepEqual({ ...report, pageErrors: [] }, healthy, "status, failure, notRun, summary and results do not change");
   assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
   // Before start-up, after each of the three images, and after clean-up.
-  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], both.slice(0, 1), both, both]);
+  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], all.slice(0, 1), all.slice(0, 3), all, all]);
   assert.deepEqual(saves.map(({ status }) => status), ["running", "running", "running", "running", "complete"]);
 });
 
