@@ -35,6 +35,7 @@ function harness(t, faults = {}, args = []) {
     async evaluate(_fn, data) {
       assert.deepEqual(data.scales, [640, 1600]); assert.equal(data.rows, 9);
       assert.deepEqual(data.corners, corners); calls++; payloads.push(data);
+      if (calls === 2 && faults.thrown) page.emit("pageerror", Error("thrown in the page"));
       if (calls === 2) {
         const checkpoint = JSON.parse(fs.readFileSync(options.out));
         assert.equal(checkpoint.status, "running"); assert.ok(checkpoint.results.length >= 1);
@@ -137,6 +138,13 @@ test("detection startup failure leaves a diagnostic report", async t => {
   const h = harness(t, { startup: true }), r = await h.run();
   assert.equal(r.status, "failed"); assert.match(r.failure, /navigation/); assert.equal(r.completedImages, 0);
   assert.deepEqual(h.saved(), r); assert.deepEqual(h.closed, ["context", "browser", "server"]);
+});
+test("a page that throws is listed in the detection report's pageErrors, and the run stays complete", async t => {
+  const healthy = await harness(t).run(), h = harness(t, { thrown: true }), r = await h.run();
+  assert.deepEqual(healthy.pageErrors, []); assert.deepEqual(r.pageErrors, ["thrown in the page"]);
+  assert.equal(r.status, "complete"); assert.equal(r.failure, null);
+  assert.deepEqual([r.notRun, r.summary, r.results], [healthy.notRun, healthy.summary, healthy.results]);
+  assert.deepEqual(h.saved(), r);
 });
 test("detection selection retains its per-set limit and intentionally excludes targets without corners", t => {
   const h = harness(t);
