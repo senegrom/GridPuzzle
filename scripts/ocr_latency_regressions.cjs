@@ -2,11 +2,12 @@
    (or the engines BROWSER_ENGINES selects). Wall-clock times are reported,
    not enforced; reuse and safety are asserted. As the harness's engines()
    does, every engine runs, also after one has failed, its report is written
-   after it, and the first failure is rethrown after the last engine.
+   after it, a browser that will not close fails an engine that passed, and
+   the first failure is rethrown after the last engine.
    Set OCR_BASELINE_SITE to another built site to time it in the same browser. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), http = require("node:http");
-const { selectedEngines, watch } = require("./harness.cjs");
+const { exitIfUnclosed, selectedEngines, watch } = require("./harness.cjs");
 const ROOT = "Examples/BrowserScanner/Newspaper";
 const fixtures = JSON.parse(fs.readFileSync(`${ROOT}/ground-truth.json`)).fixtures.map((f) => ({ ...f,
   imageData: fs.readFileSync(`${ROOT}/${f.image}`).toString("base64") }));
@@ -72,7 +73,8 @@ async function run({ playwright = require("playwright"), port = 8777, out = "bro
     for (const name of selected) {
       const browser = await playwright[name].launch({ headless: true }), watched = watch(browser);
       // Each variant's page's uncaught errors, the later page's with its URL.
-      const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended }; reports.push(report);
+      const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended,
+        cleanupErrors: watched.cleanupErrors }; reports.push(report);
       try {
         for (const variant of process.env.OCR_BASELINE_SITE ? ["baseline", "candidate"] : ["candidate"]) {
           const context = await browser.newContext({ serviceWorkers: "block" });
@@ -96,11 +98,16 @@ async function run({ playwright = require("playwright"), port = 8777, out = "bro
       } catch (thrown) {
         const error = await watched.lead(thrown); report.ok = false; report.failure = error.stack;
         failures.push(error); console.error(name, error);
-      } finally { await browser.close(); save(); }
+      } finally {
+        const unclosed = await watched.close(name);
+        if (unclosed && report.ok) { report.ok = false; report.failure = unclosed.stack; failures.push(unclosed); }
+        save();
+      }
     }
   } finally { save(); server.close(); }
   if (failures.length) throw failures[0];
   return reports;
 }
 module.exports = run;
-if (require.main === module) run().catch((error) => { console.error(error); process.exitCode = 1; });
+if (require.main === module)
+  run().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => exitIfUnclosed(module));

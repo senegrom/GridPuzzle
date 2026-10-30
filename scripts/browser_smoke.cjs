@@ -2,7 +2,7 @@
 const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { serve, sleep, stubCamera, watch } = require("./harness.cjs");
+const { exitIfUnclosed, serve, sleep, stubCamera, watch } = require("./harness.cjs");
 // The offline checks stop the origin and start it again: the port is fixed so
 // the service worker's cache still belongs to the same origin.
 const BASE = "http://127.0.0.1:8765/GridPuzzle/",
@@ -290,6 +290,7 @@ async function checkStartupCancellation(browser, image, report) {
       errors,
       external,
       ended: watched.ended,
+      cleanupErrors: watched.cleanupErrors,
     };
     reports.push(report);
     try {
@@ -690,7 +691,11 @@ async function checkStartupCancellation(browser, image, report) {
         );
       } catch {}
     } finally {
-      await browser.close();
+      const unclosed = await watched.close(name);
+      if (unclosed && report.ok) {
+        report.ok = false;
+        report.failure = unclosed.stack;
+      }
       fs.writeFileSync(
         "browser-artifacts/results.json",
         JSON.stringify(reports, null, 2),
@@ -706,4 +711,5 @@ async function checkStartupCancellation(browser, image, report) {
   })
   .finally(() => {
     if (server) server.close();
+    exitIfUnclosed(module);
   });

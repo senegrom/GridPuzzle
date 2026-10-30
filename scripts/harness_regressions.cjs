@@ -17,13 +17,18 @@
      fails it with each error in the report, the other pages' with their
      URLs;
    - the browser goes away while the suite waits (Browser.close() called past
-     the harness, which takes it for a lost browser). */
+     the harness, which takes it for a lost browser);
+   - the browser will not close, which the last two cases check in a process
+     of their own, since what counts is how that process ends: its close never
+     settles, with the browser left running or after it was closed past the
+     harness. */
 const assert = require("node:assert/strict");
+const { ChildProcess, execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const util = require("node:util");
-const { serve, engines, main, selectedEngines } = require("./harness.cjs");
+const { serve, engines, main, selectedEngines, sleep } = require("./harness.cjs");
 
 const CLOSED = "Target page, context or browser has been closed";
 // The line watch() leads a failure with.
@@ -43,6 +48,7 @@ async function attempt(name, suite) {
   finally { console.error = print; }
   const reports = JSON.parse(fs.readFileSync(`browser-artifacts/${file}`, "utf8"));
   assert.deepEqual(reports.map((report) => report.browser), selectedEngines(), `${name}: every engine runs`);
+  for (const report of reports) assert.deepEqual(report.cleanupErrors, [], `${name}: ${report.browser} closes`);
   return { thrown, printed, reports: Object.fromEntries(reports.map((report) => [report.browser, report])),
     shot: (engine) => fs.existsSync(shot(engine)) };
 }
@@ -57,6 +63,69 @@ function led(result, engine, first, rest) {
   assert.ok(result.printed.some((text) => text.startsWith(`${engine} ${line}\n${rest}`)), `${engine}: ${result.printed.join("\n")}`);
   if (first) assert.ok(result.thrown.message.startsWith(`${line}\n`), `${engine}: rethrown ${result.thrown.message}`);
   return report;
+}
+
+// What the harness says of a close it gave up on, in a report and on stderr.
+const UNCLOSED = "browser: browser cleanup timed out";
+// A run that has not ended after this long hangs. It takes a few seconds, and
+// half a minute on a loaded machine.
+const ENDS_WITHIN = 120000;
+
+/* What the last two cases run, in a process of their own: a suite that makes
+   the harness's close of each browser never settle, `open` with the browser
+   left running, `behind` once the browser has been closed past the harness.
+   The report keeps the processes this one has started by then. */
+async function unclosableSuite(how, directory) {
+  const server = await serve({ directory });
+  try {
+    await engines(`harness-unclosing-${how}.json`, async (page, report, name, browser) => {
+      await page.goto(server.base);
+      report.processes = process._getActiveHandles().filter((handle) => handle instanceof ChildProcess).map(({ pid }) => pid);
+      if (how === "behind") await Object.getPrototypeOf(browser).close.call(browser);
+      browser.close = () => new Promise(() => {});
+    }, { closeLimit: 1000 });
+  } finally { await server.close(); }
+}
+
+// Whether a process runs. A zombie has ended: a container's first process
+// may never collect it.
+function running(pid) {
+  try { return process.platform === "linux" ? !fs.readFileSync(`/proc/${pid}/stat`, "utf8").includes(") Z ") : process.kill(pid, 0); }
+  catch { return false; }
+}
+
+/* Runs unclosableSuite() in a process of its own and checks how that run
+   ended: by itself, with exit code 1, a report for every engine and none of
+   the processes Node started for it left running (a browser's own children
+   are not looked at: on Windows one can outlive its main process). */
+async function unclosableRun(how, directory) {
+  const file = `browser-artifacts/harness-unclosing-${how}.json`, started = Date.now();
+  fs.rmSync(file, { force: true });
+  const { code, killed, stderr } = await new Promise((resolve) => execFile(process.execPath, [__filename, how, directory], { timeout: ENDS_WITHIN },
+    (error, stdout, stderr) => resolve({ code: error?.code ?? 0, killed: error?.killed ?? false, stderr })));
+  assert.equal(killed, false, `${how}: the run did not end by itself within ${ENDS_WITHIN} ms: ${stderr}`);
+  assert.equal(code, 1, `${how}: ${stderr}`);
+  const seconds = Math.round((Date.now() - started) / 100) / 10;
+  const reports = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(reports.map((report) => report.browser), selectedEngines(), `${how}: every engine runs`);
+  for (const report of reports) {
+    const engine = report.browser;
+    assert.deepEqual(report.cleanupErrors, [UNCLOSED], engine);
+    assert.ok(stderr.includes(`${engine}: ${UNCLOSED}`), `${engine}: ${stderr}`);
+    assert.equal(report.status, "failed", engine);
+    // A browser gone before the close is the suite's failure, which stays first.
+    const failure = how === "open" ? `Error: ${engine}: ${UNCLOSED}`
+      : `${said(report.ended)}\nAssertionError [ERR_ASSERTION]: ${engine}: a page crashed or closed, or the browser disconnected`;
+    assert.ok(report.failure.startsWith(failure), `${engine}: ${report.failure}`);
+  }
+  // The run ends with the first engine's failure, as main() prints it.
+  assert.ok(stderr.includes(`${reports[0].failure.split("\n")[0]}\n`), `${how}: ${stderr}`);
+  // The server and every browser, the first engine's too.
+  const processes = reports.at(-1).processes;
+  assert.ok(processes.length >= 2, `${how}: ${processes}`);
+  for (const stop = Date.now() + 10000; processes.some(running) && Date.now() < stop;) await sleep(100);
+  assert.deepEqual(processes.filter(running), [], `${how}: no process Node started for the run is left running`);
+  return { exit: code, seconds, cleanupErrors: reports.map(({ browser, cleanupErrors }) => `${browser}: ${cleanupErrors}`) };
 }
 
 async function run() {
@@ -173,6 +242,8 @@ async function run() {
       assert.equal(lost.shot(engine), false, "no screenshot without a browser");
       outcome[`lost (${engine})`] = report.ended;
     }
+
+    for (const how of ["open", "behind"]) outcome[`will not close (${how})`] = await unclosableRun(how, directory);
   } finally {
     await server.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -181,7 +252,10 @@ async function run() {
   for (const [name, record] of Object.entries(outcome))
     console.log(Array.isArray(record) ? `${name}: led by ${said(record)}`
       : record.errors ? `${name}: failed on ${record.errors.join("; ")}`
+      : record.cleanupErrors ? `${name}: ended by itself in ${record.seconds} s with exit code ${record.exit}: ${record.cleanupErrors.join("; ")}`
       : `${name}: led by nothing, screenshot ${record.screenshotAfter} ms after the failure`);
 }
 
-main(module, run);
+// With arguments, this is the process of unclosableSuite().
+const [how, directory] = process.argv.slice(2);
+main(module, how ? () => unclosableSuite(how, directory) : run);

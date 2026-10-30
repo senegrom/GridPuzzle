@@ -1,11 +1,11 @@
 import { EventEmitter } from 'node:events';
 
 // Stand-ins for Playwright's Browser, BrowserContext and Page, for the tests
-// of what the suites do with them without a browser (harness-watch.test.js
-// and ocr-latency.test.js). They emit what Playwright's objects emit: a
-// browser's "context" and a context's "page" as one opens, before its
-// newContext() or newPage() resolves; a page's "pageerror", "crash" and
-// "close", a context's "close" and a browser's "disconnected". A close()
+// of what the suites do with them without a browser (harness-watch.test.js,
+// harness-close.test.js and ocr-latency.test.js). They emit what Playwright's
+// objects emit: a browser's "context" and a context's "page" as one opens,
+// before its newContext() or newPage() resolves; a page's "pageerror", "crash"
+// and "close", a context's "close" and a browser's "disconnected". A close()
 // closes what it holds without calling their close(), as Playwright does;
 // lose() is a browser that goes away unasked, crash() a page that crashes
 // and throw() an uncaught error in a page. A browser answers its pages'
