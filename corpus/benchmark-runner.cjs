@@ -129,6 +129,10 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   // A run that ended early lists the images it did not read in `notRun`:
   // they were not run, which is not failing. `ended` is what watch() heard
   // end without the run asking: a page that crashed or closed, a lost browser.
+  // `pageErrors` is what it heard the run's pages throw, and it is only a
+  // record: a benchmark measures and is no gate, so an uncaught error fails
+  // neither an image nor the run. Each save reads both afresh, so the final
+  // one holds what was thrown after the last checkpoint.
   const report = () => ({ ...reportMetadata,
     ...(!measure ? { recognition: { type: "reference", dimensions: "reference",
       corners: options.trueCorners ? "reference-when-available" : "detected-or-full-frame",
@@ -136,7 +140,8 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     options, status, totalImages: items.length,
     completedImages: results.length,
     notRun: status === "running" ? [] : items.slice(results.length).map(({ family, set, name }) => ({ family, set, name })),
-    failure, ended: watched?.ended ?? [], cleanupErrors, summary: summarizeResults(results), results });
+    failure, ended: watched?.ended ?? [], pageErrors: watched?.errors ?? [], cleanupErrors,
+    summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());
   try {
