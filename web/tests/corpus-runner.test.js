@@ -7,7 +7,6 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 const { runBenchmark, writeReport } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
-const THROWN = "thrown in the page";
 
 function harness(t, faults = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-benchmark-"));
@@ -23,9 +22,9 @@ function harness(t, faults = {}) {
   // The browser, its context and page emit what Playwright's emit as they
   // open, so that the runner's watch() hears the page. A crashed page stays
   // open to Playwright in a connected browser, and every later call on it
-  // fails with "Target crashed", in WebKit too. `faults.thrown` says when the
+  // fails with "Target crashed", in WebKit too. `faults.thrown` lists when the
   // page throws an uncaught error: "goto", "close" or the number of a read.
-  const throwAt = when => { if (faults.thrown === when) page.emit("pageerror", Error(THROWN)); };
+  const throwAt = when => { if (faults.thrown?.includes(when)) page.emit("pageerror", Error(`thrown at ${when}`)); };
   const page = Object.assign(new EventEmitter(), {
     setDefaultTimeout() {}, async goto() { throwAt("goto"); if (faults.goto) throw Error("navigation failed"); },
     async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
@@ -177,39 +176,40 @@ function keepSaves(h) {
 
 // A benchmark measures recognition and is not a gate: an uncaught error in its
 // page is recorded, and the run is the run it would have been without it.
-test("a page that throws is listed in pageErrors from the next checkpoint on, and the run stays complete", async t => {
-  const healthy = await harness(t).run(), h = harness(t, { thrown: 2 }), saves = keepSaves(h), report = await h.run();
-  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, [THROWN]);
+test("what a page throws is listed in pageErrors, the checkpoints hold it, and the run stays complete", async t => {
+  const healthy = await harness(t).run(), h = harness(t, { thrown: [2, 3] }), saves = keepSaves(h), report = await h.run();
+  const both = ["thrown at 2", "thrown at 3"];
+  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, both);
   assert.deepEqual({ ...report, pageErrors: [] }, healthy, "status, failure, notRun, summary and results do not change");
   assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
   // Before start-up, after each of the three images, and after clean-up.
-  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], [THROWN], [THROWN], [THROWN]]);
+  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], both.slice(0, 1), both, both]);
   assert.deepEqual(saves.map(({ status }) => status), ["running", "running", "running", "running", "complete"]);
 });
 
 test("an error thrown after the last checkpoint, as the page closes, reaches the final save", async t => {
-  const h = harness(t, { thrown: "close" }), saves = keepSaves(h), report = await h.run();
-  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, [THROWN]);
-  assert.deepEqual(h.saved().pageErrors, [THROWN]);
-  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], [], [], [THROWN]]);
+  const h = harness(t, { thrown: ["close"] }), saves = keepSaves(h), report = await h.run();
+  assert.equal(report.status, "complete"); assert.deepEqual(report.pageErrors, ["thrown at close"]);
+  assert.deepEqual(h.saved().pageErrors, ["thrown at close"]);
+  assert.deepEqual(saves.map(({ pageErrors }) => pageErrors), [[], [], [], [], ["thrown at close"]]);
 });
 
-// However a run ends, what its page threw before that stays in the report and
-// the end stays what it would have been.
+// However a run ends, what its page threw before that and as it closes is in
+// the report, and the end stays what it would have been.
 for (const [end, faults, status, failure] of [
-  ["a failed navigation", { thrown: "goto", goto: true }, "failed", /^navigation failed$/],
-  ["a lost browser", { thrown: 1, disconnect: true }, "failed", /^browser crashed$/],
-  ["a page crash in Chromium", { thrown: 1, crash: "chromium" }, "failed", /^page crashed .*\npage\.evaluate: Target crashed$/],
-  ["a page crash in WebKit", { thrown: 1, crash: "webkit" }, "failed", /^page crashed .*\npage\.evaluate: Target page, context or browser has been closed$/],
-  ["a page crash between two reads", { thrown: 1, crash: "between" }, "failed", /^page crashed .*\nThe benchmark's page or browser is gone$/],
-  ["an interrupt", { thrown: 1, hang: true }, "interrupted", /^test interrupt$/],
+  ["a failed navigation", { thrown: ["goto", "close"], goto: true }, "failed", /^navigation failed$/],
+  ["a lost browser", { thrown: [1, "close"], disconnect: true }, "failed", /^browser crashed$/],
+  ["a page crash in Chromium", { thrown: [1, "close"], crash: "chromium" }, "failed", /^page crashed .*\npage\.evaluate: Target crashed$/],
+  ["a page crash in WebKit", { thrown: [1, "close"], crash: "webkit" }, "failed", /^page crashed .*\npage\.evaluate: Target page, context or browser has been closed$/],
+  ["a page crash between two reads", { thrown: [1, "close"], crash: "between" }, "failed", /^page crashed .*\nThe benchmark's page or browser is gone$/],
+  ["an interrupt", { thrown: [1, "close"], hang: true }, "interrupted", /^test interrupt$/],
 ])
   test(`${end} keeps what the page threw, and what ended the run stays the failure`, async t => {
     const h = harness(t, faults), pending = h.run();
     if (faults.hang) { while (h.calls < 2) await tick(); h.controller.abort(Error("test interrupt")); }
     const report = await pending;
     assert.equal(report.status, status); assert.match(report.failure, failure);
-    assert.deepEqual(report.pageErrors, [THROWN]);
+    assert.deepEqual(report.pageErrors, faults.thrown.map(when => `thrown at ${when}`));
     assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the report on disk says the same");
   });
 
