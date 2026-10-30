@@ -30,7 +30,7 @@ async function cleanUp(name, action, limit) {
     await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
       timer = setTimeout(() => reject(Error(`${name} cleanup timed out`)), limit);
     })]);
-  } catch (error) { return `${name}: ${error?.message || error}`; }
+  } catch (error) { return `${name}: ${error?.message || String(error)}`; }
   finally { clearTimeout(timer); }
 }
 

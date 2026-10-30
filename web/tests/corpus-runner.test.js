@@ -59,7 +59,11 @@ function harness(t, faults = {}) {
   });
   const context = Object.assign(new EventEmitter(), {
     pages: () => [], async newPage() { this.emit("page", page); return page; },
-    async close() { events.push("context closed"); if (faults.close) throw Error("context cleanup failed"); },
+    async close() {
+      events.push("context closed");
+      if (faults.close) throw Error("context cleanup failed");
+      if (faults.stuck) return new Promise(() => {});
+    },
   });
   const browser = Object.assign(new EventEmitter(), {
     contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
@@ -166,6 +170,20 @@ test("cleanup failures do not hide the original browser error or prevent other c
   const h = harness(t, { disconnect: true, close: true }); const report = await h.run();
   assert.match(report.failure, /browser crashed/); assert.equal(report.cleanupErrors.length, 2);
   assert.equal(h.saved().cleanupErrors.length, 2); assert.equal(h.events.at(-1), "server killed");
+});
+
+test("a clean-up that never settles is given up on after five seconds, fails the run and leaves the next one to run", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = harness(t, { stuck: true }), pending = h.run();
+  while (!h.events.includes("context closed")) await tick();
+  t.mock.timers.tick(4999); await tick();
+  assert.equal(h.events.includes("browser closed"), false, "the limit has not passed");
+  t.mock.timers.tick(1);
+  const report = await pending;
+  assert.equal(report.status, "failed"); assert.equal(report.failure, null);
+  assert.deepEqual(report.cleanupErrors, ["context: context cleanup timed out"]);
+  assert.deepEqual(h.saved().cleanupErrors, report.cleanupErrors);
+  assert.deepEqual(h.events.slice(-3), ["context closed", "browser closed", "server killed"]);
 });
 
 test("interruption during a stalled scan checkpoints and closes without awaiting the scan", async t => {
