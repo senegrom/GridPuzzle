@@ -16,6 +16,7 @@ import { Browser } from './playwright-stand-ins.js';
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const frame = () => new Promise(setImmediate);
 const timers = () => process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length;
 
 // What `act` resolves to and what it prints through console.error.
@@ -57,6 +58,18 @@ test('a close that never settles is given up on at the limit, and recorded as th
   assert.equal(result.message, 'chromium: browser: browser cleanup timed out');
   assert.deepEqual(watched.cleanupErrors, ['browser: browser cleanup timed out']);
   assert.deepEqual(lines, ['chromium: browser: browser cleanup timed out']);
+});
+
+test('a close waits for the limit unless told otherwise, as every suite\'s does', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const browser = new Browser();
+  browser.close = () => new Promise(() => {});
+  let closed;
+  printing(() => watch(browser).close('chromium')).then(({ result }) => { closed = result; });
+  t.mock.timers.tick(CLOSE_LIMIT - 1); await frame();
+  assert.equal(closed, undefined, 'the limit has not passed');
+  t.mock.timers.tick(1); await frame();
+  assert.equal(closed?.message, 'chromium: browser: browser cleanup timed out');
 });
 
 test('what a close does after the limit changes nothing: a late rejection is lost, not unhandled', async () => {
@@ -109,6 +122,16 @@ test('a run whose browser would not close ends with its failure, after its repor
   assert.match(stdout, /reports written\s+exit handlers ran with 1/);
   assert.match(stderr, /^chromium: browser: browser cleanup timed out$/m);
   assert.match(stderr, /^Error: chromium: browser: browser cleanup timed out$/m);
+});
+
+test('a close that rejects ends the run as one that never settles does', async (t) => {
+  const { code, killed, stdout, stderr } = await ending(t, { 'suite.cjs': `
+    const rejecting = watch(stub(async () => { throw new Error("the pipe broke"); }));
+    main(module, async () => { await rejecting.close("chromium"); });` });
+  assert.equal(killed, false, 'it ended by itself');
+  assert.equal(code, 1);
+  assert.match(stdout, /exit handlers ran with 1/);
+  assert.match(stderr, /^chromium: browser: the pipe broke$/m);
 });
 
 test('such a run exits non-zero even when the suite makes nothing of the failure', async (t) => {
