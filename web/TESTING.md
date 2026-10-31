@@ -69,7 +69,8 @@ errors and whose record leads its failure in `scanner-settings.json`) watch
 them the same way. `ocr_latency` also runs as `engines()` does: every engine
 `BROWSER_ENGINES` selects, also after one has failed, with its report
 written after each and the first failure rethrown after the last.
-`harness_regressions.cjs` checks all this in real browsers, and
+`harness_regressions.cjs` checks all this in real browsers, except a call
+interrupted by a lost browser (see its "lost" case below), and
 `web/tests/harness-watch.test.js` checks the records and the wait with
 stand-ins for Playwright's objects (`web/tests/playwright-stand-ins.js`),
 and that every script that launches a browser watches it, fails on its
@@ -108,7 +109,7 @@ The run must then still end, and a process that gave up on a close may not
 end by itself. Probed on real browsers on Windows, with nothing sabotaged: the
 hang above is WebKit's web process staying on after the browser's main process
 has exited. It comes on a loaded host when a call is in flight to the page as
-the close comes, as in the "lost" case. WebKit's child processes inherit the
+the close comes. WebKit's child processes inherit the
 main process's four stdio pipes, and Node, and with it Playwright's close,
 waits for those pipes, so it waits for as long as that child lives: past half
 an hour here. Playwright's kill after 30 seconds goes to the main process,
@@ -131,6 +132,33 @@ in a process of its own, `web/tests/harness-close.test.js` the close and the
 process's end with stand-ins, `solver_update`'s too, and
 `corpus/benchmark-runner.cjs` shares the timed clean-up, with its own 5
 seconds.
+
+The "lost" case of `harness_regressions` found this hang, and until October
+2026 it brought the hang on itself: it closed the browser past the harness
+with `page.waitForFunction()` in flight. A close that hung failed the run with
+`lost: webkit closes` after 30 seconds and left a WebKit process behind on
+Windows. Beside busy processes 26 of 193 such closes hung in one loop, and a
+settle before the close was no cure (after three seconds, 3 of 110 still
+hung). So the case now waits on `page.waitForEvent("crash")`, which stays
+inside Playwright and sends nothing to the page: none of 193 hung in that loop,
+and in a later loop of the case itself 8 of 230 closes failed it with the old
+wait and none of 230 with the new one. It checks what it always did of a
+browser that goes away while a suite waits: every engine runs, `ended` holds
+the page's close, the context's close and the disconnection, the failure's
+first line holds all three, and there is no screenshot. Such a wait fails as
+the page closes, with the rest of the news still to come, so the harness's wait
+for that news is still checked in real browsers. A call the close interrupts
+is not: in WebKit it fails before any of that news, an order only
+`web/tests/harness-watch.test.js` checks now, with its stand-ins, since a real
+case with a call in flight at the close would bring the hang back. What is
+left on a saturated host is a slow close, which needs no call in flight: 2 of
+98 closes with nothing in flight took over a second. When the disconnection
+comes more than a second after the page's close, the harness's wait runs out,
+its own close hides the rest of the news, and the case fails on `ended`, which
+holds `page closed` alone; nothing hangs and nothing stays behind. Beside busy
+processes that happened in none of 279 closes as the case makes them, and in 3
+of 254 with a second's settle added; in the one of those that was timed, the
+main process took 3 seconds to exit and no child held the pipes.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
