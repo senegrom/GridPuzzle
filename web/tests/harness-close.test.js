@@ -11,9 +11,9 @@ import { Browser } from './playwright-stand-ins.js';
 
 // A browser that will not close: what watch()'s close() records and says,
 // and how a suite's process ends after it, with stand-ins for the browser
-// (harness_regressions checks both on real browsers); and a suite's run on a
-// browser that will not open its context or page. Loading watch.cjs or the
-// harness needs no Playwright.
+// (harness_regressions checks both on real browsers); and a suite's run, and
+// the stale-build check's, on a browser that will not open its context or
+// page. Loading watch.cjs or the harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -321,4 +321,38 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
     assert.match(stderr, /no browser here/);
     assert.equal(exists(SUITES.browser_smoke.report), false, 'it writes its reports after each engine');
   });
+});
+
+// The stale-build check inside photo_read runs on its engine's browser, which
+// closes whatever the check does, but it serves the site itself, and a server
+// left listening holds the process for ever as a browser left up does. Here
+// nothing else holds it. `REFUSE` is as above; with CLOSE_FAILS the context's
+// close fails too, as it does at once on a browser just lost.
+const STALE_CHECK = `const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
+const { REFUSE, CLOSE_FAILS } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
+const browser = { newContext: async () => {
+  opening("newContext");
+  return { newPage: async () => opening("newPage"),
+    close: async () => { console.log("context closed"); if (CLOSE_FAILS) throw new Error("the browser has gone"); } };
+} };
+staleBuild(browser, {}).catch((error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
+`;
+
+describe('the stale-build check, on a browser that will not open its context or page', { concurrency: true }, () => {
+  for (const [what, env, said] of [
+    ['newContext() rejects', { REFUSE: 'newContext' }, ['the check failed: newContext refused']],
+    ['newPage() rejects', { REFUSE: 'newPage' }, ['context closed', 'the check failed: newPage refused']],
+    ['newPage() rejects and its context will not close either, as on a browser just lost', { REFUSE: 'newPage', CLOSE_FAILS: '1' },
+      ['context closed', 'the check failed: the browser has gone']],
+  ])
+    test(`stops its server when ${what}, so that the process ends by itself`, async (t) => {
+      const directory = temporary(t), check = path.join(directory, 'check.cjs');
+      fs.mkdirSync(path.join(directory, '_site'));
+      fs.writeFileSync(path.join(directory, '_site', 'build-info.json'), '{ "build": "x" }');
+      fs.writeFileSync(check, STALE_CHECK);
+      const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...env } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.deepEqual(stdout.trim().split('\n'), said);
+    });
 });

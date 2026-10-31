@@ -152,11 +152,16 @@ async function staleBuild(browser, report) {
   const site = origin(), started = Date.now();
   await new Promise((resolve) => site.server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${site.server.address().port}/GridPuzzle/`;
-  const context = await browser.newContext({ ...PHONE, serviceWorkers: "allow" });
-  const page = await context.newPage();
-  page.setDefaultTimeout(60000);
-  const result = report.staleBuild = { build: site.X };
+  // Opened in the try, and the server stopped whatever closing the context
+  // does: the engine fails and its browser closes all the same, and a server
+  // left listening then holds the run for ever. That close fails at once on a
+  // browser just lost.
+  let context;
   try {
+    context = await browser.newContext({ ...PHONE, serviceWorkers: "allow" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(60000);
+    const result = report.staleBuild = { build: site.X };
     // An installed app that never read a photo: its worker stores no OCR.
     await page.goto(base); await ready(page);
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, { timeout: 120000 });
@@ -221,9 +226,11 @@ async function staleBuild(browser, report) {
     result.updated = { clues: updated.clues };
     result.seconds = Math.round((Date.now() - started) / 1000);
   } finally {
-    await context.close();
-    site.server.closeAllConnections?.();
-    await new Promise((resolve) => site.server.close(resolve));
+    try { await context?.close(); }
+    finally {
+      site.server.closeAllConnections?.();
+      await new Promise((resolve) => site.server.close(resolve));
+    }
   }
 }
 module.exports = { staleBuild, choosePhoto };

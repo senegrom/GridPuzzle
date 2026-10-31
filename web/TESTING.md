@@ -141,13 +141,19 @@ October 2026 `browser_smoke` and `solver_update` opened them before that `try`:
 the browser stayed up, its pipes held Node and the run never ended, with no
 report for that engine and no next one. With no page there is nothing to read,
 so such a report has no screenshot and none of the page's `status` and `state`
-in `browser_smoke`, and no `results` or `workerDebug` in `solver_update`. A
-browser that does not launch at all ends the run there, with exit code 1 and
-no report for that engine: nothing is up to hold it.
+in `browser_smoke`, and no `results` or `workerDebug` in `solver_update`. The
+stale-build check inside `photo_read` has a Node server of its own, which holds
+a run just as a browser does. It too opened its context and page before the
+`try` that stops that server, so that the engine failed and its browser closed
+and the run still never ended. It now opens them inside that `try`, and stops
+the server whatever closing the context does, since that close fails at once on
+a browser just lost. A browser that does not launch at all ends the run there,
+with exit code 1 and no report for that engine: nothing is up to hold it.
 `web/tests/harness-close.test.js` runs both scripts as they are with each call
 refused, on a stand-in Playwright and, for `browser_smoke`, a stand-in for
 Python's server on a port the system picks, since the job that runs the unit
-tests sets up neither Python nor Playwright.
+tests sets up neither Python nor Playwright, and the stale-build check on a
+stand-in browser.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
