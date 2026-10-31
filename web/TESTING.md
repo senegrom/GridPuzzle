@@ -146,9 +146,10 @@ stale-build check inside `photo_read` has a Node server of its own, which holds
 a run just as a browser does. It too opened its context and page before the
 `try` that stops that server, so that the engine failed and its browser closed
 and the run still never ended. It now opens them inside that `try`, and stops
-the server whatever closing the context does, since that close fails at once on
-a browser just lost. A browser that does not launch at all ends the run there,
-with exit code 1 and no report for that engine: nothing is up to hold it.
+the server whatever closing the context does, since that close rejects when it
+is the first call to meet a lost browser. A browser that does not launch at
+all ends the run there, with exit code 1 and no report for that engine:
+nothing is up to hold it.
 `web/tests/harness-close.test.js` runs both scripts as they are with each call
 refused, on a stand-in Playwright and, for `browser_smoke`, a stand-in for
 Python's server on a port the system picks, since the pull-request job that

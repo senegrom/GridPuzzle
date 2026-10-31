@@ -154,8 +154,8 @@ async function staleBuild(browser, report) {
   const base = `http://127.0.0.1:${site.server.address().port}/GridPuzzle/`;
   // Opened in the try, and the server stopped whatever closing the context
   // does: the engine fails and its browser closes all the same, and a server
-  // left listening then holds the run for ever. That close fails at once on a
-  // browser just lost.
+  // left listening then holds the run for ever. That close rejects when it is
+  // the first call to meet a lost browser.
   let context;
   try {
     context = await browser.newContext({ ...PHONE, serviceWorkers: "allow" });

@@ -328,8 +328,8 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
 // closes whatever the check does, but it serves the site itself, and a server
 // left listening holds the process for ever as a browser left up does. Here
 // nothing else holds it. `REFUSE` is as above; with CLOSE_FAILS the context's
-// close fails too, as it does at once on a browser just lost. They go side by
-// side: a process held runs to the bound.
+// close rejects too, as it does when it is the first call to meet a lost
+// browser. They go side by side: a process held runs to the bound.
 const STALE_CHECK = `const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
 const { REFUSE, CLOSE_FAILS } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
 const browser = { newContext: async () => {
@@ -344,7 +344,7 @@ describe('the stale-build check, on a browser that will not open its context or 
   for (const [what, env, said] of [
     ['newContext() rejects', { REFUSE: 'newContext' }, ['the check failed: newContext refused']],
     ['newPage() rejects', { REFUSE: 'newPage' }, ['context closed', 'the check failed: newPage refused']],
-    ['newPage() rejects and its context will not close either, as on a browser just lost', { REFUSE: 'newPage', CLOSE_FAILS: '1' },
+    ['newPage() rejects and its context will not close either', { REFUSE: 'newPage', CLOSE_FAILS: '1' },
       ['context closed', 'the check failed: the browser has gone']],
   ])
     test(`stops its server when ${what}, so that the process ends by itself`, async (t) => {
