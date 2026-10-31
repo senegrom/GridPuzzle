@@ -123,6 +123,8 @@ test('a clean-up that settled, or that a signal cut short, leaves no timer behin
   assert.equal(timers(), before, 'a timer left behind would hold the process up');
   assert.equal(await cleanUp('browser', () => new Promise(() => {}), 1000, short), 'browser: browser cleanup timed out');
   assert.equal(timers(), before, 'a timer left behind would hold the process up');
+  assert.equal(await cleanUp('browser', () => 'done', 1000, short), undefined);
+  assert.equal(timers(), before, 'a timer left behind would hold the process up');
 });
 
 function temporary(t) {
