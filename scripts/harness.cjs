@@ -23,6 +23,13 @@ function selectedEngines(value = process.env.BROWSER_ENGINES) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Whether a process runs. A zombie has ended: a container's first process
+// may never collect it.
+function running(pid) {
+  try { return process.platform === "linux" ? !fs.readFileSync(`/proc/${pid}/stat`, "utf8").includes(") Z ") : process.kill(pid, 0); }
+  catch { return false; }
+}
+
 // The phone the suites emulate. The service worker is blocked so a test sees
 // the server, not a cache, unless a suite asks for it.
 const PHONE = Object.freeze({
@@ -209,4 +216,4 @@ function installCamera(answer) {
 }
 const stubCamera = (page, answer) => page.evaluate(installCamera, answer);
 
-module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, exitIfUnclosed, main, sleep, stubCamera, selectedEngines, watch };
+module.exports = { PHONE, SMALL_PHONE, serve, baselineSite, engines, exitIfUnclosed, main, running, sleep, stubCamera, selectedEngines, watch };

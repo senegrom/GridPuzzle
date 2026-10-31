@@ -76,7 +76,7 @@ function harness(t, faults = {}) {
     async close() {
       throwAt("close");
       events.push("context closed");
-      if (faults.close) throw Error("context cleanup failed");
+      if (faults.close || faults.contextClose) throw Error("context cleanup failed");
       if (faults.stuck) return new Promise(() => {});
     },
   });
@@ -254,6 +254,19 @@ test("interruption during a stalled scan checkpoints and closes without awaiting
   assert.deepEqual(report.notRun.map(item => item.name), ["2.png"]);
   assert.equal(report.summary[0].perfect, 1); assert.equal(h.saved().completedImages, 2);
   assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+});
+
+// A real Ctrl+C on a Windows console reaches the browser too, and Chromium goes
+// down under the run's close of the context. Only the browser's close says
+// whether anything stayed, and it is still asked.
+test("after an interrupt a context that will not close is no failed clean-up, and a browser that will not close still is", async t => {
+  const went = await harness(t, { hang: true, contextClose: true }).run();
+  assert.equal(went.status, "interrupted"); assert.deepEqual(went.cleanupErrors, []);
+  const stayed = await harness(t, { hang: true, close: true }).run();
+  assert.equal(stayed.status, "interrupted"); assert.deepEqual(stayed.cleanupErrors, ["browser: browser cleanup failed"]);
+  const failed = await harness(t, { contextClose: true }).run();
+  assert.equal(failed.status, "failed", "a run nothing interrupted fails on it, as before");
+  assert.deepEqual(failed.cleanupErrors, ["context: context cleanup failed"]);
 });
 
 for (const [stalled, closes] of [["newContext", ["browser closed", "server killed"]], ["newPage", ["context closed", "browser closed", "server killed"]]])

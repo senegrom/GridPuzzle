@@ -28,7 +28,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const util = require("node:util");
-const { serve, engines, main, selectedEngines, sleep } = require("./harness.cjs");
+const { serve, engines, main, running, selectedEngines, sleep } = require("./harness.cjs");
 
 const CLOSED = "Target page, context or browser has been closed";
 // The line watch() leads a failure with.
@@ -85,13 +85,6 @@ async function unclosableSuite(how, directory) {
       browser.close = () => new Promise(() => {});
     }, { closeLimit: 1000 });
   } finally { await server.close(); }
-}
-
-// Whether a process runs. A zombie has ended: a container's first process
-// may never collect it.
-function running(pid) {
-  try { return process.platform === "linux" ? !fs.readFileSync(`/proc/${pid}/stat`, "utf8").includes(") Z ") : process.kill(pid, 0); }
-  catch { return false; }
 }
 
 /* Runs unclosableSuite() in a process of its own and checks how that run

@@ -233,14 +233,17 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     status = signal?.aborted ? "interrupted" : "failed";
   } finally {
     closing = true;
-    const close = async (name, action) => {
+    const close = async (name, action, listed = true) => {
       const failed = await cleanUp(name, action, 5000);
-      if (failed) cleanupErrors.push(failed);
+      if (failed && listed) cleanupErrors.push(failed);
       return failed;
     };
     // Closing the context also terminates its scanner workers. Do not send a
     // new evaluate() to a crashed or stalled page just to cancel the scanner.
-    if (context) await close("context", () => context.close());
+    // After an interrupt its failure says nothing: a Ctrl+C on a Windows console
+    // reaches the browser too, and Chromium goes down under this close. It still
+    // comes first, since WebKit can hang on a close with a call in flight.
+    if (context) await close("context", () => context.close(), !signal?.aborted);
     // A browser that would not close can keep the process alive for ever. The
     // commands end with exitIfUnclosed(), after the save below.
     if (browser && await close("browser", () => browser.close())) markUnclosed();
