@@ -17,6 +17,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // nothing interrupted has CLOSE_LIMIT, since a browser that is only slow is no
 // failure; here such a browser is given up on as a stuck one is.
 const INTERRUPTED_CLOSE_LIMIT = 5000;
+// What a signal during the clean-up of a run nothing interrupted leaves of the
+// wait for each close. Such a run has saved nothing of how it ended, and a
+// console window closing ends the process 5 seconds after it hears that, so
+// this has to leave its final save the time to come first.
+const LATE_SIGNAL_CLOSE_LIMIT = 4000;
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 /* Every image with a target file under a corpus root, families, sets and
@@ -263,7 +268,8 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     closing = true;
     // An interrupt, also one that comes during a close, shortens the wait for it.
     const close = async (name, action, listed = () => true) => {
-      const failed = await cleanUp(name, action, CLOSE_LIMIT, { signal, shortLimit: INTERRUPTED_CLOSE_LIMIT });
+      const shortLimit = status === "interrupted" ? INTERRUPTED_CLOSE_LIMIT : LATE_SIGNAL_CLOSE_LIMIT;
+      const failed = await cleanUp(name, action, CLOSE_LIMIT, { signal, shortLimit });
       if (failed && listed()) cleanupErrors.push(failed);
       return failed;
     };
@@ -427,6 +433,6 @@ function selectImages(options) {
   return options.limit ? found.slice(0, options.limit) : found;
 }
 
-module.exports = { INTERRUPTED_CLOSE_LIMIT, corpusImages, interruptible, runBenchmark, summarize, writeReport, selectImages,
+module.exports = { INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT, corpusImages, interruptible, runBenchmark, summarize, writeReport, selectImages,
   previewSize, readingCorners, readGrid, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
   PHOTO_MAX_SIDE, CONFIRMED };

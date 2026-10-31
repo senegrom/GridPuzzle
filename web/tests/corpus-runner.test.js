@@ -6,7 +6,7 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { INTERRUPTED_CLOSE_LIMIT, runBenchmark, writeReport } = require("../../corpus/benchmark-runner.cjs");
+const { INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT, runBenchmark, writeReport } = require("../../corpus/benchmark-runner.cjs");
 const { CLOSE_LIMIT } = require("../../scripts/watch.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 // Bounded: a run that never gets there fails its test, by the test's timeout.
@@ -257,8 +257,10 @@ test("cleanup failures do not hide the original browser error or prevent other c
   assert.equal(h.saved().cleanupErrors.length, 2); assert.equal(h.events.at(-1), "server killed");
 });
 
-test("a close has half a minute, and five seconds once the run is interrupted", () => {
-  assert.equal(CLOSE_LIMIT, 30000); assert.equal(INTERRUPTED_CLOSE_LIMIT, 5000);
+// A closing console ends the process 5 seconds after it hears that (web/TESTING.md):
+// the last limit is what lets a run nothing interrupted save before that.
+test("a close has half a minute, five seconds once the run is interrupted, and four after a signal during the clean-up of a run nothing interrupted", () => {
+  assert.equal(CLOSE_LIMIT, 30000); assert.equal(INTERRUPTED_CLOSE_LIMIT, 5000); assert.equal(LATE_SIGNAL_CLOSE_LIMIT, 4000);
 });
 
 // A browser that is only slow to close is no failure: a run nothing interrupted
@@ -301,13 +303,14 @@ test("a signal during the clean-up of a run nothing interrupted cuts what is lef
   await reached(t, h, "context closed");
   t.mock.timers.tick(CLOSE_LIMIT / 2); await tick();
   h.controller.abort(Error("test interrupt"));
-  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  t.mock.timers.tick(LATE_SIGNAL_CLOSE_LIMIT - 1); await tick();
   assert.equal(h.events.includes("browser closed"), false, "the short limit has not passed");
-  t.mock.timers.tick(1);
-  await reached(t, h, "browser closed");
-  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  t.mock.timers.tick(1); await tick();
+  assert.equal(h.events.includes("browser closed"), true, "the short limit has passed");
+  t.mock.timers.tick(LATE_SIGNAL_CLOSE_LIMIT - 1); await tick();
   assert.equal(h.events.includes("server killed"), false, "the short limit has not passed");
-  t.mock.timers.tick(1);
+  t.mock.timers.tick(1); await tick();
+  assert.equal(h.events.includes("server killed"), true, "the short limit has passed");
   const report = await pending;
   assert.equal(report.status, "failed", "it read every image, and a browser would not close");
   assert.equal(report.failure, null); assert.equal(report.completedImages, 3);
@@ -319,7 +322,7 @@ test("a signal during the clean-up of a run that failed by itself cuts the wait 
   const h = harness(t, { stuck: true, goto: true }), pending = h.run();
   await reached(t, h, "context closed");
   h.controller.abort(Error("test interrupt"));
-  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  t.mock.timers.tick(LATE_SIGNAL_CLOSE_LIMIT - 1); await tick();
   assert.equal(h.events.includes("browser closed"), false, "the short limit has not passed");
   t.mock.timers.tick(1); await tick();
   assert.equal(h.events.includes("browser closed"), true, "the short limit has passed");

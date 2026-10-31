@@ -7,7 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { INTERRUPTED_CLOSE_LIMIT } = require("../../corpus/benchmark-runner.cjs"), { CLOSE_LIMIT } = require("../../scripts/watch.cjs");
+const { INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT } = require("../../corpus/benchmark-runner.cjs"), { CLOSE_LIMIT } = require("../../scripts/watch.cjs");
 
 // How the process of a corpus command ends: interrupted or not, with a browser
 // that closes or one that will not. corpus/detect_benchmark.cjs runs in a tree
@@ -124,7 +124,7 @@ test("a browser that is only slow to close costs a run nothing interrupted nothi
 });
 
 test("a signal during the stuck close of a run nothing interrupted cuts the wait short, and the close fails the run", async t => {
-  const limits = { [CLOSE_LIMIT]: 10 * ENDS_WITHIN, [INTERRUPTED_CLOSE_LIMIT]: 100 };
+  const limits = { [CLOSE_LIMIT]: 10 * ENDS_WITHIN, [LATE_SIGNAL_CLOSE_LIMIT]: 100 };
   const { code, killed, stdout, stderr, saved, events } = await command(t, { closing: "SIGINT", close: "never", limits });
   assert.equal(killed, false, `the signal should have ended the wait: ${stderr}`); assert.equal(code, 1, stderr);
   assert.match(stdout, /exit handlers ran with 1/); assert.deepEqual(events, CLOSED);
@@ -135,7 +135,7 @@ test("a signal during the stuck close of a run nothing interrupted cuts the wait
 // Nothing interrupted the run, so nothing has saved how it ended: only an
 // interrupted run saves before its clean-up, and the last checkpoint stays.
 test("two signals during the clean-up of a run nothing interrupted end the process with its last checkpoint, which has every image", async t => {
-  const { code, killed, stdout, stderr, saved } = await command(t, { second: "SIGINT", closing: "SIGTERM", limits: { [INTERRUPTED_CLOSE_LIMIT]: 100 } });
+  const { code, killed, stdout, stderr, saved } = await command(t, { second: "SIGINT", closing: "SIGTERM", limits: { [LATE_SIGNAL_CLOSE_LIMIT]: 100 } });
   assert.equal(killed, false, stderr); assert.equal(code, 143, stderr); assert.match(stdout, /exit handlers ran with 143/);
   assert.deepEqual([saved.status, saved.completedImages, saved.notRun], ["running", 3, []]);
 });
