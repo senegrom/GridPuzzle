@@ -436,9 +436,9 @@ require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { ch
 `;
 
 // A server left up holds its process for ever, as a browser does, and two
-// things leave one up: a failure between its start and the try whose finally
-// stops it, and a failure ahead of the stop in that finally. Nothing else holds
-// these runs. They go side by side: one that does not end runs to the bound.
+// failures leave one up: one between its start and the try whose finally stops
+// it, and one ahead of the stop in that finally. Nothing else holds these runs.
+// They go side by side: one that does not end runs to the bound.
 describe('what a run started does not outlive its failure', { concurrency: true }, () => {
   // Its folder goes unless that is what failed. Then the server must be down
   // already, so the stop comes first. Before the server starts there is no stop

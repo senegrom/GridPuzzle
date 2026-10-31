@@ -174,8 +174,8 @@ stale-build check inside `photo_read` has a Node server of its own, which holds
 a run just as a browser does. It too opened its context and page before the
 `try` that stops that server, so that the engine failed and its browser closed
 and the run still never ended. It now opens them inside that `try`, and stops
-the server whatever closing the context does, since that close rejects when it
-is the first call to meet a lost browser. A browser that does not launch at
+the server when closing the context fails too, since that close rejects when
+it is the first call to meet a lost browser. A browser that does not launch at
 all ends the run there, with exit code 1 and no report for that engine:
 nothing is up to hold it.
 `web/tests/harness-close.test.js` runs both scripts as they are with each call
@@ -187,23 +187,37 @@ check on a stand-in browser.
 A server holds a run as a browser does: with nothing left to stop it, the
 failure is printed and the process never ends, on CI until the job's limit. So
 a suite starts its server last and stops it first. What can fail comes before
-the start: `harness_regressions` reads `BROWSER_ENGINES`, and `ocr_quality` and
-`external_replay` read their fixtures, before they start one, and `ocr_latency`
-makes its report's folder. Writing a report comes after the stop:
-`ocr_latency`, `live_recovery` and `external_replay` stop their server before
-they write the report that ends their run, so that a report that cannot be
-written fails the run and does not hold it. `solver_update` saves first, in the
-last step of its run, where a failure is an unhandled rejection, which ends the
-process. The stale-build check and the offline-install check inside
+the start: `harness_regressions` and `ocr_latency` read `BROWSER_ENGINES`,
+`ocr_quality` and `external_replay` read their fixtures, and `ocr_latency` makes
+its report's folder, before they start one. Writing a report comes after the
+stop: `ocr_latency`, `live_recovery` and `external_replay` stop their server
+before they write the report that ends their run, so that a report that cannot
+be written fails the run and does not hold it. `solver_update` saves first, in
+the last step of its run, where a failure is an unhandled rejection, which ends
+the process. The stale-build check and the offline-install check inside
 `photo_read` close their context before they stop their server, so that stop
 has a `finally` of its own: that close rejects when it is the first call to meet
-a lost browser, and the rejection still fails the check. Until October 2026
-each of these could hold a run. A real `photo_read` run with the browser killed
-as the offline-install check's close started had its report on disk at 10 s and
-was still alive at a 90 s bound, and `BROWSER_ENGINES=safari` printed its error
-and never ended. `web/tests/harness-close.test.js` runs each of them as it is,
-in a process of its own with nothing else to hold it, on a stand-in for Python's
-server where it is Python's; one that does not end fails at the test's bound.
+a lost browser, and the rejection still fails the check. The offline-install
+check stops its server before it removes its folder, which can fail too. Until
+October 2026 a run could be held by a name `harness_regressions` did not know,
+a fixture `ocr_quality` could not read, `ocr_latency`'s folder, any of those
+three reports or, in either check, a close that rejected. A real `photo_read`
+run with the browser killed as the offline-install check's close started had
+its report on disk at 10 s and was still alive at a 90 s bound, and
+`BROWSER_ENGINES=safari` printed its error and never ended.
+`web/tests/harness-close.test.js` runs every failure named here on the script as
+it is, in a process of its own with nothing else to hold it, on a stand-in for
+Python's server where it is Python's; one that does not end fails at the test's
+bound.
+
+No order helps a close that never settles. With a WebKit child still holding the
+pipes, either check's `context.close()` waits for as long as that child lives,
+so the stop behind it never comes: the run stays there with no report for that
+engine, its server up and the offline-install check's folder left, until the
+job's limit ends it. A real `photo_read` run in that state, with WebKit's main
+process killed as the check's close started and its children kept alive, was
+still waiting at a 170 s bound. Only a limit on that close would end such a run,
+and neither check sets one.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
