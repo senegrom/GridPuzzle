@@ -483,9 +483,9 @@ in the temporary folder.
 SIGHUP is a terminal that goes away, or on Windows a console window that
 closes. Windows then ends the process five to ten seconds later, whatever it is
 doing (5.0 to 5.7 s here). A browser that takes that long to close costs the
-final save: the report stays as the run saved it before its clean-up,
-`interrupted`, with `failure` and `notRun`, and Playwright's temporary folders
-stay. WebKit closing in time ended `interrupted`, in under 0.2 s.
+final save: an interrupted run's report stays as the run saved it before its
+clean-up, `interrupted`, with `failure` and `notRun`, and Playwright's temporary
+folders stay. WebKit closing in time ended `interrupted`, in under 0.2 s.
 
 On a Windows console a real Ctrl+C reaches everything on that console, the HTTP
 server and the browser too, since Playwright detaches a browser only on other
