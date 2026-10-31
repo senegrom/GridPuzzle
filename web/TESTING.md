@@ -133,8 +133,8 @@ process's end with stand-ins, `solver_update`'s and `browser_smoke`'s too, and
 `corpus/benchmark-runner.cjs` shares the timed clean-up, with its own 5
 seconds.
 
-A browser that is up but will not give a suite its context or page fails that
-engine like any other failure: every suite makes its report first and opens
+A browser that is up but refuses a suite its context or page fails that engine
+like any other failure: every suite makes its report first and opens
 both inside the `try` that fails an engine, so the failure is led, the browser
 closes through `watch()`, the report is written and the next engine runs. Until
 October 2026 `browser_smoke` and `solver_update` opened them before that `try`:

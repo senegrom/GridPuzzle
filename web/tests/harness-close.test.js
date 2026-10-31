@@ -265,8 +265,8 @@ for (const [suite, { report }] of Object.entries(SUITES)) {
     assert.deepEqual(onDisk(report), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
   });
 
-  // The browser closes by itself here, so nothing but that close ends the
-  // process: a browser left up holds it to the bound, as a real one for ever.
+  // The browser closes when asked here, so exitIfUnclosed() plays no part: a
+  // browser left up holds the process to the bound, as a real one for ever.
   for (const call of ['newContext', 'newPage'])
     test(`${suite} fails an engine whose ${call}() rejects as any other failure: its browser closes, the next engine runs and the run ends by itself`, async (t) => {
       const { code, killed, stderr, onDisk } = await suiteRun(t, suite, { REFUSE: call });
