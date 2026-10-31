@@ -471,21 +471,27 @@ saved that yet it stays at the last checkpoint, `status` still `running` and
 during the clean-up of a run that an interrupt did not end. The exit takes a
 few seconds at most (0.4 to 3.6 s on a loaded host, 0.04 to 1.5 s on a quiet
 one), for Playwright's exit listener, which kills the browser and removes its
-folders as far as it can: a double Ctrl+C inside Chromium's launch left part of
-its profile, 2 runs of 2. It goes through `process.exit()` for that listener,
-and for the run's own, which stops the HTTP server: on Linux and macOS that
-would otherwise outlive the process and keep its fixed port. Once the report is
-saved the command no longer listens, so a signal while it waits for the browser to
+folders as far as it can: a double Ctrl+C inside Chromium's launch can leave
+part of its profile. It goes through `process.exit()` for that listener, and
+for the run's own, which stops the HTTP server: on Linux and macOS that would
+otherwise outlive the process and keep its fixed port. Once the report is saved
+the command no longer listens, so a signal while it waits for the browser to
 end has its default action, which runs neither listener. The report is final by
 then, but on Windows the exit code is 0xC000013A and Chromium's profile can stay
 in the temporary folder.
 
 SIGHUP is a terminal that goes away, or on Windows a console window that
-closes. Windows then ends the process five to ten seconds later, whatever it is
-doing (5.0 to 5.7 s here). A browser that takes that long to close costs the
-final save: an interrupted run's report stays as the run saved it before its
-clean-up, `interrupted`, with `failure` and `notRun`, and Playwright's temporary
-folders stay. WebKit closing in time ended `interrupted`, in under 0.2 s.
+closes. Windows then ends the process five to ten seconds after it hears that,
+whatever it is doing (5.0 to 5.7 s here). A browser that takes that long to
+close costs the final save: an interrupted run's report stays as the run saved
+it before its clean-up, `interrupted`, with `failure` and `notRun`, and
+Playwright's temporary folders stay. WebKit closing in time ended
+`interrupted`, in under 0.2 s. Chromium's processes hear the close first, and
+the command some 15 seconds after it, so its page goes down under a run still
+reading, which fails by itself: `page crashed`, `notRun` right, its report
+final within 10 seconds. Only a close that is stuck as well costs that run its
+final save, and its report then stays at the last checkpoint, since it was not
+interrupted.
 
 On a Windows console a real Ctrl+C reaches everything on that console, the HTTP
 server and the browser too, since Playwright detaches a browser only on other
