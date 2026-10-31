@@ -90,8 +90,7 @@ test('a clean-up that throws at once is its failure, whatever it throws', async 
 
 function temporary(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gridpuzzle-close-'));
-  // On Windows a server just killed can hold its working directory a moment.
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 5 }));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
 
@@ -200,7 +199,9 @@ test('a runner that calls a suite\'s run() or requires it keeps its process afte
 // What browser_smoke's static server is on the stand-in below, with serve()
 // running as it is on the port this prints: the suite's own port is fixed, so
 // another run on a shared host can hold it, and the job that runs these tests
-// sets up no Python.
+// sets up no Python. It runs outside the suite's tree, which goes after the
+// run: a suite that gave up on a browser exits without waiting for its server,
+// and Windows will not remove a live process's working directory.
 const SERVER = `require("node:http").createServer((request, response) => response.end())
   .listen(0, "127.0.0.1", function () { console.log("port", this.address().port); });`;
 
@@ -212,9 +213,9 @@ const SERVER = `require("node:http").createServer((request, response) => respons
 // do, and says what is on disk by then. With NO_BROWSER, no launch works. With
 // REFUSE, that call (newContext or newPage) rejects in Chromium, whose browser
 // stays up and closes.
-const PLAYWRIGHT = `const fs = require("node:fs"), children = require("node:child_process"), { spawn } = children;
+const PLAYWRIGHT = `const fs = require("node:fs"), os = require("node:os"), children = require("node:child_process"), { spawn } = children;
 const { NO_BROWSER, REFUSE, REPORT } = process.env;
-children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], options);
+children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: os.tmpdir() });
 const engine = (name, close) => ({ async launch() {
   if (NO_BROWSER) throw new Error("no browser here");
   const pipes = setInterval(() => {}, 1000), heard = {}, on = (event, listener) => { heard[event] = listener; };
