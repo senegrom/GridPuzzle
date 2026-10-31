@@ -314,6 +314,19 @@ test("a signal during the clean-up of a run nothing interrupted cuts what is lef
   assert.deepEqual(report.cleanupErrors, ["browser: browser cleanup timed out"]);
 });
 
+test("a signal during the clean-up of a run that failed by itself cuts the wait as well, and what ended the run stays the failure", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = harness(t, { stuck: true, goto: true }), pending = h.run();
+  await reached(t, h, "context closed");
+  h.controller.abort(Error("test interrupt"));
+  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  assert.equal(h.events.includes("browser closed"), false, "the short limit has not passed");
+  t.mock.timers.tick(1); await tick();
+  assert.equal(h.events.includes("browser closed"), true, "the short limit has passed");
+  const report = await pending;
+  assert.deepEqual([report.status, report.failure, report.cleanupErrors], ["failed", "navigation failed", []]);
+});
+
 test("such a signal never lengthens the wait: what was left of the limit stays the limit", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const h = harness(t, { browserStuck: true }), pending = h.run();
@@ -364,9 +377,10 @@ test("after an interrupt a context that runs out of time is no failed clean-up e
 const CLOSED = ["context closed", "browser closed", "server killed"];
 for (const [stalled, closes] of [["newContext", CLOSED.slice(1)], ["newPage", CLOSED], ["goto", CLOSED], ["waitForSelector", CLOSED]])
   test(`an interrupt ends the wait for a ${stalled}() a stuck browser never answers, and every image is listed as not run`, async t => {
-    const h = harness(t, { stalled }); const report = await h.run();
+    const h = harness(t, { stalled }), saves = keepSaves(h), report = await h.run();
     assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
     assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
+    assert.deepEqual(saves.map(({ status }) => status), ["running", "interrupted", "interrupted"], "saved before the clean-up, with no image read");
     assert.deepEqual(h.events.slice(1), closes); assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
   });
 
@@ -374,16 +388,19 @@ for (const [stalled, closes] of [["newContext", CLOSED.slice(1)], ["newPage", CL
 // up it is closed at once: a close with a call in flight is what makes WebKit
 // hold the process's pipes.
 test("an interrupt does not end the wait for a launch: the browser that comes up is asked for nothing and closed", async t => {
-  const h = harness(t, { interruptedLaunch: "answers" }); const report = await h.run();
+  const h = harness(t, { interruptedLaunch: "answers" }), saves = keepSaves(h), report = await h.run();
   assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
   assert.equal(h.contextsAsked, 0, "no newContext() goes out with the close");
   assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
+  assert.deepEqual(saves.map(({ status }) => status), ["running", "interrupted", "interrupted"], "saved before the clean-up, with no context open");
   assert.deepEqual(h.events.slice(1), CLOSED.slice(1));
 });
 
 test("a read that throws its own error as the interrupt comes keeps it, and the failure names the interrupt", async t => {
-  const h = harness(t, { lostToInterrupt: true }), report = await h.run();
+  const h = harness(t, { lostToInterrupt: true }), saves = keepSaves(h), report = await h.run();
   assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
+  assert.deepEqual(saves.map(({ status }) => status), ["running", "running", "running", "interrupted", "interrupted"],
+    "a signal heard during lead()'s wait saves before the clean-up too");
   assert.deepEqual(report.results.map(row => row.error ?? null), [null, "page.evaluate: Target page, context or browser has been closed"]);
   assert.deepEqual(report.ended.map(({ event }) => event), ["browser disconnected"]);
   assert.deepEqual(report.notRun.map(item => item.name), ["2.png"]);
@@ -467,6 +484,7 @@ test("a save before the clean-up that fails, however, stops no clean-up: it cost
     };
     const report = await h.run();
     assert.equal(report.status, "interrupted"); assert.equal(writes, 2);
+    assert.deepEqual(report.cleanupErrors, [], "a failed checkpoint is no failed clean-up");
     assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
     assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
     assert.deepEqual(logged.filter(line => line.includes("not saved")), [`  checkpoint before the clean-up not saved (${failed.message})`]);
