@@ -152,6 +152,10 @@ test('every script that launches a browser watches it, checks it, leads its fail
     assert.match(source, /\.check\((?:name|engineName)\)/, `${file} fails when a page ended`);
     assert.match(source, /assert\.deepEqual\([\w?.]*errors\b/, `${file} fails on its pages' uncaught errors`);
     assert.match(source, /await \w+\.lead\(/, `${file} leads its failures`);
+    // A context or page that will not open fails an engine like anything else:
+    // opened before its try, it leaves the browser up to hold the run for ever.
+    for (const browser of browsers)
+      assert.doesNotMatch(source, new RegExp(`\\bwatch\\(${browser}\\b(?:(?!\\btry \\{)[^])*?\\.newContext\\(`), `${file} opens ${browser}'s contexts inside its try`);
     // A report that names a watched browser's version keeps what ended in it,
     // what its pages threw and a close that failed. Right after that close such
     // a script fails the engine, saying why; then writes the report in the
