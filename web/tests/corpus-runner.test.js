@@ -17,7 +17,7 @@ function harness(t, faults = {}) {
     fs.writeFileSync(file, "image bytes"); fs.writeFileSync(target, JSON.stringify({ puzzle, corners: [[0, 0], [9, 0], [9, 9], [0, 9]] }));
     return { file, target, name: `${n}.png`, mime: "image/png", family: "latinsquare", set: "fixture" };
   });
-  let calls = 0, connected = true, crashed = false;
+  let calls = 0, contextsAsked = 0, connected = true, crashed = false;
   const events = [], controller = new AbortController(), output = path.join(dir, "report.json");
   // The browser, its context and page emit what Playwright's emit as they
   // open, so that the runner's watch() hears the page. A crashed page stays
@@ -27,8 +27,8 @@ function harness(t, faults = {}) {
   // number of a read.
   const throwAt = when => { for (const thrown of faults.thrown ?? []) if (thrown === when) page.emit("pageerror", Error(`thrown at ${when}`)); };
   const page = Object.assign(new EventEmitter(), {
-    setDefaultTimeout() {}, async goto() { throwAt("goto"); if (faults.goto) throw Error("navigation failed"); },
-    async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
+    setDefaultTimeout() {}, async goto() { await hangs("goto"); throwAt("goto"); if (faults.goto) throw Error("navigation failed"); },
+    async waitForSelector() { await hangs("waitForSelector"); }, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
     async close() {},
     async evaluate(_scan, input) {
       calls++;
@@ -65,7 +65,8 @@ function harness(t, faults = {}) {
     },
   });
   // A browser that is up but stuck answers neither newContext() nor newPage(),
-  // and Playwright sets no limit on them: `stalled` names the one that hangs.
+  // on which Playwright sets no limit, and a page's goto() and waitForSelector()
+  // have the page's three minutes: `stalled` names the one that hangs.
   const hangs = call => {
     if (faults.stalled !== call) return null;
     setImmediate(() => controller.abort(Error("test interrupt")));
@@ -76,20 +77,28 @@ function harness(t, faults = {}) {
     async close() {
       throwAt("close");
       events.push("context closed");
+      if (faults.contextClose === "interrupted") controller.abort(Error("test interrupt"));
       if (faults.close || faults.contextClose) throw Error("context cleanup failed");
       if (faults.stuck) return new Promise(() => {});
     },
   });
   const browser = Object.assign(new EventEmitter(), {
-    contexts: () => [], async newContext() { await hangs("newContext"); this.emit("context", context); return context; }, isConnected: () => connected,
+    contexts: () => [], async newContext() { contextsAsked++; await hangs("newContext"); this.emit("context", context); return context; }, isConnected: () => connected,
     async close() { events.push("browser closed"); if (faults.close) throw Error("browser cleanup failed"); },
   });
   const server = new EventEmitter(); server.kill = () => { events.push("server killed"); };
   const deps = { startServer() { events.push("server started"); if (faults.spawn) throw Error("spawn failed"); return server; },
     async waitForServer() { if (faults.server) throw Error("server unavailable"); },
-    async launch() { if (faults.launch) throw Error("launch failed"); return browser; }, log() {} };
+    async launch() {
+      if (faults.launch) throw Error("launch failed");
+      // Interrupted as it runs, the launch answers a tick later: with its browser,
+      // or as Chromium's does when a Ctrl+C on its console reached it too.
+      if (faults.interruptedLaunch) { controller.abort(Error("test interrupt")); await tick(); }
+      if (faults.interruptedLaunch === "rejects") throw Error("browserType.launch: Target page, context or browser has been closed\nBrowser logs: a long log");
+      return browser;
+    }, log() {} };
   const run = (options = {}) => runBenchmark({ items, options: { engine: "chromium", ...options }, scan() {}, output, signal: controller.signal }, deps);
-  return { items, output, events, controller, deps, run, get calls() { return calls; },
+  return { items, output, events, controller, deps, run, get calls() { return calls; }, get contextsAsked() { return contextsAsked; },
     saved: () => JSON.parse(fs.readFileSync(output)) };
 }
 
@@ -267,15 +276,37 @@ test("after an interrupt a context that will not close is no failed clean-up, an
   const failed = await harness(t, { contextClose: true }).run();
   assert.equal(failed.status, "failed", "a run nothing interrupted fails on it, as before");
   assert.deepEqual(failed.cleanupErrors, ["context: context cleanup failed"]);
+  // The event can come as the context closes, which is when it takes Chromium down.
+  const during = await harness(t, { contextClose: "interrupted" }).run();
+  assert.equal(during.status, "complete", "every image was read"); assert.deepEqual(during.cleanupErrors, []);
 });
 
-for (const [stalled, closes] of [["newContext", ["browser closed", "server killed"]], ["newPage", ["context closed", "browser closed", "server killed"]]])
+const CLOSED = ["context closed", "browser closed", "server killed"];
+for (const [stalled, closes] of [["newContext", CLOSED.slice(1)], ["newPage", CLOSED], ["goto", CLOSED], ["waitForSelector", CLOSED]])
   test(`an interrupt ends the wait for a ${stalled}() a stuck browser never answers, and every image is listed as not run`, async t => {
     const h = harness(t, { stalled }); const report = await h.run();
     assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
     assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
     assert.deepEqual(h.events.slice(1), closes); assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
   });
+
+// Left behind, a launch would bring up a browser that nothing closes. Once it is
+// up it is closed at once: a close with a call in flight is what makes WebKit
+// hold the process's pipes.
+test("an interrupt does not end the wait for a launch: the browser that comes up is asked for nothing and closed", async t => {
+  const h = harness(t, { interruptedLaunch: "answers" }); const report = await h.run();
+  assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
+  assert.equal(h.contextsAsked, 0, "no newContext() goes out with the close");
+  assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
+  assert.deepEqual(h.events.slice(1), CLOSED.slice(1));
+});
+
+test("a launch that fails after an interrupt reports the interrupt, not the browser's log", async t => {
+  const h = harness(t, { interruptedLaunch: "rejects" }); const report = await h.run();
+  assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
+  assert.deepEqual(h.events.slice(1), ["server killed"]);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
+});
 
 test("checkpoint write errors still trigger cleanup and a final diagnostic write", async t => {
   const h = harness(t); let writes = 0;

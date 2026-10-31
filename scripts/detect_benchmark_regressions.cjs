@@ -3,8 +3,8 @@
    the photograph's: on a lattice of dots, which only the photograph's path
    reads, its column finds no grid, and the real command, in a process of its
    own, keeps its report when it is interrupted during a read and ends by
-   itself, also when its browser will not close. Invoked by the permanent
-   scanner-settings gate. */
+   itself, also when its browser will not close, and a second signal leaves
+   nothing running. Invoked by the permanent scanner-settings gate. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -50,11 +50,13 @@ const ENDS_WITHIN = 240000;
    the processes Node has started in `processes` and raises `signal`: a real
    one where there are real signals. On Windows process.kill() just ends the
    process, so there what listens for the signal is called directly, as it
-   would be. `unclosable` makes the browser's close never settle, with the
-   browser left running. */
-const interrupter = ({ engineName, signal, report, processes, unclosable }) => `
+   would be. `second` is raised a second later, which is during the clean-up
+   of a browser that will not close. `unclosable` makes the browser's close
+   never settle, with the browser left running. */
+const interrupter = ({ engineName, signal, second, report, processes, unclosable }) => `
 const fs = require("node:fs"), { ChildProcess } = require("node:child_process");
 const { renameSync } = fs;
+const raise = (name) => { if (process.platform === "win32") process.emit(name, name); else process.kill(process.pid, name); };
 let raised = false;
 fs.renameSync = (from, to) => {
   renameSync(from, to);
@@ -62,7 +64,8 @@ fs.renameSync = (from, to) => {
   raised = true;
   const started = process._getActiveHandles().filter((handle) => handle instanceof ChildProcess).map(({ pid }) => pid);
   fs.writeFileSync(${JSON.stringify(processes)}, JSON.stringify(started));
-  setImmediate(() => { if (process.platform === "win32") process.emit("${signal}", "${signal}"); else process.kill(process.pid, "${signal}"); });
+  setImmediate(raise, "${signal}");
+  ${second ? `setTimeout(raise, 1000, "${second}");` : ""}
 };
 ${unclosable ? `const engine = require(require.resolve("playwright", { paths: [process.cwd()] }))["${engineName}"], { launch } = engine;
 engine.launch = async function (...args) {
@@ -75,30 +78,34 @@ engine.launch = async function (...args) {
    and checks how `signal` during a read ended it: by itself, with exit code 1,
    its report final and every process Node started for it gone. Playwright's
    handlers, left on, end such a run with exit code 130, a false entry in
-   cleanupErrors and now and then a report that still says "running". */
-async function interruptedCommand(engineName, root, signal, unclosable) {
-  const how = `${engineName}, ${signal}${unclosable ? " on a browser that will not close" : ""}`, name = `${engineName}-detection-${signal}`;
+   cleanupErrors and now and then a report that still says "running". With
+   `second`, the name and exit code of a signal raised during its clean-up,
+   that signal ended it: with its code and the last checkpoint, and nothing
+   left either, though on Linux the server outlives a process that just exits. */
+async function interruptedCommand(engineName, root, { signal, unclosable = false, second: [secondSignal, secondCode] = [] }) {
+  const how = `${engineName}, ${signal}${secondSignal ? ` then ${secondSignal}` : ""}${unclosable ? " on a browser that will not close" : ""}`,
+    name = `${engineName}-detection-${signal}${secondSignal ? `-${secondSignal}` : ""}`;
   const report = `browser-artifacts/${name}.json`, processes = path.join(root, `${name}.json`), preload = path.join(root, `${name}.cjs`);
   const args = ["--corpus", root, "--engine", engineName, "--out", report], started = Date.now();
   fs.rmSync(report, { force: true });
-  fs.writeFileSync(preload, interrupter({ engineName, signal, report, processes, unclosable }));
+  fs.writeFileSync(preload, interrupter({ engineName, signal, second: secondSignal, report, processes, unclosable }));
   const { code, killed, stderr } = await new Promise((resolve) => execFile(process.execPath,
     ["--require", preload, "corpus/detect_benchmark.cjs", ...args], { timeout: ENDS_WITHIN },
     (error, stdout, stderr) => resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stderr })));
   assert.equal(killed, false, `${how}: the command did not end by itself within ${ENDS_WITHIN} ms: ${stderr}`);
   const saved = JSON.parse(fs.readFileSync(report, "utf8")), images = items(parseOptions(args)).map(({ family, set, name }) => ({ family, set, name }));
-  assert.equal(saved.status, "interrupted", `${how}: ${stderr}`);
-  assert.equal(saved.failure, `Detection benchmark interrupted by ${signal}`, how);
-  assert.deepEqual(saved.cleanupErrors, unclosable ? ["browser: browser cleanup timed out"] : [], how);
+  assert.equal(saved.status, secondSignal ? "running" : "interrupted", `${how}: ${stderr}`);
+  assert.equal(saved.failure, secondSignal ? null : `Detection benchmark interrupted by ${signal}`, how);
+  assert.deepEqual(saved.cleanupErrors, unclosable && !secondSignal ? ["browser: browser cleanup timed out"] : [], how);
   assert.ok(saved.completedImages >= 1 && saved.completedImages < images.length, `${how}: ${saved.completedImages} images`);
-  assert.deepEqual(saved.notRun, images.slice(saved.completedImages), how);
+  assert.deepEqual(saved.notRun, secondSignal ? [] : images.slice(saved.completedImages), how);
   assert.deepEqual([saved.ended, saved.pageErrors], [[], []], how);
-  assert.equal(code, 1, `${how}: ${stderr}`);
+  assert.equal(code, secondCode ?? 1, `${how}: ${stderr}`);
   const left = JSON.parse(fs.readFileSync(processes, "utf8"));
   assert.ok(left.length >= 2, `${how}: the server and the browser: ${left}`);
   for (const stop = Date.now() + 10000; left.some(running) && Date.now() < stop;) await sleep(100);
   assert.deepEqual(left.filter(running), [], `${how}: no process Node started for the run is left running`);
-  return { signal, unclosable, exit: code, seconds: Math.round((Date.now() - started) / 100) / 10, completedImages: saved.completedImages };
+  return { signal, second: secondSignal ?? null, unclosable, exit: code, seconds: Math.round((Date.now() - started) / 100) / 10, completedImages: saved.completedImages };
 }
 
 module.exports = async function detectionFailure(engineName, png) {
@@ -161,8 +168,9 @@ module.exports = async function detectionFailure(engineName, png) {
       });
     }
     watched.check(engineName);
-    const interrupted = [await interruptedCommand(engineName, root, "SIGINT", false),
-      await interruptedCommand(engineName, root, "SIGHUP", true)];
+    const interrupted = [await interruptedCommand(engineName, root, { signal: "SIGINT" }),
+      await interruptedCommand(engineName, root, { signal: "SIGHUP", unclosable: true }),
+      await interruptedCommand(engineName, root, { signal: "SIGTERM", unclosable: true, second: ["SIGTERM", 143] })];
     return { checkpoints, completed: 4, decodeFailures: 1, browserClosed: true, serverStopped: true,
       dotLattice: { at640: lattice.at640, live: lattice.live }, interrupted };
   } catch (error) {

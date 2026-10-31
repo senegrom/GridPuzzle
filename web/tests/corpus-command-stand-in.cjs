@@ -13,6 +13,7 @@
                  answers then
      second      a signal raised as the context closes, which never settles
      close       the browser's close "never" settles, or it "reject"s
+     fullDisk    every save fails once the browser is asked to close
      left        a line printed a moment after the browser closed, which a
                  process that exits at once does not get to print
 
@@ -75,6 +76,7 @@ function launched() {
     contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
     async close() {
       note("browser asked to close");
+      if (plan.fullDisk) fs.renameSync = () => { throw Object.assign(new Error("no space left on the disk"), { code: "ENOSPC" }); };
       if (plan.close === "never") return new Promise(() => {});
       if (plan.close === "reject") throw new Error("the pipe broke");
       connected = false;

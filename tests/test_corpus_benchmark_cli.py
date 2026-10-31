@@ -140,11 +140,18 @@ def test_a_signal_stops_the_benchmark_with_its_report_saved_and_exit_code_1(tmp_
     assert [row.get("error") for row in saved["results"]] == [None, failure]
 
 
-def test_a_second_signal_ends_the_process_at_once(tmp_path):
+def test_a_signal_before_the_first_image_stops_the_benchmark_with_exit_code_1_too(tmp_path):
+    run, saved = ending(tmp_path, unanswered="SIGINT")
+    assert run.returncode == 1, run.stderr
+    assert (saved["status"], saved["completedImages"], len(saved["notRun"])) == ("interrupted", 0, 3)
+
+
+def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it(tmp_path):
     run, saved = ending(tmp_path, interrupt="SIGINT", second="SIGTERM")
     assert run.returncode == 143, run.stderr
     assert "exit handlers ran with 143" in run.stdout
     assert (saved["status"], saved["completedImages"]) == ("running", 2)
+    assert (tmp_path / "events.txt").read_text(encoding="utf-8").splitlines()[1:] == ["context closed", "server killed"]
 
 
 @pytest.mark.parametrize("plan, failed", [
@@ -164,3 +171,10 @@ def test_a_benchmark_nothing_interrupted_ends_by_itself_when_its_browser_will_no
     assert run.returncode == 1, run.stderr
     assert (saved["status"], saved["cleanupErrors"]) == ("failed", ["browser: the pipe broke"])
     assert saved["completedImages"] == 3
+
+
+def test_a_final_save_that_fails_is_printed_when_the_process_is_ended_for_its_browser(tmp_path):
+    run, saved = ending(tmp_path, close="reject", fullDisk=True)
+    assert run.returncode == 1, run.stderr
+    assert "Could not save benchmark report: no space left on the disk" in run.stderr
+    assert saved["status"] == "running"

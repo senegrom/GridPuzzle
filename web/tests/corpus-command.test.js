@@ -84,7 +84,8 @@ for (const [first, second, code] of [["SIGINT", "SIGINT", 130], ["SIGTERM", "SIG
     const ended = await command(t, { interrupt: first, second });
     assert.equal(ended.killed, false, ended.stderr); assert.equal(ended.code, code, ended.stderr);
     assert.match(ended.stdout, new RegExp(`exit handlers ran with ${code}`));
-    assert.deepEqual(ended.events, ["context closed"], "it did not wait for the clean-up");
+    // On Linux and macOS a server left to itself would outlive the process and keep its port.
+    assert.deepEqual(ended.events, ["context closed", "server killed"], "it did not wait for the clean-up, and the server went with it");
     assert.equal(ended.saved.status, "running"); assert.equal(ended.saved.completedImages, 2);
   });
 
@@ -113,18 +114,35 @@ for (const [run, plan, expected] of [["a complete run", {}, 0], ["an interrupted
     assert.match(stdout, /what was left to do\s+exit handlers ran with/);
   });
 
+// The ending the command's last lines give a save that failed: said, and then
+// the process ended for its browser.
+test("a final save that fails is printed, also when the process then has to be ended for its browser", async t => {
+  const { code, killed, stderr, saved } = await command(t, { close: "reject", fullDisk: true });
+  assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
+  assert.match(stderr, /Could not save benchmark report: no space left on the disk/);
+  assert.equal(saved.status, "running", "the last checkpoint is what stays");
+});
+
+const RUNNER = `const { main } = require(__dirname + "/${COMMAND}");
+  const own = () => console.log("the runner heard it"), counts = () => ["SIGINT", "SIGTERM", "SIGHUP"].map((name) => process.listenerCount(name)).join();
+  process.on("SIGINT", own);
+  main(process.argv.slice(2)).then((code) => {
+    console.log("main() returned", code, "listeners", counts());
+    setTimeout(() => { console.log("the runner goes on"); process.exit(7); }, 100);
+  });`;
+
 // The command's process is the runner's then: it goes on after a browser that
 // would not close, and its own signal listeners are as they were.
 test("a runner that calls main() keeps its process after a browser that would not close, and what it listens for", async t => {
-  const runner = `const { main } = require(__dirname + "/${COMMAND}");
-    const own = () => console.log("the runner heard it"), counts = () => ["SIGINT", "SIGTERM", "SIGHUP"].map((name) => process.listenerCount(name)).join();
-    process.on("SIGINT", own);
-    main(process.argv.slice(2)).then((code) => {
-      console.log("main() returned", code, "listeners", counts());
-      setTimeout(() => { console.log("the runner goes on"); process.exit(7); }, 100);
-    });`;
-  const { code, killed, stdout, stderr, saved } = await command(t, { interrupt: "SIGINT", close: "reject" }, { entry: "runner.cjs", scripts: { "runner.cjs": runner } });
+  const { code, killed, stdout, stderr, saved } = await command(t, { interrupt: "SIGINT", close: "reject" }, { entry: "runner.cjs", scripts: { "runner.cjs": RUNNER } });
   assert.equal(killed, false, stderr); assert.equal(code, 7, stderr);
   assert.match(stdout, /the runner heard it\n[\s\S]*main\(\) returned 1 listeners 1,0,0\s+the runner goes on/);
   assert.equal(saved.status, "interrupted"); assert.deepEqual(saved.cleanupErrors, ["browser: the pipe broke"]);
+});
+
+// A second signal is main()'s own way out, whoever called it.
+test("a second signal during main() ends a runner's process too", async t => {
+  const { code, killed, stdout, stderr } = await command(t, { interrupt: "SIGINT", second: "SIGINT" }, { entry: "runner.cjs", scripts: { "runner.cjs": RUNNER } });
+  assert.equal(killed, false, stderr); assert.equal(code, 130, stderr);
+  assert.doesNotMatch(stdout, /main\(\) returned/);
 });

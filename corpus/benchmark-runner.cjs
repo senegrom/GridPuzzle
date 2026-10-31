@@ -111,10 +111,12 @@ const STOPS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
    STOPS aborts `signal` with "<label> interrupted by <its name>": the run
    stops, closes what it opened and saves its report, and the command ends as
    any incomplete run does. A second signal, of any of them, ends the process
-   at once, with the last checkpoint. It ends it through process.exit(), since
-   the default action would skip what listens for the process's exit:
-   Playwright's listener, which kills the browser. What the process did with
-   these signals before the run, it does again after it. */
+   at once, with the last checkpoint, also under a runner that called a
+   command's main(). It ends it through process.exit(), since the default
+   action would skip what listens for the process's exit: Playwright's
+   listener, which kills the browser, and the run's, which stops the server.
+   What the process did with these signals before the run, it does again after
+   it, so a signal after the final save has its default action. */
 async function interruptible(label, run) {
   const controller = new AbortController(), stops = new Map();
   for (const [name, code] of Object.entries(STOPS)) {
@@ -173,9 +175,13 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());
+  // On Linux and macOS the server outlives a process that ends without this
+  // run's clean-up, as a second signal ends it, and keeps its fixed port.
+  const stopServer = () => { server.kill(); };
   try {
     signal?.throwIfAborted();
     server = startServer();
+    process.once("exit", stopServer);
     server.on("error", error => { serverError = error; });
     server.on("exit", (code, reason) => {
       if (!closing) serverError = Error(`Benchmark HTTP server exited: ${code ?? reason}`);
@@ -185,10 +191,13 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     await abortable(wait(base, () => serverError || (signal?.aborted ? signal.reason : null)), signal);
     if (serverError) throw serverError;
     // Not abortable: a launch left behind would hold a browser nothing closes,
-    // and Playwright gives one three minutes. The two calls after it have no
-    // limit on a browser that is up but stuck, so an interrupt ends the wait.
+    // and Playwright gives one three minutes. An interrupt during it stops the
+    // run here, since a browser closed with a call in flight can hold the
+    // process (see the clean-up below). The two calls after it have no limit
+    // on a browser that is up but stuck, so an interrupt ends the wait.
     browser = await launch();
     watched = watch(browser);
+    signal?.throwIfAborted();
     context = await abortable(browser.newContext({ serviceWorkers: "block" }), signal);
     const page = await abortable(context.newPage(), signal);
     page.setDefaultTimeout(180000);
@@ -230,26 +239,31 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   } catch (error) {
     // Said once, led by what ended, as a browser suite's failure is: after a
     // failure that says its target is gone, lead() waits up to a second for
-    // what Playwright reports after it.
-    failure = message(watched ? await watched.lead(error) : error);
+    // what Playwright reports after it. An interrupted run says it was
+    // interrupted, whatever failed with it: a Ctrl+C on a Windows console
+    // reaches a browser as it starts, and the launch fails with its whole log.
+    const led = watched ? await watched.lead(error) : error;
+    failure = message(signal?.aborted ? signal.reason : led);
     status = signal?.aborted ? "interrupted" : "failed";
   } finally {
     closing = true;
-    const close = async (name, action, listed = true) => {
+    const close = async (name, action, listed = () => true) => {
       const failed = await cleanUp(name, action, 5000);
-      if (failed && listed) cleanupErrors.push(failed);
+      if (failed && listed()) cleanupErrors.push(failed);
       return failed;
     };
     // Closing the context also terminates its scanner workers. Do not send a
     // new evaluate() to a crashed or stalled page just to cancel the scanner.
-    // After an interrupt its failure says nothing: a Ctrl+C on a Windows console
-    // reaches the browser too, and Chromium goes down under this close. It still
-    // comes first, since WebKit can hang on a close with a call in flight.
-    if (context) await close("context", () => context.close(), !signal?.aborted);
+    // After an interrupt, also one that comes during it, its failure says
+    // nothing: a Ctrl+C on a Windows console reaches the browser too, and
+    // Chromium goes down under this close. It still comes first, since WebKit
+    // can hang on a close with a call in flight.
+    if (context) await close("context", () => context.close(), () => !signal?.aborted);
     // A browser that would not close can keep the process alive for ever. The
     // commands end with exitIfUnclosed(), after the save below.
     if (browser && await close("browser", () => browser.close())) markUnclosed();
     if (server) await close("server", () => server.kill());
+    process.removeListener("exit", stopServer);
     if (cleanupErrors.length && status === "complete") status = "failed";
     try { persist(output, report()); }
     catch (error) {
