@@ -7,6 +7,8 @@
    Python and no fixed port: `python` starts nothing, and every request answers.
 
    COMMAND_PLAN, a JSON object, says what happens:
+     unanswered  a signal raised as the HTTP server is first asked, which
+                 never answers, with each attempt noted in events.txt
      interrupt   a signal raised during the second image's read, which never
                  answers then
      second      a signal raised as the context closes, which never settles
@@ -31,7 +33,13 @@ process.on("exit", (code) => console.log("exit handlers ran with", code));
 const { spawn } = childProcess;
 childProcess.spawn = (command, ...rest) => (command !== "python" ? spawn(command, ...rest)
   : Object.assign(new EventEmitter(), { kill() { note("server killed"); return true; } }));
-globalThis.fetch = async () => ({ ok: true });
+let asked = 0;
+globalThis.fetch = async () => {
+  if (!plan.unanswered) return { ok: true };
+  note("server asked");
+  if (++asked === 1) setImmediate(raise, plan.unanswered);
+  throw new Error("connection refused");
+};
 
 // What the page answers for the two reads of a two-by-two square: detect_benchmark's,
 // and the photo flow's three calls.

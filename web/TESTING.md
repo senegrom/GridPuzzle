@@ -441,7 +441,8 @@ they closed the browser under the run and, on SIGINT, ended the process with
 that still said `running`, and the other 13 a false `context:
 browserContext.close` entry in `cleanupErrors`. Now the first SIGINT, SIGTERM
 or SIGHUP (a terminal that goes away, or on Windows a console window that
-closes) stops the run: `status` says `interrupted` and `failure` names the
+closes, after which Windows ends the process about ten seconds later whatever
+it is doing) stops the run: `status` says `interrupted` and `failure` names the
 signal, the read in flight keeps that as its error, the images after it are in
 `notRun`, what the run opened is closed and the report saved, and the command
 exits with 1, as for any incomplete run; nothing reads another code. A second

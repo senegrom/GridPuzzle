@@ -39,13 +39,14 @@ function command(t, plan = {}, { entry = COMMAND, scripts = {} } = {}) {
     ["--require", inTree("node_modules/playwright/index.js"), entry, "--corpus", "images", "--out", "report.json"],
     { cwd: directory, timeout: ENDS_WITHIN, env: { ...process.env, COMMAND_PLAN: JSON.stringify(plan) } },
     (error, stdout, stderr) => {
-      const lines = fs.readFileSync(inTree("events.txt"), "utf8").trim().split(/\r?\n/);
+      const lines = fs.readFileSync(inTree("events.txt"), "utf8").trim().split(/\r?\n/), launched = line => line.startsWith("launched ");
       resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stdout, stderr,
-        launch: JSON.parse(lines[0].replace(/^launched /, "")), events: lines.slice(1), saved: JSON.parse(fs.readFileSync(inTree("report.json"))) });
+        launch: JSON.parse(lines.find(launched)?.slice("launched ".length) ?? "null"), events: lines.filter(line => !launched(line)),
+        saved: JSON.parse(fs.readFileSync(inTree("report.json"))) });
     }));
 }
 
-const FAILED_IN = (stream, line) => assert.ok(stream.split(/\r?\n/).includes(line), `${line} is not in\n${stream}`);
+const printed = (stream, line) => assert.ok(stream.split(/\r?\n/).includes(line), `${line} is not in\n${stream}`);
 const CLOSED = ["context closed", "browser asked to close", "server killed"];
 
 test("the default launch leaves the signals to the command: Playwright's three handlers are off", async t => {
@@ -66,8 +67,17 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
     assert.deepEqual([saved.cleanupErrors, saved.ended, saved.notRun], [[], [], NOT_RUN]);
     assert.deepEqual(saved.results.map(row => row.error ?? null), [null, failure]);
     assert.deepEqual(events, CLOSED);
-    FAILED_IN(stderr, failure);
+    printed(stderr, failure);
   });
+
+test("an interrupt while the server starts ends the command, with nothing left asking the server", async t => {
+  const { code, killed, stderr, saved, events } = await command(t, { unanswered: "SIGINT" });
+  assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
+  assert.equal(saved.status, "interrupted"); assert.equal(saved.completedImages, 0); assert.equal(saved.notRun.length, 3);
+  // The poll would go on for 80 attempts, past the report and for eight seconds.
+  assert.ok(events.filter(line => line === "server asked").length <= 2, events.join());
+  assert.deepEqual(events.filter(line => line !== "server asked"), ["server killed"]);
+});
 
 for (const [first, second, code] of [["SIGINT", "SIGINT", 130], ["SIGTERM", "SIGINT", 130], ["SIGINT", "SIGTERM", 143], ["SIGHUP", "SIGTERM", 143], ["SIGTERM", "SIGHUP", 129]])
   test(`${second} after ${first} ends the process at once, with ${code} and what listens for the exit, leaving the last checkpoint`, async t => {
@@ -86,7 +96,7 @@ for (const [how, close, failed] of [["never settles", "never", "browser cleanup 
     assert.equal(saved.status, "interrupted"); assert.equal(saved.failure, "Detection benchmark interrupted by SIGINT");
     assert.deepEqual(saved.cleanupErrors, [`browser: ${failed}`]); assert.deepEqual(saved.notRun, NOT_RUN);
     assert.deepEqual(events, CLOSED, "the server is stopped all the same");
-    FAILED_IN(stderr, `browser: ${failed}`);
+    printed(stderr, `browser: ${failed}`);
   });
 
 test("a run that nothing interrupted ends by itself too when its browser will not close: the failed close fails it", async t => {

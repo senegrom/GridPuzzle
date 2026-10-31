@@ -180,7 +180,9 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     server.on("exit", (code, reason) => {
       if (!closing) serverError = Error(`Benchmark HTTP server exited: ${code ?? reason}`);
     });
-    await abortable(wait(base, () => serverError), signal);
+    // Told of an interrupt too, since nothing else stops this poll: left to
+    // itself it would keep the process alive through all its attempts.
+    await abortable(wait(base, () => serverError || (signal?.aborted ? signal.reason : null)), signal);
     if (serverError) throw serverError;
     // Not abortable: a launch left behind would hold a browser nothing closes,
     // and Playwright gives one three minutes. The two calls after it have no
