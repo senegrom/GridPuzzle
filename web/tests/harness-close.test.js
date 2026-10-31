@@ -373,11 +373,12 @@ const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, impo
 // The offline-install check inside photo_read serves a folder of its own from
 // Python, the server the harness starts: here, the stand-in. Its page answers
 // all the check asks, unless PAGE_FAILS; with CLOSE_FAILS its context's close
-// rejects, as it does when it is the first call to meet a lost browser. That
-// close says whether the folder is still there, which it should be: the page
-// closes on its site.
+// rejects, as it does when it is the first call to meet a lost browser, and
+// with RM_FAILS its folder will not go. That close says whether the folder is
+// still there, which it should be: the page closes on its site.
 const OFFLINE_CHECK = `${SPAWN}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
-const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS } = process.env;
+const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, RM_FAILS } = process.env;
+if (RM_FAILS) fs.rmSync = () => { throw new Error("the folder is in use"); };
 const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },
   waitForFunction: async () => {}, waitForNavigation: async () => {}, click: async () => {}, textContent: async () => "failed",
   locator: () => ({ isEnabled: async () => true }), evaluate: async () => "unchanged saved puzzle" };
@@ -386,7 +387,7 @@ const browser = { newContext: async () => ({ newPage: async () => page, close: a
   if (CLOSE_FAILS) throw new Error("the browser has gone");
 } }) };
 offlineInstall(browser, {}).then(() => console.log("the check passed"),
-  (error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
+  (error) => { console.log("the check failed:", error.code ?? error.message); process.exitCode = 1; });
 `;
 
 // Where a process makes its temporary folders: in the test's own, so that one
@@ -427,24 +428,29 @@ require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { ch
 // stops it, and a failure ahead of the stop in that finally. Nothing else holds
 // these runs. They go side by side: one that does not end runs to the bound.
 describe('what a run started does not outlive its failure', { concurrency: true }, () => {
+  // Its folder goes unless that is what failed. Then the server must be down
+  // already, so the stop comes first. Before the server starts there is no stop
+  // to make, and the failure stays the check's own.
   for (const [what, env, expected, said] of [
     ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
     ['its page fails and its context will not close either', { PAGE_FAILS: '1', CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
     ['its page fails', { PAGE_FAILS: '1' }, 1, 'the check failed: no site here'],
     ['all goes well', {}, 0, 'the check passed'],
+    ['its folder will not go', { RM_FAILS: '1' }, 1, 'the check failed: the folder is in use'],
+    ['it fails before its server starts', { NO_SITE: '1' }, 1, 'the check failed: ENOENT'],
   ])
-    test(`the offline-install check stops its server and removes its folder when ${what}`, async (t) => {
+    test(`the offline-install check ends by itself when ${what}`, async (t) => {
       const directory = temporary(t), check = path.join(directory, 'check.cjs');
       fs.mkdirSync(path.join(directory, '_site'));
-      fs.writeFileSync(path.join(directory, '_site', 'offline.js'), '');
+      if (!env.NO_SITE) fs.writeFileSync(path.join(directory, '_site', 'offline.js'), '');
       fs.writeFileSync(check, OFFLINE_CHECK);
       const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), ...env } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, stderr);
-      const [serving, ...rest] = stdout.trim().split('\n');
-      assert.ok(serving.startsWith(`serving ${path.join(directory, 'gridpuzzle-install-')}`), serving);
-      assert.deepEqual(rest, ['context closed on its site', said]);
-      assert.deepEqual(left(directory), [], 'its temporary folder is gone');
+      const lines = stdout.trim().split('\n');
+      if (!env.NO_SITE) assert.ok(lines.shift().startsWith(`serving ${path.join(directory, 'gridpuzzle-install-')}`), stdout);
+      assert.deepEqual(lines, ['context closed on its site', said]);
+      if (!env.RM_FAILS) assert.deepEqual(left(directory), [], 'its temporary folder is gone');
     });
 
   test('harness_regressions stops at an engine it does not know, with nothing started', async (t) => {

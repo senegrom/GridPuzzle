@@ -117,10 +117,12 @@ async function offlineInstall(browser, report) {
     assert.equal(await page.evaluate(()=>localStorage.getItem('gridpuzzle-session-v1')),'unchanged saved puzzle');
     report.offlineInstall={nativeLifecycle:true,controlledWorker:true,explicitRetrySucceeded:true,savedStatePreserved:true};
   } finally {
-    // The server stops and the folder goes whatever closing the context does:
+    // The server stops and the folder goes when closing the context fails too:
     // the engine fails and its browser closes all the same, and a server left
     // running then holds the run for ever. That close rejects when it is the
-    // first call to meet a lost browser.
+    // first call to meet a lost browser. The stop comes first, as a folder that
+    // will not go must not leave the server up either. A close that never
+    // settles still waits here: see web/TESTING.md.
     try {await context.close();}
     finally {await server?.close();fs.rmSync(directory,{recursive:true,force:true});}
   }
