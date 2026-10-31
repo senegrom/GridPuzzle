@@ -2,11 +2,13 @@
    asking: watch(), with which the harness's engines(), the suites that launch
    browsers of their own and the corpus benchmark runner watch their
    browsers; and what stops the close that ends an engine from holding a run
-   up: the close() of what watch() returns, cleanUp() and exitIfUnclosed().
+   up: the close() of what watch() returns, cleanUp(), markUnclosed() and
+   exitIfUnclosed().
    It lives apart from scripts/harness.cjs, which exports what the suites use
    of it too, because loading the harness takes over the process's exit,
    SIGINT and SIGTERM to stop its servers, and the corpus benchmarks stop on
-   their own SIGINT and SIGTERM handlers, which save their reports first. */
+   their own SIGINT, SIGTERM and SIGHUP handlers, which save their reports
+   first (interruptible() in corpus/benchmark-runner.cjs). */
 const assert = require("node:assert/strict");
 
 // Playwright's word that the target of a call is gone: a lost browser's
@@ -37,20 +39,25 @@ async function cleanUp(name, action, limit) {
 // Whether a browser of this process would not close (see exitIfUnclosed).
 let unclosed = false;
 
-/* The last step of a suite's process, once its reports are written, with
-   `module_` the suite's module. A browser that would not close can keep the
-   process alive for ever after its run has ended: Node waits for the stdio
-   pipes it opened to the browser, and the browser's child processes inherit
-   them, so that a child that outlives the main process holds them as the
-   browser does. So after a close that failed, and only then, the process
-   exits here, with its exit code or else 1, since such a close fails the run
-   even if the suite made nothing of it. process.exit() runs what listens for
-   the process's exit: the harness's clean-up and Playwright's, which kills
-   every browser it launched and has not seen end. On Windows that does not
-   reach a child whose main process has gone, which stays behind until it
-   ends by itself or someone ends it. This does nothing when something else
-   runs the suite (a runner that requires it or calls its run()), since the
-   process is then that runner's to end. */
+// Says so, for a close that does not go through watch(): the corpus benchmark
+// runner's, which has a limit of its own and keeps the report's list itself.
+function markUnclosed() { unclosed = true; }
+
+/* The last step of a suite's process, or a corpus benchmark command's, once
+   its reports are written, with `module_` the suite's module. A browser that
+   would not close can keep the process alive for ever after its run has
+   ended: Node waits for the stdio pipes it opened to the browser, and the
+   browser's child processes inherit them, so that a child that outlives the
+   main process holds them as the browser does. So after a close that failed,
+   and only then, the process exits here, with its exit code or else 1, since
+   such a close fails the run even if the suite made nothing of it.
+   process.exit() runs what listens for the process's exit: the harness's
+   clean-up and Playwright's, which kills every browser it launched and has
+   not seen end. On Windows that does not reach a child whose main process has
+   gone, which stays behind until it ends by itself or someone ends it. This
+   does nothing when something else runs the suite (a runner that requires it
+   or calls its run() or a command's main()), since the process is then that
+   runner's to end. */
 function exitIfUnclosed(module_) {
   if (unclosed && require.main === module_) process.exit(process.exitCode || 1);
 }
@@ -139,7 +146,7 @@ function watch(browser, { grace = 1000, closeLimit = CLOSE_LIMIT } = {}) {
     async close(name) {
       const failed = await cleanUp("browser", () => browser.close(), closeLimit);
       if (!failed) return null;
-      unclosed = true;
+      markUnclosed();
       cleanupErrors.push(failed);
       console.error(`${name}: ${failed}`);
       return new Error(`${name}: ${failed}`);
@@ -147,4 +154,4 @@ function watch(browser, { grace = 1000, closeLimit = CLOSE_LIMIT } = {}) {
   };
 }
 
-module.exports = { CLOSE_LIMIT, GONE, cleanUp, exitIfUnclosed, watch };
+module.exports = { CLOSE_LIMIT, GONE, cleanUp, exitIfUnclosed, markUnclosed, watch };

@@ -33,7 +33,8 @@
    --family, --set, --variant, --list, --limit, --engine, --site, --out and
    --corpus, each with a value (`--name value` or `--name=value`), and the flag
    --true-corners; anything else stops the run before it starts.             */
-const { runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata } = require("./benchmark-runner.cjs");
+const { interruptible, runBenchmark, selectImages, photoFlowMeasure, photoFlowMetadata } = require("./benchmark-runner.cjs");
+const { exitIfUnclosed } = require("../scripts/watch.cjs");
 
 const BASE = "http://127.0.0.1:8780/";
 // The command line, kept here and out of the runner, which the deployment's
@@ -70,16 +71,9 @@ async function main(args = process.argv.slice(2)) {
   if (!items.length) { console.error("no matching images under", options.corpus); return 2; }
   console.log(`${items.length} images from ${options.corpus}`);
   console.log(`Recognition uses reference type and dimensions; ${options.trueCorners ? "reference corners where available" : "detector proposals"}. Not fully automatic.`);
-  const controller = new AbortController();
-  const interrupt = name => controller.abort(Error(`Benchmark interrupted by ${name}`));
-  const onInt = () => interrupt("SIGINT"), onTerm = () => interrupt("SIGTERM");
-  process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
-  let report;
-  try {
-    report = await runBenchmark({ items, options, base: BASE, signal: controller.signal, output: options.out,
-      measure: (page, item) => photoFlowMeasure(page, item, options),
-      reportMetadata: photoFlowMetadata(options) });
-  } finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
+  const report = await interruptible("Benchmark", signal => runBenchmark({ items, options, base: BASE, signal, output: options.out,
+    measure: (page, item) => photoFlowMeasure(page, item, options),
+    reportMetadata: photoFlowMetadata(options) }));
   for (const row of report.summary) {
     console.log(`${row.set}: ${row.correct}/${row.printed} clues (${row.wrong} wrong, ${row.missed} missed, `
       + `${row.invented} invented), ${row.unsafe} unflagged, `
@@ -93,5 +87,6 @@ async function main(args = process.argv.slice(2)) {
   return report.status !== "complete" || report.results.some(row => row.error) ? 1 : 0;
 }
 if (require.main === module) main().then(code => { process.exitCode = code; })
-  .catch(error => { console.error(error); process.exitCode = 1; });
+  .catch(error => { console.error(error); process.exitCode = 1; })
+  .finally(() => exitIfUnclosed(module));
 module.exports = { parseOptions, main };

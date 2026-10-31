@@ -1,0 +1,120 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// How the process of a corpus command ends: interrupted or not, with a browser
+// that closes or one that will not. corpus/detect_benchmark.cjs runs in a tree
+// of its own, on a stand-in for Playwright and the HTTP server
+// (corpus-command-stand-in.cjs); detect_benchmark_regressions.cjs does the same
+// on real browsers, and tests/test_corpus_benchmark_cli.py for corpus/benchmark.cjs.
+const COMMAND = "corpus/detect_benchmark.cjs";
+const FILES = [COMMAND, "corpus/benchmark-runner.cjs", "corpus/score.cjs", "scripts/watch.cjs"];
+const NOT_RUN = [{ family: "latinsquare", set: "fixture", name: "2.png" }];
+// A run that has not ended after this long hangs. It takes under a second, or
+// the clean-up's five when a browser will not close.
+const ENDS_WITHIN = 30000;
+
+/* How the process of `entry` ends in a tree of its own, under a `plan` for the
+   stand-in: its exit code or the signal that ended it, whether the bound had
+   to end it, what it printed, what happened to the stand-in's browser and
+   server (`events`), the options of its launch and the report on disk.
+   `scripts` are files of the test's own for that tree. */
+function command(t, plan = {}, { entry = COMMAND, scripts = {} } = {}) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-command-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const inTree = name => path.join(directory, name);
+  for (const file of FILES) fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
+  fs.cpSync(new URL("./corpus-command-stand-in.cjs", import.meta.url), inTree("node_modules/playwright/index.js"));
+  for (const [name, source] of Object.entries(scripts)) fs.writeFileSync(inTree(name), source);
+  fs.mkdirSync(inTree("images/latinsquare/fixture"), { recursive: true });
+  const target = { puzzle: { type: "latinsquare", rows: 2, cols: 2, cells: [1, 2, 2, 1] }, corners: [[0, 0], [9, 0], [9, 9], [0, 9]] };
+  for (let n = 0; n < 3; n++) {
+    fs.writeFileSync(inTree(`images/latinsquare/fixture/${n}.png`), "image bytes");
+    fs.writeFileSync(inTree(`images/latinsquare/fixture/${n}.json`), JSON.stringify(target));
+  }
+  return new Promise(resolve => execFile(process.execPath,
+    ["--require", inTree("node_modules/playwright/index.js"), entry, "--corpus", "images", "--out", "report.json"],
+    { cwd: directory, timeout: ENDS_WITHIN, env: { ...process.env, COMMAND_PLAN: JSON.stringify(plan) } },
+    (error, stdout, stderr) => {
+      const lines = fs.readFileSync(inTree("events.txt"), "utf8").trim().split(/\r?\n/);
+      resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stdout, stderr,
+        launch: JSON.parse(lines[0].replace(/^launched /, "")), events: lines.slice(1), saved: JSON.parse(fs.readFileSync(inTree("report.json"))) });
+    }));
+}
+
+const FAILED_IN = (stream, line) => assert.ok(stream.split(/\r?\n/).includes(line), `${line} is not in\n${stream}`);
+const CLOSED = ["context closed", "browser asked to close", "server killed"];
+
+test("the default launch leaves the signals to the command: Playwright's three handlers are off", async t => {
+  const { code, killed, launch, stderr, saved, events } = await command(t);
+  assert.equal(killed, false, stderr); assert.equal(code, 0, stderr);
+  assert.deepEqual(launch, { headless: true, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
+  assert.equal(saved.status, "complete"); assert.deepEqual(events, CLOSED);
+});
+
+// The read in flight keeps the interrupt as its error, as an interrupted row
+// has since the first runner, and the command ends as any incomplete run does.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+  test(`${signal} stops the command: the report says so, what it opened is closed, and it exits with 1`, async t => {
+    const { code, killed, stderr, saved, events } = await command(t, { interrupt: signal });
+    const failure = `Detection benchmark interrupted by ${signal}`;
+    assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
+    assert.equal(saved.status, "interrupted"); assert.equal(saved.failure, failure);
+    assert.deepEqual([saved.cleanupErrors, saved.ended, saved.notRun], [[], [], NOT_RUN]);
+    assert.deepEqual(saved.results.map(row => row.error ?? null), [null, failure]);
+    assert.deepEqual(events, CLOSED);
+    FAILED_IN(stderr, failure);
+  });
+
+for (const [first, second, code] of [["SIGINT", "SIGINT", 130], ["SIGTERM", "SIGINT", 130], ["SIGINT", "SIGTERM", 143], ["SIGHUP", "SIGTERM", 143], ["SIGTERM", "SIGHUP", 129]])
+  test(`${second} after ${first} ends the process at once, with ${code} and what listens for the exit, leaving the last checkpoint`, async t => {
+    const ended = await command(t, { interrupt: first, second });
+    assert.equal(ended.killed, false, ended.stderr); assert.equal(ended.code, code, ended.stderr);
+    assert.match(ended.stdout, new RegExp(`exit handlers ran with ${code}`));
+    assert.deepEqual(ended.events, ["context closed"], "it did not wait for the clean-up");
+    assert.equal(ended.saved.status, "running"); assert.equal(ended.saved.completedImages, 2);
+  });
+
+for (const [how, close, failed] of [["never settles", "never", "browser cleanup timed out"], ["rejects", "reject", "the pipe broke"]])
+  test(`an interrupt on a browser whose close ${how} ends the command by itself, with 1 and after the save`, async t => {
+    const { code, killed, stdout, stderr, saved, events } = await command(t, { interrupt: "SIGINT", close });
+    assert.equal(killed, false, `nothing else ends it, since the browser holds it: ${stderr}`);
+    assert.equal(code, 1, stderr); assert.match(stdout, /exit handlers ran with 1/);
+    assert.equal(saved.status, "interrupted"); assert.equal(saved.failure, "Detection benchmark interrupted by SIGINT");
+    assert.deepEqual(saved.cleanupErrors, [`browser: ${failed}`]); assert.deepEqual(saved.notRun, NOT_RUN);
+    assert.deepEqual(events, CLOSED, "the server is stopped all the same");
+    FAILED_IN(stderr, `browser: ${failed}`);
+  });
+
+test("a run that nothing interrupted ends by itself too when its browser will not close: the failed close fails it", async t => {
+  const { code, killed, stderr, saved } = await command(t, { close: "reject" });
+  assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
+  assert.equal(saved.status, "failed"); assert.deepEqual(saved.cleanupErrors, ["browser: the pipe broke"]);
+  assert.equal(saved.completedImages, 3);
+});
+
+for (const [run, plan, expected] of [["a complete run", {}, 0], ["an interrupted run", { interrupt: "SIGINT" }, 1]])
+  test(`${run} whose browser closed is not cut short: the process ends by itself, when it has nothing left to do`, async t => {
+    const { code, killed, stdout, stderr } = await command(t, { ...plan, left: true });
+    assert.equal(killed, false, stderr); assert.equal(code, expected, stderr);
+    assert.match(stdout, /what was left to do\s+exit handlers ran with/);
+  });
+
+// The command's process is the runner's then: it goes on after a browser that
+// would not close, and its own signal listeners are as they were.
+test("a runner that calls main() keeps its process after a browser that would not close, and what it listens for", async t => {
+  const runner = `const { main } = require(__dirname + "/${COMMAND}");
+    const own = () => console.log("the runner heard it"), counts = () => ["SIGINT", "SIGTERM", "SIGHUP"].map((name) => process.listenerCount(name)).join();
+    process.on("SIGINT", own);
+    main(process.argv.slice(2)).then((code) => {
+      console.log("main() returned", code, "listeners", counts());
+      setTimeout(() => { console.log("the runner goes on"); process.exit(7); }, 100);
+    });`;
+  const { code, killed, stdout, stderr, saved } = await command(t, { interrupt: "SIGINT", close: "reject" }, { entry: "runner.cjs", scripts: { "runner.cjs": runner } });
+  assert.equal(killed, false, stderr); assert.equal(code, 7, stderr);
+  assert.match(stdout, /the runner heard it\n[\s\S]*main\(\) returned 1 listeners 1,0,0\s+the runner goes on/);
+  assert.equal(saved.status, "interrupted"); assert.deepEqual(saved.cleanupErrors, ["browser: the pipe broke"]);
+});

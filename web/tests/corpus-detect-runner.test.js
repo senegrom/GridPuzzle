@@ -11,7 +11,6 @@ const require = createRequire(import.meta.url);
 const { runDetectionBenchmark, items: discover, parseOptions, LIVE } = require("../../corpus/detect_benchmark.cjs");
 // The scanner_settings gate's picture; loading the gate needs no Playwright.
 const { dotLattice } = require("../../scripts/detect_benchmark_regressions.cjs");
-const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function harness(t, faults = {}, args = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-detection-"));
@@ -40,7 +39,9 @@ function harness(t, faults = {}, args = []) {
         const checkpoint = JSON.parse(fs.readFileSync(options.out));
         assert.equal(checkpoint.status, "running"); assert.ok(checkpoint.results.length >= 1);
         assert.ok(checkpoint.results[0].at640);
-        if (faults.hang) return new Promise(() => {});
+        // Interrupted by the stalled read itself, once the run waits for it: a
+        // run that stopped sooner fails its test instead of waiting for ever.
+        if (faults.hang) { setImmediate(() => controller.abort(Error("test interrupt"))); return new Promise(() => {}); }
         if (faults.crash) { connected = false; throw Error("browser crashed"); }
         if (faults.decode) throw Error("image decode rejected");
       }
@@ -126,10 +127,7 @@ test("a browser crash saves a failed partial detection report instead of fabrica
   assert.deepEqual(h.saved(), r); assert.deepEqual(h.closed, ["context", "browser", "server"]);
 });
 test("an interrupted pending detection saves completed work and closes resources", async t => {
-  const h = harness(t, { hang: true }), pending = h.run();
-  while (h.calls < 2) await tick();
-  h.controller.abort(Error("test interrupt"));
-  const r = await pending;
+  const h = harness(t, { hang: true }), r = await h.run();
   assert.equal(r.status, "interrupted"); assert.match(r.failure, /test interrupt/);
   assert.equal(r.completedImages, 2); assert.ok(r.results[0].at640); assert.deepEqual(h.saved(), r);
   assert.deepEqual(h.closed, ["context", "browser", "server"]);

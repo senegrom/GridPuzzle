@@ -31,8 +31,6 @@ function harness(t, faults = {}) {
     async waitForSelector() {}, isClosed: () => !connected, url: () => "http://127.0.0.1:8780/", context: () => context,
     async close() {},
     async evaluate(_scan, input) {
-      // Count first: a failed assertion below must not leave the stalled-scan
-      // test waiting for a second call for ever.
       calls++;
       throwAt(calls);
       if (crashed) throw Error("page.evaluate: Target crashed");
@@ -42,10 +40,12 @@ function harness(t, faults = {}) {
         const saved = JSON.parse(fs.readFileSync(output));
         assert.equal(saved.status, "running"); assert.equal(saved.results.length, 1);
       }
-      if (calls === 2 && faults.hang) return new Promise(() => {});
-      // Interrupted by the stalled read itself: a run that stopped sooner then
-      // fails its test, instead of leaving it waiting for this read for ever.
-      if (calls === 2 && faults.interrupt) { controller.abort(Error("test interrupt")); return new Promise(() => {}); }
+      // Interrupted by the stalled read itself, as it starts or, with `hang`,
+      // once the run waits for it: a run that stopped sooner then fails its
+      // test, instead of leaving it waiting for this read for ever.
+      const interrupt = () => controller.abort(Error("test interrupt"));
+      if (calls === 2 && faults.hang) { setImmediate(interrupt); return new Promise(() => {}); }
+      if (calls === 2 && faults.interrupt) { interrupt(); return new Promise(() => {}); }
       if (calls === 2 && faults.disconnect) { connected = false; throw Error("browser crashed"); }
       if (calls === 2 && faults.decode) throw Error("image decode rejected");
       // Chromium reports a crash before the call it interrupts fails; WebKit
@@ -64,8 +64,15 @@ function harness(t, faults = {}) {
         uncertain: [], total: 12, detected: 1, grid: true, geometrySource: "detected" };
     },
   });
+  // A browser that is up but stuck answers neither newContext() nor newPage(),
+  // and Playwright sets no limit on them: `stalled` names the one that hangs.
+  const hangs = call => {
+    if (faults.stalled !== call) return null;
+    setImmediate(() => controller.abort(Error("test interrupt")));
+    return new Promise(() => {});
+  };
   const context = Object.assign(new EventEmitter(), {
-    pages: () => [], async newPage() { this.emit("page", page); return page; },
+    pages: () => [], async newPage() { await hangs("newPage"); this.emit("page", page); return page; },
     async close() {
       throwAt("close");
       events.push("context closed");
@@ -74,7 +81,7 @@ function harness(t, faults = {}) {
     },
   });
   const browser = Object.assign(new EventEmitter(), {
-    contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
+    contexts: () => [], async newContext() { await hangs("newContext"); this.emit("context", context); return context; }, isConnected: () => connected,
     async close() { events.push("browser closed"); if (faults.close) throw Error("browser cleanup failed"); },
   });
   const server = new EventEmitter(); server.kill = () => { events.push("server killed"); };
@@ -242,15 +249,20 @@ test("a clean-up that never settles is given up on after five seconds, fails the
 });
 
 test("interruption during a stalled scan checkpoints and closes without awaiting the scan", async t => {
-  const h = harness(t, { hang: true }); const pending = h.run();
-  while (h.calls < 2) await tick();
-  h.controller.abort(Error("test interrupt"));
-  const report = await pending;
+  const h = harness(t, { hang: true }); const report = await h.run();
   assert.equal(report.status, "interrupted"); assert.match(report.failure, /test interrupt/);
   assert.deepEqual(report.notRun.map(item => item.name), ["2.png"]);
   assert.equal(report.summary[0].perfect, 1); assert.equal(h.saved().completedImages, 2);
   assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
 });
+
+for (const [stalled, closes] of [["newContext", ["browser closed", "server killed"]], ["newPage", ["context closed", "browser closed", "server killed"]]])
+  test(`an interrupt ends the wait for a ${stalled}() a stuck browser never answers, and every image is listed as not run`, async t => {
+    const h = harness(t, { stalled }); const report = await h.run();
+    assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
+    assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
+    assert.deepEqual(h.events.slice(1), closes); assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
+  });
 
 test("checkpoint write errors still trigger cleanup and a final diagnostic write", async t => {
   const h = harness(t); let writes = 0;

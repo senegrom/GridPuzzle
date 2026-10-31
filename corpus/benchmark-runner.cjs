@@ -5,10 +5,10 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 // What ends the page and the browser without the run asking, as the browser
-// suites hear it, and a clean-up with a time limit; watch.cjs, unlike the
-// suites' harness, leaves the process's SIGINT and SIGTERM to the benchmarks,
-// which save their report first.
-const { GONE, cleanUp, watch } = require("../scripts/watch.cjs");
+// suites hear it, a clean-up with a time limit, and the word that a browser
+// would not close; watch.cjs, unlike the suites' harness, leaves the process's
+// signals to the benchmarks, which save their report first (interruptible()).
+const { GONE, cleanUp, markUnclosed, watch } = require("../scripts/watch.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
@@ -103,10 +103,39 @@ async function waitForServer(base, getError) {
   throw Error("Benchmark HTTP server did not become ready");
 }
 
+// The signals a benchmark command stops on, each with the exit code of a
+// process that a second signal ends.
+const STOPS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+
+/* Runs a command's benchmark, `run(signal)`. The first of the signals in
+   STOPS aborts `signal` with "<label> interrupted by <its name>": the run
+   stops, closes what it opened and saves its report, and the command ends as
+   any incomplete run does. A second signal, of any of them, ends the process
+   at once, with the last checkpoint. It ends it through process.exit(), since
+   the default action would skip what listens for the process's exit:
+   Playwright's listener, which kills the browser. What the process did with
+   these signals before the run, it does again after it. */
+async function interruptible(label, run) {
+  const controller = new AbortController(), stops = new Map();
+  for (const [name, code] of Object.entries(STOPS)) {
+    stops.set(name, () => {
+      if (controller.signal.aborted) process.exit(code);
+      controller.abort(Error(`${label} interrupted by ${name}`));
+    });
+    process.on(name, stops.get(name));
+  }
+  try { return await run(controller.signal); }
+  finally { for (const [name, stop] of stops) process.removeListener(name, stop); }
+}
+
 async function runBenchmark({ items, options, scan, output = "browser-artifacts/corpus-benchmark.json",
   base = "http://127.0.0.1:8780/", signal, measure,
   summarizeResults = summarize, reportMetadata = { scoreVersion: SCORE_VERSION } }, dependencies = {}) {
-  const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true }));
+  // The signals are the command's (interruptible() above). Playwright's own
+  // handlers, on by default, would hear them as well: they close the browser
+  // under the run, and on SIGINT end the process with 130 while it saves.
+  const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true,
+    handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false }));
   const startServer = dependencies.startServer || (() => spawn("python",
     ["-m", "http.server", new URL(base).port || "80", "--bind", "127.0.0.1", "--directory", options.site || "_site"], { stdio: "ignore" }));
   const wait = dependencies.waitForServer || waitForServer;
@@ -153,10 +182,13 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     });
     await abortable(wait(base, () => serverError), signal);
     if (serverError) throw serverError;
+    // Not abortable: a launch left behind would hold a browser nothing closes,
+    // and Playwright gives one three minutes. The two calls after it have no
+    // limit on a browser that is up but stuck, so an interrupt ends the wait.
     browser = await launch();
     watched = watch(browser);
-    context = await browser.newContext({ serviceWorkers: "block" });
-    const page = await context.newPage();
+    context = await abortable(browser.newContext({ serviceWorkers: "block" }), signal);
+    const page = await abortable(context.newPage(), signal);
     page.setDefaultTimeout(180000);
     // Whether the page or the browser is gone. A crashed page is neither
     // closed to Playwright nor in a disconnected browser: watch() hears its
@@ -204,11 +236,14 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     const close = async (name, action) => {
       const failed = await cleanUp(name, action, 5000);
       if (failed) cleanupErrors.push(failed);
+      return failed;
     };
     // Closing the context also terminates its scanner workers. Do not send a
     // new evaluate() to a crashed or stalled page just to cancel the scanner.
     if (context) await close("context", () => context.close());
-    if (browser) await close("browser", () => browser.close());
+    // A browser that would not close can keep the process alive for ever. The
+    // commands end with exitIfUnclosed(), after the save below.
+    if (browser && await close("browser", () => browser.close())) markUnclosed();
     if (server) await close("server", () => server.kill());
     if (cleanupErrors.length && status === "complete") status = "failed";
     try { persist(output, report()); }
@@ -358,6 +393,6 @@ function selectImages(options) {
   return options.limit ? found.slice(0, options.limit) : found;
 }
 
-module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
+module.exports = { corpusImages, interruptible, runBenchmark, summarize, writeReport, selectImages,
   previewSize, readingCorners, readGrid, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
   PHOTO_MAX_SIDE, CONFIRMED };
