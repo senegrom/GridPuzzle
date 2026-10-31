@@ -4,6 +4,10 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+
+const load = createRequire(import.meta.url);
+const { INTERRUPTED_CLOSE_LIMIT } = load("../../corpus/benchmark-runner.cjs"), { CLOSE_LIMIT } = load("../../scripts/watch.cjs");
 
 // How the process of a corpus command ends: interrupted or not, with a browser
 // that closes or one that will not. corpus/detect_benchmark.cjs runs in a tree
@@ -14,7 +18,9 @@ const COMMAND = "corpus/detect_benchmark.cjs";
 const FILES = [COMMAND, "corpus/benchmark-runner.cjs", "corpus/score.cjs", "scripts/watch.cjs"];
 const NOT_RUN = [{ family: "latinsquare", set: "fixture", name: "2.png" }];
 // A run that has not ended after this long hangs. It takes under a second, or
-// the clean-up's five when a browser will not close.
+// the five of INTERRUPTED_CLOSE_LIMIT when a browser will not close. Nothing
+// here waits for CLOSE_LIMIT, since a test file has 60 s in all on CI's Node:
+// a test of it gives the stand-in shorter `limits`.
 const ENDS_WITHIN = 30000;
 
 /* How the process of `entry` ends in a tree of its own, under a `plan` for the
@@ -101,11 +107,29 @@ for (const [how, close, failed] of [["never settles", "never", "browser cleanup 
     printed(stderr, `browser: ${failed}`);
   });
 
-test("a run that nothing interrupted ends by itself too when its browser will not close: the failed close fails it", async t => {
-  const { code, killed, stderr, saved } = await command(t, { close: "reject" });
-  assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
-  assert.equal(saved.status, "failed"); assert.deepEqual(saved.cleanupErrors, ["browser: the pipe broke"]);
-  assert.equal(saved.completedImages, 3);
+for (const [how, close, failed] of [["rejects", "reject", "the pipe broke"], ["never settles", "never", "browser cleanup timed out"]])
+  test(`a run that nothing interrupted ends by itself too when its browser's close ${how}: the failed close fails it`, async t => {
+    const { code, killed, stdout, stderr, saved } = await command(t, { close, limits: { [CLOSE_LIMIT]: 200 } });
+    assert.equal(killed, false, stderr); assert.equal(code, 1, stderr); assert.match(stdout, /exit handlers ran with 1/);
+    assert.equal(saved.status, "failed"); assert.deepEqual(saved.cleanupErrors, [`browser: ${failed}`]);
+    assert.equal(saved.completedImages, 3);
+  });
+
+// Longer than an interrupted run may take, and the run is complete all the same.
+test("a browser that is only slow to close costs a run nothing interrupted nothing: it is complete, exit code 0, and nothing cuts it short", async t => {
+  const { code, killed, stdout, stderr, saved, events } = await command(t, { close: 300, left: true, limits: { [INTERRUPTED_CLOSE_LIMIT]: 100 } });
+  assert.equal(killed, false, stderr); assert.equal(code, 0, stderr);
+  assert.deepEqual([saved.status, saved.cleanupErrors], ["complete", []]);
+  assert.match(stdout, /what was left to do\s+exit handlers ran with 0/); assert.deepEqual(events, CLOSED);
+});
+
+test("a signal during the stuck close of a run nothing interrupted cuts the wait short, and the close fails the run", async t => {
+  const limits = { [CLOSE_LIMIT]: 10 * ENDS_WITHIN, [INTERRUPTED_CLOSE_LIMIT]: 100 };
+  const { code, killed, stdout, stderr, saved, events } = await command(t, { closing: "SIGINT", close: "never", limits });
+  assert.equal(killed, false, `the signal should have ended the wait: ${stderr}`); assert.equal(code, 1, stderr);
+  assert.match(stdout, /exit handlers ran with 1/); assert.deepEqual(events, CLOSED);
+  assert.deepEqual([saved.status, saved.failure, saved.completedImages], ["failed", null, 3]);
+  assert.deepEqual(saved.cleanupErrors, ["browser: browser cleanup timed out"]);
 });
 
 for (const [run, plan, expected] of [["a complete run", {}, 0], ["an interrupted run", { interrupt: "SIGINT" }, 1]])

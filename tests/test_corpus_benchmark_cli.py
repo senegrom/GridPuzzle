@@ -91,6 +91,9 @@ def test_a_missing_list_or_corpus_stops_the_benchmark_with_a_message(tmp_path):
 
 
 NOT_RUN = [{"family": "latinsquare", "set": "fixture", "name": "2.png"}]
+# CLOSE_LIMIT and INTERRUPTED_CLOSE_LIMIT, as the stand-in's plan keys what a
+# timer takes instead: the tests shorten both.
+CLOSE_LIMIT, INTERRUPTED_CLOSE_LIMIT = "30000", "5000"
 
 
 def ending(tmp_path, **plan):
@@ -167,11 +170,31 @@ def test_an_interrupted_benchmark_ends_by_itself_when_its_browser_will_not_close
     assert "exit handlers ran with 1" in run.stdout
 
 
-def test_a_benchmark_nothing_interrupted_ends_by_itself_when_its_browser_will_not_close(tmp_path):
-    run, saved = ending(tmp_path, close="reject")
+@pytest.mark.parametrize("plan, failed", [
+    ({"close": "reject"}, "browser: the pipe broke"),
+    ({"close": "never", "limits": {CLOSE_LIMIT: 200}}, "browser: browser cleanup timed out"),
+])
+def test_a_benchmark_nothing_interrupted_ends_by_itself_when_its_browser_will_not_close(tmp_path, plan, failed):
+    run, saved = ending(tmp_path, **plan)
     assert run.returncode == 1, run.stderr
-    assert (saved["status"], saved["cleanupErrors"]) == ("failed", ["browser: the pipe broke"])
+    assert (saved["status"], saved["cleanupErrors"]) == ("failed", [failed])
     assert saved["completedImages"] == 3
+    assert "exit handlers ran with 1" in run.stdout
+
+
+def test_a_browser_that_is_only_slow_to_close_costs_a_benchmark_nothing_interrupted_nothing(tmp_path):
+    run, saved = ending(tmp_path, close=300, left=True, limits={INTERRUPTED_CLOSE_LIMIT: 100})
+    assert run.returncode == 0, run.stderr
+    assert (saved["status"], saved["cleanupErrors"]) == ("complete", [])
+    assert "what was left to do" in run.stdout
+
+
+def test_a_signal_during_the_stuck_close_of_a_benchmark_nothing_interrupted_cuts_the_wait_short(tmp_path):
+    run, saved = ending(tmp_path, closing="SIGINT", close="never",
+                        limits={CLOSE_LIMIT: 300000, INTERRUPTED_CLOSE_LIMIT: 100})
+    assert run.returncode == 1, run.stderr
+    assert (saved["status"], saved["failure"], saved["completedImages"]) == ("failed", None, 3)
+    assert saved["cleanupErrors"] == ["browser: browser cleanup timed out"]
 
 
 def test_a_final_save_that_fails_is_printed_when_the_process_is_ended_for_its_browser(tmp_path):

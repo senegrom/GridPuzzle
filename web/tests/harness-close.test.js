@@ -87,6 +87,44 @@ test('a clean-up that throws at once is its failure, whatever it throws', async 
   assert.equal(await cleanUp('server', () => 'done', 1000), undefined);
 });
 
+test('a signal cuts what is left of a clean-up\'s wait to the short limit, and one that came first leaves it no more than that', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const stuck = () => new Promise(() => {}), controller = new AbortController(), short = { signal: controller.signal, shortLimit: 100 };
+  let during, after;
+  cleanUp('browser', stuck, 1000, short).then((failed) => { during = failed; });
+  t.mock.timers.tick(500); await tick();
+  controller.abort();
+  t.mock.timers.tick(99); await tick();
+  assert.equal(during, undefined, 'the short limit has not passed');
+  t.mock.timers.tick(1); await tick();
+  assert.equal(during, 'browser: browser cleanup timed out');
+  cleanUp('browser', stuck, 1000, short).then((failed) => { after = failed; });
+  t.mock.timers.tick(99); await tick();
+  assert.equal(after, undefined, 'the short limit has not passed');
+  t.mock.timers.tick(1); await tick();
+  assert.equal(after, 'browser: browser cleanup timed out');
+});
+
+test('a signal never lengthens a clean-up\'s wait', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const controller = new AbortController();
+  let failed;
+  cleanUp('browser', () => new Promise(() => {}), 1000, { signal: controller.signal, shortLimit: 100 }).then((result) => { failed = result; });
+  t.mock.timers.tick(950); await tick();
+  controller.abort();
+  t.mock.timers.tick(50); await tick();
+  assert.equal(failed, 'browser: browser cleanup timed out');
+});
+
+test('a clean-up that settled, or that a signal cut short, leaves no timer behind, and a later signal starts none', async () => {
+  const controller = new AbortController(), short = { signal: controller.signal, shortLimit: 5 }, before = timers();
+  assert.equal(await cleanUp('browser', () => 'done', 1000, short), undefined);
+  controller.abort();
+  assert.equal(timers(), before, 'a timer left behind would hold the process up');
+  assert.equal(await cleanUp('browser', () => new Promise(() => {}), 1000, short), 'browser: browser cleanup timed out');
+  assert.equal(timers(), before, 'a timer left behind would hold the process up');
+});
+
 function temporary(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gridpuzzle-close-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

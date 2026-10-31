@@ -5,8 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
-const { runBenchmark, writeReport } = createRequire(import.meta.url)("../../corpus/benchmark-runner.cjs");
+const load = createRequire(import.meta.url);
+const { INTERRUPTED_CLOSE_LIMIT, runBenchmark, writeReport } = load("../../corpus/benchmark-runner.cjs");
+const { CLOSE_LIMIT } = load("../../scripts/watch.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
+// Bounded: a run that never gets there fails its test, by the test's timeout.
+const reached = async (t, h, event) => { while (!h.events.includes(event) && !t.signal.aborted) await tick(); };
 
 function harness(t, faults = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-benchmark-"));
@@ -46,6 +50,12 @@ function harness(t, faults = {}) {
       const interrupt = () => controller.abort(Error("test interrupt"));
       if (calls === 2 && faults.hang) { setImmediate(interrupt); return new Promise(() => {}); }
       if (calls === 2 && faults.interrupt) { interrupt(); return new Promise(() => {}); }
+      // A real Ctrl+C reaches Chromium too, and the read can fail with a lost
+      // browser's words before the run hears the signal, as it waits for the news.
+      if (calls === 2 && faults.lostToInterrupt) {
+        setImmediate(() => { interrupt(); connected = false; browser.emit("disconnected"); });
+        throw Error("page.evaluate: Target page, context or browser has been closed");
+      }
       if (calls === 2 && faults.disconnect) { connected = false; throw Error("browser crashed"); }
       if (calls === 2 && faults.decode) throw Error("image decode rejected");
       // Chromium reports a crash before the call it interrupts fails; WebKit
@@ -84,7 +94,11 @@ function harness(t, faults = {}) {
   });
   const browser = Object.assign(new EventEmitter(), {
     contexts: () => [], async newContext() { contextsAsked++; await hangs("newContext"); this.emit("context", context); return context; }, isConnected: () => connected,
-    async close() { events.push("browser closed"); if (faults.close) throw Error("browser cleanup failed"); },
+    async close() {
+      events.push("browser closed");
+      if (faults.close || faults.browserClose) throw Error("browser cleanup failed");
+      if (faults.browserStuck) return new Promise(() => {});
+    },
   });
   const server = new EventEmitter(); server.kill = () => { events.push("server killed"); };
   const deps = { startServer() { events.push("server started"); if (faults.spawn) throw Error("spawn failed"); return server; },
@@ -243,18 +257,72 @@ test("cleanup failures do not hide the original browser error or prevent other c
   assert.equal(h.saved().cleanupErrors.length, 2); assert.equal(h.events.at(-1), "server killed");
 });
 
-test("a clean-up that never settles is given up on after five seconds, fails the run and leaves the next one to run", async t => {
+test("a close has half a minute, and five seconds once the run is interrupted", () => {
+  assert.equal(CLOSE_LIMIT, 30000); assert.equal(INTERRUPTED_CLOSE_LIMIT, 5000);
+});
+
+// A browser that is only slow to close is no failure: a run nothing interrupted
+// has the suites' limit for each close, a run that failed by itself too.
+for (const [run, faults, failure] of [["that read every image", {}, null], ["that failed", { goto: true }, "navigation failed"]])
+  test(`a clean-up that never settles, in a run ${run}, is given up on at CLOSE_LIMIT, fails the run and leaves the next one to run`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = harness(t, { stuck: true, ...faults }), pending = h.run();
+    await reached(t, h, "context closed");
+    t.mock.timers.tick(CLOSE_LIMIT - 1); await tick();
+    assert.equal(h.events.includes("browser closed"), false, "the limit has not passed");
+    t.mock.timers.tick(1);
+    const report = await pending;
+    assert.equal(report.status, "failed"); assert.equal(report.failure, failure);
+    assert.deepEqual(report.cleanupErrors, ["context: context cleanup timed out"]);
+    assert.deepEqual(h.saved().cleanupErrors, report.cleanupErrors);
+    assert.deepEqual(h.events.slice(-3), ["context closed", "browser closed", "server killed"]);
+  });
+
+// Someone is waiting on an interrupt, so a close that is stuck does not hold it up.
+test("an interrupted run gives each close INTERRUPTED_CLOSE_LIMIT, and a browser given up on is listed", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const h = harness(t, { stuck: true }), pending = h.run();
-  while (!h.events.includes("context closed") && !t.signal.aborted) await tick();
-  t.mock.timers.tick(4999); await tick();
+  const h = harness(t, { hang: true, stuck: true, browserStuck: true }), pending = h.run();
+  await reached(t, h, "context closed");
+  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
   assert.equal(h.events.includes("browser closed"), false, "the limit has not passed");
   t.mock.timers.tick(1);
+  await reached(t, h, "browser closed");
+  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  assert.equal(h.events.includes("server killed"), false, "the limit has not passed");
+  t.mock.timers.tick(1);
   const report = await pending;
-  assert.equal(report.status, "failed"); assert.equal(report.failure, null);
-  assert.deepEqual(report.cleanupErrors, ["context: context cleanup timed out"]);
+  assert.equal(report.status, "interrupted"); assert.deepEqual(report.cleanupErrors, ["browser: browser cleanup timed out"]);
   assert.deepEqual(h.saved().cleanupErrors, report.cleanupErrors);
-  assert.deepEqual(h.events.slice(-3), ["context closed", "browser closed", "server killed"]);
+});
+
+test("a signal during the clean-up of a run nothing interrupted cuts what is left of that close's wait, and the next close has no longer", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = harness(t, { stuck: true, browserStuck: true }), pending = h.run();
+  await reached(t, h, "context closed");
+  t.mock.timers.tick(CLOSE_LIMIT / 2); await tick();
+  h.controller.abort(Error("test interrupt"));
+  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  assert.equal(h.events.includes("browser closed"), false, "the short limit has not passed");
+  t.mock.timers.tick(1);
+  await reached(t, h, "browser closed");
+  t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT - 1); await tick();
+  assert.equal(h.events.includes("server killed"), false, "the short limit has not passed");
+  t.mock.timers.tick(1);
+  const report = await pending;
+  assert.equal(report.status, "failed", "it read every image, and a browser would not close");
+  assert.equal(report.failure, null); assert.equal(report.completedImages, 3);
+  assert.deepEqual(report.cleanupErrors, ["browser: browser cleanup timed out"]);
+});
+
+test("such a signal never lengthens the wait: what was left of the limit stays the limit", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = harness(t, { browserStuck: true }), pending = h.run();
+  await reached(t, h, "browser closed");
+  t.mock.timers.tick(CLOSE_LIMIT - 1000); await tick();
+  h.controller.abort(Error("test interrupt"));
+  t.mock.timers.tick(1000);
+  const report = await pending;
+  assert.deepEqual(report.cleanupErrors, ["browser: browser cleanup timed out"]);
 });
 
 test("interruption during a stalled scan checkpoints and closes without awaiting the scan", async t => {
@@ -281,6 +349,18 @@ test("after an interrupt a context that will not close is no failed clean-up, an
   assert.equal(during.status, "complete", "every image was read"); assert.deepEqual(during.cleanupErrors, []);
 });
 
+test("after an interrupt a context that runs out of time is no failed clean-up either, and a browser that will not close still is", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const [faults, cleanupErrors] of [[{}, []], [{ browserClose: true }, ["browser: browser cleanup failed"]]]) {
+    const h = harness(t, { hang: true, stuck: true, ...faults }), pending = h.run();
+    await reached(t, h, "context closed");
+    t.mock.timers.tick(INTERRUPTED_CLOSE_LIMIT);
+    const report = await pending;
+    assert.equal(report.status, "interrupted"); assert.deepEqual(report.cleanupErrors, cleanupErrors);
+    assert.deepEqual(h.events.slice(-2), ["browser closed", "server killed"], "the browser is still asked to close");
+  }
+});
+
 const CLOSED = ["context closed", "browser closed", "server killed"];
 for (const [stalled, closes] of [["newContext", CLOSED.slice(1)], ["newPage", CLOSED], ["goto", CLOSED], ["waitForSelector", CLOSED]])
   test(`an interrupt ends the wait for a ${stalled}() a stuck browser never answers, and every image is listed as not run`, async t => {
@@ -299,6 +379,15 @@ test("an interrupt does not end the wait for a launch: the browser that comes up
   assert.equal(h.contextsAsked, 0, "no newContext() goes out with the close");
   assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
   assert.deepEqual(h.events.slice(1), CLOSED.slice(1));
+});
+
+test("a read that throws its own error as the interrupt comes keeps it, and the failure names the interrupt", async t => {
+  const h = harness(t, { lostToInterrupt: true }), report = await h.run();
+  assert.equal(report.status, "interrupted"); assert.equal(report.failure, "test interrupt");
+  assert.deepEqual(report.results.map(row => row.error ?? null), [null, "page.evaluate: Target page, context or browser has been closed"]);
+  assert.deepEqual(report.ended.map(({ event }) => event), ["browser disconnected"]);
+  assert.deepEqual(report.notRun.map(item => item.name), ["2.png"]);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
 });
 
 test("a launch that fails after an interrupt reports the interrupt, not the browser's log", async t => {

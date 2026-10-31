@@ -16,31 +16,39 @@ const assert = require("node:assert/strict");
 // page's with the second, and calls on a page as it crashes with the third.
 const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
 
-// How long a suite waits for its browser to close. It is also how long
-// Playwright gives a browser to close by itself before it kills it, so a
-// browser that is merely stuck is being killed as the suite gives up on it.
+// How long a suite waits for its browser to close, and the corpus benchmark
+// runner for each close of a run nothing interrupted: on a loaded host Chromium
+// takes up to 11.6 s, and a browser that is only slow is no failure. It is also
+// how long Playwright gives a browser to close by itself before it kills it,
+// so a browser that is merely stuck is being killed as the suite gives up on it.
 const CLOSE_LIMIT = 30000;
 
 /* Runs `action`, the clean-up of `name`, and waits for it for at most `limit`
    ms. Resolves to nothing when it settled in time, leaving no timer behind,
    and otherwise to why it did not, in the form of a report's cleanupErrors:
    `<name>: <its error>`, or `<name>: <name> cleanup timed out`. What the
-   action does after that is not waited for, and its late failure is lost. */
-async function cleanUp(name, action, limit) {
-  let timer;
+   action does after that is not waited for, and its late failure is lost.
+   Once `signal` has aborted, before the wait or during it, the wait goes on
+   for at most `shortLimit` ms more. */
+async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
+  let timer, shortTimer, shorten;
   try {
     await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
-      timer = setTimeout(() => reject(Error(`${name} cleanup timed out`)), limit);
+      const expire = () => reject(Error(`${name} cleanup timed out`));
+      timer = setTimeout(expire, limit);
+      shorten = () => { shortTimer = setTimeout(expire, shortLimit); };
+      if (signal?.aborted) shorten(); else signal?.addEventListener("abort", shorten);
     })]);
   } catch (error) { return `${name}: ${error?.message || String(error)}`; }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer); clearTimeout(shortTimer); signal?.removeEventListener("abort", shorten); }
 }
 
 // Whether a browser of this process would not close (see exitIfUnclosed).
 let unclosed = false;
 
 // Says so, for a close that does not go through watch(): the corpus benchmark
-// runner's, which has a limit of its own and keeps the report's list itself.
+// runner's, which has a shorter limit after an interrupt and keeps the report's
+// list itself.
 function markUnclosed() { unclosed = true; }
 
 /* The last step of a suite's process, or a corpus benchmark command's, once

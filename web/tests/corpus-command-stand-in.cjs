@@ -12,10 +12,15 @@
      interrupt   a signal raised during the second image's read, which never
                  answers then
      second      a signal raised as the context closes, which never settles
-     close       the browser's close "never" settles, or it "reject"s
+     close       the browser's close "never" settles, it "reject"s, or it takes
+                 that many milliseconds
+     closing     a signal raised as the browser is asked to close
      fullDisk    every save fails once the browser is asked to close
      left        a line printed a moment after the browser closed, which a
                  process that exits at once does not get to print
+     limits      what a timer of the run takes instead, by what it asks for:
+                 a test cannot wait for CLOSE_LIMIT, which is half of the 60 s
+                 a test file has in all on CI's Node
 
    A browser keeps the process alive until it has closed, as its pipes do.
    events.txt, in the working directory, lists what was launched and closed,
@@ -25,6 +30,10 @@ const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 
 const plan = JSON.parse(process.env.COMMAND_PLAN || "{}");
+if (plan.limits) {
+  const { setTimeout: later } = globalThis;
+  globalThis.setTimeout = (run, ms, ...args) => later(run, plan.limits[ms] ?? ms, ...args);
+}
 const note = (line) => fs.appendFileSync("events.txt", `${line}\n`);
 // A real signal where there are real signals. On Windows process.kill() just
 // ends the process, so what listens for the signal is called directly.
@@ -76,9 +85,11 @@ function launched() {
     contexts: () => [], async newContext() { this.emit("context", context); return context; }, isConnected: () => connected,
     async close() {
       note("browser asked to close");
+      if (plan.closing) raise(plan.closing);
       if (plan.fullDisk) fs.renameSync = () => { throw Object.assign(new Error("no space left on the disk"), { code: "ENOSPC" }); };
       if (plan.close === "never") return new Promise(() => {});
       if (plan.close === "reject") throw new Error("the pipe broke");
+      if (plan.close) await new Promise((resolve) => setTimeout(resolve, plan.close));
       connected = false;
       clearInterval(pipes);
       if (plan.left) setTimeout(() => console.log("what was left to do"), 100);

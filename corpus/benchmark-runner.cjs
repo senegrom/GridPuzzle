@@ -9,9 +9,14 @@ const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 // suites hear it, a clean-up with a time limit, and the word that a browser
 // would not close; watch.cjs, unlike the suites' harness, leaves the process's
 // signals to the benchmarks, which save their report first (interruptible()).
-const { GONE, cleanUp, markUnclosed, watch } = require("../scripts/watch.cjs");
+const { CLOSE_LIMIT, GONE, cleanUp, markUnclosed, watch } = require("../scripts/watch.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// How long an interrupted run's clean-up waits for each close: someone is
+// waiting on that Ctrl+C, and a stuck close should not hold them up. A run
+// nothing interrupted has CLOSE_LIMIT, since a browser that is only slow is no
+// failure; here such a browser is given up on as a stuck one is.
+const INTERRUPTED_CLOSE_LIMIT = 5000;
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 /* Every image with a target file under a corpus root, families, sets and
@@ -256,8 +261,9 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     }
   } finally {
     closing = true;
+    // An interrupt, also one that comes during a close, shortens the wait for it.
     const close = async (name, action, listed = () => true) => {
-      const failed = await cleanUp(name, action, 5000);
+      const failed = await cleanUp(name, action, CLOSE_LIMIT, { signal, shortLimit: INTERRUPTED_CLOSE_LIMIT });
       if (failed && listed()) cleanupErrors.push(failed);
       return failed;
     };
@@ -421,6 +427,6 @@ function selectImages(options) {
   return options.limit ? found.slice(0, options.limit) : found;
 }
 
-module.exports = { corpusImages, interruptible, runBenchmark, summarize, writeReport, selectImages,
+module.exports = { INTERRUPTED_CLOSE_LIMIT, corpusImages, interruptible, runBenchmark, summarize, writeReport, selectImages,
   previewSize, readingCorners, readGrid, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
   PHOTO_MAX_SIDE, CONFIRMED };
