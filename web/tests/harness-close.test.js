@@ -478,7 +478,7 @@ describe('what a run started does not outlive its failure', { concurrency: true 
     });
 
   for (const [what, out, failure] of [
-    ['stops at a folder for its report it cannot make, with nothing started', (directory) => { noReports(directory); return 'browser-artifacts/ocr-latency.json'; }, 'EEXIST'],
+    ['stops at a folder for its report it cannot make', (directory) => { noReports(directory); return 'browser-artifacts/ocr-latency.json'; }, 'EEXIST'],
     ['stops its server when it cannot write its report', (directory) => { fs.mkdirSync(path.join(directory, 'report')); return 'report'; }, 'EISDIR'],
   ])
     test(`ocr_latency ${what}`, async (t) => {
