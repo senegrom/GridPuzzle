@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -96,8 +96,10 @@ function temporary(t) {
 }
 
 // How a process ends that runs `script`: its exit code, whether the bound had
-// to end it, and what it printed.
-const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script], { timeout: 30000, ...options },
+// to end it, and what it printed. These runs take a second or so. The bound
+// allows for a host short of memory, where one at Idle priority was still
+// silent after 30 s.
+const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script], { timeout: 45000, ...options },
   (error, stdout, stderr) => resolve({ code: error?.code ?? 0, killed: error?.killed ?? false, stdout, stderr })));
 
 /* How a process ends that runs `scripts` (name to source), the first as its
@@ -255,64 +257,68 @@ async function suiteRun(t, suite, env) {
 
 const failed = (browser, cleanupErrors, failure = 'Error: no site here') => ({ browser, ok: false, cleanupErrors, failure });
 
-for (const [suite, { report }] of Object.entries(SUITES)) {
-  test(`${suite} has an engine's report on disk before the next one starts, and ends with both after a browser that would not close`, async (t) => {
-    const { code, killed, stderr, onDisk } = await suiteRun(t, suite);
-    assert.equal(killed, false, `it ended by itself: ${stderr}`);
-    assert.equal(code, 1, stderr);
-    assert.deepEqual(onDisk('chromium-found.json'), []);
-    assert.deepEqual(onDisk('webkit-found.json'), [failed('chromium', ['browser: the pipe broke'])], 'what a hang in WebKit would leave');
-    assert.deepEqual(onDisk(report), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
-  });
-
-  // The browser closes when asked here, so exitIfUnclosed() plays no part: a
-  // browser left up holds the process to the bound, as a real one for ever.
-  for (const call of ['newContext', 'newPage'])
-    test(`${suite} fails an engine whose ${call}() rejects as any other failure: its browser closes, the next engine runs and the run ends by itself`, async (t) => {
-      const { code, killed, stderr, onDisk } = await suiteRun(t, suite, { REFUSE: call });
+// Side by side: each has a tree, a port and a process of its own, they are most
+// of this file's time, and in Node 22 --test-timeout limits a whole file.
+describe('the suites with browsers of their own, on that stand-in', { concurrency: true }, () => {
+  for (const [suite, { report }] of Object.entries(SUITES)) {
+    test(`${suite} has an engine's report on disk before the next one starts, and ends with both after a browser that would not close`, async (t) => {
+      const { code, killed, stderr, onDisk } = await suiteRun(t, suite);
       assert.equal(killed, false, `it ended by itself: ${stderr}`);
       assert.equal(code, 1, stderr);
-      assert.match(stderr, new RegExp(`^chromium Error: ${call} refused`, 'm'));
-      const refused = failed('chromium', [], `Error: ${call} refused`);
-      assert.deepEqual(onDisk('webkit-found.json'), [refused], 'on disk before the next engine starts');
-      assert.deepEqual(onDisk(report), [refused, failed('webkit', [])]);
+      assert.deepEqual(onDisk('chromium-found.json'), []);
+      assert.deepEqual(onDisk('webkit-found.json'), [failed('chromium', ['browser: the pipe broke'])], 'what a hang in WebKit would leave');
+      assert.deepEqual(onDisk(report), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
     });
-}
 
-test('solver_update reads a failed engine\'s page, and has nothing to read in an engine with no page', async (t) => {
-  const { killed, stderr, reports } = await suiteRun(t, 'solver_update', { REFUSE: 'newPage' });
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  const [chromium, webkit] = reports();
-  assert.deepEqual([chromium.results, chromium.workerDebug, chromium.requests], [undefined, undefined, []]);
-  assert.deepEqual([webkit.results, webkit.workerDebug, webkit.requests],
-    ['() => window.results', '() => window.workerDebug', []]);
-});
+    // The browser closes when asked here, so exitIfUnclosed() plays no part: a
+    // browser left up holds the process to the bound, as a real one for ever.
+    for (const call of ['newContext', 'newPage'])
+      test(`${suite} fails an engine whose ${call}() rejects as any other failure: its browser closes, the next engine runs and the run ends by itself`, async (t) => {
+        const { code, killed, stderr, onDisk } = await suiteRun(t, suite, { REFUSE: call });
+        assert.equal(killed, false, `it ended by itself: ${stderr}`);
+        assert.equal(code, 1, stderr);
+        assert.match(stderr, new RegExp(`^chromium Error: ${call} refused`, 'm'));
+        const refused = failed('chromium', [], `Error: ${call} refused`);
+        assert.deepEqual(onDisk('webkit-found.json'), [refused], 'on disk before the next engine starts');
+        assert.deepEqual(onDisk(report), [refused, failed('webkit', [])]);
+      });
+  }
 
-test('browser_smoke keeps what its listeners heard before the first navigation and captures a failed page, and has nothing to capture in an engine with no page', async (t) => {
-  const { killed, stderr, reports, exists } = await suiteRun(t, 'browser_smoke', { REFUSE: 'newPage' });
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  const [chromium, webkit] = reports();
-  assert.deepEqual([chromium.errors, chromium.external, chromium.checks], [[], [], []]);
-  assert.deepEqual([chromium.status, chromium.state], [undefined, undefined]);
-  assert.equal(exists('browser-artifacts/chromium-failure.png'), false);
-  assert.deepEqual([webkit.errors, webkit.external], [['Content Security Policy: refused'], ['http://elsewhere/']]);
-  assert.equal(webkit.status, 'what the page said');
-  assert.match(webkit.state, /window\.__gridpuzzleTestState\(\)/);
-  assert.equal(exists('browser-artifacts/webkit-failure.png'), true);
-});
+  test('solver_update reads a failed engine\'s page, and has nothing to read in an engine with no page', async (t) => {
+    const { killed, stderr, reports } = await suiteRun(t, 'solver_update', { REFUSE: 'newPage' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    const [chromium, webkit] = reports();
+    assert.deepEqual([chromium.results, chromium.workerDebug, chromium.requests], [undefined, undefined, []]);
+    assert.deepEqual([webkit.results, webkit.workerDebug, webkit.requests],
+      ['() => window.results', '() => window.workerDebug', []]);
+  });
 
-test('solver_update still writes its report when it reaches no engine', async (t) => {
-  const { code, killed, stderr, onDisk } = await suiteRun(t, 'solver_update', { NO_BROWSER: '1' });
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  assert.equal(code, 1, stderr);
-  assert.match(stderr, /no browser here/);
-  assert.deepEqual(onDisk(SUITES.solver_update.report), []);
-});
+  test('browser_smoke keeps what its listeners heard before the first navigation and captures a failed page, and has nothing to capture in an engine with no page', async (t) => {
+    const { killed, stderr, reports, exists } = await suiteRun(t, 'browser_smoke', { REFUSE: 'newPage' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    const [chromium, webkit] = reports();
+    assert.deepEqual([chromium.errors, chromium.external, chromium.checks], [[], [], []]);
+    assert.deepEqual([chromium.status, chromium.state], [undefined, undefined]);
+    assert.equal(exists('browser-artifacts/chromium-failure.png'), false);
+    assert.deepEqual([webkit.errors, webkit.external], [['Content Security Policy: refused'], ['http://elsewhere/']]);
+    assert.equal(webkit.status, 'what the page said');
+    assert.match(webkit.state, /window\.__gridpuzzleTestState\(\)/);
+    assert.equal(exists('browser-artifacts/webkit-failure.png'), true);
+  });
 
-test('browser_smoke reaches no engine and ends by itself all the same: no browser is up, and it stops its server', async (t) => {
-  const { code, killed, stderr, exists } = await suiteRun(t, 'browser_smoke', { NO_BROWSER: '1' });
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  assert.equal(code, 1, stderr);
-  assert.match(stderr, /no browser here/);
-  assert.equal(exists(SUITES.browser_smoke.report), false, 'it writes its reports after each engine');
+  test('solver_update still writes its report when it reaches no engine', async (t) => {
+    const { code, killed, stderr, onDisk } = await suiteRun(t, 'solver_update', { NO_BROWSER: '1' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /no browser here/);
+    assert.deepEqual(onDisk(SUITES.solver_update.report), []);
+  });
+
+  test('browser_smoke reaches no engine and ends by itself all the same: no browser is up, and it stops its server', async (t) => {
+    const { code, killed, stderr, exists } = await suiteRun(t, 'browser_smoke', { NO_BROWSER: '1' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /no browser here/);
+    assert.equal(exists(SUITES.browser_smoke.report), false, 'it writes its reports after each engine');
+  });
 });
