@@ -132,6 +132,14 @@ test("a signal during the stuck close of a run nothing interrupted cuts the wait
   assert.deepEqual(saved.cleanupErrors, ["browser: browser cleanup timed out"]);
 });
 
+// Nothing interrupted the run, so nothing has saved how it ended: only an
+// interrupted run saves before its clean-up, and the last checkpoint stays.
+test("two signals during the clean-up of a run nothing interrupted end the process with its last checkpoint, which has every image", async t => {
+  const { code, killed, stdout, stderr, saved } = await command(t, { second: "SIGINT", closing: "SIGTERM", limits: { [INTERRUPTED_CLOSE_LIMIT]: 100 } });
+  assert.equal(killed, false, stderr); assert.equal(code, 143, stderr); assert.match(stdout, /exit handlers ran with 143/);
+  assert.deepEqual([saved.status, saved.completedImages, saved.notRun], ["running", 3, []]);
+});
+
 for (const [run, plan, expected] of [["a complete run", {}, 0], ["an interrupted run", { interrupt: "SIGINT" }, 1]])
   test(`${run} whose browser closed is not cut short: the process ends by itself, when it has nothing left to do`, async t => {
     const { code, killed, stdout, stderr } = await command(t, { ...plan, left: true });
