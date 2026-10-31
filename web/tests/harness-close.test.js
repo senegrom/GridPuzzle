@@ -198,10 +198,10 @@ test('a runner that calls a suite\'s run() or requires it keeps its process afte
 
 // What browser_smoke's static server is on the stand-in below, with serve()
 // running as it is on the port this prints: the suite's own port is fixed, so
-// another run on a shared host can hold it, and the job that runs these tests
-// sets up no Python. It runs outside the suite's tree, which goes after the
-// run: a suite that gave up on a browser exits without waiting for its server,
-// and Windows will not remove a live process's working directory.
+// another run on a shared host can hold it, and the pull-request job that runs
+// these tests sets up no Python. It runs outside the suite's tree, which goes
+// after the run: a suite that gave up on a browser exits without waiting for
+// its server, and Windows will not remove a live process's working directory.
 const SERVER = `require("node:http").createServer((request, response) => response.end())
   .listen(0, "127.0.0.1", function () { console.log("port", this.address().port); });`;
 
@@ -328,7 +328,8 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
 // closes whatever the check does, but it serves the site itself, and a server
 // left listening holds the process for ever as a browser left up does. Here
 // nothing else holds it. `REFUSE` is as above; with CLOSE_FAILS the context's
-// close fails too, as it does at once on a browser just lost.
+// close fails too, as it does at once on a browser just lost. They go side by
+// side: a process held runs to the bound.
 const STALE_CHECK = `const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
 const { REFUSE, CLOSE_FAILS } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
 const browser = { newContext: async () => {
