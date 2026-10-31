@@ -338,6 +338,63 @@ test("a checkpoint the report's reader blocks is skipped, and the run goes on", 
   assert.match(warnings[0], /checkpoint after image 2 not saved, the report is held open \(EPERM/);
   assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
 });
+
+// A second signal, or a console window closing on a slow close, can end the
+// process during the clean-up, so an interrupted run says so on disk before it.
+test("an interrupted run has its status, failure and notRun on disk before the clean-up starts, and the final save adds what the clean-up found", async t => {
+  const h = harness(t, { hang: true, thrown: ["close"], close: true }), saves = [];
+  h.deps.writeReport = (file, report) => {
+    writeReport(file, report); h.events.push(`saved ${report.status}`); saves.push(JSON.parse(fs.readFileSync(file)));
+  };
+  const report = await h.run();
+  assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running", "saved interrupted",
+    "context closed", "browser closed", "server killed", "saved interrupted"]);
+  const [before, final] = saves.slice(-2);
+  assert.deepEqual([before.status, before.failure, before.completedImages], ["interrupted", "test interrupt", 2]);
+  assert.deepEqual(before.notRun.map(item => item.name), ["2.png"]);
+  assert.deepEqual([before.cleanupErrors, before.pageErrors], [[], []]);
+  assert.deepEqual([final.cleanupErrors, final.pageErrors], [["browser: browser cleanup failed"], ["thrown at close"]]);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the final save is what stays");
+});
+
+// Saves before and after the run's images are pinned above and, on real
+// browsers, by detect_benchmark_regressions.cjs.
+test("a run nothing interrupted saves nothing more before its clean-up, also when it failed or a signal comes during the clean-up", async t => {
+  const failed = harness(t, { disconnect: true }), failing = keepSaves(failed);
+  await failed.run();
+  assert.deepEqual(failing.map(({ status }) => status), ["running", "running", "running", "failed"]);
+  const late = harness(t, { contextClose: "interrupted" }), read = keepSaves(late);
+  await late.run();
+  assert.deepEqual(read.map(({ status }) => status), ["running", "running", "running", "running", "complete"]);
+});
+
+test("a save before the clean-up that fails, however, stops no clean-up: it costs a checkpoint, and the final save writes the report", async t => {
+  for (const failed of [busy(), Object.assign(Error("no space left"), { code: "ENOSPC" })]) {
+    const h = harness(t, { hang: true }), logged = []; let writes = 0;
+    h.deps.log = line => logged.push(line);
+    h.deps.writeReport = (file, report) => {
+      if (report.status === "interrupted" && ++writes === 1) throw failed;
+      writeReport(file, report);
+    };
+    const report = await h.run();
+    assert.equal(report.status, "interrupted"); assert.equal(writes, 2);
+    assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+    assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
+    assert.deepEqual(logged.filter(line => line.includes("not saved")), [`  checkpoint before the clean-up not saved (${failed.message})`]);
+  }
+});
+
+test("a disk that fails the save before the clean-up and the final save is reported by the final save, after the clean-up", async t => {
+  const h = harness(t, { hang: true });
+  h.deps.writeReport = (file, report) => {
+    if (report.status === "interrupted") throw Error("the disk is gone");
+    writeReport(file, report);
+  };
+  await assert.rejects(h.run(), { message: "Could not save benchmark report after: test interrupt: the disk is gone" });
+  assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+  assert.equal(h.saved().status, "running", "what the last checkpoint wrote stays");
+});
+
 test("the report's rename is retried while the file is held open, then reported", t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-report-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

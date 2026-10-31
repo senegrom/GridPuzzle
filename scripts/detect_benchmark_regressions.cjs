@@ -80,8 +80,10 @@ engine.launch = async function (...args) {
    handlers, left on, end such a run with exit code 130, a false entry in
    cleanupErrors and now and then a report that still says "running". With
    `second`, the name and exit code of a signal raised during its clean-up,
-   that signal ended it: with its code and the last checkpoint, and nothing
-   left either, though on Linux the server outlives a process that just exits. */
+   that signal ended it: with its code and the report the run saved before its
+   clean-up, which says what ended it but not what the clean-up found, and
+   nothing left either, though on Linux the server outlives a process that
+   just exits. */
 async function interruptedCommand(engineName, root, { signal, unclosable = false, second: [secondSignal, secondCode] = [] }) {
   const how = `${engineName}, ${signal}${secondSignal ? ` then ${secondSignal}` : ""}${unclosable ? " on a browser that will not close" : ""}`,
     name = `${engineName}-detection-${signal}${secondSignal ? `-${secondSignal}` : ""}`;
@@ -94,11 +96,11 @@ async function interruptedCommand(engineName, root, { signal, unclosable = false
     (error, stdout, stderr) => resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stderr })));
   assert.equal(killed, false, `${how}: the command did not end by itself within ${ENDS_WITHIN} ms: ${stderr}`);
   const saved = JSON.parse(fs.readFileSync(report, "utf8")), images = items(parseOptions(args)).map(({ family, set, name }) => ({ family, set, name }));
-  assert.equal(saved.status, secondSignal ? "running" : "interrupted", `${how}: ${stderr}`);
-  assert.equal(saved.failure, secondSignal ? null : `Detection benchmark interrupted by ${signal}`, how);
+  assert.equal(saved.status, "interrupted", `${how}: ${stderr}`);
+  assert.equal(saved.failure, `Detection benchmark interrupted by ${signal}`, how);
   assert.deepEqual(saved.cleanupErrors, unclosable && !secondSignal ? ["browser: browser cleanup timed out"] : [], how);
   assert.ok(saved.completedImages >= 1 && saved.completedImages < images.length, `${how}: ${saved.completedImages} images`);
-  assert.deepEqual(saved.notRun, secondSignal ? [] : images.slice(saved.completedImages), how);
+  assert.deepEqual(saved.notRun, images.slice(saved.completedImages), how);
   assert.deepEqual([saved.ended, saved.pageErrors], [[], []], how);
   assert.equal(code, secondCode ?? 1, `${how}: ${stderr}`);
   const left = JSON.parse(fs.readFileSync(processes, "utf8"));

@@ -146,11 +146,12 @@ def test_a_signal_before_the_first_image_stops_the_benchmark_with_exit_code_1_to
     assert (saved["status"], saved["completedImages"], len(saved["notRun"])) == ("interrupted", 0, 3)
 
 
-def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it(tmp_path):
+def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it_leaving_what_ended_the_run(tmp_path):
     run, saved = ending(tmp_path, interrupt="SIGINT", second="SIGTERM")
     assert run.returncode == 143, run.stderr
     assert "exit handlers ran with 143" in run.stdout
-    assert (saved["status"], saved["completedImages"]) == ("running", 2)
+    assert (saved["status"], saved["failure"]) == ("interrupted", "Benchmark interrupted by SIGINT")
+    assert (saved["completedImages"], saved["notRun"]) == (2, NOT_RUN)
     assert (tmp_path / "events.txt").read_text(encoding="utf-8").splitlines()[1:] == ["context closed", "server killed"]
 
 
@@ -178,3 +179,10 @@ def test_a_final_save_that_fails_is_printed_when_the_process_is_ended_for_its_br
     assert run.returncode == 1, run.stderr
     assert "Could not save benchmark report: no space left on the disk" in run.stderr
     assert saved["status"] == "running"
+
+
+def test_after_an_interrupt_a_final_save_that_fails_leaves_the_report_saved_before_the_clean_up(tmp_path):
+    run, saved = ending(tmp_path, interrupt="SIGINT", close="reject", fullDisk=True)
+    assert run.returncode == 1, run.stderr
+    assert "Could not save benchmark report after: Benchmark interrupted by SIGINT" in run.stderr
+    assert (saved["status"], saved["notRun"]) == ("interrupted", NOT_RUN)

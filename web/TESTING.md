@@ -171,7 +171,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `app_review_regressions.cjs` | file download/import, camera-preference races, the frozen solution's Clear (tab order, a setting changed while frozen) and modal behaviour in the real UI; the shutter named by the words it shows, and keyboard focus visible on a selected board cell, in another colour, in the Cages and Inequalities tools | `live-acceptance` |
 | `browser_regressions.cjs` | generated OCR, perspective and review regressions on the production scanner | `build` |
 | `browser_smoke.cjs` | all twelve families through the real Pyodide solver, offline reload with the origin stopped | `build` |
-| `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it; `--live` measures the live camera's quick path (a lattice of dots, a grid to the photograph's path, is none in its column); the real `detect_benchmark` command, in a process of its own, interrupted during a read (SIGINT, and SIGHUP on a browser whose close never settles; on Windows its handlers are called directly): it ends by itself with exit code 1, its report final (`interrupted`, the true `cleanupErrors`, `notRun` right) and no process Node started for it left running; SIGTERM twice on such a browser, the second during the clean-up: it ends with 143, its report at the last checkpoint, again with nothing left running (the server outlives a process that just exits only on Linux and macOS, so CI is what shows that) | inside `scanner_settings` |
+| `detect_benchmark_regressions.cjs` | one corrupt image cannot discard the detection results around it; `--live` measures the live camera's quick path (a lattice of dots, a grid to the photograph's path, is none in its column); the real `detect_benchmark` command, in a process of its own, interrupted during a read (SIGINT, and SIGHUP on a browser whose close never settles; on Windows its handlers are called directly): it ends by itself with exit code 1, its report final (`interrupted`, the true `cleanupErrors`, `notRun` right) and no process Node started for it left running; SIGTERM twice on such a browser, the second during the clean-up: it ends with 143, its report as the run saved it before the clean-up (`interrupted`, `notRun` right), again with nothing left running (the server outlives a process that just exits only on Linux and macOS, so CI is what shows that) | inside `scanner_settings` |
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
 | `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure; uncaught errors thrown in the suite's page, in a tab it opens beside it and in a page in a context it opens each fail the engine though the suite carries on, all in `errors`, the other pages' with their URL; a close that never settles, with the browser left running or after it was closed past the harness, ends the run by itself all the same, in a process of its own: exit code 1, the timed-out close in `cleanupErrors` and on stderr, the next engine run and none of the processes Node started for the run left running | `live` |
@@ -402,10 +402,10 @@ measurement per image and a third line per set ("live at 640");
 `web/GRID_DETECTION.md` explains the stages and records the measurements.
 
 Both benchmarks share one checkpointing runner. The report is saved before
-start-up, after each image and after clean-up, so browser loss, SIGINT, SIGTERM
-or SIGHUP leave a partial report with every resource closed; bad JSON,
-undecodable images and recoverable scan errors become individual error rows and
-later images continue. A page that crashes or closes, a lost browser, or a
+start-up, after each image, before the clean-up of an interrupted run and after
+clean-up, so browser loss, SIGINT, SIGTERM or SIGHUP leave a partial report with
+every resource closed; bad JSON, undecodable images and recoverable scan errors
+become individual error rows and later images continue. A page that crashes or closes, a lost browser, or a
 read that fails because its page is gone ends the run instead: the runner
 watches its browser with the suites' `watch()`, since a crashed page is
 neither closed to Playwright nor in a disconnected browser, and reads no
@@ -435,8 +435,9 @@ checkpoint or the final save to write. A final save still held after that keeps
 the new report beside the old one (`<report>.<pid>.tmp`) and names it in the
 error. Any other write failure ends the run. The command
 exits nonzero for an incomplete run, any failed image or a failed clean-up, and
-a hard kill or lost disk access keeps only the last checkpoint, as do a second
-signal and a console window closing on a slow close (below).
+a hard kill or lost disk access keeps only the last checkpoint; for an
+interrupted run, whatever ends the process during its clean-up keeps the
+checkpoint that says so (below).
 
 A signal is the command's alone: the runner launches the browser with
 Playwright's `handleSIGINT`, `handleSIGTERM` and `handleSIGHUP` off. Left on,
@@ -445,33 +446,44 @@ they closed the browser under the run and, on SIGINT, ended the process with
 that still said `running`, and the other 13 a false `context:
 browserContext.close` entry in `cleanupErrors`. Now the first SIGINT, SIGTERM
 or SIGHUP stops the run: `status` says `interrupted` and `failure` names the
-signal, whatever failed with it, the read in flight keeps that as its error,
-the images after it are in `notRun`, what the run opened is closed and the
-report saved, and the command exits with 1, as for any incomplete run; nothing
-reads another code. A signal during the clean-up of a run that read every
-image leaves it `complete`, with exit code 0. An interrupt ends the wait for a
-read, the page, a new context or the server, but not a launch, which Playwright
-gives three minutes: a browser left to come up afterwards would hold a process
-that nothing closes, so the run waits for it, asks it for nothing and closes
-it.
+signal, whatever failed with it, the read in flight keeps that as its error and
+the images after it are in `notRun`. The run saves all that at once, before its
+clean-up starts, so that it survives whatever ends the process there. That save
+is one more checkpoint: however it fails it stops no clean-up, a warning is
+printed, and the final save is what reports a write failure. What the run opened
+is then closed and the report saved again, with what the clean-up found
+(`cleanupErrors`, the last of `pageErrors`), and the command exits with 1, as
+for any incomplete run; nothing reads another code. A signal during the
+clean-up of a run that read every image leaves it `complete`, with exit code 0.
+An interrupt ends the wait for a read, the page, a new context or the server,
+but not a launch, which Playwright gives three minutes: a browser left to come
+up afterwards would hold a process that nothing closes, so the run waits for
+it, asks it for nothing and closes it.
 
-A second signal, of any of the three, ends the process without that clean-up,
-with 128 and the signal's number (130, 143 or 129), and leaves the last
-checkpoint: `status` still says `running` and `notRun` is empty. It takes a few
-seconds at most (0.4 to 3.6 s here), for Playwright's exit listener to kill the
-browser and remove its folders. It goes through `process.exit()` for that
-listener, and for the run's own, which stops the HTTP server: on Linux and
-macOS that would otherwise outlive the process and keep its fixed port. Once
-the report is saved the command no longer listens, so a signal while it waits
-for the browser to end has its default action, which runs neither listener.
-The report is final by then, but on Windows the exit code is 0xC000013A and
-Chromium's profile can stay in the temporary folder.
+A second signal, of any of the three, ends the process without waiting for that
+clean-up, with 128 and the signal's number (130, 143 or 129). The report stays
+as the run saved it before the clean-up: `interrupted`, with `failure` and
+`notRun`, but without what the clean-up would have found. Where nothing has
+saved that yet it stays at the last checkpoint, `status` still `running` and
+`notRun` empty: during a launch, which the run waits for before it stops, and
+during the clean-up of a run that an interrupt did not end. It takes a few
+seconds at most (0.4 to 3.6 s on a loaded host, 0.04 to 1.5 s on a quiet one),
+for Playwright's exit listener, which kills the browser and removes its folders
+as far as it can: a double Ctrl+C inside Chromium's launch left part of its
+profile, 2 runs of 2. It goes through `process.exit()` for that listener, and
+for the run's own, which stops the HTTP server: on Linux and macOS that would
+otherwise outlive the process and keep its fixed port. Once the report is saved
+the command no longer listens, so a signal while it waits for the browser to
+end has its default action, which runs neither listener. The report is final by
+then, but on Windows the exit code is 0xC000013A and Chromium's profile can stay
+in the temporary folder.
 
 SIGHUP is a terminal that goes away, or on Windows a console window that
 closes. Windows then ends the process five to ten seconds later, whatever it is
 doing (5.0 to 5.7 s here). A browser that takes that long to close costs the
-final save: the report stays at the last checkpoint, and Playwright's temporary
-folders stay. WebKit closing in time ended `interrupted`, in under 0.2 s.
+final save: the report stays as the run saved it before its clean-up,
+`interrupted`, with `failure` and `notRun`, and Playwright's temporary folders
+stay. WebKit closing in time ended `interrupted`, in under 0.2 s.
 
 On a Windows console a real Ctrl+C reaches everything on that console, the HTTP
 server and the browser too, since Playwright detaches a browser only on other

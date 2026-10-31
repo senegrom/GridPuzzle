@@ -80,13 +80,14 @@ test("an interrupt while the server starts ends the command, with nothing left a
 });
 
 for (const [first, second, code] of [["SIGINT", "SIGINT", 130], ["SIGTERM", "SIGINT", 130], ["SIGINT", "SIGTERM", 143], ["SIGHUP", "SIGTERM", 143], ["SIGTERM", "SIGHUP", 129]])
-  test(`${second} after ${first} ends the process at once, with ${code} and what listens for the exit, leaving the last checkpoint`, async t => {
-    const ended = await command(t, { interrupt: first, second });
+  test(`${second} after ${first} ends the process at once, with ${code} and what listens for the exit, leaving the report saved before the clean-up`, async t => {
+    const ended = await command(t, { interrupt: first, second }), failure = `Detection benchmark interrupted by ${first}`;
     assert.equal(ended.killed, false, ended.stderr); assert.equal(ended.code, code, ended.stderr);
     assert.match(ended.stdout, new RegExp(`exit handlers ran with ${code}`));
     // On Linux and macOS a server left to itself would outlive the process and keep its port.
     assert.deepEqual(ended.events, ["context closed", "server killed"], "it did not wait for the clean-up, and the server went with it");
-    assert.equal(ended.saved.status, "running"); assert.equal(ended.saved.completedImages, 2);
+    assert.deepEqual([ended.saved.status, ended.saved.failure, ended.saved.notRun], ["interrupted", failure, NOT_RUN]);
+    assert.equal(ended.saved.completedImages, 2);
   });
 
 for (const [how, close, failed] of [["never settles", "never", "browser cleanup timed out"], ["rejects", "reject", "the pipe broke"]])
@@ -121,6 +122,13 @@ test("a final save that fails is printed, also when the process then has to be e
   assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
   assert.match(stderr, /Could not save benchmark report: no space left on the disk/);
   assert.equal(saved.status, "running", "the last checkpoint is what stays");
+});
+
+test("after an interrupt that same save leaves the report saved before the clean-up", async t => {
+  const { code, killed, stderr, saved } = await command(t, { interrupt: "SIGINT", close: "reject", fullDisk: true });
+  assert.equal(killed, false, stderr); assert.equal(code, 1, stderr);
+  assert.match(stderr, /Could not save benchmark report after: Detection benchmark interrupted by SIGINT: no space left on the disk/);
+  assert.deepEqual([saved.status, saved.notRun], ["interrupted", NOT_RUN]);
 });
 
 const RUNNER = `const { main } = require(__dirname + "/${COMMAND}");

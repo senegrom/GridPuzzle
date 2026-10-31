@@ -1,5 +1,6 @@
 /* Testable benchmark lifecycle. A report is checkpointed before startup, after
-   each image and after cleanup; it remains useful when a later image fails. */
+   each image, before the cleanup of an interrupted run and after cleanup; it
+   remains useful when a later image fails. */
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -109,14 +110,14 @@ const STOPS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 
 /* Runs a command's benchmark, `run(signal)`. The first of the signals in
    STOPS aborts `signal` with "<label> interrupted by <its name>": the run
-   stops, closes what it opened and saves its report, and the command ends as
-   any incomplete run does. A second signal, of any of them, ends the process
-   at once, with the last checkpoint, also under a runner that called a
-   command's main(). It ends it through process.exit(), since the default
-   action would skip what listens for the process's exit: Playwright's
-   listener, which kills the browser, and the run's, which stops the server.
-   What the process did with these signals before the run, it does again after
-   it, so a signal after the final save has its default action. */
+   stops, saves its report, closes what it opened and saves it again, and the
+   command ends as any incomplete run does. A second signal, of any of them,
+   ends the process at once, with what the run saved last, also under a runner
+   that called a command's main(). It ends it through process.exit(), since
+   the default action would skip what listens for the process's exit:
+   Playwright's listener, which kills the browser, and the run's, which stops
+   the server. What the process did with these signals before the run, it does
+   again after it, so a signal after the final save has its default action. */
 async function interruptible(label, run) {
   const controller = new AbortController(), stops = new Map();
   for (const [name, code] of Object.entries(STOPS)) {
@@ -245,6 +246,14 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     const led = watched ? await watched.lead(error) : error;
     failure = message(signal?.aborted ? signal.reason : led);
     status = signal?.aborted ? "interrupted" : "failed";
+    // A second signal, or a console window closing on a slow close, can end
+    // the process during the clean-up, so an interrupted run says now what
+    // ended it and what was not run. This is one more checkpoint: however it
+    // fails it stops no clean-up, and the final save reports a write failure.
+    if (status === "interrupted") {
+      try { persist(output, report()); }
+      catch (error) { log(`  checkpoint before the clean-up not saved (${message(error)})`); }
+    }
   } finally {
     closing = true;
     const close = async (name, action, listed = () => true) => {
