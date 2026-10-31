@@ -11,8 +11,9 @@ import { Browser } from './playwright-stand-ins.js';
 
 // A browser that will not close: what watch()'s close() records and says,
 // and how a suite's process ends after it, with stand-ins for the browser
-// (harness_regressions checks both on real browsers). Loading watch.cjs or
-// the harness needs no Playwright.
+// (harness_regressions checks both on real browsers); and a suite's run on a
+// browser that will not open its context or page. Loading watch.cjs or the
+// harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,7 +90,8 @@ test('a clean-up that throws at once is its failure, whatever it throws', async 
 
 function temporary(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gridpuzzle-close-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  // On Windows a server just killed can hold its working directory a moment.
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 5 }));
   return directory;
 }
 
@@ -243,7 +245,7 @@ async function suiteRun(t, suite, env) {
     fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
-  fs.mkdirSync(inTree('_site'));
+  fs.mkdirSync(inTree('_site')); // What serve() links for browser_smoke.
   const ended = await finish(inTree(script), { cwd: directory, env: { ...process.env, REPORT: report, ...env } });
   const reports = (name = report) => JSON.parse(fs.readFileSync(inTree(name), 'utf8'));
   const onDisk = (name) => reports(name).map(({ browser, ok, cleanupErrors, failure }) =>
