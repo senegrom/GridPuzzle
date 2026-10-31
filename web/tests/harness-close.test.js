@@ -280,14 +280,18 @@ for (const [suite, { report }] of Object.entries(SUITES)) {
 }
 
 test('solver_update reads a failed engine\'s page, and has nothing to read in an engine with no page', async (t) => {
-  const [chromium, webkit] = (await suiteRun(t, 'solver_update', { REFUSE: 'newPage' })).reports();
+  const { killed, stderr, reports } = await suiteRun(t, 'solver_update', { REFUSE: 'newPage' });
+  assert.equal(killed, false, `it ended by itself: ${stderr}`);
+  const [chromium, webkit] = reports();
   assert.deepEqual([chromium.results, chromium.workerDebug, chromium.requests], [undefined, undefined, []]);
   assert.deepEqual([webkit.results, webkit.workerDebug, webkit.requests],
     ['() => window.results', '() => window.workerDebug', []]);
 });
 
 test('browser_smoke keeps what its listeners heard before the first navigation and captures a failed page, and has nothing to capture in an engine with no page', async (t) => {
-  const { reports, exists } = await suiteRun(t, 'browser_smoke', { REFUSE: 'newPage' }), [chromium, webkit] = reports();
+  const { killed, stderr, reports, exists } = await suiteRun(t, 'browser_smoke', { REFUSE: 'newPage' });
+  assert.equal(killed, false, `it ended by itself: ${stderr}`);
+  const [chromium, webkit] = reports();
   assert.deepEqual([chromium.errors, chromium.external, chromium.checks], [[], [], []]);
   assert.deepEqual([chromium.status, chromium.state], [undefined, undefined]);
   assert.equal(exists('browser-artifacts/chromium-failure.png'), false);
