@@ -24,7 +24,7 @@ Automatic classification is treated as a trust boundary: automatically identifie
 Most suites in `scripts/` are built on `scripts/harness.cjs`: `serve()` starts
 Python's `http.server` for the built site on a port the system picks (under
 `/GridPuzzle/` through the `_preview` link when a suite needs the Pages path)
-and stops it however the suite ends, `engines()` runs the suite in Chromium
+and stops it however the process ends, `engines()` runs the suite in Chromium
 and WebKit on a fresh phone-sized context with the service worker blocked,
 collects the uncaught errors of every page the suite opens, screenshots a
 failing engine and writes one report per engine under `browser-artifacts/`,
@@ -183,6 +183,27 @@ refused, on a stand-in Playwright and, for `browser_smoke`, a stand-in for
 Python's server on a port the system picks, since the pull-request job that
 runs the unit tests sets up neither Python nor Playwright, and the stale-build
 check on a stand-in browser.
+
+A server holds a run as a browser does: with nothing left to stop it, the
+failure is printed and the process never ends, on CI until the job's limit. So
+a suite starts its server last and stops it first. What can fail comes before
+the start: `harness_regressions` reads `BROWSER_ENGINES`, and `ocr_quality` and
+`external_replay` read their fixtures, before they start one, and `ocr_latency`
+makes its report's folder. Writing a report comes after the stop:
+`ocr_latency`, `live_recovery` and `external_replay` stop their server before
+they write the report that ends their run, so that a report that cannot be
+written fails the run and does not hold it. `solver_update` saves first, in the
+last step of its run, where a failure is an unhandled rejection, which ends the
+process. The stale-build check and the offline-install check inside
+`photo_read` close their context before they stop their server, so that stop
+has a `finally` of its own: that close rejects when it is the first call to meet
+a lost browser, and the rejection still fails the check. Until October 2026
+each of these could hold a run. A real `photo_read` run with the browser killed
+as the offline-install check's close started had its report on disk at 10 s and
+was still alive at a 90 s bound, and `BROWSER_ENGINES=safari` printed its error
+and never ended. `web/tests/harness-close.test.js` runs each of them as it is,
+in a process of its own with nothing else to hold it, on a stand-in for Python's
+server where it is Python's; one that does not end fails at the test's bound.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

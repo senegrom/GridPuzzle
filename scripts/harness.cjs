@@ -53,7 +53,9 @@ for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]])
    `port` for a suite that stops and restarts its origin. `pages: true` serves
    the site under /GridPuzzle/ through the _preview link, as GitHub Pages does.
    Resolves to { origin, base, close } once it answers; close() resolves when
-   the server has exited. */
+   the server has exited. Until then the server holds the process for ever, so
+   a suite does what can fail before this call or after close(), which goes in
+   the finally of the try that follows this call. */
 async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
   let prefix = "/";
   if (pages) {
@@ -175,8 +177,9 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
 }
 
 /* A suite's entry point: run it when the file is the main module, print the
-   failure and set the exit code. The process then ends by itself, unless a
-   browser would not close: exitIfUnclosed() ends it then. */
+   failure and set the exit code. The process then ends by itself, once what
+   the suite started has stopped, unless a browser would not close:
+   exitIfUnclosed() ends it then. */
 function main(module_, run) {
   if (require.main === module_)
     run().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => exitIfUnclosed(module_));
