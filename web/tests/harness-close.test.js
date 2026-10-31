@@ -200,9 +200,10 @@ test('a runner that calls a suite\'s run() or requires it keeps its process afte
 // What browser_smoke's static server is on the stand-in below, with serve()
 // running as it is on the port this prints: the suite's own port is fixed, so
 // another run on a shared host can hold it, and the pull-request job that runs
-// these tests sets up no Python. It runs outside the suite's tree, which goes
-// after the run: a suite that gave up on a browser exits without waiting for
-// its server, and Windows will not remove a live process's working directory.
+// these tests sets up no Python. It runs in this process's temporary directory,
+// outside any one run's tree and TEMP, which go after the run: a suite that gave
+// up on a browser exits without waiting for its server, and Windows will not
+// remove a live process's working directory.
 const SERVER = `require("node:http").createServer((request, response) => response.end())
   .listen(0, "127.0.0.1", function () { console.log("port", this.address().port); });`;
 
@@ -211,7 +212,7 @@ const SERVER = `require("node:http").createServer((request, response) => respons
 const SPAWN = `const children = require("node:child_process"), { spawn } = children;
 children.spawn = (command, args, options) => {
   console.log("serving", args.at(-1));
-  return spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: require("node:os").tmpdir() });
+  return spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: ${JSON.stringify(os.tmpdir())} });
 };
 `;
 
@@ -251,13 +252,15 @@ const SUITES = {
 
 // How a suite ends on that stand-in, in a tree of its own, and what its files
 // in that tree hold: `reports` as written, `onDisk` what the tests compare.
-async function suiteRun(t, suite, env) {
+// `prepare` gets that tree before the run.
+async function suiteRun(t, suite, env, prepare) {
   const { script, report, reads } = SUITES[suite], directory = temporary(t), inTree = (name) => path.join(directory, name);
   for (const file of [script, 'scripts/harness.cjs', 'scripts/watch.cjs', ...reads])
     fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
   fs.mkdirSync(inTree('_site')); // What serve() links for browser_smoke.
+  prepare?.(directory);
   const ended = await finish(inTree(script), { cwd: directory, env: { ...process.env, REPORT: report, ...env } });
   const reports = (name = report) => JSON.parse(fs.readFileSync(inTree(name), 'utf8'));
   const onDisk = (name) => reports(name).map(({ browser, ok, cleanupErrors, failure }) =>
@@ -322,6 +325,15 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
     assert.equal(code, 1, stderr);
     assert.match(stderr, /no browser here/);
     assert.deepEqual(onDisk(SUITES.solver_update.report), []);
+  });
+
+  // It saves before it stops its server, so that server is still up here: what
+  // ends the process is the failure itself, an unhandled rejection.
+  test('solver_update ends by itself when it cannot write its report', async (t) => {
+    const { code, killed, stderr } = await suiteRun(t, 'solver_update', { NO_BROWSER: '1' }, noReports);
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /EEXIST.*browser-artifacts/);
   });
 
   test('browser_smoke reaches no engine and ends by itself all the same: no browser is up, and it stops its server', async (t) => {
@@ -420,7 +432,7 @@ function pinnedFixtures(directory) {
 // and it reads its fixtures from the repository as it loads. No browser starts.
 const OCR_LATENCY = `const refused = { launch: async () => { throw new Error("no browser here"); } };
 require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { chromium: refused, webkit: refused }, port: 0, out: process.env.OUT })
-  .catch((error) => { console.log("the run failed:", error.code); process.exitCode = 1; });
+  .catch((error) => { console.log("the run failed:", error.code ?? error.message); process.exitCode = 1; });
 `;
 
 // A server left up holds its process for ever, as a browser does, and two
@@ -463,13 +475,14 @@ describe('what a run started does not outlive its failure', { concurrency: true 
     assert.deepEqual(left(directory), [], 'no temporary folder');
   });
 
-  test('ocr_quality stops at a fixture it cannot read, with nothing started', async (t) => {
-    const { code, killed, stdout, stderr } = await scripted('ocr_quality_regressions', temporary(t));
-    assert.equal(killed, false, `it ended by itself: ${stderr}`);
-    assert.equal(code, 1, stderr);
-    assert.match(stderr, /ENOENT.*ground-truth\.json/);
-    assert.equal(stdout, '', 'no server');
-  });
+  for (const [name, fixture] of [['ocr_quality', /ENOENT.*ground-truth\.json/], ['external_replay', /ENOENT.*fixtures\.json/]])
+    test(`${name} stops at a fixture it cannot read, with nothing started`, async (t) => {
+      const { code, killed, stdout, stderr } = await scripted(`${name}_regressions`, temporary(t));
+      assert.equal(killed, false, `it ended by itself: ${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.match(stderr, fixture);
+      assert.equal(stdout, '', 'no server');
+    });
 
   for (const [name, prepare] of [['live_recovery', () => {}], ['external_replay', pinnedFixtures]])
     test(`${name} stops its server when it cannot write its report`, async (t) => {
@@ -483,15 +496,16 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.match(stdout, /^serving _site$/m, 'it had started its server');
     });
 
-  for (const [what, out, failure] of [
+  for (const [what, out, failure, engines = ''] of [
     ['stops at a folder for its report it cannot make', (directory) => { noReports(directory); return 'browser-artifacts/ocr-latency.json'; }, 'EEXIST'],
     ['stops its server when it cannot write its report', (directory) => { fs.mkdirSync(path.join(directory, 'report')); return 'report'; }, 'EISDIR'],
+    ['stops at an engine it does not know', () => 'ocr-latency.json', 'BROWSER_ENGINES names no engine safari; use chromium and/or webkit', 'safari'],
   ])
     test(`ocr_latency ${what}`, async (t) => {
       const directory = temporary(t), run = path.join(directory, 'run.cjs');
       fs.writeFileSync(run, OCR_LATENCY);
       const { code, killed, stdout, stderr } = await finish(run, { cwd: fileURLToPath(new URL('../..', import.meta.url)),
-        env: { ...process.env, BROWSER_ENGINES: '', OUT: path.join(directory, out(directory)) } });
+        env: { ...process.env, BROWSER_ENGINES: engines, OUT: path.join(directory, out(directory)) } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, 1, stderr);
       assert.equal(stdout.trim(), `the run failed: ${failure}`);
