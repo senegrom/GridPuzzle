@@ -129,8 +129,8 @@ requires a suite or calls its `run()` keeps its process, and ending it is then
 up to that runner. `harness_regressions.cjs` checks all this on real browsers,
 in a process of its own, `web/tests/harness-close.test.js` the close and the
 process's end with stand-ins, `solver_update`'s too. `corpus/benchmark-runner.cjs`
-shares the timed clean-up, with this limit, or 5 seconds once a run is
-interrupted ("Puzzle image corpus and benchmarks"), and this end of the
+shares the timed clean-up, with this limit, or a shorter one once a signal has
+come ("Puzzle image corpus and benchmarks"), and this end of the
 process: a browser its clean-up gives up on is marked with `markUnclosed()`, and
 the two benchmark commands end with `exitIfUnclosed()` too.
 
@@ -467,18 +467,20 @@ clean-up, with 128 and the signal's number (130, 143 or 129). The report stays
 as the run saved it before the clean-up: `interrupted`, with `failure` and
 `notRun`, but without what the clean-up would have found. Where nothing has
 saved that yet it stays at the last checkpoint, `status` still `running` and
-`notRun` empty: during a launch, which the run waits for before it stops, and
-during the clean-up of a run that an interrupt did not end. The exit takes a
-few seconds at most (0.4 to 3.6 s on a loaded host, 0.04 to 1.5 s on a quiet
-one), for Playwright's exit listener, which kills the browser and removes its
-folders as far as it can: a double Ctrl+C inside Chromium's launch can leave
-part of its profile. It goes through `process.exit()` for that listener, and
-for the run's own, which stops the HTTP server: on Linux and macOS that would
-otherwise outlive the process and keep its fixed port. Once the report is saved
-the command no longer listens, so a signal while it waits for the browser to
-end has its default action, which runs neither listener. The report is final by
-then, but on Windows the exit code is 0xC000013A and Chromium's profile can stay
-in the temporary folder.
+`notRun` empty: during a launch, which the run waits for before it stops; in
+the wait of up to a second after a read that says its target is gone, for what
+Playwright reports after it; and during the clean-up of a run that an interrupt
+did not end. The exit takes a few seconds at most (up to about 6 s on a loaded
+host, 0.04 to 1.5 s on a quiet one), for Playwright's exit listener, which
+kills the browser and removes its folders as far as it can: a double Ctrl+C can
+leave Chromium's profile, part of it in a launch and now and then all of it
+during a read. It goes through `process.exit()` for that listener, and for the
+run's own, which stops the HTTP server: on Linux and macOS that would otherwise
+outlive the process and keep its fixed port. Once the report is saved the
+command no longer listens, so a signal while it waits for the browser to end
+has its default action, which runs neither listener. The report is final by
+then, but on Windows the exit code is 0xC000013A and Chromium's profile can
+stay in the temporary folder.
 
 SIGHUP is a terminal that goes away, or on Windows a console window that
 closes. Windows then ends the process five to ten seconds after it hears that,
@@ -487,11 +489,19 @@ close costs the final save: an interrupted run's report stays as the run saved
 it before its clean-up, `interrupted`, with `failure` and `notRun`, and
 Playwright's temporary folders stay. WebKit closing in time ended
 `interrupted`, in under 0.2 s. Chromium's processes hear the close first, and
-the command some 15 seconds after it, so its page goes down under a run still
+the command 6 to 15 seconds after it, so its page goes down under a run still
 reading, which fails by itself: `page crashed`, `notRun` right, its report
-final within 10 seconds. Only a close that is stuck as well costs that run its
-final save, and its report then stays at the last checkpoint, since it was not
-interrupted.
+final within 10 seconds.
+
+A run nothing interrupted has no save before its clean-up, and `CLOSE_LIMIT`
+(below) would hold a stuck close past that kill, with its report still at the
+last checkpoint. So a signal during its clean-up leaves each close 2 seconds,
+which fits both closes and the final save in before the kill. With closes that
+never settled, a run that had read every image ended `failed`, with `browser
+cleanup timed out` and exit code 1, in both engines, and Chromium's run still
+reading the same with `page crashed` and `notRun` right, nothing left in the
+temporary folder. A Chromium whose processes are really stuck goes down with
+the console, which ends the close, and its run ends `complete`.
 
 On a Windows console a real Ctrl+C reaches everything on that console, the HTTP
 server and the browser too, since Playwright detaches a browser only on other
@@ -525,12 +535,16 @@ temporary folder in 3 of 9.
 An interrupted run gives each close `INTERRUPTED_CLOSE_LIMIT`, 5 seconds, so
 that a stuck close does not hold up a Ctrl+C: once a launch in flight has
 returned, the report is final within about ten seconds of an interrupt. A
+report held open adds about five seconds to each save, and a further signal
+waits for those retries, which stop the process's event loop (9.5 s here). A
 signal during the clean-up of a run nothing had interrupted cuts what is left
-of the wait for the close in progress to at most those 5 seconds, and the next
-close has no longer. The price is a browser that is only slow, which is then
-given up on as a stuck one is: it is listed in `cleanupErrors`, which fails a
-run that had read every image, and the process ends with the browser still
-closing, which can leave Chromium's profile.
+of the wait for the close in progress to at most `LATE_SIGNAL_CLOSE_LIMIT`, 2
+seconds, and the next close has no longer: that does not hold up a Ctrl+C
+either, and it brings the final save in before a closing console's kill
+(above). The price is a browser that is only slow, which is then given up on
+as a stuck one is: it is listed in `cleanupErrors`, which fails a run that had
+read every image, and the process ends with the browser still closing, which
+can leave Chromium's profile.
 
 A runner that calls `runBenchmark()` or a command's `main()` keeps its process
 and its own signal listeners, and ending it is up to that runner, but for a
