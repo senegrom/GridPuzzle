@@ -150,7 +150,15 @@ the page closes, with the rest of the news still to come, so the harness's wait
 for that news is still checked in real browsers. A call the close interrupts
 is not: in WebKit it fails before any of that news, an order only
 `web/tests/harness-watch.test.js` checks now, with its stand-ins, since a real
-case with a call in flight at the close would bring the hang back.
+case with a call in flight at the close would bring the hang back. What is
+left on a saturated host is a slow close, which needs no call in flight: 2 of
+98 closes with nothing in flight took over a second. When the disconnection
+comes more than a second after the page's close, the harness's wait runs out,
+its own close hides the rest of the news, and the case fails on `ended`, which
+holds `page closed` alone; nothing hangs and nothing stays behind. Beside busy
+processes that happened in none of 279 closes as the case makes them, and in 3
+of 254 with a second's settle added; in the one of those that was timed, the
+main process took 3 seconds to exit and no child held the pipes.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
