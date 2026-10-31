@@ -422,10 +422,10 @@ require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { ch
   .catch((error) => { console.log("the run failed:", error.code); process.exitCode = 1; });
 `;
 
-// A server a run started holds its process for ever, as a browser does, once
-// what stops it is skipped: by a failure before the try it stands in, or by
-// something ahead of it in that try's finally. Nothing else holds these runs,
-// so one that does not end runs to the bound. They go side by side for that.
+// A server left up holds its process for ever, as a browser does, and two
+// things leave one up: a failure between its start and the try whose finally
+// stops it, and a failure ahead of the stop in that finally. Nothing else holds
+// these runs. They go side by side: one that does not end runs to the bound.
 describe('what a run started does not outlive its failure', { concurrency: true }, () => {
   for (const [what, env, expected, said] of [
     ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
@@ -442,7 +442,7 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, stderr);
       const [serving, ...rest] = stdout.trim().split('\n');
-      assert.match(serving, /^serving .*gridpuzzle-install-/);
+      assert.ok(serving.startsWith(`serving ${path.join(directory, 'gridpuzzle-install-')}`), serving);
       assert.deepEqual(rest, ['context closed on its site', said]);
       assert.deepEqual(left(directory), [], 'its temporary folder is gone');
     });
