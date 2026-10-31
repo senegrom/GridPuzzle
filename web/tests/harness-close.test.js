@@ -373,14 +373,18 @@ const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, impo
 // The offline-install check inside photo_read serves a folder of its own from
 // Python, the server the harness starts: here, the stand-in. Its page answers
 // all the check asks, unless PAGE_FAILS; with CLOSE_FAILS its context's close
-// rejects, as it does when it is the first call to meet a lost browser.
+// rejects, as it does when it is the first call to meet a lost browser. That
+// close says whether the folder is still there, which it should be: the page
+// closes on its site.
 const OFFLINE_CHECK = `${SPAWN}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
-const { PAGE_FAILS, CLOSE_FAILS } = process.env;
+const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS } = process.env;
 const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },
   waitForFunction: async () => {}, waitForNavigation: async () => {}, click: async () => {}, textContent: async () => "failed",
   locator: () => ({ isEnabled: async () => true }), evaluate: async () => "unchanged saved puzzle" };
-const browser = { newContext: async () => ({ newPage: async () => page,
-  close: async () => { console.log("context closed"); if (CLOSE_FAILS) throw new Error("the browser has gone"); } }) };
+const browser = { newContext: async () => ({ newPage: async () => page, close: async () => {
+  console.log("context closed", fs.readdirSync(os.tmpdir()).some((name) => name.startsWith("gridpuzzle-install-")) ? "on its site" : "after its site went");
+  if (CLOSE_FAILS) throw new Error("the browser has gone");
+} }) };
 offlineInstall(browser, {}).then(() => console.log("the check passed"),
   (error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
 `;
@@ -439,7 +443,7 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.equal(code, expected, stderr);
       const [serving, ...rest] = stdout.trim().split('\n');
       assert.match(serving, /^serving .*gridpuzzle-install-/);
-      assert.deepEqual(rest, ['context closed', said]);
+      assert.deepEqual(rest, ['context closed on its site', said]);
       assert.deepEqual(left(directory), [], 'its temporary folder is gone');
     });
 
