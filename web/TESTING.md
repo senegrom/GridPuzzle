@@ -466,23 +466,22 @@ with 130, four with that false entry and one with a report that still said
 `cleanupErrors`. A terminal on Linux or macOS reaches the command and the
 server, not the browser.
 
-With no forced exit a process cannot end by itself while a browser that would
-not close holds its pipes ("How the browser suites run"), and an interrupt
-during a read is such a close with a call in flight. Each close has its 5
-seconds, so the report is final within about ten seconds of an interrupt, and
-a browser that would not close is marked (`markUnclosed()`). The last step of
-both commands, `exitIfUnclosed()`, then ends the process with its exit code,
-after the save and in any run, interrupted or not. A run whose browser closed
-ends by itself. A runner that calls `runBenchmark()` or a command's `main()`
-keeps its process, and its own signal listeners, and ending it is up to that
-runner. `detect_benchmark_regressions.cjs` runs the real command in a process
-of its own on real browsers, interrupted during a read, and
-`corpus-command.test.js` and `tests/test_corpus_benchmark_cli.py` run both
-commands on a stand-in.
+Left to itself a process cannot end while a browser that would not close holds
+its pipes ("How the browser suites run"), and an interrupt during a read is
+the very close, with a call in flight, that provokes WebKit's hang. Each close
+has its 5 seconds, so the report is final within about ten seconds of an
+interrupt, and the runner marks a browser that would not close
+(`markUnclosed()`). The last step of both commands, `exitIfUnclosed()`, then
+ends the process with its exit code, after the save and in any run, interrupted
+or not. A run whose browser closed ends by itself. A runner that calls
+`runBenchmark()` or a command's `main()` keeps its process and its own signal
+listeners, and ending it is up to that runner.
+`detect_benchmark_regressions.cjs` runs the real command in a process of its
+own on real browsers, interrupted during a read, and `corpus-command.test.js`
+and `tests/test_corpus_benchmark_cli.py` run the commands on a stand-in.
 
-The detection
-benchmark writes a `formatVersion` 1 object rather than a bare array: per-image
-measurements sit in `results` (`at640` and `at1600`), with a per-set, per-scale
+The detection benchmark writes a `formatVersion` 1 object rather than a bare
+array: per-image measurements sit in `results` (`at640` and `at1600`), with a per-set, per-scale
 `summary`. With `--live` each result also has `live`, the summary has one more
 row per set, which says `thorough: false`, and the report's `live` field
 records what that column measured (`{ "scale": 640, "thorough": false }`);
