@@ -231,7 +231,7 @@ async function run() {
 
     // The wait sends nothing to the page: a call in flight to it as the close
     // comes can leave WebKit's web process behind on a loaded host, and the
-    // close then never settles (web/TESTING.md).
+    // close may then never settle (web/TESTING.md).
     const lost = await attempt("lost", async (page, report, name, browser) => {
       await page.goto(base);
       const waiting = page.waitForEvent("crash");
@@ -240,7 +240,7 @@ async function run() {
     });
     for (const engine of selected) {
       const report = led(lost, engine, engine === selected[0], `page.waitForEvent: ${CLOSED}`);
-      assert.deepEqual(report.ended.map(({ event }) => event).sort(), ["browser disconnected", "context closed", "page closed"]);
+      assert.deepEqual(report.ended.map(({ event }) => event).sort(), ["browser disconnected", "context closed", "page closed"], `lost: ${engine}: what ended`);
       assert.equal(report.ended.find(({ event }) => event === "page closed").url, base);
       assert.equal(lost.shot(engine), false, "no screenshot without a browser");
       outcome[`lost (${engine})`] = report.ended;
