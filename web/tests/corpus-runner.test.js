@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
-const load = createRequire(import.meta.url);
-const { INTERRUPTED_CLOSE_LIMIT, runBenchmark, writeReport } = load("../../corpus/benchmark-runner.cjs");
-const { CLOSE_LIMIT } = load("../../scripts/watch.cjs");
+const require = createRequire(import.meta.url);
+const { INTERRUPTED_CLOSE_LIMIT, runBenchmark, writeReport } = require("../../corpus/benchmark-runner.cjs");
+const { CLOSE_LIMIT } = require("../../scripts/watch.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 // Bounded: a run that never gets there fails its test, by the test's timeout.
 const reached = async (t, h, event) => { while (!h.events.includes(event) && !t.signal.aborted) await tick(); };

@@ -353,7 +353,7 @@ stalled reads raise their interrupt, or bounds the loop with
 - **Grid detection and layout:** `grid-lines.test.js` pins each rule of the line stage on synthetic warps (thin and light-grey lines, digit columns, a dropped line, a stray line, cage walls, the one-axis fallback); `grid-size-range.test.js` checks rounded large-grid pitches and rectangular counts through `estimateGrid` and `findGrid`; `scan-layout.test.js` and `live-camera-recovery.test.js` keep irrelevant hidden box values from blocking non-boxed families while invalid Sudoku and Killer boxes still block recognition; `scan-layout.test.js` also covers boxes suggested from the grid size (only where the size leaves a choice, retired once a reading with them is confirmed or other boxes are set; `photo-flow.test.js` checks that a live capture keeps a confirmed one retired, that one a capture was read with is named in the capture's notes, also through its orientation check, retires once the capture is confirmed and stands until then, and that confirming a capture of a type without boxes leaves it standing) and flags for a digit repeated inside the chosen boxes.
 - **Service worker and updates:** `runtime-update.test.js` changes WASM, standard-library and lock-file bytes across builds and checks online and offline routing, the full Python installation, activation races and cache cleanup; `offline-retry.test.js` drives the production service worker with controlled network failures and its own deadline clock; `install-deadline.test.js` bounds every installation phase and re-hashes a damaged stored shell entry before publishing; `stale-build.test.js` drives the worker of a page left on the previous build after a deploy (files it never stored come from a newer build's identical copies, never from bytes of another digest, and a file the deploy changed is reported gone; when the origin's list names another build, the worker asks the browser for that build's worker before it fetches a copy, once per build, also for files missed at the same time, never when nothing is missing, when a stored list names the copy, or when the origin's list names its own build or cannot be read, and a check that fails, throws or never answers changes nothing) and the OCR runtime's advice to update when OCR fails to load online (not offline, and not when a deadline expires); `offline-lifecycle.test.js`, `offline-update.test.js` and `offline-core-choice.test.js` cover preparation, updates (one found while the page is open reaches the banner through `updatefound`, and one found while a download or a read runs leaves it to finish, the advice naming it only once it is installed) and which Tesseract core is stored; `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest coverage without downloading dependencies.
 - **Workers and robustness:** `worker-lifecycle.test.js` covers OCR and scan cancellation and worker cleanup; `visible-deadlines.test.js` hides and shows a fake page on a mock clock: a Read's, an OCR job's, OCR loading's and image processing's deadlines and a cancelled OCR job's 2-second bound stop while the page is hidden and still stop a task stuck while it is visible, a deadline that fired never fires again, and the search limit keeps to the clock; `solver-worker.test.js` keeps the solver worker's interpreter across Python exceptions and shares one load between a warm-up and the solve that follows; each module's own test file pins its individual fixes from the code reviews (for example `photo-flow.test.js` a captured still surviving page hide and Escape restoring focus, `capture-store.test.js` the saved-picture download reusing its object URL, and `controllers.test.js` a running task disabling Check and Hint).
-- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows, a page that crashes as Chromium or as WebKit reports it, or between two reads, and a page that throws, which `pageErrors` records however the run ends and which changes nothing else, included) and the detection report, with and without `--live`; `corpus-command.test.js` how the process of the real `detect_benchmark` command ends, on a stand-in for Playwright and the HTTP server (`corpus-command-stand-in.cjs`): the options of its launch, each signal during a read, an interrupt while the server starts, a second signal, a browser that will not close, one that is only slow, a signal during its close, a final save that fails, a run with nothing left to end and a runner that calls `main()`; `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks and how its process ends, on the same stand-in (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
+- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows, the save before an interrupted run's clean-up, the limit of each close, a page that crashes as Chromium or as WebKit reports it, or between two reads, and a page that throws, which `pageErrors` records however the run ends and which changes nothing else, included) and the detection report, with and without `--live`; `corpus-command.test.js` how the process of the real `detect_benchmark` command ends, on a stand-in for Playwright and the HTTP server (`corpus-command-stand-in.cjs`): the options of its launch, each signal during a read, an interrupt while the server starts, a second signal, a browser that will not close, one that is only slow, a signal during its close, a final save that fails, a run with nothing left to end and a runner that calls `main()`; `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks and how its process ends, on the same stand-in (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
 
 ## Offline test method
 
@@ -406,12 +406,12 @@ Both benchmarks share one checkpointing runner. The report is saved before
 start-up, after each image, before the clean-up of an interrupted run and after
 clean-up, so browser loss, SIGINT, SIGTERM or SIGHUP leave a partial report with
 every resource closed; bad JSON, undecodable images and recoverable scan errors
-become individual error rows and later images continue. A page that crashes or closes, a lost browser, or a
-read that fails because its page is gone ends the run instead: the runner
-watches its browser with the suites' `watch()`, since a crashed page is
-neither closed to Playwright nor in a disconnected browser, and reads no
-further image once it has heard one. The image being read keeps its error,
-and a crash heard between two reads fails no image. Whenever a run ends
+become individual error rows and later images continue. A page that crashes or
+closes, a lost browser, or a read that fails because its page is gone ends the
+run instead: the runner watches its browser with the suites' `watch()`, since a
+crashed page is neither closed to Playwright nor in a disconnected browser, and
+reads no further image once it has heard one. The image being read keeps its
+error, and a crash heard between two reads fails no image. Whenever a run ends
 early, the images it did not read are listed in `notRun` (each `family`,
 `set` and `name`): not run, rather than failed one by one. Reports carry
 `status`, `failure`, `ended`, `pageErrors`, `cleanupErrors`, `totalImages`,
@@ -468,14 +468,14 @@ as the run saved it before the clean-up: `interrupted`, with `failure` and
 `notRun`, but without what the clean-up would have found. Where nothing has
 saved that yet it stays at the last checkpoint, `status` still `running` and
 `notRun` empty: during a launch, which the run waits for before it stops, and
-during the clean-up of a run that an interrupt did not end. It takes a few
-seconds at most (0.4 to 3.6 s on a loaded host, 0.04 to 1.5 s on a quiet one),
-for Playwright's exit listener, which kills the browser and removes its folders
-as far as it can: a double Ctrl+C inside Chromium's launch left part of its
-profile, 2 runs of 2. It goes through `process.exit()` for that listener, and
-for the run's own, which stops the HTTP server: on Linux and macOS that would
-otherwise outlive the process and keep its fixed port. Once the report is saved
-the command no longer listens, so a signal while it waits for the browser to
+during the clean-up of a run that an interrupt did not end. The exit takes a
+few seconds at most (0.4 to 3.6 s on a loaded host, 0.04 to 1.5 s on a quiet
+one), for Playwright's exit listener, which kills the browser and removes its
+folders as far as it can: a double Ctrl+C inside Chromium's launch left part of
+its profile, 2 runs of 2. It goes through `process.exit()` for that listener,
+and for the run's own, which stops the HTTP server: on Linux and macOS that
+would otherwise outlive the process and keep its fixed port. Once the report is
+saved the command no longer listens, so a signal while it waits for the browser to
 end has its default action, which runs neither listener. The report is final by
 then, but on Windows the exit code is 0xC000013A and Chromium's profile can stay
 in the temporary folder.
@@ -520,11 +520,11 @@ An interrupted run gives each close `INTERRUPTED_CLOSE_LIMIT`, 5 seconds, so
 that a stuck close does not hold up a Ctrl+C: once a launch in flight has
 returned, the report is final within about ten seconds of an interrupt. A
 signal during the clean-up of a run nothing had interrupted cuts what is left
-of the close it finds to at most those 5 seconds, and the close after it has no
-longer. The price is a browser that is only slow, which is then given up on as
-a stuck one is: it is listed in `cleanupErrors`, which fails a run that had read
-every image, and the process ends with the browser still closing, which can
-leave Chromium's profile.
+of the wait for the close in progress to at most those 5 seconds, and the next
+close has no longer. The price is a browser that is only slow, which is then
+given up on as a stuck one is: it is listed in `cleanupErrors`, which fails a
+run that had read every image, and the process ends with the browser still
+closing, which can leave Chromium's profile.
 
 A runner that calls `runBenchmark()` or a command's `main()` keeps its process
 and its own signal listeners, and ending it is up to that runner, but for a

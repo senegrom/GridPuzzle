@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-const load = createRequire(import.meta.url);
-const { INTERRUPTED_CLOSE_LIMIT } = load("../../corpus/benchmark-runner.cjs"), { CLOSE_LIMIT } = load("../../scripts/watch.cjs");
+const require = createRequire(import.meta.url);
+const { INTERRUPTED_CLOSE_LIMIT } = require("../../corpus/benchmark-runner.cjs"), { CLOSE_LIMIT } = require("../../scripts/watch.cjs");
 
 // How the process of a corpus command ends: interrupted or not, with a browser
 // that closes or one that will not. corpus/detect_benchmark.cjs runs in a tree
