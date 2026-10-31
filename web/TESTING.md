@@ -74,9 +74,10 @@ interrupted by a lost browser (see its "lost" case below), and
 `web/tests/harness-watch.test.js` checks the records and the wait with
 stand-ins for Playwright's objects (`web/tests/playwright-stand-ins.js`),
 and that every script that launches a browser watches it, fails on its
-pages' errors, closes it through `watch()` and keeps all three lists in a
-report that names the browser's version, written right after the close;
-`web/tests/ocr-latency.test.js` runs `ocr_latency` on the stand-ins.
+pages' errors, opens its contexts inside its `try`, closes it through
+`watch()` and keeps all three lists in a report that names the browser's
+version, written right after the close; `web/tests/ocr-latency.test.js` runs
+`ocr_latency` on the stand-ins.
 
 The close that ends an engine cannot hold a run up. `browser.close()` alone
 can wait for ever: Playwright kills a browser that has not closed after 30
@@ -129,7 +130,7 @@ leave its temporary profile, if it has not let go of it in time. A runner that
 requires a suite or calls its `run()` keeps its process, and ending it is then
 up to that runner. `harness_regressions.cjs` checks all this on real browsers,
 in a process of its own, `web/tests/harness-close.test.js` the close and the
-process's end with stand-ins, `solver_update`'s too, and
+process's end with stand-ins, `solver_update`'s and `browser_smoke`'s too, and
 `corpus/benchmark-runner.cjs` shares the timed clean-up, with its own 5
 seconds.
 
@@ -159,6 +160,29 @@ holds `page closed` alone; nothing hangs and nothing stays behind. Beside busy
 processes that happened in none of 279 closes as the case makes them, and in 3
 of 254 with a second's settle added; in the one of those that was timed, the
 main process took 3 seconds to exit and no child held the pipes.
+
+A browser that is up but refuses a suite its context or page fails that engine
+like any other failure: every suite makes its report first and opens
+both inside the `try` that fails an engine, so the failure is led, the browser
+closes, the report is written and the next engine runs. Until October 2026
+`browser_smoke` and `solver_update` opened them before that `try`:
+the browser stayed up, its pipes held Node and the run never ended, with no
+report for that engine and no next one. With no page there is nothing to read,
+so such a report has no screenshot and none of the page's `status` and `state`
+in `browser_smoke`, and no `results` or `workerDebug` in `solver_update`. The
+stale-build check inside `photo_read` has a Node server of its own, which holds
+a run just as a browser does. It too opened its context and page before the
+`try` that stops that server, so that the engine failed and its browser closed
+and the run still never ended. It now opens them inside that `try`, and stops
+the server whatever closing the context does, since that close rejects when it
+is the first call to meet a lost browser. A browser that does not launch at
+all ends the run there, with exit code 1 and no report for that engine:
+nothing is up to hold it.
+`web/tests/harness-close.test.js` runs both scripts as they are with each call
+refused, on a stand-in Playwright and, for `browser_smoke`, a stand-in for
+Python's server on a port the system picks, since the pull-request job that
+runs the unit tests sets up neither Python nor Playwright, and the stale-build
+check on a stand-in browser.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
@@ -362,8 +386,13 @@ would save only about ten seconds, so it stays one job.
 `node --test --test-timeout=60000 web/tests/*.test.js` runs every browser
 unit test; the Python side is in the bounded pytest suite. With the timeout, a
 regression that leaves a test waiting for ever (a decode queue that is never
-released, say) fails that test by name after a minute instead of hanging the
-run until CI's job limit.
+released, say) fails after a minute instead of hanging the run until CI's job
+limit. In Node 22, CI's version, the limit covers each test file as a whole as
+well as each test: a file still running at a minute fails by its file's name,
+with the test it was waiting on unnamed and its later tests not run, and the
+other files go on. Node 24 limits each test alone: it names the test and goes
+on with the file, but what that test left running, a timer say, can keep the
+run from ending.
 
 - **Camera and live tracking:** listed under "Tests" in [LIVE_CAMERA.md](LIVE_CAMERA.md). `live-sampling.test.js` counts what the live camera samples and reads back while it aims at nothing and while it tracks a grid (snapshots, readbacks and the scratch canvases' sizes); no browser suite measures that. `live-transport.test.js` covers the bitmap transport on the camera (no tracking readback on the main thread, bitmaps transferred or closed whatever retires their frame, a frame lost to its bitmap, or to a readback of its own with no picture, costing that frame alone, the restart once bitmap frames keep being lost for half a second, and a video that keeps having no picture read back at the sampling interval rather than its frame rate; its simulation can drive the frame scheduler's `requestVideoFrameCallback` clock at a camera's frame rate), `live-tracker.test.js` its handshake and `live-tracking-pixels.test.js` the worker's readback. `camera-lifecycle.test.js` also covers cancellation while permission, video playback or grid detection is pending, and editing and solving stopping capture.
 - **Recognition:** [OCR_QUALITY.md](OCR_QUALITY.md) names each mechanism's tests. `fragmented-clues.test.js` covers complete fragmented crops in both ink polarities and trailing digits, rejected speckles, unchanged connected glyphs, and review or red unknown status before any solver-backed blue entry. `cage-partition.test.js` covers the cage partition in both print styles (on grey paper, with outlines dashed 6 to 12% inside the cells, beside one stray heavy stroke, past Killer's box lines), the clue regions in pixels on two boards and the operator read from the crop `cageLabelCrop` makes; `cage-operator.test.js` each operator's shape, and each rule whose loss turned more right operators wrong than wrong ones right on the KenKen clues recorded from the corpus; `unread-signs.test.js` the review of Futoshiki signs, `readChevron`'s rules and `prepareScan` reading each sign region's chevron.

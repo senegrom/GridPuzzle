@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -11,8 +11,9 @@ import { Browser } from './playwright-stand-ins.js';
 
 // A browser that will not close: what watch()'s close() records and says,
 // and how a suite's process ends after it, with stand-ins for the browser
-// (harness_regressions checks both on real browsers). Loading watch.cjs or
-// the harness needs no Playwright.
+// (harness_regressions checks both on real browsers); and a suite's run, and
+// the stale-build check's, on a browser that will not open its context or
+// page. Loading watch.cjs or the harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,8 +95,10 @@ function temporary(t) {
 }
 
 // How a process ends that runs `script`: its exit code, whether the bound had
-// to end it, and what it printed.
-const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script], { timeout: 30000, ...options },
+// to end it, and what it printed. These runs take a second or so. The bound
+// allows for a host short of memory, where one at Idle priority was still
+// silent after 30 s.
+const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script], { timeout: 45000, ...options },
   (error, stdout, stderr) => resolve({ code: error?.code ?? 0, killed: error?.killed ?? false, stdout, stderr })));
 
 /* How a process ends that runs `scripts` (name to source), the first as its
@@ -193,50 +196,165 @@ test('a runner that calls a suite\'s run() or requires it keeps its process afte
   assert.match(stdout, /the runner heard: chromium: browser: browser cleanup timed out\s+the runner goes on\s+exit handlers ran with 0/);
 });
 
-// Playwright for solver_update, which loads it by name: every page fails at
-// once, Chromium's browser will not close, and each launch keeps the process
-// alive, as a live browser's pipes do, and says what is on disk by then.
-// With NO_BROWSER, no launch works.
-const PLAYWRIGHT = `const fs = require("node:fs"), report = "browser-artifacts/solver-update-regressions.json";
-const engine = (name, close) => ({ async launch() {
-  if (process.env.NO_BROWSER) throw new Error("no browser here");
-  setInterval(() => {}, 1000);
-  fs.writeFileSync(name + "-found.json", fs.existsSync(report) ? fs.readFileSync(report) : "[]");
-  const page = { goto: async () => { throw new Error("no site here"); }, evaluate: async () => null };
-  return { contexts: () => [], on() {}, version: () => "1.0", close, newContext: async () => ({ newPage: async () => page }) };
-} });
-module.exports = { chromium: engine("chromium", async () => { throw new Error("the pipe broke"); }), webkit: engine("webkit", async () => {}) };
-`;
-const REPORT = 'browser-artifacts/solver-update-regressions.json';
+// What browser_smoke's static server is on the stand-in below, with serve()
+// running as it is on the port this prints: the suite's own port is fixed, so
+// another run on a shared host can hold it, and the pull-request job that runs
+// these tests sets up no Python. It runs outside the suite's tree, which goes
+// after the run: a suite that gave up on a browser exits without waiting for
+// its server, and Windows will not remove a live process's working directory.
+const SERVER = `require("node:http").createServer((request, response) => response.end())
+  .listen(0, "127.0.0.1", function () { console.log("port", this.address().port); });`;
 
-// How solver_update ends on that stand-in, in a tree of its own, and what a
-// report file in that tree holds.
-async function solverRun(t, env) {
-  const directory = temporary(t), inTree = (name) => path.join(directory, name);
-  for (const file of ['scripts/solver_update_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs', 'web/sw.js', 'web/offline.js'])
+// Playwright for the suites with browsers of their own, which load it by name
+// before the harness, so that the harness takes this spawn: every page fails
+// at once, sending first what browser_smoke listens for, and answers evaluate()
+// with what it was asked. Chromium's browser will not close, and each launch
+// keeps the process alive until its browser closes, as a live browser's pipes
+// do, and says what is on disk by then. With NO_BROWSER, no launch works. With
+// REFUSE, that call (newContext or newPage) rejects in Chromium, whose browser
+// stays up and closes.
+const PLAYWRIGHT = `const fs = require("node:fs"), os = require("node:os"), children = require("node:child_process"), { spawn } = children;
+const { NO_BROWSER, REFUSE, REPORT } = process.env;
+children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: os.tmpdir() });
+const engine = (name, close) => ({ async launch() {
+  if (NO_BROWSER) throw new Error("no browser here");
+  const pipes = setInterval(() => {}, 1000), heard = {}, on = (event, listener) => { heard[event] = listener; };
+  fs.writeFileSync(name + "-found.json", fs.existsSync(REPORT) ? fs.readFileSync(REPORT) : "[]");
+  const opening = (call) => { if (name === "chromium" && call === REFUSE) throw new Error(call + " refused"); };
+  const page = { on, setDefaultTimeout() {},
+    goto: async () => {
+      heard.console?.({ type: () => "error", text: () => "Content Security Policy: refused", location: () => ({ url: "", lineNumber: 0 }) });
+      heard.request?.({ url: () => "http://elsewhere/" });
+      throw new Error("no site here");
+    },
+    evaluate: async (read) => String(read),
+    screenshot: async ({ path }) => fs.writeFileSync(path, ""),
+    locator: () => ({ innerText: async () => "what the page said" }) };
+  return { contexts: () => [], on() {}, version: () => "1.0", close: async () => { await close(); clearInterval(pipes); },
+    newContext: async () => { opening("newContext"); return { on, newPage: async () => { opening("newPage"); return page; } }; } };
+} });
+module.exports = { chromium: engine("chromium", async () => { if (!REFUSE) throw new Error("the pipe broke"); }), webkit: engine("webkit", async () => {}) };
+`;
+const SUITES = {
+  solver_update: { script: 'scripts/solver_update_regressions.cjs', report: 'browser-artifacts/solver-update-regressions.json', reads: ['web/sw.js', 'web/offline.js'] },
+  browser_smoke: { script: 'scripts/browser_smoke.cjs', report: 'browser-artifacts/results.json', reads: [] },
+};
+
+// How a suite ends on that stand-in, in a tree of its own, and what its files
+// in that tree hold: `reports` as written, `onDisk` what the tests compare.
+async function suiteRun(t, suite, env) {
+  const { script, report, reads } = SUITES[suite], directory = temporary(t), inTree = (name) => path.join(directory, name);
+  for (const file of [script, 'scripts/harness.cjs', 'scripts/watch.cjs', ...reads])
     fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
-  const ended = await finish(inTree('scripts/solver_update_regressions.cjs'), { cwd: directory, env: { ...process.env, ...env } });
-  const onDisk = (name) => JSON.parse(fs.readFileSync(inTree(name), 'utf8')).map(({ browser, ok, cleanupErrors, failure }) =>
+  fs.mkdirSync(inTree('_site')); // What serve() links for browser_smoke.
+  const ended = await finish(inTree(script), { cwd: directory, env: { ...process.env, REPORT: report, ...env } });
+  const reports = (name = report) => JSON.parse(fs.readFileSync(inTree(name), 'utf8'));
+  const onDisk = (name) => reports(name).map(({ browser, ok, cleanupErrors, failure }) =>
     ({ browser, ok, cleanupErrors, failure: failure?.split('\n')[0] }));
-  return { ...ended, onDisk };
+  return { ...ended, reports, onDisk, exists: (name) => fs.existsSync(inTree(name)) };
 }
 
-test('solver_update has an engine\'s report on disk before the next one starts, and ends with both after a browser that would not close', async (t) => {
-  const { code, killed, stderr, onDisk } = await solverRun(t);
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  assert.equal(code, 1, stderr);
-  const failed = (browser, cleanupErrors) => ({ browser, ok: false, cleanupErrors, failure: 'Error: no site here' });
-  assert.deepEqual(onDisk('chromium-found.json'), []);
-  assert.deepEqual(onDisk('webkit-found.json'), [failed('chromium', ['browser: the pipe broke'])], 'what a hang in WebKit would leave');
-  assert.deepEqual(onDisk(REPORT), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
+const failed = (browser, cleanupErrors, failure = 'Error: no site here') => ({ browser, ok: false, cleanupErrors, failure });
+
+// Side by side: each has a tree, a port and a process of its own, they are most
+// of this file's time, and in Node 22 --test-timeout limits a whole file.
+describe('the suites with browsers of their own, on that stand-in', { concurrency: true }, () => {
+  for (const [suite, { report }] of Object.entries(SUITES)) {
+    test(`${suite} has an engine's report on disk before the next one starts, and ends with both after a browser that would not close`, async (t) => {
+      const { code, killed, stderr, onDisk } = await suiteRun(t, suite);
+      assert.equal(killed, false, `it ended by itself: ${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.deepEqual(onDisk('chromium-found.json'), []);
+      assert.deepEqual(onDisk('webkit-found.json'), [failed('chromium', ['browser: the pipe broke'])], 'what a hang in WebKit would leave');
+      assert.deepEqual(onDisk(report), [failed('chromium', ['browser: the pipe broke']), failed('webkit', [])]);
+    });
+
+    // The browser closes when asked here, so exitIfUnclosed() plays no part: a
+    // browser left up holds the process to the bound, as a real one for ever.
+    for (const call of ['newContext', 'newPage'])
+      test(`${suite} fails an engine whose ${call}() rejects as any other failure: its browser closes, the next engine runs and the run ends by itself`, async (t) => {
+        const { code, killed, stderr, onDisk } = await suiteRun(t, suite, { REFUSE: call });
+        assert.equal(killed, false, `it ended by itself: ${stderr}`);
+        assert.equal(code, 1, stderr);
+        assert.match(stderr, new RegExp(`^chromium Error: ${call} refused`, 'm'));
+        const refused = failed('chromium', [], `Error: ${call} refused`);
+        assert.deepEqual(onDisk('webkit-found.json'), [refused], 'on disk before the next engine starts');
+        assert.deepEqual(onDisk(report), [refused, failed('webkit', [])]);
+      });
+  }
+
+  test('solver_update reads a failed engine\'s page, and has nothing to read in an engine with no page', async (t) => {
+    const { killed, stderr, reports } = await suiteRun(t, 'solver_update', { REFUSE: 'newPage' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    const [chromium, webkit] = reports();
+    assert.deepEqual([chromium.results, chromium.workerDebug, chromium.requests], [undefined, undefined, []]);
+    assert.deepEqual([webkit.results, webkit.workerDebug, webkit.requests],
+      ['() => window.results', '() => window.workerDebug', []]);
+  });
+
+  test('browser_smoke keeps what its listeners heard before the first navigation and captures a failed page, and has nothing to capture in an engine with no page', async (t) => {
+    const { killed, stderr, reports, exists } = await suiteRun(t, 'browser_smoke', { REFUSE: 'newPage' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    const [chromium, webkit] = reports();
+    assert.deepEqual([chromium.errors, chromium.external, chromium.checks], [[], [], []]);
+    assert.deepEqual([chromium.status, chromium.state], [undefined, undefined]);
+    assert.equal(exists('browser-artifacts/chromium-failure.png'), false);
+    assert.deepEqual([webkit.errors, webkit.external], [['Content Security Policy: refused'], ['http://elsewhere/']]);
+    assert.equal(webkit.status, 'what the page said');
+    assert.match(webkit.state, /window\.__gridpuzzleTestState\(\)/);
+    assert.equal(exists('browser-artifacts/webkit-failure.png'), true);
+  });
+
+  test('solver_update still writes its report when it reaches no engine', async (t) => {
+    const { code, killed, stderr, onDisk } = await suiteRun(t, 'solver_update', { NO_BROWSER: '1' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /no browser here/);
+    assert.deepEqual(onDisk(SUITES.solver_update.report), []);
+  });
+
+  test('browser_smoke reaches no engine and ends by itself all the same: no browser is up, and it stops its server', async (t) => {
+    const { code, killed, stderr, exists } = await suiteRun(t, 'browser_smoke', { NO_BROWSER: '1' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /no browser here/);
+    assert.equal(exists(SUITES.browser_smoke.report), false, 'it writes its reports after each engine');
+  });
 });
 
-test('solver_update still writes its report when it reaches no engine', async (t) => {
-  const { code, killed, stderr, onDisk } = await solverRun(t, { NO_BROWSER: '1' });
-  assert.equal(killed, false, `it ended by itself: ${stderr}`);
-  assert.equal(code, 1, stderr);
-  assert.match(stderr, /no browser here/);
-  assert.deepEqual(onDisk(REPORT), []);
+// The stale-build check inside photo_read runs on its engine's browser, which
+// closes whatever the check does, but it serves the site itself, and a server
+// left listening holds the process for ever as a browser left up does. Here
+// nothing else holds it. `REFUSE` is as above; with CLOSE_FAILS the context's
+// close rejects too, as it does when it is the first call to meet a lost
+// browser. They go side by side: a process held runs to the bound.
+const STALE_CHECK = `const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
+const { REFUSE, CLOSE_FAILS } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
+const browser = { newContext: async () => {
+  opening("newContext");
+  return { newPage: async () => opening("newPage"),
+    close: async () => { console.log("context closed"); if (CLOSE_FAILS) throw new Error("the browser has gone"); } };
+} };
+staleBuild(browser, {}).catch((error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
+`;
+
+describe('the stale-build check, on a browser that will not open its context or page', { concurrency: true }, () => {
+  for (const [what, env, said] of [
+    ['newContext() rejects', { REFUSE: 'newContext' }, ['the check failed: newContext refused']],
+    ['newPage() rejects', { REFUSE: 'newPage' }, ['context closed', 'the check failed: newPage refused']],
+    ['newPage() rejects and its context will not close either', { REFUSE: 'newPage', CLOSE_FAILS: '1' },
+      ['context closed', 'the check failed: the browser has gone']],
+  ])
+    test(`stops its server when ${what}, so that the process ends by itself`, async (t) => {
+      const directory = temporary(t), check = path.join(directory, 'check.cjs');
+      fs.mkdirSync(path.join(directory, '_site'));
+      fs.writeFileSync(path.join(directory, '_site', 'build-info.json'), '{ "build": "x" }');
+      fs.writeFileSync(check, STALE_CHECK);
+      const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...env } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.deepEqual(stdout.trim().split('\n'), said);
+    });
 });

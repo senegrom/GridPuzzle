@@ -89,13 +89,16 @@ async function stopServer() {
     const base = `http://127.0.0.1:${server.address().port}/GridPuzzle/`;
     const browser = await engine.launch({ headless: true });
     const watched = watch(browser);
-    const context = await browser.newContext();
-    const page = await context.newPage();
     // Both tabs' uncaught errors, the other tab's with its URL.
     const report = { browser: name, version: browser.version(), errors: watched.errors, ended: watched.ended,
       cleanupErrors: watched.cleanupErrors };
     reports.push(report);
+    // Opened in the try: outside it, a context or page that will not open
+    // leaves the browser up, and its pipes hold the run for ever.
+    let page;
     try {
+      const context = await browser.newContext();
+      page = await context.newPage();
       await page.goto(base);
       await page.evaluate(async () => {
         await navigator.serviceWorker.register("./sw.js");
@@ -237,8 +240,10 @@ async function stopServer() {
       report.ok = false;
       report.failure = error.stack;
       report.requests = [...requests];
-      report.results = await page.evaluate(() => window.results).catch(() => null);
-      report.workerDebug = await page.evaluate(() => window.workerDebug).catch(() => null);
+      if (page) {
+        report.results = await page.evaluate(() => window.results).catch(() => null);
+        report.workerDebug = await page.evaluate(() => window.workerDebug).catch(() => null);
+      }
       console.error(name, error);
       console.error(JSON.stringify({ retained: report.retained, workerDebug: report.workerDebug, requests }));
     } finally {
