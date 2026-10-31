@@ -19,9 +19,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const INTERRUPTED_CLOSE_LIMIT = 5000;
 // What a signal during the clean-up of a run nothing interrupted leaves of the
 // wait for each close. Such a run has saved nothing of how it ended, and a
-// console window closing ends the process 5 seconds after it hears that, so
-// this has to leave its final save the time to come first.
-const LATE_SIGNAL_CLOSE_LIMIT = 4000;
+// console window closing ends the process 5 seconds after it hears that: the
+// two closes a hung browser holds up, and the final save, have to fit in those.
+const LATE_SIGNAL_CLOSE_LIMIT = 2000;
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 /* Every image with a target file under a corpus root, families, sets and

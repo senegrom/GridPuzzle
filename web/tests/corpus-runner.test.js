@@ -258,9 +258,10 @@ test("cleanup failures do not hide the original browser error or prevent other c
 });
 
 // A closing console ends the process 5 seconds after it hears that (web/TESTING.md):
-// the last limit is what lets a run nothing interrupted save before that.
-test("a close has half a minute, five seconds once the run is interrupted, and four after a signal during the clean-up of a run nothing interrupted", () => {
-  assert.equal(CLOSE_LIMIT, 30000); assert.equal(INTERRUPTED_CLOSE_LIMIT, 5000); assert.equal(LATE_SIGNAL_CLOSE_LIMIT, 4000);
+// the last limit is what lets the two closes and the final save of a run nothing
+// interrupted come first.
+test("a close has half a minute, five seconds once the run is interrupted, and two after a signal during the clean-up of a run nothing interrupted", () => {
+  assert.equal(CLOSE_LIMIT, 30000); assert.equal(INTERRUPTED_CLOSE_LIMIT, 5000); assert.equal(LATE_SIGNAL_CLOSE_LIMIT, 2000);
 });
 
 // A browser that is only slow to close is no failure: a run nothing interrupted

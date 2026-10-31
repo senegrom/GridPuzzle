@@ -93,7 +93,7 @@ def test_a_missing_list_or_corpus_stops_the_benchmark_with_a_message(tmp_path):
 NOT_RUN = [{"family": "latinsquare", "set": "fixture", "name": "2.png"}]
 # CLOSE_LIMIT, INTERRUPTED_CLOSE_LIMIT and LATE_SIGNAL_CLOSE_LIMIT, as the
 # stand-in's plan keys what a timer takes instead: the tests shorten them.
-CLOSE_LIMIT, INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT = "30000", "5000", "4000"
+CLOSE_LIMIT, INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT = "30000", "5000", "2000"
 
 
 def ending(tmp_path, **plan):
