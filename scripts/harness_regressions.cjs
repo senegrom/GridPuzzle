@@ -129,10 +129,13 @@ async function unclosableRun(how, directory) {
 }
 
 async function run() {
+  // Before anything is up: a server started first would hold the run for ever
+  // after an engine this cannot name.
+  const selected = selectedEngines();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-harness-"));
   fs.writeFileSync(path.join(directory, "index.html"), "<!doctype html><title>Harness</title><p>A page to end.");
   const server = await serve({ directory });
-  const base = server.base, selected = selectedEngines(), outcome = {};
+  const base = server.base, outcome = {};
   try {
     // A wrapper on the page's screenshot() notes when engines() takes it.
     const ordinary = await attempt("ordinary", async (page, report) => {

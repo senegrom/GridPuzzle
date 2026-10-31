@@ -106,7 +106,8 @@ async function run(){
     }
    },{timeout:60000});}catch(e){failures.push(e);}finally{if(fs.existsSync(`browser-artifacts/${file}`))reports.push(...JSON.parse(fs.readFileSync(`browser-artifacts/${file}`,'utf8')));}
   }
- }finally{fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));await server.close();}
+ // In this order: a report that cannot be written must not leave the server up.
+ }finally{await server.close();fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));}
  if(failures.length)throw failures[0];
 }
 module.exports={run,labels,replayFixtures,requireAcquisition};main(module,run);
