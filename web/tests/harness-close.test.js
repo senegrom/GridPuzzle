@@ -11,9 +11,10 @@ import { Browser } from './playwright-stand-ins.js';
 
 // A browser that will not close: what watch()'s close() records and says,
 // and how a suite's process ends after it, with stand-ins for the browser
-// (harness_regressions checks both on real browsers); and a suite's run, and
-// the stale-build check's, on a browser that will not open its context or
-// page. Loading watch.cjs or the harness needs no Playwright.
+// (harness_regressions checks both on real browsers); a suite's run, and the
+// stale-build check's, on a browser that will not open its context or page;
+// and what else can leave a server up to hold a run, as a browser does.
+// Loading watch.cjs or the harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,8 +98,8 @@ function temporary(t) {
 // How a process ends that runs `script`: its exit code, whether the bound had
 // to end it, and what it printed. These runs take a second or so. The bound
 // allows for a host short of memory, where one at Idle priority was still
-// silent after 30 s.
-const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script], { timeout: 45000, ...options },
+// silent after 30 s. `script` can be an array, with what Node takes before it.
+const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script].flat(), { timeout: 45000, ...options },
   (error, stdout, stderr) => resolve({ code: error?.code ?? 0, killed: error?.killed ?? false, stdout, stderr })));
 
 /* How a process ends that runs `scripts` (name to source), the first as its
@@ -199,23 +200,32 @@ test('a runner that calls a suite\'s run() or requires it keeps its process afte
 // What browser_smoke's static server is on the stand-in below, with serve()
 // running as it is on the port this prints: the suite's own port is fixed, so
 // another run on a shared host can hold it, and the pull-request job that runs
-// these tests sets up no Python. It runs outside the suite's tree, which goes
-// after the run: a suite that gave up on a browser exits without waiting for
-// its server, and Windows will not remove a live process's working directory.
+// these tests sets up no Python. It runs in this process's temporary directory,
+// outside any one run's tree and TEMP, which go after the run: a suite that gave
+// up on a browser exits without waiting for its server, and Windows will not
+// remove a live process's working directory.
 const SERVER = `require("node:http").createServer((request, response) => response.end())
   .listen(0, "127.0.0.1", function () { console.log("port", this.address().port); });`;
 
+// A spawn that starts that server and says what it was to serve, for a process
+// that loads this before the harness, which takes spawn as it loads.
+const SPAWN = `const children = require("node:child_process"), { spawn } = children;
+children.spawn = (command, args, options) => {
+  console.log("serving", args.at(-1));
+  return spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: ${JSON.stringify(os.tmpdir())} });
+};
+`;
+
 // Playwright for the suites with browsers of their own, which load it by name
-// before the harness, so that the harness takes this spawn: every page fails
+// before the harness, so that the harness takes that spawn: every page fails
 // at once, sending first what browser_smoke listens for, and answers evaluate()
 // with what it was asked. Chromium's browser will not close, and each launch
 // keeps the process alive until its browser closes, as a live browser's pipes
 // do, and says what is on disk by then. With NO_BROWSER, no launch works. With
 // REFUSE, that call (newContext or newPage) rejects in Chromium, whose browser
 // stays up and closes.
-const PLAYWRIGHT = `const fs = require("node:fs"), os = require("node:os"), children = require("node:child_process"), { spawn } = children;
+const PLAYWRIGHT = `${SPAWN}const fs = require("node:fs");
 const { NO_BROWSER, REFUSE, REPORT } = process.env;
-children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: os.tmpdir() });
 const engine = (name, close) => ({ async launch() {
   if (NO_BROWSER) throw new Error("no browser here");
   const pipes = setInterval(() => {}, 1000), heard = {}, on = (event, listener) => { heard[event] = listener; };
@@ -242,13 +252,15 @@ const SUITES = {
 
 // How a suite ends on that stand-in, in a tree of its own, and what its files
 // in that tree hold: `reports` as written, `onDisk` what the tests compare.
-async function suiteRun(t, suite, env) {
+// `prepare` gets that tree before the run.
+async function suiteRun(t, suite, env, prepare) {
   const { script, report, reads } = SUITES[suite], directory = temporary(t), inTree = (name) => path.join(directory, name);
   for (const file of [script, 'scripts/harness.cjs', 'scripts/watch.cjs', ...reads])
     fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
   fs.mkdirSync(inTree('_site')); // What serve() links for browser_smoke.
+  prepare?.(directory);
   const ended = await finish(inTree(script), { cwd: directory, env: { ...process.env, REPORT: report, ...env } });
   const reports = (name = report) => JSON.parse(fs.readFileSync(inTree(name), 'utf8'));
   const onDisk = (name) => reports(name).map(({ browser, ok, cleanupErrors, failure }) =>
@@ -315,6 +327,15 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
     assert.deepEqual(onDisk(SUITES.solver_update.report), []);
   });
 
+  // It saves before it stops its server, so that server is still up here: what
+  // ends the process is the failure itself, an unhandled rejection.
+  test('solver_update ends by itself when it cannot write its report', async (t) => {
+    const { code, killed, stderr } = await suiteRun(t, 'solver_update', { NO_BROWSER: '1' }, noReports);
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /EEXIST.*browser-artifacts/);
+  });
+
   test('browser_smoke reaches no engine and ends by itself all the same: no browser is up, and it stops its server', async (t) => {
     const { code, killed, stderr, exists } = await suiteRun(t, 'browser_smoke', { NO_BROWSER: '1' });
     assert.equal(killed, false, `it ended by itself: ${stderr}`);
@@ -356,5 +377,137 @@ describe('the stale-build check, on a browser that will not open its context or 
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, 1, stderr);
       assert.deepEqual(stdout.trim().split('\n'), said);
+    });
+});
+
+const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, import.meta.url));
+
+// The offline-install check inside photo_read serves a folder of its own from
+// Python, the server the harness starts: here, the stand-in. Its page answers
+// all the check asks, unless PAGE_FAILS; with CLOSE_FAILS its context's close
+// rejects, as it does when it is the first call to meet a lost browser, and
+// with RM_FAILS its folder will not go. That close says whether the folder is
+// still there, which it should be: the page closes on its site.
+const OFFLINE_CHECK = `${SPAWN}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
+const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, RM_FAILS } = process.env;
+if (RM_FAILS) fs.rmSync = () => { throw new Error("the folder is in use"); };
+const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },
+  waitForFunction: async () => {}, waitForNavigation: async () => {}, click: async () => {}, textContent: async () => "failed",
+  locator: () => ({ isEnabled: async () => true }), evaluate: async () => "unchanged saved puzzle" };
+const browser = { newContext: async () => ({ newPage: async () => page, close: async () => {
+  console.log("context closed", fs.readdirSync(os.tmpdir()).some((name) => name.startsWith("gridpuzzle-install-")) ? "on its site" : "after its site went");
+  if (CLOSE_FAILS) throw new Error("the browser has gone");
+} }) };
+offlineInstall(browser, {}).then(() => console.log("the check passed"),
+  (error) => { console.log("the check failed:", error.code ?? error.message); process.exitCode = 1; });
+`;
+
+// Where a process makes its temporary folders: in the test's own, so that one
+// left behind can be seen, and goes with it.
+const temporaryIn = (directory) => ({ TEMP: directory, TMP: directory, TMPDIR: directory });
+const left = (directory) => fs.readdirSync(directory).filter((name) => name.startsWith('gridpuzzle-'));
+
+// How a process ends that runs the script `name` as it is, in `directory`, with
+// the stand-in for Python's server.
+function scripted(name, directory, env) {
+  const preload = path.join(directory, 'spawn.cjs');
+  fs.writeFileSync(preload, SPAWN);
+  return finish(['-r', preload, script(name)], { cwd: directory, env: { ...process.env, ...temporaryIn(directory), ...env } });
+}
+
+// A file where a suite's reports go: nothing can be written there.
+function noReports(directory) { fs.writeFileSync(path.join(directory, 'browser-artifacts'), ''); }
+
+// The fixtures external_replay wants before it starts anything, as it pins them.
+function pinnedFixtures(directory) {
+  const source = fs.readFileSync(script('external_replay_regressions'), 'utf8');
+  fs.mkdirSync(path.join(directory, 'live-fixtures'));
+  fs.writeFileSync(path.join(directory, 'live-fixtures', 'fixtures.json'), JSON.stringify({
+    revision: /ACQUISITION_REVISION='(\w+)'/.exec(source)[1],
+    fixtures: [{ name: 'another' }, ...[...source.matchAll(/'(images\/[^']+)':'(\w+)'/g)].map(([, name, sha256]) => ({ name, sha256 }))],
+  }));
+}
+
+// ocr_latency in a process of its own: its server is Node's, in that process,
+// and it reads its fixtures from the repository as it loads. No browser starts.
+const OCR_LATENCY = `const refused = { launch: async () => { throw new Error("no browser here"); } };
+require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { chromium: refused, webkit: refused }, port: 0, out: process.env.OUT })
+  .catch((error) => { console.log("the run failed:", error.code ?? error.message); process.exitCode = 1; });
+`;
+
+// A server left up holds its process for ever, as a browser does, and two
+// failures leave one up: one between its start and the try whose finally stops
+// it, and one ahead of the stop in that finally. Nothing else holds these runs.
+// They go side by side: one that does not end runs to the bound.
+describe('what a run started does not outlive its failure', { concurrency: true }, () => {
+  // Its folder goes unless that is what failed. Then the server must be down
+  // already, so the stop comes first. Before the server starts there is no stop
+  // to make, and the failure stays the check's own.
+  for (const [what, env, expected, said] of [
+    ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
+    ['its page fails and its context will not close either', { PAGE_FAILS: '1', CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
+    ['its page fails', { PAGE_FAILS: '1' }, 1, 'the check failed: no site here'],
+    ['all goes well', {}, 0, 'the check passed'],
+    ['its folder will not go', { RM_FAILS: '1' }, 1, 'the check failed: the folder is in use'],
+    ['it fails before its server starts', { NO_SITE: '1' }, 1, 'the check failed: ENOENT'],
+  ])
+    test(`the offline-install check ends by itself when ${what}`, async (t) => {
+      const directory = temporary(t), check = path.join(directory, 'check.cjs');
+      fs.mkdirSync(path.join(directory, '_site'));
+      if (!env.NO_SITE) fs.writeFileSync(path.join(directory, '_site', 'offline.js'), '');
+      fs.writeFileSync(check, OFFLINE_CHECK);
+      const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), ...env } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, stderr);
+      const lines = stdout.trim().split('\n');
+      if (!env.NO_SITE) assert.ok(lines.shift().startsWith(`serving ${path.join(directory, 'gridpuzzle-install-')}`), stdout);
+      assert.deepEqual(lines, ['context closed on its site', said]);
+      if (!env.RM_FAILS) assert.deepEqual(left(directory), [], 'its temporary folder is gone');
+    });
+
+  test('harness_regressions stops at an engine it does not know, with nothing started', async (t) => {
+    const directory = temporary(t);
+    const { code, killed, stdout, stderr } = await scripted('harness_regressions', directory, { BROWSER_ENGINES: 'safari' });
+    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.match(stderr, /BROWSER_ENGINES names no engine safari; use chromium and\/or webkit/);
+    assert.equal(stdout, '', 'no server');
+    assert.deepEqual(left(directory), [], 'no temporary folder');
+  });
+
+  for (const [name, fixture] of [['ocr_quality', /ENOENT.*ground-truth\.json/], ['external_replay', /ENOENT.*fixtures\.json/]])
+    test(`${name} stops at a fixture it cannot read, with nothing started`, async (t) => {
+      const { code, killed, stdout, stderr } = await scripted(`${name}_regressions`, temporary(t));
+      assert.equal(killed, false, `it ended by itself: ${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.match(stderr, fixture);
+      assert.equal(stdout, '', 'no server');
+    });
+
+  for (const [name, prepare] of [['live_recovery', () => {}], ['external_replay', pinnedFixtures]])
+    test(`${name} stops its server when it cannot write its report`, async (t) => {
+      const directory = temporary(t);
+      noReports(directory);
+      prepare(directory);
+      const { code, killed, stdout, stderr } = await scripted(`${name}_regressions`, directory);
+      assert.equal(killed, false, `it ended by itself: ${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.match(stderr, /EEXIST.*browser-artifacts/);
+      assert.match(stdout, /^serving _site$/m, 'it had started its server');
+    });
+
+  for (const [what, out, failure, engines = ''] of [
+    ['stops at a folder for its report it cannot make', (directory) => { noReports(directory); return 'browser-artifacts/ocr-latency.json'; }, 'EEXIST'],
+    ['stops its server when it cannot write its report', (directory) => { fs.mkdirSync(path.join(directory, 'report')); return 'report'; }, 'EISDIR'],
+    ['stops at an engine it does not know', () => 'ocr-latency.json', 'BROWSER_ENGINES names no engine safari; use chromium and/or webkit', 'safari'],
+  ])
+    test(`ocr_latency ${what}`, async (t) => {
+      const directory = temporary(t), run = path.join(directory, 'run.cjs');
+      fs.writeFileSync(run, OCR_LATENCY);
+      const { code, killed, stdout, stderr } = await finish(run, { cwd: fileURLToPath(new URL('../..', import.meta.url)),
+        env: { ...process.env, BROWSER_ENGINES: engines, OUT: path.join(directory, out(directory)) } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.equal(stdout.trim(), `the run failed: ${failure}`);
     });
 });

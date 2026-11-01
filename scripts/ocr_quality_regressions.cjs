@@ -145,7 +145,9 @@ function qualityCases() {
 }
 
 async function run() {
-  const server = await serve(), cases = qualityCases();
+  // The cases first: a fixture that cannot be read would leave a server up,
+  // which holds the run for ever.
+  const cases = qualityCases(), server = await serve();
   try {
     await engines("ocr-quality.json", async (page, report, name) => {
       report.scans = [];

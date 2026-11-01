@@ -275,9 +275,11 @@ async function run() {
     }
     if (failures.length) throw failures[0];
   } finally {
+    // In this order: a report that cannot be written must not leave the server
+    // up, which holds the run for ever.
+    await server.close();
     fs.mkdirSync('browser-artifacts', { recursive: true });
     fs.writeFileSync('browser-artifacts/live-recovery.json', JSON.stringify(reports, null, 2) + '\n');
-    await server.close();
   }
 }
 module.exports = { run }; main(module, run);
