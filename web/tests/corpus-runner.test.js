@@ -466,6 +466,7 @@ for (const [run, faults, status, failure] of ENDED_EARLY)
       "context closed", "browser closed", "server killed", `saved ${status}`]);
     const [before, final] = saves.slice(-2);
     assert.deepEqual([before.status, before.failure, before.completedImages], [status, failure, 2]);
+    assert.deepEqual(before.results.map(row => row.error ?? null), [null, failure], "the read in flight keeps its error");
     assert.deepEqual(before.notRun.map(item => item.name), ["2.png"]);
     assert.deepEqual([before.cleanupErrors, before.pageErrors], [[], []]);
     // After an interrupt the context's failure says nothing (above).
@@ -490,6 +491,23 @@ for (const [run, faults, status, failure] of ENDED_EARLY)
     const [before] = saves.slice(-2);
     assert.deepEqual([before.status, before.failure, before.completedImages, before.notRun], [status, failure, 2, []]);
   });
+
+// And for a run that fails between two reads, with no read failed: a crash
+// heard after a read that succeeded, as real WebKit reported one (above).
+test("a run that fails between two reads has its status, failure and notRun on disk before the clean-up starts too", async t => {
+  const h = harness(t, { crash: "between" }), saves = [];
+  h.deps.writeReport = (file, report) => {
+    writeReport(file, report); h.events.push(`saved ${report.status}`); saves.push(JSON.parse(fs.readFileSync(file)));
+  };
+  const report = await h.run();
+  assert.equal(report.status, "failed");
+  assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running", "saved failed",
+    "context closed", "browser closed", "server killed", "saved failed"]);
+  const [before] = saves.slice(-2);
+  assert.deepEqual([before.status, before.failure, before.completedImages], ["failed", report.failure, 2]);
+  assert.deepEqual(before.results.map(row => row.error ?? null), [null, null], "no read failed");
+  assert.deepEqual(before.notRun.map(item => item.name), ["2.png"]);
+});
 
 // Saves before and after the run's images are pinned above and, on real
 // browsers, by detect_benchmark_regressions.cjs. A run that read every image
