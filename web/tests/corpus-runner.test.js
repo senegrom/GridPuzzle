@@ -474,6 +474,23 @@ for (const [run, faults, status, failure] of ENDED_EARLY)
     assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the final save is what stays");
   });
 
+// The same on its last image, with nothing left to list as not run: the last
+// checkpoint has every row, but not what ended the run.
+for (const [run, faults, status, failure] of ENDED_EARLY)
+  test(`${run} on its last image has its status and failure on disk before the clean-up starts too, with notRun empty`, async t => {
+    const h = harness(t, faults), saves = [];
+    h.items.splice(2);
+    h.deps.writeReport = (file, report) => {
+      writeReport(file, report); h.events.push(`saved ${report.status}`); saves.push(JSON.parse(fs.readFileSync(file)));
+    };
+    const report = await h.run();
+    assert.deepEqual([report.status, report.failure, report.completedImages, report.notRun], [status, failure, 2, []]);
+    assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running", `saved ${status}`,
+      "context closed", "browser closed", "server killed", `saved ${status}`]);
+    const [before] = saves.slice(-2);
+    assert.deepEqual([before.status, before.failure, before.completedImages, before.notRun], [status, failure, 2, []]);
+  });
+
 // Saves before and after the run's images are pinned above and, on real
 // browsers, by detect_benchmark_regressions.cjs. A run that read every image
 // has nothing to save before its clean-up, which decides whether it is complete.
