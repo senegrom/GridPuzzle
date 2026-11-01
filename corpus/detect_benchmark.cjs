@@ -10,7 +10,8 @@
    Reports use the versioned envelope documented in web/TESTING.md ("Puzzle
    image corpus and benchmarks"). */
 const fs = require("node:fs");
-const { corpusImages, runBenchmark } = require("./benchmark-runner.cjs");
+const { corpusImages, interruptible, runBenchmark } = require("./benchmark-runner.cjs");
+const { exitIfUnclosed } = require("../scripts/watch.cjs");
 const BASE = "http://127.0.0.1:8782/";
 const SCALES = [640, 1600];
 // live-camera.js locate(): a copy of the frame at most 640 pixels on its long
@@ -133,13 +134,7 @@ async function main(args = process.argv.slice(2)) {
   if (!list.length) { console.error("no corpus images with corner ground truth under", options.corpus); return 2; }
   console.log(`${list.length} selected images (including invalid targets for diagnosis)`
     + (options.live ? `; the live camera's detection (thorough: false at ${LIVE.scale}) too` : ""));
-  const controller = new AbortController();
-  const onInt = () => controller.abort(Error("Detection benchmark interrupted by SIGINT")),
-    onTerm = () => controller.abort(Error("Detection benchmark interrupted by SIGTERM"));
-  process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
-  let report;
-  try { report = await runDetectionBenchmark({ items: list, options, signal: controller.signal }); }
-  finally { process.removeListener("SIGINT", onInt); process.removeListener("SIGTERM", onTerm); }
+  const report = await interruptible("Detection benchmark", signal => runDetectionBenchmark({ items: list, options, signal }));
   for (const row of report.summary)
     console.log(`${row.set} ${row.thorough === false ? "live " : ""}at ${row.scale}: ${row.good}/${row.images} good, ${row.found} found, `
       + `${row.quad} quad only, ${row.none} none, ${row.failed} failed; `
@@ -149,5 +144,6 @@ async function main(args = process.argv.slice(2)) {
   return report.status !== "complete" || report.results.some(row => row.error) ? 1 : 0;
 }
 if (require.main === module) main().then(code => { process.exitCode = code; })
-  .catch(error => { console.error(error); process.exitCode = 1; });
+  .catch(error => { console.error(error); process.exitCode = 1; })
+  .finally(() => exitIfUnclosed(module));
 module.exports = { items, detectOne, measureDetection, summarizeDetection, runDetectionBenchmark, parseOptions, main, LIVE };

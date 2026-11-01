@@ -1,16 +1,29 @@
 /* Testable benchmark lifecycle. A report is checkpointed before startup, after
-   each image and after cleanup; it remains useful when a later image fails. */
+   each image, before the cleanup of a run that ended early (interrupted or
+   failed) and after cleanup; it remains useful when a later image fails. */
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 // What ends the page and the browser without the run asking, as the browser
-// suites hear it, and a clean-up with a time limit; watch.cjs, unlike the
-// suites' harness, leaves the process's SIGINT and SIGTERM to the benchmarks,
-// which save their report first.
-const { GONE, cleanUp, watch } = require("../scripts/watch.cjs");
+// suites hear it, a clean-up with a time limit, and the word that a browser
+// would not close; watch.cjs, unlike the suites' harness, leaves the process's
+// signals to the benchmarks, which save their report first (interruptible()).
+const { CLOSE_LIMIT, GONE, cleanUp, markUnclosed, watch } = require("../scripts/watch.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// How long an interrupted run's clean-up waits for each close: someone is
+// waiting on that Ctrl+C, and a stuck close should not hold them up. A run
+// nothing interrupted has CLOSE_LIMIT, since a browser that is only slow is no
+// failure; here such a browser is given up on as a stuck one is.
+const INTERRUPTED_CLOSE_LIMIT = 5000;
+// What a signal during the clean-up of a run nothing interrupted leaves of the
+// wait for each close, the one in progress counted from when the process hears
+// the signal. Windows ends a process on a closing console about 5 seconds after
+// it hears that, and such a run has saved nothing of what its clean-up found,
+// nor, when it read every image, how it ended: the two closes a hung browser
+// holds up, and the final save, have to fit in those.
+const LATE_SIGNAL_CLOSE_LIMIT = 2000;
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 /* Every image with a target file under a corpus root, families, sets and
@@ -103,10 +116,41 @@ async function waitForServer(base, getError) {
   throw Error("Benchmark HTTP server did not become ready");
 }
 
+// The signals a benchmark command stops on, each with the exit code of a
+// process that a second signal ends.
+const STOPS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+
+/* Runs a command's benchmark, `run(signal)`. The first of the signals in
+   STOPS aborts `signal` with "<label> interrupted by <its name>": the run
+   stops, saves its report, closes what it opened and saves it again, and the
+   command ends as any incomplete run does. A second signal, of any of them,
+   ends the process at once, with what the run saved last, also under a runner
+   that called a command's main(). It ends it through process.exit(), since
+   the default action would skip what listens for the process's exit:
+   Playwright's listener, which kills the browser, and the run's, which stops
+   the server. What the process did with these signals before the run, it does
+   again after it, so a signal after the final save has its default action. */
+async function interruptible(label, run) {
+  const controller = new AbortController(), stops = new Map();
+  for (const [name, code] of Object.entries(STOPS)) {
+    stops.set(name, () => {
+      if (controller.signal.aborted) process.exit(code);
+      controller.abort(Error(`${label} interrupted by ${name}`));
+    });
+    process.on(name, stops.get(name));
+  }
+  try { return await run(controller.signal); }
+  finally { for (const [name, stop] of stops) process.removeListener(name, stop); }
+}
+
 async function runBenchmark({ items, options, scan, output = "browser-artifacts/corpus-benchmark.json",
   base = "http://127.0.0.1:8780/", signal, measure,
   summarizeResults = summarize, reportMetadata = { scoreVersion: SCORE_VERSION } }, dependencies = {}) {
-  const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true }));
+  // The signals are the command's (interruptible() above). Playwright's own
+  // handlers, on by default, would hear them as well: they close the browser
+  // under the run, and on SIGINT end the process with 130 while it saves.
+  const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true,
+    handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false }));
   const startServer = dependencies.startServer || (() => spawn("python",
     ["-m", "http.server", new URL(base).port || "80", "--bind", "127.0.0.1", "--directory", options.site || "_site"], { stdio: "ignore" }));
   const wait = dependencies.waitForServer || waitForServer;
@@ -144,19 +188,31 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     summary: summarizeResults(results), results });
   // If output cannot be opened, fail before allocating any browser/server.
   persist(output, report());
+  // On Linux and macOS the server outlives a process that ends without this
+  // run's clean-up, as a second signal ends it, and keeps its fixed port.
+  const stopServer = () => { server.kill(); };
   try {
     signal?.throwIfAborted();
     server = startServer();
+    process.once("exit", stopServer);
     server.on("error", error => { serverError = error; });
     server.on("exit", (code, reason) => {
       if (!closing) serverError = Error(`Benchmark HTTP server exited: ${code ?? reason}`);
     });
-    await abortable(wait(base, () => serverError), signal);
+    // Told of an interrupt too, since nothing else stops this poll: left to
+    // itself it would keep the process alive through all its attempts.
+    await abortable(wait(base, () => serverError || (signal?.aborted ? signal.reason : null)), signal);
     if (serverError) throw serverError;
+    // Not abortable: a launch left behind would hold a browser nothing closes,
+    // and Playwright gives one three minutes. An interrupt during it stops the
+    // run here, since a browser closed with a call in flight can hold the
+    // process (see the clean-up below). The two calls after it have no limit
+    // on a browser that is up but stuck, so an interrupt ends the wait.
     browser = await launch();
     watched = watch(browser);
-    context = await browser.newContext({ serviceWorkers: "block" });
-    const page = await context.newPage();
+    signal?.throwIfAborted();
+    context = await abortable(browser.newContext({ serviceWorkers: "block" }), signal);
+    const page = await abortable(context.newPage(), signal);
     page.setDefaultTimeout(180000);
     // Whether the page or the browser is gone. A crashed page is neither
     // closed to Playwright nor in a disconnected browser: watch() hears its
@@ -196,20 +252,41 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   } catch (error) {
     // Said once, led by what ended, as a browser suite's failure is: after a
     // failure that says its target is gone, lead() waits up to a second for
-    // what Playwright reports after it.
-    failure = message(watched ? await watched.lead(error) : error);
+    // what Playwright reports after it. An interrupted run says it was
+    // interrupted, whatever failed with it: a Ctrl+C on a Windows console
+    // reaches a browser as it starts, and the launch fails with its whole log.
+    const led = watched ? await watched.lead(error) : error;
+    failure = message(signal?.aborted ? signal.reason : led);
     status = signal?.aborted ? "interrupted" : "failed";
+    // A second signal, or a console window closing on a slow close, can end
+    // the process during the clean-up, so a run that ended early, interrupted
+    // or failed by itself, says now what ended it and what was not run. A
+    // complete run never comes here, and its checkpoints stay as they were.
+    // This is one more checkpoint: however it fails it stops no clean-up, and
+    // the final save reports a write failure.
+    try { persist(output, report()); }
+    catch (error) { log(`  checkpoint before the clean-up not saved (${message(error)})`); }
   } finally {
     closing = true;
-    const close = async (name, action) => {
-      const failed = await cleanUp(name, action, 5000);
-      if (failed) cleanupErrors.push(failed);
+    // An interrupt, also one that comes during a close, shortens the wait for it.
+    const close = async (name, action, listed = () => true) => {
+      const shortLimit = status === "interrupted" ? INTERRUPTED_CLOSE_LIMIT : LATE_SIGNAL_CLOSE_LIMIT;
+      const failed = await cleanUp(name, action, CLOSE_LIMIT, { signal, shortLimit });
+      if (failed && listed()) cleanupErrors.push(failed);
+      return failed;
     };
     // Closing the context also terminates its scanner workers. Do not send a
     // new evaluate() to a crashed or stalled page just to cancel the scanner.
-    if (context) await close("context", () => context.close());
-    if (browser) await close("browser", () => browser.close());
+    // After an interrupt, also one that comes during it, its failure says
+    // nothing: a Ctrl+C on a Windows console reaches the browser too, and
+    // Chromium goes down under this close. It still comes first, since WebKit
+    // can hang on a close with a call in flight.
+    if (context) await close("context", () => context.close(), () => !signal?.aborted);
+    // A browser that would not close can keep the process alive for ever. The
+    // commands end with exitIfUnclosed(), after the save below.
+    if (browser && await close("browser", () => browser.close())) markUnclosed();
     if (server) await close("server", () => server.kill());
+    process.removeListener("exit", stopServer);
     if (cleanupErrors.length && status === "complete") status = "failed";
     try { persist(output, report()); }
     catch (error) {
@@ -358,6 +435,6 @@ function selectImages(options) {
   return options.limit ? found.slice(0, options.limit) : found;
 }
 
-module.exports = { corpusImages, runBenchmark, summarize, writeReport, selectImages,
+module.exports = { INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT, corpusImages, interruptible, runBenchmark, summarize, writeReport, selectImages,
   previewSize, readingCorners, readGrid, photoFlowReview, photoFlowMeasure, photoFlowHarness, photoFlowMetadata,
   PHOTO_MAX_SIDE, CONFIRMED };

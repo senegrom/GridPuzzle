@@ -1,12 +1,15 @@
 """corpus/benchmark.cjs's command line, run through Node.
 
 The CLI stays out of the deployment's inputs (see tests/test_workflows.py), so
-its option checks are tested here rather than among the browser unit tests. A
-typo must not turn a targeted measurement into an hours-long run over the whole
-corpus in Chromium, or measure another engine or corner mode.
+its option checks, and how its process ends, are tested here rather than among
+the browser unit tests. A typo must not turn a targeted measurement into an
+hours-long run over the whole corpus in Chromium, or measure another engine or
+corner mode.
 """
 import json
+import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -86,3 +89,134 @@ def test_a_missing_list_or_corpus_stops_the_benchmark_with_a_message(tmp_path):
         assert run.stdout == "", args
         (line,) = run.stderr.strip().splitlines()
         assert line.startswith("Cannot select images: ENOENT: no such file or directory") and named in line, line
+
+
+NOT_RUN = [{"family": "latinsquare", "set": "fixture", "name": "2.png"}]
+# CLOSE_LIMIT, INTERRUPTED_CLOSE_LIMIT and LATE_SIGNAL_CLOSE_LIMIT, as the
+# stand-in's plan keys what a timer takes instead: the tests shorten them.
+CLOSE_LIMIT, INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT = "30000", "5000", "2000"
+
+
+def ending(tmp_path, **plan):
+    """How the command's process ends in a tree of its own, under a plan for
+    the stand-in for Playwright and the HTTP server, which the browser unit
+    tests of corpus/detect_benchmark.cjs use too (web/tests/corpus-command.test.js
+    has the cases): the finished process and the report on disk. A process that
+    has to be ended fails here, with subprocess.TimeoutExpired."""
+    for name in ("corpus/benchmark.cjs", "corpus/benchmark-runner.cjs", "corpus/score.cjs", "scripts/watch.cjs"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / name, tmp_path / name)
+    stand_in = tmp_path / "node_modules" / "playwright" / "index.js"
+    stand_in.parent.mkdir(parents=True)
+    shutil.copy(ROOT / "web" / "tests" / "corpus-command-stand-in.cjs", stand_in)
+    images = tmp_path / "images" / "latinsquare" / "fixture"
+    images.mkdir(parents=True)
+    target = {"puzzle": {"type": "latinsquare", "rows": 2, "cols": 2, "cells": [1, 2, 2, 1]},
+              "corners": [[0, 0], [9, 0], [9, 9], [0, 9]]}
+    for n in range(3):
+        (images / f"{n}.png").write_bytes(b"image bytes")
+        (images / f"{n}.json").write_text(json.dumps(target), encoding="utf-8")
+    run = subprocess.run([NODE, "--require", str(stand_in), "corpus/benchmark.cjs", "--corpus", "images", "--out", "report.json"],
+                         cwd=tmp_path, env={**os.environ, "COMMAND_PLAN": json.dumps(plan)},
+                         capture_output=True, text=True, encoding="utf-8", timeout=30)
+    return run, json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+
+
+def test_a_run_ends_by_itself_with_exit_code_0_and_leaves_the_signals_to_the_command(tmp_path):
+    run, saved = ending(tmp_path, left=True)
+    assert run.returncode == 0, run.stderr
+    assert saved["status"] == "complete"
+    assert saved["completedImages"] == 3
+    assert "what was left to do" in run.stdout, "a browser that closed cuts nothing short"
+    launched = (tmp_path / "events.txt").read_text(encoding="utf-8").splitlines()[0]
+    assert json.loads(launched.removeprefix("launched ")) == {
+        "headless": True, "handleSIGINT": False, "handleSIGTERM": False, "handleSIGHUP": False}
+
+
+@pytest.mark.parametrize("signal", ["SIGINT", "SIGTERM", "SIGHUP"])
+def test_a_signal_stops_the_benchmark_with_its_report_saved_and_exit_code_1(tmp_path, signal):
+    run, saved = ending(tmp_path, interrupt=signal)
+    failure = f"Benchmark interrupted by {signal}"
+    assert run.returncode == 1, run.stderr
+    assert run.stderr.splitlines() == [failure]
+    assert (saved["status"], saved["failure"]) == ("interrupted", failure)
+    assert (saved["cleanupErrors"], saved["notRun"]) == ([], NOT_RUN)
+    assert [row.get("error") for row in saved["results"]] == [None, failure]
+
+
+def test_a_signal_before_the_first_image_stops_the_benchmark_with_exit_code_1_too(tmp_path):
+    run, saved = ending(tmp_path, unanswered="SIGINT")
+    assert run.returncode == 1, run.stderr
+    assert (saved["status"], saved["completedImages"], len(saved["notRun"])) == ("interrupted", 0, 3)
+
+
+def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it_leaving_what_ended_the_run(tmp_path):
+    run, saved = ending(tmp_path, interrupt="SIGINT", second="SIGTERM")
+    assert run.returncode == 143, run.stderr
+    assert "exit handlers ran with 143" in run.stdout
+    assert (saved["status"], saved["failure"]) == ("interrupted", "Benchmark interrupted by SIGINT")
+    assert (saved["completedImages"], saved["notRun"]) == (2, NOT_RUN)
+    assert (tmp_path / "events.txt").read_text(encoding="utf-8").splitlines()[1:] == ["context closed", "server killed"]
+
+
+def test_two_signals_during_the_clean_up_of_a_benchmark_that_failed_by_itself_leave_what_ended_it(tmp_path):
+    run, saved = ending(tmp_path, crash=True, second="SIGINT", closing="SIGTERM", close="never",
+                        limits={LATE_SIGNAL_CLOSE_LIMIT: 100})
+    assert run.returncode == 143, run.stderr
+    assert "exit handlers ran with 143" in run.stdout
+    assert (saved["status"], saved["completedImages"], saved["notRun"]) == ("failed", 2, NOT_RUN)
+    assert re.fullmatch(r"page crashed [\d.]+ s after launch \(http://127\.0\.0\.1/\)\npage\.evaluate: Target crashed",
+                        saved["failure"]), saved["failure"]
+
+
+@pytest.mark.parametrize("plan, failed", [
+    ({"close": "never"}, "browser: browser cleanup timed out"),
+    ({"close": "reject"}, "browser: the pipe broke"),
+])
+def test_an_interrupted_benchmark_ends_by_itself_when_its_browser_will_not_close(tmp_path, plan, failed):
+    run, saved = ending(tmp_path, interrupt="SIGINT", **plan)
+    assert run.returncode == 1, run.stderr
+    assert (saved["status"], saved["cleanupErrors"], saved["notRun"]) == ("interrupted", [failed], NOT_RUN)
+    assert failed in run.stderr.splitlines()
+    assert "exit handlers ran with 1" in run.stdout
+
+
+@pytest.mark.parametrize("plan, failed", [
+    ({"close": "reject"}, "browser: the pipe broke"),
+    ({"close": "never", "limits": {CLOSE_LIMIT: 200}}, "browser: browser cleanup timed out"),
+])
+def test_a_benchmark_nothing_interrupted_ends_by_itself_when_its_browser_will_not_close(tmp_path, plan, failed):
+    run, saved = ending(tmp_path, **plan)
+    assert run.returncode == 1, run.stderr
+    assert (saved["status"], saved["cleanupErrors"]) == ("failed", [failed])
+    assert saved["completedImages"] == 3
+    assert "exit handlers ran with 1" in run.stdout
+
+
+def test_a_browser_that_is_only_slow_to_close_costs_a_benchmark_nothing_interrupted_nothing(tmp_path):
+    run, saved = ending(tmp_path, close=300, left=True, limits={INTERRUPTED_CLOSE_LIMIT: 100})
+    assert run.returncode == 0, run.stderr
+    assert (saved["status"], saved["cleanupErrors"]) == ("complete", [])
+    assert "what was left to do" in run.stdout
+
+
+def test_a_signal_during_the_stuck_close_of_a_benchmark_nothing_interrupted_cuts_the_wait_short(tmp_path):
+    run, saved = ending(tmp_path, closing="SIGINT", close="never",
+                        limits={CLOSE_LIMIT: 300000, LATE_SIGNAL_CLOSE_LIMIT: 100})
+    assert run.returncode == 1, run.stderr
+    assert (saved["status"], saved["failure"], saved["completedImages"]) == ("failed", None, 3)
+    assert saved["cleanupErrors"] == ["browser: browser cleanup timed out"]
+
+
+def test_a_final_save_that_fails_is_printed_when_the_process_is_ended_for_its_browser(tmp_path):
+    run, saved = ending(tmp_path, close="reject", fullDisk=True)
+    assert run.returncode == 1, run.stderr
+    assert "Could not save benchmark report: no space left on the disk" in run.stderr
+    assert saved["status"] == "running"
+
+
+def test_after_an_interrupt_a_final_save_that_fails_leaves_the_report_saved_before_the_clean_up(tmp_path):
+    run, saved = ending(tmp_path, interrupt="SIGINT", close="reject", fullDisk=True)
+    assert run.returncode == 1, run.stderr
+    assert "Could not save benchmark report after: Benchmark interrupted by SIGINT" in run.stderr
+    assert (saved["status"], saved["notRun"]) == ("interrupted", NOT_RUN)
