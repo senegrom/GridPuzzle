@@ -65,9 +65,10 @@ async function sequence(page, fixtures) {
 // which runs this with stand-ins for the browsers.
 async function run({ playwright = require("playwright"), port = 8777, out = "browser-artifacts/ocr-latency.json" } = {}) {
   const selected = selectedEngines();
+  // What can fail comes before the server, which then holds the run for ever.
+  fs.mkdirSync(path.dirname(out), { recursive: true });
   await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`, reports = [], failures = [];
-  fs.mkdirSync(path.dirname(out), { recursive: true });
   const save = () => fs.writeFileSync(out, JSON.stringify(reports, null, 2) + "\n");
   try {
     for (const name of selected) {
@@ -104,7 +105,7 @@ async function run({ playwright = require("playwright"), port = 8777, out = "bro
         save();
       }
     }
-  } finally { save(); server.close(); }
+  } finally { server.close(); save(); } // In this order: a report that cannot be written must not leave the server up.
   if (failures.length) throw failures[0];
   return reports;
 }

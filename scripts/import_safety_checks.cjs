@@ -116,6 +116,15 @@ async function offlineInstall(browser, report) {
     await page.click('#prepare-offline');await page.waitForFunction(()=>document.getElementById('offline-state').textContent.includes('assets are ready'));
     assert.equal(await page.evaluate(()=>localStorage.getItem('gridpuzzle-session-v1')),'unchanged saved puzzle');
     report.offlineInstall={nativeLifecycle:true,controlledWorker:true,explicitRetrySucceeded:true,savedStatePreserved:true};
-  } finally {await context.close();await server?.close();fs.rmSync(directory,{recursive:true,force:true});}
+  } finally {
+    // The server stops and the folder goes when closing the context fails too:
+    // the engine fails and its browser closes all the same, and a server left
+    // running then holds the run for ever. That close rejects when it is the
+    // first call to meet a lost browser. The stop comes first, as a folder that
+    // will not go must not leave the server up either. A close that never
+    // settles still waits here: see web/TESTING.md.
+    try {await context.close();}
+    finally {await server?.close();fs.rmSync(directory,{recursive:true,force:true});}
+  }
 }
 module.exports={photoImports,offlineInstall};

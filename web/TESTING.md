@@ -24,7 +24,7 @@ Automatic classification is treated as a trust boundary: automatically identifie
 Most suites in `scripts/` are built on `scripts/harness.cjs`: `serve()` starts
 Python's `http.server` for the built site on a port the system picks (under
 `/GridPuzzle/` through the `_preview` link when a suite needs the Pages path)
-and stops it however the suite ends, `engines()` runs the suite in Chromium
+and stops it however the process ends, `engines()` runs the suite in Chromium
 and WebKit on a fresh phone-sized context with the service worker blocked,
 collects the uncaught errors of every page the suite opens, screenshots a
 failing engine and writes one report per engine under `browser-artifacts/`,
@@ -69,13 +69,15 @@ errors and whose record leads its failure in `scanner-settings.json`) watch
 them the same way. `ocr_latency` also runs as `engines()` does: every engine
 `BROWSER_ENGINES` selects, also after one has failed, with its report
 written after each and the first failure rethrown after the last.
-`harness_regressions.cjs` checks all this in real browsers, and
+`harness_regressions.cjs` checks all this in real browsers, except a call
+interrupted by a lost browser (see its "lost" case below), and
 `web/tests/harness-watch.test.js` checks the records and the wait with
 stand-ins for Playwright's objects (`web/tests/playwright-stand-ins.js`),
 and that every script that launches a browser watches it, fails on its
-pages' errors, closes it through `watch()` and keeps all three lists in a
-report that names the browser's version, written right after the close;
-`web/tests/ocr-latency.test.js` runs `ocr_latency` on the stand-ins.
+pages' errors, opens its contexts inside its `try`, closes it through
+`watch()` and keeps all three lists in a report that names the browser's
+version, written right after the close; `web/tests/ocr-latency.test.js` runs
+`ocr_latency` on the stand-ins.
 
 The close that ends an engine cannot hold a run up. `browser.close()` alone
 can wait for ever: Playwright kills a browser that has not closed after 30
@@ -108,7 +110,7 @@ The run must then still end, and a process that gave up on a close may not
 end by itself. Probed on real browsers on Windows, with nothing sabotaged: the
 hang above is WebKit's web process staying on after the browser's main process
 has exited. It comes on a loaded host when a call is in flight to the page as
-the close comes, as in the "lost" case. WebKit's child processes inherit the
+the close comes. WebKit's child processes inherit the
 main process's four stdio pipes, and Node, and with it Playwright's close,
 waits for those pipes, so it waits for as long as that child lives: past half
 an hour here. Playwright's kill after 30 seconds goes to the main process,
@@ -128,11 +130,97 @@ leave its temporary profile, if it has not let go of it in time. A runner that
 requires a suite or calls its `run()` keeps its process, and ending it is then
 up to that runner. `harness_regressions.cjs` checks all this on real browsers,
 in a process of its own, `web/tests/harness-close.test.js` the close and the
-process's end with stand-ins, `solver_update`'s too. `corpus/benchmark-runner.cjs`
-shares the timed clean-up, with this limit, or a shorter one once a signal has
-come ("Puzzle image corpus and benchmarks"), and this end of the
-process: a browser its clean-up gives up on is marked with `markUnclosed()`, and
-the two benchmark commands end with `exitIfUnclosed()` too.
+process's end with stand-ins, `solver_update`'s and `browser_smoke`'s too.
+`corpus/benchmark-runner.cjs` shares the timed clean-up, with this limit, or a
+shorter one once a signal has come ("Puzzle image corpus and benchmarks"), and
+this end of the process: a browser its clean-up gives up on is marked with
+`markUnclosed()`, and the two benchmark commands end with `exitIfUnclosed()`
+too.
+
+The "lost" case of `harness_regressions` found this hang, and until October
+2026 it brought the hang on itself: it closed the browser past the harness
+with `page.waitForFunction()` in flight. A close that hung failed the run with
+`lost: webkit closes` after 30 seconds and left a WebKit process behind on
+Windows. Beside busy processes 26 of 193 such closes hung in one loop, and a
+settle before the close was no cure (after three seconds, 3 of 110 still
+hung). So the case now waits on `page.waitForEvent("crash")`, which stays
+inside Playwright and sends nothing to the page: none of 193 hung in that loop,
+and in a later loop of the case itself 8 of 230 closes failed it with the old
+wait and none of 230 with the new one. It checks what it always did of a
+browser that goes away while a suite waits: every engine runs, `ended` holds
+the page's close, the context's close and the disconnection, the failure's
+first line holds all three, and there is no screenshot. Such a wait fails as
+the page closes, with the rest of the news still to come, so the harness's wait
+for that news is still checked in real browsers. A call the close interrupts
+is not: in WebKit it fails before any of that news, an order only
+`web/tests/harness-watch.test.js` checks now, with its stand-ins, since a real
+case with a call in flight at the close would bring the hang back. What is
+left on a saturated host is a slow close, which needs no call in flight: 2 of
+98 closes with nothing in flight took over a second. When the disconnection
+comes more than a second after the page's close, the harness's wait runs out,
+its own close hides the rest of the news, and the case fails on `ended`, which
+holds `page closed` alone; nothing hangs and nothing stays behind. Beside busy
+processes that happened in none of 279 closes as the case makes them, and in 3
+of 254 with a second's settle added; in the one of those that was timed, the
+main process took 3 seconds to exit and no child held the pipes.
+
+A browser that is up but refuses a suite its context or page fails that engine
+like any other failure: every suite makes its report first and opens
+both inside the `try` that fails an engine, so the failure is led, the browser
+closes, the report is written and the next engine runs. Until October 2026
+`browser_smoke` and `solver_update` opened them before that `try`:
+the browser stayed up, its pipes held Node and the run never ended, with no
+report for that engine and no next one. With no page there is nothing to read,
+so such a report has no screenshot and none of the page's `status` and `state`
+in `browser_smoke`, and no `results` or `workerDebug` in `solver_update`. The
+stale-build check inside `photo_read` has a Node server of its own, which holds
+a run just as a browser does. It too opened its context and page before the
+`try` that stops that server, so that the engine failed and its browser closed
+and the run still never ended. It now opens them inside that `try`, and stops
+the server when closing the context fails too, since that close rejects when
+it is the first call to meet a lost browser. A browser that does not launch at
+all ends the run there, with exit code 1 and no report for that engine:
+nothing is up to hold it.
+`web/tests/harness-close.test.js` runs both scripts as they are with each call
+refused, on a stand-in Playwright and, for `browser_smoke`, a stand-in for
+Python's server on a port the system picks, since the pull-request job that
+runs the unit tests sets up neither Python nor Playwright, and the stale-build
+check on a stand-in browser.
+
+A server holds a run as a browser does: with nothing left to stop it, the
+failure is printed and the process never ends, on CI until the job's limit. So
+a suite starts its server last and stops it first. What can fail comes before
+the start: `harness_regressions` and `ocr_latency` read `BROWSER_ENGINES`,
+`ocr_quality` and `external_replay` read their fixtures, and `ocr_latency` makes
+its report's folder, before they start one. Writing a report comes after the
+stop: `ocr_latency`, `live_recovery` and `external_replay` stop their server
+before they write the report that ends their run, so that a report that cannot
+be written fails the run and does not hold it. `solver_update` saves first, in
+the last step of its run, where a failure is an unhandled rejection, which ends
+the process. The stale-build check and the offline-install check inside
+`photo_read` close their context before they stop their server, so that stop
+has a `finally` of its own: that close rejects when it is the first call to meet
+a lost browser, and the rejection still fails the check. The offline-install
+check stops its server before it removes its folder, which can fail too. Until
+October 2026 a run could be held by a name `harness_regressions` did not know,
+a fixture `ocr_quality` could not read, `ocr_latency`'s folder, any of those
+three reports or, in either check, a close that rejected. A real `photo_read`
+run with the browser killed as the offline-install check's close started had
+its report on disk at 10 s and was still alive at a 90 s bound, and
+`BROWSER_ENGINES=safari` printed its error and never ended.
+`web/tests/harness-close.test.js` runs every failure named here on the script as
+it is, in a process of its own with nothing else to hold it, on a stand-in for
+Python's server where it is Python's; one that does not end fails at the test's
+bound.
+
+No order helps a close that never settles. With a WebKit child still holding the
+pipes, either check's `context.close()` waits for as long as that child lives,
+so the stop behind it never comes: the run stays there with no report for that
+engine, its server up and the offline-install check's folder left, until the
+job's limit ends it. A real `photo_read` run in that state, with WebKit's main
+process killed as the check's close started and its children kept alive, was
+still waiting at a 170 s bound. Only a limit on that close would end such a run,
+and neither check sets one.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
@@ -337,13 +425,15 @@ would save only about ten seconds, so it stays one job.
 unit test; the Python side is in the bounded pytest suite. With the timeout, a
 regression that leaves a test waiting for ever (a decode queue that is never
 released, say) fails after a minute instead of hanging the run until CI's job
-limit. On Node 24 it fails that test by name. On Node 22, CI's major,
-`--test-timeout` also binds the file: the file fails, by its own name, and the
-tests after the stuck one do not run. On Node 24 a loop that polls has to end
-for that to hold, since it keeps its file's process alive past the timeout: a
-test has its stand-in raise what it would wait for, as the corpus runners'
-stalled reads raise their interrupt, or bounds the loop with
-`t.signal.aborted`.
+limit. In Node 22, CI's version, the limit covers each test file as a whole as
+well as each test: a file still running at a minute fails by its file's name,
+with the test it was waiting on unnamed and its later tests not run, and the
+other files go on. Node 24 limits each test alone: it names the test and goes
+on with the file, but what that test left running, a timer say, can keep the
+run from ending. A loop that polls does that, since it keeps its file's process
+alive past the timeout, so it has to end: a test has its stand-in raise what it
+would wait for, as the corpus runners' stalled reads raise their interrupt, or
+bounds the loop with `t.signal.aborted`.
 
 - **Camera and live tracking:** listed under "Tests" in [LIVE_CAMERA.md](LIVE_CAMERA.md). `live-sampling.test.js` counts what the live camera samples and reads back while it aims at nothing and while it tracks a grid (snapshots, readbacks and the scratch canvases' sizes); no browser suite measures that. `live-transport.test.js` covers the bitmap transport on the camera (no tracking readback on the main thread, bitmaps transferred or closed whatever retires their frame, a frame lost to its bitmap, or to a readback of its own with no picture, costing that frame alone, the restart once bitmap frames keep being lost for half a second, and a video that keeps having no picture read back at the sampling interval rather than its frame rate; its simulation can drive the frame scheduler's `requestVideoFrameCallback` clock at a camera's frame rate), `live-tracker.test.js` its handshake and `live-tracking-pixels.test.js` the worker's readback. `camera-lifecycle.test.js` also covers cancellation while permission, video playback or grid detection is pending, and editing and solving stopping capture.
 - **Recognition:** [OCR_QUALITY.md](OCR_QUALITY.md) names each mechanism's tests. `fragmented-clues.test.js` covers complete fragmented crops in both ink polarities and trailing digits, rejected speckles, unchanged connected glyphs, and review or red unknown status before any solver-backed blue entry. `cage-partition.test.js` covers the cage partition in both print styles (on grey paper, with outlines dashed 6 to 12% inside the cells, beside one stray heavy stroke, past Killer's box lines), the clue regions in pixels on two boards and the operator read from the crop `cageLabelCrop` makes; `cage-operator.test.js` each operator's shape, and each rule whose loss turned more right operators wrong than wrong ones right on the KenKen clues recorded from the corpus; `unread-signs.test.js` the review of Futoshiki signs, `readChevron`'s rules and `prepareScan` reading each sign region's chevron.

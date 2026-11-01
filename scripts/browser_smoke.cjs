@@ -230,43 +230,15 @@ async function checkStartupCancellation(browser, image, report) {
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = await engine.launch({ headless: true });
     const watched = watch(browser);
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      deviceScaleFactor: 1,
-      isMobile: true,
-      hasTouch: true,
-    });
-    const page = await context.newPage();
-    page.setDefaultTimeout(20000);
     // Every page's uncaught errors in this browser, as watch() collects them
     // (those of the startup-cancellation check's page with its URL), and the
     // policy violations below.
     const errors = watched.errors,
       external = [];
-    // A Content Security Policy violation only logs; surface it as a failure.
-    // Playwright itself injects a stylesheet while capturing screenshots
-    // (WebKit reports it), so violations are ignored during our own captures.
-    // WebKit's report of its own style for each <select> (see
-    // webkitSelectLine) is counted per line instead, and the end of the run
-    // fails a line with more of them than its selects make in the page loads.
-    // Chromium still reports any inline style the page itself carries.
-    let capturing = false,
-      loads = 0;
-    const selectReports = new Map();
-    page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame()) loads++;
-    });
-    page.on("console", (m) => {
-      if (
-        capturing ||
-        m.type() !== "error" ||
-        !/Content.Security.Policy/i.test(m.text())
-      )
-        return;
-      const line = name === "webkit" ? webkitSelectLine(m) : null;
-      if (line === null) errors.push(m.text());
-      else selectReports.set(line, (selectReports.get(line) ?? 0) + 1);
-    });
+    // Opened in the try: outside it, a context or page that will not open
+    // leaves the browser up, and its pipes hold the run for ever.
+    let page,
+      capturing = false;
     const screenshot = async (options) => {
       capturing = true;
       try {
@@ -275,14 +247,6 @@ async function checkStartupCancellation(browser, image, report) {
         capturing = false;
       }
     };
-    context.on("request", (r) => {
-      if (
-        !r.url().startsWith("http://127.0.0.1:8765/") &&
-        !r.url().startsWith("blob:") &&
-        !r.url().startsWith("data:")
-      )
-        external.push(r.url());
-    });
     const report = {
       browser: name,
       version: browser.version(),
@@ -294,6 +258,45 @@ async function checkStartupCancellation(browser, image, report) {
     };
     reports.push(report);
     try {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 1,
+        isMobile: true,
+        hasTouch: true,
+      });
+      page = await context.newPage();
+      page.setDefaultTimeout(20000);
+      // A Content Security Policy violation only logs; surface it as a failure.
+      // Playwright itself injects a stylesheet while capturing screenshots
+      // (WebKit reports it), so violations are ignored during our own captures.
+      // WebKit's report of its own style for each <select> (see
+      // webkitSelectLine) is counted per line instead, and the end of the run
+      // fails a line with more of them than its selects make in the page loads.
+      // Chromium still reports any inline style the page itself carries.
+      let loads = 0;
+      const selectReports = new Map();
+      page.on("framenavigated", (frame) => {
+        if (frame === page.mainFrame()) loads++;
+      });
+      page.on("console", (m) => {
+        if (
+          capturing ||
+          m.type() !== "error" ||
+          !/Content.Security.Policy/i.test(m.text())
+        )
+          return;
+        const line = name === "webkit" ? webkitSelectLine(m) : null;
+        if (line === null) errors.push(m.text());
+        else selectReports.set(line, (selectReports.get(line) ?? 0) + 1);
+      });
+      context.on("request", (r) => {
+        if (
+          !r.url().startsWith("http://127.0.0.1:8765/") &&
+          !r.url().startsWith("blob:") &&
+          !r.url().startsWith("data:")
+        )
+          external.push(r.url());
+      });
       await page.goto(BASE);
       await ready(page);
       await page.evaluate(async () => {
@@ -680,16 +683,18 @@ async function checkStartupCancellation(browser, image, report) {
       report.ok = false;
       report.failure = error.stack;
       console.error(name, error);
-      try {
-        await screenshot({
-          path: `browser-artifacts/${name}-failure.png`,
-          fullPage: true,
-        });
-        report.status = await page.locator("#status").innerText();
-        report.state = await page.evaluate(() =>
-          window.__gridpuzzleTestState(),
-        );
-      } catch {}
+      if (page) {
+        try {
+          await screenshot({
+            path: `browser-artifacts/${name}-failure.png`,
+            fullPage: true,
+          });
+          report.status = await page.locator("#status").innerText();
+          report.state = await page.evaluate(() =>
+            window.__gridpuzzleTestState(),
+          );
+        } catch {}
+      }
     } finally {
       const unclosed = await watched.close(name);
       if (unclosed && report.ok) {

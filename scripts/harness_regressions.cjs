@@ -122,10 +122,13 @@ async function unclosableRun(how, directory) {
 }
 
 async function run() {
+  // Before anything is up: a server started first would hold the run for ever
+  // after an engine this cannot name.
+  const selected = selectedEngines();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-harness-"));
   fs.writeFileSync(path.join(directory, "index.html"), "<!doctype html><title>Harness</title><p>A page to end.");
   const server = await serve({ directory });
-  const base = server.base, selected = selectedEngines(), outcome = {};
+  const base = server.base, outcome = {};
   try {
     // A wrapper on the page's screenshot() notes when engines() takes it.
     const ordinary = await attempt("ordinary", async (page, report) => {
@@ -222,15 +225,18 @@ async function run() {
       outcome[`page errors (${engine})`] = { errors: report.errors };
     }
 
+    // The wait sends nothing to the page: a call in flight to it as the close
+    // comes can leave WebKit's web process behind on a loaded host, and the
+    // close may then never settle (web/TESTING.md).
     const lost = await attempt("lost", async (page, report, name, browser) => {
       await page.goto(base);
-      const waiting = page.waitForFunction(() => false);
+      const waiting = page.waitForEvent("crash");
       Object.getPrototypeOf(browser).close.call(browser).catch(() => {});
       await waiting;
     });
     for (const engine of selected) {
-      const report = led(lost, engine, engine === selected[0], `page.waitForFunction: ${CLOSED}`);
-      assert.deepEqual(report.ended.map(({ event }) => event).sort(), ["browser disconnected", "context closed", "page closed"]);
+      const report = led(lost, engine, engine === selected[0], `page.waitForEvent: ${CLOSED}`);
+      assert.deepEqual(report.ended.map(({ event }) => event).sort(), ["browser disconnected", "context closed", "page closed"], `lost: ${engine}: what ended`);
       assert.equal(report.ended.find(({ event }) => event === "page closed").url, base);
       assert.equal(lost.shot(engine), false, "no screenshot without a browser");
       outcome[`lost (${engine})`] = report.ended;
