@@ -353,7 +353,7 @@ stalled reads raise their interrupt, or bounds the loop with
 - **Grid detection and layout:** `grid-lines.test.js` pins each rule of the line stage on synthetic warps (thin and light-grey lines, digit columns, a dropped line, a stray line, cage walls, the one-axis fallback); `grid-size-range.test.js` checks rounded large-grid pitches and rectangular counts through `estimateGrid` and `findGrid`; `scan-layout.test.js` and `live-camera-recovery.test.js` keep irrelevant hidden box values from blocking non-boxed families while invalid Sudoku and Killer boxes still block recognition; `scan-layout.test.js` also covers boxes suggested from the grid size (only where the size leaves a choice, retired once a reading with them is confirmed or other boxes are set; `photo-flow.test.js` checks that a live capture keeps a confirmed one retired, that one a capture was read with is named in the capture's notes, also through its orientation check, retires once the capture is confirmed and stands until then, and that confirming a capture of a type without boxes leaves it standing) and flags for a digit repeated inside the chosen boxes.
 - **Service worker and updates:** `runtime-update.test.js` changes WASM, standard-library and lock-file bytes across builds and checks online and offline routing, the full Python installation, activation races and cache cleanup; `offline-retry.test.js` drives the production service worker with controlled network failures and its own deadline clock; `install-deadline.test.js` bounds every installation phase and re-hashes a damaged stored shell entry before publishing; `stale-build.test.js` drives the worker of a page left on the previous build after a deploy (files it never stored come from a newer build's identical copies, never from bytes of another digest, and a file the deploy changed is reported gone; when the origin's list names another build, the worker asks the browser for that build's worker before it fetches a copy, once per build, also for files missed at the same time, never when nothing is missing, when a stored list names the copy, or when the origin's list names its own build or cannot be read, and a check that fails, throws or never answers changes nothing) and the OCR runtime's advice to update when OCR fails to load online (not offline, and not when a deadline expires); `offline-lifecycle.test.js`, `offline-update.test.js` and `offline-core-choice.test.js` cover preparation, updates (one found while the page is open reaches the banner through `updatefound`, and one found while a download or a read runs leaves it to finish, the advice naming it only once it is installed) and which Tesseract core is stored; `tests/test_web_runtime_build.py` verifies stamped URLs and complete manifest coverage without downloading dependencies.
 - **Workers and robustness:** `worker-lifecycle.test.js` covers OCR and scan cancellation and worker cleanup; `visible-deadlines.test.js` hides and shows a fake page on a mock clock: a Read's, an OCR job's, OCR loading's and image processing's deadlines and a cancelled OCR job's 2-second bound stop while the page is hidden and still stop a task stuck while it is visible, a deadline that fired never fires again, and the search limit keeps to the clock; `solver-worker.test.js` keeps the solver worker's interpreter across Python exceptions and shares one load between a warm-up and the solve that follows; each module's own test file pins its individual fixes from the code reviews (for example `photo-flow.test.js` a captured still surviving page hide and Escape restoring focus, `capture-store.test.js` the saved-picture download reusing its object URL, and `controllers.test.js` a running task disabling Check and Hint).
-- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows, the save before an interrupted run's clean-up, the limit of each close, a page that crashes as Chromium or as WebKit reports it, or between two reads, and a page that throws, which `pageErrors` records however the run ends and which changes nothing else, included) and the detection report, with and without `--live`; `corpus-command.test.js` how the process of the real `detect_benchmark` command ends, on a stand-in for Playwright and the HTTP server (`corpus-command-stand-in.cjs`): the options of its launch, each signal during a read, an interrupt while the server starts, a second signal, a browser that will not close, one that is only slow, a signal during its close, a final save that fails, a run with nothing left to end and a runner that calls `main()`; `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks and how its process ends, on the same stand-in (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
+- **Corpus tooling:** `corpus-score.test.js`, `corpus-runner.test.js` and `corpus-detect-runner.test.js` cover semantic scoring (reversed, missing, invented and duplicate inequalities, singleton cages, member ordering, blocked and numbered-black topology, perfect-result gating, digit review apart from structural review) and the benchmark runners' checkpoints and failure handling (a report held open on Windows, the save before the clean-up of a run that ended early, interrupted or failed, the limit of each close, a page that crashes as Chromium or as WebKit reports it, or between two reads, and a page that throws, which `pageErrors` records however the run ends and which changes nothing else, included) and the detection report, with and without `--live`; `corpus-command.test.js` how the process of the real `detect_benchmark` command ends, on a stand-in for Playwright and the HTTP server (`corpus-command-stand-in.cjs`): the options of its launch, each signal during a read, an interrupt while the server starts, a second signal, also in the clean-up of a run that read every image or failed by itself, a browser that will not close, one that is only slow, a signal during its close, a final save that fails, a run with nothing left to end and a runner that calls `main()`; `corpus-benchmark.test.js` covers the photo-flow harness, `tests/test_corpus_benchmark_cli.py` the benchmark's option checks and how its process ends, on the same stand-in (through Node, since the command line stays out of the deployment's inputs), and `photo-flow.test.js` runs the benchmark's page reader and the photo flow on the same readings, which must flag the same digits; `tests/test_corpus_targets.py` validates stored witnesses against the native rules, `tests/test_corpus_source_layout.py` the collectors and `tests/test_corpus_rendering.py` the renderer (the sum-only Killer set included). None downloads images.
 
 ## Offline test method
 
@@ -403,10 +403,11 @@ measurement per image and a third line per set ("live at 640");
 `web/GRID_DETECTION.md` explains the stages and records the measurements.
 
 Both benchmarks share one checkpointing runner. The report is saved before
-start-up, after each image, before the clean-up of an interrupted run and after
-clean-up, so browser loss, SIGINT, SIGTERM or SIGHUP leave a partial report with
-every resource closed; bad JSON, undecodable images and recoverable scan errors
-become individual error rows and later images continue. A page that crashes or
+start-up, after each image, before the clean-up of a run that ended early,
+interrupted or failed, and after clean-up, so browser loss, SIGINT, SIGTERM or
+SIGHUP leave a partial report with every resource closed; bad JSON,
+undecodable images and recoverable scan errors become individual error rows
+and later images continue. A page that crashes or
 closes, a lost browser, or a read that fails because its page is gone ends the
 run instead: the runner watches its browser with the suites' `watch()`, since a
 crashed page is neither closed to Playwright nor in a disconnected browser, and
@@ -436,9 +437,9 @@ checkpoint or the final save to write. A final save still held after that keeps
 the new report beside the old one (`<report>.<pid>.tmp`) and names it in the
 error. Any other write failure ends the run. The command
 exits nonzero for an incomplete run, any failed image or a failed clean-up, and
-a hard kill or lost disk access keeps only the last checkpoint; for an
-interrupted run, whatever ends the process during its clean-up keeps the
-checkpoint that says so (below).
+a hard kill or lost disk access keeps only the last checkpoint; for a run that
+ended early, whatever ends the process during its clean-up keeps the
+checkpoint that says how it ended (below).
 
 A signal is the command's alone: the runner launches the browser with
 Playwright's `handleSIGINT`, `handleSIGTERM` and `handleSIGHUP` off. Left on,
@@ -449,9 +450,12 @@ browserContext.close` entry in `cleanupErrors`. Now the first SIGINT, SIGTERM
 or SIGHUP stops the run: `status` says `interrupted` and `failure` names the
 signal, whatever failed with it, the read in flight keeps that as its error and
 the images after it are in `notRun`. The run saves all that at once, before its
-clean-up starts, so that it survives whatever ends the process there. That save
-is one more checkpoint: however it fails it stops no clean-up, a warning is
-printed, and the final save is what reports a write failure. What the run
+clean-up starts, so that it survives whatever ends the process there, and so
+does a run that failed by itself, with `failed`, its `failure` and `notRun`. A
+run that read every image has nothing to save there, since its clean-up decides
+whether it is complete, so its checkpoints are as they were. That save is one
+more checkpoint: however it fails it stops no clean-up, a warning is printed,
+and the final save is what reports a write failure. What the run
 opened is then closed and the report saved again, with what the clean-up found
 (`cleanupErrors`, the last of `pageErrors`), and the command exits with 1, as
 for any incomplete run; nothing reads another code. A signal during the
@@ -464,13 +468,14 @@ it.
 
 A second signal, of any of the three, ends the process without waiting for that
 clean-up, with 128 and the signal's number (130, 143 or 129). The report stays
-as the run saved it before the clean-up: `interrupted`, with `failure` and
-`notRun`, but without what the clean-up would have found. Where nothing has
-saved that yet it stays at the last checkpoint, `status` still `running` and
-`notRun` empty: during a launch, which the run waits for before it stops; in
-the wait of up to a second after a read that says its target is gone, for what
-Playwright reports after it; and during the clean-up of a run that an interrupt
-did not end. The exit takes a few seconds at most (up to about 6 s on a loaded
+as the run saved it before the clean-up: `interrupted`, or `failed` for a run
+that had failed by itself, with `failure` and `notRun`, but without what the
+clean-up would have found. Where nothing has saved that yet it stays at the
+last checkpoint, `status` still `running` and `notRun` empty: during a launch,
+which the run waits for before it stops; in the wait of up to a second after a
+read that says its target is gone, for what Playwright reports after it; and
+during the clean-up of a run that had read every image, whose last checkpoint
+has them all. The exit takes a few seconds at most (up to about 6 s on a loaded
 host, 0.04 to 1.5 s on a quiet one), for Playwright's exit listener, which
 kills the browser and removes its folders as far as it can: a double Ctrl+C can
 leave Chromium's profile, part of it in a launch and now and then all of it
@@ -485,23 +490,25 @@ stay in the temporary folder.
 SIGHUP is a terminal that goes away, or on Windows a console window that
 closes. Windows then ends the process five to ten seconds after it hears that,
 whatever it is doing (5.0 to 5.7 s here). A browser that takes that long to
-close costs the final save: an interrupted run's report stays as the run saved
-it before its clean-up, `interrupted`, with `failure` and `notRun`, and
-Playwright's temporary folders stay. WebKit closing in time ended
-`interrupted`, in under 0.2 s. Chromium's processes hear the close first, and
-the command 6 to 15 seconds after it, so its page goes down under a run still
-reading, which fails by itself: `page crashed`, `notRun` right, its report
-final within 10 seconds.
+close costs the final save: the report of a run that ended early stays as the
+run saved it before its clean-up, `interrupted` or `failed`, with `failure`
+and `notRun`, and Playwright's temporary folders stay. WebKit closing in time
+ended `interrupted`, in under 0.2 s. Chromium's processes hear the close
+first, and the command 6 to 15 seconds after it, so its page goes down under a
+run still reading, which fails by itself: `page crashed`, `notRun` right, its
+report final within 10 seconds.
 
-A run nothing interrupted has no save before its clean-up, and `CLOSE_LIMIT`
-(below) would hold a stuck close past that kill, with its report still at the
-last checkpoint. So a signal during its clean-up leaves each close 2 seconds,
-which fits both closes and the final save in before the kill. With closes that
-never settled, a run that had read every image ended `failed`, with `browser
-cleanup timed out` and exit code 1, in both engines, and Chromium's run still
-reading the same with `page crashed` and `notRun` right, nothing left in the
-temporary folder. A Chromium whose processes are really stuck goes down with
-the console, which ends the close, and its run ends `complete`.
+A run nothing interrupted has saved nothing of what its clean-up finds, nor,
+when it read every image, how it ended, and `CLOSE_LIMIT` (below) would hold a
+stuck close past that kill. So a signal during its clean-up leaves each close 2
+seconds, which fits both closes and the final save in before the kill. With
+closes that never settled, a run that had read every image ended `failed`,
+with `browser cleanup timed out` and exit code 1, in both engines, and
+Chromium's run still reading the same with `page crashed` and `notRun` right,
+nothing left in the temporary folder; were the kill to come first all the same,
+that run would keep the `failed` report it saved before its clean-up. A
+Chromium whose processes are really stuck goes down with the console, which
+ends the close, and its run ends `complete`.
 
 On a Windows console a real Ctrl+C reaches everything on that console, the HTTP
 server and the browser too, since Playwright detaches a browser only on other

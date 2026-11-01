@@ -9,6 +9,7 @@ corner mode.
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -156,6 +157,16 @@ def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it_leaving
     assert (saved["status"], saved["failure"]) == ("interrupted", "Benchmark interrupted by SIGINT")
     assert (saved["completedImages"], saved["notRun"]) == (2, NOT_RUN)
     assert (tmp_path / "events.txt").read_text(encoding="utf-8").splitlines()[1:] == ["context closed", "server killed"]
+
+
+def test_two_signals_during_the_clean_up_of_a_benchmark_that_failed_by_itself_leave_what_ended_it(tmp_path):
+    run, saved = ending(tmp_path, crash=True, second="SIGINT", closing="SIGTERM", close="never",
+                        limits={LATE_SIGNAL_CLOSE_LIMIT: 100})
+    assert run.returncode == 143, run.stderr
+    assert "exit handlers ran with 143" in run.stdout
+    assert (saved["status"], saved["completedImages"], saved["notRun"]) == ("failed", 2, NOT_RUN)
+    assert re.fullmatch(r"page crashed [\d.]+ s after launch \(http://127\.0\.0\.1/\)\npage\.evaluate: Target crashed",
+                        saved["failure"]), saved["failure"]
 
 
 @pytest.mark.parametrize("plan, failed", [

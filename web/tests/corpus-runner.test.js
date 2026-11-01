@@ -450,49 +450,58 @@ test("a checkpoint the report's reader blocks is skipped, and the run goes on", 
 });
 
 // A second signal, or a console window closing on a slow close, can end the
-// process during the clean-up, so an interrupted run says so on disk before it.
-test("an interrupted run has its status, failure and notRun on disk before the clean-up starts, and the final save adds what the clean-up found", async t => {
-  const h = harness(t, { hang: true, thrown: ["close"], close: true }), saves = [];
-  h.deps.writeReport = (file, report) => {
-    writeReport(file, report); h.events.push(`saved ${report.status}`); saves.push(JSON.parse(fs.readFileSync(file)));
-  };
-  const report = await h.run();
-  assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running", "saved interrupted",
-    "context closed", "browser closed", "server killed", "saved interrupted"]);
-  const [before, final] = saves.slice(-2);
-  assert.deepEqual([before.status, before.failure, before.completedImages], ["interrupted", "test interrupt", 2]);
-  assert.deepEqual(before.notRun.map(item => item.name), ["2.png"]);
-  assert.deepEqual([before.cleanupErrors, before.pageErrors], [[], []]);
-  assert.deepEqual([final.cleanupErrors, final.pageErrors], [["browser: browser cleanup failed"], ["thrown at close"]]);
-  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the final save is what stays");
-});
+// process during the clean-up, so a run that ended early says so on disk
+// before it: one that was interrupted, and one that failed by itself.
+const ENDED_EARLY = [["an interrupted run", { hang: true }, "interrupted", "test interrupt"],
+  ["a run that failed by itself", { disconnect: true }, "failed", "browser crashed"]];
+for (const [run, faults, status, failure] of ENDED_EARLY)
+  test(`${run} has its status, failure and notRun on disk before the clean-up starts, and the final save adds what the clean-up found`, async t => {
+    const h = harness(t, { ...faults, thrown: ["close"], close: true }), saves = [];
+    h.deps.writeReport = (file, report) => {
+      writeReport(file, report); h.events.push(`saved ${report.status}`); saves.push(JSON.parse(fs.readFileSync(file)));
+    };
+    const report = await h.run();
+    assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running", `saved ${status}`,
+      "context closed", "browser closed", "server killed", `saved ${status}`]);
+    const [before, final] = saves.slice(-2);
+    assert.deepEqual([before.status, before.failure, before.completedImages], [status, failure, 2]);
+    assert.deepEqual(before.notRun.map(item => item.name), ["2.png"]);
+    assert.deepEqual([before.cleanupErrors, before.pageErrors], [[], []]);
+    // After an interrupt the context's failure says nothing (above).
+    const cleanupErrors = [...(status === "failed" ? ["context: context cleanup failed"] : []), "browser: browser cleanup failed"];
+    assert.deepEqual([final.cleanupErrors, final.pageErrors], [cleanupErrors, ["thrown at close"]]);
+    assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)), "the final save is what stays");
+  });
 
 // Saves before and after the run's images are pinned above and, on real
-// browsers, by detect_benchmark_regressions.cjs.
-test("a run nothing interrupted saves nothing more before its clean-up, also when it failed or a signal comes during the clean-up", async t => {
-  const failed = harness(t, { disconnect: true }), failing = keepSaves(failed);
-  await failed.run();
-  assert.deepEqual(failing.map(({ status }) => status), ["running", "running", "running", "failed"]);
+// browsers, by detect_benchmark_regressions.cjs. A run that read every image
+// has nothing to save before its clean-up, which decides whether it is complete.
+test("a run that read every image saves nothing more before its clean-up, also when a signal comes during it, and one that failed saves once", async t => {
   const late = harness(t, { contextClose: "interrupted" }), read = keepSaves(late);
   await late.run();
   assert.deepEqual(read.map(({ status }) => status), ["running", "running", "running", "running", "complete"]);
+  const failed = harness(t, { disconnect: true }), failing = keepSaves(failed);
+  await failed.run();
+  assert.deepEqual(failing.map(({ status }) => status), ["running", "running", "running", "failed", "failed"],
+    "a run that failed by itself saves once before its clean-up");
 });
 
 test("a save before the clean-up that fails, however, stops no clean-up: it costs a checkpoint, and the final save writes the report", async t => {
-  for (const failed of [busy(), Object.assign(Error("no space left"), { code: "ENOSPC" })]) {
-    const h = harness(t, { hang: true }), logged = []; let writes = 0;
-    h.deps.log = line => logged.push(line);
-    h.deps.writeReport = (file, report) => {
-      if (report.status === "interrupted" && ++writes === 1) throw failed;
-      writeReport(file, report);
-    };
-    const report = await h.run();
-    assert.equal(report.status, "interrupted"); assert.equal(writes, 2);
-    assert.deepEqual(report.cleanupErrors, [], "a failed checkpoint is no failed clean-up");
-    assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
-    assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
-    assert.deepEqual(logged.filter(line => line.includes("not saved")), [`  checkpoint before the clean-up not saved (${failed.message})`]);
-  }
+  for (const [, faults, status] of ENDED_EARLY)
+    for (const failed of [busy(), Object.assign(Error("no space left"), { code: "ENOSPC" })]) {
+      const h = harness(t, faults), logged = []; let writes = 0;
+      h.deps.log = line => logged.push(line);
+      h.deps.writeReport = (file, report) => {
+        if (report.status === status && ++writes === 1) throw failed;
+        writeReport(file, report);
+      };
+      const report = await h.run();
+      assert.equal(report.status, status); assert.equal(writes, 2);
+      assert.deepEqual(report.cleanupErrors, [], "a failed checkpoint is no failed clean-up");
+      assert.deepEqual(h.events.slice(1), ["context closed", "browser closed", "server killed"]);
+      assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
+      assert.deepEqual(logged.filter(line => line.includes("not saved")), [`  checkpoint before the clean-up not saved (${failed.message})`]);
+    }
 });
 
 test("a disk that fails the save before the clean-up and the final save is reported by the final save, after the clean-up", async t => {

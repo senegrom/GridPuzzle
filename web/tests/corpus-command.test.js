@@ -17,8 +17,9 @@ const { INTERRUPTED_CLOSE_LIMIT, LATE_SIGNAL_CLOSE_LIMIT } = require("../../corp
 const COMMAND = "corpus/detect_benchmark.cjs";
 const FILES = [COMMAND, "corpus/benchmark-runner.cjs", "corpus/score.cjs", "scripts/watch.cjs"];
 const NOT_RUN = [{ family: "latinsquare", set: "fixture", name: "2.png" }];
-// A run that has not ended after this long hangs. It takes under a second, or
-// the five of INTERRUPTED_CLOSE_LIMIT when a browser will not close. Nothing
+// A run that has not ended after this long hangs. It takes under a second, a
+// second more when a read says that its target is gone (lead() in watch.cjs),
+// or the five of INTERRUPTED_CLOSE_LIMIT when a browser will not close. Nothing
 // here waits for CLOSE_LIMIT, since a test file has 60 s in all on CI's Node:
 // a test of it gives the stand-in shorter `limits`.
 const ENDS_WITHIN = 30000;
@@ -132,15 +133,27 @@ test("a signal during the stuck close of a run nothing interrupted cuts the wait
   assert.deepEqual(saved.cleanupErrors, ["browser: browser cleanup timed out"]);
 });
 
-// Nothing interrupted the run, so nothing has saved how it ended: only an
-// interrupted run saves before its clean-up, and the last checkpoint stays.
-// The browser's close is stuck, as a hung browser's is: one that closes at
-// once can end the clean-up before the process hears the second signal.
+// A run that read every image has nothing to save before its clean-up, which
+// decides whether it is complete, so the last checkpoint stays. The browser's
+// close is stuck, as a hung browser's is: one that closes at once can end the
+// clean-up before the process hears the second signal.
 test("two signals during the clean-up of a run nothing interrupted end the process with its last checkpoint, which has every image", async t => {
   const plan = { second: "SIGINT", closing: "SIGTERM", close: "never", limits: { [LATE_SIGNAL_CLOSE_LIMIT]: 100 } };
   const { code, killed, stdout, stderr, saved, events } = await command(t, plan);
   assert.equal(killed, false, stderr); assert.equal(code, 143, stderr); assert.match(stdout, /exit handlers ran with 143/);
   assert.deepEqual([saved.status, saved.completedImages, saved.notRun], ["running", 3, []]); assert.deepEqual(events, CLOSED);
+});
+
+// A run that failed by itself has said so before its clean-up, as an
+// interrupted run has.
+test("two signals during the clean-up of a run that failed by itself end the process with what ended it, and the images it did not read", async t => {
+  const plan = { crash: true, second: "SIGINT", closing: "SIGTERM", close: "never", limits: { [LATE_SIGNAL_CLOSE_LIMIT]: 100 } };
+  const { code, killed, stdout, stderr, saved, events } = await command(t, plan);
+  assert.equal(killed, false, stderr); assert.equal(code, 143, stderr); assert.match(stdout, /exit handlers ran with 143/);
+  assert.deepEqual([saved.status, saved.completedImages, saved.notRun], ["failed", 2, NOT_RUN]);
+  assert.match(saved.failure, /^page crashed [\d.]+ s after launch \(http:\/\/127\.0\.0\.1\/\)\npage\.evaluate: Target crashed$/);
+  assert.deepEqual(saved.results.map(row => row.error ?? null), [null, "page.evaluate: Target crashed"]);
+  assert.deepEqual(events, CLOSED);
 });
 
 for (const [run, plan, expected] of [["a complete run", {}, 0], ["an interrupted run", { interrupt: "SIGINT" }, 1]])

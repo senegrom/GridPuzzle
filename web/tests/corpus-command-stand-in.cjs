@@ -11,6 +11,9 @@
                  never answers, with each attempt noted in events.txt
      interrupt   a signal raised during the second image's read, which never
                  answers then
+     crash       the page crashes during the second image's read, as
+                 Chromium's does, and the read fails with "Target crashed":
+                 the run fails by itself
      second      a signal raised as the context closes, which never settles
      close       the browser's close "never" settles, it "reject"s, or it takes
                  that many milliseconds
@@ -74,6 +77,7 @@ function launched() {
     async evaluate(fn) {
       if (fn.name === "detectOne" || fn.name === "loadPhoto") reads++;
       if (reads === 2 && plan.interrupt) { setImmediate(raise, plan.interrupt); return new Promise(() => {}); }
+      if (reads === 2 && plan.crash) { page.emit("crash", page); throw new Error("page.evaluate: Target crashed"); }
       return answers[fn.name];
     },
   });

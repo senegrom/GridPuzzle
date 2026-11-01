@@ -1,6 +1,6 @@
 /* Testable benchmark lifecycle. A report is checkpointed before startup, after
-   each image, before the cleanup of an interrupted run and after cleanup; it
-   remains useful when a later image fails. */
+   each image, before the cleanup of a run that ended early (interrupted or
+   failed) and after cleanup; it remains useful when a later image fails. */
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -18,9 +18,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // failure; here such a browser is given up on as a stuck one is.
 const INTERRUPTED_CLOSE_LIMIT = 5000;
 // What a signal during the clean-up of a run nothing interrupted leaves of the
-// wait for each close. Such a run has saved nothing of how it ended, and a
-// console window closing ends the process 5 seconds after it hears that: the
-// two closes a hung browser holds up, and the final save, have to fit in those.
+// wait for each close. A console window closing ends the process 5 seconds
+// after it hears that, and such a run has saved nothing of what its clean-up
+// found, nor, when it read every image, how it ended: the two closes a hung
+// browser holds up, and the final save, have to fit in those.
 const LATE_SIGNAL_CLOSE_LIMIT = 2000;
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
@@ -257,13 +258,13 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
     failure = message(signal?.aborted ? signal.reason : led);
     status = signal?.aborted ? "interrupted" : "failed";
     // A second signal, or a console window closing on a slow close, can end
-    // the process during the clean-up, so an interrupted run says now what
-    // ended it and what was not run. This is one more checkpoint: however it
-    // fails it stops no clean-up, and the final save reports a write failure.
-    if (status === "interrupted") {
-      try { persist(output, report()); }
-      catch (error) { log(`  checkpoint before the clean-up not saved (${message(error)})`); }
-    }
+    // the process during the clean-up, so a run that ended early, interrupted
+    // or failed by itself, says now what ended it and what was not run. A
+    // complete run never comes here, and its checkpoints stay as they were.
+    // This is one more checkpoint: however it fails it stops no clean-up, and
+    // the final save reports a write failure.
+    try { persist(output, report()); }
+    catch (error) { log(`  checkpoint before the clean-up not saved (${message(error)})`); }
   } finally {
     closing = true;
     // An interrupt, also one that comes during a close, shortens the wait for it.
