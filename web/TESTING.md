@@ -584,11 +584,11 @@ close costs an interrupted run its final save: the report stays as the run
 saved it before its clean-up, `interrupted`, with `failure` and `notRun` (a
 failed run's too, should the kill still come first: below), and Playwright's
 temporary folders stay. WebKit closing in time ended `interrupted`, in under
-0.2 s. Chromium's processes hear the close first, and the command 6 to 16
-seconds after it here (up to 20 with those processes really stuck), so its
-page goes down under a run still reading, which fails by itself:
-`page crashed`, `notRun` right, its report final within 10 seconds when the
-browser closes.
+0.2 s. Chromium's processes hear the close first, and the command 6 to 18
+seconds after it here, the later the busier the host (up to 20 with those
+processes really stuck). So its page goes down under a run still reading,
+which fails by itself: `page crashed`, `notRun` right, and when the browser
+closes its report is final 6 to 12 seconds after the close.
 
 A run nothing interrupted has saved nothing of what its clean-up finds, nor,
 when it read every image, how it ended, and `CLOSE_LIMIT` (below) would hold a
