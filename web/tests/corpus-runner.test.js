@@ -493,9 +493,11 @@ for (const [run, faults, status, failure] of ENDED_EARLY)
   });
 
 // And for a run that fails between two reads, with no read failed: a crash
-// heard after a read that succeeded, as real WebKit reported one (above).
-test("a run that fails between two reads has its status, failure and notRun on disk before the clean-up starts too", async t => {
-  const h = harness(t, { crash: "between" }), saves = [];
+// heard after a read that succeeded, as real WebKit reported one (above). As
+// one more checkpoint, that save also holds what ended the run and what its
+// page had thrown by then.
+test("a run that fails between two reads has its status, failure, notRun, what ended it and what its page threw on disk before the clean-up starts too", async t => {
+  const h = harness(t, { crash: "between", thrown: [1] }), saves = [];
   h.deps.writeReport = (file, report) => {
     writeReport(file, report); h.events.push(`saved ${report.status}`); saves.push(JSON.parse(fs.readFileSync(file)));
   };
@@ -503,10 +505,13 @@ test("a run that fails between two reads has its status, failure and notRun on d
   assert.equal(report.status, "failed");
   assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running", "saved failed",
     "context closed", "browser closed", "server killed", "saved failed"]);
-  const [before] = saves.slice(-2);
+  const [before, final] = saves.slice(-2);
   assert.deepEqual([before.status, before.failure, before.completedImages], ["failed", report.failure, 2]);
   assert.deepEqual(before.results.map(row => row.error ?? null), [null, null], "no read failed");
   assert.deepEqual(before.notRun.map(item => item.name), ["2.png"]);
+  assert.deepEqual(before.ended.map(({ event }) => event), ["page crashed"]);
+  assert.deepEqual(before.ended, final.ended, "what ended the run, as the final save has it");
+  assert.deepEqual(before.pageErrors, ["thrown at 1"], "what the page threw by then");
 });
 
 // Saves before and after the run's images are pinned above and, on real
@@ -538,6 +543,35 @@ test("a save before the clean-up that fails, however, stops no clean-up: it cost
       assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
       assert.deepEqual(logged.filter(line => line.includes("not saved")), [`  checkpoint before the clean-up not saved (${failed.message})`]);
     }
+});
+
+// The real writeReport, with a reader holding the report open from the
+// checkpoint of the read in flight, through all its tries, to the third try of
+// the save before the clean-up. That save retries as every save does, so it
+// still comes before the clean-up, and the file the checkpoint kept beside the
+// report does not stay. The pauses between tries are real: about 5 seconds.
+test("a report held open through the checkpoint of the read in flight is still saved before the clean-up, which retries as every save does", async t => {
+  const h = harness(t, { hang: true }), logged = [], { renameSync } = fs;
+  let renames = 0;
+  // Renames 1 and 2 are the saves before start-up and after the first image;
+  // the next 22 are refused: the checkpoint's 20 tries and 2 of the next save's.
+  fs.renameSync = (from, to) => {
+    if (++renames >= 3 && renames <= 24) throw busy();
+    const { status } = JSON.parse(fs.readFileSync(from));
+    renameSync(from, to); h.events.push(`saved ${status}`);
+  };
+  t.after(() => { fs.renameSync = renameSync; });
+  h.deps.log = line => logged.push(line);
+  const report = await h.run();
+  fs.renameSync = renameSync;
+  const kept = `${h.output}.${process.pid}.tmp`;
+  assert.equal(report.status, "interrupted");
+  assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved interrupted",
+    "context closed", "browser closed", "server killed", "saved interrupted"]);
+  assert.deepEqual(logged.filter(line => line.includes("not saved")),
+    [`  checkpoint after image 2 not saved, the report is held open (EPERM: operation not permitted, rename; the report is kept as ${kept})`]);
+  assert.equal(fs.existsSync(kept), false);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
 });
 
 test("a disk that fails the save before the clean-up and the final save is reported by the final save, after the clean-up", async t => {
