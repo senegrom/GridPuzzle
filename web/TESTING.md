@@ -523,13 +523,15 @@ independently and never replaces the primary failure. On Windows a
 process holding the report open (someone checking progress, an editor) makes
 the replacing rename fail; the runner retries it for about five seconds, and a
 checkpoint that still cannot be saved is skipped with a warning, for the next
-checkpoint or the final save to write. A final save still held after that keeps
-the new report beside the old one (`<report>.<pid>.tmp`) and names it in the
-error. Any other write failure ends the run. The command
+checkpoint or the final save to write. A save still held after that keeps the
+new report beside the old one (`<report>.<pid>.tmp`) until a later save gets
+through, and names it in its warning, or in the error of a final save. Any
+other write failure ends the run. The command
 exits nonzero for an incomplete run, any failed image or a failed clean-up, and
 a hard kill or lost disk access keeps only the last checkpoint; for a run that
 ended early, whatever ends the process during its clean-up keeps the
-checkpoint that says how it ended (below).
+checkpoint that says how it ended (below), beside the report if that was held
+open through it.
 
 A signal is the command's alone: the runner launches the browser with
 Playwright's `handleSIGINT`, `handleSIGTERM` and `handleSIGHUP` off. Left on,
@@ -570,7 +572,9 @@ last checkpoint, `status` still `running` and `notRun` empty: during a launch,
 which the run waits for before it stops; in the wait of up to a second after a
 read that says its target is gone, for what Playwright reports after it; and
 during the clean-up of a run that had read every image, whose last checkpoint
-has them all. The exit waits for Playwright's exit listener, which kills the
+has them all. A report held open through the save before the clean-up stays at
+the last checkpoint that got through, with what that save wrote beside it
+(below). The exit waits for Playwright's exit listener, which kills the
 browser and removes its folders as far as it can: the process ended 0.01 to
 6.24 s after the second signal in 166 runs here, and a double Ctrl+C left part
 of Chromium's profile or all of it in 5 of the 76 such runs in Chromium, all of
@@ -647,7 +651,7 @@ or not. A run whose browser closed ends by itself.
 
 A run nothing interrupted gives each close `CLOSE_LIMIT`, the suites' 30
 seconds, also when it failed by itself, since a browser that is only slow is no
-failure: on a loaded host Chromium's process took 0.04 to 11.64 s to end in 44
+failure: on a loaded host Chromium's process took 0.03 to 11.64 s to end in 42
 runs here, its connection gone within 0.06 s. With a limit of 5 seconds such a
 run failed on the limit alone (9 of 30 Chromium runs here, none of 54 in
 WebKit), and the process ended with the browser still closing, which left
@@ -662,7 +666,10 @@ both). A report held open adds about five seconds to each save, and a further
 signal waits for those retries, which stop the process's event loop: an
 interrupt during a read is followed by two saves in a row, the image's
 checkpoint and the save before the clean-up, and a second Ctrl+C 5.2 s after
-the first ended the process 5.28 to 10.3 s after it in 6 runs here. A signal
+the first ended the process 5.28 to 10.3 s after it in 6 runs here. In all 6
+the save before the clean-up gave up as well, so each report stayed at the last
+checkpoint that got through, `running` with `notRun` empty, and how the run
+ended was only in `<report>.<pid>.tmp`. A signal
 during the clean-up of a run nothing had interrupted cuts what is left of the
 wait for the close in progress to at most `LATE_SIGNAL_CLOSE_LIMIT`, 2 seconds,
 and the next close has no longer: that does not hold up a Ctrl+C either, and it

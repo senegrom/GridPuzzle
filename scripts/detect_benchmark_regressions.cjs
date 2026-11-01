@@ -77,8 +77,9 @@ engine.launch = async function (...args) {
 /* Runs the real command on the corpus under `root`, in a process of its own,
    and checks how `signal` during a read ended it: by itself, with exit code 1,
    its report final and every process Node started for it gone. Playwright's
-   handlers, left on, end such a run with exit code 130 and either a false
-   entry in cleanupErrors or a report that still says "running". With
+   handlers, left on, end such a run on SIGINT with exit code 130 and either a
+   false entry in cleanupErrors or a report that still says "running"; on
+   SIGTERM and SIGHUP they close the browser under it. With
    `second`, the name and exit code of a signal raised during its clean-up,
    that signal ended it: with its code and the report the run saved before its
    clean-up, which says what ended it but not what the clean-up found, and
