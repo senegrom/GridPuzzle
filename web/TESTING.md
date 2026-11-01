@@ -556,6 +556,11 @@ gives three minutes: a browser left to come up afterwards would hold a process
 that nothing closes, so the run waits for it, asks it for nothing and closes
 it.
 
+Times measured here come from a shared Windows host, at 36 to 100% CPU where
+the load was recorded, and a busier host can take longer. What holds by design
+is said as such: the runner's limits, and the five seconds Windows gives a
+process on a closing console.
+
 A second signal, of any of the three, ends the process without waiting for that
 clean-up, with 128 and the signal's number (130, 143 or 129). The report stays
 as the run saved it before the clean-up: `interrupted`, or `failed` for a run
@@ -565,42 +570,57 @@ last checkpoint, `status` still `running` and `notRun` empty: during a launch,
 which the run waits for before it stops; in the wait of up to a second after a
 read that says its target is gone, for what Playwright reports after it; and
 during the clean-up of a run that had read every image, whose last checkpoint
-has them all. The exit takes a few seconds at most (up to about 6 s on a loaded
-host, 0.04 to 1.5 s on a quiet one), for Playwright's exit listener, which
-kills the browser and removes its folders as far as it can: a double Ctrl+C can
-leave Chromium's profile, part of it in a launch and now and then all of it
-during a read. It goes through `process.exit()` for that listener, and for the
-run's own, which stops the HTTP server: on Linux and macOS that would otherwise
-outlive the process and keep its fixed port. Once the report is saved the
-command no longer listens, so a signal while it waits for the browser to end
-has its default action, which runs neither listener. The report is final by
-then, but on Windows the exit code is 0xC000013A and Chromium's profile can
-stay in the temporary folder.
+has them all. The exit waits for Playwright's exit listener, which kills the
+browser and removes its folders as far as it can: the process ended 0.01 to
+6.24 s after the second signal in 166 runs here, and a double Ctrl+C left part
+of Chromium's profile or all of it in 8 of 81 such runs, all of it in 5. It
+goes through `process.exit()` for that listener, and for the run's own, which
+stops the HTTP server: on Linux and macOS that would otherwise outlive the
+process and keep its fixed port. Once the report is saved the command no longer
+listens, so a signal while it waits for the browser to end has its default
+action, which runs neither listener. The report is final by then, but on
+Windows the exit code is 0xC000013A and Chromium's profile can stay in the
+temporary folder.
 
 SIGHUP is a terminal that goes away, or on Windows a console window that
-closes. Windows then ends the process five to ten seconds after it hears that,
-whatever it is doing (5.0 to 5.7 s here). A browser that takes that long to
+closes. Windows then ends the process about five seconds after it hears that,
+whatever it is doing (a watcher at Idle priority saw it end 4.98 to 8.63 s
+after in 86 runs here, 75 of them by 5.2 s). A browser that takes that long to
 close costs an interrupted run its final save: the report stays as the run
 saved it before its clean-up, `interrupted`, with `failure` and `notRun` (a
 failed run's too, should the kill still come first: below), and Playwright's
-temporary folders stay. WebKit closing in time ended `interrupted`, in under
-0.2 s. Chromium's processes hear the close first, and the command 6 to 18
-seconds after it here, the later the busier the host (up to 20 with those
-processes really stuck). So its page goes down under a run still reading,
-which fails by itself: `page crashed`, `notRun` right, and when the browser
-closes its report is final 6 to 12 seconds after the close.
+temporary folders stay. With WebKit closing in time the run ended
+`interrupted`, its report final 0.03 to 0.14 s after the close in 13 runs here.
+Chromium's processes hear the close first, and the command only once they have
+ended: 6.0 to 22.8 s after the close in 108 runs here, the latest with the host
+at 96 to 100% CPU, and 5.0 to 20.4 s in 32 with those processes suspended. So
+its page goes down under a run still reading, which fails by itself: `page
+crashed`, `notRun` right, and when the browser closes, its report is final as
+the command hears the close (0.01 to 0.97 s after it in 23 runs here). A run
+that has read every image by then closes the browser itself, and the command
+hears the console's close as the browser goes (0.97 to 2.6 s after it in 3 runs
+here).
 
 A run nothing interrupted has saved nothing of what its clean-up finds, nor,
 when it read every image, how it ended, and `CLOSE_LIMIT` (below) would hold a
-stuck close past that kill. So a signal during its clean-up leaves each close 2
-seconds, which fits both closes and the final save in before the kill. With
-closes that never settled, a run that had read every image ended `failed`,
-with `browser cleanup timed out` and exit code 1, in both engines, and
-Chromium's run still reading the same with `page crashed` and `notRun` right,
-nothing left in the temporary folder; were the kill to come first all the same,
-that run would keep the `failed` report it saved before its clean-up. A
-Chromium whose processes are really stuck goes down with the console, which
-ends the close, and its run ends `complete`.
+stuck close past that kill. So a signal during its clean-up leaves each close
+at most 2 seconds, the one in progress counted, as the kill is, from when the
+command hears the signal: both closes and the final save fit in before the
+kill. With closes that never settled, the final save came 2.0 to 2.6 s after
+the command heard the close with one of them stuck and 4.0 to 4.2 s with both,
+in 79 runs here: a run that had read every image ended `failed`, with `browser
+cleanup timed out`, in both engines, Chromium's run still reading the same with
+`page crashed` and `notRun` right, and a run that had failed by itself kept its
+own failure. Of those, 77 then exited with code 1, nothing left in the
+temporary folder; in the other 2 the kill came during the exit, after that save
+(0xC000013A), and one left Playwright's empty folders. Were the kill to come
+before that save, the run would keep the `failed` report it saved before its
+clean-up. A Chromium whose processes are really stuck usually goes down with
+the console, which ends the close, and its run ends `complete` (17 of 18 runs
+here). In the other, with the host at 96 to 100% CPU, its main process was
+still up when the 2 seconds ran out, 1.7 s late: that run ended `failed` with
+`browser cleanup timed out`, the kill came during its exit, and Chromium's
+profile stayed in the temporary folder.
 
 On a Windows console a real Ctrl+C reaches everything on that console, the HTTP
 server and the browser too, since Playwright detaches a browser only on other
@@ -625,25 +645,29 @@ or not. A run whose browser closed ends by itself.
 
 A run nothing interrupted gives each close `CLOSE_LIMIT`, the suites' 30
 seconds, also when it failed by itself, since a browser that is only slow is no
-failure: on a loaded host Chromium's process took up to 11.6 s to end, its
-connection gone in 10 ms. With a limit of 5 seconds such a run failed on the
-limit alone (9 of 30 Chromium runs here, none of 54 in WebKit), and the process
-ended with the browser still closing, which left Chromium's profile in the
-temporary folder in 3 of 9.
+failure: on a loaded host Chromium's process took 0.04 to 11.64 s to end in 44
+runs here, its connection gone within 0.06 s. With a limit of 5 seconds such a
+run failed on the limit alone (9 of 30 Chromium runs here, none of 54 in
+WebKit), and the process ended with the browser still closing, which left
+Chromium's profile in the temporary folder in 3 of 9.
 
-An interrupted run gives each close `INTERRUPTED_CLOSE_LIMIT`, 5 seconds, so
-that a stuck close does not hold up a Ctrl+C: once a launch in flight has
-returned, the report is final within about ten seconds of an interrupt. A
-report held open adds about five seconds to each save, and a further signal
-waits for those retries, which stop the process's event loop (9.5 s here). A
-signal during the clean-up of a run nothing had interrupted cuts what is left
-of the wait for the close in progress to at most `LATE_SIGNAL_CLOSE_LIMIT`, 2
-seconds, and the next close has no longer: that does not hold up a Ctrl+C
-either, and it brings the final save in before a closing console's kill
-(above). The price is a browser that is only slow, which is then given up on
-as a stuck one is: it is listed in `cleanupErrors`, which fails a run that had
-read every image, and the process ends with the browser still closing, which
-can leave Chromium's profile.
+An interrupted run gives each close `INTERRUPTED_CLOSE_LIMIT`, 5 seconds from
+its start, so that a stuck close does not hold up a Ctrl+C: once a launch in
+flight has returned, the report is final about 5 seconds after an interrupt
+with one close stuck and about 10 with both (5.0 to 6.2 s in 42 runs here, 10.0
+to 10.93 s in 19). A report held open adds about five seconds to each save, and
+a further signal waits for those retries, which stop the process's event loop:
+an interrupt during a read is followed by two saves in a row, the image's
+checkpoint and the save before the clean-up, and a second Ctrl+C 5.2 s after
+the first ended the process 5.28 to 10.3 s after it in 6 runs here. A signal
+during the clean-up of a run nothing had interrupted cuts what is left of the
+wait for the close in progress to at most `LATE_SIGNAL_CLOSE_LIMIT`, 2 seconds,
+and the next close has no longer: that does not hold up a Ctrl+C either, and it
+brings the final save in before a closing console's kill (above). The price is
+a browser that is only slow, which is then given up on as a stuck one is: it is
+listed in `cleanupErrors`, which fails a run that had read every image, and the
+process ends with the browser still closing, which can leave Chromium's
+profile.
 
 A runner that calls `runBenchmark()` or a command's `main()` keeps its process
 and its own signal listeners, and ending it is up to that runner, but for a

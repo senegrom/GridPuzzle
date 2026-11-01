@@ -18,10 +18,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // failure; here such a browser is given up on as a stuck one is.
 const INTERRUPTED_CLOSE_LIMIT = 5000;
 // What a signal during the clean-up of a run nothing interrupted leaves of the
-// wait for each close. A console window closing ends the process 5 seconds
-// after it hears that, and such a run has saved nothing of what its clean-up
-// found, nor, when it read every image, how it ended: the two closes a hung
-// browser holds up, and the final save, have to fit in those.
+// wait for each close, the one in progress counted from when the process hears
+// the signal. Windows ends a process on a closing console about 5 seconds after
+// it hears that, and such a run has saved nothing of what its clean-up found,
+// nor, when it read every image, how it ended: the two closes a hung browser
+// holds up, and the final save, have to fit in those.
 const LATE_SIGNAL_CLOSE_LIMIT = 2000;
 const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
