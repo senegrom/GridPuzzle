@@ -545,32 +545,86 @@ test("a save before the clean-up that fails, however, stops no clean-up: it cost
     }
 });
 
-// The real writeReport, with a reader holding the report open from the
-// checkpoint of the read in flight, through all its tries, to the third try of
-// the save before the clean-up. That save retries as every save does, so it
-// still comes before the clean-up, and the file the checkpoint kept beside the
-// report does not stay. The pauses between tries are real: about 5 seconds.
-test("a report held open through the checkpoint of the read in flight is still saved before the clean-up, which retries as every save does", async t => {
-  const h = harness(t, { hang: true }), logged = [], { renameSync } = fs;
+// The runner's own writeReport, with a reader holding the report open from
+// the rename numbered `from` to the one numbered `to`: each save that gets
+// through is an event, with the status it saved. Each save first writes the
+// file it keeps when held, over the one an earlier save kept, so as it does,
+// `seen` records the report and the one kept beside it (null where there is
+// none). The final save comes after the clean-up, so the last of `seen` is
+// what a second signal during the clean-up would have left.
+function holdOpen(t, h, from, to) {
+  const { renameSync, writeFileSync } = fs, { wait } = Atomics, kept = `${h.output}.${process.pid}.tmp`;
+  const read = file => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : null;
+  const held = { kept, logged: [], pauses: [], seen: [] };
   let renames = 0;
-  // Renames 1 and 2 are the saves before start-up and after the first image;
-  // the next 22 are refused: the checkpoint's 20 tries and 2 of the next save's.
-  fs.renameSync = (from, to) => {
-    if (++renames >= 3 && renames <= 24) throw busy();
-    const { status } = JSON.parse(fs.readFileSync(from));
-    renameSync(from, to); h.events.push(`saved ${status}`);
+  fs.renameSync = (source, target) => {
+    if (++renames >= from && renames <= to) throw busy();
+    const { status } = JSON.parse(fs.readFileSync(source));
+    renameSync(source, target); h.events.push(`saved ${status}`);
   };
-  t.after(() => { fs.renameSync = renameSync; });
-  h.deps.log = line => logged.push(line);
+  fs.writeFileSync = (file, ...rest) => {
+    if (file === kept) held.seen.push([read(h.output), read(kept)]);
+    writeFileSync(file, ...rest);
+  };
+  // writeReport pauses a quarter of a second between tries with Atomics.wait,
+  // which holds up the whole process: about 5 seconds for a save held through
+  // all its tries. Here each pause is only counted, with the time it asks for
+  // and what the real call answers given no time: "timed-out" where it waits.
+  Atomics.wait = (array, index, value, ms) => {
+    const answer = wait(array, index, value, 0);
+    held.pauses.push([ms, answer]); return answer;
+  };
+  t.after(() => { Object.assign(fs, { renameSync, writeFileSync }); Atomics.wait = wait; });
+  h.deps.log = line => held.logged.push(line);
+  return held;
+}
+const brief = saved => saved && `${saved.status}, ${saved.completedImages} read`;
+
+// Held from the checkpoint of the read in flight, through all its tries, to
+// the last try of the save before the clean-up. That save retries as every
+// save does, so it still comes before the clean-up, and the report the
+// checkpoint kept beside the report stays there until then.
+test("a report held open through the checkpoint of the read in flight is still saved before the clean-up, which retries as every save does, and what the checkpoint kept stays until then", async t => {
+  const h = harness(t, { hang: true });
+  // Renames 1 and 2 are the saves before start-up and after the first image;
+  // the next 39 are refused: the checkpoint's 20 tries and 19 of the next save's.
+  const held = holdOpen(t, h, 3, 41);
   const report = await h.run();
-  fs.renameSync = renameSync;
-  const kept = `${h.output}.${process.pid}.tmp`;
   assert.equal(report.status, "interrupted");
   assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved interrupted",
     "context closed", "browser closed", "server killed", "saved interrupted"]);
-  assert.deepEqual(logged.filter(line => line.includes("not saved")),
-    [`  checkpoint after image 2 not saved, the report is held open (EPERM: operation not permitted, rename; the report is kept as ${kept})`]);
-  assert.equal(fs.existsSync(kept), false);
+  assert.deepEqual(held.logged.filter(line => line.includes("not saved")),
+    [`  checkpoint after image 2 not saved, the report is held open (EPERM: operation not permitted, rename; the report is kept as ${held.kept})`]);
+  // A pause after every refused try but the checkpoint's last, which gives up.
+  assert.deepEqual(held.pauses, Array(19 + 19).fill([250, "timed-out"]));
+  assert.deepEqual(held.seen.map(pair => pair.map(brief)), [[null, null], ["running, 0 read", null], ["running, 1 read", null],
+    ["running, 1 read", "running, 2 read"], ["interrupted, 2 read", null]]);
+  assert.equal(fs.existsSync(held.kept), false);
+  assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
+});
+
+// Held through all the tries of the save before the clean-up, and only those:
+// the report stays at the last checkpoint that got through, and how the run
+// ended is beside it, in the file the warning names, through the whole
+// clean-up. The final save then gets through, and that file goes.
+test("a save before the clean-up held open through all its tries leaves the last checkpoint as the report, with how the run ended beside it, through the clean-up", async t => {
+  const h = harness(t, { hang: true });
+  // Renames 1 to 3 are the saves before start-up and after each image read;
+  // the next 20 are refused: every try of the save before the clean-up.
+  const held = holdOpen(t, h, 4, 23);
+  const report = await h.run();
+  assert.equal(report.status, "interrupted");
+  assert.deepEqual(h.events, ["saved running", "server started", "saved running", "saved running",
+    "context closed", "browser closed", "server killed", "saved interrupted"]);
+  assert.deepEqual(held.logged.filter(line => line.includes("not saved")),
+    [`  checkpoint before the clean-up not saved (EPERM: operation not permitted, rename; the report is kept as ${held.kept})`]);
+  assert.deepEqual(held.pauses, Array(19).fill([250, "timed-out"]));
+  assert.deepEqual(held.seen.map(pair => pair.map(brief)), [[null, null], ["running, 0 read", null], ["running, 1 read", null],
+    ["running, 2 read", null], ["running, 2 read", "interrupted, 2 read"]]);
+  const [onDisk, beside] = held.seen.at(-1);
+  assert.deepEqual(onDisk.notRun, []);
+  assert.deepEqual([beside.failure, beside.notRun.map(item => item.name)], ["test interrupt", ["2.png"]]);
+  assert.equal(fs.existsSync(held.kept), false, "the final save got through");
   assert.deepEqual(h.saved(), JSON.parse(JSON.stringify(report)));
 });
 
