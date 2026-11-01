@@ -36,8 +36,11 @@ if (plan.limits) {
 }
 const note = (line) => fs.appendFileSync("events.txt", `${line}\n`);
 // A real signal where there are real signals. On Windows process.kill() just
-// ends the process, so what listens for the signal is called directly.
-const raise = (name) => (process.platform === "win32" ? process.emit(name, name) : process.kill(process.pid, name));
+// ends the process, so what listens for the signal is called directly, and a
+// moment later: Node hears a real signal only once the code that is running
+// has run on, promises included, so a close that resolves at once can finish
+// the clean-up before the signal is heard.
+const raise = (name) => (process.platform === "win32" ? setImmediate(() => process.emit(name, name)) : process.kill(process.pid, name));
 process.on("exit", (code) => console.log("exit handlers ran with", code));
 
 const { spawn } = childProcess;

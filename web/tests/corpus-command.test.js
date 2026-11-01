@@ -134,10 +134,13 @@ test("a signal during the stuck close of a run nothing interrupted cuts the wait
 
 // Nothing interrupted the run, so nothing has saved how it ended: only an
 // interrupted run saves before its clean-up, and the last checkpoint stays.
+// The browser's close is stuck, as a hung browser's is: one that closes at
+// once can end the clean-up before the process hears the second signal.
 test("two signals during the clean-up of a run nothing interrupted end the process with its last checkpoint, which has every image", async t => {
-  const { code, killed, stdout, stderr, saved } = await command(t, { second: "SIGINT", closing: "SIGTERM", limits: { [LATE_SIGNAL_CLOSE_LIMIT]: 100 } });
+  const plan = { second: "SIGINT", closing: "SIGTERM", close: "never", limits: { [LATE_SIGNAL_CLOSE_LIMIT]: 100 } };
+  const { code, killed, stdout, stderr, saved, events } = await command(t, plan);
   assert.equal(killed, false, stderr); assert.equal(code, 143, stderr); assert.match(stdout, /exit handlers ran with 143/);
-  assert.deepEqual([saved.status, saved.completedImages, saved.notRun], ["running", 3, []]);
+  assert.deepEqual([saved.status, saved.completedImages, saved.notRun], ["running", 3, []]); assert.deepEqual(events, CLOSED);
 });
 
 for (const [run, plan, expected] of [["a complete run", {}, 0], ["an interrupted run", { interrupt: "SIGINT" }, 1]])
