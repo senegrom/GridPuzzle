@@ -580,13 +580,15 @@ stay in the temporary folder.
 SIGHUP is a terminal that goes away, or on Windows a console window that
 closes. Windows then ends the process five to ten seconds after it hears that,
 whatever it is doing (5.0 to 5.7 s here). A browser that takes that long to
-close costs the final save: the report of a run that ended early stays as the
-run saved it before its clean-up, `interrupted` or `failed`, with `failure`
-and `notRun`, and Playwright's temporary folders stay. WebKit closing in time
-ended `interrupted`, in under 0.2 s. Chromium's processes hear the close
-first, and the command 6 to 15 seconds after it, so its page goes down under a
-run still reading, which fails by itself: `page crashed`, `notRun` right, its
-report final within 10 seconds.
+close costs an interrupted run its final save: the report stays as the run
+saved it before its clean-up, `interrupted`, with `failure` and `notRun` (a
+failed run's too, should the kill still come first: below), and Playwright's
+temporary folders stay. WebKit closing in time ended `interrupted`, in under
+0.2 s. Chromium's processes hear the close first, and the command 6 to 16
+seconds after it here (up to 20 with those processes really stuck), so its
+page goes down under a run still reading, which fails by itself:
+`page crashed`, `notRun` right, its report final within 10 seconds when the
+browser closes.
 
 A run nothing interrupted has saved nothing of what its clean-up finds, nor,
 when it read every image, how it ended, and `CLOSE_LIMIT` (below) would hold a

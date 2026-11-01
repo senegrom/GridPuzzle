@@ -42,7 +42,9 @@ const note = (line) => fs.appendFileSync("events.txt", `${line}\n`);
 // ends the process, so what listens for the signal is called directly, and a
 // moment later: Node hears a real signal only once the code that is running
 // has run on, promises included, so a close that resolves at once can finish
-// the clean-up before the signal is heard.
+// the clean-up before the signal is heard. No test relies on that moment now,
+// since where a signal could come after the clean-up the close never settles;
+// without it a test can pass here and fail on Linux, as one did.
 const raise = (name) => (process.platform === "win32" ? setImmediate(() => process.emit(name, name)) : process.kill(process.pid, name));
 process.on("exit", (code) => console.log("exit handlers ran with", code));
 
