@@ -195,9 +195,10 @@ test("a page that crashes between two reads stops the run before the next: no im
 
 for (const phase of ["goto", "launch", "server", "spawn"]) {
   test(`${phase} failure retains a diagnostic report and closes allocated resources`, async t => {
-    const h = harness(t, { [phase]: true }); const report = await h.run();
+    const h = harness(t, { [phase]: true }), saves = keepSaves(h), report = await h.run();
     assert.equal(report.status, "failed"); assert.equal(report.results.length, 0);
     assert.deepEqual(report.notRun.map(item => item.name), ["0.png", "1.png", "2.png"]);
+    assert.deepEqual(saves.map(({ status }) => status), ["running", "failed", "failed"], "saved before the clean-up too");
     assert.ok(h.saved().failure); assert.equal(h.calls, 0);
     assert.deepEqual(h.saved().pageErrors, [], "no page, no errors, and the list is there all the same");
     if (phase !== "spawn") assert.equal(h.events.at(-1), "server killed");
