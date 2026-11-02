@@ -691,11 +691,11 @@ test("after Hide photo and Adjust scan, a Read tapped while the detection still 
 // What the page shows while a Read waits and once something drops it: the
 // two status lines as app.js's status() writes them and as the task
 // controller's elapsed time rewrites the second every half second while a
-// task runs, sampled from a 10 ms timer between tasks, as a paint sees them
-// (only changes are kept). Before, the elapsed time replaced the answer's
-// promise within half a second, and a stop that sets no status of its own (a
-// moved corner, a Play cell, a change of editing tool) left the answer on
-// screen, promising a Read that never came.
+// task runs, each line as it is set (screen, below; only changes are kept).
+// Before, the elapsed time replaced the answer's promise within half a
+// second, and a stop that sets no status of its own (a moved corner, a Play
+// cell, a change of editing tool) left the answer on screen, promising a Read
+// that never came.
 const STILL = "Still finding the grid…", PROMISE = "The puzzle is read as soon as the grid is found.",
   TIME = String.raw`\d+\.\d seconds elapsed · Stop cancels this task\.`,
   ELAPSED = new RegExp(`^${TIME}$`), TIMED = new RegExp(`^${PROMISE.replaceAll(".", "\\.")} ${TIME}$`),
@@ -703,24 +703,61 @@ const STILL = "Still finding the grid…", PROMISE = "The puzzle is read as soon
   FINDING = ["Finding the grid…", "Photo processing stays on this device."],
   UNFINISHED = "Search unfinished. No claim about uniqueness or impossibility has been made.";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// The two status lines, recorded as the page writes them, whatever writes
+// them: a write to either queues one look at both a microtask later, before
+// any other timer can run, so that a pair written together is one line, as a
+// paint shows it, and a line is seen as it was set even when the elapsed
+// time's timer rewrites it next, in the same turn of the event loop. (Looked
+// at from a 10 ms timer, the first line of an answer went unseen on a busy
+// host, where the elapsed time's timer could run before that one came round.)
 function screen(t, h) {
-  const painted = [], now = () => [h.$("status-text").textContent, h.$("status-detail").textContent];
+  const painted = [], nodes = [h.$("status-text"), h.$("status-detail")], waits = new Set();
+  const now = () => nodes.map((node) => node.textContent);
   const sample = () => {
     const line = now(), last = painted.at(-1);
     if (!last || last[0] !== line[0] || last[1] !== line[1]) painted.push(line);
+    for (const wait of waits) wait();
   };
-  const timer = setInterval(sample, 10);
-  t.after(() => clearInterval(timer));
+  let queued = false;
+  for (const node of nodes) {
+    let text = node.textContent;
+    Object.defineProperty(node, "textContent", { configurable: true, enumerable: true, get: () => text,
+      set(value) {
+        text = value;
+        if (!queued) { queued = true; queueMicrotask(() => { queued = false; sample(); }); }
+      } });
+  }
+  sample();
+  t.after(() => { for (const wait of waits) wait.cancel(); });
   return {
     painted, now,
     // A point to count from: since(point) is what was painted after it.
     mark() { sample(); return painted.length; },
     since(point) { sample(); return painted.slice(point); },
-    // Waits, as the page goes on, until the line on screen passes `check`.
-    async until(check, what) {
-      for (const started = Date.now(); !check(now()); await sleep(10))
-        if (Date.now() - started > 10000) assert.fail(`never painted: ${what}\n${JSON.stringify(painted, null, 1)}`);
+    // The line on screen as it was set: once a running task's elapsed time
+    // has replaced its second line, the line it replaced.
+    asSet() {
       sample();
+      let at = painted.length - 1;
+      while (at > 0 && painted[at][0] === painted[at - 1][0] && ELAPSED.test(painted[at][1])) at--;
+      return painted[at];
+    },
+    // Waits, as the page goes on, until the line on screen passes `check`,
+    // looked at now and as each line is painted.
+    until(check, what) {
+      return new Promise((resolve, reject) => {
+        const wait = () => {
+          try { if (!check(now())) return; } catch (error) { wait.cancel(); reject(error); return; }
+          wait.cancel(); resolve();
+        };
+        const guard = setTimeout(() => {
+          wait.cancel();
+          try { assert.fail(`never painted: ${what}\n${JSON.stringify(painted, null, 1)}`); } catch (error) { reject(error); }
+        }, 10000);
+        wait.cancel = () => { clearTimeout(guard); waits.delete(wait); };
+        waits.add(wait);
+        sample();
+      });
     },
   };
 }
@@ -757,6 +794,32 @@ test("on screen, the answer's promise stays while the Read waits, with the elaps
     : text === "Straightening the photograph…" && (detail === "" || ELAPSED.test(detail)))), JSON.stringify(read, null, 1));
   assert.equal(read.at(-1)[0], "Puzzle read.", "the elapsed time ends with the Read");
   readThroughGrid(h);
+});
+
+// On a busy host timers run late, and the elapsed time's tick can then come
+// in the very turn of the event loop that set the line it rewrites. Here Read
+// puzzle is tapped from a timer set just after a tick, as the test above
+// tapped it when its waits looked at the screen every 10 ms, and the event
+// loop is held past the next tick: that tick then runs right after the tap,
+// in its turn (unless the host starves this process for most of half a
+// second just then, when this checks no more than the test above). The timer
+// waits 20 ms, longer than the 10 ms between such looks, so that a look made
+// that way comes before the tap, not between it and the tick. The answer is
+// still seen as it was set, first. Before that, the detection's line, whose
+// second line the elapsed time has just replaced, is read as it was set.
+const holdLoop = (ms) => { for (const end = performance.now() + ms; performance.now() < end;); };
+test("on screen, a line is seen as it was set also when the elapsed time rewrites it in the same turn of the event loop, as on a busy host", async (t) => {
+  const h = harness(t), s = screen(t, h);
+  await h.photograph();
+  await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
+  assert.deepEqual(s.asSet(), FINDING, "the detection's own line, as it was set");
+  const tapped = s.mark();
+  setTimeout(() => h.$("read-photo").onclick(), 20);
+  holdLoop(600);
+  await s.until(([, detail]) => TIMED.test(detail), "the promise with the elapsed time");
+  const waited = s.since(tapped);
+  assert.deepEqual(waited[0], [STILL, PROMISE], "the answer as it is set");
+  assert.ok(waited.every(answer), JSON.stringify(waited, null, 1));
 });
 
 // app.js's own handlers for a tap on a board cell (cellAction, which opens a
@@ -874,8 +937,14 @@ for (const late of [false, true])
       await stop(h); await settle();
       if (late) { detection.resolve(found(STRAY)); await settle(); }
       await sleep(50);
+      // Find grid and Rotate start a detection, whose elapsed time may have
+      // replaced the second line since, as it can on a busy host. In the late
+      // Find grid case it has done so twice before the line is read.
+      if (late && what === "Find grid")
+        await s.until(() => s.painted.slice(stopped).filter(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail)).length >= 2,
+          "the detection's second elapsed time");
       const after = s.since(stopped);
-      assert.deepEqual(s.now(), line);
+      assert.deepEqual(s.asSet(), line);
       noPromise(after);
       assert.ok(!after.some(([text, detail]) => text === DROPPED[0] && detail === DROPPED[1]), JSON.stringify(after, null, 1));
       assert.equal(h.reads.length, 0);
@@ -1020,11 +1089,15 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     // Opened, it is shown on its fallback crop while its grid is found, as a
     // photograph chosen while no task ran is.
     await next.open(); await settle();
+    // With the phone's camera app, the line is read after the detection's
+    // elapsed time has replaced its second line, as it can be on a busy host.
+    if (input === "native-file")
+      await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
     assert.deepEqual([h.state.photo.width, h.state.photo.height], [640, 480]);
     assert.equal(h.detections[1].image, h.state.photo);
     assert.deepEqual(h.state.corners, fallback(640, 480));
     assert.deepEqual(h.statuses.at(-1), FINDING);
-    assert.deepEqual(s.now(), FINDING, "on screen as set: an opening that ended is no opening dropped");
+    assert.deepEqual(s.asSet(), FINDING, "on screen as set: an opening that ended is no opening dropped");
     h.running();
     h.detections[1].resolve(found(CHOSEN)); await next.imported; await settle();
     assert.equal(h.status, "Grid found."); assert.deepEqual(h.state.corners, CHOSEN);
