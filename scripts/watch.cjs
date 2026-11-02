@@ -5,10 +5,11 @@
    up: the close() of what watch() returns, cleanUp(), markUnclosed() and
    exitIfUnclosed().
    It lives apart from scripts/harness.cjs, which exports what the suites use
-   of it too, because loading the harness takes over the process's exit,
-   SIGINT and SIGTERM to stop its servers, and the corpus benchmarks stop on
-   their own SIGINT, SIGTERM and SIGHUP handlers, which save their reports
-   first (interruptible() in corpus/benchmark-runner.cjs). */
+   of it too, because loading the harness takes over the process's exit, to
+   stop its servers, and SIGHUP, SIGINT, SIGTERM and SIGBREAK, which end the
+   process there, and the corpus benchmarks stop on handlers of their own for
+   those four signals, which save their reports first (interruptible() in
+   corpus/benchmark-runner.cjs). */
 const assert = require("node:assert/strict");
 
 // Playwright's word that the target of a call is gone: a lost browser's

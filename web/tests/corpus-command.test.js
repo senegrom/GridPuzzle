@@ -65,7 +65,9 @@ test("the default launch leaves the signals to the command: Playwright's three h
 
 // The read in flight keeps the interrupt as its error, as an interrupted row
 // has since the first runner, and the command ends as any incomplete run does.
-for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+// SIGBREAK is Ctrl+Break, which only Windows raises: elsewhere the stand-in
+// calls what listens for it, as it does on Windows for every signal.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])
   test(`${signal} stops the command: the report says so, what it opened is closed, and it exits with 1`, async t => {
     const { code, killed, stderr, saved, events } = await command(t, { interrupt: signal });
     const failure = `Detection benchmark interrupted by ${signal}`;
@@ -86,7 +88,8 @@ test("an interrupt while the server starts ends the command, with nothing left a
   assert.deepEqual(events.filter(line => line !== "server asked"), ["server killed"]);
 });
 
-for (const [first, second, code] of [["SIGINT", "SIGINT", 130], ["SIGTERM", "SIGINT", 130], ["SIGINT", "SIGTERM", 143], ["SIGHUP", "SIGTERM", 143], ["SIGTERM", "SIGHUP", 129]])
+for (const [first, second, code] of [["SIGINT", "SIGINT", 130], ["SIGTERM", "SIGINT", 130], ["SIGINT", "SIGTERM", 143], ["SIGHUP", "SIGTERM", 143], ["SIGTERM", "SIGHUP", 129],
+  ["SIGBREAK", "SIGBREAK", 149]])
   test(`${second} after ${first} ends the process at once, with ${code} and what listens for the exit, leaving the report saved before the clean-up`, async t => {
     const ended = await command(t, { interrupt: first, second }), failure = `Detection benchmark interrupted by ${first}`;
     assert.equal(ended.killed, false, ended.stderr); assert.equal(ended.code, code, ended.stderr);
@@ -180,7 +183,7 @@ test("after an interrupt that same save leaves the report saved before the clean
 });
 
 const RUNNER = `const { main } = require(__dirname + "/${COMMAND}");
-  const own = () => console.log("the runner heard it"), counts = () => ["SIGINT", "SIGTERM", "SIGHUP"].map((name) => process.listenerCount(name)).join();
+  const own = () => console.log("the runner heard it"), counts = () => ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"].map((name) => process.listenerCount(name)).join();
   process.on("SIGINT", own);
   main(process.argv.slice(2)).then((code) => {
     console.log("main() returned", code, "listeners", counts());
@@ -192,7 +195,7 @@ const RUNNER = `const { main } = require(__dirname + "/${COMMAND}");
 test("a runner that calls main() keeps its process after a browser that would not close, and what it listens for", async t => {
   const { code, killed, stdout, stderr, saved } = await command(t, { interrupt: "SIGINT", close: "reject" }, { entry: "runner.cjs", scripts: { "runner.cjs": RUNNER } });
   assert.equal(killed, false, stderr); assert.equal(code, 7, stderr);
-  assert.match(stdout, /the runner heard it\n[\s\S]*main\(\) returned 1 listeners 1,0,0\s+the runner goes on/);
+  assert.match(stdout, /the runner heard it\n[\s\S]*main\(\) returned 1 listeners 1,0,0,0\s+the runner goes on/);
   assert.equal(saved.status, "interrupted"); assert.deepEqual(saved.cleanupErrors, ["browser: the pipe broke"]);
 });
 

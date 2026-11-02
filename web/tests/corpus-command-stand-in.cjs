@@ -31,6 +31,7 @@
 const childProcess = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
+const os = require("node:os");
 
 const plan = JSON.parse(process.env.COMMAND_PLAN || "{}");
 if (plan.limits) {
@@ -39,13 +40,17 @@ if (plan.limits) {
 }
 const note = (line) => fs.appendFileSync("events.txt", `${line}\n`);
 // A real signal where there are real signals. On Windows process.kill() just
-// ends the process, so what listens for the signal is called directly, and a
-// moment later: Node hears a real signal only once the code that is running
-// has run on, promises included, so a close that resolves at once can finish
-// the clean-up before the signal is heard. No test relies on that moment now,
-// since where a signal could come after the clean-up the close never settles;
-// without it a test can pass here and fail on Linux, as one did.
-const raise = (name) => (process.platform === "win32" ? setImmediate(() => process.emit(name, name)) : process.kill(process.pid, name));
+// ends the process, or refuses the signal, and SIGBREAK, which a process can
+// listen for anywhere, only Windows raises: os.constants.signals names it only
+// there. So on Windows, and for SIGBREAK elsewhere, what listens for the signal
+// is called directly, and a moment later: Node hears a real signal only once
+// the code that is running has run on, promises included, so a close that
+// resolves at once can finish the clean-up before the signal is heard. No test
+// relies on that moment now, since where a signal could come after the
+// clean-up the close never settles; without it a test can pass here and fail
+// on Linux, as one did.
+const raise = (name) => (process.platform === "win32" || os.constants.signals[name] === undefined
+  ? setImmediate(() => process.emit(name, name)) : process.kill(process.pid, name));
 process.on("exit", (code) => console.log("exit handlers ran with", code));
 
 const { spawn } = childProcess;

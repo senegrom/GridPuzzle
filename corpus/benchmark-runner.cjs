@@ -117,8 +117,12 @@ async function waitForServer(base, getError) {
 }
 
 // The signals a benchmark command stops on, each with the exit code of a
-// process that a second signal ends.
-const STOPS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+// process that a second signal ends: 128 and the signal's number. SIGBREAK is
+// Ctrl+Break, which only Windows raises: with nothing listening, its default
+// action ends the process at once, with no report but the last checkpoint.
+// Node lets every platform listen for it, but os.constants.signals names it
+// (21) only on Windows, hence the codes written out.
+const STOPS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143, SIGBREAK: 149 };
 
 /* Runs a command's benchmark, `run(signal)`. The first of the signals in
    STOPS aborts `signal` with "<label> interrupted by <its name>": the run
@@ -147,8 +151,9 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   base = "http://127.0.0.1:8780/", signal, measure,
   summarizeResults = summarize, reportMetadata = { scoreVersion: SCORE_VERSION } }, dependencies = {}) {
   // The signals are the command's (interruptible() above). Playwright's own
-  // handlers, on by default, would hear them as well: they close the browser
-  // under the run, and on SIGINT end the process with 130 while it saves.
+  // handlers, on by default for SIGINT, SIGTERM and SIGHUP (it has none for
+  // SIGBREAK), would hear those as well: they close the browser under the
+  // run, and on SIGINT end the process with 130 while it saves.
   const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true,
     handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false }));
   const startServer = dependencies.startServer || (() => spawn("python",
