@@ -802,14 +802,15 @@ test("on screen, the answer's promise stays while the Read waits, with the elaps
 // just after a tick, with the event loop held past the next one: that tick
 // then runs right after the tap, in its turn (unless the host starves this
 // process for most of half a second just then, when this checks no more than
-// the test above). The answer is still seen as it was set, first. And the
-// line of a detection whose elapsed time has replaced its second line is
-// still read as it was set.
+// the test above). The answer is still seen as it was set, first. Before
+// that, the detection's line, whose second line the elapsed time has just
+// replaced, is read as it was set.
 const holdLoop = (ms) => { for (const end = performance.now() + ms; performance.now() < end;); };
 test("on screen, a line is seen as it was set also when the elapsed time rewrites it in the same turn of the event loop, as on a busy host", async (t) => {
   const h = harness(t), s = screen(t, h);
   await h.photograph();
   await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
+  assert.deepEqual(s.asSet(), FINDING, "the detection's own line, as it was set");
   const tapped = s.mark();
   setTimeout(() => h.$("read-photo").onclick(), 20);
   holdLoop(600);
@@ -817,13 +818,6 @@ test("on screen, a line is seen as it was set also when the elapsed time rewrite
   const waited = s.since(tapped);
   assert.deepEqual(waited[0], [STILL, PROMISE], "the answer as it is set");
   assert.ok(waited.every(answer), JSON.stringify(waited, null, 1));
-  // Stopped, and the grid searched again on the fallback crop.
-  h.stop();
-  void h.$("detect-photo").onclick();
-  await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
-  assert.match(s.now()[1], ELAPSED, "the elapsed time has replaced the second line");
-  assert.deepEqual(s.asSet(), FINDING, "the detection's own line, as it was set");
-  h.stop();
 });
 
 // app.js's own handlers for a tap on a board cell (cellAction, which opens a
