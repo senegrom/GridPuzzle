@@ -638,9 +638,11 @@ describe('what a run started does not outlive its failure', { concurrency: true 
     });
 });
 
-// How a suite below hears SIGNAL: a real signal where there are real ones; on
-// Windows, and for SIGBREAK, which only Windows raises, everywhere, it calls
-// what listens for the signal, as corpus-command-stand-in.cjs does.
+// How SIGNALLED, below, hears SIGNAL: a real signal where there are real
+// ones, which Node hears once the suite's code has run on, promises included.
+// On Windows, where process.kill() just ends the process or refuses the
+// signal, and for SIGBREAK, which only Windows raises, everywhere, it calls
+// what listens for the signal itself, at once.
 const RAISE = `if (process.platform === "win32" || require("node:os").constants.signals[SIGNAL] === undefined) process.emit(SIGNAL, SIGNAL);
   else process.kill(process.pid, SIGNAL);`;
 
@@ -667,20 +669,24 @@ main(module, async () => {
 
 /* Suites with browsers of their own, as ocr_latency and solver_update are:
    they load the harness for watch() and exitIfUnclosed() and call neither
-   serve() nor main(). Each hears a signal as the one above does, once its
-   launch has added a listener for the signal, as Playwright's does, before
-   any call into the harness. LOADED then has the harness make it a temporary
-   directory, which the harness's clean-up must remove. NOTHING, like
-   ocr_latency and solver_update, makes nothing of the harness's at all, so
-   that only listeners the harness added as the suite loaded it can come
-   before the launch's: they end the process in the same emit, and the
-   launch's never hears it. */
-const loaded = (makes) => `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed, sleep } = require(${JSON.stringify(harness)});
+   serve() nor main(). Each adds a listener for the signal, as a launch adds
+   Playwright's, before any call into the harness. LOADED then has the
+   harness make it a temporary directory, which the harness's clean-up must
+   remove; NOTHING, like ocr_latency and solver_update, makes nothing of the
+   harness's at all. Then each calls what listens for the signal itself, at
+   once, on every platform, and waits on a timer of its own. These check
+   which listeners there are, and in what order, as the signal comes, and a
+   real signal comes only once the suite's code has run on: listeners that
+   the harness added in that moment, at a call into it or a tick after it
+   loaded, could still come first. So in NOTHING only listeners the harness
+   added as the suite loaded it can come before the launch's: they end the
+   process in the same emit, and the launch's never hears it. */
+const loaded = (makes) => `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed } = require(${JSON.stringify(harness)});
 (async () => {
   process.on(SIGNAL, () => console.log("the launch's listener heard it"));
   ${makes ? 'baselineSite("HEAD", []);' : '// It makes nothing of the harness\'s.'}
-  ${RAISE}
-  await sleep(3000);
+  process.emit(SIGNAL, SIGNAL);
+  await new Promise((resolve) => setTimeout(resolve, 3000));
   console.log("the suite carried on");
 })().finally(() => exitIfUnclosed(module));
 `;
