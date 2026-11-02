@@ -101,8 +101,8 @@ close that rejects or runs out of time is printed on stderr and kept in the
 report's `cleanupErrors`, the list of strings the corpus reports have, as
 `browser: browser cleanup timed out` or `browser: <its error>` (`context: …`
 for those two checks' contexts); the list is empty after closes that worked.
-Such a cleanup failure says that the browser
-did not close when asked. It says nothing against what the suite checked
+Such a cleanup failure says that the browser, or one of those contexts, did
+not close when asked. It says nothing against what the suite checked
 before that, but a run that leaves a browser behind has not passed: an engine
 that passed fails, with the cleanup failure in `failure`, and an engine that
 failed keeps its own failure first. Every engine still runs, and its report is
@@ -244,14 +244,18 @@ samples taken during the runs: the run ended by itself 81.2 s (offline-install)
 and 81.5 s (stale-build) after the check's close started, with exit code 1, its
 report written with `context: context cleanup timed out` and then `browser:
 browser cleanup timed out` in `cleanupErrors`, the offline-install check's
-folder gone and no process Node started left running, where the base was still
-waiting at bounds of 150 s and 300 s. In Chromium that state makes the close
-reject at once; a close made never to settle there ended the run 30.5 s and 30.4
-s after it started, where the base was still waiting at 150 s and 240 s.
-`web/tests/harness-close.test.js` runs each check as it is, in a process of its
-own, with its context's close rejecting and never settling after a pass and
-after the check's own failure; there a timer of `CLOSE_LIMIT`'s length lasts a
-tenth of a second, as the corpus command tests shorten theirs.
+folder gone and no process Node started left running. The same runs without
+the limit were still waiting when they were stopped, 111 s and 246 s after that
+close started (150 s and 300 s into the run). In Chromium that state makes the
+close reject at once; a close made never to settle there ended the run 30.5 s
+and 30.4 s after it started, and without the limit the run was still waiting
+when stopped 141 s and 185 s after it started. `web/tests/harness-close.test.js`
+runs each check as it is, in a process of its own, with its context's close
+rejecting and never settling after a pass and after the check's own failure at
+its first step, and rejecting after a failure at its last; there a timer of
+`CLOSE_LIMIT`'s length lasts a tenth of a second, as the corpus command tests
+shorten theirs, and such timers are counted, so that a close given any other
+limit fails the test.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
