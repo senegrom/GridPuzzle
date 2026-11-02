@@ -554,16 +554,19 @@ describe('what a run started does not outlive its failure', { concurrency: true 
     });
 });
 
+// How a suite below hears SIGNAL: a real signal where there are real ones; on
+// Windows, and for SIGBREAK, which only Windows raises, everywhere, it calls
+// what listens for the signal, as corpus-command-stand-in.cjs does.
+const RAISE = `if (process.platform === "win32" || require("node:os").constants.signals[SIGNAL] === undefined) process.emit(SIGNAL, SIGNAL);
+  else process.kill(process.pid, SIGNAL);`;
+
 /* A suite on the harness that hears a signal once its server is up and the
    harness has made it a temporary directory, and would otherwise carry on
-   for three seconds and end by itself. A real signal where there are real
-   ones; on Windows, and for SIGBREAK, which only Windows raises, everywhere,
-   it calls what listens for the signal, as corpus-command-stand-in.cjs does.
-   Its server is the stand-in for Python's, detached, so that on Windows too
-   only the harness's clean-up ends it (libuv's job object ends a process's
-   other children with it there); it ends itself after a minute should that
-   clean-up not come. */
-const SIGNALLED = `const children = require("node:child_process"), { spawn } = children, os = require("node:os");
+   for three seconds and end by itself. Its server is the stand-in for
+   Python's, detached, so that on Windows too only the harness's clean-up ends
+   it (libuv's job object ends a process's other children with it there); it
+   ends itself after a minute should that clean-up not come. */
+const SIGNALLED = `const children = require("node:child_process"), { spawn } = children;
 children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(`${SERVER}\nsetTimeout(() => process.exit(), 60000);`)}],
   { ...options, cwd: ${JSON.stringify(os.tmpdir())}, detached: true });
 const { baselineSite, main, serve, sleep } = require(${JSON.stringify(harness)}), { SIGNAL } = process.env;
@@ -571,26 +574,49 @@ main(module, async () => {
   const server = await serve();
   console.log("origin", server.origin);
   baselineSite("HEAD", []);
-  if (process.platform === "win32" || os.constants.signals[SIGNAL] === undefined) process.emit(SIGNAL, SIGNAL);
-  else process.kill(process.pid, SIGNAL);
+  ${RAISE}
   await sleep(3000);
   console.log("the suite carried on");
   await server.close();
 });
 `;
 
+/* A suite with browsers of its own, as ocr_latency and solver_update are: it
+   loads the harness for watch() and exitIfUnclosed() and calls neither
+   serve() nor main(). It hears a signal as the one above does, once the
+   harness has made it a temporary directory and its launch has added a
+   listener for the signal, as Playwright's does: the harness's, added as the
+   suite loaded it, come first and end the process in the same emit, so that
+   the launch's never hears it. */
+const LOADED = `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed, sleep } = require(${JSON.stringify(harness)});
+(async () => {
+  baselineSite("HEAD", []);
+  process.on(SIGNAL, () => console.log("the launch's listener heard it"));
+  ${RAISE}
+  await sleep(3000);
+  console.log("the suite carried on");
+})().finally(() => exitIfUnclosed(module));
+`;
+
+// A tree for a suite above, with what baselineSite() copies.
+function suiteTree(t, source) {
+  const directory = temporary(t), suite = path.join(directory, 'suite.cjs');
+  fs.mkdirSync(path.join(directory, '_site'));
+  fs.writeFileSync(path.join(directory, '_site', 'build-info.json'), '{ "build": "x" }');
+  fs.writeFileSync(suite, source);
+  return { directory, suite };
+}
+
 // Whether anything answers at `origin` within a second.
 const answers = (origin) => fetch(origin, { method: 'HEAD', signal: AbortSignal.timeout(1000) }).then(() => true, () => false);
 
 // SIGHUP is a terminal that goes away, or on Windows a console window that
 // closes, and SIGBREAK Ctrl+Break. Side by side, as above.
+const SIGNALS = [['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143], ['SIGBREAK', 149]];
 describe('a signal ends a suite\'s process through the harness\'s clean-up', { concurrency: true }, () => {
-  for (const [signal, expected] of [['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143], ['SIGBREAK', 149]])
+  for (const [signal, expected] of SIGNALS)
     test(`${signal} ends it at once, with ${expected}, its server stopped and its temporary directory gone`, async (t) => {
-      const directory = temporary(t), suite = path.join(directory, 'suite.cjs');
-      fs.mkdirSync(path.join(directory, '_site'));
-      fs.writeFileSync(path.join(directory, '_site', 'build-info.json'), '{ "build": "x" }');
-      fs.writeFileSync(suite, SIGNALLED);
+      const { directory, suite } = suiteTree(t, SIGNALLED);
       const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, `${stdout}${stderr}`);
@@ -602,5 +628,16 @@ describe('a signal ends a suite\'s process through the harness\'s clean-up', { c
       let up = true;
       for (const stop = Date.now() + 5000; up && Date.now() < stop;) if ((up = await answers(origin))) await sleep(100);
       assert.equal(up, false, `the server at ${origin} still answers`);
+    });
+
+  for (const [signal, expected] of SIGNALS)
+    test(`${signal} ends one that only loads the harness, as ocr_latency and solver_update do, with ${expected}, before its launch's listener hears it, its temporary directory gone`, async (t) => {
+      const { directory, suite } = suiteTree(t, LOADED);
+      const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.doesNotMatch(stdout, /the launch's listener heard it/);
+      assert.doesNotMatch(stdout, /the suite carried on/);
+      assert.deepEqual(left(directory), [], 'its temporary directory is gone');
     });
 });
