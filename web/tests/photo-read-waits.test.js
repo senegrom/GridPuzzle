@@ -938,8 +938,8 @@ for (const late of [false, true])
       if (late) { detection.resolve(found(STRAY)); await settle(); }
       await sleep(50);
       // Find grid and Rotate start a detection, whose elapsed time may have
-      // replaced the second line since, as it can on a busy host. Once, it
-      // has done so twice before the line is read.
+      // replaced the second line since, as it can on a busy host. In the late
+      // Find grid case it has done so twice before the line is read.
       if (late && what === "Find grid")
         await s.until(() => s.painted.slice(stopped).filter(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail)).length >= 2,
           "the detection's second elapsed time");
@@ -1089,8 +1089,8 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     // Opened, it is shown on its fallback crop while its grid is found, as a
     // photograph chosen while no task ran is.
     await next.open(); await settle();
-    // Once, the line is read after the detection's elapsed time has replaced
-    // its second line, as it can be on a busy host.
+    // With the phone's camera app, the line is read after the detection's
+    // elapsed time has replaced its second line, as it can be on a busy host.
     if (input === "native-file")
       await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
     assert.deepEqual([h.state.photo.width, h.state.photo.height], [640, 480]);
