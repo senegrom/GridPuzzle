@@ -53,7 +53,20 @@ process.once("exit", () => {
   for (const server of servers) server.kill();
   removeTemporary();
 });
-for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]])
+/* A signal ends a suite's process through process.exit(), with 128 and the
+   signal's number, so that what listens for the exit runs: the clean-up
+   above, and Playwright's, which kills every browser it launched. SIGHUP is
+   a terminal that goes away, or on Windows a console window that closes:
+   heard by Playwright's own handler alone, it would close the browser under
+   the running suite, which would fail on a lost browser and start the next
+   engine. SIGBREAK is Ctrl+Break, which only Windows raises: with nothing
+   listening, its default action ends the process at once, with neither
+   listener run. Playwright's handlers, on in every suite's launch, never
+   act: these are added first, as a suite loads the harness, and end the
+   process in the same emit. Node lets every platform listen for SIGBREAK,
+   but os.constants.signals names it (21) only on Windows, hence the codes
+   written out. */
+for (const [signal, code] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149]])
   process.once(signal, () => process.exit(code));
 
 /* Python's http.server serving `directory` on a port the system picks, or on
