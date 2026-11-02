@@ -386,22 +386,23 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
   });
 });
 
-// photo_read's two checks wait CLOSE_LIMIT for their context to close, as
-// engines() waits for the browser. A test cannot wait that long, so a check's
-// process makes a timer of that length a tenth of a second, as
-// corpus-command-stand-in.cjs's `limits` do for the corpus commands. Each check
-// gets a report as engines() starts it, whose cleanupErrors its process prints
-// last. A close that rejects or never settles is the check's failure only when
-// the check has none of its own, and goes in cleanupErrors and on stderr either
-// way.
-const LIMIT = `const { CLOSE_LIMIT } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/watch.cjs', import.meta.url)))});
+// What the process of either check below runs first. photo_read's two checks
+// wait CLOSE_LIMIT for their context to close, as engines() waits for the
+// browser. A test cannot wait that long, so a timer of that length lasts a
+// tenth of a second here, as corpus-command-stand-in.cjs's `limits` make the
+// corpus commands' timers shorter. Each check gets a report with the engine's
+// name and an empty cleanupErrors, as engines() starts it, and its process
+// prints that list last. A close that rejects or never settles is the check's
+// failure only when the check has none of its own, and goes in cleanupErrors
+// and on stderr either way.
+const CHECK_PROCESS = `const { CLOSE_LIMIT } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/watch.cjs', import.meta.url)))});
 const { setTimeout: later } = globalThis;
 globalThis.setTimeout = (run, ms, ...args) => later(run, ms === CLOSE_LIMIT ? 100 : ms, ...args);
 const report = { browser: "chromium", cleanupErrors: [] }, reported = () => console.log("cleanupErrors", JSON.stringify(report.cleanupErrors));
 `;
 const TIMED_OUT = 'context: context cleanup timed out';
-// What a check's process printed after its outcome, and on stderr: the report's
-// cleanupErrors, as `printed` says, each with the engine's name.
+// Checks the last line a check's process printed, its report's cleanupErrors,
+// and that each of those was printed on stderr after the engine's name.
 function cleanupErrorsIn(printed, stderr, cleanupErrors) {
   assert.equal(printed, `cleanupErrors ${JSON.stringify(cleanupErrors)}`);
   for (const failed of cleanupErrors) assert.ok(stderr.split(/\r?\n/).includes(`chromium: ${failed}`), stderr);
@@ -417,7 +418,7 @@ function cleanupErrorsIn(printed, stderr, cleanupErrors) {
 // the first call to meet a lost browser, and with NEVER_SETTLES it never
 // settles, as it does while a WebKit child still holds the browser's pipes.
 // They go side by side: a process held runs to the bound.
-const STALE_CHECK = `${LIMIT}const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
+const STALE_CHECK = `${CHECK_PROCESS}const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
 const { REFUSE, CLOSE_FAILS, NEVER_SETTLES } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
 const advice = "An updated version of the app is ready. Use “Update app & reload”, then";
 const offline = ["Could not download vendor/x/tesseract/tesseract.min.js. Stay online and retry.",
@@ -491,7 +492,7 @@ const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, impo
 // the browser's pipes, and with RM_FAILS its folder will not go. That close
 // says whether the folder is still there, which it should be: the page closes
 // on its site.
-const OFFLINE_CHECK = `${SPAWN}${LIMIT}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
+const OFFLINE_CHECK = `${SPAWN}${CHECK_PROCESS}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
 const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, NEVER_SETTLES, RM_FAILS } = process.env;
 if (RM_FAILS) fs.rmSync = () => { throw new Error("the folder is in use"); };
 const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },

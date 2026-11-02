@@ -36,7 +36,9 @@ suite adds what it measures, and `status` says `passed` or `failed`, with the
 failure's stack in `failure`. `errors` and `ended` are kept by `watch()`
 (`scripts/watch.cjs`, which the harness exports) for the browser and every
 context and page the suite opens on it, and `cleanupErrors` by the close that
-ends each engine. `errors` holds the pages' uncaught errors: the suite's own
+ends each engine (in `photo_read` also by the closes of the contexts its
+offline-install and stale-build checks open; see below). `errors` holds the
+pages' uncaught errors: the suite's own
 page's by their message, and any other page's as `<message> (<url>)`, with
 that page's URL (`structural_capture`'s second tab, the paired suites'
 baseline pages, the pages `stale_build_checks` and `import_safety_checks`
@@ -87,7 +89,9 @@ case left a process waiting for a close that never came, with no WebKit report
 and no word of why, which had to be killed by hand; on CI only the job's
 timeout would have ended it. So a suite closes a browser through the
 `close(name)` of what `watch()` returns, which waits for 30 seconds
-(`CLOSE_LIMIT` in `scripts/watch.cjs`). That limit covers this close and no
+(`CLOSE_LIMIT` in `scripts/watch.cjs`). That limit covers this close and,
+since November 2026, the context closes of `photo_read`'s offline-install and
+stale-build checks, which come before a server's stop (see below), and no
 other call: on a browser that is up but stuck, Playwright sets no limit on
 `page.evaluate()` or `context.close()`, so a suite's own call can still wait
 there for ever; on a browser that has gone they end at once. The hang below
@@ -95,8 +99,9 @@ is the exception: with a WebKit child still holding the pipes, a closed page's
 calls end at once, but `context.close()` waits as `browser.close()` does. A
 close that rejects or runs out of time is printed on stderr and kept in the
 report's `cleanupErrors`, the list of strings the corpus reports have, as
-`browser: browser cleanup timed out` or `browser: <its error>`; the list is
-empty after a close that worked. Such a cleanup failure says that the browser
+`browser: browser cleanup timed out` or `browser: <its error>` (`context: …`
+for those two checks' contexts); the list is empty after closes that worked.
+Such a cleanup failure says that the browser
 did not close when asked. It says nothing against what the suite checked
 before that, but a run that leaves a browser behind has not passed: an engine
 that passed fails, with the cleanup failure in `failure`, and an engine that
@@ -198,10 +203,11 @@ before they write the report that ends their run, so that a report that cannot
 be written fails the run and does not hold it. `solver_update` saves first, in
 the last step of its run, where a failure is an unhandled rejection, which ends
 the process. The stale-build check and the offline-install check inside
-`photo_read` close their context before they stop their server, so that stop
-has a `finally` of its own: that close rejects when it is the first call to meet
-a lost browser, and the rejection still fails the check. The offline-install
-check stops its server before it removes its folder, which can fail too. Until
+`photo_read` close their context before they stop their server, through
+`cleanUp()`, which never throws, so that the stop follows however that close
+ends: it rejects when it is the first call to meet a lost browser, and that still
+fails the check (see below). The offline-install check stops its server before
+it removes its folder, which can fail too. Until
 October 2026 a run could be held by a name `harness_regressions` did not know,
 a fixture `ocr_quality` could not read, `ocr_latency`'s folder, any of those
 three reports or, in either check, a close that rejected. A real `photo_read`
@@ -215,12 +221,37 @@ bound.
 
 No order helps a close that never settles. With a WebKit child still holding the
 pipes, either check's `context.close()` waits for as long as that child lives,
-so the stop behind it never comes: the run stays there with no report for that
-engine, its server up and the offline-install check's folder left, until the
-job's limit ends it. A real `photo_read` run in that state, with WebKit's main
-process killed as the check's close started and its children kept alive, was
-still waiting at a 170 s bound. Only a limit on that close would end such a run,
-and neither check sets one.
+so until November 2026 the stop behind it never came: the run stayed there with
+no report for that engine, its server up and the offline-install check's folder
+left, until the job's limit ended it. A real `photo_read` run in that state,
+with WebKit's main process killed as the check's close started and its children
+kept alive, was still waiting at a 170 s bound. So each check now gives that
+close `CLOSE_LIMIT`, through `cleanUp()`, as the harness gives the browser's,
+and then stops its server (and the offline-install check removes its folder). A
+close that rejects or runs out of time is a cleanup failure, as the browser's
+is: it is printed after the engine's name and goes in the report's
+`cleanupErrors`, as `context: context cleanup timed out` or `context: <its
+error>`, and it fails a check that passed, while a check that failed keeps its
+own failure first. Until November 2026 a close that rejected was thrown from the
+check's `finally`, and so replaced the check's own failure. In the state above,
+the browser's close then waits on the same child, for its own `CLOSE_LIMIT`, and
+`exitIfUnclosed()` ends the run after its report is written. So such a run ends
+by itself within about 80 seconds of the check's close starting: 30 for that
+close, up to 20 for the failure's screenshot, which waits for the page's default
+timeout (20 seconds in `photo_read`), and 30 for the browser's close. Measured
+on Windows, one run of each check in that state, on a host at 63 to 97% CPU in
+samples taken during the runs: the run ended by itself 81.2 s (offline-install)
+and 81.5 s (stale-build) after the check's close started, with exit code 1, its
+report written with `context: context cleanup timed out` and then `browser:
+browser cleanup timed out` in `cleanupErrors`, the offline-install check's
+folder gone and no process Node started left running, where the base was still
+waiting at bounds of 150 s and 300 s. In Chromium that state makes the close
+reject at once; a close made never to settle there ended the run 30.5 s and 30.4
+s after it started, where the base was still waiting at 150 s and 240 s.
+`web/tests/harness-close.test.js` runs each check as it is, in a process of its
+own, with its context's close rejecting and never settling after a pass and
+after the check's own failure; there a timer of `CLOSE_LIMIT`'s length lasts a
+tenth of a second, as the corpus command tests shorten theirs.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
