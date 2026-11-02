@@ -743,13 +743,11 @@ function screen(t, h) {
       return painted[at];
     },
     // Waits, as the page goes on, until the line on screen passes `check`,
-    // looked at as each line is painted.
+    // looked at now and as each line is painted.
     until(check, what) {
-      sample();
-      if (check(now())) return Promise.resolve();
       return new Promise((resolve, reject) => {
         const wait = () => {
-          if (!check(now())) return;
+          try { if (!check(now())) return; } catch (error) { wait.cancel(); reject(error); return; }
           wait.cancel(); resolve();
         };
         const guard = setTimeout(() => {
@@ -758,6 +756,7 @@ function screen(t, h) {
         }, 10000);
         wait.cancel = () => { clearTimeout(guard); waits.delete(wait); };
         waits.add(wait);
+        sample();
       });
     },
   };
