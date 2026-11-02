@@ -390,21 +390,27 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
 // wait CLOSE_LIMIT for their context to close, as engines() waits for the
 // browser. A test cannot wait that long, so a timer of that length lasts a
 // tenth of a second here, as corpus-command-stand-in.cjs's `limits` make the
-// corpus commands' timers shorter. Each check gets a report with the engine's
+// corpus commands' timers shorter. Nothing else either check runs waits that
+// long, so the process counts those timers too: one when the check gave its
+// context's close CLOSE_LIMIT, none when it had no context to close. A close
+// given any other limit fails on that count, even one short enough to run out
+// for real inside the test's bound. Each check gets a report with the engine's
 // name and an empty cleanupErrors, as engines() starts it, and its process
-// prints that list last. A close that rejects or never settles is the check's
-// failure only when the check has none of its own, and goes in cleanupErrors
-// and on stderr either way.
+// prints that list last, with the count. A close that rejects or never settles
+// is the check's failure only when the check has none of its own, and goes in
+// cleanupErrors and on stderr either way.
 const CHECK_PROCESS = `const { CLOSE_LIMIT } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/watch.cjs', import.meta.url)))});
 const { setTimeout: later } = globalThis;
-globalThis.setTimeout = (run, ms, ...args) => later(run, ms === CLOSE_LIMIT ? 100 : ms, ...args);
-const report = { browser: "chromium", cleanupErrors: [] }, reported = () => console.log("cleanupErrors", JSON.stringify(report.cleanupErrors));
+let limits = 0;
+globalThis.setTimeout = (run, ms, ...args) => { if (ms === CLOSE_LIMIT) limits++; return later(run, ms === CLOSE_LIMIT ? 100 : ms, ...args); };
+const report = { browser: "chromium", cleanupErrors: [] }, reported = () => console.log("cleanupErrors", JSON.stringify(report.cleanupErrors), "limits", limits);
 `;
 const TIMED_OUT = 'context: context cleanup timed out';
-// Checks the last line a check's process printed, its report's cleanupErrors,
-// and that each of those was printed on stderr after the engine's name.
-function cleanupErrorsIn(printed, stderr, cleanupErrors) {
-  assert.equal(printed, `cleanupErrors ${JSON.stringify(cleanupErrors)}`);
+// Checks the last line a check's process printed: its report's cleanupErrors,
+// each of which was printed on stderr after the engine's name, and how many
+// timers of CLOSE_LIMIT's length it set.
+function cleanupErrorsIn(printed, stderr, cleanupErrors, limits = 1) {
+  assert.equal(printed, `cleanupErrors ${JSON.stringify(cleanupErrors)} limits ${limits}`);
   for (const failed of cleanupErrors) assert.ok(stderr.split(/\r?\n/).includes(`chromium: ${failed}`), stderr);
 }
 
@@ -414,18 +420,19 @@ function cleanupErrorsIn(printed, stderr, cleanupErrors) {
 // nothing else holds it. `REFUSE` is as above, and a page it opens plays the
 // app through both deploys, so that the check passes: the browser's look for an
 // update after the reload, the downloads and reads after each deploy, and the
-// update. With CLOSE_FAILS the context's close rejects, as it does when it is
-// the first call to meet a lost browser, and with NEVER_SETTLES it never
-// settles, as it does while a WebKit child still holds the browser's pipes.
-// They go side by side: a process held runs to the bound.
+// update. With LAST_FAILS the read after the update, the check's last step,
+// does not read the puzzle. With CLOSE_FAILS the context's close rejects, as it
+// does when it is the first call to meet a lost browser, and with NEVER_SETTLES
+// it never settles, as it does while a WebKit child still holds the browser's
+// pipes. They go side by side: a process held runs to the bound.
 const STALE_CHECK = `${CHECK_PROCESS}const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
-const { REFUSE, CLOSE_FAILS, NEVER_SETTLES } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
+const { REFUSE, CLOSE_FAILS, NEVER_SETTLES, LAST_FAILS } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
 const advice = "An updated version of the app is ready. Use “Update app & reload”, then";
 const offline = ["Could not download vendor/x/tesseract/tesseract.min.js. Stay online and retry.",
   "Some of this version’s files are no longer on the server. " + advice + " download for offline use again.",
   "Offline assets are ready on this device."];
 const reads = [{ status: "status error", text: "Recognition could not load. " + advice + " try again.", clues: 0 },
-  { status: "status", text: "Puzzle read.", clues: 81 }, { status: "status", text: "Puzzle read.", clues: 81 }];
+  { status: "status", text: "Puzzle read.", clues: 81 }, { status: "status", text: LAST_FAILS ? "Puzzle not read." : "Puzzle read.", clues: 81 }];
 let base, build = "x";
 const page = { setDefaultTimeout() {}, goto: async (url) => { base = url; }, reload: async () => { await fetch(base + "sw.js", { method: "HEAD" }); },
   waitForSelector: async () => {}, waitForFunction: async () => ({ jsonValue: async () => ({ text: "Grid found." }) }),
@@ -448,7 +455,7 @@ const browser = { newContext: async () => {
     } };
 } };
 staleBuild(browser, report).then(() => console.log("the check passed"),
-  (error) => { console.log("the check failed:", error.message); process.exitCode = 1; }).finally(reported);
+  (error) => { console.log("the check failed:", error.code ?? error.message); process.exitCode = 1; }).finally(reported);
 `;
 
 describe('the stale-build check, on a browser that will not open its context or page, or close its context', { concurrency: true }, () => {
@@ -463,6 +470,9 @@ describe('the stale-build check, on a browser that will not open its context or 
     ['it passes and its context will not close', { CLOSE_FAILS: '1' }, 1,
       ['context closed', 'the check failed: context: the browser has gone'], ['context: the browser has gone']],
     ['it passes and its context never closes', { NEVER_SETTLES: '1' }, 1, ['context closed', `the check failed: ${TIMED_OUT}`], [TIMED_OUT]],
+    // An assertion's message has a diff on lines of its own: its code is printed.
+    ['its last read fails and its context will not close either', { LAST_FAILS: '1', CLOSE_FAILS: '1' }, 1,
+      ['context closed', 'the check failed: ERR_ASSERTION'], ['context: the browser has gone']],
   ])
     test(`stops its server when ${what}, so that the process ends by itself`, async (t) => {
       const directory = temporary(t), check = path.join(directory, 'check.cjs');
@@ -477,7 +487,8 @@ describe('the stale-build check, on a browser that will not open its context or 
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, stderr);
       const lines = stdout.trim().split('\n');
-      cleanupErrorsIn(lines.pop(), stderr, cleanupErrors);
+      // With no context, the check has nothing to close and waits for nothing.
+      cleanupErrorsIn(lines.pop(), stderr, cleanupErrors, env.REFUSE === 'newContext' ? 0 : 1);
       assert.deepEqual(lines, said);
     });
 });
@@ -486,18 +497,20 @@ const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, impo
 
 // The offline-install check inside photo_read serves a folder of its own from
 // Python, the server the harness starts: here, the stand-in. Its page answers
-// all the check asks, unless PAGE_FAILS; with CLOSE_FAILS its context's close
-// rejects, as it does when it is the first call to meet a lost browser, with
-// NEVER_SETTLES it never settles, as it does while a WebKit child still holds
-// the browser's pipes, and with RM_FAILS its folder will not go. That close
-// says whether the folder is still there, which it should be: the page closes
-// on its site.
+// all the check asks, unless PAGE_FAILS, which fails its first step, or
+// LAST_FAILS, which loses the saved puzzle its last step looks for; with
+// CLOSE_FAILS its context's close rejects, as it does when it is the first
+// call to meet a lost browser, with NEVER_SETTLES it never settles, as it does
+// while a WebKit child still holds the browser's pipes, and with RM_FAILS its
+// folder will not go. That close says whether the folder is still there, which
+// it should be: the page closes on its site.
 const OFFLINE_CHECK = `${SPAWN}${CHECK_PROCESS}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
-const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, NEVER_SETTLES, RM_FAILS } = process.env;
+const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, NEVER_SETTLES, RM_FAILS, LAST_FAILS } = process.env;
 if (RM_FAILS) fs.rmSync = () => { throw new Error("the folder is in use"); };
 const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },
   waitForFunction: async () => {}, waitForNavigation: async () => {}, click: async () => {}, textContent: async () => "failed",
-  locator: () => ({ isEnabled: async () => true }), evaluate: async () => "unchanged saved puzzle" };
+  locator: () => ({ isEnabled: async () => true }),
+  evaluate: async (run) => LAST_FAILS && String(run).includes("getItem") ? null : "unchanged saved puzzle" };
 const browser = { newContext: async () => ({ newPage: async () => page, close: async () => {
   console.log("context closed", fs.readdirSync(os.tmpdir()).some((name) => name.startsWith("gridpuzzle-install-")) ? "on its site" : "after its site went");
   if (CLOSE_FAILS) throw new Error("the browser has gone");
@@ -547,13 +560,16 @@ require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { ch
 describe('what a run started does not outlive its failure', { concurrency: true }, () => {
   // Its folder goes unless that is what failed. Then the server must be down
   // already, so the stop comes first. Before the server starts there is no stop
-  // to make, and the failure stays the check's own.
+  // to make, and the failure stays the check's own. A check that fails at its
+  // first step or at its last keeps its own failure when its close fails too.
   for (const [what, env, expected, said, cleanupErrors = []] of [
     ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: context: the browser has gone', ['context: the browser has gone']],
     ['its context never closes', { NEVER_SETTLES: '1' }, 1, `the check failed: ${TIMED_OUT}`, [TIMED_OUT]],
     ['its page fails and its context will not close either', { PAGE_FAILS: '1', CLOSE_FAILS: '1' }, 1, 'the check failed: no site here',
       ['context: the browser has gone']],
     ['its page fails and its context never closes either', { PAGE_FAILS: '1', NEVER_SETTLES: '1' }, 1, 'the check failed: no site here', [TIMED_OUT]],
+    ['its last step fails and its context will not close either', { LAST_FAILS: '1', CLOSE_FAILS: '1' }, 1, 'the check failed: ERR_ASSERTION',
+      ['context: the browser has gone']],
     ['its page fails', { PAGE_FAILS: '1' }, 1, 'the check failed: no site here'],
     ['all goes well', {}, 0, 'the check passed'],
     ['its folder will not go', { RM_FAILS: '1' }, 1, 'the check failed: the folder is in use'],
