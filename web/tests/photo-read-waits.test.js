@@ -935,9 +935,13 @@ for (const late of [false, true])
       await stop(h); await settle();
       if (late) { detection.resolve(found(STRAY)); await settle(); }
       await sleep(50);
-      const after = s.since(stopped);
       // Find grid and Rotate start a detection, whose elapsed time may have
-      // replaced the second line since.
+      // replaced the second line since, as it can on a busy host. Once, it
+      // has done so twice before the line is read.
+      if (late && what === "Find grid")
+        await s.until(() => s.painted.slice(stopped).filter(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail)).length >= 2,
+          "the detection's second elapsed time");
+      const after = s.since(stopped);
       assert.deepEqual(s.asSet(), line);
       noPromise(after);
       assert.ok(!after.some(([text, detail]) => text === DROPPED[0] && detail === DROPPED[1]), JSON.stringify(after, null, 1));
@@ -1083,6 +1087,10 @@ for (const [input, from] of [["photo-file", "from the photo library"], ["native-
     // Opened, it is shown on its fallback crop while its grid is found, as a
     // photograph chosen while no task ran is.
     await next.open(); await settle();
+    // Once, the line is read after the detection's elapsed time has replaced
+    // its second line, as it can be on a busy host.
+    if (input === "native-file")
+      await s.until(([text, detail]) => text === FINDING[0] && ELAPSED.test(detail), "the detection's elapsed time");
     assert.deepEqual([h.state.photo.width, h.state.photo.height], [640, 480]);
     assert.equal(h.detections[1].image, h.state.photo);
     assert.deepEqual(h.state.corners, fallback(640, 480));
