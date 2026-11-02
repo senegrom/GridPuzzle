@@ -13,9 +13,9 @@ import { Browser } from './playwright-stand-ins.js';
 // and how a suite's process ends after it, with stand-ins for the browser
 // (harness_regressions checks both on real browsers); a suite's run, and the
 // stale-build check's, on a browser that will not open its context or page;
-// photo_read's two checks on a context that will not close; and what else can
-// leave a server up to hold a run, as a browser does.
-// Loading watch.cjs or the harness needs no Playwright.
+// photo_read's two checks on a context that will not close; what else can
+// leave a server up to hold a run, as a browser does; and how a signal ends
+// a suite's process. Loading watch.cjs or the harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -136,12 +136,13 @@ function temporary(t) {
   return directory;
 }
 
-// How a process ends that runs `script`: its exit code, whether the bound had
-// to end it, and what it printed. These runs take a second or so. The bound
-// allows for a host short of memory, where one at Idle priority was still
-// silent after 30 s. `script` can be an array, with what Node takes before it.
+// How a process ends that runs `script`: its exit code, or the signal that
+// ended it, whether the bound had to end it, and what it printed. These runs
+// take a second or so. The bound allows for a host short of memory, where one
+// at Idle priority was still silent after 30 s. `script` can be an array, with
+// what Node takes before it.
 const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script].flat(), { timeout: 45000, ...options },
-  (error, stdout, stderr) => resolve({ code: error?.code ?? 0, killed: error?.killed ?? false, stdout, stderr })));
+  (error, stdout, stderr) => resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stdout, stderr })));
 
 /* How a process ends that runs `scripts` (name to source), the first as its
    main module, in a temporary directory. */
@@ -634,5 +635,113 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, 1, stderr);
       assert.equal(stdout.trim(), `the run failed: ${failure}`);
+    });
+});
+
+// How SIGNALLED, below, hears SIGNAL: a real signal where there are real
+// ones, which Node hears once the suite's code has run on, promises included.
+// On Windows, where process.kill() just ends the process or refuses the
+// signal, and for SIGBREAK, which only Windows raises, everywhere, it calls
+// what listens for the signal itself, at once.
+const RAISE = `if (process.platform === "win32" || require("node:os").constants.signals[SIGNAL] === undefined) process.emit(SIGNAL, SIGNAL);
+  else process.kill(process.pid, SIGNAL);`;
+
+/* A suite on the harness that hears a signal once its server is up and the
+   harness has made it a temporary directory, and would otherwise carry on
+   for three seconds and end by itself. Its server is the stand-in for
+   Python's, detached, so that on Windows too only the harness's clean-up ends
+   it (libuv's job object ends a process's other children with it there); it
+   ends itself after a minute should that clean-up not come. */
+const SIGNALLED = `const children = require("node:child_process"), { spawn } = children;
+children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(`${SERVER}\nsetTimeout(() => process.exit(), 60000);`)}],
+  { ...options, cwd: ${JSON.stringify(os.tmpdir())}, detached: true });
+const { baselineSite, main, serve, sleep } = require(${JSON.stringify(harness)}), { SIGNAL } = process.env;
+main(module, async () => {
+  const server = await serve();
+  console.log("origin", server.origin);
+  baselineSite("HEAD", []);
+  ${RAISE}
+  await sleep(3000);
+  console.log("the suite carried on");
+  await server.close();
+});
+`;
+
+/* Suites with browsers of their own, as ocr_latency and solver_update are:
+   they load the harness for watch() and exitIfUnclosed() and call neither
+   serve() nor main(). Each adds a listener for the signal, as a launch adds
+   Playwright's, before any call into the harness. LOADED then has the
+   harness make it a temporary directory, which the harness's clean-up must
+   remove; NOTHING, like ocr_latency and solver_update, makes nothing of the
+   harness's at all. Then each calls what listens for the signal itself, at
+   once, on every platform, and waits on a timer of its own. These check
+   which listeners there are, and in what order, as the signal comes, and a
+   real signal comes only once the suite's code has run on: listeners that
+   the harness added in that moment, at a call into it or a tick after it
+   loaded, could still come first. So in NOTHING only listeners the harness
+   added as the suite loaded it can come before the launch's: they end the
+   process in the same emit, and the launch's never hears it. */
+const loaded = (makes) => `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed } = require(${JSON.stringify(harness)});
+(async () => {
+  process.on(SIGNAL, () => console.log("the launch's listener heard it"));
+  ${makes ? 'baselineSite("HEAD", []);' : '// It makes nothing of the harness\'s.'}
+  process.emit(SIGNAL, SIGNAL);
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  console.log("the suite carried on");
+})().finally(() => exitIfUnclosed(module));
+`;
+const LOADED = loaded(true), NOTHING = loaded(false);
+
+// A tree for a suite above, with what baselineSite() copies.
+function suiteTree(t, source) {
+  const directory = temporary(t), suite = path.join(directory, 'suite.cjs');
+  fs.mkdirSync(path.join(directory, '_site'));
+  fs.writeFileSync(path.join(directory, '_site', 'build-info.json'), '{ "build": "x" }');
+  fs.writeFileSync(suite, source);
+  return { directory, suite };
+}
+
+// Whether anything answers at `origin` within a second.
+const answers = (origin) => fetch(origin, { method: 'HEAD', signal: AbortSignal.timeout(1000) }).then(() => true, () => false);
+
+// SIGHUP is a terminal that goes away, or on Windows a console window that
+// closes, and SIGBREAK Ctrl+Break. Side by side, as above.
+const SIGNALS = [['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143], ['SIGBREAK', 149]];
+describe('a signal ends a suite\'s process through the harness\'s clean-up', { concurrency: true }, () => {
+  for (const [signal, expected] of SIGNALS)
+    test(`${signal} ends it at once, with ${expected}, its server stopped and its temporary directory gone`, async (t) => {
+      const { directory, suite } = suiteTree(t, SIGNALLED);
+      const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.doesNotMatch(stdout, /the suite carried on/);
+      assert.deepEqual(left(directory), [], 'its temporary directory is gone');
+      const origin = /^origin (\S+)$/m.exec(stdout)?.[1];
+      assert.ok(origin, stdout);
+      // Stopped with a signal of its own, which a server on Linux hears a moment later.
+      let up = true;
+      for (const stop = Date.now() + 5000; up && Date.now() < stop;) if ((up = await answers(origin))) await sleep(100);
+      assert.equal(up, false, `the server at ${origin} still answers`);
+    });
+
+  for (const [signal, expected] of SIGNALS)
+    test(`${signal} ends one that only loads the harness, as ocr_latency and solver_update do, with ${expected}, before its launch's listener hears it, its temporary directory gone`, async (t) => {
+      const { directory, suite } = suiteTree(t, LOADED);
+      const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.doesNotMatch(stdout, /the launch's listener heard it/);
+      assert.doesNotMatch(stdout, /the suite carried on/);
+      assert.deepEqual(left(directory), [], 'its temporary directory is gone');
+    });
+
+  for (const [signal, expected] of SIGNALS)
+    test(`${signal} ends one that only loads the harness and makes nothing of it, as ocr_latency and solver_update do, with ${expected}, before its launch's listener hears it`, async (t) => {
+      const { directory, suite } = suiteTree(t, NOTHING);
+      const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.doesNotMatch(stdout, /the launch's listener heard it/);
+      assert.doesNotMatch(stdout, /the suite carried on/);
     });
 });

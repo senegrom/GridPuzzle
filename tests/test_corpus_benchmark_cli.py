@@ -133,7 +133,9 @@ def test_a_run_ends_by_itself_with_exit_code_0_and_leaves_the_signals_to_the_com
         "headless": True, "handleSIGINT": False, "handleSIGTERM": False, "handleSIGHUP": False}
 
 
-@pytest.mark.parametrize("signal", ["SIGINT", "SIGTERM", "SIGHUP"])
+# SIGBREAK is Ctrl+Break, which only Windows raises: elsewhere the stand-in
+# calls what listens for it, as it does on Windows for every signal.
+@pytest.mark.parametrize("signal", ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])
 def test_a_signal_stops_the_benchmark_with_its_report_saved_and_exit_code_1(tmp_path, signal):
     run, saved = ending(tmp_path, interrupt=signal)
     failure = f"Benchmark interrupted by {signal}"
@@ -150,11 +152,12 @@ def test_a_signal_before_the_first_image_stops_the_benchmark_with_exit_code_1_to
     assert (saved["status"], saved["completedImages"], len(saved["notRun"])) == ("interrupted", 0, 3)
 
 
-def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it_leaving_what_ended_the_run(tmp_path):
-    run, saved = ending(tmp_path, interrupt="SIGINT", second="SIGTERM")
-    assert run.returncode == 143, run.stderr
-    assert "exit handlers ran with 143" in run.stdout
-    assert (saved["status"], saved["failure"]) == ("interrupted", "Benchmark interrupted by SIGINT")
+@pytest.mark.parametrize("first, second, code", [("SIGINT", "SIGTERM", 143), ("SIGBREAK", "SIGBREAK", 149)])
+def test_a_second_signal_ends_the_process_at_once_and_the_server_with_it_leaving_what_ended_the_run(tmp_path, first, second, code):
+    run, saved = ending(tmp_path, interrupt=first, second=second)
+    assert run.returncode == code, run.stderr
+    assert f"exit handlers ran with {code}" in run.stdout
+    assert (saved["status"], saved["failure"]) == ("interrupted", f"Benchmark interrupted by {first}")
     assert (saved["completedImages"], saved["notRun"]) == (2, NOT_RUN)
     assert (tmp_path / "events.txt").read_text(encoding="utf-8").splitlines()[1:] == ["context closed", "server killed"]
 
