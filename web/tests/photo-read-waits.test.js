@@ -797,14 +797,16 @@ test("on screen, the answer's promise stays while the Read waits, with the elaps
 });
 
 // On a busy host timers run late, and the elapsed time's tick can then come
-// in the very turn of the event loop that set the line it rewrites. Read
-// puzzle is tapped here from a timer, as these tests tap it after a sleep,
-// just after a tick, with the event loop held past the next one: that tick
-// then runs right after the tap, in its turn (unless the host starves this
-// process for most of half a second just then, when this checks no more than
-// the test above). The answer is still seen as it was set, first. Before
-// that, the detection's line, whose second line the elapsed time has just
-// replaced, is read as it was set.
+// in the very turn of the event loop that set the line it rewrites. Here Read
+// puzzle is tapped from a timer set just after a tick, as the test above
+// tapped it when its waits looked at the screen every 10 ms, and the event
+// loop is held past the next tick: that tick then runs right after the tap,
+// in its turn (unless the host starves this process for most of half a
+// second just then, when this checks no more than the test above). The timer
+// waits 20 ms, longer than the 10 ms between such looks, so that a look made
+// that way comes before the tap, not between it and the tick. The answer is
+// still seen as it was set, first. Before that, the detection's line, whose
+// second line the elapsed time has just replaced, is read as it was set.
 const holdLoop = (ms) => { for (const end = performance.now() + ms; performance.now() < end;); };
 test("on screen, a line is seen as it was set also when the elapsed time rewrites it in the same turn of the event loop, as on a busy host", async (t) => {
   const h = harness(t), s = screen(t, h);
