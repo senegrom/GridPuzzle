@@ -142,7 +142,9 @@ that both clean-ups run: the harness listens for SIGHUP, SIGINT, SIGTERM and
 SIGBREAK, and the process exits with 128 and the signal's number (129, 130, 143
 or 149). SIGHUP is a terminal that goes away, or on Windows a console window
 that closes; SIGBREAK is Ctrl+Break, which only Windows raises (Node lets every
-platform listen for it, and elsewhere nothing emits it). Until November 2026
+platform listen for it, and elsewhere nothing emits it). Windows ends a process
+on a closing console about five seconds after the process hears the close,
+whatever it is doing, so both clean-ups have that long. Until November 2026
 the harness listened only for SIGINT and SIGTERM. While a browser was up, a
 SIGHUP went to Playwright's own handler alone, which closes the browser under
 the running suite, so that its engine failed and the next engine started; with
@@ -156,7 +158,10 @@ the harness does not know of (the one `harness_regressions` serves, the corpus
 a signal, since the process ends without the suite's `finally`.
 `web/tests/harness-close.test.js` raises each of the four in a suite's process,
 with a server up and a temporary directory made, and checks the exit code, the
-server stopped and the directory gone.
+server stopped and the directory gone. It does the same in a suite that only
+loads the harness, as `ocr_latency` and `solver_update` do, which call neither
+`serve()` nor `main()`, with a listener for the signal added after the
+harness's, as a launch adds Playwright's: that listener must not hear it.
 
 Real runs here, on Node 22 with the host at 96 to 100% CPU where it was
 recorded, sent a real Ctrl+Break (`GenerateConsoleCtrlEvent` with
@@ -175,12 +180,15 @@ of those runs ended by themselves with exit code 1, and Windows ended the
 fifth, as it ended one more before it got that far (0xC000013A); in the seventh
 no browser was up, and the process ended at once. With the change, the 7
 Ctrl+Break runs ended with 149, 0.3 to 1.6 s after it was sent, and the 7
-closes with 129, 0.05 to 8.6 s after the window closed: 5.4 s or more in each
-of the 4 with a Chromium page open and waiting, since Chromium's processes hear
-the close first. Nothing of the harness's or of Playwright's stayed, but in one
-close the profile of a Chromium that was closing as the window closed:
-Playwright removes a profile once its browser has exited, and the process's
-exit came first.
+closes with 129, each by itself before Windows could end it, 0.05 to 8.6 s
+after the window closed: 5.4 s or more in each of the 4 with a Chromium page
+open and waiting, since Chromium's processes hear the close first. Nothing of
+the harness's or of Playwright's stayed, but in one close the profile of a
+Chromium that was closing as the window closed: Playwright removes a profile
+once its browser has exited, and the process's exit came first. A close while
+a Chromium is starting can leave Playwright's folders too: in 1 of 5 later
+closes here, at 95 to 100% CPU, it came during Chromium's launch, and its
+folders stayed.
 
 The "lost" case of `harness_regressions` found this hang, and until October
 2026 it brought the hang on itself: it closed the browser past the harness
@@ -697,12 +705,15 @@ second image's read of each command in each engine, on Node 22 with the host at
 each report still `running` with one image read and Playwright's folders left
 in the temporary folder. Now 12 runs ended `interrupted`, with exit code 1,
 `notRun` right, no `cleanupErrors` and nothing left running or in the temporary
-folder, 1.0 to 2.7 s after the event; in 12 more a second Ctrl+Break 2.1 to
-2.9 s after the first, during a clean-up held up by a browser whose close never
-settled, ended the process with 149, 0.3 to 0.9 s after it, with the report the
-run saved before its clean-up, `interrupted` and `notRun` right, and again
-nothing left. A terminal on Linux or macOS reaches the command and the server,
-not the browser.
+folder, the report final 0.03 to 1.22 s after the event (in 11 of them by
+0.65 s). Their processes ended 0.9 to 2.7 s after it: these runs delayed each
+read by 1.5 s, so that the event came during one, and each process ended once
+that read had failed (10 runs) or Chromium's process had ended (2). In 12 more
+a second Ctrl+Break 2.1 to 2.9 s after the first, during a clean-up held up by
+a browser whose close never settled, ended the process with 149, 0.3 to 0.9 s
+after it, with the report the run saved before its clean-up, `interrupted` and
+`notRun` right, and again nothing left. A terminal on Linux or macOS reaches
+the command and the server, not the browser.
 
 Left to itself a process cannot end while a browser that would not close holds
 its pipes ("How the browser suites run"), and an interrupt during a read is
