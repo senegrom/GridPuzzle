@@ -137,6 +137,51 @@ this end of the process: a browser its clean-up gives up on is marked with
 `markUnclosed()`, and the two benchmark commands end with `exitIfUnclosed()`
 too.
 
+A signal ends a suite's process at once, through `process.exit()` as well, so
+that both clean-ups run: the harness listens for SIGHUP, SIGINT, SIGTERM and
+SIGBREAK, and the process exits with 128 and the signal's number (129, 130, 143
+or 149). SIGHUP is a terminal that goes away, or on Windows a console window
+that closes; SIGBREAK is Ctrl+Break, which only Windows raises (Node lets every
+platform listen for it, and elsewhere nothing emits it). Until November 2026
+the harness listened only for SIGINT and SIGTERM. While a browser was up, a
+SIGHUP went to Playwright's own handler alone, which closes the browser under
+the running suite, so that its engine failed and the next engine started; with
+no browser up Playwright has no handler, and a SIGHUP, like a Ctrl+Break at any
+time, ended the process at once (on Windows with 0xC000013A), with neither
+clean-up run. Playwright's handlers are still on in every suite's launch and do
+not act now: the harness's listeners come first, as a suite loads the harness,
+and end the process in the same emit. A folder that a suite makes itself and
+the harness does not know of (the one `harness_regressions` serves, the corpus
+`detect_benchmark_regressions` writes, the offline-install check's) stays after
+a signal, since the process ends without the suite's `finally`.
+`web/tests/harness-close.test.js` raises each of the four in a suite's process,
+with a server up and a temporary directory made, and checks the exit code, the
+server stopped and the directory gone.
+
+Real runs here, on Node 22 with the host at 96 to 100% CPU where it was
+recorded, sent a real Ctrl+Break (`GenerateConsoleCtrlEvent` with
+`CTRL_BREAK_EVENT`) to a console of their own, or closed its window
+(`WM_CLOSE`), during `harness_regressions` (3 runs of each, before the change
+and after it) and during a short suite on the harness that has a temporary
+directory from `baselineSite()` and waits on a live page (4 of each). Either
+event reaches every process on that console, the server and the browsers too,
+and no process of any run stayed after it. Before the change, all 7 Ctrl+Break
+runs ended at once with 0xC000013A, each leaving Playwright's folders in the
+temporary folder (Chromium's profile in 6), and the short suite's 4 its
+temporary directory too. A closing console reaches Chromium's processes first
+and the suite's only once they have gone. In 5 of the 7 closes the suite then
+went on to the next engine, with its server gone, and WebKit's page failed: 4
+of those runs ended by themselves with exit code 1, and Windows ended the
+fifth, as it ended one more before it got that far (0xC000013A); in the seventh
+no browser was up, and the process ended at once. With the change, the 7
+Ctrl+Break runs ended with 149, 0.3 to 1.6 s after it was sent, and the 7
+closes with 129, 0.05 to 8.6 s after the window closed: 5.4 s or more in each
+of the 4 with a Chromium page open and waiting, since Chromium's processes hear
+the close first. Nothing of the harness's or of Playwright's stayed, but in one
+close the profile of a Chromium that was closing as the window closed:
+Playwright removes a profile once its browser has exited, and the process's
+exit came first.
+
 The "lost" case of `harness_regressions` found this hang, and until October
 2026 it brought the hang on itself: it closed the browser past the harness
 with `page.waitForFunction()` in flight. A close that hung failed the run with
@@ -494,8 +539,8 @@ measurement per image and a third line per set ("live at 640");
 
 Both benchmarks share one checkpointing runner. The report is saved before
 start-up, after each image, before the clean-up of a run that ended early,
-interrupted or failed, and after clean-up, so browser loss, SIGINT, SIGTERM or
-SIGHUP leave a partial report with every resource closed; bad JSON,
+interrupted or failed, and after clean-up, so browser loss, SIGINT, SIGTERM,
+SIGHUP or SIGBREAK leave a partial report with every resource closed; bad JSON,
 undecodable images and recoverable scan errors become individual error rows
 and later images continue. A page that crashes or
 closes, a lost browser, or a read that fails because its page is gone ends the
@@ -538,36 +583,43 @@ Playwright's `handleSIGINT`, `handleSIGTERM` and `handleSIGHUP` off. Left on,
 they closed the browser under the run and, on SIGINT, ended the process with
 130 as it saved: of 18 interrupted runs of `benchmark.cjs`, 5 left a report
 that still said `running`, and the other 13 a false `context:
-browserContext.close` entry in `cleanupErrors`. Now the first SIGINT, SIGTERM
-or SIGHUP stops the run: `status` says `interrupted` and `failure` names the
-signal, whatever failed with it, the read in flight keeps that as its error and
-the images after it are in `notRun`. The run saves all that at once, before its
-clean-up starts, so that it survives whatever ends the process there, and so
-does a run that failed by itself, with `failed`, its `failure` and `notRun`. A
-run that read every image has nothing to save there, since its clean-up decides
-whether it is complete, so its checkpoints are as they were. That save is one
-more checkpoint: however it fails it stops no clean-up, a warning is printed,
-and the final save is what reports a write failure. What the run
-opened is then closed and the report saved again, with what the clean-up found
-(`cleanupErrors`, the last of `pageErrors`), and the command exits with 1, as
-for any incomplete run; nothing reads another code. A signal during the
-clean-up of a run that read every image leaves it `complete`, with exit code 0,
-if its browser still closes in time (below). An interrupt ends the wait for a
-read, the page, a new context or the server, but not a launch, which Playwright
-gives three minutes: a browser left to come up afterwards would hold a process
-that nothing closes, so the run waits for it, asks it for nothing and closes
-it.
+browserContext.close` entry in `cleanupErrors`. Now the first SIGINT, SIGTERM,
+SIGHUP or SIGBREAK stops the run: `status` says `interrupted` and `failure`
+names the signal, whatever failed with it, the read in flight keeps that as its
+error and the images after it are in `notRun`. The run saves all that at once,
+before its clean-up starts, so that it survives whatever ends the process
+there, and so does a run that failed by itself, with `failed`, its `failure`
+and `notRun`. A run that read every image has nothing to save there, since its
+clean-up decides whether it is complete, so its checkpoints are as they were.
+That save is one more checkpoint: however it fails it stops no clean-up, a
+warning is printed, and the final save is what reports a write failure. What
+the run opened is then closed and the report saved again, with what the
+clean-up found (`cleanupErrors`, the last of `pageErrors`), and the command
+exits with 1, as for any incomplete run; nothing reads another code. A signal
+during the clean-up of a run that read every image leaves it `complete`, with
+exit code 0, if its browser still closes in time (below). An interrupt ends the
+wait for a read, the page, a new context or the server, but not a launch, which
+Playwright gives three minutes: a browser left to come up afterwards would hold
+a process that nothing closes, so the run waits for it, asks it for nothing and
+closes it.
+
+SIGBREAK is Ctrl+Break, which only Windows raises, and Playwright has no
+handler for it. Until November 2026 the commands did not listen for it either,
+so its default action ended the process at once, with 0xC000013A: the report
+stayed at its last checkpoint, `running` with `notRun` empty, and neither the
+run's exit listener nor Playwright's ran, which left Playwright's folders in the
+temporary folder.
 
 Times measured here come from a shared Windows host, at 36 to 100% CPU where
 the load was recorded, and a busier host can take longer. What holds by design
 is said as such: the runner's limits, and the five seconds Windows gives a
 process on a closing console.
 
-A second signal, of any of the three, ends the process without waiting for that
-clean-up, with 128 and the signal's number (130, 143 or 129). The report stays
-as the run saved it before the clean-up: `interrupted`, or `failed` for a run
-that had failed by itself, with `failure` and `notRun`, but without what the
-clean-up would have found. Where nothing has saved that yet it stays at the
+A second signal, of any of the four, ends the process without waiting for that
+clean-up, with 128 and the signal's number (130, 143, 129 or 149). The report
+stays as the run saved it before the clean-up: `interrupted`, or `failed` for a
+run that had failed by itself, with `failure` and `notRun`, but without what
+the clean-up would have found. Where nothing has saved that yet it stays at the
 last checkpoint, `status` still `running` and `notRun` empty: during a launch,
 which the run waits for before it stops; in the wait of up to a second after a
 read that says its target is gone, for what Playwright reports after it; and
@@ -638,8 +690,19 @@ anything stayed. Of real Ctrl+C events sent to such a console
 (`GenerateConsoleCtrlEvent`, Chromium and WebKit, `detect_benchmark`, during a
 read), 26 runs with Playwright's handlers on all exited with 130, 19 with that
 false entry and 7 with a report that still said `running`; 50 runs now all
-ended `interrupted`, with exit code 1 and no `cleanupErrors`. A terminal on
-Linux or macOS reaches the command and the server, not the browser.
+ended `interrupted`, with exit code 1 and no `cleanupErrors`. A real
+Ctrl+Break (`CTRL_BREAK_EVENT`) reaches the same processes. Sent during the
+second image's read of each command in each engine, on Node 22 with the host at
+52 to 100% CPU, it ended 8 runs before November 2026 at once, with 0xC000013A,
+each report still `running` with one image read and Playwright's folders left
+in the temporary folder. Now 12 runs ended `interrupted`, with exit code 1,
+`notRun` right, no `cleanupErrors` and nothing left running or in the temporary
+folder, 1.0 to 2.7 s after the event; in 12 more a second Ctrl+Break 2.1 to
+2.9 s after the first, during a clean-up held up by a browser whose close never
+settled, ended the process with 149, 0.3 to 0.9 s after it, with the report the
+run saved before its clean-up, `interrupted` and `notRun` right, and again
+nothing left. A terminal on Linux or macOS reaches the command and the server,
+not the browser.
 
 Left to itself a process cannot end while a browser that would not close holds
 its pipes ("How the browser suites run"), and an interrupt during a read is
