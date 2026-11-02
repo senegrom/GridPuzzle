@@ -158,10 +158,13 @@ the harness does not know of (the one `harness_regressions` serves, the corpus
 a signal, since the process ends without the suite's `finally`.
 `web/tests/harness-close.test.js` raises each of the four in a suite's process,
 with a server up and a temporary directory made, and checks the exit code, the
-server stopped and the directory gone. It does the same in a suite that only
-loads the harness, as `ocr_latency` and `solver_update` do, which call neither
-`serve()` nor `main()`, with a listener for the signal added after the
-harness's, as a launch adds Playwright's: that listener must not hear it.
+server stopped and the directory gone. It also raises each in a suite that
+only loads the harness, as `ocr_latency` and `solver_update` do, which call
+neither `serve()` nor `main()`. That suite adds a listener for the signal, as a
+launch adds Playwright's, before it calls anything of the harness's, and then
+has the harness make it a temporary directory. The test checks the exit code,
+that this listener never hears the signal and that the directory is gone,
+which holds only if the harness listens as soon as a suite loads it.
 
 Real runs here, on Node 22 with the host at 96 to 100% CPU where it was
 recorded, sent a real Ctrl+Break (`GenerateConsoleCtrlEvent` with

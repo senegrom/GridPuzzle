@@ -583,15 +583,16 @@ main(module, async () => {
 
 /* A suite with browsers of its own, as ocr_latency and solver_update are: it
    loads the harness for watch() and exitIfUnclosed() and calls neither
-   serve() nor main(). It hears a signal as the one above does, once the
-   harness has made it a temporary directory and its launch has added a
-   listener for the signal, as Playwright's does: the harness's, added as the
-   suite loaded it, come first and end the process in the same emit, so that
-   the launch's never hears it. */
+   serve() nor main(). It hears a signal as the one above does, once its
+   launch has added a listener for the signal, as Playwright's does, and the
+   harness has made it a temporary directory. The launch's listener comes
+   before any call into the harness, so that only listeners the harness added
+   as the suite loaded it come before it: they end the process in the same
+   emit, and the launch's never hears it. */
 const LOADED = `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed, sleep } = require(${JSON.stringify(harness)});
 (async () => {
-  baselineSite("HEAD", []);
   process.on(SIGNAL, () => console.log("the launch's listener heard it"));
+  baselineSite("HEAD", []);
   ${RAISE}
   await sleep(3000);
   console.log("the suite carried on");
