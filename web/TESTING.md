@@ -248,14 +248,14 @@ folder gone and no process Node started left running. The same runs without
 the limit were still waiting when they were stopped, 111 s and 246 s after that
 close started (150 s and 300 s into the run). In Chromium that state makes the
 close reject at once; a close made never to settle there ended the run 30.5 s
-and 30.4 s after it started, and without the limit the run was still waiting
-when stopped 141 s and 185 s after it started. `web/tests/harness-close.test.js`
-runs each check as it is, in a process of its own, with its context's close
-rejecting and never settling after a pass and after the check's own failure at
-its first step, and rejecting after a failure at its last; there a timer of
-`CLOSE_LIMIT`'s length lasts a tenth of a second, as the corpus command tests
-shorten theirs, and such timers are counted, so that a close given any other
-limit fails the test.
+and 30.4 s after that close started, and without the limit the run was still
+waiting when stopped 141 s and 185 s after it (150 s and 240 s into the run).
+`web/tests/harness-close.test.js` runs each check as it is, in a process of its
+own, with its context's close rejecting and never settling after a pass and
+after the check's own failure at its first step, and rejecting after a failure
+at its last; there a timer of `CLOSE_LIMIT`'s length lasts a tenth of a second,
+as the corpus command tests shorten theirs, and such timers are counted, so that
+a close given any other limit fails the test.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
