@@ -581,23 +581,26 @@ main(module, async () => {
 });
 `;
 
-/* A suite with browsers of its own, as ocr_latency and solver_update are: it
-   loads the harness for watch() and exitIfUnclosed() and calls neither
-   serve() nor main(). It hears a signal as the one above does, once its
-   launch has added a listener for the signal, as Playwright's does, and the
-   harness has made it a temporary directory. The launch's listener comes
-   before any call into the harness, so that only listeners the harness added
-   as the suite loaded it come before it: they end the process in the same
-   emit, and the launch's never hears it. */
-const LOADED = `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed, sleep } = require(${JSON.stringify(harness)});
+/* Suites with browsers of their own, as ocr_latency and solver_update are:
+   they load the harness for watch() and exitIfUnclosed() and call neither
+   serve() nor main(). Each hears a signal as the one above does, once its
+   launch has added a listener for the signal, as Playwright's does, before
+   any call into the harness. LOADED then has the harness make it a temporary
+   directory, which the harness's clean-up must remove. NOTHING, like
+   ocr_latency and solver_update, makes nothing of the harness's at all, so
+   that only listeners the harness added as the suite loaded it can come
+   before the launch's: they end the process in the same emit, and the
+   launch's never hears it. */
+const loaded = (makes) => `const { SIGNAL } = process.env, { baselineSite, exitIfUnclosed, sleep } = require(${JSON.stringify(harness)});
 (async () => {
   process.on(SIGNAL, () => console.log("the launch's listener heard it"));
-  baselineSite("HEAD", []);
+  ${makes ? 'baselineSite("HEAD", []);' : '// It makes nothing of the harness\'s.'}
   ${RAISE}
   await sleep(3000);
   console.log("the suite carried on");
 })().finally(() => exitIfUnclosed(module));
 `;
+const LOADED = loaded(true), NOTHING = loaded(false);
 
 // A tree for a suite above, with what baselineSite() copies.
 function suiteTree(t, source) {
@@ -640,5 +643,15 @@ describe('a signal ends a suite\'s process through the harness\'s clean-up', { c
       assert.doesNotMatch(stdout, /the launch's listener heard it/);
       assert.doesNotMatch(stdout, /the suite carried on/);
       assert.deepEqual(left(directory), [], 'its temporary directory is gone');
+    });
+
+  for (const [signal, expected] of SIGNALS)
+    test(`${signal} ends one that only loads the harness and makes nothing of it, as ocr_latency and solver_update do, with ${expected}, before its launch's listener hears it`, async (t) => {
+      const { directory, suite } = suiteTree(t, NOTHING);
+      const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.doesNotMatch(stdout, /the launch's listener heard it/);
+      assert.doesNotMatch(stdout, /the suite carried on/);
     });
 });
