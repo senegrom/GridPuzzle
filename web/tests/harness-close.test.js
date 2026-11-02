@@ -390,15 +390,15 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
 // wait CLOSE_LIMIT for their context to close, as engines() waits for the
 // browser. A test cannot wait that long, so a timer of that length lasts a
 // tenth of a second here, as corpus-command-stand-in.cjs's `limits` make the
-// corpus commands' timers shorter. Nothing else either check runs waits that
-// long, so the process counts those timers too: one when the check gave its
-// context's close CLOSE_LIMIT, none when it had no context to close. A close
-// given any other limit fails on that count, even one short enough to run out
-// for real inside the test's bound. Each check gets a report with the engine's
-// name and an empty cleanupErrors, as engines() starts it, and its process
-// prints that list last, with the count. A close that rejects or never settles
-// is the check's failure only when the check has none of its own, and goes in
-// cleanupErrors and on stderr either way.
+// corpus commands' timers shorter. Nothing else either check runs sets a timer
+// of that length, so the process counts those timers too: one when the check
+// gave its context's close CLOSE_LIMIT, none when it had no context to close.
+// A close given any other limit fails on that count, even one short enough to
+// run out for real inside the test's bound. Each check gets a report with the
+// engine's name and an empty cleanupErrors, as engines() starts it, and its
+// process prints that list last, with the count. A close that rejects or never
+// settles is the check's failure only when the check has none of its own, and
+// goes in cleanupErrors and on stderr either way.
 const CHECK_PROCESS = `const { CLOSE_LIMIT } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/watch.cjs', import.meta.url)))});
 const { setTimeout: later } = globalThis;
 let limits = 0;
