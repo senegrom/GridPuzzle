@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { serve, PHONE } = require('./harness.cjs');
+const { CLOSE_LIMIT, cleanUp } = require('./watch.cjs');
 async function photoImports(page, report, base) {
   await page.goto(base);
   await page.waitForSelector('body[data-ready="true"]');
@@ -90,7 +91,7 @@ async function offlineInstall(browser, report) {
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'gridpuzzle-install-'));
-  let server;
+  let server,passed=false;
   try {
     fs.copyFileSync('_site/offline.js',path.join(directory,'offline.js'));
     fs.writeFileSync(path.join(directory,'index.html'),`<!doctype html><html><body>
@@ -116,15 +117,22 @@ async function offlineInstall(browser, report) {
     await page.click('#prepare-offline');await page.waitForFunction(()=>document.getElementById('offline-state').textContent.includes('assets are ready'));
     assert.equal(await page.evaluate(()=>localStorage.getItem('gridpuzzle-session-v1')),'unchanged saved puzzle');
     report.offlineInstall={nativeLifecycle:true,controlledWorker:true,explicitRetrySucceeded:true,savedStatePreserved:true};
+    passed=true;
   } finally {
-    // The server stops and the folder goes when closing the context fails too:
+    // The server stops and the folder goes however closing the context ends:
     // the engine fails and its browser closes all the same, and a server left
     // running then holds the run for ever. That close rejects when it is the
-    // first call to meet a lost browser. The stop comes first, as a folder that
-    // will not go must not leave the server up either. A close that never
-    // settles still waits here: see web/TESTING.md.
-    try {await context.close();}
-    finally {await server?.close();fs.rmSync(directory,{recursive:true,force:true});}
+    // first call to meet a lost browser, and it never settles while a WebKit
+    // child still holds the browser's pipes, so it is given watch.cjs's
+    // CLOSE_LIMIT, as the browser's close is (web/TESTING.md). Either is a
+    // clean-up failure, as the browser's is: it goes in the report's
+    // cleanupErrors and on stderr, and it is the check's failure only if the
+    // check has none of its own. The stop comes before the removal, as a folder
+    // that will not go must not leave the server up either.
+    const unclosed=await cleanUp('context',()=>context.close(),CLOSE_LIMIT);
+    if(unclosed){report.cleanupErrors.push(unclosed);console.error(`${report.browser}: ${unclosed}`);}
+    await server?.close();fs.rmSync(directory,{recursive:true,force:true});
+    if(unclosed&&passed)throw new Error(unclosed);
   }
 }
 module.exports={photoImports,offlineInstall};
