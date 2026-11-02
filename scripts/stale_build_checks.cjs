@@ -16,6 +16,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { PHONE, sleep } = require("./harness.cjs");
+const { CLOSE_LIMIT, cleanUp } = require("./watch.cjs");
 
 const SITE = path.resolve("_site");
 const PHOTO = path.resolve("Examples/BrowserScanner/Newspaper/2026-09-07-sudoku.webp");
@@ -152,12 +153,16 @@ async function staleBuild(browser, report) {
   const site = origin(), started = Date.now();
   await new Promise((resolve) => site.server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${site.server.address().port}/GridPuzzle/`;
-  // Opened in the try, and the server stopped when closing the context fails
-  // too: the engine fails and its browser closes all the same, and a server
+  // Opened in the try, and the server stopped however closing the context
+  // ends: the engine fails and its browser closes all the same, and a server
   // left listening then holds the run for ever. That close rejects when it is
-  // the first call to meet a lost browser. A close that never settles still
-  // waits ahead of that stop: see web/TESTING.md.
-  let context;
+  // the first call to meet a lost browser, and it never settles while a WebKit
+  // child still holds the browser's pipes, so it is given watch.cjs's
+  // CLOSE_LIMIT, as the browser's close is (web/TESTING.md). Either is a
+  // clean-up failure, as the browser's is: it goes in the report's
+  // cleanupErrors and on stderr, and it is the check's failure only if the
+  // check has none of its own.
+  let context, passed = false;
   try {
     context = await browser.newContext({ ...PHONE, serviceWorkers: "allow" });
     const page = await context.newPage();
@@ -226,12 +231,13 @@ async function staleBuild(browser, report) {
     assert.equal(updated.text, "Puzzle read.", JSON.stringify(updated));
     result.updated = { clues: updated.clues };
     result.seconds = Math.round((Date.now() - started) / 1000);
+    passed = true;
   } finally {
-    try { await context?.close(); }
-    finally {
-      site.server.closeAllConnections?.();
-      await new Promise((resolve) => site.server.close(resolve));
-    }
+    const unclosed = context && await cleanUp("context", () => context.close(), CLOSE_LIMIT);
+    if (unclosed) { report.cleanupErrors.push(unclosed); console.error(`${report.browser}: ${unclosed}`); }
+    site.server.closeAllConnections?.();
+    await new Promise((resolve) => site.server.close(resolve));
+    if (unclosed && passed) throw new Error(unclosed);
   }
 }
 module.exports = { staleBuild, choosePhoto };

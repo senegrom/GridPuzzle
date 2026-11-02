@@ -13,7 +13,8 @@ import { Browser } from './playwright-stand-ins.js';
 // and how a suite's process ends after it, with stand-ins for the browser
 // (harness_regressions checks both on real browsers); a suite's run, and the
 // stale-build check's, on a browser that will not open its context or page;
-// and what else can leave a server up to hold a run, as a browser does.
+// photo_read's two checks on a context that will not close; and what else can
+// leave a server up to hold a run, as a browser does.
 // Loading watch.cjs or the harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
@@ -385,38 +386,98 @@ describe('the suites with browsers of their own, on that stand-in', { concurrenc
   });
 });
 
+// photo_read's two checks wait CLOSE_LIMIT for their context to close, as
+// engines() waits for the browser. A test cannot wait that long, so a check's
+// process makes a timer of that length a tenth of a second, as
+// corpus-command-stand-in.cjs's `limits` do for the corpus commands. Each check
+// gets a report as engines() starts it, whose cleanupErrors its process prints
+// last. A close that rejects or never settles is the check's failure only when
+// the check has none of its own, and goes in cleanupErrors and on stderr either
+// way.
+const LIMIT = `const { CLOSE_LIMIT } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/watch.cjs', import.meta.url)))});
+const { setTimeout: later } = globalThis;
+globalThis.setTimeout = (run, ms, ...args) => later(run, ms === CLOSE_LIMIT ? 100 : ms, ...args);
+const report = { browser: "chromium", cleanupErrors: [] }, reported = () => console.log("cleanupErrors", JSON.stringify(report.cleanupErrors));
+`;
+const TIMED_OUT = 'context: context cleanup timed out';
+// What a check's process printed after its outcome, and on stderr: the report's
+// cleanupErrors, as `printed` says, each with the engine's name.
+function cleanupErrorsIn(printed, stderr, cleanupErrors) {
+  assert.equal(printed, `cleanupErrors ${JSON.stringify(cleanupErrors)}`);
+  for (const failed of cleanupErrors) assert.ok(stderr.split(/\r?\n/).includes(`chromium: ${failed}`), stderr);
+}
+
 // The stale-build check inside photo_read runs on its engine's browser, which
 // closes whatever the check does, but it serves the site itself, and a server
 // left listening holds the process for ever as a browser left up does. Here
-// nothing else holds it. `REFUSE` is as above; with CLOSE_FAILS the context's
-// close rejects too, as it does when it is the first call to meet a lost
-// browser. They go side by side: a process held runs to the bound.
-const STALE_CHECK = `const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
-const { REFUSE, CLOSE_FAILS } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
+// nothing else holds it. `REFUSE` is as above, and a page it opens plays the
+// app through both deploys, so that the check passes: the browser's look for an
+// update after the reload, the downloads and reads after each deploy, and the
+// update. With CLOSE_FAILS the context's close rejects, as it does when it is
+// the first call to meet a lost browser, and with NEVER_SETTLES it never
+// settles, as it does while a WebKit child still holds the browser's pipes.
+// They go side by side: a process held runs to the bound.
+const STALE_CHECK = `${LIMIT}const { staleBuild } = require(${JSON.stringify(fileURLToPath(new URL('../../scripts/stale_build_checks.cjs', import.meta.url)))});
+const { REFUSE, CLOSE_FAILS, NEVER_SETTLES } = process.env, opening = (call) => { if (call === REFUSE) throw new Error(call + " refused"); };
+const advice = "An updated version of the app is ready. Use “Update app & reload”, then";
+const offline = ["Could not download vendor/x/tesseract/tesseract.min.js. Stay online and retry.",
+  "Some of this version’s files are no longer on the server. " + advice + " download for offline use again.",
+  "Offline assets are ready on this device."];
+const reads = [{ status: "status error", text: "Recognition could not load. " + advice + " try again.", clues: 0 },
+  { status: "status", text: "Puzzle read.", clues: 81 }, { status: "status", text: "Puzzle read.", clues: 81 }];
+let base, build = "x";
+const page = { setDefaultTimeout() {}, goto: async (url) => { base = url; }, reload: async () => { await fetch(base + "sw.js", { method: "HEAD" }); },
+  waitForSelector: async () => {}, waitForFunction: async () => ({ jsonValue: async () => ({ text: "Grid found." }) }),
+  waitForNavigation: async () => { build = "feedbeef0002"; }, click: async () => {}, setInputFiles: async () => {},
+  isHidden: async () => true, locator: () => ({ evaluate: async () => {} }), textContent: async () => offline.shift(),
+  evaluate: async (read) => {
+    const source = String(read);
+    if (source.includes("getRegistration")) return { waiting: true, installing: false, stored: true, banner: true };
+    if (source.includes("build-label")) return build;
+    if (source.includes("puzzle.cells")) return reads.shift();
+    return source.includes("__staleTab === true") || undefined;
+  } };
 const browser = { newContext: async () => {
   opening("newContext");
-  return { newPage: async () => opening("newPage"),
-    close: async () => { console.log("context closed"); if (CLOSE_FAILS) throw new Error("the browser has gone"); } };
+  return { newPage: async () => { opening("newPage"); return page; },
+    close: async () => {
+      console.log("context closed");
+      if (CLOSE_FAILS) throw new Error("the browser has gone");
+      if (NEVER_SETTLES) return new Promise(() => {});
+    } };
 } };
-staleBuild(browser, {}).catch((error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
+staleBuild(browser, report).then(() => console.log("the check passed"),
+  (error) => { console.log("the check failed:", error.message); process.exitCode = 1; }).finally(reported);
 `;
 
-describe('the stale-build check, on a browser that will not open its context or page', { concurrency: true }, () => {
-  for (const [what, env, said] of [
-    ['newContext() rejects', { REFUSE: 'newContext' }, ['the check failed: newContext refused']],
-    ['newPage() rejects', { REFUSE: 'newPage' }, ['context closed', 'the check failed: newPage refused']],
-    ['newPage() rejects and its context will not close either', { REFUSE: 'newPage', CLOSE_FAILS: '1' },
-      ['context closed', 'the check failed: the browser has gone']],
+describe('the stale-build check, on a browser that will not open its context or page, or close its context', { concurrency: true }, () => {
+  for (const [what, env, expected, said, cleanupErrors = []] of [
+    ['newContext() rejects', { REFUSE: 'newContext' }, 1, ['the check failed: newContext refused']],
+    ['newPage() rejects', { REFUSE: 'newPage' }, 1, ['context closed', 'the check failed: newPage refused']],
+    ['newPage() rejects and its context will not close either', { REFUSE: 'newPage', CLOSE_FAILS: '1' }, 1,
+      ['context closed', 'the check failed: newPage refused'], ['context: the browser has gone']],
+    ['newPage() rejects and its context never closes', { REFUSE: 'newPage', NEVER_SETTLES: '1' }, 1,
+      ['context closed', 'the check failed: newPage refused'], [TIMED_OUT]],
+    ['it passes', {}, 0, ['context closed', 'the check passed']],
+    ['it passes and its context will not close', { CLOSE_FAILS: '1' }, 1,
+      ['context closed', 'the check failed: context: the browser has gone'], ['context: the browser has gone']],
+    ['it passes and its context never closes', { NEVER_SETTLES: '1' }, 1, ['context closed', `the check failed: ${TIMED_OUT}`], [TIMED_OUT]],
   ])
     test(`stops its server when ${what}, so that the process ends by itself`, async (t) => {
       const directory = temporary(t), check = path.join(directory, 'check.cjs');
       fs.mkdirSync(path.join(directory, '_site'));
       fs.writeFileSync(path.join(directory, '_site', 'build-info.json'), '{ "build": "x" }');
+      fs.writeFileSync(path.join(directory, '_site', 'assets.json'), '{ "assets": [] }');
+      // The newspaper photo the check reads, as it resolves it from where it runs.
+      fs.mkdirSync(path.join(directory, 'Examples', 'BrowserScanner', 'Newspaper'), { recursive: true });
+      fs.writeFileSync(path.join(directory, 'Examples', 'BrowserScanner', 'Newspaper', '2026-09-07-sudoku.webp'), '');
       fs.writeFileSync(check, STALE_CHECK);
       const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...env } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-      assert.equal(code, 1, stderr);
-      assert.deepEqual(stdout.trim().split('\n'), said);
+      assert.equal(code, expected, stderr);
+      const lines = stdout.trim().split('\n');
+      cleanupErrorsIn(lines.pop(), stderr, cleanupErrors);
+      assert.deepEqual(lines, said);
     });
 });
 
@@ -425,11 +486,13 @@ const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, impo
 // The offline-install check inside photo_read serves a folder of its own from
 // Python, the server the harness starts: here, the stand-in. Its page answers
 // all the check asks, unless PAGE_FAILS; with CLOSE_FAILS its context's close
-// rejects, as it does when it is the first call to meet a lost browser, and
-// with RM_FAILS its folder will not go. That close says whether the folder is
-// still there, which it should be: the page closes on its site.
-const OFFLINE_CHECK = `${SPAWN}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
-const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, RM_FAILS } = process.env;
+// rejects, as it does when it is the first call to meet a lost browser, with
+// NEVER_SETTLES it never settles, as it does while a WebKit child still holds
+// the browser's pipes, and with RM_FAILS its folder will not go. That close
+// says whether the folder is still there, which it should be: the page closes
+// on its site.
+const OFFLINE_CHECK = `${SPAWN}${LIMIT}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
+const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, NEVER_SETTLES, RM_FAILS } = process.env;
 if (RM_FAILS) fs.rmSync = () => { throw new Error("the folder is in use"); };
 const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },
   waitForFunction: async () => {}, waitForNavigation: async () => {}, click: async () => {}, textContent: async () => "failed",
@@ -437,9 +500,10 @@ const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw
 const browser = { newContext: async () => ({ newPage: async () => page, close: async () => {
   console.log("context closed", fs.readdirSync(os.tmpdir()).some((name) => name.startsWith("gridpuzzle-install-")) ? "on its site" : "after its site went");
   if (CLOSE_FAILS) throw new Error("the browser has gone");
+  if (NEVER_SETTLES) return new Promise(() => {});
 } }) };
-offlineInstall(browser, {}).then(() => console.log("the check passed"),
-  (error) => { console.log("the check failed:", error.code ?? error.message); process.exitCode = 1; });
+offlineInstall(browser, report).then(() => console.log("the check passed"),
+  (error) => { console.log("the check failed:", error.code ?? error.message); process.exitCode = 1; }).finally(reported);
 `;
 
 // Where a process makes its temporary folders: in the test's own, so that one
@@ -483,9 +547,12 @@ describe('what a run started does not outlive its failure', { concurrency: true 
   // Its folder goes unless that is what failed. Then the server must be down
   // already, so the stop comes first. Before the server starts there is no stop
   // to make, and the failure stays the check's own.
-  for (const [what, env, expected, said] of [
-    ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
-    ['its page fails and its context will not close either', { PAGE_FAILS: '1', CLOSE_FAILS: '1' }, 1, 'the check failed: the browser has gone'],
+  for (const [what, env, expected, said, cleanupErrors = []] of [
+    ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: context: the browser has gone', ['context: the browser has gone']],
+    ['its context never closes', { NEVER_SETTLES: '1' }, 1, `the check failed: ${TIMED_OUT}`, [TIMED_OUT]],
+    ['its page fails and its context will not close either', { PAGE_FAILS: '1', CLOSE_FAILS: '1' }, 1, 'the check failed: no site here',
+      ['context: the browser has gone']],
+    ['its page fails and its context never closes either', { PAGE_FAILS: '1', NEVER_SETTLES: '1' }, 1, 'the check failed: no site here', [TIMED_OUT]],
     ['its page fails', { PAGE_FAILS: '1' }, 1, 'the check failed: no site here'],
     ['all goes well', {}, 0, 'the check passed'],
     ['its folder will not go', { RM_FAILS: '1' }, 1, 'the check failed: the folder is in use'],
@@ -501,6 +568,7 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.equal(code, expected, stderr);
       const lines = stdout.trim().split('\n');
       if (!env.NO_SITE) assert.ok(lines.shift().startsWith(`serving ${path.join(directory, 'gridpuzzle-install-')}`), stdout);
+      cleanupErrorsIn(lines.pop(), stderr, cleanupErrors);
       assert.deepEqual(lines, ['context closed on its site', said]);
       if (!env.RM_FAILS) assert.deepEqual(left(directory), [], 'its temporary folder is gone');
     });
