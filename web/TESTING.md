@@ -28,8 +28,10 @@ and stops it however the process ends, `engines()` runs the suite in Chromium
 and WebKit on a fresh phone-sized context with the service worker blocked,
 collects the uncaught errors of every page the suite opens, screenshots a
 failing engine and writes one report per engine under `browser-artifacts/`,
-and `baselineSite()` builds the two-root directory the paired suites use to
-compare the scanner with a pinned earlier one.
+`temporaryDirectory()` makes a folder of a suite's own under the system temp
+that goes however the process ends, and `baselineSite()` builds in one the
+two-root directory the paired suites use to compare the scanner with a pinned
+earlier one.
 
 A report starts as `{ browser, version, errors, ended, cleanupErrors }`, the
 suite adds what it measures, and `status` says `passed` or `failed`, with the
@@ -157,13 +159,24 @@ no browser up Playwright has no handler, and a SIGHUP, like a Ctrl+Break at any
 time, ended the process at once (on Windows with 0xC000013A), with neither
 clean-up run. Playwright's handlers are still on in every suite's launch and do
 not act now: the harness's listeners come first, as a suite loads the harness,
-and end the process in the same emit. A folder that a suite makes itself and
-the harness does not know of (the one `harness_regressions` serves, the corpus
-`detect_benchmark_regressions` writes, the offline-install check's) stays after
-a signal, since the process ends without the suite's `finally`.
+and end the process in the same emit.
+
+The process then ends without the suite's `finally`, so what a suite would
+remove there is the harness's to remove. A folder a suite makes itself under
+the system temp comes from the harness's `temporaryDirectory(prefix)`, which
+registers it with the clean-up at the process's exit, and the suite's `finally`
+removes it with that folder's `remove()`: the folder `harness_regressions`
+serves, the corpus `detect_benchmark_regressions` writes and the
+offline-install check's, as well as `baselineSite()`'s. The exit stops the
+servers first and then removes the folders, so that a folder a server serves
+goes after it: on Windows the removal retries while a file the server was
+serving is still open, and on Linux and macOS a folder in use goes all the
+same. A removal that fails in a `finally` leaves the folder to the exit, which
+tries again. Until November 2026 those three folders stayed after a signal.
 `web/tests/harness-close.test.js` raises each of the four in a suite's process,
-with a server up and a temporary directory made, and checks the exit code, the
-server stopped and the directory gone. It also checks each in two suites that
+with a server up that serves a folder the suite made itself, and a temporary
+directory from `baselineSite()`, and checks the exit code, the server stopped
+and each folder then removed once. It also checks each in two suites that
 only load the harness, as `ocr_latency` and `solver_update` do, which call
 neither `serve()` nor `main()`. Each adds a listener for the signal, as a
 launch adds Playwright's, before it calls anything of the harness's. The first
@@ -175,7 +188,15 @@ give a harness that listened a moment late, at a call into it or a tick after
 its load, the time to come first. The test checks the exit code and that the
 launch's listener never hears the signal, and in the first that the directory
 is gone. The second passes only if the harness listens as soon as a suite
-loads it.
+loads it. The test then raises each signal in the three places, on stand-ins
+and each held where its folder is in use, so that the folder is there when
+the signal is heard, on Linux too: `harness_regressions` as it starts its
+server, the offline-install check as its page opens the check's site, and the
+detection check, in a process that loads the harness first as
+`scanner_settings` does, as it starts its server. It checks the exit code and
+that the folder is gone. A suite that ends by itself shows that `remove()`
+takes a folder at once and only once, and that the exit takes what is left,
+a folder whose first removal failed too.
 
 Real runs here, on Node 22 with the host at 96 to 100% CPU where it was
 recorded, sent a real Ctrl+Break (`GenerateConsoleCtrlEvent` with

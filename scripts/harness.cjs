@@ -44,14 +44,14 @@ const link = (target, at) => fs.symlinkSync(path.resolve(target), at, process.pl
 /* What to clean up however the process ends. On Linux and macOS a child
    outlives a Node process that crashes, so a static server would keep its
    port and the directory it serves (on Windows, libuv's job object already
-   ends it with Node); and a suite ended mid-run, by a signal among other
-   things, must not leave its temporary directories (temporaryDirectory(),
-   below) in the system temp. The exit event runs only synchronous code:
-   kill() signals at once, and the directories go after the servers that may
-   serve them. A server can still be ending as its directory goes: on Windows
-   a file it was serving stays open until it has ended, which the removal's
-   retries wait for; on Linux and macOS a directory in use goes all the same,
-   and the server only reads from it. */
+   ends it with Node); and a suite that ends mid-run, on a signal or a failure
+   outside its try, must not leave its temporary directories
+   (temporaryDirectory(), below) in the system temp. The exit event runs only
+   synchronous code: kill() signals at once, and the directories go after the
+   servers that may serve them. A server can still be ending as its directory
+   goes: on Windows a file it was serving stays open until it has ended, which
+   the removal's retries wait for; on Linux and macOS a directory in use goes
+   all the same, and the server only reads from it. */
 const servers = new Set(), temporary = new Set();
 const removeTemporary = () => { for (const d of temporary) { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5 }); temporary.delete(d); } };
 process.once("exit", () => {
@@ -125,12 +125,12 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
   throw Error(`${base} did not answer within a minute`);
 }
 
-/* A directory of a suite's own, made under the system temp with a name that
-   starts with `prefix`: { directory, remove }. The harness removes it however
-   the process ends, a signal included, after it has stopped its servers
-   (above), so a suite need not do so before it serves the directory or
-   while it uses it. remove(), for the suite's own finally, removes it there
-   and forgets it. A removal that fails leaves it to the process's exit. */
+/* A folder of a suite's own under the system temp, its name starting with
+   `prefix`: { directory, remove }. The harness removes it however the process
+   ends, a signal included, after it has stopped its servers (above), so that
+   a suite can serve it. remove(), for the suite's own finally, removes it
+   there and forgets it; a removal that fails leaves it to the process's exit,
+   which tries again. */
 function temporaryDirectory(prefix) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   temporary.add(directory);

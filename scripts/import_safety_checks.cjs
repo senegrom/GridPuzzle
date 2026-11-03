@@ -127,9 +127,9 @@ async function offlineInstall(browser, report) {
     // clean-up failure, as the browser's is: it goes in the report's
     // cleanupErrors and on stderr, and it is the check's failure only if the
     // check has none of its own. The stop comes before the removal, as a folder
-    // that will not go must not leave the server up either: the harness then
-    // tries again as the process exits, as it removes the folder then should
-    // a signal end the process before this finally.
+    // that will not go must not leave the server up either; the harness tries
+    // again as the process exits, and removes the folder then too should a
+    // signal end the process before this finally.
     const unclosed=await cleanUp('context',()=>context.close(),CLOSE_LIMIT);
     if(unclosed){report.cleanupErrors.push(unclosed);console.error(`${report.browser}: ${unclosed}`);}
     await server?.close();install.remove();
