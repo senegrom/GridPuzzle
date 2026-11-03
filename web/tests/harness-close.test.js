@@ -14,8 +14,9 @@ import { Browser } from './playwright-stand-ins.js';
 // (harness_regressions checks both on real browsers); a suite's run, and the
 // stale-build check's, on a browser that will not open its context or page;
 // photo_read's two checks on a context that will not close; what else can
-// leave a server up to hold a run, as a browser does; and how a signal ends
-// a suite's process. Loading watch.cjs or the harness needs no Playwright.
+// leave a server up to hold a run, as a browser does; how a signal ends a
+// suite's process; and how the folders a suite makes itself go, however its
+// process ends. Loading watch.cjs or the harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -143,6 +144,16 @@ function temporary(t) {
 // what Node takes before it.
 const finish = (script, options) => new Promise((resolve) => execFile(process.execPath, [script].flat(), { timeout: 45000, ...options },
   (error, stdout, stderr) => resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stdout, stderr })));
+
+// How a process that runs this hears SIGNAL: a real signal where there are
+// real ones, which Node hears once the code that raised it has run on,
+// promises included. On Windows, where process.kill() just ends the process
+// or refuses the signal, and for SIGBREAK, which only Windows raises,
+// everywhere, it calls what listens for the signal itself, at once. Each
+// process below that raises it then waits, for three seconds or for ever, so
+// that it cannot go on before it hears the signal.
+const RAISE = `if (process.platform === "win32" || require("node:os").constants.signals[SIGNAL] === undefined) process.emit(SIGNAL, SIGNAL);
+  else process.kill(process.pid, SIGNAL);`;
 
 /* How a process ends that runs `scripts` (name to source), the first as its
    main module, in a temporary directory. */
@@ -503,12 +514,24 @@ const script = (name) => fileURLToPath(new URL(`../../scripts/${name}.cjs`, impo
 // CLOSE_FAILS its context's close rejects, as it does when it is the first
 // call to meet a lost browser, with NEVER_SETTLES it never settles, as it does
 // while a WebKit child still holds the browser's pipes, and with RM_FAILS its
-// folder will not go. That close says whether the folder is still there, which
-// it should be: the page closes on its site.
+// folder will not go at first: the first removal fails, as one of a folder
+// still in use can. That close says whether the folder is still there, which
+// it should be: the page closes on its site. With SIGNAL the page raises it
+// as the check opens the site, and would carry on three seconds later.
 const OFFLINE_CHECK = `${SPAWN}${CHECK_PROCESS}const { offlineInstall } = require(${JSON.stringify(script('import_safety_checks'))});
-const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, NEVER_SETTLES, RM_FAILS, LAST_FAILS } = process.env;
-if (RM_FAILS) fs.rmSync = () => { throw new Error("the folder is in use"); };
-const page = { setDefaultTimeout() {}, goto: async () => { if (PAGE_FAILS) throw new Error("no site here"); },
+const fs = require("node:fs"), os = require("node:os"), { PAGE_FAILS, CLOSE_FAILS, NEVER_SETTLES, RM_FAILS, LAST_FAILS, SIGNAL } = process.env;
+const { rmSync } = fs;
+let refuse = Boolean(RM_FAILS);
+fs.rmSync = (...args) => { if (!refuse) return rmSync(...args); refuse = false; throw new Error("the folder is in use"); };
+const page = { setDefaultTimeout() {},
+  goto: async (url) => {
+    if (PAGE_FAILS) throw new Error("no site here");
+    if (!SIGNAL) return;
+    console.log("opened", url);
+    ${RAISE}
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    console.log("the check carried on");
+  },
   waitForFunction: async () => {}, waitForNavigation: async () => {}, click: async () => {}, textContent: async () => "failed",
   locator: () => ({ isEnabled: async () => true }),
   evaluate: async (run) => LAST_FAILS && String(run).includes("getItem") ? null : "unchanged saved puzzle" };
@@ -559,10 +582,11 @@ require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { ch
 // it, and one ahead of the stop in that finally. Nothing else holds these runs.
 // They go side by side: one that does not end runs to the bound.
 describe('what a run started does not outlive its failure', { concurrency: true }, () => {
-  // Its folder goes unless that is what failed. Then the server must be down
-  // already, so the stop comes first. Before the server starts there is no stop
-  // to make, and the failure stays the check's own. A check that fails at its
-  // first step or at its last keeps its own failure when its close fails too.
+  // Its folder goes, at the process's exit when its removal in the check is
+  // what failed. Then the server must be down already, so the stop comes
+  // first. Before the server starts there is no stop to make, and the failure
+  // stays the check's own. A check that fails at its first step or at its last
+  // keeps its own failure when its close fails too.
   for (const [what, env, expected, said, cleanupErrors = []] of [
     ['its context will not close', { CLOSE_FAILS: '1' }, 1, 'the check failed: context: the browser has gone', ['context: the browser has gone']],
     ['its context never closes', { NEVER_SETTLES: '1' }, 1, `the check failed: ${TIMED_OUT}`, [TIMED_OUT]],
@@ -588,7 +612,7 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       if (!env.NO_SITE) assert.ok(lines.shift().startsWith(`serving ${path.join(directory, 'gridpuzzle-install-')}`), stdout);
       cleanupErrorsIn(lines.pop(), stderr, cleanupErrors);
       assert.deepEqual(lines, ['context closed on its site', said]);
-      if (!env.RM_FAILS) assert.deepEqual(left(directory), [], 'its temporary folder is gone');
+      assert.deepEqual(left(directory), [], 'its temporary folder is gone');
     });
 
   test('harness_regressions stops at an engine it does not know, with nothing started', async (t) => {
@@ -638,32 +662,36 @@ describe('what a run started does not outlive its failure', { concurrency: true 
     });
 });
 
-// How SIGNALLED, below, hears SIGNAL: a real signal where there are real
-// ones, which Node hears once the suite's code has run on, promises included.
-// On Windows, where process.kill() just ends the process or refuses the
-// signal, and for SIGBREAK, which only Windows raises, everywhere, it calls
-// what listens for the signal itself, at once.
-const RAISE = `if (process.platform === "win32" || require("node:os").constants.signals[SIGNAL] === undefined) process.emit(SIGNAL, SIGNAL);
-  else process.kill(process.pid, SIGNAL);`;
-
-/* A suite on the harness that hears a signal once its server is up and the
-   harness has made it a temporary directory, and would otherwise carry on
-   for three seconds and end by itself. Its server is the stand-in for
+/* A suite on the harness that hears a signal once it has made a folder of its
+   own (temporaryDirectory()), its server serves that folder and the harness
+   has made it a temporary directory too (baselineSite()), and would otherwise
+   carry on for three seconds and end by itself. Its server is the stand-in for
    Python's, detached, so that on Windows too only the harness's clean-up ends
    it (libuv's job object ends a process's other children with it there); it
-   ends itself after a minute should that clean-up not come. */
-const SIGNALLED = `const children = require("node:child_process"), { spawn } = children;
-children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(`${SERVER}\nsetTimeout(() => process.exit(), 60000);`)}],
-  { ...options, cwd: ${JSON.stringify(os.tmpdir())}, detached: true });
-const { baselineSite, main, serve, sleep } = require(${JSON.stringify(harness)}), { SIGNAL } = process.env;
+   ends itself after a minute should that clean-up not come. A server's stop
+   and a folder's removal each print a line as they come, at once, so that the
+   order of the clean-up shows. */
+const SIGNALLED = `const children = require("node:child_process"), { spawn } = children, fs = require("node:fs"), path = require("node:path");
+const say = (line) => fs.writeSync(1, line + "\\n"), { rmSync } = fs;
+children.spawn = (command, args, options) => {
+  const server = spawn(process.execPath, ["-e", ${JSON.stringify(`${SERVER}\nsetTimeout(() => process.exit(), 60000);`)}],
+    { ...options, cwd: ${JSON.stringify(os.tmpdir())}, detached: true }), { kill } = server;
+  server.kill = (...rest) => { say("stopped the server of " + path.basename(args.at(-1))); return kill.apply(server, rest); };
+  return server;
+};
+fs.rmSync = (target, ...rest) => { say("removed " + path.basename(target)); return rmSync(target, ...rest); };
+const { baselineSite, main, serve, sleep, temporaryDirectory } = require(${JSON.stringify(harness)}), { SIGNAL } = process.env;
 main(module, async () => {
-  const server = await serve();
+  const own = temporaryDirectory("gridpuzzle-own-");
+  fs.writeFileSync(path.join(own.directory, "index.html"), "<!doctype html><title>Own</title>");
+  const server = await serve({ directory: own.directory });
   console.log("origin", server.origin);
   baselineSite("HEAD", []);
   ${RAISE}
   await sleep(3000);
   console.log("the suite carried on");
   await server.close();
+  own.remove();
 });
 `;
 
@@ -709,13 +737,18 @@ const answers = (origin) => fetch(origin, { method: 'HEAD', signal: AbortSignal.
 const SIGNALS = [['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143], ['SIGBREAK', 149]];
 describe('a signal ends a suite\'s process through the harness\'s clean-up', { concurrency: true }, () => {
   for (const [signal, expected] of SIGNALS)
-    test(`${signal} ends it at once, with ${expected}, its server stopped and its temporary directory gone`, async (t) => {
+    test(`${signal} ends it at once, with ${expected}, its server stopped and then its folders gone, its own and the harness's`, async (t) => {
       const { directory, suite } = suiteTree(t, SIGNALLED);
       const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, `${stdout}${stderr}`);
       assert.doesNotMatch(stdout, /the suite carried on/);
-      assert.deepEqual(left(directory), [], 'its temporary directory is gone');
+      assert.deepEqual(left(directory), [], 'its folders are gone');
+      // The server first, then each folder once: the one it served, and the
+      // harness's. A folder's name ends in what mkdtemp added.
+      const steps = stdout.split(/\r?\n/).filter((line) => /^(stopped|removed) /.test(line)).map((line) => line.replace(/-\w+$/, '-'));
+      assert.equal(steps[0], 'stopped the server of gridpuzzle-own-', stdout);
+      assert.deepEqual(steps.slice(1).sort(), ['removed gridpuzzle-baseline-', 'removed gridpuzzle-own-'], stdout);
       const origin = /^origin (\S+)$/m.exec(stdout)?.[1];
       assert.ok(origin, stdout);
       // Stopped with a signal of its own, which a server on Linux hears a moment later.
@@ -744,4 +777,118 @@ describe('a signal ends a suite\'s process through the harness\'s clean-up', { c
       assert.doesNotMatch(stdout, /the launch's listener heard it/);
       assert.doesNotMatch(stdout, /the suite carried on/);
     });
+});
+
+/* A suite on the harness that ends by itself, with three folders of its own:
+   one it removes, as its finally would, one it leaves, as a suite does that
+   fails before the try whose finally would remove it, and one whose first
+   removal fails, as that of a folder still in use can. Each removal prints a
+   line as it comes. */
+const ENDS = `const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
+const { main, temporaryDirectory } = require(${JSON.stringify(harness)});
+let refuse;
+fs.rmSync = (target, ...rest) => {
+  fs.writeSync(1, "removing " + path.basename(target) + "\\n");
+  if (target !== refuse) return rmSync(target, ...rest);
+  refuse = null;
+  throw new Error("the folder is in use");
+};
+main(module, async () => {
+  const [removed, left, busy] = ["removed", "left", "busy"].map((name) => temporaryDirectory("gridpuzzle-" + name + "-"));
+  for (const { directory } of [removed, left, busy]) fs.writeFileSync(path.join(directory, "file"), "");
+  removed.remove();
+  console.log("after remove()", fs.existsSync(removed.directory) ? "still there" : "gone");
+  refuse = busy.directory;
+  try { busy.remove(); } catch (error) { console.log("remove() failed:", error.message); }
+});
+`;
+
+// A spawn whose server never answers, so that what waits for it waits until
+// SIGNAL, which it raises once that server has started. It says what the
+// server was to serve, and which of the harness's folders the system temp
+// holds by then. The server ends itself after a minute, should nothing else.
+const HELD = `const children = require("node:child_process"), { spawn } = children, fs = require("node:fs"), os = require("node:os");
+const { SIGNAL } = process.env;
+children.spawn = (command, args, options) => {
+  console.log("serving", args.at(-1));
+  console.log("made", fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("gridpuzzle-")).join(" "));
+  const server = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { ...options, cwd: ${JSON.stringify(os.tmpdir())} });
+  setImmediate(() => { ${RAISE} });
+  return server;
+};
+`;
+
+// The detection check that scanner_settings runs, in a process that loads
+// the harness first, as scanner_settings does, and in a tree of its own: the
+// check loads Playwright, which CI's unit job does not install, so the tree
+// has one whose launch never comes back. Its server's start, which HELD
+// stands in for, comes once the check has written its corpus.
+const DETECTION = ['scripts/detect_benchmark_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs',
+  'corpus/detect_benchmark.cjs', 'corpus/benchmark-runner.cjs', 'corpus/score.cjs'];
+const DETECTION_CHECK = `require("./scripts/harness.cjs");
+require("./scripts/detect_benchmark_regressions.cjs")("chromium", "")
+  .then(() => console.log("the check passed"), (error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
+`;
+const NO_LAUNCH = `const launch = () => new Promise(() => {});
+module.exports = { chromium: { launch }, webkit: { launch } };
+`;
+
+// The lines a process printed, with what mkdtemp added to a folder's name cut.
+const printed = (stdout) => stdout.trim().split(/\r?\n/).map((line) => line.replace(/-\w+$/, '-'));
+
+describe('the folders a suite makes itself go however its process ends', { concurrency: true }, () => {
+  test('remove() takes a folder at once and for good, and the exit takes what is left, a folder that would not go at first too', async (t) => {
+    const { directory, suite } = suiteTree(t, ENDS);
+    const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory) } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 0, `${stdout}${stderr}`);
+    assert.deepEqual(printed(stdout), ['removing gridpuzzle-removed-', 'after remove() gone', 'removing gridpuzzle-busy-',
+      'remove() failed: the folder is in use', 'removing gridpuzzle-left-', 'removing gridpuzzle-busy-'], 'the exit takes only the two left');
+    assert.deepEqual(left(directory), [], 'none stays');
+  });
+
+  // Each raises its signal as it starts the server that would serve its
+  // folder, and is held there: the folder is there when the signal comes.
+  for (const [signal, expected] of SIGNALS) {
+    test(`${signal} as harness_regressions starts its server ends it with ${expected}, and the folder that server was to serve goes`, async (t) => {
+      const directory = temporary(t), preload = path.join(directory, 'held.cjs');
+      fs.writeFileSync(preload, HELD);
+      const { code, killed, stdout, stderr } = await finish(['-r', preload, script('harness_regressions')],
+        { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.deepEqual(printed(stdout), [`serving ${path.join(directory, 'gridpuzzle-harness-')}`, 'made gridpuzzle-harness-'], stdout);
+      assert.deepEqual(left(directory), [], 'its folder is gone');
+    });
+
+    test(`${signal} in photo_read's offline-install check ends its process with ${expected}, and the folder the check serves goes`, async (t) => {
+      const directory = temporary(t), check = path.join(directory, 'check.cjs');
+      fs.mkdirSync(path.join(directory, '_site'));
+      fs.writeFileSync(path.join(directory, '_site', 'offline.js'), '');
+      fs.writeFileSync(check, OFFLINE_CHECK);
+      const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      const lines = printed(stdout);
+      assert.equal(lines[0], `serving ${path.join(directory, 'gridpuzzle-install-')}`, stdout);
+      assert.match(lines[1] ?? '', /^opened http:\/\/127\.0\.0\.1:\d+\/$/, stdout);
+      assert.equal(lines.length, 2, `it went no further: ${stdout}`);
+      assert.deepEqual(left(directory), [], 'its folder is gone');
+    });
+
+    test(`${signal} as the detection check inside scanner_settings starts its server ends the process with ${expected}, and the check's corpus goes`, async (t) => {
+      const directory = temporary(t), inTree = (name) => path.join(directory, name);
+      for (const file of DETECTION) fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
+      fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
+      fs.writeFileSync(inTree('node_modules/playwright/index.js'), NO_LAUNCH);
+      fs.writeFileSync(inTree('held.cjs'), HELD);
+      fs.writeFileSync(inTree('check.cjs'), DETECTION_CHECK);
+      const { code, killed, stdout, stderr } = await finish(['-r', inTree('held.cjs'), inTree('check.cjs')],
+        { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.deepEqual(printed(stdout), ['serving _site', 'made gridpuzzle-real-detection-'], stdout);
+      assert.deepEqual(left(directory), [], 'its corpus is gone');
+    });
+  }
 });
