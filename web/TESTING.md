@@ -113,12 +113,12 @@ before that, but a run that leaves a browser behind has not passed: an engine
 that passed fails, with the cleanup failure in `failure`, and an engine that
 failed keeps its own failure first. Every engine still runs, and its report is
 still written. In `harness_regressions`, whose `attempt()` keeps what is
-printed during a case for that case's own checks, the line, the browser
-close's or the "carried-on" case's context's, stays there and does not reach
-stderr; the case then fails, and stderr shows its failure, `<case>: <engine>
-closes`, with the list, such as `browser: browser cleanup timed out`. The
-detection check inside `scanner_settings` closes its browser through the corpus
-runner, whose report must have no `cleanupErrors`.
+printed through `console.error` during a case for that case's own checks, the
+line, the browser close's or the "carried-on" case's context's, stays there
+and does not reach stderr; the case then fails, and stderr shows its failure,
+`<case>: <engine> closes`, with the list, such as `browser: browser cleanup
+timed out`. The detection check inside `scanner_settings` closes its browser
+through the corpus runner, whose report must have no `cleanupErrors`.
 
 The run must then still end, and a process that gave up on a close may not
 end by itself. Probed on real browsers on Windows, with nothing sabotaged: the
@@ -375,7 +375,16 @@ limit fails. The rows are a close that never settles and one that rejects
 after a pass, and in the startup-cancellation check both after its own failure
 at its first step, and one that rejects after its failure at its last; one that
 never settles with a browser that will not close either; one that never settles
-in `ocr_latency`'s baseline variant; and one that closes.
+in `ocr_latency`'s baseline variant; and one that closes. For
+`harness_regressions` the stand-in also passes on to stderr, marked, what
+`attempt()` keeps, so that the rows can tell that the line after the engine's
+name goes there and not to stderr itself, and that the case's failure on
+stderr has the list. `web/tests/ocr-latency.test.js` checks where
+`ocr_latency`'s close comes among its checks, on a context whose close
+rejects: an engine whose page threw fails on the close, with that error in its
+report; one whose page crashed fails on it, led by the crash; and a variant
+that fails its own last check keeps that failure, its context never asked to
+close.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

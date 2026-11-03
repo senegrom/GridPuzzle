@@ -823,10 +823,12 @@ require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { ch
   .then(() => console.log("the run passed"), (error) => { console.log("the run failed:", error.message); process.exitCode = 1; });
 `;
 
-// The close comes only after a variant passed, so no failure of the suite's own
-// can come before it. With a baseline site each engine reads it first, so a
-// Chromium whose baseline's context would not close is asked for no other.
-// The count: one for each browser's close and one for each context's.
+// The close comes only after the variant's own checks have passed, so no
+// failure of the suite's own can come before it here (ocr-latency.test.js
+// checks where it comes among the checks). With a baseline site each engine
+// reads it first, so a Chromium whose baseline's context would not close is
+// asked for no other. The count: one for each browser's close and one for
+// each context's.
 describe('ocr_latency, on a variant\'s context that will not close', { concurrency: true }, () => {
   const candidates = ['chromium\'s candidate context closes', 'webkit\'s candidate context closes'];
   for (const [what, env, failure, cleanupErrors, closes, limits] of [
