@@ -225,6 +225,35 @@ a Chromium is starting can leave Playwright's folders too: in 1 of 5 later
 closes here, at 95 to 100% CPU, it came during Chromium's launch, and its
 folders stayed.
 
+The same events, sent on Node 22 with the host at 18 to 100% CPU where it was
+recorded, measured the folders that suites make themselves, 3 times in each
+case before their change and after it. They came in `harness_regressions`,
+whose folder is there for the whole run, as its first page had loaded; in the
+detection check inside `scanner_settings`, 1.5 s after the check's browser had
+launched; and in `photo_read`'s offline-install check, 0.3 s after the check's
+page had opened, with each `page.evaluate()` a second late so that the check
+(0.8 to 1.2 s from that page to its context's close here) was still running.
+Each Ctrl+Break came in Chromium's engine and each close during one of the two
+checks in WebKit's (`BROWSER_ENGINES=webkit`), since Chromium's processes hear
+a close before the suite's (above): in 8 closes in Chromium's engine during the
+two checks, 4 before the change and 4 after it, the check failed as its browser
+went, and its own `finally` removed its folder 0.08 to 0.36 s before the suite
+heard the close. Every run ended with 149 or 129, and no process of any run
+stayed. Before the change the suite's folder stayed in 17 of the 18 runs. In
+the 18th, a close during the detection check reached the corpus command that
+the check runs in a process of its own before it reached the suite: the command
+ended, the check failed on the report the command had not written, and the
+check's own `finally` removed the corpus. After the change no folder stayed in
+the 18, and in 18 more runs that timed the exit, the exit removed the suite's
+folder in 17, within 0 to 13 ms of its start; the 18th went as that close had.
+The harness's clean-up is the first listener of a suite's exit, ahead of
+Playwright's, whose `taskkill` took 0.12 to 3.2 s of exits of 0.15 to 3.8 s in
+those 18 runs. Windows ends a process on a closing console about five seconds
+after it hears the close, so a slower `taskkill` would be cut short there,
+after the folders had gone. Playwright's folders stayed in 3 of the 36 runs
+after the change: the empty ones of a WebKit that was starting as a Ctrl+Break
+came, and twice a Chromium's profile.
+
 The "lost" case of `harness_regressions` found this hang, and until October
 2026 it brought the hang on itself: it closed the browser past the harness
 with `page.waitForFunction()` in flight. A close that hung failed the run with
