@@ -2,8 +2,8 @@
    (or the engines BROWSER_ENGINES selects). Wall-clock times are reported,
    not enforced; reuse and safety are asserted. As the harness's engines()
    does, every engine runs, also after one has failed, its report is written
-   after it, a browser that will not close fails an engine that passed, and
-   the first failure is rethrown after the last engine.
+   after it, a browser or a variant's context that will not close fails an
+   engine that passed, and the first failure is rethrown after the last engine.
    Set OCR_BASELINE_SITE to another built site to time it in the same browser. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), http = require("node:http");
