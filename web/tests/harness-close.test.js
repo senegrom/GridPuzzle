@@ -14,8 +14,10 @@ import { Browser } from './playwright-stand-ins.js';
 // (harness_regressions checks both on real browsers); a suite's run, and the
 // stale-build check's, on a browser that will not open its context or page;
 // photo_read's two checks on a context that will not close; what else can
-// leave a server up to hold a run, as a browser does; and how a signal ends
-// a suite's process. Loading watch.cjs or the harness needs no Playwright.
+// leave a server up to hold a run, as a browser does; browser_smoke,
+// ocr_latency and harness_regressions on a context of their own that will not
+// close; and how a signal ends a suite's process. Loading watch.cjs or the
+// harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -635,6 +637,276 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, 1, stderr);
       assert.equal(stdout.trim(), `the run failed: ${failure}`);
+    });
+});
+
+// The other closes of a context that a suite awaits itself: browser_smoke's
+// startup-cancellation check, each of ocr_latency's variants and
+// harness_regressions' WebKit "carried-on" case. Each suite runs as it is, in a
+// process of its own, on a stand-in for Playwright whose browsers each keep
+// that process alive until they close, as a live browser's pipes do, so that a
+// close that holds the suite holds its process to the test's bound; nothing
+// else holds it. Each process loads LIMITS first: the stand-in for Python's
+// server, and its timers of CLOSE_LIMIT's length last a tenth of a second, as
+// in the checks' processes above, and are counted, the count printed as the
+// process exits. Each engine's browser close sets such a timer too, so the
+// count is one for each browser and one for each context close given
+// CLOSE_LIMIT, with any other wait of that length a suite makes, and a close
+// given any other limit fails on it.
+const LIMITS = `${SPAWN}const { setTimeout: later } = globalThis;
+let limits = 0;
+globalThis.setTimeout = (run, ms, ...args) => { if (ms === ${CLOSE_LIMIT}) limits++; return later(run, ms === ${CLOSE_LIMIT} ? 100 : ms, ...args); };
+process.on("exit", () => console.log("limits", limits));
+`;
+const GONE_BY = 'context: the browser has gone';
+
+// What a process printed on stdout before its last line, and the count of its
+// timers of CLOSE_LIMIT's length that line gives (null without it).
+function counted(stdout) {
+  const lines = stdout.trim().split(/\r?\n/), count = /^limits (\d+)$/.exec(lines.at(-1));
+  return { lines: count ? lines.slice(0, -1) : lines, limits: count ? Number(count[1]) : null };
+}
+
+// How `script` ends, run as it is with LIMITS loaded first in a tree of its
+// own, which is its working and temporary directory, with `playwright` for
+// Playwright; `read` gives a report it wrote there, `left` its folders left.
+async function standIn(t, script, playwright, env) {
+  const directory = temporary(t), inTree = (name) => path.join(directory, name);
+  for (const file of [script, 'scripts/harness.cjs', 'scripts/watch.cjs'])
+    fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
+  fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
+  fs.writeFileSync(inTree('node_modules/playwright/index.js'), playwright);
+  fs.mkdirSync(inTree('_site'));
+  fs.writeFileSync(inTree('limits.cjs'), LIMITS);
+  const ended = await finish(['-r', inTree('limits.cjs'), inTree(script)],
+    { cwd: directory, env: { ...process.env, ...temporaryIn(directory), ...env } });
+  return { ...ended, ...counted(ended.stdout), read: (name) => JSON.parse(fs.readFileSync(inTree(name), 'utf8')),
+    left: () => left(directory) };
+}
+
+const stderrLines = (stderr) => stderr.split(/\r?\n/);
+
+// What browser_smoke's Python solves its example to, and the two checks the
+// startup-cancellation check adds to the engine's report, after the camera's.
+const SMOKE_SOLUTION = '534678912672195348198342567859761423426853791713924856961537284287419635345286179';
+const SMOKE_CHECKS = ['invalid scan box settings rejected before OCR and persistence',
+  'cancel during actual OCR language initialization; workers stop; fresh scan succeeds'];
+
+// Playwright for browser_smoke, on which its run reaches its startup-
+// cancellation check in Chromium, while WebKit's page fails at once.
+// Chromium's first page plays the app through every step before the check,
+// and the check's page through the check: each answers what the suite reads
+// by the source of what it evaluates, and a "#read-photo" with the check's
+// route on asks for OCR's language. Once the check has asked for its context's
+// close, the first page plays no more, so the run goes no further than the
+// check here.
+// CHECK_FAILS fails the check's first step ("first") or its last ("last": the
+// fresh scan reads no clue). CLOSE is how the check's context closes:
+// "rejects", as when its close is the first call to meet a lost browser, or
+// "never", as while a WebKit child still holds the browser's pipes, which with
+// BROWSER_HANGS keeps Chromium from closing too.
+const PLAYED = `const fs = require("node:fs");
+const { CHECK_FAILS, CLOSE, BROWSER_HANGS } = process.env;
+const solved = { status: "unique", solutions: [{ cells: [...${JSON.stringify(SMOKE_SOLUTION)}] }] };
+function app(name, check, played) {
+  const state = { puzzle: { rows: 9, cells: [5], type: "sudoku" }, result: null, busy: false, uncertain: [0], needsReview: true };
+  let value, type;
+  return { on() {}, setDefaultTimeout() {}, workers: () => [], keyboard: { press: async () => {} },
+    goto: async () => {
+      if (name === "webkit") throw new Error("no site here");
+      if (check && CHECK_FAILS === "first") throw new Error("the check's page found no site");
+    },
+    waitForSelector: async () => {}, waitForFunction: async () => {}, waitForNavigation: async () => {},
+    setInputFiles: async () => {}, focus: async () => {}, inputValue: async () => "9",
+    selectOption: async (selector, option) => { type = option; }, fill: async (selector, text) => { value = text; },
+    click: async (selector) => {
+      if (selector === "#cell-form button[type=submit]") state.puzzle.cells[0] = Number(value);
+      if (selector === "#undo") state.puzzle.cells[0] = 5;
+      if (selector === "#use-type") state.puzzle.type = type;
+      if (selector === "#read-photo") played.route?.({ abort: async () => {} });
+    },
+    screenshot: async ({ path }) => fs.writeFileSync(path, ""),
+    locator: () => ({ getAttribute: async () => null, isVisible: async () => true, isHidden: async () => true,
+      isEnabled: async () => true, isDisabled: async () => true, innerText: async () => "what the page said", evaluate: async () => {} }),
+    evaluate: async (read) => {
+      if (!check && played.checked) throw new Error("the stand-in plays no further than the check");
+      const source = String(read).replace(/\\s+/g, "");
+      if (source.endsWith("__gridpuzzleTestState().result")) return solved;
+      if (source === "()=>window.__gridpuzzleTestState()") return structuredClone(state);
+      if (source.includes("scrollWidth")) return true;
+      if (source.includes("toDataURL")) return "aW1hZ2U=";
+      if (source.includes("model.demo().cells")) return { type: "sudoku", correct: CHECK_FAILS === "last" ? 0 : 30, unsafe: [], corrections: [] };
+      if (source.includes("saved:localStorage.getItem")) return { puzzle: "{}", saved: null };
+    } };
+}
+const engine = (name) => ({ async launch() {
+  const pipes = setInterval(() => {}, 1000), played = { checked: false, route: null };
+  let contexts = 0;
+  return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0",
+    close: async () => { if (name === "chromium" && BROWSER_HANGS) return new Promise(() => {}); clearInterval(pipes); },
+    newContext: async () => {
+      const check = ++contexts === 2, page = app(name, check, played);
+      return { on() {}, newPage: async () => page,
+        route: async (pattern, handler) => { played.route = handler; }, unroute: async () => { played.route = null; },
+        close: async () => {
+          if (!check) return;
+          played.checked = true;
+          console.log("the check's context closes");
+          if (CLOSE === "rejects") throw new Error("the browser has gone");
+          if (CLOSE === "never") return new Promise(() => {});
+        } };
+    } };
+} });
+module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
+`;
+
+// The count of CLOSE_LIMIT's timers is four when the check gets as far as
+// asking for OCR's language, for which it waits as long, and three when its
+// first step fails: one for each browser's close and one for the check's
+// context's.
+describe('browser_smoke, on a context of its startup-cancellation check that will not close', { concurrency: true }, () => {
+  for (const [what, env, failure, cleanupErrors, checks, limits] of [
+    ['the check passes and its context closes', {}, 'Error: the stand-in plays no further than the check', [], 2, 4],
+    ['the check passes and its context never closes', { CLOSE: 'never' }, `Error: ${TIMED_OUT}`, [TIMED_OUT], 2, 4],
+    ['the check passes and its context will not close', { CLOSE: 'rejects' }, `Error: ${GONE_BY}`, [GONE_BY], 2, 4],
+    ['the check fails at its first step and its context never closes', { CHECK_FAILS: 'first', CLOSE: 'never' },
+      'Error: the check\'s page found no site', [TIMED_OUT], 0, 3],
+    ['the check fails at its first step and its context will not close either', { CHECK_FAILS: 'first', CLOSE: 'rejects' },
+      'Error: the check\'s page found no site', [GONE_BY], 0, 3],
+    ['the check fails at its last step and its context will not close either', { CHECK_FAILS: 'last', CLOSE: 'rejects' },
+      'AssertionError [ERR_ASSERTION]: Fresh scan after startup cancellation failed', [GONE_BY], 1, 4],
+    // As in the WebKit hang: the run ends through exitIfUnclosed().
+    ['the check passes and neither its context nor its browser closes', { CLOSE: 'never', BROWSER_HANGS: '1' }, `Error: ${TIMED_OUT}`,
+      [TIMED_OUT, 'browser: browser cleanup timed out'], 2, 4],
+  ])
+    test(`ends by itself with both engines' reports when ${what}`, async (t) => {
+      const { code, killed, stderr, lines, limits: count, read } = await standIn(t, 'scripts/browser_smoke.cjs', PLAYED, env);
+      assert.equal(killed, false, `it ended by itself: ${stderr}`);
+      assert.equal(code, 1, stderr);
+      const [chromium, webkit] = read('browser-artifacts/results.json');
+      assert.deepEqual([chromium.ok, chromium.failure.split('\n')[0], chromium.cleanupErrors], [false, failure, cleanupErrors]);
+      assert.deepEqual(chromium.checks.slice(chromium.checks.indexOf('camera permission fallback') + 1), SMOKE_CHECKS.slice(0, checks),
+        'the check ran, after every step before it');
+      for (const failed of cleanupErrors) assert.ok(stderrLines(stderr).includes(`chromium: ${failed}`), stderr);
+      assert.deepEqual([webkit.ok, webkit.failure.split('\n')[0], webkit.cleanupErrors], [false, 'Error: no site here', []], 'the next engine ran');
+      assert.deepEqual(lines.filter((line) => line === 'the check\'s context closes'), ['the check\'s context closes']);
+      assert.equal(count, limits);
+    });
+});
+
+// ocr_latency in a process of its own, as above, on browsers that play its
+// five reads, each launch keeping the process alive until its browser closes.
+// CLOSE is how Chromium's contexts close, as for browser_smoke above, and each
+// context's close says whose and which variant's it is.
+const OCR_PLAYED = `const { CLOSE } = process.env;
+const reads = () => ({ scans: Array.from({ length: 5 }, (_, read) => ({ name: "sudoku", milliseconds: 900, firstReading: 300,
+  timings: {}, ocrStats: { cacheHits: read ? 4 : 0 }, wrong: [], unsafe: [], correct: 24, workers: { ocr: 1, geometry: 1 } })),
+  counts: { ocr: 1, geometry: 1 } });
+const engine = (name) => ({ async launch() {
+  const pipes = setInterval(() => {}, 1000);
+  return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0", close: async () => { clearInterval(pipes); },
+    newContext: async () => {
+      let variant;
+      return { newPage: async () => ({ setDefaultTimeout() {}, waitForSelector: async () => {}, evaluate: async () => reads(),
+          goto: async (url) => { variant = url.split("/").at(-2); } }),
+        close: async () => {
+          console.log(name + "'s " + variant + " context closes");
+          if (name !== "chromium") return;
+          if (CLOSE === "rejects") throw new Error("the browser has gone");
+          if (CLOSE === "never") return new Promise(() => {});
+        } };
+    } };
+} });
+require(${JSON.stringify(script('ocr_latency_regressions'))})({ playwright: { chromium: engine("chromium"), webkit: engine("webkit") }, port: 0, out: process.env.OUT })
+  .then(() => console.log("the run passed"), (error) => { console.log("the run failed:", error.message); process.exitCode = 1; });
+`;
+
+// The close comes only after a variant passed, so no failure of the suite's own
+// can come before it. With a baseline site each engine reads it first, so a
+// Chromium whose baseline's context would not close is asked for no other.
+// The count: one for each browser's close and one for each context's.
+describe('ocr_latency, on a variant\'s context that will not close', { concurrency: true }, () => {
+  const candidates = ['chromium\'s candidate context closes', 'webkit\'s candidate context closes'];
+  for (const [what, env, failure, cleanupErrors, closes, limits] of [
+    ['its contexts close', {}, null, [], candidates, 4],
+    ['Chromium\'s context never closes', { CLOSE: 'never' }, TIMED_OUT, [TIMED_OUT], candidates, 4],
+    ['Chromium\'s context will not close', { CLOSE: 'rejects' }, GONE_BY, [GONE_BY], candidates, 4],
+    ['Chromium\'s baseline\'s context never closes', { CLOSE: 'never', OCR_BASELINE_SITE: '_site' }, TIMED_OUT, [TIMED_OUT],
+      ['chromium\'s baseline context closes', 'webkit\'s baseline context closes', 'webkit\'s candidate context closes'], 5],
+  ])
+    test(`ends by itself, every engine run and its report written, when ${what}`, async (t) => {
+      const directory = temporary(t), run = path.join(directory, 'run.cjs'), preload = path.join(directory, 'limits.cjs');
+      fs.writeFileSync(run, OCR_PLAYED);
+      fs.writeFileSync(preload, LIMITS);
+      // From the repository's root, where it reads its fixtures.
+      const out = path.join(directory, 'ocr-latency.json');
+      const { code, killed, stderr, stdout } = await finish(['-r', preload, run], { cwd: fileURLToPath(new URL('../..', import.meta.url)),
+        env: { ...process.env, BROWSER_ENGINES: '', OCR_BASELINE_SITE: '', OUT: out, ...env } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, failure ? 1 : 0, stderr);
+      const { lines, limits: count } = counted(stdout);
+      const [chromium, webkit] = JSON.parse(fs.readFileSync(out, 'utf8'));
+      assert.deepEqual([chromium.ok, chromium.failure?.split('\n')[0], chromium.cleanupErrors],
+        [!failure, failure ? `Error: ${failure}` : undefined, cleanupErrors]);
+      if (env.OCR_BASELINE_SITE) assert.deepEqual([Boolean(chromium.baseline), chromium.candidate], [true, undefined]);
+      for (const failed of cleanupErrors) assert.ok(stderrLines(stderr).includes(`chromium: ${failed}`), stderr);
+      assert.deepEqual([webkit.ok, webkit.cleanupErrors, Boolean(webkit.candidate)], [true, [], true], 'the next engine ran');
+      assert.deepEqual(lines.filter((line) => line.endsWith(' context closes')), closes);
+      assert.equal(lines.at(-1), failure ? `the run failed: ${failure}` : 'the run passed');
+      assert.equal(count, limits);
+    });
+});
+
+// Playwright for harness_regressions in WebKit alone, on which it plays its
+// first three cases: "ordinary", "crash", which WebKit passes, and
+// "carried-on", in which the suite closes a context of its own. That is the
+// only context anything closes here, as engines() closes the browser, and
+// CLOSE is how it closes, as for browser_smoke above. The stand-in has no
+// browser for the cases after these, so the run stops at the next one, which
+// reports nothing.
+const HARNESSED = `const fs = require("node:fs");
+const { CLOSE } = process.env;
+let launches = 0;
+module.exports = { webkit: { async launch() {
+  if (++launches > 3) throw new Error("the stand-in has no browser for the cases after carried-on");
+  const pipes = setInterval(() => {}, 1000);
+  return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0", close: async () => { clearInterval(pipes); },
+    newContext: async () => {
+      const context = { newPage: async () => ({ context: () => context, setDefaultTimeout() {}, goto: async () => {},
+          screenshot: async ({ path }) => fs.writeFileSync(path, "") }),
+        close: async () => {
+          console.log("the suite closes its context");
+          if (CLOSE === "rejects") throw new Error("the browser has gone");
+          if (CLOSE === "never") return new Promise(() => {});
+        } };
+      return context;
+    } };
+} } };
+`;
+
+// The close is the case's last step, so no failure of the case's own can come
+// before it. The count: one for each of the three browsers' closes and one for
+// the context's. The run's folder goes in its finally.
+describe('harness_regressions, on the context its "carried-on" case closes in WebKit', { concurrency: true }, () => {
+  for (const [what, env, failure, cleanupErrors, ending] of [
+    ['closes', {}, null, [], /ENOENT[^\n]*harness-page-errors\.json/],
+    ['never closes', { CLOSE: 'never' }, `Error: ${TIMED_OUT}`, [TIMED_OUT], /carried-on: webkit closes/],
+    ['will not close', { CLOSE: 'rejects' }, `Error: ${GONE_BY}`, [GONE_BY], /carried-on: webkit closes/],
+  ])
+    test(`ends by itself, with the case's report written, when that context ${what}`, async (t) => {
+      const { code, killed, stdout, stderr, lines, limits, read, left: folders } =
+        await standIn(t, 'scripts/harness_regressions.cjs', HARNESSED, { BROWSER_ENGINES: 'webkit', ...env });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, 1, stderr);
+      const [webkit] = read('browser-artifacts/harness-carried-on.json');
+      assert.deepEqual([webkit.status, webkit.failure?.split('\n')[0], webkit.cleanupErrors],
+        [failure ? 'failed' : 'passed', failure ?? undefined, cleanupErrors]);
+      // A failed close fails the case; with one that worked the run went on to
+      // the next case, which the stand-in has no browser for.
+      assert.match(stderr, ending);
+      assert.deepEqual(lines.filter((line) => line === 'the suite closes its context'), ['the suite closes its context']);
+      assert.equal(limits, 4);
+      assert.deepEqual(folders(), [], 'its folder is gone');
     });
 });
 
