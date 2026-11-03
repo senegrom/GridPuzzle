@@ -1026,7 +1026,10 @@ module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
 // What stands in for live_camera, whose run has too much else before
 // review_safety for a stand-in to play: the harness's engines() and main(), and
 // review_safety called with the engine's report, as live_camera calls it (the
-// last test below reads that call in live_camera's source).
+// last test below reads that call in live_camera's source). It has no catch of
+// live_camera's, which reads the page for its report after a failure: the
+// stand-in's pages would answer those reads at once, where in the WebKit hang
+// they wait (web/TESTING.md).
 const LIVE_CAMERA = `const { engines, main } = require("./scripts/harness.cjs");
 main(module, () => engines("live-camera.json", async (page, report) => {
   report.reviewSafety = await require("./scripts/review_safety_regressions.cjs")(page, (phase, run) => run(), report);

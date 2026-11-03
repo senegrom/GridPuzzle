@@ -261,7 +261,8 @@ async function storageProbe(page, report) {
     // as while a WebKit child still holds the browser's pipes, would keep that
     // try from its finally, which closes the browser and writes the report: the
     // run would wait there for ever. So the close is given watch.cjs's
-    // CLOSE_LIMIT, as the browser's close is (web/TESTING.md). A close that
+    // CLOSE_LIMIT, as the browser's close is (web/TESTING.md, which also says
+    // what live_camera's catch still waits for in that state). A close that
     // rejects or runs out of time is a clean-up failure, as the browser's is: it
     // goes in the report's cleanupErrors and on stderr, and it is the probe's
     // failure only if the probe has none of its own.
