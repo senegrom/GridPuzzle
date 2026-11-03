@@ -1123,6 +1123,38 @@ fs.rmSync = (target, ...rest) => {
 main(module, async () => { stuck = temporaryDirectory("gridpuzzle-stuck-").directory; });
 `;
 
+/* A suite on the harness with two folders of its own: the first will not go
+   at the exit either, as STUCK's, and the second goes. Once it has loaded the
+   harness it adds a listener for the process's exit, as a launch adds
+   Playwright's, which says that it ran and what the exit code is by then.
+   Each removal says, as it comes, how many times it would try again and which
+   folder it was to remove. ENDING is how the suite ends: "passes", by itself
+   with its exit code unset; "passes with 0", which it sets; "fails", with an
+   exit code of 3 that it sets; or a signal's name: it raises that signal once
+   it has made its folders, and would carry on three seconds later. */
+const GOES_ON = `const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
+const { main, sleep, temporaryDirectory } = require(${JSON.stringify(harness)}), { ENDING } = process.env, SIGNAL = ENDING;
+const say = (line) => fs.writeSync(1, line + "\\n");
+let stuck;
+fs.rmSync = (target, options, ...rest) => {
+  say("removing (retries " + (options?.maxRetries ?? 0) + ") " + path.basename(target));
+  if (target !== stuck) return rmSync(target, options, ...rest);
+  throw new Error("the folder is in use");
+};
+process.on("exit", () => say("the next listener ran, with exit code " + process.exitCode));
+main(module, async () => {
+  stuck = temporaryDirectory("gridpuzzle-stuck-").directory;
+  fs.writeFileSync(path.join(temporaryDirectory("gridpuzzle-other-").directory, "file"), "");
+  if (ENDING === "passes with 0") process.exitCode = 0;
+  else if (ENDING === "fails") process.exitCode = 3;
+  else if (ENDING !== "passes") {
+    ${RAISE}
+    await sleep(3000);
+    say("the suite carried on");
+  }
+});
+`;
+
 // A spawn whose server never answers, so that what waits for it waits until
 // SIGNAL, which it raises once that server has started. It says what the
 // server was to serve, and which gridpuzzle- folders the system temp holds by
@@ -1225,7 +1257,7 @@ describe('the folders a suite makes itself go as its process exits, by itself or
     assert.deepEqual([left(temp), left(directory)], [[], []], 'none stays');
   });
 
-  // The removal at the exit throws once its retries are spent.
+  // The removal at the exit gives up once its retries are spent.
   test('a folder that will not go at the exit either fails a run that passed, which says why', async (t) => {
     const { directory, suite } = suiteTree(t, STUCK), temp = apart(directory);
     const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(temp) } });
@@ -1234,6 +1266,28 @@ describe('the folders a suite makes itself go as its process exits, by itself or
     assert.deepEqual(printed(stdout), ['removing gridpuzzle-stuck-'], stdout);
     assert.match(stderr, /the folder is still in use: gridpuzzle-stuck-\w+/);
   });
+
+  // After such a folder the exit goes on: to the folders after it, and to what
+  // listens for the exit after the harness, as Playwright's listener, which
+  // kills the browsers it launched, and the corpus runner's, which stops its
+  // server, do. Node calls no listener of an event after one that throws.
+  for (const [ending, expected, how] of [['passes', 1, 'a run that passed exits with 1'],
+    ['passes with 0', 1, 'one that passed with its exit code set to 0 exits with 1'],
+    ['fails', 3, 'one that failed keeps its exit code, 3'],
+    ...SIGNALS.map(([signal, code]) => [signal, code, `one that ${signal} ends keeps its exit code, ${code}`])])
+    test(`after a folder that will not go, the exit names it, takes the next and lets the listeners after it run: ${how}`, async (t) => {
+      const { directory, suite } = suiteTree(t, GOES_ON), temp = apart(directory);
+      const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(temp), ENDING: ending } });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, expected, `${stdout}${stderr}`);
+      assert.deepEqual(printed(stdout), ['removing (retries 5) gridpuzzle-stuck-', 'removing (retries 5) gridpuzzle-other-',
+        `the next listener ran, with exit code ${expected}`], `${stdout}${stderr}`);
+      const stays = left(temp);
+      assert.deepEqual([stays.map((name) => name.replace(/-\w+$/, '-')), left(directory)], [['gridpuzzle-stuck-'], []],
+        'only the folder that would not go stays');
+      assert.deepEqual(stderr.trim().split(/\r?\n/),
+        [`Could not remove the temporary directory ${path.join(temp, stays[0])}: the folder is in use`], stderr);
+    });
 
   // Without a browser the first case fails, before any other has run.
   test('harness_regressions removes the folder it serves in its own finally, before its process exits, when a case fails', async (t) => {

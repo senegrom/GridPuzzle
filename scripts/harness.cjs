@@ -51,12 +51,26 @@ const link = (target, at) => fs.symlinkSync(path.resolve(target), at, process.pl
    directories go after the servers that may serve them. A server can still
    be ending as its directory goes: on Windows a file it was serving stays
    open until it has ended, and the removal tries again five times, each
-   after a wait 100 ms longer than the last, before it throws; on Linux and
+   after a wait 100 ms longer than the last, before it gives up; on Linux and
    macOS a directory in use goes all the same, and the server only reads from
-   it. A process killed outright (SIGKILL, or TerminateProcess on Windows)
-   runs none of this. */
+   it. A directory that will not go is named on stderr, with why, and fails
+   the run: an exit code of 0 becomes 1, and any other stays, a suite's own
+   or a signal's. The clean-up then goes on to the other directories, and
+   what listens for the exit after it runs all the same: Node calls no
+   listener of an event after one that throws, and Playwright's, which kills
+   every browser it launched, comes after this one, as does the corpus
+   runner's inside scanner_settings, which stops its server. A process killed
+   outright (SIGKILL, or TerminateProcess on Windows) runs none of this. */
 const servers = new Set(), temporary = new Set();
-const removeTemporary = () => { for (const d of temporary) { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5 }); temporary.delete(d); } };
+const removeTemporary = () => {
+  for (const directory of temporary) {
+    try { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 5 }); temporary.delete(directory); }
+    catch (error) {
+      console.error(`Could not remove the temporary directory ${directory}: ${error?.message || String(error)}`);
+      process.exitCode ||= 1;
+    }
+  }
+};
 process.once("exit", () => {
   for (const server of servers) server.kill();
   removeTemporary();
