@@ -1,9 +1,8 @@
 // Native browser codecs and service-worker lifecycle, without OCR heuristics.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { serve, PHONE } = require('./harness.cjs');
+const { serve, PHONE, temporaryDirectory } = require('./harness.cjs');
 const { CLOSE_LIMIT, cleanUp } = require('./watch.cjs');
 async function photoImports(page, report, base) {
   await page.goto(base);
@@ -90,7 +89,7 @@ async function offlineInstall(browser, report) {
   const context = await browser.newContext({ ...PHONE, serviceWorkers: 'allow' });
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
-  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'gridpuzzle-install-'));
+  const install=temporaryDirectory('gridpuzzle-install-'),{directory}=install;
   let server,passed=false;
   try {
     fs.copyFileSync('_site/offline.js',path.join(directory,'offline.js'));
@@ -128,10 +127,12 @@ async function offlineInstall(browser, report) {
     // clean-up failure, as the browser's is: it goes in the report's
     // cleanupErrors and on stderr, and it is the check's failure only if the
     // check has none of its own. The stop comes before the removal, as a folder
-    // that will not go must not leave the server up either.
+    // that will not go must not leave the server up either: the harness then
+    // tries again as the process exits, as it removes the folder then should
+    // a signal end the process before this finally.
     const unclosed=await cleanUp('context',()=>context.close(),CLOSE_LIMIT);
     if(unclosed){report.cleanupErrors.push(unclosed);console.error(`${report.browser}: ${unclosed}`);}
-    await server?.close();fs.rmSync(directory,{recursive:true,force:true});
+    await server?.close();install.remove();
     if(unclosed&&passed)throw new Error(unclosed);
   }
 }
