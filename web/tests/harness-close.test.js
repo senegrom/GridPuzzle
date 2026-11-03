@@ -1029,10 +1029,12 @@ module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
 // last test below reads that call in live_camera's source). It has no catch of
 // live_camera's, which reads the page for its report after a failure: the
 // stand-in's pages would answer those reads at once, where in the WebKit hang
-// they wait (web/TESTING.md).
-const LIVE_CAMERA = `const { engines, main } = require("./scripts/harness.cjs");
+// they wait (web/TESTING.md). It names the tree's modules by paths it builds,
+// so that tests/test_workflows.py does not take them for modules of this file.
+const LIVE_CAMERA = `const inTree = (name) => require("node:path").join(__dirname, name);
+const { engines, main } = require(inTree("scripts/harness.cjs"));
 main(module, () => engines("live-camera.json", async (page, report) => {
-  report.reviewSafety = await require("./scripts/review_safety_regressions.cjs")(page, (phase, run) => run(), report);
+  report.reviewSafety = await require(inTree("scripts/review_safety_regressions.cjs"))(page, (phase, run) => run(), report);
 }));
 `;
 
