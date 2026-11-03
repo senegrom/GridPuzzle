@@ -863,12 +863,15 @@ describe('ocr_latency, on a variant\'s context that will not close', { concurren
 // only context anything closes here, as engines() closes the browser, and
 // CLOSE is how it closes, as for browser_smoke above. The stand-in has no
 // browser for the cases after these, so the run stops at the next one, which
-// reports nothing.
-const HARNESSED = `const fs = require("node:fs");
+// reports nothing. What a case prints through console.error while its browser
+// is up, which the suite's attempt() keeps to itself, goes to stderr too.
+const HARNESSED = `const fs = require("node:fs"), util = require("node:util");
 const { CLOSE } = process.env;
 let launches = 0;
 module.exports = { webkit: { async launch() {
   if (++launches > 3) throw new Error("the stand-in has no browser for the cases after carried-on");
+  const kept = console.error;
+  console.error = (...args) => { process.stderr.write(util.format(...args) + "\\n"); kept(...args); };
   const pipes = setInterval(() => {}, 1000);
   return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0", close: async () => { clearInterval(pipes); },
     newContext: async () => {
@@ -901,6 +904,7 @@ describe('harness_regressions, on the context its "carried-on" case closes in We
       const [webkit] = read('browser-artifacts/harness-carried-on.json');
       assert.deepEqual([webkit.status, webkit.failure?.split('\n')[0], webkit.cleanupErrors],
         [failure ? 'failed' : 'passed', failure ?? undefined, cleanupErrors]);
+      for (const failed of cleanupErrors) assert.ok(stderrLines(stderr).includes(`webkit: ${failed}`), stderr);
       // A failed close fails the case; with one that worked the run went on to
       // the next case, which the stand-in has no browser for.
       assert.match(stderr, ending);
