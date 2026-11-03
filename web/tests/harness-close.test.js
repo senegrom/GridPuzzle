@@ -15,8 +15,9 @@ import { Browser } from './playwright-stand-ins.js';
 // stale-build check's, on a browser that will not open its context or page;
 // photo_read's two checks on a context that will not close; what else can
 // leave a server up to hold a run, as a browser does; how a signal ends a
-// suite's process; and how the folders a suite makes itself go, however its
-// process ends. Loading watch.cjs or the harness needs no Playwright.
+// suite's process; and how the folders a suite makes itself go as its process
+// exits, by itself or on a signal. Loading watch.cjs or the harness needs no
+// Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -548,6 +549,13 @@ offlineInstall(browser, report).then(() => console.log("the check passed"),
 // left behind can be seen, and goes with it.
 const temporaryIn = (directory) => ({ TEMP: directory, TMP: directory, TMPDIR: directory });
 const left = (directory) => fs.readdirSync(directory).filter((name) => name.startsWith('gridpuzzle-'));
+// A system temp for a process apart from the folder it runs in, so that a test
+// sees where the process made its folders: in the one, and none in the other.
+function apart(directory) {
+  const temp = path.join(directory, 'temp');
+  fs.mkdirSync(temp);
+  return temp;
+}
 
 // How a process ends that runs the script `name` as it is, in `directory`, with
 // the stand-in for Python's server.
@@ -779,27 +787,33 @@ describe('a signal ends a suite\'s process through the harness\'s clean-up', { c
     });
 });
 
-/* A suite on the harness that ends by itself, with three folders of its own:
-   one it removes, as its finally would, one it leaves, as a suite does that
-   fails before the try whose finally would remove it, and one whose first
-   removal fails, as that of a folder still in use can. Each removal prints a
-   line as it comes. */
+/* A suite on the harness that ends by itself, with four folders of its own:
+   one it removes, as its finally would, one from baselineSite() that it
+   removes too, one it leaves, as a suite does that fails before the try whose
+   finally would remove it, and one whose first removal fails, as that of a
+   folder still in use can. It says where it made them, and each removal says,
+   as it comes, how many times it would try again. */
 const ENDS = `const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
-const { main, temporaryDirectory } = require(${JSON.stringify(harness)});
+const { baselineSite, main, temporaryDirectory } = require(${JSON.stringify(harness)});
+const say = (line) => fs.writeSync(1, line + "\\n");
 let refuse;
-fs.rmSync = (target, ...rest) => {
-  fs.writeSync(1, "removing " + path.basename(target) + "\\n");
-  if (target !== refuse) return rmSync(target, ...rest);
+fs.rmSync = (target, options, ...rest) => {
+  say("removing (retries " + (options?.maxRetries ?? 0) + ") " + path.basename(target));
+  if (target !== refuse) return rmSync(target, options, ...rest);
   refuse = null;
   throw new Error("the folder is in use");
 };
 main(module, async () => {
   const [removed, left, busy] = ["removed", "left", "busy"].map((name) => temporaryDirectory("gridpuzzle-" + name + "-"));
   for (const { directory } of [removed, left, busy]) fs.writeFileSync(path.join(directory, "file"), "");
+  const site = baselineSite("HEAD", []);
+  say("made in " + [...new Set([removed, left, busy, site].map(({ directory }) => path.dirname(directory)))].join(" and "));
   removed.remove();
-  console.log("after remove()", fs.existsSync(removed.directory) ? "still there" : "gone");
+  say("after remove() " + (fs.existsSync(removed.directory) ? "still there" : "gone"));
+  site.remove();
+  say("after baselineSite()'s remove() " + (fs.existsSync(site.directory) ? "still there" : "gone"));
   refuse = busy.directory;
-  try { busy.remove(); } catch (error) { console.log("remove() failed:", error.message); }
+  try { busy.remove(); } catch (error) { say("remove() failed: " + error.message); }
 });
 `;
 
@@ -818,36 +832,103 @@ children.spawn = (command, args, options) => {
 };
 `;
 
+// A spawn whose server exits at once, as Python's does when it cannot serve,
+// so that a run on it fails by itself. It says what the server was to serve.
+const EXITS = `const children = require("node:child_process"), { spawn } = children;
+children.spawn = (command, args, options) => {
+  console.log("serving", args.at(-1));
+  return spawn(process.execPath, ["-e", "process.exitCode = 3"], { ...options, cwd: ${JSON.stringify(os.tmpdir())} });
+};
+`;
+
+// What a process loads first to see what a suite's own finally removed: the
+// gridpuzzle- folders the system temp holds as the process's exit begins,
+// before the harness's clean-up, which listens for the exit after this.
+const AT_EXIT = `{
+  const fs = require("node:fs"), os = require("node:os");
+  process.on("exit", () => fs.writeSync(1, "at the exit " + JSON.stringify(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("gridpuzzle-"))) + "\\n"));
+}
+`;
+
+// Playwright, for a tree of its own: a launch that never comes back, or one
+// that fails.
+const NO_LAUNCH = `const launch = () => new Promise(() => {});
+module.exports = { chromium: { launch }, webkit: { launch } };
+`;
+const NO_BROWSER = `const launch = async () => { throw new Error("no browser here"); };
+module.exports = { chromium: { launch }, webkit: { launch } };
+`;
+
+// A tree in `directory` with copies of `files` and `playwright` for Playwright.
+function tree(directory, files, playwright) {
+  for (const file of files) fs.cpSync(new URL(`../../${file}`, import.meta.url), path.join(directory, file));
+  fs.mkdirSync(path.join(directory, 'node_modules', 'playwright'), { recursive: true });
+  fs.writeFileSync(path.join(directory, 'node_modules', 'playwright', 'index.js'), playwright);
+}
+
 // The detection check that scanner_settings runs, in a process that loads
 // the harness first, as scanner_settings does, and in a tree of its own: the
 // check loads Playwright, which CI's unit job does not install, so the tree
-// has one whose launch never comes back. Its server's start, which HELD
-// stands in for, comes once the check has written its corpus. The process
+// has one of those above. Its server's start, which HELD or EXITS stands in
+// for, comes once the check has written its corpus. The process says how the
+// check ended and which gridpuzzle- folders the system temp holds by then. It
 // loads the tree's copies by paths it builds, since tests/test_workflows.py
 // takes a literal relative require() here for one of this file's own.
 const DETECTION = ['scripts/detect_benchmark_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs',
   'corpus/detect_benchmark.cjs', 'corpus/benchmark-runner.cjs', 'corpus/score.cjs'];
-const DETECTION_CHECK = `const inTree = (name) => require("node:path").join(__dirname, name);
+const DETECTION_CHECK = `const inTree = (name) => require("node:path").join(__dirname, name), fs = require("node:fs"), os = require("node:os");
 require(inTree("scripts/harness.cjs"));
 require(inTree("scripts/detect_benchmark_regressions.cjs"))("chromium", "")
-  .then(() => console.log("the check passed"), (error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
+  .then(() => console.log("the check passed"), (error) => { console.log("the check failed:", error.code ?? error.message); process.exitCode = 1; })
+  .finally(() => console.log("left by the check", JSON.stringify(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("gridpuzzle-")))));
 `;
-const NO_LAUNCH = `const launch = () => new Promise(() => {});
-module.exports = { chromium: { launch }, webkit: { launch } };
-`;
+function detectionTree(directory, playwright) {
+  tree(directory, DETECTION, playwright);
+  fs.writeFileSync(path.join(directory, 'check.cjs'), DETECTION_CHECK);
+}
 
 // The lines a process printed, with what mkdtemp added to a folder's name cut.
 const printed = (stdout) => stdout.trim().split(/\r?\n/).map((line) => line.replace(/-\w+$/, '-'));
 
-describe('the folders a suite makes itself go however its process ends', { concurrency: true }, () => {
-  test('remove() takes a folder at once and for good, and the exit takes what is left, a folder that would not go at first too', async (t) => {
-    const { directory, suite } = suiteTree(t, ENDS);
-    const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(directory) } });
+// Every process below has a system temp apart from the folder it runs in.
+describe('the folders a suite makes itself go as its process exits, by itself or on a signal', { concurrency: true }, () => {
+  test('remove() takes a folder from the system temp at once and for good, baselineSite()\'s too, and the exit takes what is left, trying again, a folder that would not go at first too', async (t) => {
+    const { directory, suite } = suiteTree(t, ENDS), temp = apart(directory);
+    const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(temp) } });
     assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
     assert.equal(code, 0, `${stdout}${stderr}`);
-    assert.deepEqual(printed(stdout), ['removing gridpuzzle-removed-', 'after remove() gone', 'removing gridpuzzle-busy-',
-      'remove() failed: the folder is in use', 'removing gridpuzzle-left-', 'removing gridpuzzle-busy-'], 'the exit takes only the two left');
-    assert.deepEqual(left(directory), [], 'none stays');
+    assert.deepEqual(printed(stdout), [`made in ${temp}`,
+      'removing (retries 0) gridpuzzle-removed-', 'after remove() gone',
+      'removing (retries 0) gridpuzzle-baseline-', 'after baselineSite()\'s remove() gone',
+      'removing (retries 0) gridpuzzle-busy-', 'remove() failed: the folder is in use',
+      'removing (retries 5) gridpuzzle-left-', 'removing (retries 5) gridpuzzle-busy-'], 'the exit takes only the two left, and tries five times more');
+    assert.deepEqual([left(temp), left(directory)], [[], []], 'none stays');
+  });
+
+  // Without a browser the first case fails, before any other has run.
+  test('harness_regressions removes the folder it serves in its own finally, before its process exits, when a case fails', async (t) => {
+    const directory = temporary(t), temp = apart(directory), inTree = (name) => path.join(directory, name);
+    tree(directory, ['scripts/harness_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs'], NO_BROWSER);
+    fs.writeFileSync(inTree('first.cjs'), SPAWN + AT_EXIT);
+    const { code, killed, stdout, stderr } = await finish(['-r', inTree('first.cjs'), inTree('scripts/harness_regressions.cjs')],
+      { cwd: directory, env: { ...process.env, ...temporaryIn(temp) } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, `${stdout}${stderr}`);
+    assert.match(stderr, /ENOENT.*harness-ordinary\.json/, 'its first case failed');
+    assert.deepEqual(printed(stdout), [`serving ${path.join(temp, 'gridpuzzle-harness-')}`, 'at the exit []'], stdout);
+    assert.deepEqual([left(temp), left(directory)], [[], []]);
+  });
+
+  test('the detection check removes its corpus in its own finally when it fails by itself', async (t) => {
+    const directory = temporary(t), temp = apart(directory), inTree = (name) => path.join(directory, name);
+    detectionTree(directory, NO_BROWSER);
+    fs.writeFileSync(inTree('exits.cjs'), EXITS);
+    const { code, killed, stdout, stderr } = await finish(['-r', inTree('exits.cjs'), inTree('check.cjs')],
+      { cwd: directory, env: { ...process.env, ...temporaryIn(temp) } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, `${stdout}${stderr}`);
+    assert.deepEqual(printed(stdout), ['serving _site', 'the check failed: ERR_ASSERTION', 'left by the check []'], stdout);
+    assert.deepEqual([left(temp), left(directory)], [[], []]);
   });
 
   // Each raises its signal where its folder is in use, and is held there, so
@@ -856,44 +937,41 @@ describe('the folders a suite makes itself go however its process ends', { concu
   // check as its page opens the site its server serves.
   for (const [signal, expected] of SIGNALS) {
     test(`${signal} as harness_regressions starts its server ends it with ${expected}, and the folder that server was to serve goes`, async (t) => {
-      const directory = temporary(t), preload = path.join(directory, 'held.cjs');
+      const directory = temporary(t), temp = apart(directory), preload = path.join(directory, 'held.cjs');
       fs.writeFileSync(preload, HELD);
       const { code, killed, stdout, stderr } = await finish(['-r', preload, script('harness_regressions')],
-        { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+        { cwd: directory, env: { ...process.env, ...temporaryIn(temp), SIGNAL: signal } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, `${stdout}${stderr}`);
-      assert.deepEqual(printed(stdout), [`serving ${path.join(directory, 'gridpuzzle-harness-')}`, 'made gridpuzzle-harness-'], stdout);
-      assert.deepEqual(left(directory), [], 'its folder is gone');
+      assert.deepEqual(printed(stdout), [`serving ${path.join(temp, 'gridpuzzle-harness-')}`, 'made gridpuzzle-harness-'], stdout);
+      assert.deepEqual([left(temp), left(directory)], [[], []], 'its folder is gone');
     });
 
     test(`${signal} in photo_read's offline-install check ends its process with ${expected}, and the folder the check serves goes`, async (t) => {
-      const directory = temporary(t), check = path.join(directory, 'check.cjs');
+      const directory = temporary(t), temp = apart(directory), check = path.join(directory, 'check.cjs');
       fs.mkdirSync(path.join(directory, '_site'));
       fs.writeFileSync(path.join(directory, '_site', 'offline.js'), '');
       fs.writeFileSync(check, OFFLINE_CHECK);
-      const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+      const { code, killed, stdout, stderr } = await finish(check, { cwd: directory, env: { ...process.env, ...temporaryIn(temp), SIGNAL: signal } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, `${stdout}${stderr}`);
       const lines = printed(stdout);
-      assert.equal(lines[0], `serving ${path.join(directory, 'gridpuzzle-install-')}`, stdout);
+      assert.equal(lines[0], `serving ${path.join(temp, 'gridpuzzle-install-')}`, stdout);
       assert.match(lines[1] ?? '', /^opened http:\/\/127\.0\.0\.1:\d+\/$/, stdout);
       assert.equal(lines.length, 2, `it went no further: ${stdout}`);
-      assert.deepEqual(left(directory), [], 'its folder is gone');
+      assert.deepEqual([left(temp), left(directory)], [[], []], 'its folder is gone');
     });
 
     test(`${signal} as the detection check inside scanner_settings starts its server ends the process with ${expected}, and the check's corpus goes`, async (t) => {
-      const directory = temporary(t), inTree = (name) => path.join(directory, name);
-      for (const file of DETECTION) fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
-      fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
-      fs.writeFileSync(inTree('node_modules/playwright/index.js'), NO_LAUNCH);
+      const directory = temporary(t), temp = apart(directory), inTree = (name) => path.join(directory, name);
+      detectionTree(directory, NO_LAUNCH);
       fs.writeFileSync(inTree('held.cjs'), HELD);
-      fs.writeFileSync(inTree('check.cjs'), DETECTION_CHECK);
       const { code, killed, stdout, stderr } = await finish(['-r', inTree('held.cjs'), inTree('check.cjs')],
-        { cwd: directory, env: { ...process.env, ...temporaryIn(directory), SIGNAL: signal } });
+        { cwd: directory, env: { ...process.env, ...temporaryIn(temp), SIGNAL: signal } });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
       assert.equal(code, expected, `${stdout}${stderr}`);
       assert.deepEqual(printed(stdout), ['serving _site', 'made gridpuzzle-real-detection-'], stdout);
-      assert.deepEqual(left(directory), [], 'its corpus is gone');
+      assert.deepEqual([left(temp), left(directory)], [[], []], 'its corpus is gone');
     });
   }
 });
