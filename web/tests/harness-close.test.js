@@ -822,11 +822,14 @@ children.spawn = (command, args, options) => {
 // the harness first, as scanner_settings does, and in a tree of its own: the
 // check loads Playwright, which CI's unit job does not install, so the tree
 // has one whose launch never comes back. Its server's start, which HELD
-// stands in for, comes once the check has written its corpus.
+// stands in for, comes once the check has written its corpus. The process
+// loads the tree's copies by paths it builds, since tests/test_workflows.py
+// takes a literal relative require() here for one of this file's own.
 const DETECTION = ['scripts/detect_benchmark_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs',
   'corpus/detect_benchmark.cjs', 'corpus/benchmark-runner.cjs', 'corpus/score.cjs'];
-const DETECTION_CHECK = `require("./scripts/harness.cjs");
-require("./scripts/detect_benchmark_regressions.cjs")("chromium", "")
+const DETECTION_CHECK = `const inTree = (name) => require("node:path").join(__dirname, name);
+require(inTree("scripts/harness.cjs"));
+require(inTree("scripts/detect_benchmark_regressions.cjs"))("chromium", "")
   .then(() => console.log("the check passed"), (error) => { console.log("the check failed:", error.message); process.exitCode = 1; });
 `;
 const NO_LAUNCH = `const launch = () => new Promise(() => {});
