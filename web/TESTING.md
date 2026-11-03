@@ -181,21 +181,22 @@ servers first and then removes the folders, so that a folder a server serves
 goes after it: on Windows, while a file the server was serving is still open,
 the removal tries again five times, each after a wait 100 ms longer than the
 last, before it fails, and on Linux and macOS a folder in use goes all the
-same: what keeps one there is a permission, such as a folder inside it that
-may not be written to. A folder that will not go is named on stderr, with
-why, and fails the run: an exit code of 0 becomes 1, and a suite's own code or
-a signal's stays. The line goes to stderr itself, since a signal can come
-while a suite has replaced `console.error`, as `harness_regressions` does
-while each case runs. The exit then goes on to the other folders, and what
-listens for the exit after the harness still runs: Playwright's listener,
-which kills the browsers it launched, and inside `scanner_settings` the corpus
-runner's, which stops the detection check's server. A removal that fails in a
-`finally` leaves the folder to the exit, which tries again. A process killed
-outright (SIGKILL, or `TerminateProcess` on Windows) runs no clean-up, and its
-folders stay. Until November 2026 those three folders stayed after a signal,
-and a folder that would not go at the exit ended the clean-up there, since
-Node calls no listener of an event after one that throws: the folders after
-it stayed, and neither Playwright's listener, which kills the browsers it
+same: what keeps one there is something else, such as a folder inside it,
+with files in it, that the process may not write to (unless it runs as root),
+or an immutable file. A folder that will not go is named on stderr, with why,
+and fails the run: an exit code of 0 becomes 1, and a suite's own code or a
+signal's stays. The line goes to stderr itself, since a signal can come while
+a suite has replaced `console.error`, as `harness_regressions` does while each
+case runs. The exit then goes on to the other folders, and what listens for
+the exit after the harness still runs: Playwright's listener, which kills the
+browsers it launched, and inside `scanner_settings` the corpus runner's, which
+stops the detection check's server. A removal that fails in a `finally`
+leaves the folder to the exit, which tries again. A process killed outright
+(SIGKILL, or `TerminateProcess` on Windows) runs no clean-up, and its folders
+stay. Until November 2026 those three folders stayed after a signal, and a
+folder that would not go at the exit ended the clean-up there, since Node
+calls no listener of an event after one that throws: the folders after it
+stayed, and neither Playwright's listener, which kills the browsers it
 launched, nor the corpus runner's ran, so that on Linux and macOS the
 detection check's server, and a browser still up when a signal or a close
 that failed ended the run, could outlive it. A run that had set its exit code
@@ -227,13 +228,14 @@ itself shows that `remove()` takes a folder at once and only once,
 `baselineSite()`'s too, and that the exit takes what is left, retrying as
 above, a folder whose first removal failed too; one that passes with a folder
 that will not go at the exit either exits with 1 and says why on stderr. With
-a second folder after that one, and a listener of the exit that the suite adds
-after the harness's, as a launch adds Playwright's, the exit names the first
-folder on stderr, removes the second and lets that listener run, however the
-suite ends: a run that passed, with its exit code unset or set to 0, exits
-with 1, and one that failed with a code of its own, or that one of the four
-signals ended, keeps its code. The line also reaches stderr when the signal
-comes with `console.error` replaced.
+a folder that goes after that one, a third that will not go either, and a
+listener of the exit that the suite adds after the harness's, as a launch adds
+Playwright's, the exit names on stderr the two folders that stay, in turn and
+each on a line of its own, removes the one between them and lets that
+listener run, however the suite ends: a run that passed, with its exit code
+unset or set to 0, exits with 1, and one that failed with a code of its own,
+or that one of the four signals ended, keeps its code. The lines also reach
+stderr when the signal comes with `console.error` replaced.
 `harness_regressions` without a browser, and the detection check with a
 server that exits at once, fail by themselves, and the test checks that their
 own `finally` removed their folder before the process exits. When the first
