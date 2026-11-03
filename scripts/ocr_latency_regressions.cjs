@@ -62,8 +62,9 @@ async function sequence(page, fixtures) {
     } finally { scanner.cancel(); window.Worker = originalWorker; }
   }, fixtures);
 }
-// `playwright`, `port` and `out` are there for web/tests/ocr-latency.test.js,
-// which runs this with stand-ins for the browsers.
+// `playwright`, `port` and `out` are there for web/tests/ocr-latency.test.js
+// and web/tests/harness-close.test.js, which run this with stand-ins for the
+// browsers.
 async function run({ playwright = require("playwright"), port = 8777, out = "browser-artifacts/ocr-latency.json" } = {}) {
   const selected = selectedEngines();
   // What can fail comes before the server, which then holds the run for ever.
@@ -95,11 +96,12 @@ async function run({ playwright = require("playwright"), port = 8777, out = "bro
           // Given watch.cjs's CLOSE_LIMIT, as the browser's close is: one that
           // never settles, as while a WebKit child still holds the browser's
           // pipes, would hold the run here for ever (web/TESTING.md). It comes
-          // only after the variant passed, so a close that rejects or runs out
-          // of time is the engine's failure, and a clean-up failure as the
-          // browser's is, in the report's cleanupErrors and on stderr. It ends
-          // the engine at once: a browser that would not close a context is
-          // asked for no other.
+          // only after the variant's own checks passed, and before the
+          // engine's checks of its pages' errors and of what ended, so a close
+          // that rejects or runs out of time is the engine's failure, and a
+          // clean-up failure as the browser's is, in the report's cleanupErrors
+          // and on stderr. It ends the engine at once: a browser that would not
+          // close a context is asked for no other.
           const unclosed = await cleanUp("context", () => context.close(), CLOSE_LIMIT);
           if (unclosed) { report.cleanupErrors.push(unclosed); console.error(`${name}: ${unclosed}`); throw new Error(unclosed); }
         }

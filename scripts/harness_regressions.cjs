@@ -186,8 +186,10 @@ async function run() {
         // never settles, as while a WebKit child still holds the browser's
         // pipes, would hold the run here for ever (web/TESTING.md). A close
         // that rejects or runs out of time is a clean-up failure, as the
-        // browser's is: it goes in the report's cleanupErrors and is printed
-        // after the engine's name, and it fails the engine, and so the case.
+        // browser's is: it goes in the report's cleanupErrors, its line after
+        // the engine's name goes to what attempt() keeps, as the browser
+        // close's line does, and it fails the engine, and so the case, whose
+        // failure ("carried-on: webkit closes") shows the list on stderr.
         const unclosed = await cleanUp("context", () => other.context().close(), CLOSE_LIMIT);
         if (unclosed) { report.cleanupErrors.push(unclosed); console.error(`${name}: ${unclosed}`); throw new Error(unclosed); }
       }
