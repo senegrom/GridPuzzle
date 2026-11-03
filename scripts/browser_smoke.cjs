@@ -3,6 +3,7 @@ const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { exitIfUnclosed, serve, sleep, stubCamera, watch } = require("./harness.cjs");
+const { CLOSE_LIMIT, cleanUp } = require("./watch.cjs");
 // The offline checks stop the origin and start it again: the port is fixed so
 // the service worker's cache still belongs to the same origin.
 const BASE = "http://127.0.0.1:8765/GridPuzzle/",
@@ -134,6 +135,7 @@ async function checkStartupCancellation(browser, image, report) {
   const context = await browser.newContext({ serviceWorkers: "block" }),
     page = await context.newPage();
   let release, seen;
+  let passed = false;
   const gate = new Promise((resolve) => (release = resolve)),
     requested = new Promise((resolve) => (seen = resolve));
   await context.route("**/vendor/**/tessdata/**", async (route) => {
@@ -220,9 +222,27 @@ async function checkStartupCancellation(browser, image, report) {
     report.checks.push(
       "cancel during actual OCR language initialization; workers stop; fresh scan succeeds",
     );
+    passed = true;
   } finally {
     release();
-    await context.close();
+    // This check runs inside its engine's try, so a close that never settles,
+    // as it does while a WebKit child still holds the browser's pipes, would
+    // keep that try from its finally, which closes the browser and writes the
+    // report: the run would wait there for ever. So the close is given
+    // watch.cjs's CLOSE_LIMIT, as the browser's close is (web/TESTING.md). A
+    // close that rejects or runs out of time is a clean-up failure, as the
+    // browser's is: it goes in the report's cleanupErrors and on stderr, and it
+    // is the check's failure only if the check has none of its own.
+    const unclosed = await cleanUp(
+      "context",
+      () => context.close(),
+      CLOSE_LIMIT,
+    );
+    if (unclosed) {
+      report.cleanupErrors.push(unclosed);
+      console.error(`${report.browser}: ${unclosed}`);
+      if (passed) throw new Error(unclosed);
+    }
   }
 }
 (async () => {

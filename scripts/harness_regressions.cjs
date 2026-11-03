@@ -29,6 +29,7 @@ const os = require("node:os");
 const path = require("node:path");
 const util = require("node:util");
 const { serve, engines, main, running, selectedEngines, sleep } = require("./harness.cjs");
+const { CLOSE_LIMIT, cleanUp } = require("./watch.cjs");
 
 const CLOSED = "Target page, context or browser has been closed";
 // The line watch() leads a failure with.
@@ -180,7 +181,16 @@ async function run() {
         (await other.context().newCDPSession(other)).send("Page.crash").catch(() => {});
         await crashed;
         report.other = await other.evaluate(() => "alive").catch((error) => error.message);
-      } else await other.context().close();
+      } else {
+        // Given watch.cjs's CLOSE_LIMIT, as the browser's close is: one that
+        // never settles, as while a WebKit child still holds the browser's
+        // pipes, would hold the run here for ever (web/TESTING.md). A close
+        // that rejects or runs out of time is a clean-up failure, as the
+        // browser's is: it goes in the report's cleanupErrors and is printed
+        // after the engine's name, and it fails the engine, and so the case.
+        const unclosed = await cleanUp("context", () => other.context().close(), CLOSE_LIMIT);
+        if (unclosed) { report.cleanupErrors.push(unclosed); console.error(`${name}: ${unclosed}`); throw new Error(unclosed); }
+      }
       report.carriedOn = true;
     });
     if (selected.includes("chromium")) {
