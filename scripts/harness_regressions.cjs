@@ -244,6 +244,9 @@ async function run() {
 
     for (const how of ["open", "behind"]) outcome[`will not close (${how})`] = await unclosableRun(how, directory);
   } finally {
+    // The stop comes first: a folder that will not go must not leave the
+    // server up to hold the run, and the harness tries again as the process
+    // exits.
     await server.close();
     site.remove();
   }

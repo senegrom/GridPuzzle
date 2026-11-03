@@ -792,13 +792,15 @@ describe('a signal ends a suite\'s process through the harness\'s clean-up', { c
    removes too, one it leaves, as a suite does that fails before the try whose
    finally would remove it, and one whose first removal fails, as that of a
    folder still in use can. It says where it made them, and each removal says,
-   as it comes, how many times it would try again. */
+   as it comes, how many times it would try again and how much longer it would
+   wait before each try than before the last (Node's defaults: none, and
+   100 ms). */
 const ENDS = `const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
 const { baselineSite, main, temporaryDirectory } = require(${JSON.stringify(harness)});
 const say = (line) => fs.writeSync(1, line + "\\n");
 let refuse;
 fs.rmSync = (target, options, ...rest) => {
-  say("removing (retries " + (options?.maxRetries ?? 0) + ") " + path.basename(target));
+  say("removing (retries " + (options?.maxRetries ?? 0) + ", delay " + (options?.retryDelay ?? 100) + ") " + path.basename(target));
   if (target !== refuse) return rmSync(target, options, ...rest);
   refuse = null;
   throw new Error("the folder is in use");
@@ -815,6 +817,20 @@ main(module, async () => {
   refuse = busy.directory;
   try { busy.remove(); } catch (error) { say("remove() failed: " + error.message); }
 });
+`;
+
+/* A suite on the harness that passes, with a folder of its own that will not
+   go at the exit either, as one still in use after the exit's retries would
+   not. Its removal says, as it comes, which folder it was to remove. */
+const STUCK = `const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
+const { main, temporaryDirectory } = require(${JSON.stringify(harness)});
+let stuck;
+fs.rmSync = (target, ...rest) => {
+  if (target !== stuck) return rmSync(target, ...rest);
+  fs.writeSync(1, "removing " + path.basename(target) + "\\n");
+  throw new Error("the folder is still in use: " + path.basename(target));
+};
+main(module, async () => { stuck = temporaryDirectory("gridpuzzle-stuck-").directory; });
 `;
 
 // A spawn whose server never answers, so that what waits for it waits until
@@ -847,6 +863,19 @@ children.spawn = (command, args, options) => {
 const AT_EXIT = `{
   const fs = require("node:fs"), os = require("node:os");
   process.on("exit", () => fs.writeSync(1, "at the exit " + JSON.stringify(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("gridpuzzle-"))) + "\\n"));
+}
+`;
+
+// What a process loads first so that the first removal of harness_regressions'
+// folder fails, as one of a folder still in use can.
+const BUSY = `{
+  const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
+  let refuse = true;
+  fs.rmSync = (target, ...rest) => {
+    if (!refuse || !path.basename(target).startsWith("gridpuzzle-harness-")) return rmSync(target, ...rest);
+    refuse = false;
+    throw new Error("the folder is in use");
+  };
 }
 `;
 
@@ -898,11 +927,22 @@ describe('the folders a suite makes itself go as its process exits, by itself or
     assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
     assert.equal(code, 0, `${stdout}${stderr}`);
     assert.deepEqual(printed(stdout), [`made in ${temp}`,
-      'removing (retries 0) gridpuzzle-removed-', 'after remove() gone',
-      'removing (retries 0) gridpuzzle-baseline-', 'after baselineSite()\'s remove() gone',
-      'removing (retries 0) gridpuzzle-busy-', 'remove() failed: the folder is in use',
-      'removing (retries 5) gridpuzzle-left-', 'removing (retries 5) gridpuzzle-busy-'], 'the exit takes only the two left, and tries five times more');
+      'removing (retries 0, delay 100) gridpuzzle-removed-', 'after remove() gone',
+      'removing (retries 0, delay 100) gridpuzzle-baseline-', 'after baselineSite()\'s remove() gone',
+      'removing (retries 0, delay 100) gridpuzzle-busy-', 'remove() failed: the folder is in use',
+      'removing (retries 5, delay 100) gridpuzzle-left-', 'removing (retries 5, delay 100) gridpuzzle-busy-'],
+    'the exit takes only the two left, and tries five times more, each after a wait 100 ms longer than the last');
     assert.deepEqual([left(temp), left(directory)], [[], []], 'none stays');
+  });
+
+  // The removal at the exit throws once its retries are spent.
+  test('a folder that will not go at the exit either fails a run that passed, which says why', async (t) => {
+    const { directory, suite } = suiteTree(t, STUCK), temp = apart(directory);
+    const { code, killed, stdout, stderr } = await finish(suite, { cwd: directory, env: { ...process.env, ...temporaryIn(temp) } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, `${stdout}${stderr}`);
+    assert.deepEqual(printed(stdout), ['removing gridpuzzle-stuck-'], stdout);
+    assert.match(stderr, /the folder is still in use: gridpuzzle-stuck-\w+/);
   });
 
   // Without a browser the first case fails, before any other has run.
@@ -917,6 +957,24 @@ describe('the folders a suite makes itself go as its process exits, by itself or
     assert.match(stderr, /ENOENT.*harness-ordinary\.json/, 'its first case failed');
     assert.deepEqual(printed(stdout), [`serving ${path.join(temp, 'gridpuzzle-harness-')}`, 'at the exit []'], stdout);
     assert.deepEqual([left(temp), left(directory)], [[], []]);
+  });
+
+  // Its finally stops its server before it removes the folder: a server left
+  // up would hold the run for ever, and the run's bound would end it.
+  test('harness_regressions ends by itself when the folder it serves will not go at first, and the exit takes it', async (t) => {
+    const directory = temporary(t), temp = apart(directory), inTree = (name) => path.join(directory, name);
+    tree(directory, ['scripts/harness_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs'], NO_BROWSER);
+    fs.writeFileSync(inTree('first.cjs'), SPAWN + BUSY + AT_EXIT);
+    const { code, killed, stdout, stderr } = await finish(['-r', inTree('first.cjs'), inTree('scripts/harness_regressions.cjs')],
+      { cwd: directory, env: { ...process.env, ...temporaryIn(temp) } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, `${stdout}${stderr}`);
+    assert.match(stderr, /^Error: the folder is in use$/m, 'its finally failed on the folder');
+    const [serving, atExit, ...rest] = printed(stdout);
+    assert.equal(serving, `serving ${path.join(temp, 'gridpuzzle-harness-')}`, stdout);
+    assert.match(atExit ?? '', /^at the exit \["gridpuzzle-harness-\w+"\]$/, `still there as the exit began: ${stdout}`);
+    assert.deepEqual(rest, [], stdout);
+    assert.deepEqual([left(temp), left(directory)], [[], []], 'the exit took it');
   });
 
   test('the detection check removes its corpus in its own finally when it fails by itself', async (t) => {
