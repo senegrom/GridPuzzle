@@ -36,10 +36,12 @@ suite adds what it measures, and `status` says `passed` or `failed`, with the
 failure's stack in `failure`. `errors` and `ended` are kept by `watch()`
 (`scripts/watch.cjs`, which the harness exports) for the browser and every
 context and page the suite opens on it, and `cleanupErrors` by the close that
-ends each engine (in `photo_read` also by the closes of the contexts its
-offline-install and stale-build checks open; see below). `errors` holds the
-pages' uncaught errors: the suite's own
-page's by their message, and any other page's as `<message> (<url>)`, with
+ends each engine and by each close of a context that a suite opens and closes
+itself: those of `photo_read`'s offline-install and stale-build checks,
+`browser_smoke`'s startup-cancellation check, each of `ocr_latency`'s variants
+and `harness_regressions`' WebKit "carried-on" case (see below). `errors`
+holds the pages' uncaught errors: the suite's own page's by their message, and
+any other page's as `<message> (<url>)`, with
 that page's URL (`structural_capture`'s second tab, the paired suites'
 baseline pages, the pages `stale_build_checks` and `import_safety_checks`
 open in contexts of their own); no suite listens for page errors itself, so
@@ -90,26 +92,29 @@ and no word of why, which had to be killed by hand; on CI only the job's
 timeout would have ended it. So a suite closes a browser through the
 `close(name)` of what `watch()` returns, which waits for 30 seconds
 (`CLOSE_LIMIT` in `scripts/watch.cjs`). That limit covers this close and,
-since November 2026, the context closes of `photo_read`'s offline-install and
-stale-build checks, which come before a server's stop (see below), and no
-other call: on a browser that is up but stuck, Playwright sets no limit on
-`page.evaluate()` or `context.close()`, so a suite's own call can still wait
-there for ever; on a browser that has gone they end at once. The hang below
-is the exception: with a WebKit child still holding the pipes, a closed page's
-calls end at once, but `context.close()` waits as `browser.close()` does. A
-close that rejects or runs out of time is printed on stderr and kept in the
-report's `cleanupErrors`, the list of strings the corpus reports have, as
-`browser: browser cleanup timed out` or `browser: <its error>` (`context: …`
-for those two checks' contexts); the list is empty after closes that worked.
+since November 2026, every close of a context that a suite awaits itself:
+those of `photo_read`'s offline-install and stale-build checks, which come
+before a server's stop, `browser_smoke`'s startup-cancellation check, each of
+`ocr_latency`'s variants and `harness_regressions`' WebKit "carried-on" case
+(see below). It covers no other call: on a browser that is up but stuck,
+Playwright sets no limit on `page.evaluate()` or `context.close()`, so a
+suite's own call that Playwright gives no timeout, such as `page.evaluate()`,
+can still wait there for ever; on a browser that has gone they end at once.
+The hang below is the exception: with a WebKit child still holding the pipes,
+a closed page's calls end at once, but `context.close()` waits as
+`browser.close()` does. A close that rejects or runs out of time is printed on
+stderr and kept in the report's `cleanupErrors`, the list of strings the corpus
+reports have, as `browser: browser cleanup timed out` or `browser: <its error>`
+(`context: …` for those contexts); the list is empty after closes that worked.
 Such a cleanup failure says that the browser, or one of those contexts, did
 not close when asked. It says nothing against what the suite checked
 before that, but a run that leaves a browser behind has not passed: an engine
 that passed fails, with the cleanup failure in `failure`, and an engine that
 failed keeps its own failure first. Every engine still runs, and its report is
 still written. In `harness_regressions` such a failure reads `<case>: <engine>
-closes`, with `browser: browser cleanup timed out`. The detection check inside
-`scanner_settings` closes its browser through the corpus runner, whose report
-must have no `cleanupErrors`.
+closes`, with the list, such as `browser: browser cleanup timed out`. The
+detection check inside `scanner_settings` closes its browser through the corpus
+runner, whose report must have no `cleanupErrors`.
 
 The run must then still end, and a process that gave up on a close may not
 end by itself. Probed on real browsers on Windows, with nothing sabotaged: the
@@ -318,6 +323,49 @@ after the check's own failure at its first step, and rejecting after a failure
 at its last; there a timer of `CLOSE_LIMIT`'s length lasts a tenth of a second,
 as the corpus command tests shorten theirs, and such timers are counted, so that
 a close given any other limit fails the test.
+
+The three other contexts that a suite closes itself had no limit until November
+2026 either: the one `browser_smoke`'s startup-cancellation check closes in its
+`finally`, each of `ocr_latency`'s variants, closed after its reads, and the
+one `harness_regressions`' "carried-on" case opens and closes in WebKit. Each
+close comes inside its engine's `try`, so in the state above the engine never
+reached its `finally`: no browser close and no report for that engine, and the
+run held until the job's limit. Each is now given `CLOSE_LIMIT` through
+`cleanUp()` too, and a close that rejects or runs out of time is a cleanup
+failure as above, printed after the engine's name and in that engine's
+`cleanupErrors`, which fails a check or engine that passed. The
+startup-cancellation check keeps its own failure first, which a rejecting close
+used to replace. `ocr_latency` and the "carried-on" case reach their close only
+after a pass, so there such a close ends the engine at once, and `ocr_latency`
+asks that browser for no further variant's context, since `newContext()` has no
+limit. In the state above the browser's own close then fails as well and
+`exitIfUnclosed()` ends the run after its report is written, so by design such
+a run ends by itself within about 80 seconds of that close starting in
+`browser_smoke` (30 for that close, up to 20 for the failure's screenshot,
+which waits for the page's default timeout, and 30 for the browser's close),
+about 60 in `ocr_latency`, which takes no screenshot, and about 90 in
+`harness_regressions`, whose cases give the page 30 seconds. Measured on
+Windows, one run of each in that state, with WebKit's main process killed as
+the close started and its children kept alive, on a host at 43 to 100% CPU in
+samples taken during the runs: the run ended by itself 80.4 s
+(`browser_smoke`), 60.3 s (`ocr_latency`) and 91.0 s (`harness_regressions`)
+after that close started, with exit code 1, that engine's report written with
+`context: context cleanup timed out` and then `browser: browser cleanup timed
+out` in `cleanupErrors` and no process Node started left running. The same
+runs without the limit were still waiting when they were stopped, 120 s after
+that close started, with no report for that engine.
+`web/tests/harness-close.test.js` runs each of the three suites as it is, in a
+process of its own, on a stand-in for Playwright whose browsers keep that
+process alive until they close, as a live browser's pipes do: for
+`browser_smoke` a page that plays the app through every step up to and through
+the check, for `ocr_latency` its five reads, and for `harness_regressions` its
+first three cases in WebKit. Each process counts its timers of `CLOSE_LIMIT`'s
+length, which last a tenth of a second there, so that a close given any other
+limit fails. The rows are a close that never settles and one that rejects
+after a pass, and in the startup-cancellation check after its own failure at
+its first step and at its last; one that never settles with a browser that
+will not close either; one in `ocr_latency`'s baseline variant; and one that
+closes.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
