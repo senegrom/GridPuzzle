@@ -162,6 +162,69 @@ test('a failing engine keeps its own failure first when its browser will not clo
   assert.deepEqual(chromium.cleanupErrors, ['browser: the pipe broke']);
 });
 
+// Has the context of `page` reject its close, as one does whose close is the
+// first call to meet a lost browser, and notes the page's URL in `asked` each
+// time it is asked to close. (It takes the place of the close watch() wraps,
+// which is no matter here: a close that rejects ends nothing.)
+function willNotClose(page, asked) {
+  page.context().close = async () => { asked.push(page.url()); throw new Error('the browser has gone'); };
+}
+
+// A variant's context closes after the variant's own checks and before the
+// engine's checks of its pages' errors and of what ended. So with a context
+// that will not close, an engine whose page threw or crashed fails on the
+// close, with what its page did in its report, and a variant that fails one
+// of its own checks, here the last, keeps that failure, its context never
+// asked to close.
+test('an engine whose page threw and whose context will not close fails on the close, with the page\'s error in its report', async (t) => {
+  const out = report(t), asked = [];
+  const browsers = playwright({
+    async chromium(page) { page.throw('thrown in the candidate'); willNotClose(page, asked); return clean(); },
+    async webkit() { return clean(); },
+  });
+  const result = await suite({ BROWSER_ENGINES: '', OCR_BASELINE_SITE: '' }, { playwright: browsers, out });
+  assert.equal(result.thrown?.message, 'context: the browser has gone');
+  const [chromium, webkit] = result.reports;
+  assert.equal(chromium.ok, false);
+  assert.ok(chromium.failure.startsWith('Error: context: the browser has gone\n'), chromium.failure);
+  assert.deepEqual([chromium.errors, chromium.ended, chromium.cleanupErrors],
+    [['thrown in the candidate'], [], ['context: the browser has gone']]);
+  assert.deepEqual([chromium.candidate, asked.length], [clean(), 1]);
+  assert.ok(result.printed.includes('chromium: context: the browser has gone'), result.printed.join('\n'));
+  assert.deepEqual([webkit.ok, webkit.cleanupErrors], [true, []], 'the next engine ran');
+});
+
+test('an engine whose page crashed and whose context will not close fails on the close, led by the crash', async (t) => {
+  const out = report(t), asked = [];
+  let crashed = null;
+  const browsers = playwright({
+    async chromium(page) { crashed = page.url(); page.crash(); willNotClose(page, asked); return clean(); },
+    async webkit() { return clean(); },
+  });
+  const result = await suite({ BROWSER_ENGINES: '', OCR_BASELINE_SITE: '' }, { playwright: browsers, out });
+  const [chromium, webkit] = result.reports;
+  assert.deepEqual(chromium.ended.map(({ event, url }) => [event, url]), [['page crashed', crashed]]);
+  const line = `page crashed ${chromium.ended[0].seconds} s after launch (${crashed})`;
+  assert.equal(result.thrown?.message, `${line}\ncontext: the browser has gone`);
+  assert.ok(chromium.failure.startsWith(`${line}\nError: context: the browser has gone\n`), chromium.failure);
+  assert.deepEqual([chromium.ok, chromium.errors, chromium.cleanupErrors, asked], [false, [], ['context: the browser has gone'], [crashed]]);
+  assert.deepEqual([webkit.ok, webkit.cleanupErrors], [true, []], 'the next engine ran');
+});
+
+test('a variant that fails its own last check keeps that failure, and its context, which would not close, is not asked to', async (t) => {
+  const out = report(t), asked = [];
+  const browsers = playwright({
+    async chromium(page) { willNotClose(page, asked); const result = clean(); result.scans[4].firstReading = null; return result; },
+    async webkit() { return clean(); },
+  });
+  const result = await suite({ BROWSER_ENGINES: '', OCR_BASELINE_SITE: '' }, { playwright: browsers, out });
+  assert.ok(result.thrown instanceof assert.AssertionError, String(result.thrown));
+  const [chromium, webkit] = result.reports;
+  assert.ok(chromium.failure.startsWith('AssertionError [ERR_ASSERTION]: a provisional reading precedes the result'), chromium.failure);
+  assert.deepEqual([chromium.ok, chromium.cleanupErrors, asked], [false, [], []]);
+  assert.deepEqual([webkit.ok, webkit.cleanupErrors], [true, []], 'the next engine ran');
+});
+
 test('BROWSER_ENGINES selects the engines, as for the harness\'s suites', async (t) => {
   const out = report(t), browsers = playwright({ chromium: async () => clean(), webkit: async () => clean() });
   const result = await suite({ BROWSER_ENGINES: 'webkit', OCR_BASELINE_SITE: '' }, { playwright: browsers, out });

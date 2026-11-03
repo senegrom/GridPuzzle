@@ -17,8 +17,10 @@ const assert = require("node:assert/strict");
 // page's with the second, and calls on a page as it crashes with the third.
 const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
 
-// How long a suite waits for its browser to close, photo_read's offline-install
-// and stale-build checks for their contexts, and the corpus benchmark runner
+// How long a suite waits for its browser to close and for each context it
+// closes itself (photo_read's offline-install and stale-build checks',
+// browser_smoke's startup-cancellation check's, ocr_latency's variants' and
+// harness_regressions' "carried-on" case's), and the corpus benchmark runner
 // for each close of a run nothing interrupted: on a loaded host
 // Chromium's process took 0.03 to 11.64 s to end in 42 runs (web/TESTING.md),
 // and a browser that is only slow is no failure. It is also how long Playwright
