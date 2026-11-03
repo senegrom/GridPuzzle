@@ -7,13 +7,12 @@
    nothing running. Invoked by the permanent scanner-settings gate. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
 const { execFile, spawn } = require("node:child_process");
 const { items, parseOptions, runDetectionBenchmark } = require("../corpus/detect_benchmark.cjs");
 const { writeReport } = require("../corpus/benchmark-runner.cjs");
-const { running, sleep, watch } = require("./harness.cjs");
+const { running, sleep, temporaryDirectory, watch } = require("./harness.cjs");
 
 // An 8-bit greyscale PNG of `width` x `height` pixels.
 function greyPng(width, height, pixel) {
@@ -113,7 +112,9 @@ async function interruptedCommand(engineName, root, { signal, unclosable = false
 
 module.exports = async function detectionFailure(engineName, png) {
   const engine = require("playwright")[engineName];
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gridpuzzle-real-detection-"));
+  // The harness removes it as scanner_settings' process exits, on a signal
+  // too.
+  const corpus = temporaryDirectory("gridpuzzle-real-detection-"), root = corpus.directory;
   let browser, server, watched;
   try {
     const folder = path.join(root, "sudoku", "decode-failure"); fs.mkdirSync(folder, { recursive: true });
@@ -183,7 +184,7 @@ module.exports = async function detectionFailure(engineName, png) {
     // for its report, and the checks above fail when it is still connected.
     if (browser?.isConnected()) await watched.close(engineName);
     if (server && server.exitCode === null && server.signalCode === null) server.kill();
-    fs.rmSync(root, { recursive: true, force: true });
+    corpus.remove();
   }
 };
 module.exports.dotLattice = dotLattice;

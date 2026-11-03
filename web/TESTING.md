@@ -23,13 +23,15 @@ Automatic classification is treated as a trust boundary: automatically identifie
 
 Most suites in `scripts/` are built on `scripts/harness.cjs`: `serve()` starts
 Python's `http.server` for the built site on a port the system picks (under
-`/GridPuzzle/` through the `_preview` link when a suite needs the Pages path)
-and stops it however the process ends, `engines()` runs the suite in Chromium
-and WebKit on a fresh phone-sized context with the service worker blocked,
-collects the uncaught errors of every page the suite opens, screenshots a
-failing engine and writes one report per engine under `browser-artifacts/`,
-and `baselineSite()` builds the two-root directory the paired suites use to
-compare the scanner with a pinned earlier one.
+`/GridPuzzle/` through the `_preview` link when a suite needs the Pages path),
+`engines()` runs the suite in Chromium and WebKit on a fresh phone-sized
+context with the service worker blocked, collects the uncaught errors of every
+page the suite opens, screenshots a failing engine and writes one report per
+engine under `browser-artifacts/`, `temporaryDirectory()` makes a folder of a
+suite's own under the system temp, and `baselineSite()` builds in one the
+two-root directory the paired suites use to compare the scanner with a pinned
+earlier one. The harness stops its servers and removes those folders as the
+process exits, on a signal too.
 
 A report starts as `{ browser, version, errors, ended, cleanupErrors }`, the
 suite adds what it measures, and `status` says `passed` or `failed`, with the
@@ -166,13 +168,27 @@ no browser up Playwright has no handler, and a SIGHUP, like a Ctrl+Break at any
 time, ended the process at once (on Windows with 0xC000013A), with neither
 clean-up run. Playwright's handlers are still on in every suite's launch and do
 not act now: the harness's listeners come first, as a suite loads the harness,
-and end the process in the same emit. A folder that a suite makes itself and
-the harness does not know of (the one `harness_regressions` serves, the corpus
-`detect_benchmark_regressions` writes, the offline-install check's) stays after
-a signal, since the process ends without the suite's `finally`.
+and end the process in the same emit.
+
+The process then ends without the suite's `finally`, so what a suite would
+remove there is the harness's to remove. A folder a suite makes itself under
+the system temp comes from the harness's `temporaryDirectory(prefix)`, which
+registers it with the clean-up at the process's exit, and the suite's `finally`
+removes it with that folder's `remove()`: the folder `harness_regressions`
+serves, the corpus `detect_benchmark_regressions` writes and the
+offline-install check's, as well as `baselineSite()`'s. The exit stops the
+servers first and then removes the folders, so that a folder a server serves
+goes after it: on Windows, while a file the server was serving is still open,
+the removal tries again five times, each after a wait 100 ms longer than the
+last, before it fails, and on Linux and macOS a folder in use goes all the
+same. A removal that fails in a `finally` leaves the folder to the exit, which
+tries again. A process killed outright (SIGKILL, or `TerminateProcess` on
+Windows) runs no clean-up, and its folders stay. Until November 2026 those
+three folders stayed after a signal.
 `web/tests/harness-close.test.js` raises each of the four in a suite's process,
-with a server up and a temporary directory made, and checks the exit code, the
-server stopped and the directory gone. It also checks each in two suites that
+with a server up that serves a folder the suite made itself, and a temporary
+directory from `baselineSite()`, and checks the exit code, the server stopped
+and each folder then removed once. It also checks each in two suites that
 only load the harness, as `ocr_latency` and `solver_update` do, which call
 neither `serve()` nor `main()`. Each adds a listener for the signal, as a
 launch adds Playwright's, before it calls anything of the harness's. The first
@@ -184,7 +200,24 @@ give a harness that listened a moment late, at a call into it or a tick after
 its load, the time to come first. The test checks the exit code and that the
 launch's listener never hears the signal, and in the first that the directory
 is gone. The second passes only if the harness listens as soon as a suite
-loads it.
+loads it. The test then raises each signal in the three places, on stand-ins
+and each held where its folder is in use, so that the folder is there when
+the signal is heard, on Linux too: `harness_regressions` as it starts its
+server, the offline-install check as its page opens the check's site, and the
+detection check, in a process that loads the harness first as
+`scanner_settings` does, as it starts its server. It checks the exit code,
+that the folder was made in the system temp, which the test sets apart from
+the folder the process runs in, and that it is gone. A suite that ends by
+itself shows that `remove()` takes a folder at once and only once,
+`baselineSite()`'s too, and that the exit takes what is left, retrying as
+above, a folder whose first removal failed too; one that passes with a folder
+that will not go at the exit either exits with 1 and says why on stderr.
+`harness_regressions` without a browser, and the detection check with a
+server that exits at once, fail by themselves, and the test checks that their
+own `finally` removed their folder before the process exits. When the first
+removal of the folder `harness_regressions` serves fails, the suite still ends
+by itself, since its `finally` stops the server first, and the exit takes the
+folder.
 
 Real runs here, on Node 22 with the host at 96 to 100% CPU where it was
 recorded, sent a real Ctrl+Break (`GenerateConsoleCtrlEvent` with
@@ -212,6 +245,48 @@ once its browser has exited, and the process's exit came first. A close while
 a Chromium is starting can leave Playwright's folders too: in 1 of 5 later
 closes here, at 95 to 100% CPU, it came during Chromium's launch, and its
 folders stayed.
+
+The same events, sent on Node 22 with the host at 18 to 100% CPU where it was
+recorded, measured the folders that suites make themselves, 3 times in each
+case before the change and after it. They were sent in `harness_regressions`,
+whose folder is there for the whole run, 0.1 to 0.6 s after its first page had
+loaded; in the detection check inside `scanner_settings`, 1.6 to 2.9 s after
+the check's browser had launched; and in `photo_read`'s offline-install check,
+0.4 to 2.9 s after the check's page had opened, with each `page.evaluate()` a
+second late so that the check, which took 0.6 to 1.2 s from that page to its
+context's close in 4 runs without that delay, was still running. In these 36
+runs the suite heard each Ctrl+Break within 0.01 s of it and each close within
+0.2 s. The Ctrl+Breaks ran with both engines, and 15 of the 18 came in
+Chromium's. Each close during one of the two checks came in WebKit's
+(`BROWSER_ENGINES=webkit`), since Chromium's processes hear a close before the
+suite's (above): in 8 closes in Chromium's engine during the two checks, 4
+before the change and 4 after it, the check failed as its browser went, and its
+own `finally` removed its folder 0.08 to 0.36 s before the suite heard the
+close. Every run ended with 149 or 129, and no process of any run stayed.
+Before the change the suite's folder was there at the event in all 18 runs and
+stayed in 17. In the 18th, a close during the detection check reached the
+corpus command that the check runs in a process of its own before it reached
+the suite: the command ended, the check failed on the report the command had
+not written, and the check's own `finally` removed the corpus. After the change
+the folder was there at the event in 17 of the 18 runs and stayed in none; in
+the 18th, Chromium's suite page had waited out its 20 s limit under load, and
+the Ctrl+Break came in WebKit's suite page, before the offline-install check
+had made its folder. In 18 more runs after the change that timed the exit, at
+27 to 100% CPU, the exit removed the suite's folder in 17, 0 to 13 ms after it
+began; in the 18th the close reached the corpus command first, as above. 26
+more runs, with the events at other points of the same three places and the
+host at 13 to 100% CPU, agreed: before the change all 12 left the folder; after
+it, in 13 of the 14 the folder was there at the event and the exit had removed
+it 1 to 17 ms after it began, and in the 14th the detection check had failed
+by itself, its page past its 180 s limit under load, and removed its corpus
+first. The harness's clean-up is the first listener of a suite's exit, ahead of
+Playwright's, whose `taskkill` took 0.12 to 3.2 s of exits of 0.15 to 3.8 s in
+the 18 timed runs. Windows ends a process on a closing console about five
+seconds after it hears the close, so a slower `taskkill` would be cut short
+there, after the folders had gone. After the change Playwright's folders
+stayed in 3 of the 18 runs that measured the folders and in 1 of those 14, and
+in no other: the empty ones of a WebKit that was starting as a Ctrl+Break
+came, and three times a Chromium's profile.
 
 The "lost" case of `harness_regressions` found this hang, and until October
 2026 it brought the hang on itself: it closed the browser past the harness
