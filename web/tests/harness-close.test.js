@@ -704,7 +704,9 @@ const SMOKE_CHECKS = ['invalid scan box settings rejected before OCR and persist
 // fresh scan reads no clue). CLOSE is how the check's context closes:
 // "rejects", as when its close is the first call to meet a lost browser, or
 // "never", as while a WebKit child still holds the browser's pipes, which with
-// BROWSER_HANGS keeps Chromium from closing too.
+// BROWSER_HANGS keeps Chromium from closing too. A step added to the suite
+// before the check that reads something new needs an answer here: until then
+// the engine fails at that step, and every row below with it.
 const PLAYED = `const fs = require("node:fs");
 const { CHECK_FAILS, CLOSE, BROWSER_HANGS } = process.env;
 const solved = { status: "unique", solutions: [{ cells: [...${JSON.stringify(SMOKE_SOLUTION)}] }] };
@@ -863,7 +865,8 @@ describe('ocr_latency, on a variant\'s context that will not close', { concurren
 // only context anything closes here, as engines() closes the browser, and
 // CLOSE is how it closes, as for browser_smoke above. The stand-in has no
 // browser for the cases after these, so the run stops at the next one, which
-// reports nothing. What a case prints through console.error while its browser
+// reports nothing; a case added before "carried-on" moves it past the third
+// launch, which fails every row below. What a case prints through console.error while its browser
 // is up, which the suite's attempt() keeps to itself, goes to stderr too.
 const HARNESSED = `const fs = require("node:fs"), util = require("node:util");
 const { CLOSE } = process.env;
