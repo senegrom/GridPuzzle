@@ -805,8 +805,8 @@ main(module, async () => {
 
 // A spawn whose server never answers, so that what waits for it waits until
 // SIGNAL, which it raises once that server has started. It says what the
-// server was to serve, and which of the harness's folders the system temp
-// holds by then. The server ends itself after a minute, should nothing else.
+// server was to serve, and which gridpuzzle- folders the system temp holds by
+// then. The server ends itself after a minute, should nothing end it before.
 const HELD = `const children = require("node:child_process"), { spawn } = children, fs = require("node:fs"), os = require("node:os");
 const { SIGNAL } = process.env;
 children.spawn = (command, args, options) => {
@@ -850,8 +850,10 @@ describe('the folders a suite makes itself go however its process ends', { concu
     assert.deepEqual(left(directory), [], 'none stays');
   });
 
-  // Each raises its signal as it starts the server that would serve its
-  // folder, and is held there: the folder is there when the signal comes.
+  // Each raises its signal where its folder is in use, and is held there, so
+  // that the folder is still there when the signal is heard: harness_regressions
+  // and the detection check as they start their servers, the offline-install
+  // check as its page opens the site its server serves.
   for (const [signal, expected] of SIGNALS) {
     test(`${signal} as harness_regressions starts its server ends it with ${expected}, and the folder that server was to serve goes`, async (t) => {
       const directory = temporary(t), preload = path.join(directory, 'held.cjs');
