@@ -103,15 +103,19 @@ can still wait there for ever; on a browser that has gone they end at once.
 The hang below is the exception: with a WebKit child still holding the pipes,
 a closed page's calls end at once, but `context.close()` waits as
 `browser.close()` does. A close that rejects or runs out of time is printed on
-stderr and kept in the report's `cleanupErrors`, the list of strings the corpus
-reports have, as `browser: browser cleanup timed out` or `browser: <its error>`
-(`context: …` for those contexts); the list is empty after closes that worked.
+stderr after the engine's name and kept in the report's `cleanupErrors`, the
+list of strings the corpus reports have, as `browser: browser cleanup timed
+out` or `browser: <its error>` (`context: …` for those contexts); the list is
+empty after closes that worked.
 Such a cleanup failure says that the browser, or one of those contexts, did
 not close when asked. It says nothing against what the suite checked
 before that, but a run that leaves a browser behind has not passed: an engine
 that passed fails, with the cleanup failure in `failure`, and an engine that
 failed keeps its own failure first. Every engine still runs, and its report is
-still written. In `harness_regressions` such a failure reads `<case>: <engine>
+still written. In `harness_regressions`, whose `attempt()` keeps what is
+printed during a case for that case's own checks, the line, the browser
+close's or the "carried-on" case's context's, stays there and does not reach
+stderr; the case then fails, and stderr shows its failure, `<case>: <engine>
 closes`, with the list, such as `browser: browser cleanup timed out`. The
 detection check inside `scanner_settings` closes its browser through the corpus
 runner, whose report must have no `cleanupErrors`.
@@ -332,13 +336,19 @@ close comes inside its engine's `try`, so in the state above the engine never
 reached its `finally`: no browser close and no report for that engine, and the
 run held until the job's limit. Each is now given `CLOSE_LIMIT` through
 `cleanUp()` too, and a close that rejects or runs out of time is a cleanup
-failure as above, printed after the engine's name and in that engine's
-`cleanupErrors`, which fails a check or engine that passed. The
+failure as above: it goes in that engine's `cleanupErrors`, it fails a check or
+engine that passed, and its line after the engine's name goes to stderr in
+`browser_smoke` and `ocr_latency`, and in `harness_regressions` to what
+`attempt()` keeps, as the browser close's line does, while stderr shows the
+case's failure, `carried-on: webkit closes`, with the list. The
 startup-cancellation check keeps its own failure first, which a rejecting close
 used to replace. `ocr_latency` and the "carried-on" case reach their close only
-after a pass, so there such a close ends the engine at once, and `ocr_latency`
-asks that browser for no further variant's context, since `newContext()` has no
-limit. In the state above the browser's own close then fails as well and
+once the variant's or the case's own checks have passed, so there such a close
+ends the engine at once. The engine's checks of its pages' errors and of what
+ended come after that close, so an engine whose pages also threw fails on the
+close, with those errors still in its report. `ocr_latency` asks that browser
+for no further variant's context, since `newContext()` has no limit. In the
+state above the browser's own close then fails as well and
 `exitIfUnclosed()` ends the run after its report is written, so by design such
 a run ends by itself within about 80 seconds of that close starting in
 `browser_smoke` (30 for that close, up to 20 for the failure's screenshot,
@@ -362,10 +372,10 @@ the check, for `ocr_latency` its five reads, and for `harness_regressions` its
 first three cases in WebKit. Each process counts its timers of `CLOSE_LIMIT`'s
 length, which last a tenth of a second there, so that a close given any other
 limit fails. The rows are a close that never settles and one that rejects
-after a pass, and in the startup-cancellation check after its own failure at
-its first step and at its last; one that never settles with a browser that
-will not close either; one in `ocr_latency`'s baseline variant; and one that
-closes.
+after a pass, and in the startup-cancellation check both after its own failure
+at its first step, and one that rejects after its failure at its last; one that
+never settles with a browser that will not close either; one that never settles
+in `ocr_latency`'s baseline variant; and one that closes.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
