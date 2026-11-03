@@ -133,8 +133,9 @@ async function faintClueProbe() {
   return results;
 }
 
-// `time(phase, run)` records each phase's wall time (live_camera's timer).
-module.exports = async function reviewSafety(page, time = (phase, run) => run()) {
+// `time(phase, run)` records each phase's wall time (live_camera's timer), and
+// `report` is the engine's report, for structural capture's second tab.
+module.exports = async function reviewSafety(page, time = (phase, run) => run(), report) {
   const camera=await time("changed content",async()=>{
   const camera=await page.evaluate(cameraContentProbe);
   for(const comparison of camera.comparisons)assert.equal(comparison.contentSame,false,`changed ${comparison.value} must invalidate content`);
@@ -168,6 +169,6 @@ module.exports = async function reviewSafety(page, time = (phase, run) => run())
   return faint;
   });
   const structuralCapture = await time("structural capture",()=>
-    require("./structural_capture_regressions.cjs")(page,(phase,run)=>time(`structural capture / ${phase}`,run)));
+    require("./structural_capture_regressions.cjs")(page,(phase,run)=>time(`structural capture / ${phase}`,run),report));
   return {camera,storage,faint,structuralCapture};
 };
