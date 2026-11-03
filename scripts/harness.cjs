@@ -1,7 +1,7 @@
 /* What every browser suite otherwise repeats: a server for the built site,
    the two mobile engines, one report per engine, a screenshot on failure, a
-   close that cannot wait for ever, temporary directories that go however the
-   run ends, and the exit code. */
+   close that cannot wait for ever, temporary directories that go as the
+   process exits, on a signal too, and the exit code. */
 const assert = require("node:assert/strict");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -41,17 +41,20 @@ const SMALL_PHONE = Object.freeze({ ...PHONE, viewport: { width: 390, height: 84
 // A directory link that needs no privilege on Windows.
 const link = (target, at) => fs.symlinkSync(path.resolve(target), at, process.platform === "win32" ? "junction" : "dir");
 
-/* What to clean up however the process ends. On Linux and macOS a child
-   outlives a Node process that crashes, so a static server would keep its
-   port and the directory it serves (on Windows, libuv's job object already
-   ends it with Node); and a suite that ends mid-run, on a signal or a failure
-   outside its try, must not leave its temporary directories
-   (temporaryDirectory(), below) in the system temp. The exit event runs only
-   synchronous code: kill() signals at once, and the directories go after the
-   servers that may serve them. A server can still be ending as its directory
-   goes: on Windows a file it was serving stays open until it has ended, which
-   the removal's retries wait for; on Linux and macOS a directory in use goes
-   all the same, and the server only reads from it. */
+/* What to clean up as the process exits, at its end or on a signal. On Linux
+   and macOS a child outlives a Node process that crashes, so a static server
+   would keep its port and the directory it serves (on Windows, libuv's job
+   object already ends it with Node); and a suite that ends mid-run, on a
+   signal or a failure outside its try, must not leave its temporary
+   directories (temporaryDirectory(), below) in the system temp. The exit
+   event runs only synchronous code: kill() signals at once, and the
+   directories go after the servers that may serve them. A server can still
+   be ending as its directory goes: on Windows a file it was serving stays
+   open until it has ended, and the removal tries again five times, each
+   after a wait 100 ms longer than the last, before it throws; on Linux and
+   macOS a directory in use goes all the same, and the server only reads from
+   it. A process killed outright (SIGKILL, or TerminateProcess on Windows)
+   runs none of this. */
 const servers = new Set(), temporary = new Set();
 const removeTemporary = () => { for (const d of temporary) { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5 }); temporary.delete(d); } };
 process.once("exit", () => {
@@ -126,8 +129,8 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
 }
 
 /* A folder of a suite's own under the system temp, its name starting with
-   `prefix`: { directory, remove }. The harness removes it however the process
-   ends, a signal included, after it has stopped its servers (above), so that
+   `prefix`: { directory, remove }. The harness removes it as the process
+   exits, on a signal too, after it has stopped its servers (above), so that
    a suite can serve it. remove(), for the suite's own finally, removes it
    there and forgets it; a removal that fails leaves it to the process's exit,
    which tries again. */

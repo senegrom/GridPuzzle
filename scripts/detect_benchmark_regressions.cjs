@@ -112,8 +112,8 @@ async function interruptedCommand(engineName, root, { signal, unclosable = false
 
 module.exports = async function detectionFailure(engineName, png) {
   const engine = require("playwright")[engineName];
-  // The harness removes it however scanner_settings' process ends, a signal
-  // included.
+  // The harness removes it as scanner_settings' process exits, on a signal
+  // too.
   const corpus = temporaryDirectory("gridpuzzle-real-detection-"), root = corpus.directory;
   let browser, server, watched;
   try {

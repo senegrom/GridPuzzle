@@ -124,7 +124,7 @@ async function run() {
   // Before anything is up: a server started first would hold the run for ever
   // after an engine this cannot name.
   const selected = selectedEngines();
-  // The harness removes it however the run ends, a signal included.
+  // The harness removes it as the process exits, on a signal too.
   const site = temporaryDirectory("gridpuzzle-harness-"), { directory } = site;
   fs.writeFileSync(path.join(directory, "index.html"), "<!doctype html><title>Harness</title><p>A page to end.");
   const server = await serve({ directory });

@@ -129,7 +129,7 @@ async function offlineInstall(browser, report) {
     // check has none of its own. The stop comes before the removal, as a folder
     // that will not go must not leave the server up either; the harness tries
     // again as the process exits, and removes the folder then too should a
-    // signal end the process before this finally.
+    // signal end the process before this finally or during it.
     const unclosed=await cleanUp('context',()=>context.close(),CLOSE_LIMIT);
     if(unclosed){report.cleanupErrors.push(unclosed);console.error(`${report.browser}: ${unclosed}`);}
     await server?.close();install.remove();
