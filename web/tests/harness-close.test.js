@@ -970,12 +970,12 @@ describe('harness_regressions, on the context its "carried-on" case closes in We
 // there). The probe's last step, the tab's deletion of the picture after its
 // last check, says so on stdout. CASE_FAILS fails Chromium's probe at its first
 // step ("first": the tab finds no site) or at that last step ("last"). CLOSE is
-// how Chromium's tab closes: "rejects", as a close that fails for any reason
-// but a closed target would (on a lost browser Playwright's page.close()
-// returns instead, web/TESTING.md), or "never", as while a WebKit child still
-// holds the browser's pipes, which with BROWSER_HANGS keeps Chromium from
-// closing too. WebKit's tab closes, and each launch keeps the process alive
-// until its browser closes, as a live browser's pipes do.
+// how Chromium's tab closes: "rejects", as a close can for a reason other than
+// a closed target (on a lost browser Playwright's page.close() returns
+// instead, web/TESTING.md), or "never", as while a WebKit child still holds
+// the browser's pipes, which with BROWSER_HANGS keeps Chromium from closing
+// too. WebKit's tab closes, and each launch keeps the process alive until its
+// browser closes, as a live browser's pipes do.
 const PROBED = `const fs = require("node:fs");
 const { CASE_FAILS, CLOSE, BROWSER_HANGS } = process.env;
 const NAMED = { cameraContentProbe: { comparisons: [], controls: [true, true], polarity: [], outcomes: [] },
