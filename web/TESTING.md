@@ -480,31 +480,39 @@ a rejecting close used to replace. The probe has no report of its own, so
 `live_camera` hands its engine's report to `review_safety`, which hands it to
 `structural_capture`. Where the failure then goes straight to the harness, the
 browser's own close fails as well in the state above and `exitIfUnclosed()`
-ends the run after its report is written, so by design within about 80 seconds
-of the tab's close starting (30 for that close, up to 20 for the failure's
-screenshot and 30 for the browser's close). In `live_camera` it does not go
-straight there: the suite's own `catch` reads the page for its report after any
-failure, and in that state the first of its three `page.evaluate()` calls,
-which have no limit, waits for ever, so such a run is still held there, though
-stderr now says why 30 seconds after the tab's close started. WebKit on Windows
-has no `navigator.mediaDevices`, so there `live_camera` fails at its first
-step, long before the probe, and what follows was measured with `live_camera`'s
-own engine code around the probe alone, its camera steps left out, and WebKit's
-main process killed as the tab's close started and its children kept alive, on
-a host at 66 to 100% CPU in samples taken during the runs. Without the limit
-the run was still waiting when it was stopped, 150 s after that close started,
-with no report. With it, `webkit: page: page cleanup timed out` came on stderr
-30 s after that close started; `live_camera`'s `catch` then waited 20 s for
+ends the run after its report is written: by design it calls `process.exit()`
+within about 80 seconds of the tab's close starting (30 for that close, up to
+20 for the failure's screenshot and 30 for the browser's close), and
+Playwright's handler for that exit then runs, which on Windows waits for a
+`taskkill` of the browser's processes. In `live_camera` it does not go straight
+there: the suite's own `catch` reads the page for its report after any failure,
+and in that state the first of its three `page.evaluate()` calls, which have no
+limit, waits for ever, so such a run is still held there, though stderr now
+says why 30 seconds after the tab's close started. WebKit on Windows has no
+`navigator.mediaDevices`, so there `live_camera` fails at its first step, long
+before the probe, and what follows was measured with `live_camera`'s own engine
+code around the probe alone, its camera steps left out, and WebKit's main
+process killed as the tab's close started and its children kept alive, on a
+host at 66 to 100% CPU in samples taken during the runs, with times on the
+process's own clock from that close's start. Without the limit the run was
+still waiting when it was stopped, over 148 s after that close started, with no
+report. With it, `webkit: page: page cleanup timed out` came on stderr 30.0 s
+after that close started; `live_camera`'s `catch` then waited 20 s for
 `page.textContent()`, the page's default timeout, and was still waiting in
-`page.evaluate()` when it was stopped, 240 s after that close started, with no
-report. With that `catch` left out, the run ended by itself 81.6 s after that
-close started, with exit code 1 and its report written with `page: page cleanup
-timed out` and then `browser: browser cleanup timed out`. In Chromium that
-state makes the close reject at once, so there the tab's close was made never
-to settle, in `live_camera` as it is, at 62 to 100% CPU: the run ended by
-itself 31.0 s after that close started, with exit code 1 and its report written
-with `page: page cleanup timed out`, where without the limit it was still
-waiting when it was stopped, 150 s after that close started, with no report.
+`page.evaluate()` when it was stopped, over 239 s after that close started,
+with no report. With that `catch` left out, the run ended by itself, its
+process's `exit` event coming 80.1 s after that close started, with exit code 1
+and its report written with `page: page cleanup timed out` and then `browser:
+browser cleanup timed out`. In Chromium that state ends the tab's close without
+an error, since Playwright's `page.close()` returns when it finds its target
+closed: in one run on master and one here, at 19 to 93% CPU, the probe passed
+and the engine failed only on the disconnection that `watch()` records, with
+nothing in `cleanupErrors`. So there the tab's close was made never to settle
+instead, in `live_camera` as it is, at 62 to 100% CPU: the run ended by itself,
+its `exit` event 30.8 s after that close started, with exit code 1 and its
+report written with `page: page cleanup timed out`, where without the limit it
+was still waiting when it was stopped, over 147 s after that close started,
+with no report.
 `web/tests/harness-close.test.js` runs `review_safety` and `structural_capture`
 as they are, in a process of its own, inside the harness's `engines()` and
 `main()`, on a stand-in for Playwright whose pages answer every probe as when
@@ -512,13 +520,14 @@ it passes and whose browsers keep that process alive until they close.
 `live_camera` has far too much before them for a stand-in to play, so a runner
 calls `review_safety` as `live_camera` does, with the engine's report, and a
 test reads that call in `live_camera`'s source; the runner has no `catch` of
-`live_camera`'s, whose reads the stand-in would answer at once. The rows are a
-tab whose close never settles and one whose close rejects, after the probe
-passed and after its own failure at its first step and at its last, which then
-stays first; one that never settles with a browser that will not close either;
-and one that closes. Each counts the timers of `CLOSE_LIMIT`'s length as above
-and checks both engines' reports, the line on stderr and that each tab closed
-once, after the probe's last step when it got that far.
+`live_camera`'s, whose reads of the page the stand-in does not play. The rows
+are a tab whose close never settles and one whose close rejects, as one can for
+a reason other than a lost browser, after the probe passed and after its own
+failure at its first step and at its last, which then stays first; one that
+never settles with a browser that will not close either; and one that closes.
+Each counts the timers of `CLOSE_LIMIT`'s length as above and checks both
+engines' reports, the line on stderr and that each tab closed once, after the
+probe's last step when it got that far.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

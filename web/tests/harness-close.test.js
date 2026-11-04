@@ -970,11 +970,12 @@ describe('harness_regressions, on the context its "carried-on" case closes in We
 // there). The probe's last step, the tab's deletion of the picture after its
 // last check, says so on stdout. CASE_FAILS fails Chromium's probe at its first
 // step ("first": the tab finds no site) or at that last step ("last"). CLOSE is
-// how Chromium's tab closes: "rejects", as when its close is the first call to
-// meet a lost browser, or "never", as while a WebKit child still holds the
-// browser's pipes, which with BROWSER_HANGS keeps Chromium from closing too.
-// WebKit's tab closes, and each launch keeps the process alive until its
-// browser closes, as a live browser's pipes do.
+// how Chromium's tab closes: "rejects", as a close that fails for any reason
+// but a closed target would (on a lost browser Playwright's page.close()
+// returns instead, web/TESTING.md), or "never", as while a WebKit child still
+// holds the browser's pipes, which with BROWSER_HANGS keeps Chromium from
+// closing too. WebKit's tab closes, and each launch keeps the process alive
+// until its browser closes, as a live browser's pipes do.
 const PROBED = `const fs = require("node:fs");
 const { CASE_FAILS, CLOSE, BROWSER_HANGS } = process.env;
 const NAMED = { cameraContentProbe: { comparisons: [], controls: [true, true], polarity: [], outcomes: [] },
@@ -1013,7 +1014,7 @@ const engine = (name) => ({ async launch() {
           close: async () => {
             console.log(name + "'s " + (tab ? "second tab" : "page") + " closes");
             if (!tab || name !== "chromium") return;
-            if (CLOSE === "rejects") throw new Error("the browser has gone");
+            if (CLOSE === "rejects") throw new Error("the tab would not close");
             if (CLOSE === "never") return new Promise(() => {});
           } };
       } };
@@ -1028,9 +1029,9 @@ module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
 // review_safety called with the engine's report, as live_camera calls it (the
 // last test below reads that call in live_camera's source). It has no catch of
 // live_camera's, which reads the page for its report after a failure: the
-// stand-in's pages would answer those reads at once, where in the WebKit hang
-// they wait (web/TESTING.md). It names the tree's modules by paths it builds,
-// so that tests/test_workflows.py does not take them for modules of this file.
+// stand-in's pages do not play those reads, which in the WebKit hang wait
+// (web/TESTING.md). It names the tree's modules by paths it builds, so that
+// tests/test_workflows.py does not take them for modules of this file.
 const LIVE_CAMERA = `const inTree = (name) => require("node:path").join(__dirname, name);
 const { engines, main } = require(inTree("scripts/harness.cjs"));
 main(module, () => engines("live-camera.json", async (page, report) => {
@@ -1056,7 +1057,7 @@ async function probed(t, env) {
   return { ...ended, ...counted(ended.stdout), read: (name) => JSON.parse(fs.readFileSync(inTree(name), 'utf8')) };
 }
 
-const TAB_TIMED_OUT = 'page: page cleanup timed out', TAB_GONE = 'page: the browser has gone';
+const TAB_TIMED_OUT = 'page: page cleanup timed out', TAB_REFUSED = 'page: the tab would not close';
 
 // The tab's close comes in the storage probe's finally, after the probe's last
 // step or its failure. The count: one for each browser's close and one for
@@ -1067,15 +1068,15 @@ describe('structural_capture, on the second tab its storage probe closes', { con
   for (const [what, env, failure, cleanupErrors, said = steps] of [
     ['its tab closes', {}, null, []],
     ['its tab never closes', { CLOSE: 'never' }, `Error: ${TAB_TIMED_OUT}`, [TAB_TIMED_OUT]],
-    ['its tab will not close', { CLOSE: 'rejects' }, `Error: ${TAB_GONE}`, [TAB_GONE]],
+    ['its tab will not close', { CLOSE: 'rejects' }, `Error: ${TAB_REFUSED}`, [TAB_REFUSED]],
     ['the probe fails at its first step and its tab never closes', { CASE_FAILS: 'first', CLOSE: 'never' },
       'Error: the second tab found no site', [TAB_TIMED_OUT], steps.slice(1)],
     ['the probe fails at its first step and its tab will not close either', { CASE_FAILS: 'first', CLOSE: 'rejects' },
-      'Error: the second tab found no site', [TAB_GONE], steps.slice(1)],
+      'Error: the second tab found no site', [TAB_REFUSED], steps.slice(1)],
     ['the probe fails at its last step and its tab never closes', { CASE_FAILS: 'last', CLOSE: 'never' },
       'Error: the probe\'s last step failed', [TAB_TIMED_OUT]],
     ['the probe fails at its last step and its tab will not close either', { CASE_FAILS: 'last', CLOSE: 'rejects' },
-      'Error: the probe\'s last step failed', [TAB_GONE]],
+      'Error: the probe\'s last step failed', [TAB_REFUSED]],
     // As in the WebKit hang: the run ends through exitIfUnclosed().
     ['neither its tab nor its browser closes', { CLOSE: 'never', BROWSER_HANGS: '1' }, `Error: ${TAB_TIMED_OUT}`,
       [TAB_TIMED_OUT, 'browser: browser cleanup timed out']],
