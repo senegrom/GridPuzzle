@@ -10,8 +10,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // exitIfUnclosed() ends its process after a browser that would not close:
 // when the suite's file is the program's entry point, also when a preload
 // loads the harness or watch.cjs before it, and never when another module
-// requires the suite. Stand-in suites run in processes of their own; loading
-// the harness needs neither Playwright nor Python.
+// requires or imports the suite; and that no script decides by its own
+// require.main whether another module is the entry point. Stand-in suites
+// run in processes of their own; loading the harness needs neither
+// Playwright nor Python.
 const inScripts = (name) => fileURLToPath(new URL(`../../scripts/${name}`, import.meta.url));
 const harness = inScripts('harness.cjs'), watchModule = inScripts('watch.cjs');
 const read = (file) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
@@ -22,11 +24,11 @@ function temporary(t) {
   return directory;
 }
 
-/* The ways a process starts its entry point with `loaded`, the harness or
-   watch.cjs, loaded before it: what Node takes before the script, and the
-   environment. preload.cjs, in the process's directory, requires `loaded`,
-   and preload.mjs loads it through createRequire. The first is how the
-   suites are run. */
+/* How a process starts its entry point: as the suites are started, and in
+   six ways with `loaded`, the harness or watch.cjs, loaded before it. Each
+   gives what Node takes before the script, and the environment; preload.cjs,
+   in the process's directory, requires `loaded`, and preload.mjs loads it
+   through createRequire. */
 const STARTS = [
   ['as it is', () => ({})],
   ['with it loaded first by -r', (loaded) => ({ args: ['-r', loaded] })],
@@ -73,7 +75,7 @@ main(module, async () => {
 // What listens for the process's exit says that it ran, and with which code.
 const AT_EXIT = 'process.on("exit", (code) => console.log("exit handlers ran with", code));\n';
 
-test('a suite runs, and keeps its exit code, whenever it is the entry point, whatever loaded the harness first', async (t) => {
+test('a suite runs, and keeps its exit code, whenever it is the entry point, however the harness was loaded', async (t) => {
   for (const [end, expected] of [['passes', 0], ['code', 5], ['throws', 1]])
     for (const { how, code, killed, lines, stderr } of await started(t, harness, { 'suite.cjs': SUITE }, { END: end }))
       await t.test(`it ${end === 'code' ? 'sets its own exit code' : end}, started ${how}`, () => {
@@ -96,7 +98,7 @@ ${AT_EXIT}main(module, async () => {
 });
 `;
 
-test('main() ends the process of a suite whose browser would not close, with its exit code or else 1, whatever loaded the harness first', async (t) => {
+test('main() ends the process of a suite whose browser would not close, with its exit code or else 1, however the harness was loaded', async (t) => {
   for (const [own, expected] of [['', 1], ['7', 7]])
     for (const { how, code, killed, lines, stderr } of await started(t, harness, { 'suite.cjs': UNCLOSED }, { CODE: own }))
       await t.test(`${own ? 'a failed suite' : 'a suite that made nothing of it'}, started ${how}`, () => {
@@ -114,7 +116,7 @@ ${AT_EXIT}const pipes = setInterval(() => {}, 1000);
   .finally(() => { exitIfUnclosed(module); console.log("not ended"); clearInterval(pipes); });
 `;
 
-test('exitIfUnclosed() ends the process of a suite that calls it itself after a browser that would not close, whatever loaded watch.cjs first', async (t) => {
+test('exitIfUnclosed() ends the process of a suite that calls it itself after a browser that would not close, however watch.cjs was loaded', async (t) => {
   for (const [own, expected] of [['', 1], ['7', 7]])
     for (const { how, code, killed, lines, stderr } of await started(t, watchModule, { 'suite.cjs': OWN_END }, { CODE: own }))
       await t.test(`${own ? 'a failed suite' : 'a suite that made nothing of it'}, started ${how}`, () => {
@@ -139,7 +141,7 @@ const REQUIRED = `const { exitIfUnclosed, markUnclosed } = require(${JSON.string
 module.exports = { ended: (async () => { console.log("own.cjs ran"); markUnclosed(); })().finally(() => exitIfUnclosed(module)) };
 `;
 
-test('a suite another module requires does not run, and its own exitIfUnclosed() does not end the process, whatever loaded the harness first', async (t) => {
+test('a suite another module requires does not run, and its own exitIfUnclosed() does not end the process, however the harness was loaded', async (t) => {
   for (const { how, code, killed, lines, stderr } of await started(t, harness, { 'runner.cjs': RUNNER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED }))
     await t.test(`the runner started ${how}`, () => {
       assert.equal(killed, false, 'it ended by itself');
@@ -172,6 +174,7 @@ test('no script decides by its own require.main whether another module is the en
         checks.push(`${directory}/${file}: ${check.replace(/\s+/g, ' ')}`);
   // A module that compares its own require.main with its own module asks
   // whether it is the entry point itself, which a preload does not change.
-  assert.deepEqual(checks.filter((check) => !check.endsWith(': require.main === module')), []);
+  const own = /: (?:require\.main [!=]==? module|module [!=]==? require\.main)$/;
+  assert.deepEqual(checks.filter((check) => !own.test(check)), []);
   assert.ok(checks.length >= 4, checks.join('\n'));
 });

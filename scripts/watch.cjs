@@ -75,12 +75,13 @@ function markUnclosed() { unclosed = true; }
    Node sets process.mainModule to a CommonJS entry point's module before it
    runs it, whichever of its loaders loads it, and this reads it at the call,
    as the harness's main() does. A module's own require.main is a copy of it
-   made as that module loads, so this module's and the harness's are
-   undefined when a preload loads them before the entry point (node -r,
-   NODE_OPTIONS=--require or an --import): until November 2026, when both
-   read their own, a suite run so never ran, its process exiting with 0, and
-   this ended no process. module_.id is "." only when Node's CommonJS loader
-   loads the entry point, not when an --import has its ESM loader do so.
+   made as that module loads, and so undefined in this module and in the
+   harness when a preload loads them before the entry point (node -r,
+   NODE_OPTIONS=--require or an --import). Until November 2026 both asked
+   their own: main() then never ran a suite started so, whose process exited
+   with 0, and this never ended such a process. module_.id is "." only when
+   Node's CommonJS loader loads the entry point, not when an --import has its
+   ESM loader do so.
    Node's documentation deprecates process.mainModule, with no warning, in
    favour of require.main, since ES modules share `process` and cannot use
    it; this file is CommonJS. */
