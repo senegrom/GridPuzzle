@@ -83,7 +83,7 @@ function markUnclosed() { unclosed = true; }
    Node's CommonJS loader loads the entry point, not when an --import has its
    ESM loader do so. Node's documentation deprecates process.mainModule, with
    no warning, in favour of require.main, since ES modules share `process`
-   and cannot use it; this file is CommonJS. */
+   and Node does not support its use there; this file is CommonJS. */
 function exitIfUnclosed(module_) {
   if (unclosed && process.mainModule === module_) process.exit(process.exitCode || 1);
 }

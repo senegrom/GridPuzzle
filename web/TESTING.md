@@ -153,18 +153,25 @@ in a process of its own, `web/tests/harness-close.test.js` the close and the
 process's end with stand-ins, `solver_update`'s and `browser_smoke`'s too.
 `main()` runs a suite, and `exitIfUnclosed()` ends its process, only when the
 suite's file is the program's entry point, which both read from Node as they
-are called (`process.mainModule`), so that a suite whose harness, or
-`watch.cjs`, a preload loads before it (`node -r`, `NODE_OPTIONS=--require` or
-an `--import`) runs and ends as it does without one. Until November 2026 both
-asked their own `require.main`, which Node copies from `process.mainModule` as
-a module loads, and which is undefined in a module loaded before the entry
-point: a suite started so through `main()` never ran, its process exiting
-with 0, and the process of one that calls `exitIfUnclosed()` itself, as
-`browser_smoke`, `solver_update`, `ocr_latency` and the corpus benchmark
-commands do, was not ended after a browser that would not close, which can
-hold it for ever. A module's `id` would not do: it is `.` for the entry point
-only when Node's CommonJS loader loads it, not when an `--import` has the ESM
-loader do so.
+are called (`process.mainModule`), so that with the harness, or `watch.cjs`,
+loaded before the suite by a preload (`node -r`, `NODE_OPTIONS=--require` or an
+`--import`) they still run the suite, and end its process, as they would
+without one. A preload of the harness given through `NODE_OPTIONS`, with
+`--require` or `--import`, also loads it into the Node processes the run
+starts, which inherit the environment, and there its signal listeners come
+first: the real corpus command of `scanner_settings`' detection check is then
+ended at once on its signal, before its own listeners can save its report, and
+that check fails. Such a run is not the run without the preload. A preload of
+`watch.cjs` alone, which takes no signals, changes nothing there.
+Until November 2026 both asked their own `require.main`, which Node copies
+from `process.mainModule` as a module loads, and which is undefined in a
+module loaded before the entry point: a suite started so through `main()`
+never ran, its process exiting with 0, and the process of one that calls
+`exitIfUnclosed()` itself, as `browser_smoke`, `solver_update`, `ocr_latency`
+and the corpus benchmark commands do, was not ended after a browser that would
+not close, which can hold it for ever. A module's `id` would not do: it is `.`
+for the entry point only when Node's CommonJS loader loads it, not when an
+`--import` has the ESM loader do so.
 `web/tests/harness-main.test.js` checks this with stand-in suites, started as
 they are and with the harness or `watch.cjs` loaded first in six ways, and
 required or imported by a runner.
