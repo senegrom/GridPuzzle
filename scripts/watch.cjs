@@ -69,11 +69,23 @@ function markUnclosed() { unclosed = true; }
    clean-up and Playwright's, which kills every browser it launched and has
    not seen end. On Windows that does not reach a child whose main process has
    gone, which stays behind until it ends by itself or someone ends it. This
-   does nothing when something else runs the suite (a runner that requires it
-   or calls its run() or a command's main()), since the process is then that
-   runner's to end. */
+   does nothing unless `module_` is the program's entry point: when something
+   else runs the suite (a runner that requires it or calls its run() or a
+   command's main()), the process is that runner's to end.
+   Node sets process.mainModule to a CommonJS entry point's module before it
+   runs it, whichever of its loaders loads it, and this reads it at the call,
+   as the harness's main() does. A module's own require.main is a copy of it
+   made as that module loads, so this module's and the harness's are
+   undefined when a preload loads them before the entry point (node -r,
+   NODE_OPTIONS=--require or an --import): until November 2026, when both
+   read their own, a suite run so never ran, its process exiting with 0, and
+   this ended no process. module_.id is "." only when Node's CommonJS loader
+   loads the entry point, not when an --import has its ESM loader do so.
+   Node's documentation deprecates process.mainModule, with no warning, in
+   favour of require.main, since ES modules share `process` and cannot use
+   it; this file is CommonJS. */
 function exitIfUnclosed(module_) {
-  if (unclosed && require.main === module_) process.exit(process.exitCode || 1);
+  if (unclosed && process.mainModule === module_) process.exit(process.exitCode || 1);
 }
 
 /* Watches `browser`, the contexts it has and opens and their pages for what

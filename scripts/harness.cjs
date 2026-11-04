@@ -232,12 +232,16 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
   return reports;
 }
 
-/* A suite's entry point: run it when the file is the main module, print the
-   failure and set the exit code. The process then ends by itself, once what
-   the suite started has stopped, unless a browser would not close:
-   exitIfUnclosed() ends it then. */
+/* A suite's entry point: run it when its file, `module_`, is the program's
+   entry point, print the failure and set the exit code. The process then
+   ends by itself, once what the suite started has stopped, unless a browser
+   would not close: exitIfUnclosed() ends it then. Both read which module is
+   the entry point as they are called (process.mainModule: see watch.cjs), so
+   a suite whose harness a preload loads first (node -r,
+   NODE_OPTIONS=--require or an --import) runs as it does without one, and a
+   suite that another module requires does not run. */
 function main(module_, run) {
-  if (require.main === module_)
+  if (process.mainModule === module_)
     run().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => exitIfUnclosed(module_));
 }
 
