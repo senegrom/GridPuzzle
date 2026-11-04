@@ -148,6 +148,22 @@ test('a suite another module requires does not run, and its own exitIfUnclosed()
     });
 });
 
+// The same two imported by an ES module, which is the entry point then: no
+// CommonJS module is, and neither runs nor ends the process, as before.
+const IMPORTER = `import "./suite.cjs";
+const { default: own } = await import("./own.cjs");
+await own.ended;
+console.log("the importer goes on");
+`;
+
+test('a suite an ES module imports does not run either, and its own exitIfUnclosed() does not end the process', async (t) => {
+  for (const { how, code, killed, lines, stderr } of await started(t, harness, { 'importer.mjs': IMPORTER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED }))
+    await t.test(`the importer started ${how}`, () => {
+      assert.equal(killed, false, 'it ended by itself');
+      assert.deepEqual([lines, code], [['own.cjs ran', 'the importer goes on'], 0], stderr);
+    });
+});
+
 test('no script decides by its own require.main whether another module is the entry point', () => {
   const checks = [];
   for (const directory of ['scripts', 'corpus', 'web/tests'])
