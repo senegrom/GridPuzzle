@@ -170,10 +170,11 @@ function phaseTimer(report,name) {
   };
 }
 // What the page shows after a failure, for the engine's report, each read
-// with its fallback for when it fails. They share READ_LIMIT (watch.cjs), the
-// page's default timeout, so that a page that will not answer, as in the
-// WebKit hang (web/TESTING.md), cannot hold the run here: a read still
-// waiting then keeps its fallback, and `readsCutShort` names it.
+// with its fallback for when it fails. They share READ_LIMIT (watch.cjs), a
+// tenth of a second under the page's default timeout, so that a page that
+// will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
+// run here: a read still waiting then keeps its fallback, and
+// `readsCutShort` names it.
 async function readAfterFailure(page,report) {
   const {values,cutShort}=await readWithin({
     storageStatus:[()=>page.textContent("#capture-storage-status"),""],

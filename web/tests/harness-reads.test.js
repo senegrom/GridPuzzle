@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 // A suite's reads of its page after a failure, for its report, which share
 // watch.cjs's READ_LIMIT through readWithin(): the helper on its own,
@@ -18,11 +19,21 @@ const { readAfterFailure } = require('../../scripts/live_camera_regressions.cjs'
 const tick = () => new Promise(setImmediate);
 const timers = () => process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length;
 const never = () => new Promise(() => {});
+// The page's default timeout, which engines() in harness.cjs gives each call
+// on the suite's page that waits for something.
+const PAGE_TIMEOUT = Number(/async function engines\([^)]*?\btimeout = (\d+)/
+  .exec(fs.readFileSync(new URL('../../scripts/harness.cjs', import.meta.url), 'utf8'))[1]);
 
-test('the reads share the page\'s default timeout, the 20 s that engines() gives each call on the page', () => {
-  assert.equal(READ_LIMIT, 20000);
-  const harness = fs.readFileSync(new URL('../../scripts/harness.cjs', import.meta.url), 'utf8');
-  assert.match(harness, new RegExp(`\\btimeout = ${READ_LIMIT}\\b`), 'engines()\'s default timeout for the page');
+// How a process ends that runs `args`, with what Node takes before them: its
+// exit code, whether the bound had to end it, and what it printed. These runs
+// take a second or so; the bound allows for a host short of memory.
+const finish = (args, options) => new Promise((resolve) => execFile(process.execPath, args, { timeout: 45000, ...options },
+  (error, stdout, stderr) => resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stdout, stderr })));
+
+test('the reads share a limit a tenth of a second under the page\'s default timeout, the 20 s that engines() gives each call on the page', () => {
+  assert.equal(PAGE_TIMEOUT, 20000, 'engines()\'s default timeout for the page');
+  assert.equal(READ_LIMIT, 19900);
+  assert.equal(PAGE_TIMEOUT - READ_LIMIT, 100);
 });
 
 test('reads that answer give exactly what they resolved to, in the order asked, and leave no timer behind', async () => {
@@ -82,14 +93,65 @@ test('a read that waits holds up no other: one answer just before the limit coun
   assert.deepEqual(result, expected, 'what the reads did after the limit changes nothing');
 });
 
-// As page.textContent() has the page's default timeout, which is as long: on a
-// page that never answers, such a read is cut short as the wait ends, not
-// failed by its own timeout a moment before, so that every read still waiting
-// then is named.
-test('a read with a timeout of its own as long as the limit, started with the read, is still waiting when the wait ends', async () => {
+// The limit's timer is set before any read is asked, so that the wait counts
+// from before the first of them: a read that sets a timer as long as the
+// limit as it is asked runs out of time after the wait has ended. Playwright
+// sets a read's own timeout later, when the read reaches it (the next test).
+test('the limit starts before any read is asked: a read that sets a timer as long as the limit as it is asked is still waiting when the wait ends', async () => {
   const timesOut = () => new Promise((resolve, reject) => setTimeout(reject, 50, new Error('Timeout 50ms exceeded.')));
   assert.deepEqual(await readWithin({ text: [timesOut, ''], other: [timesOut, ''] }, 50),
     { values: { text: '', other: '' }, cutShort: ['text: no answer within 0.05 s', 'other: no answer within 0.05 s'] });
+});
+
+// A read that never answers, timed out as Playwright 1.64 times out a read it
+// gives a timeout, as page.textContent() has the page's default
+// (ProgressController.run() in playwright-core): the call reaches
+// Playwright's server one setImmediate() after it is made, which computes the
+// deadline and sets a timer for the time left to it, a few microseconds short
+// of the timeout, which Node's timers round down to a whole millisecond; the
+// failure reaches the caller one setImmediate() later. `failed` resolves once
+// it has.
+function playwrightRead(timeout) {
+  let arrived;
+  const failed = new Promise((resolve) => { arrived = resolve; });
+  const read = () => new Promise((resolve, reject) => setImmediate(() => {
+    const deadline = performance.now() + timeout;
+    setTimeout(() => setImmediate(() => { reject(new Error(`Timeout ${timeout}ms exceeded.`)); arrived(); }), deadline - performance.now());
+  }));
+  return { read, failed };
+}
+
+test('a read with the page\'s default timeout, timed out as Playwright times it out, is still waiting when READ_LIMIT ends, and is cut short', async () => {
+  // The limit and that timeout are shortened by the same time, so that the
+  // limit ends as long before the read's own timeout as in a real run, and
+  // the event loop is kept turning, so that each timer runs in the first turn
+  // after it is due, as on a host whose loop wakes to the millisecond. With a
+  // limit as long as the page's default, the read's own timer would then run
+  // a millisecond before the limit's, and its failure arrive first, whenever
+  // the read reached Playwright in the millisecond the limit started in, as it
+  // mostly does: so five reads, one after another.
+  const shorter = PAGE_TIMEOUT - 200, limit = READ_LIMIT - shorter;
+  let turning = true;
+  const turn = () => { if (turning) setImmediate(turn); };
+  turn();
+  try {
+    for (let n = 1; n <= 5; n++) {
+      const { read, failed } = playwrightRead(PAGE_TIMEOUT - shorter);
+      assert.deepEqual(await readWithin({ text: [read, ''] }, limit),
+        { values: { text: '' }, cutShort: [`text: no answer within ${limit / 1000} s`] }, `read ${n}`);
+      await failed;
+    }
+  } finally { turning = false; }
+});
+
+test('while the reads wait, the limit keeps the process alive, so that a process with nothing else alive still ends the wait', async () => {
+  const watch = fileURLToPath(new URL('../../scripts/watch.cjs', import.meta.url));
+  const { code, killed, stdout, stderr } = await finish(['-e', `require(${JSON.stringify(watch)}).readWithin({ never: [() => new Promise(() => {}), "kept"] }, 100)`
+    + '.then((read) => console.log(JSON.stringify(read)));']);
+  assert.equal(killed, false, stderr);
+  assert.equal(code, 0, stderr);
+  assert.deepEqual(JSON.parse(stdout || 'null'), { values: { never: 'kept' }, cutShort: ['never: no answer within 0.1 s'] },
+    'a process that exits with the reads still waiting writes no report');
 });
 
 // The reads live_camera's catch makes, by the name its report gives each, as a
@@ -107,7 +169,7 @@ const ANSWERS = {
   statusDetail: 'Detected 4 × 4.', cameraHelp: 'Hold the grid steady.',
 };
 const FALLBACKS = { storageStatus: '', paintCount: null, visibility: null, cameraCalls: null, video: null, statusDetail: '', cameraHelp: '' };
-const CUT_SHORT = (...names) => names.map((name) => `${name}: no answer within 20 s`);
+const CUT_SHORT = (...names) => names.map((name) => `${name}: no answer within ${READ_LIMIT / 1000} s`);
 
 // A page for readAfterFailure() that answers each read as `how(name)` says:
 // "answer" (ANSWERS; the video's state through the suite's own read of a
@@ -147,13 +209,13 @@ describe('live_camera\'s reads of its page after a failure', () => {
     assert.deepEqual(report, { ...FALLBACKS, readsCutShort: [] });
   });
 
-  test('a page that never answers: the reads end together after 20 s, with their fallbacks, and the report names each read cut short', async (t) => {
+  test('a page that never answers: the reads end together after READ_LIMIT, with their fallbacks, and the report names each read cut short', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const report = {};
     let done = false;
     readAfterFailure(standInPage(() => 'never'), report).then(() => { done = true; });
     await tick();
-    t.mock.timers.tick(19999); await tick();
+    t.mock.timers.tick(READ_LIMIT - 1); await tick();
     assert.equal(done, false, 'the limit has not passed');
     t.mock.timers.tick(1); await tick();
     assert.equal(done, true);
@@ -166,18 +228,12 @@ describe('live_camera\'s reads of its page after a failure', () => {
     let done = false;
     readAfterFailure(standInPage((name) => (['paintCount', 'video'].includes(name) ? 'never' : 'answer')), report).then(() => { done = true; });
     await tick();
-    t.mock.timers.tick(20000); await tick();
+    t.mock.timers.tick(READ_LIMIT); await tick();
     assert.equal(done, true);
     assert.deepEqual(report, { ...ANSWERS, paintCount: null, video: null, readsCutShort: CUT_SHORT('paintCount', 'video') });
     assert.deepEqual(Object.keys(report), [...Object.keys(ANSWERS), 'readsCutShort'], 'in the catch\'s order, not the order answered');
   });
 });
-
-// How a process ends that runs `script`, with what Node takes before it: its
-// exit code, whether the bound had to end it, and what it printed. These runs
-// take a second or so; the bound allows for a host short of memory.
-const finish = (args, options) => new Promise((resolve) => execFile(process.execPath, args, { timeout: 45000, ...options },
-  (error, stdout, stderr) => resolve({ code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false, stdout, stderr })));
 
 // What stands in for Python's server, which serve() starts: Node's, answering
 // every request, on a port the system picks, in this process's temporary
@@ -203,31 +259,38 @@ process.on("exit", () => console.log("limits", JSON.stringify(limits)));
 // as WebKit's does on Windows, which has no navigator.mediaDevices, so that the
 // suite's catch reads it. READS says how the page answers each read, by its
 // name in the report, or "*" for the rest: "answer" (ANSWERS), "reject" at
-// once, "times out" (rejects after 50 ms, as a read Playwright gives a timeout
-// fails by it), "late" (answers 150 ms after it was asked, after the limit)
-// or "never". The screenshot is taken at once, so that a report written
-// before the reads had ended would lack them, or with SCREENSHOT_MS takes that
-// long, so that a late answer comes before the report is written. The page
-// says on stdout what it is asked for, a late answer and its screenshot, the
-// browser its close. With BROWSER_HANGS, Chromium's browser never closes, as
-// while a WebKit child holds the browser's pipes. Each launch keeps the
-// process alive until its browser closes, as a live browser's pipes do.
+// once, "times out" (fails by the page's default timeout, which engines()
+// sets, timed out as playwrightRead() above times it out, but shortened by
+// SHORTER ms, as much as PRELOAD shortens READ_LIMIT's timer, so that it ends
+// as long after the limit as in a real run), "late" (answers 150 ms after it
+// was asked, after the limit) or "never". The screenshot is taken at once, so
+// that a report written before the reads had ended would lack them, or with
+// SCREENSHOT_MS takes that long, so that a late answer comes before the report
+// is written. The page says on stdout what it is asked for, a late answer and
+// its screenshot, the browser its close. With BROWSER_HANGS, Chromium's
+// browser never closes, as while a WebKit child holds the browser's pipes.
+// Each launch keeps the process alive until its browser closes, as a live
+// browser's pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
-const { READS, BROWSER_HANGS, SCREENSHOT_MS } = process.env, ways = JSON.parse(READS);
+const { READS, BROWSER_HANGS, SCREENSHOT_MS, SHORTER } = process.env, ways = JSON.parse(READS);
 const ASKED = ${JSON.stringify(ASKED)}, ANSWERS = ${JSON.stringify(ANSWERS)};
 const names = Object.fromEntries(Object.entries(ASKED).map(([name, what]) => [what, name]));
 const engine = (name) => ({ async launch() {
   const pipes = setInterval(() => {}, 1000);
+  let timeout = 30000;
   const read = (what) => {
     const asked = names[what], way = ways[asked] ?? ways["*"];
     console.log(name + " is asked for " + (asked ?? what));
     if (way === "answer") return Promise.resolve(ANSWERS[asked]);
     if (way === "reject") return Promise.reject(new Error("Target page, context or browser has been closed"));
-    if (way === "times out") return new Promise((resolve, reject) => setTimeout(reject, 50, new Error("Timeout 20000ms exceeded.")));
+    if (way === "times out") return new Promise((resolve, reject) => setImmediate(() => {
+      const deadline = performance.now() + timeout - Number(SHORTER);
+      setTimeout(() => setImmediate(reject, new Error("Timeout " + timeout + "ms exceeded.")), deadline - performance.now());
+    }));
     if (way === "late") return new Promise((resolve) => setTimeout(() => { console.log(name + " answers " + asked + " late"); resolve(ANSWERS[asked]); }, 150));
     return new Promise(() => {});
   };
-  const page = { on() {}, setDefaultTimeout() {}, url: () => "http://stand-in/",
+  const page = { on() {}, setDefaultTimeout(ms) { timeout = ms; }, url: () => "http://stand-in/",
     goto: async () => { throw new Error("no site here"); },
     textContent: (selector) => read("textContent " + selector),
     evaluate: (fn) => read("evaluate " + String(fn).replace(/\\s+/g, "")),
@@ -263,6 +326,7 @@ async function caught(t, env) {
   fs.writeFileSync(inTree('preload.cjs'), PRELOAD);
   const ended = await finish(['-r', inTree('preload.cjs'), inTree('scripts/live_camera_regressions.cjs')], { cwd: directory,
     env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', READS: JSON.stringify(env.READS),
+      SHORTER: String(READ_LIMIT - 100),
       ...(env.BROWSER_HANGS && { BROWSER_HANGS: '1' }), ...(env.SCREENSHOT_MS && { SCREENSHOT_MS: String(env.SCREENSHOT_MS) }) } });
   const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
   const reports = fs.existsSync(inTree('browser-artifacts/live-camera.json'))
@@ -282,11 +346,12 @@ describe('live_camera, run as it is, reads its page after its failure and then f
     ['every read answers', { READS: { '*': 'answer' } }, ANSWERS, []],
     ['every read fails', { READS: { '*': 'reject' } }, FALLBACKS, []],
     ['no read answers', { READS: { '*': 'never' } }, FALLBACKS, CUT_SHORT(...READ_NAMES)],
-    // As in the WebKit hang: the reads that Playwright gives a timeout fail by
-    // it, page.evaluate() never answers, and the browser will not close.
-    ['the reads with a timeout of their own fail by it, page.evaluate() never answers and the browser will not close',
+    // As in the WebKit hang: the reads that Playwright gives the page's
+    // default timeout are still waiting when the limit ends, page.evaluate()
+    // never answers, and the browser will not close; all seven are cut short.
+    ['the reads with the page\'s timeout run out of it after the limit, page.evaluate() never answers and the browser will not close',
       { READS: { paintCount: 'never', visibility: 'never', cameraCalls: 'never', '*': 'times out' }, BROWSER_HANGS: true },
-      FALLBACKS, CUT_SHORT('paintCount', 'visibility', 'cameraCalls'), ['browser: browser cleanup timed out']],
+      FALLBACKS, CUT_SHORT(...READ_NAMES), ['browser: browser cleanup timed out']],
     ['one read never answers and another answers after the limit, while the rest answer',
       { READS: { paintCount: 'never', visibility: 'late', '*': 'answer' }, SCREENSHOT_MS: 300 },
       { ...ANSWERS, paintCount: null, visibility: null }, CUT_SHORT('paintCount', 'visibility')],

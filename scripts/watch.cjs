@@ -51,14 +51,22 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
 }
 
 // How long a suite's reads of its page after a failure, for its report, may
-// take, all of them together (readWithin()): the page's default timeout, the
-// 20 seconds that engines() in harness.cjs gives each call on the suite's page
-// that waits for something, so that a page that answers such calls in time
-// answers these too, and the reads add no more to a failed run than one such
-// call can. Without a limit, a page that will never answer, as in the WebKit
-// hang (web/TESTING.md), holds the run for ever at the first such read that
+// take, all of them together (readWithin()): a tenth of a second less than
+// the page's default timeout, the 20 seconds that engines() in harness.cjs
+// gives each call on the suite's page that waits for something, so that a
+// page that answers such calls in time answers these too, but for that last
+// tenth of a second, and the reads add less to a failed run than one such
+// call can. The tenth of a second makes the limit end first when a read has
+// that default timeout of its own, as page.textContent() has: Playwright
+// starts that timeout when the read reaches it, after readWithin() has
+// started the limit, and sets its timer a few microseconds short of it,
+// which Node's timers round down to a whole millisecond, so that with a
+// limit of the same 20 seconds such a read could fail by its own timeout a
+// millisecond before the limit and keep its fallback without being named as
+// cut short (web/TESTING.md). Without a limit, a page that will never answer,
+// as in the WebKit hang, holds the run for ever at the first such read that
 // Playwright gives no timeout, a page.evaluate().
-const READ_LIMIT = 20000;
+const READ_LIMIT = 19900;
 
 /* Runs `reads`, an object whose entries are [read, fallback] by name, for a
    report after a failure: each `read` reads the page and resolves to what the
@@ -68,17 +76,21 @@ const READ_LIMIT = 20000;
    `values` has every name, in the order of `reads`, with what its read
    resolved to, or its fallback if the read rejected or had not settled by
    then, and `cutShort` the names of those that had not settled, each as
-   `<name>: no answer within <limit in seconds> s`. Leaves no timer behind,
-   and what a read does after the wait changes nothing: its late answer is
-   dropped and its late failure lost. */
+   `<name>: no answer within <limit in seconds> s`. While the reads wait, the
+   limit's timer keeps the process alive, so that a process with nothing else
+   alive does not exit before the wait ends, with no report written. Leaves
+   no timer behind, and what a read does after the wait changes nothing: its
+   late answer is dropped and its late failure lost. */
 async function readWithin(reads, limit) {
   const names = Object.keys(reads), answered = new Map();
   let timer;
   try {
-    // The timer starts a step before the reads, so that a read that Playwright
-    // gives a timeout of the same length, as page.textContent() has the page's
-    // default, is still waiting when the wait ends: it is cut short, and its
-    // own timeout, a moment later, changes nothing.
+    // The timer starts before any read is asked, so that the wait counts from
+    // before the first of them. A read's own timeout, which Playwright starts
+    // only when the read reaches it, then ends after the wait if it is longer
+    // than `limit` by more than the millisecond that Node's timers may round
+    // it down, as the page's default is longer than READ_LIMIT: a read still
+    // waiting then is cut short, and its own timeout changes nothing.
     await Promise.race([
       Promise.all(names.map((name) => Promise.resolve().then(reads[name][0]).catch(() => reads[name][1])
         .then((value) => { answered.set(name, value); }))),
