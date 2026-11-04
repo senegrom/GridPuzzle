@@ -262,7 +262,7 @@ async function storageProbe(page, report) {
     // try from its finally, which closes the browser and writes the report: the
     // run would wait there for ever. So the close is given watch.cjs's
     // CLOSE_LIMIT, as the browser's close is (web/TESTING.md, which also says
-    // what live_camera's catch still waits for in that state). A close that
+    // how long live_camera's catch then waits for the page). A close that
     // rejects or runs out of time is a clean-up failure, as the browser's is: it
     // goes in the report's cleanupErrors and on stderr, and it is the probe's
     // failure only if the probe has none of its own.

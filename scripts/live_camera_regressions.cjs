@@ -2,6 +2,7 @@
    No physical camera is required. Additional failure cases control OCR replies. */
 const assert = require("node:assert/strict");
 const { serve, engines, main, sleep } = require("./harness.cjs");
+const { READ_LIMIT, readWithin } = require("./watch.cjs");
 
 async function fixture(page) {
   await page.evaluate(() => {
@@ -167,6 +168,23 @@ function phaseTimer(report,name) {
       console.log(`${name} ${phase}: ${entry.seconds} s`);
     });
   };
+}
+// What the page shows after a failure, for the engine's report, each read
+// with its fallback for when it fails. They share READ_LIMIT (watch.cjs), the
+// page's default timeout, so that a page that will not answer, as in the
+// WebKit hang (web/TESTING.md), cannot hold the run here: a read still
+// waiting then keeps its fallback, and `readsCutShort` names it.
+async function readAfterFailure(page,report) {
+  const {values,cutShort}=await readWithin({
+    storageStatus:[()=>page.textContent("#capture-storage-status"),""],
+    paintCount:[()=>page.evaluate(()=>window.livePaintCount),null],
+    visibility:[()=>page.evaluate(()=>document.visibilityState),null],
+    cameraCalls:[()=>page.evaluate(()=>window.liveGetUserMediaCalls),null],
+    video:[()=>page.locator("#video").evaluate(v=>({muted:v.muted,paused:v.paused,width:v.videoWidth,ready:v.readyState,inline:v.playsInline,tracks:v.srcObject?.getTracks().map(t=>({kind:t.kind,ready:t.readyState}))})),null],
+    statusDetail:[()=>page.textContent("#status-detail"),""],
+    cameraHelp:[()=>page.textContent("#camera-help"),""],
+  },READ_LIMIT);
+  Object.assign(report,values,{readsCutShort:cutShort});
 }
 async function run() {
   const server=await serve();
@@ -703,17 +721,11 @@ async function run() {
         report.checks.push("single-clue changes retire pending and solved overlays; faint clues retain ink evidence; deleted PNGs stay deleted after reload");
         console.log(`${name}: live camera and capture regressions passed`);
       } catch(error){
-        report.storageStatus=await page.textContent("#capture-storage-status").catch(()=>"");
-        report.paintCount=await page.evaluate(()=>window.livePaintCount).catch(()=>null);
-        report.visibility=await page.evaluate(()=>document.visibilityState).catch(()=>null);
-        report.cameraCalls=await page.evaluate(()=>window.liveGetUserMediaCalls).catch(()=>null);
-        report.video=await page.locator("#video").evaluate(v=>({muted:v.muted,paused:v.paused,width:v.videoWidth,ready:v.readyState,inline:v.playsInline,tracks:v.srcObject?.getTracks().map(t=>({kind:t.kind,ready:t.readyState}))})).catch(()=>null);
-        report.statusDetail=await page.textContent("#status-detail").catch(()=>"");
-        report.cameraHelp=await page.textContent("#camera-help").catch(()=>"");
+        await readAfterFailure(page,report);
         throw error;
       }
     });
   } finally{server.close();}
 }
-module.exports = { run };
+module.exports = { run, readAfterFailure };
 main(module,run);
