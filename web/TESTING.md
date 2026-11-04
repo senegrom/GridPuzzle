@@ -231,11 +231,11 @@ that will not go at the exit either exits with 1 and says why on stderr. With
 a folder that goes after that one, a third that will not go either, and a
 listener of the exit that the suite adds after the harness's, as a launch adds
 Playwright's, the exit names on stderr the two folders that stay, in turn and
-each on a line of its own, removes the one between them and lets that
-listener run, however the suite ends: a run that passed, with its exit code
-unset or set to 0, exits with 1, and one that failed with a code of its own,
-or that one of the four signals ended, keeps its code. The lines also reach
-stderr when the signal comes with `console.error` replaced.
+each with why on a line of its own, removes the one between them and lets
+that listener run, however the suite ends: a run that passed, with its exit
+code unset or set to 0, exits with 1, and one that failed with a code of its
+own, or that one of the four signals ended, keeps its code. The lines also
+reach stderr when the signal comes with `console.error` replaced.
 `harness_regressions` without a browser, and the detection check with a
 server that exits at once, fail by themselves, and the test checks that their
 own `finally` removed their folder before the process exits. When the first
