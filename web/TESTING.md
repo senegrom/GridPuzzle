@@ -151,6 +151,23 @@ requires a suite or calls its `run()` keeps its process, and ending it is then
 up to that runner. `harness_regressions.cjs` checks all this on real browsers,
 in a process of its own, `web/tests/harness-close.test.js` the close and the
 process's end with stand-ins, `solver_update`'s and `browser_smoke`'s too.
+`main()` runs a suite, and `exitIfUnclosed()` ends its process, only when the
+suite's file is the program's entry point, which both read from Node as they
+are called (`process.mainModule`), so that a suite whose harness, or
+`watch.cjs`, a preload loads before it (`node -r`, `NODE_OPTIONS=--require` or
+an `--import`) runs and ends as it does without one. Until November 2026 both
+asked their own `require.main`, which Node copies from `process.mainModule` as
+a module loads, and which is undefined in a module loaded before the entry
+point: a suite started so through `main()` never ran, its process exiting
+with 0, and the process of one that calls `exitIfUnclosed()` itself, as
+`browser_smoke`, `solver_update`, `ocr_latency` and the corpus benchmark
+commands do, was not ended after a browser that would not close, which can
+hold it for ever. A module's `id` would not do: it is `.` for the entry point
+only when Node's CommonJS loader loads it, not when an `--import` has the ESM
+loader do so.
+`web/tests/harness-main.test.js` checks this with stand-in suites, started as
+they are and with the harness or `watch.cjs` loaded first in six ways, and
+required or imported by a runner.
 `corpus/benchmark-runner.cjs` shares the timed clean-up, with this limit, or a
 shorter one once a signal has come ("Puzzle image corpus and benchmarks"), and
 this end of the process: a browser its clean-up gives up on is marked with
