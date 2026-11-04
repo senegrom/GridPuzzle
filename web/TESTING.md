@@ -165,13 +165,14 @@ that check fails. Such a run is not the run without the preload. A preload of
 `watch.cjs` alone, which takes no signals, changes nothing there.
 Until November 2026 both asked their own `require.main`, which Node copies
 from `process.mainModule` as a module loads, and which is undefined in a
-module loaded before the entry point: a suite started so through `main()`
-never ran, its process exiting with 0, and the process of one that calls
-`exitIfUnclosed()` itself, as `browser_smoke`, `solver_update`, `ocr_latency`
-and the corpus benchmark commands do, was not ended after a browser that would
-not close, which can hold it for ever. A module's `id` would not do: it is `.`
-for the entry point only when Node's CommonJS loader loads it, not when an
-`--import` has the ESM loader do so.
+module loaded before the entry point. With the harness preloaded, `main()`
+then never ran a suite, whose process exited with 0; and with the harness or
+`watch.cjs` preloaded, the process of a suite that calls `exitIfUnclosed()`
+itself, as `browser_smoke`, `solver_update`, `ocr_latency` and the corpus
+benchmark commands do, was not ended after a browser that would not close,
+which can hold it for ever. A module's `id` would not do: it is `.` for the
+entry point only when Node's CommonJS loader loads it, not when an `--import`
+has the ESM loader do so.
 `web/tests/harness-main.test.js` checks this with stand-in suites, started as
 they are, through a link to their folder and with the harness or `watch.cjs`
 loaded first in six ways, and required or imported by a runner.
