@@ -173,8 +173,8 @@ not close, which can hold it for ever. A module's `id` would not do: it is `.`
 for the entry point only when Node's CommonJS loader loads it, not when an
 `--import` has the ESM loader do so.
 `web/tests/harness-main.test.js` checks this with stand-in suites, started as
-they are and with the harness or `watch.cjs` loaded first in six ways, and
-required or imported by a runner.
+they are, through a link to their folder and with the harness or `watch.cjs`
+loaded first in six ways, and required or imported by a runner.
 `corpus/benchmark-runner.cjs` shares the timed clean-up, with this limit, or a
 shorter one once a signal has come ("Puzzle image corpus and benchmarks"), and
 this end of the process: a browser its clean-up gives up on is marked with
