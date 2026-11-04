@@ -76,6 +76,7 @@ test('a read that waits holds up no other: one answer just before the limit coun
   const expected = { values: { waits: null, early: 'early', last: 'just in time', late: '', failsLate: null },
     cutShort: ['waits: no answer within 20 s', 'late: no answer within 20 s', 'failsLate: no answer within 20 s'] };
   assert.deepEqual(result, expected);
+  assert.deepEqual(Object.keys(result.values), Object.keys(expected.values), 'in the order asked, not the order answered');
   // node:test fails a test on an unhandled rejection.
   for (const step of [1, 4999]) { t.mock.timers.tick(step); await tick(); }
   assert.deepEqual(result, expected, 'what the reads did after the limit changes nothing');
@@ -168,6 +169,7 @@ describe('live_camera\'s reads of its page after a failure', () => {
     t.mock.timers.tick(20000); await tick();
     assert.equal(done, true);
     assert.deepEqual(report, { ...ANSWERS, paintCount: null, video: null, readsCutShort: CUT_SHORT('paintCount', 'video') });
+    assert.deepEqual(Object.keys(report), [...Object.keys(ANSWERS), 'readsCutShort'], 'in the catch\'s order, not the order answered');
   });
 });
 
