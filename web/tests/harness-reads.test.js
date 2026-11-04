@@ -204,14 +204,16 @@ process.on("exit", () => console.log("limits", JSON.stringify(limits)));
 // suite's catch reads it. READS says how the page answers each read, by its
 // name in the report, or "*" for the rest: "answer" (ANSWERS), "reject" at
 // once, "times out" (rejects after 50 ms, as a read Playwright gives a timeout
-// fails by it), "late" (answers 150 ms after it was asked, after the limit
-// and while the screenshot, which takes 300 ms, is taken) or "never". The page
+// fails by it), "late" (answers 150 ms after it was asked, after the limit)
+// or "never". The screenshot is taken at once, so that a report written
+// before the reads had ended would lack them, or with SCREENSHOT_MS takes that
+// long, so that a late answer comes before the report is written. The page
 // says on stdout what it is asked for, a late answer and its screenshot, the
 // browser its close. With BROWSER_HANGS, Chromium's browser never closes, as
 // while a WebKit child holds the browser's pipes. Each launch keeps the
 // process alive until its browser closes, as a live browser's pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
-const { READS, BROWSER_HANGS } = process.env, ways = JSON.parse(READS);
+const { READS, BROWSER_HANGS, SCREENSHOT_MS } = process.env, ways = JSON.parse(READS);
 const ASKED = ${JSON.stringify(ASKED)}, ANSWERS = ${JSON.stringify(ANSWERS)};
 const names = Object.fromEntries(Object.entries(ASKED).map(([name, what]) => [what, name]));
 const engine = (name) => ({ async launch() {
@@ -232,7 +234,7 @@ const engine = (name) => ({ async launch() {
     locator: (selector) => ({ evaluate: () => read("locator " + selector + " evaluate") }),
     screenshot: async ({ path }) => {
       console.log(name + " takes its screenshot");
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (SCREENSHOT_MS) await new Promise((resolve) => setTimeout(resolve, Number(SCREENSHOT_MS)));
       fs.writeFileSync(path, "");
     } };
   return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0",
@@ -260,7 +262,8 @@ async function caught(t, env) {
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
   fs.writeFileSync(inTree('preload.cjs'), PRELOAD);
   const ended = await finish(['-r', inTree('preload.cjs'), inTree('scripts/live_camera_regressions.cjs')], { cwd: directory,
-    env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', READS: JSON.stringify(env.READS), ...(env.BROWSER_HANGS && { BROWSER_HANGS: '1' }) } });
+    env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', READS: JSON.stringify(env.READS),
+      ...(env.BROWSER_HANGS && { BROWSER_HANGS: '1' }), ...(env.SCREENSHOT_MS && { SCREENSHOT_MS: String(env.SCREENSHOT_MS) }) } });
   const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
   const reports = fs.existsSync(inTree('browser-artifacts/live-camera.json'))
     ? JSON.parse(fs.readFileSync(inTree('browser-artifacts/live-camera.json'), 'utf8')) : null;
@@ -285,7 +288,7 @@ describe('live_camera, run as it is, reads its page after its failure and then f
       { READS: { paintCount: 'never', visibility: 'never', cameraCalls: 'never', '*': 'times out' }, BROWSER_HANGS: true },
       FALLBACKS, CUT_SHORT('paintCount', 'visibility', 'cameraCalls'), ['browser: browser cleanup timed out']],
     ['one read never answers and another answers after the limit, while the rest answer',
-      { READS: { paintCount: 'never', visibility: 'late', '*': 'answer' } },
+      { READS: { paintCount: 'never', visibility: 'late', '*': 'answer' }, SCREENSHOT_MS: 300 },
       { ...ANSWERS, paintCount: null, visibility: null }, CUT_SHORT('paintCount', 'visibility')],
   ])
     test(`ends by itself with both engines' reports and their reads when ${what}`, async (t) => {
