@@ -77,8 +77,8 @@ async function readWithin(reads, limit) {
   try {
     // The timer starts a step before the reads, so that a read that Playwright
     // gives a timeout of the same length, as page.textContent() has the page's
-    // default, is still waiting when the wait ends: it is cut short, not
-    // failed by its own timeout a moment before.
+    // default, is still waiting when the wait ends: it is cut short, and its
+    // own timeout, a moment later, changes nothing.
     await Promise.race([
       Promise.all(names.map((name) => Promise.resolve().then(reads[name][0]).catch(() => reads[name][1])
         .then((value) => { answered.set(name, value); }))),
