@@ -2,6 +2,7 @@
    Recognition completions are controlled so late-result races are repeatable. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path");
+const { CLOSE_LIMIT, cleanUp } = require("./watch.cjs");
 
 async function structuralProbe({ ink = 0, vertical = false, erase = false, hold = 12000 } = {}) {
   const { demo } = await import("./model.js");
@@ -188,10 +189,12 @@ function lockQueued(tab) {
     return false;
   });
 }
-async function storageProbe(page) {
+// `report` is the engine's report, as engines() hands it to the suite.
+async function storageProbe(page, report) {
   // The harness watches this tab as it watches the suite's own: its uncaught
   // errors (with its URL), a crash or an unasked close fail the engine.
   const other=await page.context().newPage();
+  let passed=false;
   try {
     await other.goto(page.url());await other.waitForSelector('body[data-ready="true"]');
     await page.evaluate(installStorageProbe);await other.evaluate(installStorageProbe);
@@ -251,8 +254,21 @@ async function storageProbe(page) {
     assert.match(await page.evaluate(async()=>{try{await window.captureProbe.api.deleteCapture({locks:null});return "deleted";}catch(e){return e.message;}}),/Download/);
     assert.equal(await other.evaluate(async()=>await (await window.captureProbe.api.loadCapture()).blob.text()),"newer");
     await other.evaluate(()=>window.captureProbe.api.deleteCapture());
+    passed=true;
     return {migration,outcomes,newerCapturePreserved:true,delayedDeleteOrdered:true,lockTimeoutSafe:true,uncoordinatedDeleteRejected:true};
-  } finally { await other.close(); }
+  } finally {
+    // This probe runs inside its engine's try, so a close that never settles,
+    // as while a WebKit child still holds the browser's pipes, would keep that
+    // try from its finally, which closes the browser and writes the report: the
+    // run would wait there for ever. So the close is given watch.cjs's
+    // CLOSE_LIMIT, as the browser's close is (web/TESTING.md, which also says
+    // what live_camera's catch still waits for in that state). A close that
+    // rejects or runs out of time is a clean-up failure, as the browser's is: it
+    // goes in the report's cleanupErrors and on stderr, and it is the probe's
+    // failure only if the probe has none of its own.
+    const unclosed=await cleanUp("page",()=>other.close(),CLOSE_LIMIT);
+    if(unclosed){report.cleanupErrors.push(unclosed);console.error(`${report.browser}: ${unclosed}`);if(passed)throw new Error(unclosed);}
+  }
 }
 
 function assertStructural(structural) {
@@ -270,8 +286,9 @@ function assertStructural(structural) {
     }
   }
 }
-// `time(phase, run)` records each phase's wall time (live_camera's timer).
-module.exports=async function structuralCapture(page, time = (phase, run) => run()) {
+// `time(phase, run)` records each phase's wall time (live_camera's timer), and
+// `report` is the engine's report, for the storage probe's tab.
+module.exports=async function structuralCapture(page, time = (phase, run) => run(), report) {
   const structural=await time("structural changes",async()=>{
   const structural=await page.evaluate(structuralProbe);
   assertStructural(structural);
@@ -295,7 +312,7 @@ module.exports=async function structuralCapture(page, time = (phase, run) => run
   }
   return real;
   });
-  const storage=await time("picture ownership across tabs",()=>storageProbe(page));
+  const storage=await time("picture ownership across tabs",()=>storageProbe(page,report));
   return {structural,faint,real,storage};
 };
 module.exports.assertStructural=assertStructural;

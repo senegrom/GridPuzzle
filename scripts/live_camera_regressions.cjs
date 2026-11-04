@@ -699,7 +699,7 @@ async function run() {
         });
         report.checks.push("settings changes and detection deadlines recover from a stalled detector without stopping video or accepting its late error");
         report.reviewSafety=await time("review safety",()=>
-          require("./review_safety_regressions.cjs")(page,(phase,run)=>time(`review safety / ${phase}`,run)));
+          require("./review_safety_regressions.cjs")(page,(phase,run)=>time(`review safety / ${phase}`,run),report));
         report.checks.push("single-clue changes retire pending and solved overlays; faint clues retain ink evidence; deleted PNGs stay deleted after reload");
         console.log(`${name}: live camera and capture regressions passed`);
       } catch(error){
