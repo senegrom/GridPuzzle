@@ -584,11 +584,11 @@ order, and what a read does after the limit changes nothing. The tenth of a
 second is for the reads that have the page's default timeout of their own, the
 three `page.textContent()` calls and the locator's read. The limit starts
 before any read is asked, but Playwright starts a read's timeout only when the
-read reaches it, and sets its timer for the deadline it has just computed, a
-few microseconds short of the timeout, which Node's timers round down to a
-whole millisecond: with a limit of the same 20 seconds, such a read could run
-out of its own time a millisecond before the limit, whenever the event loop
-woke in that millisecond, and then keep its fallback without being named. With
+read reaches it, and sets its timer for the deadline it has just computed,
+slightly short of the timeout, which Node's timers round down to a whole
+millisecond: with a limit of the same 20 seconds, such a read could run out
+of its own time a millisecond before the limit, whenever the event loop woke
+in that millisecond, and then keep its fallback without being named. With
 the tenth of a second the limit ends first: such a read still waiting then is
 cut short and named, and its own timeout, a tenth of a second later, changes
 nothing. Nothing is printed for a read cut short: the engine has failed

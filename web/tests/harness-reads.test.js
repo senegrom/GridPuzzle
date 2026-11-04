@@ -107,8 +107,8 @@ test('the limit starts before any read is asked: a read that sets a timer as lon
 // gives a timeout, as page.textContent() has the page's default
 // (ProgressController.run() in playwright-core): the call reaches
 // Playwright's server one setImmediate() after it is made, which computes the
-// deadline and sets a timer for the time left to it, a few microseconds short
-// of the timeout, which Node's timers round down to a whole millisecond; the
+// deadline and sets a timer for the time left to it, slightly short of the
+// timeout, which Node's timers round down to a whole millisecond; the
 // failure reaches the caller one setImmediate() later. `failed` resolves once
 // it has.
 function playwrightRead(timeout) {

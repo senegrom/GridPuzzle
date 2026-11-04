@@ -59,11 +59,11 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
 // call can. The tenth of a second makes the limit end first when a read has
 // that default timeout of its own, as page.textContent() has: Playwright
 // starts that timeout when the read reaches it, after readWithin() has
-// started the limit, and sets its timer a few microseconds short of it,
-// which Node's timers round down to a whole millisecond, so that with a
-// limit of the same 20 seconds such a read could fail by its own timeout a
-// millisecond before the limit and keep its fallback without being named as
-// cut short (web/TESTING.md). Without a limit, a page that will never answer,
+// started the limit, and sets its timer slightly short of it, which Node's
+// timers round down to a whole millisecond, so that with a limit of the same
+// 20 seconds such a read could fail by its own timeout a millisecond before
+// the limit and keep its fallback without being named as cut short
+// (web/TESTING.md). Without a limit, a page that will never answer,
 // as in the WebKit hang, holds the run for ever at the first such read that
 // Playwright gives no timeout, a page.evaluate().
 const READ_LIMIT = 19900;
