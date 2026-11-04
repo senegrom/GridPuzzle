@@ -17,15 +17,16 @@ const assert = require("node:assert/strict");
 // page's with the second, and calls on a page as it crashes with the third.
 const GONE = /Target page, context or browser has been closed|Target crashed|Page crashed/;
 
-// How long a suite waits for its browser to close and for each context it
+// How long a suite waits for its browser to close, for each context it
 // closes itself (photo_read's offline-install and stale-build checks',
 // browser_smoke's startup-cancellation check's, ocr_latency's variants' and
-// harness_regressions' "carried-on" case's), and the corpus benchmark runner
-// for each close of a run nothing interrupted: on a loaded host
-// Chromium's process took 0.03 to 11.64 s to end in 42 runs (web/TESTING.md),
-// and a browser that is only slow is no failure. It is also how long Playwright
-// gives a browser to close by itself before it kills it, so a browser that is
-// merely stuck is being killed as the suite gives up on it.
+// harness_regressions' "carried-on" case's) and for structural_capture's
+// second tab, and the corpus benchmark runner for each close of a run nothing
+// interrupted: on a loaded host Chromium's process took 0.03 to 11.64 s to
+// end in 42 runs (web/TESTING.md), and a browser that is only slow is no
+// failure. It is also how long Playwright gives a browser to close by itself
+// before it kills it, so a browser that is merely stuck is being killed as
+// the suite gives up on it.
 const CLOSE_LIMIT = 30000;
 
 /* Runs `action`, the clean-up of `name`, and waits for it for at most `limit`

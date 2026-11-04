@@ -16,9 +16,10 @@ import { Browser } from './playwright-stand-ins.js';
 // photo_read's two checks on a context that will not close; what else can
 // leave a server up to hold a run, as a browser does; browser_smoke,
 // ocr_latency and harness_regressions on a context of their own that will not
-// close; how a signal ends a suite's process; and how the folders a suite
-// makes itself go as its process exits, by itself or on a signal. Loading
-// watch.cjs or the harness needs no Playwright.
+// close, and structural_capture on its second tab that will not close; how a
+// signal ends a suite's process; and how the folders a suite makes itself go
+// as its process exits, by itself or on a signal. Loading watch.cjs or the
+// harness needs no Playwright.
 const { CLOSE_LIMIT, cleanUp, watch } = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const harness = fileURLToPath(new URL('../../scripts/harness.cjs', import.meta.url));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -958,6 +959,147 @@ describe('harness_regressions, on the context its "carried-on" case closes in We
       assert.equal(limits, 4);
       assert.deepEqual(folders(), [], 'its folder is gone');
     });
+});
+
+// Playwright for review_safety and structural_capture, whose storage probe
+// opens a second tab in the suite's context and closes it in its finally. Each
+// engine's page and tab answer what the two suites evaluate as when every probe
+// passes: by the name of a probe the suites pass by name, and otherwise by the
+// source of what they evaluate, so that a check added to the storage probe that
+// reads something new needs an answer here (until then every row below fails
+// there). The probe's last step, the tab's deletion of the picture after its
+// last check, says so on stdout. CASE_FAILS fails Chromium's probe at its first
+// step ("first": the tab finds no site) or at that last step ("last"). CLOSE is
+// how Chromium's tab closes: "rejects", as a close can for a reason other than
+// a closed target (on a lost browser Playwright's page.close() returns
+// instead, web/TESTING.md), or "never", as while a WebKit child still holds
+// the browser's pipes, which with BROWSER_HANGS keeps Chromium from closing
+// too. WebKit's tab closes, and each launch keeps the process alive until its
+// browser closes, as a live browser's pipes do.
+const PROBED = `const fs = require("node:fs");
+const { CASE_FAILS, CLOSE, BROWSER_HANGS } = process.env;
+const NAMED = { cameraContentProbe: { comparisons: [], controls: [true, true], polarity: [], outcomes: [] },
+  captureOrderingProbe: { before: true, after: true, reported: false, hidden: true, message: "Picture deleted.", oldOutcome: "AbortError", newest: 44 },
+  faintClueProbe: [], structuralProbe: { pixels: [], outcomes: [] }, realPhotoProbe: [] };
+const engine = (name) => ({ async launch() {
+  const pipes = setInterval(() => {}, 1000), played = { phase: null, lastCheck: false };
+  let pages = 0;
+  function answer(read, argument, tab) {
+    if (Object.hasOwn(NAMED, read.name)) return NAMED[read.name];
+    if (read.name === "startDelayedSave") { played.phase = argument; return; }
+    const source = String(read).replace(/\\s+/g, "");
+    if (source.includes("deleteDatabase")) return { retained: true, oldWriter: "VersionError" };
+    if (source.includes("navigator.locks.query")) return true;
+    if (source === "()=>window.captureProbe.done") return false;
+    if (/loadCapture\\(\\)\\)?===null/.test(source)) return true;
+    if (source.includes("returns.result")) return played.phase === "canvas" ? "superseded" : "AbortError";
+    if (source.includes("blob.text()")) return "newer";
+    if (source.includes("lockTimeout:30")) return "Deleting the picture timed out";
+    if (source.includes("locks:null")) { played.lastCheck = true; return "Download the PNG instead"; }
+    if (tab && played.lastCheck && source === "()=>window.captureProbe.api.deleteCapture()") {
+      console.log(name + "'s probe takes its last step");
+      if (name === "chromium" && CASE_FAILS === "last") throw new Error("the probe's last step failed");
+    }
+  }
+  return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0",
+    close: async () => { if (name === "chromium" && BROWSER_HANGS) return new Promise(() => {}); clearInterval(pipes); },
+    newContext: async () => {
+      const context = { on() {}, newPage: async () => {
+        const tab = ++pages === 2;
+        return { context: () => context, on() {}, setDefaultTimeout() {}, url: () => "http://stand-in/",
+          goto: async () => { if (tab && name === "chromium" && CASE_FAILS === "first") throw new Error("the second tab found no site"); },
+          waitForSelector: async () => {}, waitForFunction: async () => {}, reload: async () => {},
+          evaluate: async (read, argument) => answer(read, argument, tab),
+          screenshot: async ({ path }) => fs.writeFileSync(path, ""),
+          close: async () => {
+            console.log(name + "'s " + (tab ? "second tab" : "page") + " closes");
+            if (!tab || name !== "chromium") return;
+            if (CLOSE === "rejects") throw new Error("the tab would not close");
+            if (CLOSE === "never") return new Promise(() => {});
+          } };
+      } };
+      return context;
+    } };
+} });
+module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
+`;
+
+// What stands in for live_camera, whose run has too much else before
+// review_safety for a stand-in to play: the harness's engines() and main(), and
+// review_safety called with the engine's report, as live_camera calls it (the
+// last test below reads that call in live_camera's source). It has no catch of
+// live_camera's, which reads the page for its report after a failure: the
+// stand-in's pages do not play those reads, which in the WebKit hang wait
+// (web/TESTING.md). It names the tree's modules by paths it builds, so that
+// tests/test_workflows.py does not take them for modules of this file.
+const LIVE_CAMERA = `const inTree = (name) => require("node:path").join(__dirname, name);
+const { engines, main } = require(inTree("scripts/harness.cjs"));
+main(module, () => engines("live-camera.json", async (page, report) => {
+  report.reviewSafety = await require(inTree("scripts/review_safety_regressions.cjs"))(page, (phase, run) => run(), report);
+}));
+`;
+
+// How that runner ends, run with LIMITS loaded first in a tree of its own with
+// the harness, review_safety and structural_capture as they are, PROBED for
+// Playwright and no newspaper photographs; `read` gives a report it wrote there.
+async function probed(t, env) {
+  const directory = temporary(t), inTree = (name) => path.join(directory, name);
+  for (const file of ['scripts/harness.cjs', 'scripts/watch.cjs', 'scripts/review_safety_regressions.cjs', 'scripts/structural_capture_regressions.cjs'])
+    fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
+  fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
+  fs.writeFileSync(inTree('node_modules/playwright/index.js'), PROBED);
+  fs.mkdirSync(inTree('Examples/BrowserScanner/Newspaper'), { recursive: true });
+  fs.writeFileSync(inTree('Examples/BrowserScanner/Newspaper/ground-truth.json'), '{ "fixtures": [] }');
+  fs.writeFileSync(inTree('limits.cjs'), LIMITS);
+  fs.writeFileSync(inTree('live-camera.cjs'), LIVE_CAMERA);
+  const ended = await finish(['-r', inTree('limits.cjs'), inTree('live-camera.cjs')],
+    { cwd: directory, env: { ...process.env, ...temporaryIn(directory), BROWSER_ENGINES: '', ...env } });
+  return { ...ended, ...counted(ended.stdout), read: (name) => JSON.parse(fs.readFileSync(inTree(name), 'utf8')) };
+}
+
+const TAB_TIMED_OUT = 'page: page cleanup timed out', TAB_REFUSED = 'page: the tab would not close';
+
+// The tab's close comes in the storage probe's finally, after the probe's last
+// step or its failure. The count: one for each browser's close and one for
+// each engine's tab.
+describe('structural_capture, on the second tab its storage probe closes', { concurrency: true }, () => {
+  const steps = ['chromium\'s probe takes its last step', 'chromium\'s second tab closes', 'webkit\'s probe takes its last step',
+    'webkit\'s second tab closes'];
+  for (const [what, env, failure, cleanupErrors, said = steps] of [
+    ['its tab closes', {}, null, []],
+    ['its tab never closes', { CLOSE: 'never' }, `Error: ${TAB_TIMED_OUT}`, [TAB_TIMED_OUT]],
+    ['its tab will not close', { CLOSE: 'rejects' }, `Error: ${TAB_REFUSED}`, [TAB_REFUSED]],
+    ['the probe fails at its first step and its tab never closes', { CASE_FAILS: 'first', CLOSE: 'never' },
+      'Error: the second tab found no site', [TAB_TIMED_OUT], steps.slice(1)],
+    ['the probe fails at its first step and its tab will not close either', { CASE_FAILS: 'first', CLOSE: 'rejects' },
+      'Error: the second tab found no site', [TAB_REFUSED], steps.slice(1)],
+    ['the probe fails at its last step and its tab never closes', { CASE_FAILS: 'last', CLOSE: 'never' },
+      'Error: the probe\'s last step failed', [TAB_TIMED_OUT]],
+    ['the probe fails at its last step and its tab will not close either', { CASE_FAILS: 'last', CLOSE: 'rejects' },
+      'Error: the probe\'s last step failed', [TAB_REFUSED]],
+    // As in the WebKit hang: the run ends through exitIfUnclosed().
+    ['neither its tab nor its browser closes', { CLOSE: 'never', BROWSER_HANGS: '1' }, `Error: ${TAB_TIMED_OUT}`,
+      [TAB_TIMED_OUT, 'browser: browser cleanup timed out']],
+  ])
+    test(`ends by itself with both engines' reports when ${what}`, async (t) => {
+      const { code, killed, stdout, stderr, lines, limits, read } = await probed(t, env);
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, failure ? 1 : 0, stderr);
+      const [chromium, webkit] = read('browser-artifacts/live-camera.json');
+      assert.deepEqual([chromium.status, chromium.failure?.split('\n')[0], chromium.cleanupErrors],
+        [failure ? 'failed' : 'passed', failure ?? undefined, cleanupErrors]);
+      for (const failed of cleanupErrors) assert.ok(stderrLines(stderr).includes(`chromium: ${failed}`), stderr);
+      assert.deepEqual([webkit.status, webkit.cleanupErrors, webkit.reviewSafety?.structuralCapture.storage.newerCapturePreserved],
+        ['passed', [], true], 'the next engine ran, through the probe');
+      // Each tab closes once, after the probe's last step when it got that far.
+      assert.deepEqual(lines.filter((line) => /'s (probe|second tab|page) /.test(line)), said);
+      assert.equal(limits, 4);
+    });
+
+  test('live_camera hands review_safety its engine\'s report, as the runner above does', () => {
+    assert.match(fs.readFileSync(script('live_camera_regressions'), 'utf8'),
+      /require\("\.\/review_safety_regressions\.cjs"\)\(page,[^\n]*,report\)\);/);
+  });
 });
 
 /* A suite on the harness that hears a signal once it has made a folder of its
