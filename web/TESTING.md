@@ -515,8 +515,8 @@ within about 80 seconds of the tab's close starting (30 for that close, up to
 Playwright's handler for that exit then runs, which on Windows waits for a
 `taskkill` of the browser's processes. In `live_camera` it goes there through
 the suite's own `catch`, which reads the page for its report after any failure,
-since November 2026 for at most 20 seconds (below). Until then the first of its
-three `page.evaluate()` calls, which have no limit, waited for ever in that
+since November 2026 for at most 19.9 seconds (below). Until then the first of
+its three `page.evaluate()` calls, which have no limit, waited for ever in that
 state, so such a run was still held there, though stderr said why 30 seconds
 after the tab's close started. WebKit on Windows has no
 `navigator.mediaDevices`, so there `live_camera` fails at its first step, long
@@ -571,62 +571,83 @@ as in the state above, the first `page.evaluate()` waited for ever, with no
 report for that engine and the run held until the job's limit. They now go
 through `readWithin()` in `scripts/watch.cjs`, which starts all seven at once,
 so that one that waits holds up no other, and gives them one limit together,
-`READ_LIMIT`: 20 seconds, the page's default timeout, which `engines()` gives
-each call on the page that waits for something. A page that answers such calls
-in time answers these too, and the reads add no more to a failed run than one
-such call can. A read that has not answered by then keeps its fallback, and the
-report's `readsCutShort` lists each such read as
-`<name>: no answer within 20 s`, in the order the `catch` asks for them; the
-list is empty when every read answered. Reads that answer in time give the
-report what they gave it before, under the same names and in the same order,
-and what a read does after the limit changes nothing. The limit starts a
-moment before the reads, so that a
-`page.textContent()` still waiting then is cut short, and its own timeout of
-the same length, a moment later, changes nothing. Nothing is printed for a read
-cut short: the engine has failed already, and its failure is printed as before.
-The `catch` then throws the suite's own failure again, so in the state above
-the browser's close fails as well, and `exitIfUnclosed()` ends the run after
-its report is written: by design `live_camera` calls `process.exit()` within
-about 100 seconds of the tab's close starting (30 for that close, 20 for the
-reads, up to 20 for the failure's screenshot and 30 for the browser's close),
-and Playwright's handler for that exit then runs. Measured as above,
-`live_camera`'s engine code around the probe with its `catch` as it was or as
-it is now, one run of each at 30 to 100% CPU in samples taken during the runs,
-with times on the process's own clock from the tab's close starting: as it was,
-the `catch` was still waiting in its first `page.evaluate()` when the run was
-stopped, over 237 s after that close started, with no report. As it is now, its
-seven reads started 30.0 s after that close started, as stderr said why, and
-were cut short together 20.0 s later, the three `page.textContent()` calls and
-the locator's read failing by their own timeouts a few milliseconds after that;
-the failure's screenshot ran out of time at 70.0 s, and the run ended by
-itself, its `exit` event coming 100.1 s after that close started, with exit
-code 1 and its report written with all seven reads in `readsCutShort` and with
-`page: page cleanup timed out` and then `browser: browser cleanup timed out` in
-`cleanupErrors`. In Chromium a page whose main thread is kept busy for good
-holds such reads the same way. With `live_camera` as it is, made to fail its
-first step that way, at 30 to 96% CPU, on the process's own clock from that
-failure: as it was, in two runs, the `catch` waited 20 s for its first
-`page.textContent()` and was still waiting in its first `page.evaluate()` when
-the run was stopped, over 149 s after the failure, with no report. As it is
-now, in three runs, the seven reads were cut short together 20.0 s after the
-failure and the screenshot ran out of time 20 s later; the browser then closed,
-which failed the three `page.evaluate()` calls still waiting, and the run ended
-by itself, its `exit` event 40.1 s after the failure each time, with exit code
-1 and its report written with nothing in `cleanupErrors` and, in the two whose
-report was kept, all seven reads in `readsCutShort`. With nothing sabotaged, in
-one run of each at 44 to 97% CPU, `live_camera` passed in Chromium, all 19
-checks, at master and here, and failed in WebKit at its first step in both, as
-it does on Windows (above): WebKit's report had the same seven values in both,
-and here an empty `readsCutShort`.
+`READ_LIMIT`: 19.9 seconds, a tenth of a second under the page's default
+timeout, the 20 seconds that `engines()` gives each call on the page that waits
+for something. A page that answers such calls in time answers these too, but
+for that last tenth of a second, and the reads add less to a failed run than
+one such call can. A read that has neither answered nor failed by then keeps
+its fallback, and the report's `readsCutShort` lists each such read as
+`<name>: no answer within 19.9 s`, in the order the `catch` asks for them; the
+list is empty when no read was still waiting. Reads that answer in time give
+the report what they gave it before, under the same names and in the same
+order, and what a read does after the limit changes nothing. The tenth of a
+second is for the reads that have the page's default timeout of their own, the
+three `page.textContent()` calls and the locator's read. The limit starts
+before any read is asked, but Playwright starts a read's timeout only when the
+read reaches it, and sets its timer for the deadline it has just computed, a
+few microseconds short of the timeout, which Node's timers round down to a
+whole millisecond: with a limit of the same 20 seconds, such a read could run
+out of its own time a millisecond before the limit, whenever the event loop
+woke in that millisecond, and then keep its fallback without being named. With
+the tenth of a second the limit ends first: such a read still waiting then is
+cut short and named, and its own timeout, a tenth of a second later, changes
+nothing. Nothing is printed for a read cut short: the engine has failed
+already, and its failure is printed as before. The `catch` then throws the
+suite's own failure again, so in the state above the browser's close fails as
+well, and `exitIfUnclosed()` ends the run after its report is written: by
+design `live_camera` calls `process.exit()` within about 100 seconds of the
+tab's close starting (30 for that close, 19.9 for the reads, up to 20 for the
+failure's screenshot and 30 for the browser's close), and Playwright's handler
+for that exit then runs. Measured as above, `live_camera`'s engine code around
+the probe with its `catch` as it was or as it is now, with times on the
+process's own clock from the tab's close starting and the host's load in
+samples taken during the runs: as it was, in one run at 30 to 85% CPU, the
+`catch` was still waiting in its first `page.evaluate()` when the run was
+stopped, over 237 s after that close started, with no report. As it is now, in
+two runs at 44 to 100% CPU, its seven reads started 30.0 s after that close
+started, as stderr said why, and were cut short together 19.9 s later, the
+three `page.textContent()` calls and the locator's read failing by their own
+timeouts about a tenth of a second after that; the failure's screenshot ran out
+of time at 69.9 s, and the run ended by itself, its `exit` event coming 99.9 s
+after that close started, with exit code 1 and its report written with all
+seven reads in `readsCutShort` and with `page: page cleanup timed out` and then
+`browser: browser cleanup timed out` in `cleanupErrors`. In Chromium a page
+whose main thread is kept busy for good holds such reads the same way. With
+`live_camera` as it is, made to fail its first step that way, on the process's
+own clock from that failure: as it was, in two runs at 30 to 96% CPU, the
+`catch` waited 20 s for its first `page.textContent()` and was still waiting in
+its first `page.evaluate()` when the run was stopped, over 149 s after the
+failure, with no report. As it is now, in five runs at 51 to 100% CPU, two of
+them with the event loop kept turning from 19.5 to 20.4 s after the failure, so
+that each timer ran as soon as it was due, the seven reads were cut short
+together 19.9 s after the failure, the three `page.textContent()` calls and the
+locator's read failing by their own timeouts about a tenth of a second later,
+and the screenshot ran out of time 20 s after the reads ended; the browser then
+closed, which failed the three `page.evaluate()` calls still waiting, and the
+run ended by itself, its `exit` event 40.0 s after the failure each time, with
+exit code 1 and its report written with nothing in `cleanupErrors` and all
+seven reads in `readsCutShort`. With nothing sabotaged, in one run at master at
+80 to 98% CPU and one here at 61 to 90% CPU, `live_camera` passed in Chromium,
+all 19 checks, and failed in WebKit at its first step, as it does on Windows
+(above): WebKit's report had the same seven values in both, and here an empty
+`readsCutShort`.
 `web/tests/harness-reads.test.js` tests `readWithin()` on its own: answers kept
 as they came, `undefined` and `null` included, in the order asked; failures
 that keep their fallbacks and are not cut short; reads that never answer, which
 end together at the limit, each named; one that waits, which holds up no other;
 an answer just before the limit, which counts, and one after it, which changes
-nothing, nor does a late failure; no timer left behind; and a read with a
-timeout of its own as long as the limit, which is still waiting when the wait
-ends. It checks that `READ_LIMIT` is 20 seconds, as `engines()`'s default
-timeout for the page is, and runs `live_camera`'s `readAfterFailure()` on a
+nothing, nor does a late failure; no timer left behind; a limit that starts
+before any read is asked, so that a read that sets a timer as long as the limit
+as it is asked is still waiting when the wait ends; and a limit whose timer
+keeps a process with nothing else alive running until the wait ends. It also
+times reads out as Playwright times out one with the page's default timeout,
+with that timeout and `READ_LIMIT` shortened by the same time and the event
+loop kept turning, so that each timer runs as soon as it is due: each of five
+such reads is still waiting when the limit ends, and cut short, where with a
+limit as long as the timeout one that reached Playwright in the millisecond the
+limit started in would fail by its own timeout first. It checks that
+`READ_LIMIT` is 19.9 seconds, a tenth of a second under `engines()`'s default
+timeout for the page, and runs `live_camera`'s `readAfterFailure()` on a
 stand-in page that answers every read, fails every read, never answers, or
 answers some and never others. Then it runs `live_camera` as it is, in a
 process of its own, on a stand-in for Playwright whose page fails the suite's
@@ -636,9 +657,11 @@ asked for once, before the failure's screenshot and the browser's close; the
 run ends by itself; and its timers of `READ_LIMIT`'s length, which last a tenth
 of a second there, are counted, one for each engine's reads. The rows are a
 page that answers every read, one that fails every read and one that never
-answers; one whose reads with a timeout of their own fail by it while
-`page.evaluate()` never answers, with a browser that will not close either; and
-one where one read never answers and another answers after the limit, while the
+answers; one as in the state above, whose reads with the page's default
+timeout, timed out as Playwright times them out and shortened as the limit is,
+run out of it after the limit while `page.evaluate()` never answers, with a
+browser that will not close either, so that all seven are cut short; and one
+where one read never answers and another answers after the limit, while the
 screenshot is taken, before the report is written.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
