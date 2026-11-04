@@ -240,11 +240,11 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
    see watch.cjs), so that with the harness loaded first by a preload
    (node -r, NODE_OPTIONS=--require or an --import) they still run the suite
    and end its process as they would without one, and a suite that another
-   module requires does not run. A preload given through NODE_OPTIONS also
-   loads the harness into the Node processes a suite starts, which inherit
-   the environment, and there the signal listeners above come first: they
-   end a corpus command on a signal before its own listeners can save its
-   report, so such a run is not the run without the preload
+   module requires does not run. A preload of the harness given through
+   NODE_OPTIONS also loads it into the Node processes a suite starts, which
+   inherit the environment, and there the signal listeners above come first:
+   they end a corpus command on a signal before its own listeners can save
+   its report, so such a run is not the run without the preload
    (web/TESTING.md). */
 function main(module_, run) {
   if (process.mainModule === module_)
