@@ -1124,24 +1124,25 @@ main(module, async () => { stuck = temporaryDirectory("gridpuzzle-stuck-").direc
 `;
 
 /* A suite on the harness with three folders of its own: the first and the
-   last will not go at the exit either, as STUCK's, and the one between them
-   goes. Once it has loaded the harness it adds a listener for the process's
-   exit, as a launch adds Playwright's, which says that it ran and what the
-   exit code is by then. Each removal says, as it comes, how many times it
-   would try again and which folder it was to remove. ENDING is how the suite
-   ends: "passes", by itself with its exit code unset; "passes with 0", which
-   it sets; "fails", with an exit code of 3 that it sets; or a signal's name:
-   it raises that signal once it has made its folders, and would carry on
-   three seconds later. A signal's name followed by "while console.error is
-   replaced" raises it with console.error replaced, as harness_regressions'
-   attempt() replaces it while each case runs. */
+   last will not go at the exit either, as STUCK's, each with an error that
+   names it, and the one between them goes. Once it has loaded the harness it
+   adds a listener for the process's exit, as a launch adds Playwright's,
+   which says that it ran and what the exit code is by then. Each removal
+   says, as it comes, how many times it would try again and which folder it
+   was to remove. ENDING is how the suite ends: "passes", by itself with its
+   exit code unset; "passes with 0", which it sets; "fails", with an exit
+   code of 3 that it sets; or a signal's name: it raises that signal once it
+   has made its folders, and would carry on three seconds later. A signal's
+   name followed by "while console.error is replaced" raises it with
+   console.error replaced, as harness_regressions' attempt() replaces it
+   while each case runs. */
 const GOES_ON = `const fs = require("node:fs"), path = require("node:path"), { rmSync } = fs;
 const { main, sleep, temporaryDirectory } = require(${JSON.stringify(harness)}), { ENDING } = process.env, [SIGNAL] = ENDING.split(" ");
 const say = (line) => fs.writeSync(1, line + "\\n"), stuck = new Set();
 fs.rmSync = (target, options, ...rest) => {
   say("removing (retries " + (options?.maxRetries ?? 0) + ") " + path.basename(target));
   if (!stuck.has(target)) return rmSync(target, options, ...rest);
-  throw new Error("the folder is in use");
+  throw new Error("the folder is in use: " + path.basename(target));
 };
 process.on("exit", () => say("the next listener ran, with exit code " + process.exitCode));
 main(module, async () => {
@@ -1292,8 +1293,12 @@ describe('the folders a suite makes itself go as its process exits, by itself or
       const stays = left(temp), cut = (name) => name.replace(/-\w+$/, '-');
       assert.deepEqual([stays.map(cut).sort(), left(directory)], [['gridpuzzle-stuck-', 'gridpuzzle-stuck-too-'], []],
         'only the folders that would not go stay');
-      // Each in turn, on a line of its own, the line's end included.
-      const line = (prefix) => `Could not remove the temporary directory ${path.join(temp, stays.find((name) => cut(name) === prefix))}: the folder is in use\n`;
+      // Each in turn, on a line of its own with its own error, the line's end
+      // included.
+      const line = (prefix) => {
+        const name = stays.find((each) => cut(each) === prefix);
+        return `Could not remove the temporary directory ${path.join(temp, name)}: the folder is in use: ${name}\n`;
+      };
       assert.equal(stderr, line('gridpuzzle-stuck-') + line('gridpuzzle-stuck-too-'));
     });
 
