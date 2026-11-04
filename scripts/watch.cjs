@@ -81,10 +81,9 @@ function markUnclosed() { unclosed = true; }
    their own: main() then never ran a suite started so, whose process exited
    with 0, and this never ended such a process. module_.id is "." only when
    Node's CommonJS loader loads the entry point, not when an --import has its
-   ESM loader do so.
-   Node's documentation deprecates process.mainModule, with no warning, in
-   favour of require.main, since ES modules share `process` and cannot use
-   it; this file is CommonJS. */
+   ESM loader do so. Node's documentation deprecates process.mainModule, with
+   no warning, in favour of require.main, since ES modules share `process`
+   and cannot use it; this file is CommonJS. */
 function exitIfUnclosed(module_) {
   if (unclosed && process.mainModule === module_) process.exit(process.exitCode || 1);
 }
