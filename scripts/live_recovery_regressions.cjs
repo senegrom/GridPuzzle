@@ -4,6 +4,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { serve, engines, main } = require('./harness.cjs');
+const { READ_LIMIT, readWithin } = require('./watch.cjs');
 // Once playback stops, the overlay must expire as soon as the newest
 // presented frame is older than the frame scheduler's freshness limit
 // (web/live-frame-scheduler.js: fresh while now() - lastSeen <= 500), well
@@ -171,6 +172,21 @@ async function begin({ font, race = false }) {
     catch (error) { state.startError = error.message; }
   };
 }
+// The page's last state, for the scene's record after a pass or a failure,
+// and then the fixture's stop, in that order as ever: the stop is asked once
+// the snapshot has answered or failed. Both share READ_LIMIT (watch.cjs), so
+// that a page that will not answer, as in the WebKit hang (web/TESTING.md),
+// cannot hold the run here: `final` is null when the snapshot fails or is cut
+// short, a stop that fails or is cut short changes nothing, and the record's
+// `readsCutShort` names what was cut short.
+async function finalAndStop(page, record) {
+  let snapshotted; const snapshot = new Promise(resolve => { snapshotted = resolve; });
+  const { values, cutShort } = await readWithin({
+    final: [async () => { try { return await page.evaluate(() => window.recoveryState?.snapshot()); } finally { snapshotted(); } }, null],
+    stop: [async () => { await snapshot; return page.evaluate(() => window.recoveryState?.stop()); }, undefined],
+  }, READ_LIMIT);
+  record.final = values.final; record.readsCutShort = cutShort;
+}
 async function run() {
   const server = await serve(), reports = [], failures = [];
   try {
@@ -263,8 +279,7 @@ async function run() {
           } catch (error) {
             record.failure = error.stack; throw error;
           } finally {
-            record.final = await page.evaluate(() => window.recoveryState?.snapshot()).catch(() => null);
-            await page.evaluate(() => window.recoveryState?.stop()).catch(() => {});
+            await finalAndStop(page, record);
           }
         }, { timeout: 60000 });
       } catch (error) { failures.push(error); }
@@ -282,4 +297,4 @@ async function run() {
     fs.writeFileSync('browser-artifacts/live-recovery.json', JSON.stringify(reports, null, 2) + '\n');
   }
 }
-module.exports = { run }; main(module, run);
+module.exports = { run, finalAndStop }; main(module, run);

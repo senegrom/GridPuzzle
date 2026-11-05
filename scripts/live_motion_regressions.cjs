@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { serve, engines, main } = require('./harness.cjs');
+const { READ_LIMIT, readWithin } = require('./watch.cjs');
 const expected = [
   [null,8,null,null,null,null,9,null,null],
   [null,null,null,7,null,null,1,null,null],
@@ -163,6 +164,25 @@ async function externalPictures(page,report,log,file='live-fixtures/fixtures.jso
   assert.ok(retained>=Math.ceil(valid*3*.9),'at least 90% of valid small-motion controls must retain identity');
   log(`${retained}/${valid*3} small-motion controls kept their identity`);
 }
+// What the page shows after a failure, for the engine's report: null when the
+// read fails, so that the suite's own failure is the one the catch rethrows.
+// The read has READ_LIMIT (watch.cjs), so that a page that will not answer,
+// as in the WebKit hang (web/TESTING.md), cannot hold the run here: a read
+// still waiting then keeps null too, and `readsCutShort` names it.
+async function readAfterFailure(page,report){
+  const {values,cutShort}=await readWithin({
+    state:[()=>page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
+      ticks:window.motionState?.ticks,reading:window.motionState?.reading,playback:window.motionState?.playback?.(),witness:window.motionState?.witness?.()??null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})),null],
+  },READ_LIMIT);
+  report.state=values.state;report.readsCutShort=cutShort;
+}
+// The fixture's stop, after a pass or a failure, with a READ_LIMIT of its own
+// for the same reason: a stop that fails or is cut short changes nothing but
+// `readsCutShort`, which then names it after any read of the catch.
+async function stopMotion(page,report){
+  const {cutShort}=await readWithin({stop:[()=>page.evaluate(()=>window.motionState?.stop?.()),undefined]},READ_LIMIT);
+  report.readsCutShort=[...(report.readsCutShort??[]),...cutShort];
+}
 async function run(){
  const server=await serve();
  try{
@@ -209,14 +229,13 @@ async function run(){
     await page.screenshot({path:`browser-artifacts/${name}-motion.png`});
     await externalPictures(page,report,log);
    }catch(e){
-    report.state=await page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,
-      ticks:window.motionState?.ticks,reading:window.motionState?.reading,playback:window.motionState?.playback?.(),witness:window.motionState?.witness?.()??null,counts:{...window.motionOutput?.dataset},diagnostic:window.motionState?.diagnostics?.snapshot(),status:document.getElementById('camera-help')?.textContent})).catch(()=>null);
+    await readAfterFailure(page,report);
     throw e;
    } finally {
-    await page.evaluate(() => window.motionState?.stop?.()).catch(() => {});
+    await stopMotion(page,report);
    }
   },{timeout:60000});
  }finally{server.close();}
 }
 main(module,run);
-module.exports={run,beginMotion,externalTracking,externalPictures};
+module.exports={run,beginMotion,externalTracking,externalPictures,readAfterFailure,stopMotion};

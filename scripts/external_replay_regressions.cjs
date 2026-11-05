@@ -14,6 +14,7 @@
    of real-phone accuracy or speed. No additional fixture or browser job. */
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const {serve,engines,main}=require('./harness.cjs');
+const {READ_LIMIT,readWithin}=require('./watch.cjs');
 const ACQUISITION_REVISION='733559bafd65b5bdb953e07e5c7e06df0b03008d';
 const REQUIRED_ACQUISITION=Object.freeze({
  'images/mqec6cb3dm0d1.webp':'8b67de88afded20e196722183257c57af0b47d04d4580ec26aaba4ffc27bbadd',
@@ -76,6 +77,16 @@ function labels(block){
  return block.flatMap(row=>row.map(flags=>{if(!Array.isArray(flags)||flags.length!==10)throw Error('Invalid cell annotation');
  const digits=flags.flatMap((flag,i)=>i&&flag?[i]:[]);return{value:flags[0]&&digits.length===1?digits[0]:null,ambiguous:!flags[0]&&digits.length>0};}));
 }
+// The replay's stop, after a pass or a failure, and what it says it left
+// (`closed`, which the finally then checks), or null when the stop fails, and
+// then nothing is checked. It has READ_LIMIT (watch.cjs), so that a page that
+// will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
+// run here: a stop still waiting then leaves null too, and `readsCutShort`
+// names it.
+async function stopReplay(page,r){
+ const {values,cutShort}=await readWithin({closed:[()=>page.evaluate(()=>window.externalReplay?.stop()),null]},READ_LIMIT);
+ r.closed=values.closed;r.readsCutShort=cutShort;
+}
 async function run(){
  const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[];
  const server=await serve();
@@ -101,7 +112,7 @@ async function run(){
      if(r.score)assert.deepEqual(r.score.unflagged,[],'every wrong, missed or invented clue must be flagged for review');
      requireAcquisition(r);
     }finally{
-     r.closed=await page.evaluate(()=>window.externalReplay?.stop()).catch(()=>null);
+     await stopReplay(page,r);
      if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}
     }
    },{timeout:60000});}catch(e){failures.push(e);}finally{if(fs.existsSync(`browser-artifacts/${file}`))reports.push(...JSON.parse(fs.readFileSync(`browser-artifacts/${file}`,'utf8')));}
@@ -110,4 +121,4 @@ async function run(){
  }finally{await server.close();fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));}
  if(failures.length)throw failures[0];
 }
-module.exports={run,labels,replayFixtures,requireAcquisition};main(module,run);
+module.exports={run,labels,replayFixtures,requireAcquisition,stopReplay};main(module,run);

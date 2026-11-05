@@ -5,7 +5,8 @@ const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
 const { exitIfUnclosed, watch } = require("./harness.cjs");
-const source = fs.readFileSync("web/sw.js", "utf8");
+const { READ_LIMIT, readWithin } = require("./watch.cjs");
+const source =fs.readFileSync("web/sw.js", "utf8");
 const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
@@ -240,9 +241,17 @@ async function stopServer() {
       report.ok = false;
       report.failure = error.stack;
       report.requests = [...requests];
+      // What the page shows after the failure, null for a read that fails. The
+      // reads start at once and share READ_LIMIT (watch.cjs), so that a page
+      // that will not answer, as in the WebKit hang (web/TESTING.md), cannot
+      // hold the run here: a read still waiting then keeps null too, and
+      // `readsCutShort` names it.
       if (page) {
-        report.results = await page.evaluate(() => window.results).catch(() => null);
-        report.workerDebug = await page.evaluate(() => window.workerDebug).catch(() => null);
+        const { values, cutShort } = await readWithin({
+          results: [() => page.evaluate(() => window.results), null],
+          workerDebug: [() => page.evaluate(() => window.workerDebug), null],
+        }, READ_LIMIT);
+        Object.assign(report, values, { readsCutShort: cutShort });
       }
       console.error(name, error);
       console.error(JSON.stringify({ retained: report.retained, workerDebug: report.workerDebug, requests }));
