@@ -219,9 +219,12 @@ const body = (source, name) =>
 // createRequire(__filename).main, and not through process.mainModule, which
 // Node's documentation deprecates in favour of require.main (DEP0138) but
 // which warns of nothing even under --pending-deprecation, so that only a
-// scan finds it. The stand-ins then start under --pending-deprecation and
-// --throw-deprecation, as main() and exitIfUnclosed() read the entry point:
-// a deprecation warning would be printed on stderr and end the process.
+// scan finds it. The stand-ins then start in every way above under
+// --pending-deprecation and --throw-deprecation, where a deprecation warning
+// from what the two read would end the process, with the warning on stderr.
+// Node prints such a warning, or throws it, only after the code that caused
+// it has run on, so that exitIfUnclosed() would hide one where it ends the
+// process; it does not end the importer's, nor end the runner's at once.
 test('main() and exitIfUnclosed() read the entry point through a require function made at the call, not the deprecated process.mainModule, and warn of nothing', async (t) => {
   await t.test('harness.cjs and watch.cjs read no process.mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
     // What the scan finds, and what it leaves alone: comments, and a // or /* in a string.
@@ -239,6 +242,10 @@ test('main() and exitIfUnclosed() read the entry point through a require functio
     ['a suite whose browser would not close', harness, { 'suite.cjs': UNCLOSED }, [['the suite ran', 'exit handlers ran with 1'], 1]],
     ['a suite that ends through exitIfUnclosed() itself', watchModule, { 'suite.cjs': OWN_END },
       [['the suite ran', 'exit handlers ran with 1'], 1]],
+    ['a runner that requires two suites', harness, { 'runner.cjs': RUNNER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED },
+      [['the runner ran', 'own.cjs ran', 'the runner goes on', 'exit handlers ran with 1'], 1]],
+    ['an ES module that imports them', harness, { 'importer.mjs': IMPORTER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED },
+      [['own.cjs ran', 'the importer goes on'], 0]],
   ])
     for (const { how, code, killed, lines, stderr } of await started(t, loaded, scripts, { END: 'passes', CODE: '' }, flags))
       await t.test(`${what}, started ${how}, with ${flags.join(' ')}`, () => {
