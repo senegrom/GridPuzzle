@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const assert = require("node:assert/strict");
 const { exitIfUnclosed, watch } = require("./harness.cjs");
 const { READ_LIMIT, readWithin } = require("./watch.cjs");
-const source =fs.readFileSync("web/sw.js", "utf8");
+const source = fs.readFileSync("web/sw.js", "utf8");
 const offlineSource = fs.readFileSync("web/offline.js", "utf8");
 const first = "111111111111", second = "222222222222";
 const reports = [];
