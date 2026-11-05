@@ -128,20 +128,22 @@ function markUnclosed() { unclosed = true; }
    does nothing unless `module_` is the program's entry point: when something
    else runs the suite (a runner that requires it or calls its run() or a
    command's main()), the process is that runner's to end.
-   Node sets process.mainModule to a CommonJS entry point's module before it
-   runs it, whichever of its loaders loads it, and this reads it at the call,
-   as the harness's main() does. A module's own require.main is a copy of it
-   made as that module loads, and so undefined in this module and in the
-   harness when a preload loads them before the entry point (node -r,
-   NODE_OPTIONS=--require or an --import). Until November 2026 both asked
-   their own: main() then never ran a suite started so, whose process exited
-   with 0, and this never ended such a process. module_.id is "." only when
-   Node's CommonJS loader loads the entry point, not when an --import has its
-   ESM loader do so. Node's documentation deprecates process.mainModule, with
-   no warning, in favour of require.main, since ES modules share `process`
-   and Node does not support its use there; this file is CommonJS. */
+   Like the harness's main(), it reads which module is the entry point at the
+   call, from require.main: Node gives a require function, as its main, the
+   CommonJS module it runs as the program's entry point, whichever of its
+   loaders loads it, as it makes the function, and does not change it later.
+   A module's own require is made as the module loads, so that its main is
+   undefined in this module and in the harness when a preload loads them
+   before the entry point (node -r, NODE_OPTIONS=--require or an --import);
+   a require function that createRequire() makes at the call has the entry
+   point, and the file it is made for decides only where that function would
+   look for modules. Until November 2026 both asked their own: main() then
+   never ran a suite started so, whose process exited with 0, and this never
+   ended such a process. module_.id is "." only when Node's CommonJS loader
+   loads the entry point, not when an --import has its ESM loader do so. */
 function exitIfUnclosed(module_) {
-  if (unclosed && process.mainModule === module_) process.exit(process.exitCode || 1);
+  if (unclosed && require("node:module").createRequire(__filename).main === module_)
+    process.exit(process.exitCode || 1);
 }
 
 /* Watches `browser`, the contexts it has and opens and their pages for what

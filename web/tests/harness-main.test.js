@@ -11,9 +11,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // when the suite's file is the program's entry point, also when it is
 // started through a link to its folder or a preload loads the harness or
 // watch.cjs before it, and never when another module requires or imports the
-// suite; and that no script decides by its own require.main whether another
-// module is the entry point. Stand-in suites run in processes of their own;
-// loading the harness needs neither Playwright nor Python.
+// suite; that no script decides by its own require.main whether another
+// module is the entry point; and that the harness and watch.cjs read the
+// entry point through a require function made at the call, not through the
+// deprecated process.mainModule, with no deprecation warning. Stand-in
+// suites run in processes of their own; loading the harness needs neither
+// Playwright nor Python.
 const inScripts = (name) => fileURLToPath(new URL(`../../scripts/${name}`, import.meta.url));
 const harness = inScripts('harness.cjs'), watchModule = inScripts('watch.cjs');
 const read = (file) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
@@ -47,13 +50,14 @@ const STARTS = [
 ];
 
 /* How the processes end that run `scripts` (name to source, the first the
-   entry point) in a directory of their own, one started in each way above:
-   each one's exit code, whether the bound had to end it, and what it
-   printed, in lines. The bound, 45 s for each process, is far above what a
-   start takes and only stops one that would not end. The link, in a folder
-   of its own, is a junction on Windows, which needs no privilege; removing
-   that folder removes the link, not what it links to. */
-async function started(t, loaded, scripts, env = {}) {
+   entry point) in a directory of their own, one started in each way above,
+   with `flags` given to Node first: each one's exit code, whether the bound
+   had to end it, and what it printed, in lines. The bound, 45 s for each
+   process, is far above what a start takes and only stops one that would
+   not end. The link, in a folder of its own, is a junction on Windows, which
+   needs no privilege; removing that folder removes the link, not what it
+   links to. */
+async function started(t, loaded, scripts, env = {}, flags = []) {
   const directory = temporary(t), linked = path.join(temporary(t), 'linked');
   fs.symlinkSync(directory, linked, process.platform === 'win32' ? 'junction' : 'dir');
   fs.writeFileSync(path.join(directory, 'preload.cjs'), `require(${JSON.stringify(loaded)});\n`);
@@ -63,7 +67,7 @@ async function started(t, loaded, scripts, env = {}) {
   const entry = Object.keys(scripts)[0];
   return Promise.all(STARTS.map(([how, start]) => {
     const { args = [], env: own = {}, folder = directory } = start(loaded, directory, linked);
-    return new Promise((resolve) => execFile(process.execPath, [...args, path.join(folder, entry)],
+    return new Promise((resolve) => execFile(process.execPath, [...flags, ...args, path.join(folder, entry)],
       { cwd: directory, timeout: 45000, env: { ...process.env, ...env, ...own } },
       (error, stdout, stderr) => resolve({ how, code: error ? error.code ?? error.signal : 0, killed: error?.killed ?? false,
         lines: stdout.split(/\r?\n/).filter(Boolean), stderr })));
@@ -196,4 +200,49 @@ test('no script decides by its own require.main whether another module is the en
     }
   assert.ok(['scripts/harness.cjs', 'scripts/watch.cjs'].every((file) => scanned.includes(file)), scanned.join('\n'));
   assert.deepEqual(others, []);
+});
+
+// Each line of the code in `source`, comments left out, that names
+// mainModule in any spelling (process.mainModule, process["mainModule"], a
+// destructuring of process), trimmed. Strings stay, so that a // or /* in
+// one starts no comment.
+const mainModuleReads = (source) => source
+  .replace(/(["'`])(?:\\.|(?!\1)[^\\\r\n])*\1|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
+    (text, quote) => (quote ? text : text.replace(/[^\r\n]/g, ' ')))
+  .split(/\r?\n/).map((line) => line.trim()).filter((line) => /\bmainModule\b/.test(line));
+// The body of `name`, a function declared at the start of a line in `source`.
+const body = (source, name) =>
+  new RegExp(String.raw`\nfunction ${name}\([^)]*\) \{\r?\n([\s\S]*?)\r?\n\}`).exec(source)?.[1] ?? '';
+
+// The owner's choice of 2026-11-05: main() and exitIfUnclosed() read the
+// entry point as the main of a require function made at the call,
+// createRequire(__filename).main, and not through process.mainModule, which
+// Node's documentation deprecates in favour of require.main (DEP0138) but
+// which warns of nothing even under --pending-deprecation, so that only a
+// scan finds it. The stand-ins then start under --pending-deprecation and
+// --throw-deprecation, as main() and exitIfUnclosed() read the entry point:
+// a deprecation warning would be printed on stderr and end the process.
+test('main() and exitIfUnclosed() read the entry point through a require function made at the call, not the deprecated process.mainModule, and warn of nothing', async (t) => {
+  await t.test('harness.cjs and watch.cjs read no process.mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
+    // What the scan finds, and what it leaves alone: comments, and a // or /* in a string.
+    assert.deepEqual(mainModuleReads('/* process.mainModule\n   process.mainModule */ const a = "//", b = \'/*\';\n'
+      + 'if (process.mainModule === m) x(); // process.mainModule\nconst { mainModule } = process; y(process["mainModule"]);\n'),
+    ['if (process.mainModule === m) x();', 'const { mainModule } = process; y(process["mainModule"]);']);
+    for (const [file, name] of [['scripts/harness.cjs', 'main'], ['scripts/watch.cjs', 'exitIfUnclosed']]) {
+      assert.deepEqual(mainModuleReads(read(file)), [], `${file} reads process.mainModule`);
+      assert.match(body(read(file), name), /\bcreateRequire\(__filename\)\.main\b/, `${name}() in ${file}`);
+    }
+  });
+  const flags = ['--pending-deprecation', '--throw-deprecation'];
+  for (const [what, loaded, scripts, expected] of [
+    ['a suite that passes', harness, { 'suite.cjs': SUITE }, [['the suite ran'], 0]],
+    ['a suite whose browser would not close', harness, { 'suite.cjs': UNCLOSED }, [['the suite ran', 'exit handlers ran with 1'], 1]],
+    ['a suite that ends through exitIfUnclosed() itself', watchModule, { 'suite.cjs': OWN_END },
+      [['the suite ran', 'exit handlers ran with 1'], 1]],
+  ])
+    for (const { how, code, killed, lines, stderr } of await started(t, loaded, scripts, { END: 'passes', CODE: '' }, flags))
+      await t.test(`${what}, started ${how}, with ${flags.join(' ')}`, () => {
+        assert.equal(killed, false, 'it ended by itself');
+        assert.deepEqual([lines, code, stderr], [...expected, '']);
+      });
 });
