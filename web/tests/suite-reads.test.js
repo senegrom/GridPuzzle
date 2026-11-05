@@ -22,6 +22,21 @@ const recovery = require('../../scripts/live_recovery_regressions.cjs');
 const replay = require('../../scripts/external_replay_regressions.cjs');
 const tick = () => new Promise(setImmediate);
 const CUT_SHORT = (...names) => names.map((name) => `${name}: no answer within ${READ_LIMIT / 1000} s`);
+const source = (script) => fs.readFileSync(new URL(`../../scripts/${script}`, import.meta.url), 'utf8');
+
+// What READ_LIMIT means in each suite, as web/TESTING.md says: browser_smoke
+// gives its page 20 s itself, which its #status read has as its own timeout,
+// and the limit ends a tenth of a second before it; four suites ask engines()
+// for 60 s, and solver_update keeps Playwright's 30, so that there the limit
+// cuts short a read that would have answered later.
+test('READ_LIMIT is a tenth of a second under browser_smoke\'s 20-s page timeout, and well under the 60 s four suites ask for and solver_update\'s 30', () => {
+  assert.equal(READ_LIMIT, 19900);
+  assert.match(source('browser_smoke.cjs'), /\bpage\.setDefaultTimeout\(20000\);/);
+  assert.equal(20000 - READ_LIMIT, 100);
+  for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay'])
+    assert.match(source(`${suite}_regressions.cjs`), /\}\s*,\s*\{\s*timeout:\s*60000\s*\}\s*\);/, `${suite} asks engines() for 60 s`);
+  assert.doesNotMatch(source('solver_update_regressions.cjs'), /setDefaultTimeout/, 'solver_update keeps Playwright\'s 30 s');
+});
 
 // What each suite asks its page for in its catch or finally, by the source of
 // what it evaluates, with its whitespace taken out, or by the locator's
