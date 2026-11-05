@@ -222,9 +222,9 @@ const body = (source, name) =>
 // scan finds it. The stand-ins then start in every way above under
 // --pending-deprecation and --throw-deprecation, where a deprecation warning
 // from what the two read would end the process, with the warning on stderr.
-// Node prints such a warning, or throws it, only after the code that caused
-// it has run on, so that exitIfUnclosed() would hide one where it ends the
-// process; it does not end the importer's, nor end the runner's at once.
+// Node prints such a warning, or throws it, only once the code that caused
+// it has run on, which can be after exitIfUnclosed() has ended the process:
+// the importer's, which neither function ends, shows one from either.
 test('main() and exitIfUnclosed() read the entry point through a require function made at the call, not the deprecated process.mainModule, and warn of nothing', async (t) => {
   await t.test('harness.cjs and watch.cjs read no process.mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
     // What the scan finds, and what it leaves alone: comments, and a // or /* in a string.
@@ -244,7 +244,7 @@ test('main() and exitIfUnclosed() read the entry point through a require functio
       [['the suite ran', 'exit handlers ran with 1'], 1]],
     ['a runner that requires two suites', harness, { 'runner.cjs': RUNNER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED },
       [['the runner ran', 'own.cjs ran', 'the runner goes on', 'exit handlers ran with 1'], 1]],
-    ['an ES module that imports them', harness, { 'importer.mjs': IMPORTER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED },
+    ['an ES module that imports the two suites', harness, { 'importer.mjs': IMPORTER, 'suite.cjs': SUITE, 'own.cjs': REQUIRED },
       [['own.cjs ran', 'the importer goes on'], 0]],
   ])
     for (const { how, code, killed, lines, stderr } of await started(t, loaded, scripts, { END: 'passes', CODE: '' }, flags))
