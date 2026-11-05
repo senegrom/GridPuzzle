@@ -165,10 +165,10 @@ async function externalPictures(page,report,log,file='live-fixtures/fixtures.jso
   log(`${retained}/${valid*3} small-motion controls kept their identity`);
 }
 // What the page shows after a failure, for the engine's report: null when the
-// read fails, so that the suite's own failure is the one the catch rethrows.
-// The read has READ_LIMIT (watch.cjs), so that a page that will not answer,
-// as in the WebKit hang (web/TESTING.md), cannot hold the run here: a read
-// still waiting then keeps null too, and `readsCutShort` names it.
+// read fails, as ever, so that the suite's own failure is the one the catch
+// rethrows. The read has READ_LIMIT (watch.cjs), so that a page that will not
+// answer, as in the WebKit hang (web/TESTING.md), cannot hold the run here: a
+// read still waiting then keeps null too, and `readsCutShort` names it.
 async function readAfterFailure(page,report){
   const {values,cutShort}=await readWithin({
     state:[()=>page.evaluate(()=>({reads:window.motionState?.reads,cancels:window.motionState?.cancels,

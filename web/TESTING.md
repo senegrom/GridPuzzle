@@ -104,9 +104,10 @@ and the close of a page that a suite awaits itself, that of
 browser that is up but stuck, Playwright sets no limit on `page.evaluate()`,
 `page.close()` or `context.close()`, so a suite's own call that Playwright
 gives no timeout, such as `page.evaluate()`, can still wait there for ever, but
-for the reads `live_camera` makes of its page after a failure, which have
-shared a limit of their own since November 2026 (`READ_LIMIT`, below); on a
-browser that has gone they end at once.
+for the reads that `live_camera`, `live_motion`, `live_noise`, `live_recovery`,
+`external_replay`, `solver_update` and `browser_smoke` make of their page in a
+`catch` or a `finally`, which have had a limit of their own since November 2026
+(`READ_LIMIT`, below); on a browser that has gone they end at once.
 The hang below is the exception: with a WebKit child still holding the pipes,
 a closed page's calls end at once, but `context.close()` and `page.close()`
 wait as `browser.close()` does, and so does `page.evaluate()` on a page still
@@ -378,7 +379,8 @@ closes, the report is written and the next engine runs. Until October 2026
 the browser stayed up, its pipes held Node and the run never ended, with no
 report for that engine and no next one. With no page there is nothing to read,
 so such a report has no screenshot and none of the page's `status` and `state`
-in `browser_smoke`, and no `results` or `workerDebug` in `solver_update`. The
+in `browser_smoke`, and no `results` or `workerDebug` in `solver_update`, and
+neither has `readsCutShort` (below). The
 stale-build check inside `photo_read` has a Node server of its own, which holds
 a run just as a browser does. It too opened its context and page before the
 `try` that stops that server, so that the engine failed and its browser closed
@@ -436,21 +438,25 @@ error>`, and it fails a check that passed, while a check that failed keeps its
 own failure first. Until November 2026 a close that rejected was thrown from the
 check's `finally`, and so replaced the check's own failure. In the state above,
 the browser's close then waits on the same child, for its own `CLOSE_LIMIT`, and
-`exitIfUnclosed()` ends the run after its report is written. So such a run ends
-by itself within about 80 seconds of the check's close starting: 30 for that
-close, up to 20 for the failure's screenshot, which waits for the page's default
-timeout (20 seconds in `photo_read`), and 30 for the browser's close. Measured
-on Windows, one run of each check in that state, on a host at 63 to 97% CPU in
-samples taken during the runs: the run ended by itself 81.2 s (offline-install)
-and 81.5 s (stale-build) after the check's close started, with exit code 1, its
-report written with `context: context cleanup timed out` and then `browser:
-browser cleanup timed out` in `cleanupErrors`, the offline-install check's
-folder gone and no process Node started left running. The same runs without
-the limit were still waiting when they were stopped, 111 s and 246 s after that
-close started (150 s and 300 s into the run). In Chromium that state makes the
-close reject at once; a close made never to settle there ended the run 30.5 s
-and 30.4 s after that close started, and without the limit the run was still
-waiting when stopped 141 s and 185 s after it (150 s and 240 s into the run).
+`exitIfUnclosed()` ends the run after its report is written: by design such a
+run calls `process.exit()` within about 80 seconds of the check's close
+starting (30 for that close, up to 20 for the failure's screenshot, which waits
+for the page's default timeout, 20 seconds in `photo_read`, and 30 for the
+browser's close), and Playwright's handler for that exit then runs, which on
+Windows waits for a `taskkill` of the browser's processes. Measured on Windows,
+one run of each check in that state, on a host at 63 to 97% CPU in samples
+taken during the runs, with times on the process's own clock from that close's
+start: the run ended by itself, its process's `exit` event coming 80.5 s
+(offline-install) and 80.1 s (stale-build) after the check's close started,
+with exit code 1, its report written with `context: context cleanup timed out`
+and then `browser: browser cleanup timed out` in `cleanupErrors`, the
+offline-install check's folder gone and no process Node started left running.
+The same runs without the limit were still waiting when they were stopped, as
+last sampled 108.3 s and 243.8 s after that close started. In Chromium that
+state makes the close reject at once; a close made never to settle there ended
+the run, its `exit` event 30.3 s and 30.1 s after that close started, and
+without the limit the run was still waiting when stopped, as last sampled
+136.5 s and 181.6 s after it.
 `web/tests/harness-close.test.js` runs each check as it is, in a process of its
 own, with its context's close rejecting and never settling after a pass and
 after the check's own failure at its first step, and rejecting after a failure
@@ -688,6 +694,107 @@ run out of it after the limit while `page.evaluate()` never answers, with a
 browser that will not close either, so that all seven are cut short; and one
 where one read never answers and another answers after the limit, while the
 screenshot is taken, before the report is written.
+
+Until November 2026 the reads that six other suites make of their page in a
+`catch` or a `finally`, for their report, had no limit either. `live_motion`'s
+`catch` reads its fixture's state (`state`), `solver_update`'s the page's
+`results` and `workerDebug`, and `browser_smoke`'s, after the failure's
+screenshot, the text of `#status` (`status`) and the app's state (`state`). The
+`finally` of `live_motion`, `live_noise`, `live_recovery` and
+`external_replay`, which runs after a pass too, stops the suite's fixture, in
+`live_noise` and `live_recovery` after a last snapshot of it (`final`), and
+`external_replay`'s stop says what the replay left (`closed`), which the
+`finally` then checks. Each is a `page.evaluate()`, which Playwright gives no
+timeout, but for `browser_smoke`'s `#status` read, which has the page's, so
+that such a read on a page that never answers it held the run there until the
+job's limit, with no report for that engine. They now go through `readWithin()`
+with `READ_LIMIT`, as `live_camera`'s do: the reads of one `catch` or `finally`
+start at once and share one limit, and `live_motion`'s `catch` and `finally`
+have one each. A read that has neither answered nor failed by then keeps the
+fallback that a read that fails keeps there, `null` for a value
+(`browser_smoke`'s reads have none, so that its report then has no such field)
+and nothing for a stop, and `readsCutShort` names it, in the engine's report
+or, in `live_recovery`, in the scene's record (`cases`); the list is empty when
+nothing was cut short, and `browser_smoke` and `solver_update` have it only
+when they read a page. Reads that answer give what they gave before, and
+`external_replay`'s `finally` checks what its stop says as before. `live_noise`
+and `live_recovery` still ask for the stop only once their snapshot has
+answered or failed, as they always did, and within the same limit, so that a
+fixture is never stopped before its last snapshot. `browser_smoke` still takes
+its screenshot first, with the page's timeout, and a screenshot that fails
+still leaves the page unread; its two reads now start at once, so that a
+`#status` read that fails no longer leaves the state unread. What the limit
+means differs by suite. `browser_smoke` gives its page 20 seconds itself, so
+there `READ_LIMIT` is a tenth of a second under the `#status` read's own
+timeout, as in `live_camera`. `live_motion`, `live_noise`, `live_recovery` and
+`external_replay` ask `engines()` for 60 seconds and `solver_update` keeps
+Playwright's own 30, so there a read that would have answered later than 19.9
+seconds is cut short all the same, as the owner chose; `READ_LIMIT` is the only
+limit those reads have. A read cut short changes the run's outcome no more than
+one that failed: after a failure the engine fails with the suite's own failure,
+and in a `finally` after a pass the pass stands, with `external_replay`
+checking nothing of a stop cut short. Nothing is printed for a read cut short.
+Measured on Windows in Chromium, with each suite's first step in its `try` made
+to fail and its page's main thread then kept busy for good, as for
+`live_camera` above, one run of each as it was and as it is now, on the
+process's own clock from that failure and with the host's load in samples taken
+during the runs: as it was, at 38 to 100% CPU, `solver_update`, `live_motion`,
+`live_noise`, `live_recovery` and `external_replay` were each still waiting in
+their first read, a `page.evaluate()`, when they were stopped, as last sampled
+145.2 to 149.7 s after the failure, with no report. As it is now, at 37 to 100%
+CPU, each ended by itself with exit code 1, its reports written with the
+suite's own failure, nothing in `cleanupErrors` and each of its reads in
+`readsCutShort`. `solver_update`'s two reads were cut short together 19.9 s
+after the failure; its browser then closed at once, and its `exit` event came
+19.9 s after the failure as well. `live_noise`'s snapshot was cut short 19.9 s
+after the failure, with the stop, which it had not asked for yet, and the
+failure's screenshot then ran out of the 60 seconds the suite gives its page,
+its `exit` event coming 80.0 s after the failure; the stop was asked as the
+browser's close ended the snapshot, and failed at once. `live_motion`'s `catch`
+read and then its `finally`'s stop were each cut short 19.9 s after they were
+asked, and after the screenshot's 60 seconds its `exit` event came 99.9 s after
+the failure. `external_replay`'s stop was cut short 19.9 s after each of its
+three fixtures' engines failed, and after each screenshot's 60 seconds the next
+fixture's engine started, its own failure coming 80.2 s and 160.6 s after the
+first, and the `exit` event 240.6 s after it. `live_recovery` did as
+`live_noise` did in each of its two scenes, on a browser each, the second
+scene's failure coming 80.3 s after the first and the `exit` event 160.3 s
+after it. `browser_smoke` was not measured so: there a page that never answers
+fails the screenshot, which has the page's 20 seconds, or then the `#status`
+read, by its own 20 seconds, and either leaves the page unread, as it always
+did, so that only a page that answered both and then stopped could hold that
+run. With nothing sabotaged, in one run each at master and here, at 43 to 100%
+CPU, each of the six passed in Chromium at master and here, `external_replay`
+at master in a second run, its first having timed out at `body[data-ready]` in
+Chromium on its third fixture; `browser_smoke` and `solver_update` passed in
+WebKit too, and the four live suites failed in WebKit at their first step, as
+on Windows (above), with the same reads in WebKit's reports at master and here
+and an empty `readsCutShort` here. `web/tests/suite-reads.test.js` checks the
+page timeouts the limit is measured against above: `browser_smoke`'s 20
+seconds, a tenth of a second over `READ_LIMIT`, the 60 that four suites ask
+`engines()` for, and no timeout of its own in `solver_update`. It runs the
+reads that `live_motion`, `live_noise`, `live_recovery` and `external_replay`
+export for it (`readAfterFailure()` and `stopMotion()`, `finalAndStop()` and
+`stopReplay()`) on a stand-in page that answers, fails at once or as the call
+is made, or never answers, with the timers mocked: the answers kept as they
+came and the fallbacks as before; each wait ending `READ_LIMIT` after it began,
+not a millisecond before; the reads cut short named, `live_motion`'s stop after
+its state; and the stop asked only once the snapshot has settled, never when it
+does not, with one limit for both even when the snapshot answers late. Then it
+runs each of the six suites as it is, in a process of its own, on a stand-in
+for Playwright whose page fails the suite's first step in its `try`: each
+engine's report has the suite's own failure, the reads' answers or fallbacks
+and `readsCutShort`; each read is asked for once, in the suite's order, before
+the harness's failure screenshot or after `browser_smoke`'s own, and the
+browser's close comes last; the run ends by itself; and its timers of
+`READ_LIMIT`'s length, which last a tenth of a second there, are counted, one
+for each `catch` or `finally` that reads, in each engine. The rows are reads
+that all answer, all fail or none answer, the last also with a browser that
+will not close, and in each suite with two reads one that answers or fails
+while the other never does; and `external_replay` still fails an engine whose
+stop says the replay still runs. `live_noise` and `external_replay` also play
+their steps through to a pass, which reads that answer, fail or never answer in
+their `finally` all keep.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
