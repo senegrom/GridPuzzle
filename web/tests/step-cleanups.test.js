@@ -220,7 +220,8 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
 // `site.failAt` picks out when `passes` is false, with `site.failure` or
 // else STEP_FAILED, and answers the call that puts the page back,
 // `site.isPutBack`, as `way` says: "answer", "reject", "throws" (as it is
-// called) or "never". Any call after that one fails with WENT_ON. A read that
+// called) or "never", failing with `site.putBackFailure` or else
+// CALL_FAILED. Any call after that one fails with WENT_ON. A read that
 // `site.isRead` picks out, which the step makes after its failure, is
 // answered as `readWay` says, the same four ways, failing with
 // `site.readFailure` or else READ_FAILED. `size` is what viewportSize()
@@ -235,8 +236,9 @@ function standInPage(site, passes, way, readWay = 'answer') {
     if (after) return Promise.reject(WENT_ON);
     if (site.isPutBack(call, size)) {
       call.putBack = true; after = true;
-      if (way === 'throws') throw CALL_FAILED;
-      if (way === 'reject') return Promise.reject(CALL_FAILED);
+      const failure = site.putBackFailure ?? CALL_FAILED;
+      if (way === 'throws') throw failure;
+      if (way === 'reject') return Promise.reject(failure);
       if (way === 'never') return new Promise(() => {});
       return Promise.resolve();
     }
@@ -423,15 +425,21 @@ for (const site of SITES)
 // failed or been cut short. Played on the stand-in page above, with the wait
 // failing as Playwright fails a timeout, the read answering, failing,
 // throwing as it is called or never answering, and the call answering,
-// failing, throwing or never answering; and once with the wait failing as it
-// does on a page that has gone, which the catch reads all the same, as it
-// always did after any failure of the wait.
+// failing, throwing or never answering; and once each with the wait failing
+// as it does on a page that has gone and on one that has crashed in
+// Chromium, which the catch reads all the same, as it always did after any
+// failure of the wait.
 const OWNERSHIP = SITES.find(({ name }) => name === 'camera after camera ownership');
 const SOLVE_FAILED = new Error('page.waitForFunction: Timeout 180000ms exceeded.');
 // How the wait fails on a page that has crashed in WebKit, or whose browser
 // has gone (GONE in watch.cjs); the page's other calls then fail as
 // CALL_FAILED does.
 const SOLVE_GONE = new Error('page.waitForFunction: Target page, context or browser has been closed');
+// How the wait fails on a page that has crashed in Chromium (GONE too), as
+// harness_regressions sees it on a real crash; every later call on that
+// page fails with the same words, as CALL_CRASHED does.
+const SOLVE_CRASHED = new Error('page.waitForFunction: Target crashed');
+const CALL_CRASHED = new Error('page.evaluate: Target crashed');
 const SOLVE_WAIT_READ = 'page after camera ownership\'s solve wait';
 const SHOWED = { status: 'Solving the puzzle.', detail: 'Starting Python.', result: null, solverWorkers: 0 };
 // The read as the page is asked for it: the same four things as before it
@@ -487,8 +495,8 @@ async function solveWaitFails(t, readWay, putBackWay, { site = SOLVE_WAIT_FAILS,
     assert.equal(page.calls.length, putBack + 1, 'nothing after it');
     const cut = [...(readWay === 'never' ? [CUT_SHORT(SOLVE_WAIT_READ)] : []), ...(putBackWay === 'never' ? [CUT_SHORT(OWNERSHIP.name)] : [])];
     assert.deepEqual(report.readsCutShort, earlier.length || cut.length ? [...earlier, ...cut] : undefined, 'readsCutShort');
-    assert.deepEqual(report.stepCleanupErrors, ['reject', 'throws'].includes(putBackWay) ? [`${OWNERSHIP.name}: ${CALL_FAILED.message}`] : undefined,
-      'stepCleanupErrors');
+    assert.deepEqual(report.stepCleanupErrors, ['reject', 'throws'].includes(putBackWay)
+      ? [`${OWNERSHIP.name}: ${(site.putBackFailure ?? CALL_FAILED).message}`] : undefined, 'stepCleanupErrors');
     assert.deepEqual([report.cleanupErrors, report.checks], [[], []], 'cleanupErrors and checks');
     assert.equal(counted.limits, 2, 'one READ_LIMIT for the read, one for the call');
     assert.deepEqual(lines, [], 'nothing printed: engines() prints the failure');
@@ -511,6 +519,10 @@ describe('browser_regressions: camera ownership\'s solve wait fails, and its cat
   test('a wait that fails because the page has gone, not by its timeout: the page is read all the same, and why it could not be read follows the wait\'s message',
     (t) => solveWaitFails(t, 'reject', 'reject', { site: { ...SOLVE_WAIT_FAILS, failure: SOLVE_GONE, readFailure: CALL_FAILED },
       says: `the page could not be read: ${CALL_FAILED.message}` }));
+
+  test('a wait that fails because the page has crashed in Chromium: the page is read all the same, and why it could not be read follows the wait\'s message',
+    (t) => solveWaitFails(t, 'reject', 'reject', { site: { ...SOLVE_WAIT_FAILS, failure: SOLVE_CRASHED, readFailure: CALL_CRASHED,
+      putBackFailure: CALL_CRASHED }, says: `the page could not be read: ${CALL_CRASHED.message}` }));
 });
 
 test('browser_regressions: a scan without the fallback has nothing to put back, and sets no limit', async (t) => {
