@@ -178,7 +178,8 @@ async function readAfterFailure(page,report){
 }
 // The fixture's stop, after a pass or a failure, with a READ_LIMIT of its own
 // for the same reason: a stop that fails changes nothing, and one cut short
-// only adds its name to `readsCutShort`, after any read of the catch.
+// adds its name to `readsCutShort`, after any read of the catch, which after
+// a pass fails the engine (run()).
 async function stopMotion(page,report){
   const {cutShort}=await readWithin({stop:[()=>page.evaluate(()=>window.motionState?.stop?.()),undefined]},READ_LIMIT);
   report.readsCutShort=[...(report.readsCutShort??[]),...cutShort];
@@ -234,6 +235,12 @@ async function run(){
    } finally {
     await stopMotion(page,report);
    }
+   // Reached only after a pass, so that a failure stays the engine's own: a
+   // stop cut short then fails the engine with its name, as a browser that
+   // would not close fails one that passed (web/TESTING.md). And as with such
+   // a close, an uncaught page error or a page or browser lost fails it
+   // instead, through engines()' own checks once this returns.
+   if(report.readsCutShort.length&&!report.errors.length&&!report.ended.length)throw Error(`${name}: ${report.readsCutShort.join('; ')}`);
   },{timeout:60000});
  }finally{server.close();}
 }
