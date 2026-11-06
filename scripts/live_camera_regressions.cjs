@@ -214,9 +214,10 @@ async function stepThenPutBack(report,name,step,putBack) {
   if(cutShort.length)throw new Error(cutShort[0]);
   if(rejected)throw rejected.error;
 }
-// The steps whose finally put the page back for the steps after them, each
-// now through stepThenPutBack(), and here, outside run(), so that a test can
-// play each on a stand-in page (web/tests/step-cleanups.test.js).
+// The steps after which a call puts the page back for the steps that follow,
+// a call once made in each step's finally and now through stepThenPutBack().
+// They are here, outside run(), so that a test can play each on a stand-in
+// page (web/tests/step-cleanups.test.js).
 // A phone and screens taller than the general viewfinder rule's 65vh cap on
 // videos: the canvas and the video share one box at each. Then the viewport
 // goes back to the page's own size.

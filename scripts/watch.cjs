@@ -2,9 +2,9 @@
    asking: watch(), with which the harness's engines(), the suites that launch
    browsers of their own and the corpus benchmark runner watch their
    browsers; and what stops the close that ends an engine, a suite's reads of
-   its page in a catch or a finally, and the calls in a step's finally that
-   put its page back, from holding a run up: the close() of what watch()
-   returns, cleanUp(), readWithin(), markUnclosed() and exitIfUnclosed().
+   its page in a catch or a finally, and the call after some steps that puts
+   the page back, from holding a run up: the close() of what watch() returns,
+   cleanUp(), readWithin(), markUnclosed() and exitIfUnclosed().
    It lives apart from scripts/harness.cjs, which exports what the suites use
    of it too, because loading the harness takes over the process's exit, to
    stop its servers, and SIGHUP, SIGINT, SIGTERM and SIGBREAK, which end the
@@ -54,10 +54,10 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
 // report, may take, all those of one catch or finally together
 // (readWithin()): live_camera's, live_motion's, live_noise's,
 // live_recovery's, external_replay's, solver_update's and browser_smoke's,
-// the stop of a suite's fixture among them; and how long the call in the
-// finally of some steps of live_camera, browser_regressions and
-// scanner_repair that puts the page back for the steps after it may take
-// (the stepThenPutBack() of each), a page.evaluate() or a
+// the stop of a suite's fixture among them; and how long the call after
+// some steps of live_camera, browser_regressions and scanner_repair that
+// puts the page back for the steps after them may take (the
+// stepThenPutBack() of each), a page.evaluate() or a
 // page.setViewportSize(). It is a tenth of a second less than the 20
 // seconds that engines() in harness.cjs gives each call on the suite's page
 // that waits for something, unless the suite asks for more, and that
