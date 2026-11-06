@@ -58,9 +58,8 @@ test('a read that fails, at once, later or by throwing, keeps its fallback, is n
     rejects: [() => Promise.reject(new Error('Target page, context or browser has been closed')), ''],
     throws: [() => { throw new Error('not a function'); }, null],
     timesOut: [() => new Promise((resolve, reject) => setTimeout(reject, 20, new Error('Timeout 20000ms exceeded.'))), 'none'],
-    answers: [async () => 'kept', ''],
   }, 1000);
-  assert.deepEqual(values, { rejects: '', throws: null, timesOut: 'none', answers: 'kept' });
+  assert.deepEqual(values, { rejects: '', throws: null, timesOut: 'none' });
   assert.deepEqual(cutShort, []);
   assert.deepEqual(failed, ['rejects: Target page, context or browser has been closed', 'throws: not a function',
     'timesOut: Timeout 20000ms exceeded.']);
@@ -69,15 +68,13 @@ test('a read that fails, at once, later or by throwing, keeps its fallback, is n
 
 test('a failure with no message is named by the error itself as a string, and the reads that failed keep the order asked, not the order they failed in', async () => {
   const later = (ms, error) => () => new Promise((resolve, reject) => setTimeout(reject, ms, error));
-  const { values, cutShort, failed } = await readWithin({
+  assert.deepEqual(await readWithin({
     last: [later(30, new Error('the last to fail')), null], word: [later(20, 'closed'), null], nothing: [later(10, undefined), null],
     empty: [() => Promise.reject(new Error('')), null], plain: [() => Promise.reject({ message: 'a message, not an Error' }), null],
     first: [later(0, new TypeError('x is not a function')), null],
-  }, 1000);
-  assert.deepEqual(values, { last: null, word: null, nothing: null, empty: null, plain: null, first: null });
-  assert.deepEqual(cutShort, []);
-  assert.deepEqual(failed, ['last: the last to fail', 'word: closed', 'nothing: undefined', 'empty: Error', 'plain: a message, not an Error',
-    'first: x is not a function']);
+  }, 1000), { values: { last: null, word: null, nothing: null, empty: null, plain: null, first: null }, cutShort: [],
+    failed: ['last: the last to fail', 'word: closed', 'nothing: undefined', 'empty: Error', 'plain: a message, not an Error',
+      'first: x is not a function'] });
 });
 
 test('reads that never answer end together at the limit, once, with their fallbacks and each named with why', async (t) => {

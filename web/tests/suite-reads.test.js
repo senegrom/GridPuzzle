@@ -204,9 +204,9 @@ for (const [suite, { finalAndStop }, holder] of [['live_noise', noise, 'report']
       assert.deepEqual(record, { final: ANSWERS.final, readsCutShort: CUT_SHORT('stop'), readsFailed: [] });
       assert.deepEqual(page.events, ['asked for final', 'final answers', 'asked for stop']);
       const failing = standInPage({ final: [READ_LIMIT / 2, 'reject'], stop: 'never' }), failed = {};
-      assert.equal(await settledAt(t, finalAndStop(failing, failed)), READ_LIMIT);
-      assert.deepEqual(failed, { final: null, readsCutShort: CUT_SHORT('stop'), readsFailed: FAILED(ERRORS.reject, 'final') });
-      assert.deepEqual(failing.events, ['asked for final', 'final fails', 'asked for stop']);
+      assert.deepEqual([await settledAt(t, finalAndStop(failing, failed)), failed, failing.events],
+        [READ_LIMIT, { final: null, readsCutShort: CUT_SHORT('stop'), readsFailed: FAILED(ERRORS.reject, 'final') },
+          ['asked for final', 'final fails', 'asked for stop']]);
     });
   });
 
@@ -561,17 +561,14 @@ async function check(t, suite, env) {
       ...after, 'closes its browser']).flat(), stdout);
   assert.deepEqual(limits, { [READ_LIMIT]: blocks.length * engines.length, [CLOSE_LIMIT]: engines.length },
     'one limit for each catch\'s or finally\'s reads in each engine, and one for each browser\'s close');
-  // After a failure nothing is printed of a read cut short or failed; after a
-  // pass the failure that names such reads is, as any engine's failure is,
-  // but for an uncaught page error or a crash, whose failure is printed
-  // instead, with the page's error.
-  if (readsFail)
-    for (const name of new Set(engines))
-      assert.ok(stderr.includes(`${name} ${READS_FAILURE(name, cut, failed)}`), `${name}'s failure printed: ${stderr}`);
-  else {
-    assert.doesNotMatch(stderr, /no answer within/, 'the reads cut short are the report\'s, not stderr\'s');
-    assert.ok(!stderr.includes(READ_ERROR), `the reads that failed are the report's, not stderr's: ${stderr}`);
-  }
+  // What stderr says of the reads, line by line: nothing after a failure, nor
+  // after an uncaught page error or a crash, whose failure is printed instead,
+  // with the page's error; after a pass that the reads fail, each engine's
+  // failure, which names them, after the engine's name, as any engine's
+  // failure is printed, and last the first of them, with which the run ends.
+  const ofReads = stderr.split(/\r?\n/).filter((line) => line.includes('no answer within') || line.includes(READ_ERROR));
+  assert.deepEqual(ofReads, readsFail ? [...engines.map((name) => `${name} ${READS_FAILURE(name, cut, failed)}`),
+    READS_FAILURE('chromium', cut, failed)] : [], `what stderr says of the reads: ${stderr}`);
   if (env.EVENT)
     for (const name of new Set(engines))
       assert.ok(stderr.includes(EVENT_FAILURE[env.EVENT](name).split('\n').at(-1)), `${name}'s failure printed: ${stderr}`);
@@ -673,8 +670,8 @@ describe('live_recovery\'s scenes and external_replay\'s fixtures, after one eng
       };
       // When none of them answers, every read of the finally is cut short,
       // but only the first of a chain is asked; when each fails, each is asked.
-      const asked = (names) => names.map((name) => `is asked for ${name}`);
-      const plays = (first, shot) => ({
+      const failure = READS_FAILURE('chromium', last), asked = (names) => names.map((name) => `is asked for ${name}`);
+      const plays = (first, shot = true) => ({
         chromium: [...asked(first), ...(shot ? ['takes a screenshot'] : []), 'closes its browser',
           ...Array.from({ length: runs - 1 }, () => [...asked(last), 'closes its browser']).flat()],
         webkit: Array.from({ length: runs }, () => [...asked(last), 'closes its browser']).flat(),
@@ -686,17 +683,18 @@ describe('live_recovery\'s scenes and external_replay\'s fixtures, after one eng
       const failed = await outcome({ plan: { '*': 'answer' }, play: false });
       assert.equal(failed.code, 1, failed.stderr);
       assert.deepEqual(failed.reports, [['chromium', 'failed', 'Error: no site here', [], [], ...inRecord(null, 'Error: no site here')], ...others]);
-      assert.deepEqual(failed.said, plays(last, true), failed.stdout);
+      assert.deepEqual(failed.said, plays(last), failed.stdout);
       assert.equal(failed.ended, 'Error: no site here', failed.stderr);
-      const cutShort = await outcome({ plan: { '*': 'never' }, play: true }), cutFailure = READS_FAILURE('chromium', last);
+      const cutShort = await outcome({ plan: { '*': 'never' }, play: true });
       assert.equal(cutShort.code, 1, cutShort.stderr);
-      assert.deepEqual(cutShort.reports, [['chromium', 'failed', cutFailure, CUT_SHORT(...last), [], ...inRecord(true, null)], ...others]);
+      assert.deepEqual(cutShort.reports, [['chromium', 'failed', failure, CUT_SHORT(...last), [], ...inRecord(true, null)], ...others]);
       assert.deepEqual(cutShort.said, plays(chained ? last.slice(0, 1) : last, false), cutShort.stdout);
-      assert.equal(cutShort.ended, cutFailure, cutShort.stderr);
+      assert.equal(cutShort.ended, failure, cutShort.stderr);
       const readsFailed = await outcome({ plan: { '*': 'reject' }, play: true }), failedFailure = READS_FAILURE('chromium', [], last);
       assert.equal(readsFailed.code, 1, readsFailed.stderr);
-      assert.deepEqual(readsFailed.reports, [['chromium', 'failed', failedFailure, [], FAILED(READ_ERROR, ...last), ...inRecord(true, null)], ...others]);
-      assert.deepEqual(readsFailed.said, plays(last, false), readsFailed.stdout);
+      assert.deepEqual([readsFailed.reports, readsFailed.said],
+        [[['chromium', 'failed', failedFailure, [], FAILED(READ_ERROR, ...last), ...inRecord(true, null)], ...others], plays(last, false)],
+        readsFailed.stdout);
       assert.equal(readsFailed.ended, failedFailure, readsFailed.stderr);
     });
 });

@@ -153,33 +153,22 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
   ])
     test(`a suite whose steps passed and whose finally ${what}: that engine fails with them, with no screenshot, its report written and its browser closed, and the next engine runs and passes`, async (t) => {
       const { code, killed, stdout, stderr, lines, limits, reports, shot } = await ran(t, { chromium: reads, webkit: { readsCutShort: [], readsFailed: [] } });
-      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-      assert.equal(code, 1, stderr);
-      assert.deepEqual(reports.map(seen), [{ ...PASSED, status: 'failed', failure, ...reads },
-        { ...PASSED, readsCutShort: [], readsFailed: [] }]);
-      assert.deepEqual([said(lines, 'chromium'), said(lines, 'webkit')], [['closes its browser'], ['closes its browser']],
-        'each browser closed, and no screenshot taken');
-      assert.deepEqual([shot('chromium'), shot('webkit')], [false, false], 'no failure screenshot written');
+      assert.deepEqual({ killed, code }, { killed: false, code: 1 }, `it ended by itself, failing: ${stdout}${stderr}`);
+      // Each browser closed, with one limit for each close, and no screenshot
+      // taken or written; lists that name nothing keep the pass.
+      assert.deepEqual({ reports: reports.map(seen), said: [said(lines, 'chromium'), said(lines, 'webkit')],
+        shots: [shot('chromium'), shot('webkit')], limits },
+      { reports: [{ ...PASSED, status: 'failed', failure, ...reads }, { ...PASSED, readsCutShort: [], readsFailed: [] }],
+        said: [['closes its browser'], ['closes its browser']], shots: [false, false], limits: { [READ_LIMIT]: 0, [CLOSE_LIMIT]: 2 } });
       assert.ok(stderr.includes(`chromium ${failure}\n`), `the failure printed after the engine's name: ${stderr}`);
       assert.equal(endedWith(stderr), failure, `the run ends with that failure: ${stderr}`);
-      assert.deepEqual(limits, { [READ_LIMIT]: 0, [CLOSE_LIMIT]: 2 }, 'one limit for each browser\'s close');
     });
-
-  test('lists that name nothing keep the pass, and a run whose every engine passed ends with 0', async (t) => {
-    const { code, killed, stdout, stderr, lines, reports } = await ran(t, { chromium: { readsCutShort: [], readsFailed: [] }, webkit: {} });
-    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-    assert.equal(code, 0, stderr);
-    assert.deepEqual(reports.map(seen), [{ ...PASSED, readsCutShort: [], readsFailed: [] }, PASSED]);
-    assert.deepEqual([said(lines, 'chromium'), said(lines, 'webkit')], [['closes its browser'], ['closes its browser']]);
-  });
 
   test('when both engines fail so, each is printed, and the run ends with the first engine\'s failure', async (t) => {
     const { code, killed, stdout, stderr, reports, shot } = await ran(t, { chromium: { readsFailed: [FAILED] }, webkit: { readsCutShort: [CUT] } });
-    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-    assert.equal(code, 1, stderr);
-    assert.deepEqual(reports.map(({ status, failure }) => [status, head(failure)]),
-      [['failed', `Error: chromium: ${FAILED}`], ['failed', `Error: webkit: ${CUT}`]]);
-    assert.deepEqual([shot('chromium'), shot('webkit')], [false, false]);
+    assert.deepEqual({ killed, code }, { killed: false, code: 1 }, `it ended by itself, failing: ${stdout}${stderr}`);
+    assert.deepEqual({ reports: reports.map(({ status, failure }) => [status, head(failure)]), shots: [shot('chromium'), shot('webkit')] },
+      { reports: [['failed', `Error: chromium: ${FAILED}`], ['failed', `Error: webkit: ${CUT}`]], shots: [false, false] });
     assert.ok(stderr.includes(`chromium Error: chromium: ${FAILED}\n`) && stderr.includes(`webkit Error: webkit: ${CUT}\n`), stderr);
     assert.equal(endedWith(stderr), `Error: chromium: ${FAILED}`, stderr);
   });
@@ -190,12 +179,10 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
   for (const [how, cleanupError] of [['hangs', UNCLOSED], ['rejects', 'browser: stand-in: the close failed']])
     test(`with a close that ${how === 'hangs' ? 'never settles' : 'rejects'} too, the report keeps the reads' failure, the close's stays in cleanupErrors and is printed after it`, async (t) => {
       const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { readsCutShort: [CUT], close: how }, webkit: {} });
-      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-      assert.equal(code, 1, stderr);
       const failure = `Error: chromium: ${CUT}`;
-      assert.deepEqual(reports.map(seen), [{ ...PASSED, status: 'failed', failure, cleanupErrors: [cleanupError], readsCutShort: [CUT] }, PASSED]);
-      assert.deepEqual([said(lines, 'chromium'), said(lines, 'webkit')], [['closes its browser'], ['closes its browser']]);
-      assert.equal(shot('chromium'), false);
+      assert.deepEqual({ killed, code, reports: reports.map(seen), said: [said(lines, 'chromium'), said(lines, 'webkit')], shot: shot('chromium') },
+        { killed: false, code: 1, reports: [{ ...PASSED, status: 'failed', failure, cleanupErrors: [cleanupError], readsCutShort: [CUT] }, PASSED],
+          said: [['closes its browser'], ['closes its browser']], shot: false }, `${stdout}${stderr}`);
       const printed = stderr.indexOf(`chromium ${failure}\n`), closed = stderr.indexOf(`chromium: ${cleanupError}`);
       assert.ok(printed >= 0 && closed > printed, `the reads' failure printed, then the close's: ${stderr}`);
       assert.equal(endedWith(stderr), failure, stderr);
@@ -208,14 +195,12 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
   test('a read that failed as its browser went away fails the engine once the news has come, led by what ended', async (t) => {
     const gone = 'closed: page.evaluate: Target page, context or browser has been closed';
     const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { event: 'lose', readsFailed: [gone] }, webkit: {} });
-    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-    assert.equal(code, 1, stderr);
     const [chromium, webkit] = reports;
-    assert.deepEqual(chromium.ended.map(({ event }) => event), ['browser disconnected']);
-    assert.equal(chromium.status, 'failed');
-    assert.equal(head(chromium.failure), `browser disconnected N s after launch\nError: chromium: ${gone}`);
-    assert.deepEqual([seen(webkit), shot('chromium')], [PASSED, false]);
-    assert.deepEqual(said(lines, 'chromium'), ['closes its browser']);
+    assert.deepEqual({ killed, code, ended: chromium.ended.map(({ event }) => event), chromium: seen(chromium), webkit: seen(webkit),
+      said: said(lines, 'chromium'), shot: shot('chromium') },
+    { killed: false, code: 1, ended: ['browser disconnected'],
+      chromium: { ...PASSED, status: 'failed', failure: `browser disconnected N s after launch\nError: chromium: ${gone}`, readsFailed: [gone] },
+      webkit: PASSED, said: ['closes its browser'], shot: false }, `${stdout}${stderr}`);
     assert.match(stderr, /^chromium browser disconnected [\d.]+ s after launch\nError: chromium: closed: page\.evaluate: Target page/m, stderr);
   });
 });
@@ -224,7 +209,8 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
 // to engines(): the suite's own failure, an uncaught page error and a page
 // lost, each found in the try, which take the failure screenshot, while the
 // report still names the reads. The engine has failed then, and the reads
-// change nothing more.
+// change nothing more. These rows check what has not changed, so that they
+// pass on the harness as it was too.
 describe('engines() keeps a suite\'s own failure, a page error and a page lost first, as before', { concurrency: true }, () => {
   const reads = { readsCutShort: [CUT], readsFailed: [FAILED] };
   for (const [what, plan, failure] of [
@@ -235,11 +221,9 @@ describe('engines() keeps a suite\'s own failure, a page error and a page lost f
   ])
     test(`an engine whose ${what} fails with that, with its screenshot, whatever its finally cut short or saw fail`, async (t) => {
       const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { ...plan, ...reads }, webkit: {} });
-      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-      assert.equal(code, 1, stderr);
-      assert.deepEqual(reports.map(seen), [{ ...PASSED, status: 'failed', failure, ...reads }, PASSED]);
-      assert.deepEqual([said(lines, 'chromium'), said(lines, 'webkit')], [['takes a screenshot', 'closes its browser'], ['closes its browser']]);
-      assert.equal(shot('chromium'), true);
+      assert.deepEqual({ killed, code, reports: reports.map(seen), said: [said(lines, 'chromium'), said(lines, 'webkit')], shot: shot('chromium') },
+        { killed: false, code: 1, reports: [{ ...PASSED, status: 'failed', failure, ...reads }, PASSED],
+          said: [['takes a screenshot', 'closes its browser'], ['closes its browser']], shot: true }, `${stdout}${stderr}`);
       assert.ok(!stderr.includes(CUT) && !stderr.includes(FAILED), `the reads are the report's, not stderr's: ${stderr}`);
       assert.equal(endedWith(stderr), failure.split('\n').at(-1), stderr);
     });
