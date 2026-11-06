@@ -102,8 +102,8 @@ async function begin() {
 // the snapshot has answered or failed. Both share READ_LIMIT (watch.cjs), so
 // that a page that will not answer, as in the WebKit hang (web/TESTING.md),
 // cannot hold the run here: `final` is null when the snapshot fails or is
-// cut short, a stop that fails or is cut short changes nothing, and
-// `readsCutShort` names what was cut short.
+// cut short, a stop that fails changes nothing, and `readsCutShort` names
+// what was cut short, which after a pass fails the engine (run()).
 async function finalAndStop(page,report){
   let snapshotted;const snapshot=new Promise(resolve=>{snapshotted=resolve;});
   const {values,cutShort}=await readWithin({
@@ -186,6 +186,10 @@ async function run(){const server=await serve();try{
         `changed 8 to 3 retires original reading and triggers fresh OCR, which reads the 3 and no other digit wrong without a flag${bitmaps?', also with a frame lost right after the change':''}`];
       await page.screenshot({path:`browser-artifacts/${name}-live-noise.png`});
     }finally{await finalAndStop(page,report);}
+    // Reached only after a pass, so that a failure stays the engine's own: a
+    // read cut short then fails the engine with the names, as a browser that
+    // would not close fails one that passed (web/TESTING.md).
+    if(report.readsCutShort.length)throw Error(`${name}: ${report.readsCutShort.join('; ')}`);
   },{timeout:60000});
 }finally{await server.close();}}
 module.exports={run,finalAndStop};main(module,run);
