@@ -14,9 +14,9 @@ import { createRequire } from 'node:module';
 // own, on a stand-in for Playwright whose page fails the suite's first step
 // in its try, and then answers those reads, fails them or never answers; the
 // four whose finally reads, played through to a pass, which a read cut short
-// there fails; live_recovery's scenes and external_replay's fixtures after
-// one engine has failed so or by its steps; and engines that never reach
-// those reads, with no page, a page that never gets ready or a failure's
+// there fails; live_recovery's scenes and external_replay's fixtures once one
+// engine has failed that way, or at its first step; and engines that never
+// reach those reads, with no page, a page that never gets ready or a failure's
 // screenshot that fails. Loading watch.cjs or a suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
@@ -546,8 +546,8 @@ describe('the four suites whose finally reads, run as they are through a pass', 
 // live_recovery whose reads were cut short after its checks passed keeps
 // `ok` in its record.
 describe('live_recovery\'s scenes and external_replay\'s fixtures, after one engine has failed', { concurrency: true }, () => {
-  for (const suite of ['live_recovery', 'external_replay'])
-    test(`${suite} runs every other engine, scene or fixture through to its pass after reads cut short fail the first engine that passed, as after that engine's own failure`, async (t) => {
+  for (const [suite, unit] of [['live_recovery', 'scene'], ['external_replay', 'fixture']])
+    test(`${suite} runs every other engine and ${unit} through to its pass after reads cut short fail the first engine that passed, as after that engine's own failure`, async (t) => {
       const { reads: { finally: last }, runs, holder = (report) => report, chained } = SUITES[suite], engines = enginesOf(runs);
       const rest = engines.slice(1).map(() => ({ plan: { '*': 'answer' }, play: true }));
       const outcome = async (first) => {
@@ -570,6 +570,8 @@ describe('live_recovery\'s scenes and external_replay\'s fixtures, after one eng
           ...Array.from({ length: runs - 1 }, () => [...asked(last), 'closes its browser']).flat()],
         webkit: Array.from({ length: runs }, () => [...asked(last), 'closes its browser']).flat(),
       });
+      // A record of live_recovery's has `ok` once its checks have passed;
+      // external_replay keeps none.
       const ok = suite === 'live_recovery' || null, others = engines.slice(1).map((name) => [name, 'passed', undefined, [], ok]);
       const failed = await outcome({ plan: { '*': 'answer' }, play: false });
       assert.equal(failed.code, 1, failed.stderr);
