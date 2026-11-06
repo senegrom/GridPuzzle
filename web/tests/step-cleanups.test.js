@@ -1,4 +1,4 @@
-import test, { describe } from 'node:test';
+import test, { before, describe, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -56,10 +56,21 @@ function outcomeOf(running) {
   return seen;
 }
 
+// Node 22 warns, once in a process, that mock timers are experimental, through
+// console.error a tick after they are first used (Node 24 does not warn). Let
+// it warn here, before any test runs, so that the warning is never among what
+// printed() catches, whichever test comes first or runs alone.
+before(async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  mock.timers.reset();
+  await tick();
+});
+
 // What `console` prints during one test, each line as it would print it,
-// with each of its methods that print mocked, which the test's mocks put
-// back as it ends. engines() prints a step's failure; neither the step nor
-// the call that puts its page back prints anything itself.
+// through its log, info, warn, error, debug, trace and dir, each mocked,
+// which the test's mocks put back as it ends. engines() prints a step's
+// failure; neither the step nor the call that puts its page back prints
+// anything itself.
 function printed(t) {
   const lines = [];
   for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir'])
