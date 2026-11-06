@@ -82,17 +82,21 @@ function labels(block){
 // then nothing is checked. It has READ_LIMIT (watch.cjs), so that a page that
 // will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
 // run here: a stop still waiting then leaves null too, and `readsCutShort`
-// names it, which after a pass fails the engine (run()).
+// names it, as `readsFailed` names, with its error, a stop that failed. After
+// a pass either fails the engine, in engines() (harness.cjs), as a browser
+// that would not close does, so that no engine passes with what its stop left
+// unchecked; after a failure the engine keeps its own. The next engine and
+// fixture run as after any failure.
 async function stopReplay(page,r){
- const {values,cutShort}=await readWithin({closed:[()=>page.evaluate(()=>window.externalReplay?.stop()),null]},READ_LIMIT);
- r.closed=values.closed;r.readsCutShort=cutShort;
+ const {values,cutShort,failed}=await readWithin({closed:[()=>page.evaluate(()=>window.externalReplay?.stop()),null]},READ_LIMIT);
+ r.closed=values.closed;r.readsCutShort=cutShort;r.readsFailed=failed;
 }
 async function run(){
  const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[];
  const server=await serve();
  try{
   for(const [i,f] of fixtures.entries()){
-   const file=`external-replay-${i}.json`;try{await engines(file,async(page,r,name)=>{
+   const file=`external-replay-${i}.json`;try{await engines(file,async(page,r)=>{
     r.source={name:f.name,sha256:f.sha256,revision:corpus.revision,index:i,selection:'first 3 of the existing hash-selected test slice; no performance filtering'};
     await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');
     try{
@@ -115,13 +119,6 @@ async function run(){
      await stopReplay(page,r);
      if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}
     }
-    // Reached only after a pass, so that a failure stays the engine's own: a
-    // stop cut short then fails the engine with its name, as a browser that
-    // would not close fails one that passed (web/TESTING.md). And as with such
-    // a close, an uncaught page error or a page or browser lost fails it
-    // instead, through engines()' own checks once this returns. The next
-    // engine and fixture run as after any failure.
-    if(r.readsCutShort.length&&!r.errors.length&&!r.ended.length)throw Error(`${name}: ${r.readsCutShort.join('; ')}`);
    },{timeout:60000});}catch(e){failures.push(e);}finally{if(fs.existsSync(`browser-artifacts/${file}`))reports.push(...JSON.parse(fs.readFileSync(`browser-artifacts/${file}`,'utf8')));}
   }
  // In this order: a report that cannot be written must not leave the server up.

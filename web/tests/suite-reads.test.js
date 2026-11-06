@@ -10,16 +10,18 @@ import { createRequire } from 'node:module';
 // their report, which share watch.cjs's READ_LIMIT through readWithin(), as
 // live_camera's do (harness-reads.test.js): live_motion's, live_noise's,
 // live_recovery's and external_replay's as the functions the suites export,
-// on a stand-in page; then each of the six run as it is, in a process of its
-// own, on a stand-in for Playwright whose page fails the suite's first step
-// in its try, and then answers those reads, fails them or never answers; the
-// four whose finally reads, played through to a pass, which a read cut short
-// there fails, unless the page threw an uncaught error or crashed, which
-// fails it first; live_recovery's scenes and external_replay's fixtures once
-// one engine has failed that way, or at its first step; and engines that
-// never reach those reads, with no page, a page that never gets ready or a
-// failure's screenshot that fails. Loading watch.cjs or a suite needs no
-// Playwright.
+// on a stand-in page, with the reads of their finally that were cut short
+// (readsCutShort) and those that failed (readsFailed); then each of the six
+// run as it is, in a process of its own, on a stand-in for Playwright whose
+// page fails the suite's first step in its try, and then answers those
+// reads, fails them or never answers; the four whose finally reads, played
+// through to a pass, which a read cut short or failed there fails, in
+// engines()' finally (harness.cjs) and with no failure screenshot, unless
+// the page threw an uncaught error or crashed, which fails it first;
+// live_recovery's scenes and external_replay's fixtures once one engine has
+// failed that way, or at its first step; and engines that never reach those
+// reads, with no page, a page that never gets ready or a failure's
+// screenshot that fails. Loading watch.cjs or a suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const motion = require('../../scripts/live_motion_regressions.cjs');
@@ -28,6 +30,8 @@ const recovery = require('../../scripts/live_recovery_regressions.cjs');
 const replay = require('../../scripts/external_replay_regressions.cjs');
 const tick = () => new Promise(setImmediate);
 const CUT_SHORT = (...names) => names.map((name) => `${name}: no answer within ${READ_LIMIT / 1000} s`);
+// How readsFailed names reads that failed with `message`.
+const FAILED = (message, ...names) => names.map((name) => `${name}: ${message}`);
 const source = (script) => fs.readFileSync(new URL(`../../scripts/${script}`, import.meta.url), 'utf8');
 
 // What READ_LIMIT means in each suite, as web/TESTING.md says: browser_smoke
@@ -75,17 +79,19 @@ const ANSWERS = {
 // A page for the exported reads that answers each as `plan` says, by its name
 // (NAMES; "*" for the rest): "answer" (ANSWERS), "reject", "never", "throws"
 // (as the call is made), or [ms, way] to answer or reject that long after it
-// was asked. `events` lists in order what it was asked for and what settled.
+// was asked; a read that rejects or throws fails with ERRORS' message for
+// that way. `events` lists in order what it was asked for and what settled.
+const ERRORS = { reject: 'Target page, context or browser has been closed', throws: 'not a function' };
 function standInPage(plan) {
   const events = [];
   const read = (name) => {
     const planned = plan[name] ?? plan['*'], [ms, way] = Array.isArray(planned) ? planned : [0, planned];
     events.push(`asked for ${name}`);
-    if (way === 'throws') throw new Error(`${name}: not a function`);
+    if (way === 'throws') throw new Error(ERRORS.throws);
     if (way === 'never') return new Promise(() => {});
     const settle = (resolve, reject) => {
       events.push(`${name} ${way === 'answer' ? 'answers' : 'fails'}`);
-      if (way === 'answer') resolve(ANSWERS[name]); else reject(new Error('Target page, context or browser has been closed'));
+      if (way === 'answer') resolve(ANSWERS[name]); else reject(new Error(ERRORS.reject));
     };
     return new Promise((resolve, reject) => (ms ? setTimeout(settle, ms, resolve, reject) : settle(resolve, reject)));
   };
@@ -111,21 +117,23 @@ async function settledAt(t, reading, limit = READ_LIMIT) {
 }
 
 describe('live_motion\'s read of its page after a failure, and its fixture\'s stop after a pass or a failure', () => {
-  test('a page that answers: the report keeps the state exactly, and no read is cut short', async () => {
+  test('a page that answers: the report keeps the state exactly, and no read is cut short or failed', async () => {
     const page = standInPage({ '*': 'answer' }), report = { browser: 'webkit' };
     await motion.readAfterFailure(page, report);
     assert.deepEqual(report, { browser: 'webkit', state: ANSWERS.state, readsCutShort: [] });
     await motion.stopMotion(page, report);
-    assert.deepEqual(report, { browser: 'webkit', state: ANSWERS.state, readsCutShort: [] });
+    assert.deepEqual(report, { browser: 'webkit', state: ANSWERS.state, readsCutShort: [], readsFailed: [] });
     assert.deepEqual(page.events, ['asked for state', 'state answers', 'asked for stop', 'stop answers']);
   });
 
-  test('a page that fails both, at once or as the call is made: the state is null, as it always was, and nothing is cut short', async () => {
+  // The catch's read is never named when it fails: the engine has failed
+  // already, and its null says as much as it always did.
+  test('a page that fails both, at once or as the call is made: the state is null, as it always was, nothing is cut short and the stop alone is named with its error', async () => {
     for (const way of ['reject', 'throws']) {
       const report = {};
       await motion.readAfterFailure(standInPage({ '*': way }), report);
       await motion.stopMotion(standInPage({ '*': way }), report);
-      assert.deepEqual(report, { state: null, readsCutShort: [] }, way);
+      assert.deepEqual(report, { state: null, readsCutShort: [], readsFailed: FAILED(ERRORS[way], 'stop') }, way);
     }
   });
 
@@ -135,16 +143,21 @@ describe('live_motion\'s read of its page after a failure, and its fixture\'s st
     assert.equal(await settledAt(t, motion.readAfterFailure(page, report)), READ_LIMIT);
     assert.deepEqual(report, { state: null, readsCutShort: CUT_SHORT('state') });
     assert.equal(await settledAt(t, motion.stopMotion(page, report)), READ_LIMIT);
-    assert.deepEqual(report, { state: null, readsCutShort: CUT_SHORT('state', 'stop') });
+    assert.deepEqual(report, { state: null, readsCutShort: CUT_SHORT('state', 'stop'), readsFailed: [] });
   });
 
-  test('after a pass, a stop that never answers is named on its own, and one that answers leaves an empty list', async (t) => {
+  test('after a pass, a stop that never answers or fails is named on its own, in its list, and one that answers leaves both lists empty', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const passed = {}, stopped = {};
     assert.equal(await settledAt(t, motion.stopMotion(standInPage({ stop: 'never' }), passed)), READ_LIMIT);
-    assert.deepEqual(passed, { readsCutShort: CUT_SHORT('stop') });
+    assert.deepEqual(passed, { readsCutShort: CUT_SHORT('stop'), readsFailed: [] });
+    for (const way of ['reject', 'throws']) {
+      const failed = {};
+      await motion.stopMotion(standInPage({ stop: way }), failed);
+      assert.deepEqual(failed, { readsCutShort: [], readsFailed: FAILED(ERRORS[way], 'stop') }, way);
+    }
     await motion.stopMotion(standInPage({ stop: 'answer' }), stopped);
-    assert.deepEqual(stopped, { readsCutShort: [] });
+    assert.deepEqual(stopped, { readsCutShort: [], readsFailed: [] });
   });
 });
 
@@ -152,51 +165,63 @@ describe('live_motion\'s read of its page after a failure, and its fixture\'s st
 // fixture's stop, which is asked only once the snapshot has settled.
 for (const [suite, { finalAndStop }, holder] of [['live_noise', noise, 'report'], ['live_recovery', recovery, 'record']])
   describe(`${suite}'s last snapshot of its page and its fixture's stop, after a pass or a failure`, () => {
-    test(`a page that answers: the ${holder} keeps the snapshot exactly, the stop is asked once it has answered, and nothing is cut short`, async () => {
+    test(`a page that answers: the ${holder} keeps the snapshot exactly, the stop is asked once it has answered, and nothing is cut short or failed`, async () => {
       const page = standInPage({ '*': 'answer' }), record = { font: 'Courier New' };
       await finalAndStop(page, record);
-      assert.deepEqual(record, { font: 'Courier New', final: ANSWERS.final, readsCutShort: [] });
+      assert.deepEqual(record, { font: 'Courier New', final: ANSWERS.final, readsCutShort: [], readsFailed: [] });
       assert.deepEqual(page.events, ['asked for final', 'final answers', 'asked for stop', 'stop answers']);
     });
 
-    test('a snapshot that fails, at once or as the call is made: null, as it always was, and the stop is still asked', async () => {
+    test('a snapshot that fails, at once or as the call is made: null, as it always was, named with its error, and the stop is still asked', async () => {
       for (const way of ['reject', 'throws']) {
         const page = standInPage({ final: way, stop: 'answer' }), record = {};
         await finalAndStop(page, record);
-        assert.deepEqual(record, { final: null, readsCutShort: [] }, way);
+        assert.deepEqual(record, { final: null, readsCutShort: [], readsFailed: FAILED(ERRORS[way], 'final') }, way);
         assert.deepEqual(page.events.at(-2), 'asked for stop', way);
       }
+    });
+
+    test('a snapshot that answers and a stop that fails, or both failing: each that failed is named with its error, in the order asked', async () => {
+      const stopFails = {}, bothFail = {};
+      await finalAndStop(standInPage({ final: 'answer', stop: 'reject' }), stopFails);
+      assert.deepEqual(stopFails, { final: ANSWERS.final, readsCutShort: [], readsFailed: FAILED(ERRORS.reject, 'stop') });
+      await finalAndStop(standInPage({ final: 'throws', stop: 'reject' }), bothFail);
+      assert.deepEqual(bothFail, { final: null, readsCutShort: [], readsFailed: [...FAILED(ERRORS.throws, 'final'), ...FAILED(ERRORS.reject, 'stop')] });
     });
 
     test('a snapshot that never answers: both are cut short at READ_LIMIT, and the stop is never asked', async (t) => {
       t.mock.timers.enable({ apis: ['setTimeout'] });
       const page = standInPage({ final: 'never', stop: 'answer' }), record = {};
       assert.equal(await settledAt(t, finalAndStop(page, record)), READ_LIMIT);
-      assert.deepEqual(record, { final: null, readsCutShort: CUT_SHORT('final', 'stop') });
+      assert.deepEqual(record, { final: null, readsCutShort: CUT_SHORT('final', 'stop'), readsFailed: [] });
       assert.deepEqual(page.events, ['asked for final']);
     });
 
-    test('a snapshot that answers late and a stop that never does share the one limit: the wait ends READ_LIMIT after it began', async (t) => {
+    test('a snapshot that answers late, or fails, and a stop that never does share the one limit: the wait ends READ_LIMIT after it began, and each is in its own list', async (t) => {
       t.mock.timers.enable({ apis: ['setTimeout'] });
       const page = standInPage({ final: [READ_LIMIT / 2, 'answer'], stop: 'never' }), record = {};
       assert.equal(await settledAt(t, finalAndStop(page, record)), READ_LIMIT);
-      assert.deepEqual(record, { final: ANSWERS.final, readsCutShort: CUT_SHORT('stop') });
+      assert.deepEqual(record, { final: ANSWERS.final, readsCutShort: CUT_SHORT('stop'), readsFailed: [] });
       assert.deepEqual(page.events, ['asked for final', 'final answers', 'asked for stop']);
+      const failing = standInPage({ final: [READ_LIMIT / 2, 'reject'], stop: 'never' }), failed = {};
+      assert.equal(await settledAt(t, finalAndStop(failing, failed)), READ_LIMIT);
+      assert.deepEqual(failed, { final: null, readsCutShort: CUT_SHORT('stop'), readsFailed: FAILED(ERRORS.reject, 'final') });
+      assert.deepEqual(failing.events, ['asked for final', 'final fails', 'asked for stop']);
     });
   });
 
 describe('external_replay\'s stop of its replay after a pass or a failure', () => {
-  test('a stop that answers: the report keeps what it says it left, exactly, and nothing is cut short', async () => {
+  test('a stop that answers: the report keeps what it says it left, exactly, and nothing is cut short or failed', async () => {
     const r = { browser: 'chromium' };
     await replay.stopReplay(standInPage({ closed: 'answer' }), r);
-    assert.deepEqual(r, { browser: 'chromium', closed: ANSWERS.closed, readsCutShort: [] });
+    assert.deepEqual(r, { browser: 'chromium', closed: ANSWERS.closed, readsCutShort: [], readsFailed: [] });
   });
 
-  test('a stop that fails, at once or as the call is made: null, as it always was, so that nothing is checked', async () => {
+  test('a stop that fails, at once or as the call is made: null, as it always was, so that nothing is checked, and named with its error', async () => {
     for (const way of ['reject', 'throws']) {
       const r = {};
       await replay.stopReplay(standInPage({ closed: way }), r);
-      assert.deepEqual(r, { closed: null, readsCutShort: [] }, way);
+      assert.deepEqual(r, { closed: null, readsCutShort: [], readsFailed: FAILED(ERRORS[way], 'closed') }, way);
     }
   });
 
@@ -204,7 +229,7 @@ describe('external_replay\'s stop of its replay after a pass or a failure', () =
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const r = {};
     assert.equal(await settledAt(t, replay.stopReplay(standInPage({ closed: 'never' }), r)), READ_LIMIT);
-    assert.deepEqual(r, { closed: null, readsCutShort: CUT_SHORT('closed') });
+    assert.deepEqual(r, { closed: null, readsCutShort: CUT_SHORT('closed'), readsFailed: [] });
   });
 });
 
@@ -273,14 +298,19 @@ const WAITED = [['if(!noiseState.completed)', READING(BOARD, 1)], ['noiseState.w
   ['recoveryState.full.length<2', { full: [RECOVERY_READ, RECOVERY_READ], events: [{ reason: 'content-changed' }],
     capture: { cells: BOARD.map((value, cell) => ({ 13: 7, 14: 9 })[cell] ?? value) } }]];
 
+// What a read that the stand-in below fails rejects with.
+const READ_ERROR = 'stand-in: the read failed';
 // Playwright for the six suites: each engine's page fails the suite's first
 // step in its try, the first page.evaluate() that is none of the reads above,
 // or with PLAY plays the suite's steps through to a pass; then it answers
 // those reads as PLAN says, by name (NAMES; "*" for the rest): "answer"
-// (ANSWERS), { answer } for that answer, "reject" at once or "never". With
-// PLAN a list, each launch, in order, takes the next entry, { plan, play },
-// for PLAN and PLAY, so that one engine of one scene or fixture can fail or
-// cut its reads short while the others pass. The
+// (ANSWERS), { answer } for that answer, "reject" at once, with READ_ERROR,
+// or "never". READ_ERROR does not say that its target is gone, as a page
+// function's own error does not, so that engines() does not wait for news of
+// a lost browser before it fails an engine on it. With PLAN a list, each
+// launch, in order, takes the next entry, { plan, play }, for PLAN and PLAY,
+// so that one engine of one scene or fixture can fail, or cut its reads
+// short or see them fail, while the others pass. The
 // page says on stdout what it is asked for and when it takes a screenshot,
 // the browser when it closes. With BROWSER_HANGS, Chromium's browser never
 // closes, as while a WebKit child holds the browser's pipes; with REFUSE,
@@ -315,7 +345,7 @@ const engine = (name) => ({ async launch() {
       happened = true;
       pageEvents.emit(EVENT, EVENT === "pageerror" ? new Error("stand-in: an uncaught page error") : page);
     }
-    if (way === "reject") return Promise.reject(new Error("Target page, context or browser has been closed"));
+    if (way === "reject") return Promise.reject(new Error(${JSON.stringify(READ_ERROR)}));
     if (way === "never") return new Promise(() => {});
     return Promise.resolve(way === "answer" ? ANSWERS[what] : way.answer);
   };
@@ -373,10 +403,13 @@ const FIXTURES = JSON.stringify({
 // order asked (each one readWithin() call), the fields its report keeps of
 // those reads, each with the fallback a failed read gives it (none for
 // browser_smoke's), how many times it runs both engines, and where an
-// engine's report keeps the reads (live_recovery's in its scene's record).
-// `chained`: its stop is asked only once its snapshot has settled. `own`:
-// it launches its browsers itself, and fails with ok: false. `shotOnPass`: it
-// takes a screenshot in its try, which a pass reaches before its finally.
+// engine's report keeps the reads (live_recovery's in its scene's record,
+// whose two lists the engine's report has as well). A suite with a finally
+// names the reads that failed there in readsFailed; none names those of its
+// catch that failed. `chained`: its stop is asked only once its snapshot has
+// settled. `own`: it launches its browsers itself, and fails with ok: false.
+// `shotOnPass`: it takes a screenshot in its try, which a pass reaches
+// before its finally.
 const SUITES = {
   live_motion: { script: 'scripts/live_motion_regressions.cjs', file: 'browser-artifacts/live-motion.json',
     reads: { catch: ['state'], finally: ['stop'] }, kept: { state: null }, shotOnPass: true },
@@ -433,9 +466,10 @@ const said = (lines, engine) => lines.filter((line) => line.startsWith(`${engine
 const fieldsOf = (report, names) => names.filter((name) => Object.hasOwn(report, name));
 
 // The failure of an engine whose steps passed and whose finally then cut
-// short the reads named: every one of them as readsCutShort spells them, in
-// the order asked, after the engine's name.
-const CUT_FAILURE = (engine, ...names) => `Error: ${engine}: ${CUT_SHORT(...names).join('; ')}`;
+// short the reads `cut` and saw the reads `failed` fail (with READ_ERROR):
+// after the engine's name, every one of them as readsCutShort and then
+// readsFailed spell them, each list in the order asked.
+const READS_FAILURE = (engine, cut, failed = []) => `Error: ${engine}: ${[...CUT_SHORT(...cut), ...FAILED(READ_ERROR, ...failed)].join('; ')}`;
 // The uncaught error the stand-in's page throws (EVENT "pageerror").
 const PAGE_ERROR = 'stand-in: an uncaught page error';
 // The failure of an engine whose steps passed and whose page threw an
@@ -457,45 +491,50 @@ const headOf = (failure) => {
 // Runs `suite` as `env` says and checks how it ended: by itself, with its
 // own failure in each engine's report, or with every engine passed when it
 // plays its steps through (env.PLAY), unless its finally then cut a read
-// short, which fails each engine with the names of the reads cut short
-// (CUT_FAILURE), printed on stderr, or, when its page threw an uncaught
-// error or crashed (env.EVENT), with that (EVENT_FAILURE); each read's answer
-// or fallback and the reads cut short, and no field for a read of the catch
-// after a pass; the page's errors and what ended; each read asked once, in
-// the suite's order, before the harness's failure screenshot (after
-// browser_smoke's own, and after the screenshot that live_motion and
-// live_noise take in their try when they pass), and the browser's close
-// last; and one limit's timer for each catch or finally that reads, in each
-// engine, and one for each browser's close.
+// short or saw one fail, which fails each engine in engines()' finally with
+// the names of those reads (READS_FAILURE), printed on stderr, with no
+// failure screenshot, or, when its page threw an uncaught error or crashed
+// (env.EVENT), with that (EVENT_FAILURE) and a screenshot; each read's
+// answer or fallback, the reads cut short and those of the finally that
+// failed, on the engine's report too where a scene's record keeps them, and
+// no field for a read of the catch after a pass; the page's errors and what
+// ended; each read asked once, in the suite's order, before the harness's
+// failure screenshot (after browser_smoke's own, and after the screenshot
+// that live_motion and live_noise take in their try when they pass), and the
+// browser's close last; and one limit's timer for each catch or finally that
+// reads, in each engine, and one for each browser's close.
 async function check(t, suite, env) {
   const { reads: { catch: caught, finally: last }, kept: fields, runs = 1, holder = (report) => report, chained, own,
     screenshotFirst, shotOnPass } = SUITES[suite];
   const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, suite, env);
   // The reads of the catch come only after a failure, those of the finally
   // after a pass too: one readWithin() call each. What each read leaves, its
-  // answer or its fallback, and the reads still waiting at the limit: those
-  // that never answer, and a stop asked only once a snapshot that never
-  // answers has settled.
-  const blocks = [env.PLAY ? undefined : caught, last].filter(Boolean), asked = [], cut = [], values = {};
+  // answer or its fallback; the reads still waiting at the limit: those that
+  // never answer, and a stop asked only once a snapshot that never answers
+  // has settled; and the reads of the finally that failed.
+  const blocks = [env.PLAY ? undefined : caught, last].filter(Boolean), asked = [], cut = [], failed = [], values = {};
   for (const block of blocks)
     for (const [n, name] of block.entries()) {
       const behind = chained && n > 0 && wayOf(env.PLAN, block[0]) === 'never', waits = behind || wayOf(env.PLAN, name) === 'never';
       if (!behind) asked.push(name);
       if (waits) cut.push(name);
+      else if (block === last && wayOf(env.PLAN, name) === 'reject') failed.push(name);
       if (Object.hasOwn(fields, name)) values[name] = waits || wayOf(env.PLAN, name) === 'reject' ? fields[name] : kept(ANSWERS[name]);
     }
-  // After a pass only the finally reads, so that `cut` is what it cut short.
-  const passed = env.PLAY && !cut.length, cutAfterPass = env.PLAY && cut.length > 0;
+  // After a pass only the finally reads, so that `cut` and `failed` are what
+  // it cut short and saw fail; a page error or a crash, which comes as the
+  // first of them is asked, fails the engine first.
+  const readsFail = env.PLAY && !env.EVENT && cut.length + failed.length > 0, passed = env.PLAY && !env.EVENT && !readsFail;
   assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
   assert.equal(code, passed ? 0 : 1, stderr);
   assert.ok(reports, `its reports written: ${stdout}`);
   const engines = enginesOf(runs);
   assert.deepEqual(reports.map((report) => [report.browser, own ? report.ok : report.status, headOf(report.failure),
     report.cleanupErrors]), engines.map((name) => [name, passed ? 'passed' : own ? false : 'failed',
-    passed ? undefined : !cutAfterPass ? 'Error: no site here' : env.EVENT ? EVENT_FAILURE[env.EVENT](name) : CUT_FAILURE(name, ...cut),
+    passed ? undefined : !env.PLAY ? 'Error: no site here' : env.EVENT ? EVENT_FAILURE[env.EVENT](name) : READS_FAILURE(name, cut, failed),
     name === 'chromium' && env.BROWSER_HANGS ? ['browser: browser cleanup timed out'] : []]),
-  passed ? 'every engine passed' : !cutAfterPass ? 'the suite\'s own failure, kept' :
-    env.EVENT ? `every engine failed with its page's ${env.EVENT} first` : 'every engine failed with the reads its finally cut short after its pass');
+  passed ? 'every engine passed' : !env.PLAY ? 'the suite\'s own failure, kept' :
+    env.EVENT ? `every engine failed with its page's ${env.EVENT} first` : 'every engine failed with the reads its finally cut short or saw fail after its pass');
   for (const report of reports) {
     const record = holder(report);
     for (const [name, value] of Object.entries(values))
@@ -503,28 +542,36 @@ async function check(t, suite, env) {
     assert.deepEqual(fieldsOf(record, Object.keys(fields).filter((name) => !Object.hasOwn(values, name))), [],
       `${report.browser}'s fields of reads never made`);
     assert.deepEqual(record.readsCutShort, CUT_SHORT(...cut), `${report.browser}'s reads cut short`);
+    assert.deepEqual(record.readsFailed, last ? FAILED(READ_ERROR, ...failed) : undefined,
+      `${report.browser}'s reads of its finally that failed, and none of its catch`);
+    if (record !== report)
+      assert.deepEqual([report.readsCutShort, report.readsFailed], [record.readsCutShort, record.readsFailed],
+        `${report.browser}'s report has its scene's lists, which engines() reads`);
     assert.deepEqual([report.errors, report.ended.map(({ event, url }) => `${event} (${url})`)],
       [env.EVENT === 'pageerror' ? [PAGE_ERROR] : [], env.EVENT === 'crash' ? ['page crashed (http://stand-in/)'] : []],
       `${report.browser}'s uncaught page errors and what ended`);
   }
   // After a failure the harness takes its screenshot once the reads have
   // ended, browser_smoke takes its own before them and solver_update none;
-  // so it does after reads cut short that fail an engine that passed.
+  // after reads that fail an engine that passed, nothing takes one.
   const before = (env.PLAY ? shotOnPass : screenshotFirst) ? ['takes a screenshot'] : [];
-  const after = passed || own ? [] : ['takes a screenshot'];
+  const after = passed || readsFail || own ? [] : ['takes a screenshot'];
   for (const name of ['chromium', 'webkit'])
     assert.deepEqual(said(lines, name), Array.from({ length: runs }, () => [...before, ...asked.map((read) => `is asked for ${read}`),
       ...after, 'closes its browser']).flat(), stdout);
   assert.deepEqual(limits, { [READ_LIMIT]: blocks.length * engines.length, [CLOSE_LIMIT]: engines.length },
     'one limit for each catch\'s or finally\'s reads in each engine, and one for each browser\'s close');
-  // After a failure nothing is printed of a read cut short; after a pass the
-  // failure that names such reads is, as any engine's failure is, but for an
-  // uncaught page error or a crash, whose failure is printed instead, with
-  // the page's error.
-  if (cutAfterPass && !env.EVENT)
+  // After a failure nothing is printed of a read cut short or failed; after a
+  // pass the failure that names such reads is, as any engine's failure is,
+  // but for an uncaught page error or a crash, whose failure is printed
+  // instead, with the page's error.
+  if (readsFail)
     for (const name of new Set(engines))
-      assert.ok(stderr.includes(`${name} ${CUT_FAILURE(name, ...cut)}`), `${name}'s failure printed: ${stderr}`);
-  else assert.doesNotMatch(stderr, /no answer within/, 'the reads cut short are the report\'s, not stderr\'s');
+      assert.ok(stderr.includes(`${name} ${READS_FAILURE(name, cut, failed)}`), `${name}'s failure printed: ${stderr}`);
+  else {
+    assert.doesNotMatch(stderr, /no answer within/, 'the reads cut short are the report\'s, not stderr\'s');
+    assert.ok(!stderr.includes(READ_ERROR), `the reads that failed are the report's, not stderr's: ${stderr}`);
+  }
   if (env.EVENT)
     for (const name of new Set(engines))
       assert.ok(stderr.includes(EVENT_FAILURE[env.EVENT](name).split('\n').at(-1)), `${name}'s failure printed: ${stderr}`);
@@ -561,7 +608,7 @@ describe('the six suites, run as they are, read their page after their failure a
     assert.equal(killed, false, `it ended by itself: ${stderr}`);
     assert.equal(code, 1, stderr);
     for (const report of reports) {
-      assert.deepEqual([report.closed, report.readsCutShort], [{ active: true, retainedSources: 0, scratchPixels: 0 }, []]);
+      assert.deepEqual([report.closed, report.readsCutShort, report.readsFailed], [{ active: true, retainedSources: 0, scratchPixels: 0 }, [], []]);
       assert.match(report.failure, /^AssertionError \[ERR_ASSERTION\]: Expected values to be strictly equal:\n\ntrue !== false/);
     }
   });
@@ -569,23 +616,24 @@ describe('the six suites, run as they are, read their page after their failure a
 
 // The reads of a finally run after a pass too: live_motion's stop,
 // live_noise's and live_recovery's last snapshot and their stop, and
-// external_replay's stop. One that fails keeps its fallback and the pass, as
-// it always has, external_replay's stop then left unchecked; one cut short
-// keeps its fallback too, but fails the engine with the names of the reads
-// cut short there, the report still written, as a browser that would not
-// close fails an engine that passed. A read that fails beside one cut short
-// is not named. And as when the browser's close fails, an engine whose page
-// threw an uncaught error, or crashed, fails with that, by engines()' own
-// check, while the reads cut short are named in its report alone.
+// external_replay's stop. One that answers keeps the pass. One cut short and
+// one that fails keep their fallbacks, external_replay's stop then left
+// unchecked, and fail the engine in engines()' finally, with the names of
+// the reads cut short there and then of those that failed, with their
+// errors: the report is still written and the browser closed, but no failure
+// screenshot is taken, as for a browser that would not close after a pass.
+// And as when the browser's close fails, an engine whose page threw an
+// uncaught error, or crashed, fails with that, by engines()' own check, with
+// its screenshot, while the reads are named in its report alone.
 describe('the four suites whose finally reads, run as they are through a pass', { concurrency: true }, () => {
   const mixed = [['the snapshot answers and the stop never does', { final: 'answer', stop: 'never' }],
-    ['the snapshot fails and the stop never answers', { final: 'reject', stop: 'never' }]];
+    ['the snapshot fails and the stop never answers', { final: 'reject', stop: 'never' }],
+    ['the snapshot answers and the stop fails', { final: 'answer', stop: 'reject' }]];
   const more = { live_motion: [], live_noise: mixed, live_recovery: mixed, external_replay: [] };
   for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay']) {
-    for (const [what, PLAN] of [['every read answers', { '*': 'answer' }], ['every read fails', { '*': 'reject' }]])
-      test(`${suite} passes, with its reads, when ${what}`, (t) => check(t, suite, { PLAN, PLAY: true }));
-    for (const [what, PLAN] of [['no read answers', { '*': 'never' }], ...more[suite]])
-      test(`${suite} fails each engine that passed with the reads its finally cut short, its reports written, when ${what}`,
+    test(`${suite} passes, with its reads, when every read answers`, (t) => check(t, suite, { PLAN: { '*': 'answer' }, PLAY: true }));
+    for (const [what, PLAN] of [['no read answers', { '*': 'never' }], ['every read fails', { '*': 'reject' }], ...more[suite]])
+      test(`${suite} fails each engine that passed with the reads its finally cut short or saw fail, with no screenshot and its reports written, when ${what}`,
         (t) => check(t, suite, { PLAN, PLAY: true }));
     for (const [what, EVENT] of [['threw an uncaught error', 'pageerror'], ['crashed', 'crash']])
       test(`${suite} fails each engine whose page ${what} with that, not with the reads its finally then cut short, when no read answers`,
@@ -596,16 +644,16 @@ describe('the four suites whose finally reads, run as they are through a pass', 
 // What one engine's failure does to the rest of a run of live_recovery's two
 // scenes or external_replay's three fixtures, each run on engines() in turn:
 // the first engine of the first fails, by its first step or by reads its
-// finally cut short after its steps passed, and every other engine passes.
-// Either way the first's other engine and the next scenes or fixtures still
-// run and pass, reading their page as ever, every engine's report reaches the
-// suite's own, and the run ends with that first failure. A scene of
-// live_recovery whose reads were cut short after its checks passed keeps
-// `ok` in its record, and has no `failure` there, which a scene's own
-// failure gives it.
+// finally cut short or saw fail after its steps passed, and every other
+// engine passes. Either way the first's other engine and the next scenes or
+// fixtures still run and pass, reading their page as ever, every engine's
+// report reaches the suite's own, and the run ends with that first failure;
+// only a failing step takes a screenshot. A scene of live_recovery whose
+// reads were cut short or failed after its checks passed keeps `ok` in its
+// record, and has no `failure` there, which a scene's own failure gives it.
 describe('live_recovery\'s scenes and external_replay\'s fixtures, after one engine has failed', { concurrency: true }, () => {
   for (const [suite, unit] of [['live_recovery', 'scene'], ['external_replay', 'fixture']])
-    test(`${suite} runs every other engine and ${unit} through to its pass after reads cut short fail the first engine that passed, as after that engine's own failure`, async (t) => {
+    test(`${suite} runs every other engine and ${unit} through to its pass after reads cut short or failed fail the first engine that passed, as after that engine's own failure`, async (t) => {
       const { reads: { finally: last }, runs, holder = (report) => report, chained } = SUITES[suite], engines = enginesOf(runs);
       const rest = engines.slice(1).map(() => ({ plan: { '*': 'answer' }, play: true }));
       // A record of live_recovery's: its `ok` and the first line of its own
@@ -617,45 +665,50 @@ describe('live_recovery\'s scenes and external_replay\'s fixtures, after one eng
         assert.ok(reports, `its reports written: ${stdout}`);
         return { code, stdout, stderr,
           reports: reports.map((report) => [report.browser, report.status, report.failure?.split('\n')[0], holder(report).readsCutShort,
-            ...record(report)]),
+            holder(report).readsFailed, ...record(report)]),
           said: { chromium: said(lines, 'chromium'), webkit: said(lines, 'webkit') },
           // What the run ends with: main() prints it last, with no engine's
           // name before it.
           ended: [...stderr.matchAll(/^Error: .*$/gm)].at(-1)?.[0] };
       };
       // When none of them answers, every read of the finally is cut short,
-      // but only the first of a chain is asked.
-      const failure = CUT_FAILURE('chromium', ...last), asked = (names) => names.map((name) => `is asked for ${name}`);
-      const plays = (first) => ({
-        chromium: [...asked(first), 'takes a screenshot', 'closes its browser',
+      // but only the first of a chain is asked; when each fails, each is asked.
+      const asked = (names) => names.map((name) => `is asked for ${name}`);
+      const plays = (first, shot) => ({
+        chromium: [...asked(first), ...(shot ? ['takes a screenshot'] : []), 'closes its browser',
           ...Array.from({ length: runs - 1 }, () => [...asked(last), 'closes its browser']).flat()],
         webkit: Array.from({ length: runs }, () => [...asked(last), 'closes its browser']).flat(),
       });
       // A record of live_recovery's has `ok` once its checks have passed, and
       // its own `failure` only when they failed.
       const inRecord = (ok, failure) => (suite === 'live_recovery' ? [ok, failure] : []);
-      const others = engines.slice(1).map((name) => [name, 'passed', undefined, [], ...inRecord(true, null)]);
+      const others = engines.slice(1).map((name) => [name, 'passed', undefined, [], [], ...inRecord(true, null)]);
       const failed = await outcome({ plan: { '*': 'answer' }, play: false });
       assert.equal(failed.code, 1, failed.stderr);
-      assert.deepEqual(failed.reports, [['chromium', 'failed', 'Error: no site here', [], ...inRecord(null, 'Error: no site here')], ...others]);
-      assert.deepEqual(failed.said, plays(last), failed.stdout);
+      assert.deepEqual(failed.reports, [['chromium', 'failed', 'Error: no site here', [], [], ...inRecord(null, 'Error: no site here')], ...others]);
+      assert.deepEqual(failed.said, plays(last, true), failed.stdout);
       assert.equal(failed.ended, 'Error: no site here', failed.stderr);
-      const cutShort = await outcome({ plan: { '*': 'never' }, play: true });
+      const cutShort = await outcome({ plan: { '*': 'never' }, play: true }), cutFailure = READS_FAILURE('chromium', last);
       assert.equal(cutShort.code, 1, cutShort.stderr);
-      assert.deepEqual(cutShort.reports, [['chromium', 'failed', failure, CUT_SHORT(...last), ...inRecord(true, null)], ...others]);
-      assert.deepEqual(cutShort.said, plays(chained ? last.slice(0, 1) : last), cutShort.stdout);
-      assert.equal(cutShort.ended, failure, cutShort.stderr);
+      assert.deepEqual(cutShort.reports, [['chromium', 'failed', cutFailure, CUT_SHORT(...last), [], ...inRecord(true, null)], ...others]);
+      assert.deepEqual(cutShort.said, plays(chained ? last.slice(0, 1) : last, false), cutShort.stdout);
+      assert.equal(cutShort.ended, cutFailure, cutShort.stderr);
+      const readsFailed = await outcome({ plan: { '*': 'reject' }, play: true }), failedFailure = READS_FAILURE('chromium', [], last);
+      assert.equal(readsFailed.code, 1, readsFailed.stderr);
+      assert.deepEqual(readsFailed.reports, [['chromium', 'failed', failedFailure, [], FAILED(READ_ERROR, ...last), ...inRecord(true, null)], ...others]);
+      assert.deepEqual(readsFailed.said, plays(last, false), readsFailed.stdout);
+      assert.equal(readsFailed.ended, failedFailure, readsFailed.stderr);
     });
 });
 
 // Engines that never reach the reads, so that their reports have none of the
-// reads' fields and no readsCutShort: one with no page, since Chromium's
-// newPage() rejects, in the two suites that open their pages themselves; a
-// failure screenshot that fails in browser_smoke, which reads its page only
-// once that screenshot is taken; and a page that never gets ready, which
-// live_noise, live_recovery (whose scene then has no record) and
-// external_replay wait for before their try, and live_motion inside it, so
-// that live_motion alone still reads it.
+// reads' fields and no readsCutShort or readsFailed: one with no page, since
+// Chromium's newPage() rejects, in the two suites that open their pages
+// themselves; a failure screenshot that fails in browser_smoke, which reads
+// its page only once that screenshot is taken; and a page that never gets
+// ready, which live_noise, live_recovery (whose scene then has no record)
+// and external_replay wait for before their try, and live_motion inside it,
+// so that live_motion alone still reads it.
 describe('the six suites, run as they are, when an engine has no page, its failure\'s screenshot fails or its page never gets ready', { concurrency: true }, () => {
   for (const suite of ['solver_update', 'browser_smoke'])
     test(`${suite} reads nothing in an engine whose page would not open, and has no readsCutShort there`, async (t) => {
@@ -690,7 +743,7 @@ describe('the six suites, run as they are, when an engine has no page, its failu
 
   for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay'])
     test(`${suite} ${suite === 'live_motion' ? 'still reads a page that never gets ready, which its try waits for' :
-      'reads nothing of a page that never gets ready, which it waits for before its try, and has no readsCutShort then'}`, async (t) => {
+      'reads nothing of a page that never gets ready, which it waits for before its try, and has no readsCutShort or readsFailed then'}`, async (t) => {
       const { reads: { catch: caught = [], finally: last }, runs = 1 } = SUITES[suite], reached = suite === 'live_motion';
       const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, suite, { PLAN: { '*': 'answer' }, UNREADY: true });
       assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
@@ -699,9 +752,9 @@ describe('the six suites, run as they are, when an engine has no page, its failu
       assert.deepEqual(reports.map((report) => [report.browser, report.status, report.failure?.split('\n')[0], report.cleanupErrors]),
         engines.map((name) => [name, 'failed', 'Error: the page never became ready', []]));
       for (const report of reports) {
-        const fields = fieldsOf(report, ['state', 'final', 'closed', 'readsCutShort']);
+        const fields = fieldsOf(report, ['state', 'final', 'closed', 'readsCutShort', 'readsFailed']);
         assert.deepEqual(Object.fromEntries(fields.map((name) => [name, report[name]])),
-          reached ? { state: kept(ANSWERS.state), readsCutShort: [] } : {}, report.browser);
+          reached ? { state: kept(ANSWERS.state), readsCutShort: [], readsFailed: [] } : {}, report.browser);
         if (suite === 'live_recovery') assert.deepEqual(report.cases, [], 'no record of a scene that never began');
       }
       for (const name of ['chromium', 'webkit'])
