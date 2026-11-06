@@ -13,8 +13,10 @@ import { createRequire } from 'node:module';
 // on a stand-in page; then each of the six run as it is, in a process of its
 // own, on a stand-in for Playwright whose page fails the suite's first step
 // in its try, and then answers those reads, fails them or never answers; the
-// four whose finally reads, played through to a pass; and engines that never
-// reach those reads, with no page, a page that never gets ready or a failure's
+// four whose finally reads, played through to a pass, which a read cut short
+// there fails; live_recovery's scenes and external_replay's fixtures after
+// one engine has failed so or by its steps; and engines that never reach
+// those reads, with no page, a page that never gets ready or a failure's
 // screenshot that fails. Loading watch.cjs or a suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
@@ -273,7 +275,10 @@ const WAITED = [['if(!noiseState.completed)', READING(BOARD, 1)], ['noiseState.w
 // step in its try, the first page.evaluate() that is none of the reads above,
 // or with PLAY plays the suite's steps through to a pass; then it answers
 // those reads as PLAN says, by name (NAMES; "*" for the rest): "answer"
-// (ANSWERS), { answer } for that answer, "reject" at once or "never". The
+// (ANSWERS), { answer } for that answer, "reject" at once or "never". With
+// PLAN a list, each launch, in order, takes the next entry, { plan, play },
+// for PLAN and PLAY, so that one engine of one scene or fixture can fail or
+// cut its reads short while the others pass. The
 // page says on stdout what it is asked for and when it takes a screenshot,
 // the browser when it closes. With BROWSER_HANGS, Chromium's browser never
 // closes, as while a WebKit child holds the browser's pipes; with REFUSE,
@@ -282,10 +287,12 @@ const WAITED = [['if(!noiseState.completed)', READING(BOARD, 1)], ['noiseState.w
 // SHOT_FAILS, every screenshot fails as it is taken. Each launch keeps the
 // process alive until its browser closes, as a live browser's pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
-const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS } = process.env, plan = JSON.parse(PLAN);
+const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS } = process.env, plans = JSON.parse(PLAN);
 const NAMES = ${JSON.stringify(NAMES)}, ANSWERS = ${JSON.stringify(ANSWERS)};
 const PLAYED = ${JSON.stringify(PLAYED)}, WAITED = ${JSON.stringify(WAITED)};
+let launches = 0;
 const engine = (name) => ({ async launch() {
+  const { plan, play } = Array.isArray(plans) ? plans[launches++] : { plan: plans, play: PLAY };
   const pipes = setInterval(() => {}, 1000), say = (line) => console.log(name + " " + line);
   const read = (what) => {
     const way = plan[what] ?? plan["*"];
@@ -301,7 +308,7 @@ const engine = (name) => ({ async launch() {
     evaluate: async (fn) => {
       const what = NAMES[source(fn)];
       if (what) return read(what);
-      if (!PLAY) throw new Error("no site here");
+      if (!play) throw new Error("no site here");
       return PLAYED[source(fn)];
     },
     waitForFunction: async (fn) => {
@@ -401,9 +408,16 @@ const said = (lines, engine) => lines.filter((line) => line.startsWith(`${engine
 // Which of `names` a report has as its own fields.
 const fieldsOf = (report, names) => names.filter((name) => Object.hasOwn(report, name));
 
+// The failure of an engine whose steps passed and whose finally then cut
+// short the reads named: every one of them as readsCutShort spells them, in
+// the order asked, after the engine's name.
+const CUT_FAILURE = (engine, ...names) => `Error: ${engine}: ${CUT_SHORT(...names).join('; ')}`;
+
 // Runs `suite` as `env` says and checks how it ended: by itself, with its
 // own failure in each engine's report, or with every engine passed when it
-// plays its steps through (env.PLAY); each read's answer or fallback and the
+// plays its steps through (env.PLAY), unless its finally then cut a read
+// short, which fails each engine with the names of the reads cut short
+// (CUT_FAILURE), printed on stderr; each read's answer or fallback and the
 // reads cut short, and no field for a read of the catch after a pass; each
 // read asked once, in the suite's order, before the harness's failure
 // screenshot (after browser_smoke's own, and after the screenshot that
@@ -414,14 +428,6 @@ async function check(t, suite, env) {
   const { reads: { catch: caught, finally: last }, kept: fields, runs = 1, holder = (report) => report, chained, own,
     screenshotFirst, shotOnPass } = SUITES[suite];
   const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, suite, env);
-  assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
-  assert.equal(code, env.PLAY ? 0 : 1, stderr);
-  assert.ok(reports, `its reports written: ${stdout}`);
-  const engines = enginesOf(runs);
-  assert.deepEqual(reports.map((report) => [report.browser, own ? report.ok : report.status, report.failure?.split('\n')[0],
-    report.cleanupErrors]), engines.map((name) => [name, env.PLAY ? 'passed' : own ? false : 'failed',
-    env.PLAY ? undefined : 'Error: no site here', name === 'chromium' && env.BROWSER_HANGS ? ['browser: browser cleanup timed out'] : []]),
-  env.PLAY ? 'every engine passed' : 'the suite\'s own failure, kept');
   // The reads of the catch come only after a failure, those of the finally
   // after a pass too: one readWithin() call each. What each read leaves, its
   // answer or its fallback, and the reads still waiting at the limit: those
@@ -435,6 +441,18 @@ async function check(t, suite, env) {
       if (waits) cut.push(name);
       if (Object.hasOwn(fields, name)) values[name] = waits || wayOf(env.PLAN, name) === 'reject' ? fields[name] : kept(ANSWERS[name]);
     }
+  // After a pass only the finally reads, so that `cut` is what it cut short.
+  const passed = env.PLAY && !cut.length, cutAfterPass = env.PLAY && cut.length > 0;
+  assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+  assert.equal(code, passed ? 0 : 1, stderr);
+  assert.ok(reports, `its reports written: ${stdout}`);
+  const engines = enginesOf(runs);
+  assert.deepEqual(reports.map((report) => [report.browser, own ? report.ok : report.status, report.failure?.split('\n')[0],
+    report.cleanupErrors]), engines.map((name) => [name, passed ? 'passed' : own ? false : 'failed',
+    passed ? undefined : cutAfterPass ? CUT_FAILURE(name, ...cut) : 'Error: no site here',
+    name === 'chromium' && env.BROWSER_HANGS ? ['browser: browser cleanup timed out'] : []]),
+  passed ? 'every engine passed' : cutAfterPass ? 'every engine failed with the reads its finally cut short after its pass' :
+    'the suite\'s own failure, kept');
   for (const report of reports) {
     const record = holder(report);
     for (const [name, value] of Object.entries(values))
@@ -444,15 +462,21 @@ async function check(t, suite, env) {
     assert.deepEqual(record.readsCutShort, CUT_SHORT(...cut), `${report.browser}'s reads cut short`);
   }
   // After a failure the harness takes its screenshot once the reads have
-  // ended, browser_smoke takes its own before them and solver_update none.
+  // ended, browser_smoke takes its own before them and solver_update none;
+  // so it does after reads cut short that fail an engine that passed.
   const before = (env.PLAY ? shotOnPass : screenshotFirst) ? ['takes a screenshot'] : [];
-  const after = env.PLAY || own ? [] : ['takes a screenshot'];
+  const after = passed || own ? [] : ['takes a screenshot'];
   for (const name of ['chromium', 'webkit'])
     assert.deepEqual(said(lines, name), Array.from({ length: runs }, () => [...before, ...asked.map((read) => `is asked for ${read}`),
       ...after, 'closes its browser']).flat(), stdout);
   assert.deepEqual(limits, { [READ_LIMIT]: blocks.length * engines.length, [CLOSE_LIMIT]: engines.length },
     'one limit for each catch\'s or finally\'s reads in each engine, and one for each browser\'s close');
-  assert.doesNotMatch(stderr, /no answer within/, 'the reads cut short are the report\'s, not stderr\'s');
+  // After a failure nothing is printed of a read cut short; after a pass the
+  // failure that names such reads is, as any engine's failure is.
+  if (cutAfterPass)
+    for (const name of new Set(engines))
+      assert.ok(stderr.includes(`${name} ${CUT_FAILURE(name, ...cut)}`), `${name}'s failure printed: ${stderr}`);
+  else assert.doesNotMatch(stderr, /no answer within/, 'the reads cut short are the report\'s, not stderr\'s');
 }
 
 // Side by side: each has a tree and a process of its own, and in Node 22
@@ -491,15 +515,73 @@ describe('the six suites, run as they are, read their page after their failure a
   });
 });
 
-// The reads of a finally run after a pass too, and a read cut short there
-// keeps the pass, as one that fails does: live_motion's stop, live_noise's
-// and live_recovery's last snapshot and their stop, and external_replay's
-// stop, then left unchecked.
+// The reads of a finally run after a pass too: live_motion's stop,
+// live_noise's and live_recovery's last snapshot and their stop, and
+// external_replay's stop. One that fails keeps its fallback and the pass, as
+// it always has, external_replay's stop then left unchecked; one cut short
+// keeps its fallback too, but fails the engine with the names of the reads
+// cut short there, the report still written, as a browser that would not
+// close fails an engine that passed. A read that fails beside one cut short
+// is not named.
 describe('the four suites whose finally reads, run as they are through a pass', { concurrency: true }, () => {
-  for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay'])
-    for (const [what, PLAN] of [['every read answers', { '*': 'answer' }], ['every read fails', { '*': 'reject' }],
-      ['no read answers', { '*': 'never' }]])
+  const mixed = [['the snapshot answers and the stop never does', { final: 'answer', stop: 'never' }],
+    ['the snapshot fails and the stop never answers', { final: 'reject', stop: 'never' }]];
+  const more = { live_motion: [], live_noise: mixed, live_recovery: mixed, external_replay: [] };
+  for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay']) {
+    for (const [what, PLAN] of [['every read answers', { '*': 'answer' }], ['every read fails', { '*': 'reject' }]])
       test(`${suite} passes, with its reads, when ${what}`, (t) => check(t, suite, { PLAN, PLAY: true }));
+    for (const [what, PLAN] of [['no read answers', { '*': 'never' }], ...more[suite]])
+      test(`${suite} fails each engine that passed with the reads its finally cut short, its reports written, when ${what}`,
+        (t) => check(t, suite, { PLAN, PLAY: true }));
+  }
+});
+
+// What one engine's failure does to the rest of a run of live_recovery's two
+// scenes or external_replay's three fixtures, each run on engines() in turn:
+// the first engine of the first fails, by its first step or by reads its
+// finally cut short after its steps passed, and every other engine passes.
+// Either way the first's other engine and the next scenes or fixtures still
+// run and pass, reading their page as ever, every engine's report reaches the
+// suite's own, and the run ends with that first failure. A scene of
+// live_recovery whose reads were cut short after its checks passed keeps
+// `ok` in its record.
+describe('live_recovery\'s scenes and external_replay\'s fixtures, after one engine has failed', { concurrency: true }, () => {
+  for (const suite of ['live_recovery', 'external_replay'])
+    test(`${suite} runs every other engine, scene or fixture through to its pass after reads cut short fail the first engine that passed, as after that engine's own failure`, async (t) => {
+      const { reads: { finally: last }, runs, holder = (report) => report, chained } = SUITES[suite], engines = enginesOf(runs);
+      const rest = engines.slice(1).map(() => ({ plan: { '*': 'answer' }, play: true }));
+      const outcome = async (first) => {
+        const { code, killed, stdout, stderr, lines, reports } = await ran(t, suite, { PLAN: [first, ...rest] });
+        assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+        assert.ok(reports, `its reports written: ${stdout}`);
+        return { code, stdout, stderr,
+          reports: reports.map((report) => [report.browser, report.status, report.failure?.split('\n')[0], holder(report).readsCutShort,
+            holder(report).ok ?? null]),
+          said: { chromium: said(lines, 'chromium'), webkit: said(lines, 'webkit') },
+          // What the run ends with: main() prints it last, with no engine's
+          // name before it.
+          ended: [...stderr.matchAll(/^Error: .*$/gm)].at(-1)?.[0] };
+      };
+      // When none of them answers, every read of the finally is cut short,
+      // but only the first of a chain is asked.
+      const failure = CUT_FAILURE('chromium', ...last), asked = (names) => names.map((name) => `is asked for ${name}`);
+      const plays = (first) => ({
+        chromium: [...asked(first), 'takes a screenshot', 'closes its browser',
+          ...Array.from({ length: runs - 1 }, () => [...asked(last), 'closes its browser']).flat()],
+        webkit: Array.from({ length: runs }, () => [...asked(last), 'closes its browser']).flat(),
+      });
+      const ok = suite === 'live_recovery' || null, others = engines.slice(1).map((name) => [name, 'passed', undefined, [], ok]);
+      const failed = await outcome({ plan: { '*': 'answer' }, play: false });
+      assert.equal(failed.code, 1, failed.stderr);
+      assert.deepEqual(failed.reports, [['chromium', 'failed', 'Error: no site here', [], null], ...others]);
+      assert.deepEqual(failed.said, plays(last), failed.stdout);
+      assert.equal(failed.ended, 'Error: no site here', failed.stderr);
+      const cutShort = await outcome({ plan: { '*': 'never' }, play: true });
+      assert.equal(cutShort.code, 1, cutShort.stderr);
+      assert.deepEqual(cutShort.reports, [['chromium', 'failed', failure, CUT_SHORT(...last), ok], ...others]);
+      assert.deepEqual(cutShort.said, plays(chained ? last.slice(0, 1) : last), cutShort.stdout);
+      assert.equal(cutShort.ended, failure, cutShort.stderr);
+    });
 });
 
 // Engines that never reach the reads, so that their reports have none of the
