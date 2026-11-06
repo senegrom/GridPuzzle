@@ -221,11 +221,11 @@ const body = (source, name) =>
 test('main() and exitIfUnclosed() read the entry point through a require function made at the call, not the deprecated process.mainModule, and warn of nothing', async (t) => {
   await t.test('harness.cjs and watch.cjs name no mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
     // Neither file names mainModule anywhere, in code, a string or a comment,
-    // so that a read of process.mainModule is found without telling code
-    // from the rest; its history is in web/TESTING.md. Only a read whose text
-    // does not spell the name out gets past, such as one that computes it as
-    // the code runs, process["main" + "Module"], or writes it with an escape,
-    // process.main\u004Dodule.
+    // so that a read of process.mainModule in either is found without
+    // telling code from the rest; its history is in web/TESTING.md. Only such
+    // a read whose text does not spell the name out gets past, such as one
+    // that computes it as the code runs, process["main" + "Module"], or
+    // writes it with an escape, process.main\u004Dodule.
     const files = [['scripts/harness.cjs', 'main'], ['scripts/watch.cjs', 'exitIfUnclosed']];
     const named = files.flatMap(([file]) => read(file).split(/\r?\n/)
       .flatMap((line, index) => (line.includes('mainModule') ? [`${file}:${index + 1}`] : [])));
