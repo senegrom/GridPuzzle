@@ -3,6 +3,7 @@
    score the output; they are never passed to the detector/reader/worker. */
 const assert = require('node:assert/strict');
 const {serve,engines,main}=require('./harness.cjs');
+const {READ_LIMIT,readWithin}=require('./watch.cjs');
 async function begin() {
   const {Scanner}=await import('./scanner.js'),{createLiveCamera}=await import('./live-camera.js');
   const {createScanDiagnostics}=await import('./scan-diagnostics.js');
@@ -96,6 +97,21 @@ async function begin() {
     if(makeBitmap)window.createImageBitmap=makeBitmap;
     video.srcObject=null;video.remove();out.remove();start.remove();source.width=source.height=template.width=template.height=0;};
 }
+// The page's last state, for the engine's report after a pass or a failure,
+// and then the fixture's stop, in that order as ever: the stop is asked once
+// the snapshot has answered or failed. Both share READ_LIMIT (watch.cjs), so
+// that a page that will not answer, as in the WebKit hang (web/TESTING.md),
+// cannot hold the run here: `final` is null when the snapshot fails or is
+// cut short, a stop that fails or is cut short changes nothing, and
+// `readsCutShort` names what was cut short.
+async function finalAndStop(page,report){
+  let snapshotted;const snapshot=new Promise(resolve=>{snapshotted=resolve;});
+  const {values,cutShort}=await readWithin({
+    final:[async()=>{try{return await page.evaluate(()=>window.noiseState?.snapshot());}finally{snapshotted();}},null],
+    stop:[async()=>{await snapshot;return page.evaluate(()=>window.noiseState?.stop());},undefined],
+  },READ_LIMIT);
+  report.final=values.final;report.readsCutShort=cutShort;
+}
 async function run(){const server=await serve();try{
   await engines('live-noise.json',async(page,report,name)=>{
     await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');
@@ -169,8 +185,7 @@ async function run(){const server=await serve();try{
         ...(bitmaps?['a frame whose bitmap reads back transparent and one whose bitmap is 1 x 1 are each lost alone: the reading stays, read once, on bitmaps']:[]),
         `changed 8 to 3 retires original reading and triggers fresh OCR, which reads the 3 and no other digit wrong without a flag${bitmaps?', also with a frame lost right after the change':''}`];
       await page.screenshot({path:`browser-artifacts/${name}-live-noise.png`});
-    }finally{report.final=await page.evaluate(()=>window.noiseState?.snapshot()).catch(()=>null);
-      await page.evaluate(()=>window.noiseState?.stop()).catch(()=>{});}
+    }finally{await finalAndStop(page,report);}
   },{timeout:60000});
 }finally{await server.close();}}
-module.exports={run};main(module,run);
+module.exports={run,finalAndStop};main(module,run);

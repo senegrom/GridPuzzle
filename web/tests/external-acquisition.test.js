@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../scripts/external_replay_regressions.cjs', import.meta.url), 'utf8');
+// What bounds the replay's stop (READ_LIMIT, readWithin()), as it is: it
+// loads no Playwright.
+const watch = createRequire(import.meta.url)('../../scripts/watch.cjs');
 const revision = '733559bafd65b5bdb953e07e5c7e06df0b03008d';
 const identities = [
   ['images/6afxp9u0ke0d1.webp', '930df0cc75870e6fde8d8015e53c50e4f3ed790a78a75ec9d80737ccf8d0a9a9'],
@@ -56,6 +60,7 @@ function load({ complete = () => true, code = source } = {}) {
     if (name === 'node:assert/strict') return assert;
     if (name === 'node:fs') return fakeFs;
     if (name === './harness.cjs') return harness;
+    if (name === './watch.cjs') return watch;
     throw Error(`Unexpected dependency: ${name}`);
   } });
   vm.runInContext(code, context, { filename: 'external_replay_regressions.cjs' });

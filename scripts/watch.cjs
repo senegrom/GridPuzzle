@@ -2,9 +2,9 @@
    asking: watch(), with which the harness's engines(), the suites that launch
    browsers of their own and the corpus benchmark runner watch their
    browsers; and what stops the close that ends an engine, and a suite's
-   reads of its page after a failure, from holding a run up: the close() of
-   what watch() returns, cleanUp(), readWithin(), markUnclosed() and
-   exitIfUnclosed().
+   reads of its page in a catch or a finally, from holding a run up: the
+   close() of what watch() returns, cleanUp(), readWithin(), markUnclosed()
+   and exitIfUnclosed().
    It lives apart from scripts/harness.cjs, which exports what the suites use
    of it too, because loading the harness takes over the process's exit, to
    stop its servers, and SIGHUP, SIGINT, SIGTERM and SIGBREAK, which end the
@@ -50,29 +50,39 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
   finally { clearTimeout(timer); clearTimeout(shortTimer); signal?.removeEventListener("abort", shorten); }
 }
 
-// How long a suite's reads of its page after a failure, for its report, may
-// take, all of them together (readWithin()): a tenth of a second less than
-// the page's default timeout, the 20 seconds that engines() in harness.cjs
-// gives each call on the suite's page that waits for something, so that a
-// page that answers such calls in time answers these too, but for that last
-// tenth of a second, and the reads add less to a failed run than one such
-// call can. The tenth of a second makes the limit end first when a read has
-// that default timeout of its own, as page.textContent() has: Playwright
-// starts that timeout when the read reaches it, after readWithin() has
-// started the limit, and sets its timer slightly short of it, which Node's
-// timers round down to a whole millisecond, so that with a limit of the same
-// 20 seconds such a read could fail by its own timeout a millisecond before
-// the limit and keep its fallback without being named as cut short
-// (web/TESTING.md). Without a limit, a page that will never answer,
-// as in the WebKit hang, holds the run for ever at the first such read that
-// Playwright gives no timeout, a page.evaluate().
+// How long a suite's reads of its page in a catch or a finally, for its
+// report, may take, all those of one catch or finally together
+// (readWithin()): live_camera's, live_motion's, live_noise's,
+// live_recovery's, external_replay's, solver_update's and browser_smoke's,
+// the stop of a suite's fixture among them. It is a tenth of a second less
+// than the 20 seconds that engines() in harness.cjs gives each call on the
+// suite's page that waits for something, unless the suite asks for more,
+// and that browser_smoke gives its own page, so that in live_camera and
+// browser_smoke a page that answers such calls in time answers these too,
+// but for that last tenth of a second, and the reads add less to a failed
+// run than one such call can. live_motion, live_noise, live_recovery and
+// external_replay ask engines() for 60 seconds, and solver_update keeps
+// Playwright's own 30: there the limit cuts short a read that would have
+// answered later, and is the only limit their reads have, each a
+// page.evaluate(), which Playwright gives no timeout. The tenth of a second
+// makes the limit end first when a read has the 20-second timeout of its
+// own, as page.textContent() has: Playwright starts that timeout when the
+// read reaches it, after readWithin() has started the limit, and sets its
+// timer slightly short of it, which Node's timers round down to a whole
+// millisecond, so that with a limit of the same 20 seconds such a read could
+// fail by its own timeout a millisecond before the limit and keep its
+// fallback without being named as cut short (web/TESTING.md). Without a
+// limit, a page that will never answer, as in the WebKit hang, holds the run
+// for ever at the first such read that Playwright gives no timeout, a
+// page.evaluate().
 const READ_LIMIT = 19900;
 
 /* Runs `reads`, an object whose entries are [read, fallback] by name, for a
-   report after a failure: each `read` reads the page and resolves to what the
-   report keeps. They all start at once, so that one that waits holds up no
-   other, and the wait for them ends when every one has settled or after
-   `limit` ms, whichever comes first. Resolves to { values, cutShort }:
+   report, after a failure or in a finally: each `read` reads the page, or
+   stops a fixture on it, and resolves to what the report keeps. They all
+   start at once, so that one that waits holds up no other, and the wait for
+   them ends when every one has settled or after `limit` ms, whichever comes
+   first. Resolves to { values, cutShort }:
    `values` has every name, in the order of `reads`, with what its read
    resolved to, or its fallback if the read rejected or had not settled by
    then, and `cutShort` the names of those that had not settled, each as
