@@ -489,7 +489,7 @@ const engine = (name) => ({ async launch() {
     textContent: (selector) => read("textContent " + selector, ""),
     locator: (selector) => ({ isVisible: async () => selector === "#camera-panel", evaluate: () => read("locator " + selector + " evaluate") }),
     screenshot: async ({ path }) => { say("takes its screenshot"); fs.writeFileSync(path, ""); } };
-  return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0",
+  return { contexts: () => [], on() {}, off() {}, isConnected: () => true, version: () => "1.0",
     close: async () => {
       say("closes its browser");
       if (name === "chromium" && BROWSER_HANGS) return new Promise(() => {});
