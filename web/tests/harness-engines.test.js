@@ -36,12 +36,13 @@ globalThis.setTimeout = (run, ms, ...args) => { if (Object.hasOwn(limits, ms)) {
 process.on("exit", () => console.log("limits", JSON.stringify(limits)));
 `;
 
-// A suite on engines(), run through main() as the suites are: in each
-// engine, as PLAN says for it, its page throws an uncaught error, crashes or
-// loses its browser (`event`), and its steps pass or throw (`throws`); then
-// its finally puts on the engine's report the reads it cut short or saw
-// fail, as live_noise's does, when PLAN names any.
-const SUITE = `const { engines, main } = require("./harness.cjs");
+// A suite on engines(), run through main() as the suites are, which loads
+// the harness at `harness`, a path the test makes: in each engine, as PLAN
+// says for it, its page throws an uncaught error, crashes or loses its
+// browser (`event`), and its steps pass or throw (`throws`); then its finally
+// puts on the engine's report the reads it cut short or saw fail, as
+// live_noise's does, when PLAN names any.
+const SUITE = (harness) => `const { engines, main } = require(${JSON.stringify(harness)});
 const plans = JSON.parse(process.env.PLAN);
 main(module, () => engines("stand-in.json", async (page, report, name) => {
   const plan = plans[name] ?? {};
@@ -106,7 +107,7 @@ async function ran(t, plan) {
   const inTree = (name) => path.join(directory, name);
   for (const name of ['scripts/harness.cjs', 'scripts/watch.cjs'])
     fs.cpSync(new URL(`../../${name}`, import.meta.url), inTree(name));
-  fs.writeFileSync(inTree('scripts/stand_in_regressions.cjs'), SUITE);
+  fs.writeFileSync(inTree('scripts/stand_in_regressions.cjs'), SUITE(inTree('scripts/harness.cjs')));
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
   fs.writeFileSync(inTree('preload.cjs'), PRELOAD);
